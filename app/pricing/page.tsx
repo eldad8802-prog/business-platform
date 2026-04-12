@@ -40,6 +40,68 @@ type Result = {
   explanation: string;
 };
 
+function Pressable({
+  children,
+  onPress,
+  disabled = false,
+  style,
+}: {
+  children: React.ReactNode;
+  onPress: () => void;
+  disabled?: boolean;
+  style?: React.CSSProperties;
+}) {
+  const handlePress = () => {
+    if (disabled) return;
+    onPress();
+  };
+
+  return (
+    <div
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled}
+      onClick={handlePress}
+      onTouchEnd={(e) => {
+        e.preventDefault();
+        handlePress();
+      }}
+      onKeyDown={(e) => {
+        if (disabled) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handlePress();
+        }
+      }}
+      style={{
+        ...pressableBaseStyle,
+        ...(disabled ? disabledPressableStyle : null),
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function InfoBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        background: "#f8fafc",
+        border: "1px solid #e5e7eb",
+        borderRadius: 14,
+        padding: 14,
+      }}
+    >
+      <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 6 }}>
+        {label}
+      </div>
+      <div style={{ fontWeight: 800, color: "#111827" }}>{value}</div>
+    </div>
+  );
+}
+
 export default function PricingPage() {
   const router = useRouter();
 
@@ -74,7 +136,7 @@ export default function PricingPage() {
       const savedToken = localStorage.getItem("token");
 
       if (!savedToken) {
-        router.push("/login");
+        router.replace("/login");
         return;
       }
 
@@ -92,7 +154,7 @@ export default function PricingPage() {
         if (profileRes.status === 401) {
           localStorage.removeItem("token");
           localStorage.removeItem("user");
-          router.push("/login");
+          router.replace("/login");
           return;
         }
 
@@ -101,18 +163,19 @@ export default function PricingPage() {
         }
 
         if (!profileData?.hasProfile || !profileData?.profile) {
-          router.push("/onboarding");
+          router.replace("/onboarding");
           return;
         }
 
         setBusinessProfile(profileData.profile);
         setToken(savedToken);
-        setBootLoading(false);
       } catch (err) {
         console.error("Pricing boot check failed:", err);
         localStorage.removeItem("token");
         localStorage.removeItem("user");
-        router.push("/login");
+        router.replace("/login");
+      } finally {
+        setBootLoading(false);
       }
     };
 
@@ -148,7 +211,7 @@ export default function PricingPage() {
       if (res.status === 401) {
         localStorage.removeItem("token");
         localStorage.removeItem("user");
-        router.push("/login");
+        router.replace("/login");
         return;
       }
 
@@ -176,6 +239,7 @@ export default function PricingPage() {
   useEffect(() => {
     if (!token) return;
     loadItems(token);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const handleCalculate = async () => {
@@ -202,7 +266,7 @@ export default function PricingPage() {
       if (res.status === 401) {
         localStorage.removeItem("token");
         localStorage.removeItem("user");
-        router.push("/login");
+        router.replace("/login");
         return;
       }
 
@@ -260,7 +324,7 @@ export default function PricingPage() {
       if (res.status === 401) {
         localStorage.removeItem("token");
         localStorage.removeItem("user");
-        router.push("/login");
+        router.replace("/login");
         return;
       }
 
@@ -287,13 +351,6 @@ export default function PricingPage() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    router.push("/login");
-  };
-
-  const isService = newItemType === "SERVICE";
   const isProduct = newItemType === "PRODUCT";
 
   const selectedItemName = useMemo(() => {
@@ -471,26 +528,30 @@ export default function PricingPage() {
     fontSize: 15,
     background: "#fff",
     boxSizing: "border-box",
+    fontFamily: "inherit",
+    WebkitAppearance: "none",
+    appearance: "none",
+    pointerEvents: "auto",
   };
 
   const buttonStyle: React.CSSProperties = {
+    minHeight: 48,
     padding: "12px 16px",
     borderRadius: 12,
     border: "1px solid #111827",
     background: "#111827",
     color: "#ffffff",
-    cursor: "pointer",
     fontWeight: 700,
     fontSize: 14,
   };
 
   const secondaryButtonStyle: React.CSSProperties = {
+    minHeight: 48,
     padding: "12px 16px",
     borderRadius: 12,
     border: "1px solid #d1d5db",
     background: "#ffffff",
     color: "#111827",
-    cursor: "pointer",
     fontWeight: 600,
     fontSize: 14,
   };
@@ -580,10 +641,6 @@ export default function PricingPage() {
                 </p>
               )}
             </div>
-
-            <button type="button" onClick={handleLogout} style={secondaryButtonStyle}>
-              התנתקות
-            </button>
           </div>
         </div>
 
@@ -601,57 +658,13 @@ export default function PricingPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
               gap: 12,
             }}
           >
-            <div
-              style={{
-                background: "#f8fafc",
-                border: "1px solid #e5e7eb",
-                borderRadius: 14,
-                padding: 14,
-              }}
-            >
-              <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 6 }}>
-                קטגוריה
-              </div>
-              <div style={{ fontWeight: 800, color: "#111827" }}>
-                {businessProfile?.category || "—"}
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: "#f8fafc",
-                border: "1px solid #e5e7eb",
-                borderRadius: 14,
-                padding: 14,
-              }}
-            >
-              <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 6 }}>
-                תת קטגוריה
-              </div>
-              <div style={{ fontWeight: 800, color: "#111827" }}>
-                {businessProfile?.subCategory || "—"}
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: "#f8fafc",
-                border: "1px solid #e5e7eb",
-                borderRadius: 14,
-                padding: 14,
-              }}
-            >
-              <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 6 }}>
-                מודל עסקי
-              </div>
-              <div style={{ fontWeight: 800, color: "#111827" }}>
-                {businessModelLabel}
-              </div>
-            </div>
+            <InfoBox label="קטגוריה" value={businessProfile?.category || "—"} />
+            <InfoBox label="תת קטגוריה" value={businessProfile?.subCategory || "—"} />
+            <InfoBox label="מודל עסקי" value={businessModelLabel} />
           </div>
         </div>
 
@@ -672,7 +685,7 @@ export default function PricingPage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1.1fr 0.9fr",
+            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
             gap: 20,
           }}
         >
@@ -696,9 +709,8 @@ export default function PricingPage() {
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
+                <Pressable
+                  onPress={() => {
                     setShowCreateForm((prev) => !prev);
                     setCreateError(null);
                     setCreateSuccess(null);
@@ -706,7 +718,7 @@ export default function PricingPage() {
                   style={secondaryButtonStyle}
                 >
                   {showCreateForm ? "סגור יצירה" : "צור מוצר / שירות"}
-                </button>
+                </Pressable>
               </div>
 
               {loadingItems && <p style={mutedTextStyle}>טוען מוצרים ושירותים...</p>}
@@ -834,7 +846,7 @@ export default function PricingPage() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                     gap: 14,
                   }}
                 >
@@ -895,9 +907,8 @@ export default function PricingPage() {
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleCreateItem}
+                <Pressable
+                  onPress={handleCreateItem}
                   disabled={creatingItem}
                   style={{
                     ...buttonStyle,
@@ -905,7 +916,7 @@ export default function PricingPage() {
                   }}
                 >
                   {creatingItem ? "שומר..." : "שמור מוצר / שירות"}
-                </button>
+                </Pressable>
               </div>
             )}
           </div>
@@ -937,18 +948,13 @@ export default function PricingPage() {
                 </div>
               )}
 
-              <button
-                type="button"
-                onClick={handleCalculate}
+              <Pressable
+                onPress={handleCalculate}
                 disabled={!selectedItemId || loadingCalculation}
                 style={{
                   ...buttonStyle,
                   width: "100%",
                   opacity: !selectedItemId || loadingCalculation ? 0.6 : 1,
-                  cursor:
-                    !selectedItemId || loadingCalculation
-                      ? "not-allowed"
-                      : "pointer",
                 }}
               >
                 {loadingCalculation
@@ -956,7 +962,7 @@ export default function PricingPage() {
                   : !selectedItemId
                   ? "בחר פריט כדי לחשב"
                   : "חשב מחיר"}
-              </button>
+              </Pressable>
             </div>
 
             <div style={cardStyle}>
@@ -1009,7 +1015,7 @@ export default function PricingPage() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                       gap: 12,
                       marginBottom: 18,
                     }}
@@ -1039,7 +1045,7 @@ export default function PricingPage() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                       gap: 12,
                       marginBottom: 18,
                     }}
@@ -1104,3 +1110,23 @@ export default function PricingPage() {
     </div>
   );
 }
+
+const pressableBaseStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+  userSelect: "none",
+  WebkitTapHighlightColor: "transparent",
+  touchAction: "manipulation",
+  fontFamily: "inherit",
+  position: "relative",
+  zIndex: 1,
+  pointerEvents: "auto",
+  boxSizing: "border-box",
+};
+
+const disabledPressableStyle: React.CSSProperties = {
+  opacity: 0.6,
+  cursor: "not-allowed",
+};

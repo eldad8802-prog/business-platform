@@ -31,6 +31,50 @@ type SmartIndicator = {
   border: string;
 };
 
+function Pressable({
+  children,
+  onPress,
+  disabled = false,
+  style,
+}: {
+  children: React.ReactNode;
+  onPress: () => void;
+  disabled?: boolean;
+  style?: React.CSSProperties;
+}) {
+  const handlePress = () => {
+    if (disabled) return;
+    onPress();
+  };
+
+  return (
+    <div
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled}
+      onClick={handlePress}
+      onTouchEnd={(e) => {
+        e.preventDefault();
+        handlePress();
+      }}
+      onKeyDown={(e) => {
+        if (disabled) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handlePress();
+        }
+      }}
+      style={{
+        ...pressableBaseStyle,
+        ...(disabled ? disabledPressableStyle : null),
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 function getStageLabel(stage: string | null | undefined) {
   if (!stage) return "לא ידוע";
   if (stage === "early") return "התחלה";
@@ -486,6 +530,7 @@ export default function InboxPage() {
 
   useEffect(() => {
     loadConversations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode]);
 
   useEffect(() => {
@@ -495,6 +540,7 @@ export default function InboxPage() {
       setMessages([]);
       setSuggestions([]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversationId]);
 
   const activeConversation = useMemo(
@@ -508,42 +554,38 @@ export default function InboxPage() {
     suggestions,
   });
 
-  const baseButtonStyle: React.CSSProperties = {
+  const baseActionStyle: React.CSSProperties = {
     minWidth: 0,
+    minHeight: 48,
     padding: "12px 14px",
     borderRadius: 14,
-    cursor: "pointer",
     fontWeight: 700,
     color: "#111827",
-    touchAction: "manipulation",
-    WebkitTapHighlightColor: "transparent",
-    WebkitAppearance: "none",
-    appearance: "none",
     boxShadow: "0 6px 20px rgba(15, 23, 42, 0.08)",
     border: "1px solid #d6d3d1",
   };
 
   const softButtonStyle: React.CSSProperties = {
-    ...baseButtonStyle,
+    ...baseActionStyle,
     background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
   };
 
   const accentButtonStyle: React.CSSProperties = {
-    ...baseButtonStyle,
+    ...baseActionStyle,
     background: "linear-gradient(180deg, #dcfce7 0%, #bbf7d0 100%)",
     border: "1px solid #86efac",
     color: "#166534",
   };
 
   const warmButtonStyle: React.CSSProperties = {
-    ...baseButtonStyle,
+    ...baseActionStyle,
     background: "linear-gradient(180deg, #fef3c7 0%, #fde68a 100%)",
     border: "1px solid #f5c542",
     color: "#92400e",
   };
 
   const dangerButtonStyle: React.CSSProperties = {
-    ...baseButtonStyle,
+    ...baseActionStyle,
     background: "linear-gradient(180deg, #fee2e2 0%, #fecaca 100%)",
     border: "1px solid #fca5a5",
     color: "#991b1b",
@@ -587,32 +629,29 @@ export default function InboxPage() {
             flexWrap: "wrap",
           }}
         >
-          <button
-            type="button"
-            onClick={() => setViewMode("OPEN")}
+          <Pressable
+            onPress={() => setViewMode("OPEN")}
             style={{
               ...(viewMode === "OPEN" ? accentButtonStyle : softButtonStyle),
               flex: "1 1 140px",
             }}
           >
             פתוחות
-          </button>
+          </Pressable>
 
-          <button
-            type="button"
-            onClick={() => setViewMode("CLOSED")}
+          <Pressable
+            onPress={() => setViewMode("CLOSED")}
             style={{
               ...(viewMode === "CLOSED" ? warmButtonStyle : softButtonStyle),
               flex: "1 1 140px",
             }}
           >
             סגורות
-          </button>
+          </Pressable>
         </div>
 
-        <button
-          type="button"
-          onClick={handleCreateConversation}
+        <Pressable
+          onPress={handleCreateConversation}
           style={{
             ...accentButtonStyle,
             width: "100%",
@@ -622,7 +661,7 @@ export default function InboxPage() {
           }}
         >
           התחל שיחה חדשה
-        </button>
+        </Pressable>
 
         {conversations.length === 0 && (
           <div style={{ color: "#6b7280", padding: "8px 2px" }}>
@@ -631,10 +670,9 @@ export default function InboxPage() {
         )}
 
         {conversations.map((conversation) => (
-          <button
+          <Pressable
             key={conversation.id}
-            type="button"
-            onClick={() => handleSelectConversation(conversation.id)}
+            onPress={() => handleSelectConversation(conversation.id)}
             style={{
               width: "100%",
               display: "block",
@@ -650,11 +688,10 @@ export default function InboxPage() {
                 activeConversationId === conversation.id
                   ? "linear-gradient(180deg, #ecfdf5 0%, #d1fae5 100%)"
                   : "#fff",
-              cursor: "pointer",
               color: "#111",
-              touchAction: "manipulation",
-              WebkitTapHighlightColor: "transparent",
               boxShadow: "0 6px 20px rgba(15, 23, 42, 0.05)",
+              justifyContent: "flex-start",
+              alignItems: "stretch",
             }}
           >
             <div style={{ fontWeight: 700 }}>שיחה #{conversation.id}</div>
@@ -670,7 +707,7 @@ export default function InboxPage() {
             <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
               {new Date(conversation.startedAt).toLocaleString("he-IL")}
             </div>
-          </button>
+          </Pressable>
         ))}
       </div>
 
@@ -762,16 +799,14 @@ export default function InboxPage() {
                   </div>
 
                   {activeConversation?.status === "OPEN" && (
-                    <button
-                      type="button"
-                      onClick={handleCloseConversation}
-                      style={{
-                        ...dangerButtonStyle,
-                        marginTop: 12,
-                      }}
-                    >
-                      סגור שיחה
-                    </button>
+                    <div style={{ marginTop: 12 }}>
+                      <Pressable
+                        onPress={handleCloseConversation}
+                        style={dangerButtonStyle}
+                      >
+                        סגור שיחה
+                      </Pressable>
+                    </div>
                   )}
                 </div>
 
@@ -866,38 +901,35 @@ export default function InboxPage() {
                       flexWrap: "wrap",
                     }}
                   >
-                    <button
-                      type="button"
-                      onClick={() => handleChooseSuggestion(s)}
+                    <Pressable
+                      onPress={() => handleChooseSuggestion(s)}
                       style={{
                         ...accentButtonStyle,
                         flex: "1 1 120px",
                       }}
                     >
                       בחר
-                    </button>
+                    </Pressable>
 
-                    <button
-                      type="button"
-                      onClick={() => handleChooseSuggestion(s)}
+                    <Pressable
+                      onPress={() => handleChooseSuggestion(s)}
                       style={{
                         ...warmButtonStyle,
                         flex: "1 1 120px",
                       }}
                     >
                       ערוך
-                    </button>
+                    </Pressable>
 
-                    <button
-                      type="button"
-                      onClick={() => handleDismissSuggestion(s.id)}
+                    <Pressable
+                      onPress={() => handleDismissSuggestion(s.id)}
                       style={{
                         ...softButtonStyle,
                         flex: "1 1 120px",
                       }}
                     >
                       דלג
-                    </button>
+                    </Pressable>
                   </div>
                 </div>
               ))}
@@ -932,6 +964,9 @@ export default function InboxPage() {
                     outline: "none",
                     color: "#111827",
                     background: "#fcfcfc",
+                    WebkitAppearance: "none",
+                    appearance: "none",
+                    pointerEvents: "auto",
                   }}
                 />
 
@@ -943,38 +978,35 @@ export default function InboxPage() {
                     flexWrap: "wrap",
                   }}
                 >
-                  <button
-                    type="button"
-                    onClick={handleSendBusinessMessage}
+                  <Pressable
+                    onPress={handleSendBusinessMessage}
                     style={{
                       ...accentButtonStyle,
                       flex: "1 1 180px",
                     }}
                   >
                     שלח כבעל עסק
-                  </button>
+                  </Pressable>
 
-                  <button
-                    type="button"
-                    onClick={handleManualReply}
+                  <Pressable
+                    onPress={handleManualReply}
                     style={{
                       ...softButtonStyle,
                       flex: "1 1 180px",
                     }}
                   >
                     נקה למענה עצמאי
-                  </button>
+                  </Pressable>
 
-                  <button
-                    type="button"
-                    onClick={handleSimulateCustomerMessage}
+                  <Pressable
+                    onPress={handleSimulateCustomerMessage}
                     style={{
                       ...warmButtonStyle,
                       flex: "1 1 180px",
                     }}
                   >
                     שלח כלקוח
-                  </button>
+                  </Pressable>
                 </div>
               </div>
             )}
@@ -984,3 +1016,19 @@ export default function InboxPage() {
     </div>
   );
 }
+
+const pressableBaseStyle: React.CSSProperties = {
+  cursor: "pointer",
+  userSelect: "none",
+  WebkitTapHighlightColor: "transparent",
+  touchAction: "manipulation",
+  position: "relative",
+  zIndex: 1,
+  pointerEvents: "auto",
+  boxSizing: "border-box",
+};
+
+const disabledPressableStyle: React.CSSProperties = {
+  opacity: 0.6,
+  cursor: "not-allowed",
+};
