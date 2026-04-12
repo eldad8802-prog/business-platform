@@ -1,0 +1,610 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BusinessServiceType {
+  SERVICE
+  PRODUCT
+}
+
+enum LeadStatus {
+  NEW
+  OPEN
+  QUALIFIED
+  QUOTED
+  WON
+  LOST
+  DROPPED
+}
+
+enum ConversationChannel {
+  WHATSAPP
+  INSTAGRAM
+  FACEBOOK
+  EMAIL
+  PHONE
+  OTHER
+}
+
+enum ConversationStatus {
+  OPEN
+  CLOSED
+  ARCHIVED
+}
+
+enum ConversationStage {
+  NEW
+  QUALIFIED
+  QUOTED
+  NEGOTIATION
+  WON
+  LOST
+  INACTIVE
+}
+
+enum ConversationOutcomeStatus {
+  OPEN
+  QUALIFIED
+  QUOTE_REQUESTED
+  QUOTE_SENT
+  WON
+  LOST
+  DROPPED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageSenderType {
+  CUSTOMER
+  BUSINESS_USER
+  SYSTEM
+  AI
+}
+
+enum ReplySuggestionStatus {
+  GENERATED
+  SHOWN
+  SELECTED
+  SENT
+  DISMISSED
+  EXPIRED
+}
+
+enum RecommendationType {
+  REPLY
+  CONTENT
+  PRICING
+  TASK
+  FOLLOWUP
+  PROMOTION
+  GENERAL
+}
+
+enum RecommendationStatus {
+  ACTIVE
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  DISMISSED
+}
+
+enum RecommendationOutcomeStatus {
+  ACCEPTED
+  REJECTED
+  EDITED
+  EXECUTED
+  IGNORED
+  EXPIRED
+}
+
+enum BusinessImpactType {
+  REPLY_RECEIVED
+  LEAD_CREATED
+  DEAL_WON
+  CONTENT_ENGAGEMENT
+  REVENUE
+  NONE
+}
+
+enum FinancialDocumentType {
+  RECEIPT
+  INVOICE
+  TAX
+  BANK
+  OTHER
+}
+
+enum FinancialDocumentStatus {
+  UPLOADED
+  CLASSIFIED
+  REVIEWED
+  EXPORTED
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELED
+}
+
+enum PricingItemType {
+  PRODUCT
+  SERVICE
+}
+
+enum MarketCheckStatus {
+  UNKNOWN
+  BELOW_MARKET
+  WITHIN_MARKET
+  ABOVE_MARKET
+}
+
+model Business {
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile                BusinessProfile?
+  services               BusinessService[]
+  leads                  Lead[]
+  customers              Customer[]
+  deals                  Deal[]
+  conversations          Conversation[]
+  messages               Message[]
+  replySuggestions       ReplySuggestion[]
+  recommendations        Recommendation[]
+  recommendationOutcomes RecommendationOutcome[]
+  learningEvents         LearningEvent[]
+  tasks                  Task[]
+  documents              FinancialDocument[]
+  learningSignals        LearningSignal[]
+  users                  User[]
+  pricingProfiles        PricingProfile[]
+  pricingCalculations    PricingCalculation[]
+}
+
+model User {
+  id         Int      @id @default(autoincrement())
+  email      String   @unique
+  password   String
+  name       String?
+  businessId Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+model BusinessProfile {
+  id         Int @id @default(autoincrement())
+  businessId Int @unique
+
+  category      String?
+  subCategory   String?
+  businessModel String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([category])
+  @@index([subCategory])
+  @@index([businessModel])
+}
+
+model BusinessService {
+  id          Int                 @id @default(autoincrement())
+  businessId  Int
+  name        String
+  type        BusinessServiceType
+  description String?
+  basePrice   Float?
+  active      Boolean             @default(true)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  business               Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  deals                  Deal[]
+  costProfile            ServiceCostProfile?
+  pricingRecommendations PricingRecommendation[]
+}
+
+model Lead {
+  id            Int        @id @default(autoincrement())
+  businessId    Int
+  customerName  String?
+  phone         String?
+  sourceChannel String?
+  status        LeadStatus @default(NEW)
+  temperature   Float?
+  currentStage  String?
+  valueEstimate Float?
+  quotedPrice   Float?
+  finalPrice    Float?
+  currency      String?    @default("ILS")
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+  deals         Deal[]
+}
+
+model Customer {
+  id         Int      @id @default(autoincrement())
+  businessId Int
+  name       String
+  phone      String?
+  email      String?
+  city       String?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+  messages      Message[]
+}
+
+model Deal {
+  id                Int  @id @default(autoincrement())
+  businessId        Int
+  leadId            Int?
+  businessServiceId Int?
+
+  quotedPrice Float?
+  finalPrice  Float?
+  currency    String? @default("ILS")
+
+  estimatedCost            Float?
+  actualCost               Float?
+  estimatedDurationMinutes Int?
+  actualDurationMinutes    Int?
+
+  discountAmount  Float?
+  discountPercent Float?
+
+  grossProfitAmount  Float?
+  grossMarginPercent Float?
+
+  status     String?
+  lostReason String?
+  wonAt      DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  business        Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lead            Lead?            @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  businessService BusinessService? @relation(fields: [businessServiceId], references: [id], onDelete: SetNull)
+}
+
+model Conversation {
+  id         Int  @id @default(autoincrement())
+  businessId Int
+  customerId Int?
+  leadId     Int?
+
+  channel       ConversationChannel
+  status        ConversationStatus         @default(OPEN)
+  currentStage  ConversationStage?
+  outcomeStatus ConversationOutcomeStatus?
+
+  intentType               String?
+  intentConfidence         Float?
+  sentimentSnapshot        String?
+  temperatureScore         Float?
+  closeProbabilitySnapshot Float?
+
+  outcomeReason String?
+  lostReason    String?
+
+  startedAt     DateTime  @default(now())
+  lastMessageAt DateTime?
+  closedAt      DateTime?
+
+  firstResponseLatencySec Int?
+  avgResponseLatencySec   Int?
+  unansweredInboundCount  Int       @default(0)
+  customerLastInboundAt   DateTime?
+  businessLastOutboundAt  DateTime?
+  lastAnalysisAt          DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  lead     Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  messages         Message[]
+  replySuggestions ReplySuggestion[]
+}
+
+model Message {
+  id             Int  @id @default(autoincrement())
+  conversationId Int
+  businessId     Int
+  customerId     Int?
+
+  analysis MessageAnalysis?
+
+  channel    ConversationChannel
+  direction  MessageDirection
+  senderType MessageSenderType
+
+  messageType String? @default("text")
+  contentText String?
+
+  languageCode        String?
+  intentLabel         String?
+  intentConfidence    Float?
+  sentimentLabel      String?
+  sentimentScore      Float?
+  objectionLabel      String?
+  objectionConfidence Float?
+  stageLabel          String?
+  urgencyScore        Float?
+  leadScoreSnapshot   Float?
+
+  generatedFromSuggestionId Int?
+  recommendationId          Int?
+
+  wasEditedBeforeSend Boolean  @default(false)
+  replyLatencySec     Int?
+  gotReplyWithin24h   Boolean?
+
+  sentAt      DateTime  @default(now())
+  deliveredAt DateTime?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  conversation   Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer       Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  recommendation Recommendation? @relation(fields: [recommendationId], references: [id], onDelete: SetNull)
+
+  generatedFromSuggestion ReplySuggestion?  @relation("GeneratedFromSuggestion", fields: [generatedFromSuggestionId], references: [id], onDelete: SetNull)
+  sourceForSuggestions    ReplySuggestion[] @relation("SuggestionSourceMessage")
+  sentSuggestionFor       ReplySuggestion?  @relation("SuggestionSentMessage")
+}
+
+model MessageAnalysis {
+  id        Int     @id @default(autoincrement())
+  messageId Int     @unique
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  intent String
+  stage  String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ReplySuggestion {
+  id               Int  @id @default(autoincrement())
+  businessId       Int
+  conversationId   Int
+  messageId        Int?
+  recommendationId Int?
+
+  suggestionType String
+  strategyType   String @default("unknown")
+  variantType    String @default("unknown")
+
+  variantIndex    Int?
+  text            String
+  toneLabel       String?
+  strategyLabel   String?
+  confidenceScore Float?
+
+  status      ReplySuggestionStatus @default(GENERATED)
+  shownAt     DateTime?
+  selectedAt  DateTime?
+  sentAt      DateTime?
+  dismissedAt DateTime?
+
+  sentMessageId       Int?      @unique
+  wasEdited           Boolean   @default(false)
+  customerResponded   Boolean?
+  customerRespondedAt DateTime?
+  ledToStageAdvance   Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+
+  business     Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  message        Message?        @relation("SuggestionSourceMessage", fields: [messageId], references: [id], onDelete: SetNull)
+  recommendation Recommendation? @relation(fields: [recommendationId], references: [id], onDelete: SetNull)
+
+  sentMessage       Message?  @relation("SuggestionSentMessage", fields: [sentMessageId], references: [id], onDelete: SetNull)
+  generatedMessages Message[] @relation("GeneratedFromSuggestion")
+}
+
+model Recommendation {
+  id           Int                  @id @default(autoincrement())
+  businessId   Int
+  type         RecommendationType
+  title        String
+  body         String?
+  priority     Int                  @default(0)
+  sourceEngine String?
+  status       RecommendationStatus @default(ACTIVE)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  business    Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  messages    Message[]
+  suggestions ReplySuggestion[]
+  outcomes    RecommendationOutcome[]
+}
+
+model RecommendationOutcome {
+  id                  Int                         @id @default(autoincrement())
+  businessId          Int
+  recommendationId    Int
+  entityType          String
+  entityId            Int?
+  outcomeStatus       RecommendationOutcomeStatus
+  outcomeScore        Float?
+  observedAt          DateTime                    @default(now())
+  timeToActionSec     Int?
+  userEdited          Boolean                     @default(false)
+  businessImpactType  BusinessImpactType?
+  businessImpactValue Float?
+  notes               String?
+  createdAt           DateTime                    @default(now())
+
+  business       Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  recommendation Recommendation @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+}
+
+model LearningEvent {
+  id         Int      @id @default(autoincrement())
+  businessId Int
+  eventType  String
+  entityType String
+  entityId   Int?
+  payload    Json?
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+model ServiceCostProfile {
+  id                Int      @id @default(autoincrement())
+  businessServiceId Int      @unique
+  materialCost      Float?
+  laborCost         Float?
+  timeMinutes       Int?
+  fixedCostShare    Float?
+  externalCost      Float?
+  desiredMargin     Float?
+  updatedAt         DateTime @updatedAt
+
+  businessService BusinessService @relation(fields: [businessServiceId], references: [id], onDelete: Cascade)
+}
+
+model PricingRecommendation {
+  id                Int      @id @default(autoincrement())
+  businessServiceId Int
+  floorPrice        Float?
+  safePrice         Float?
+  recommendedPrice  Float?
+  premiumPrice      Float?
+  confidenceScore   Float?
+  rationale         String?
+  createdAt         DateTime @default(now())
+
+  businessService BusinessService @relation(fields: [businessServiceId], references: [id], onDelete: Cascade)
+}
+
+model PricingProfile {
+  id                     Int             @id @default(autoincrement())
+  businessId             Int
+  name                   String
+  type                   PricingItemType
+  category               String?
+  defaultMaterialCost    Float           @default(0)
+  defaultLaborMinutes    Int             @default(0)
+  defaultHourlyRate      Float           @default(0)
+  defaultOverheadPercent Float           @default(10)
+  isActive               Boolean         @default(true)
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  business     Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  calculations PricingCalculation[]
+
+  @@index([businessId])
+  @@index([businessId, isActive])
+}
+
+model PricingCalculation {
+  id               Int  @id @default(autoincrement())
+  businessId       Int
+  pricingProfileId Int?
+
+  inputMaterialCost    Float
+  inputLaborMinutes    Int
+  inputHourlyRate      Float
+  inputOverheadPercent Float
+
+  laborCost    Float
+  directCost   Float
+  overheadCost Float
+  fullCost     Float
+
+  minimumPrice     Float
+  recommendedPrice Float
+  premiumPrice     Float
+
+  marketLow    Float?
+  marketHigh   Float?
+  marketStatus MarketCheckStatus @default(UNKNOWN)
+
+  explanationText String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  pricingProfile PricingProfile? @relation(fields: [pricingProfileId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([pricingProfileId])
+  @@index([businessId, createdAt])
+}
+
+model Task {
+  id          Int        @id @default(autoincrement())
+  businessId  Int
+  title       String
+  description String?
+  sourceType  String?
+  status      TaskStatus @default(OPEN)
+  dueDate     DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+model FinancialDocument {
+  id            Int                     @id @default(autoincrement())
+  businessId    Int
+  fileUrl       String
+  docType       FinancialDocumentType
+  month         Int?
+  year          Int?
+  status        FinancialDocumentStatus @default(UPLOADED)
+  extractedData Json?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+model LearningSignal {
+  id              Int      @id @default(autoincrement())
+  businessId      Int
+  source          String
+  signalType      String
+  signalValue     String
+  relatedEntityId Int?
+  confidence      Float?
+  createdAt       DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
