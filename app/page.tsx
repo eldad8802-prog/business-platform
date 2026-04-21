@@ -1,279 +1,364 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-type StoredUser = {
-  name?: string;
-  businessName?: string;
-};
-
-type ActionLinkProps = {
+type HeroAction = {
+  actionKey: string;
   title: string;
-  subtitle: string;
-  badge?: string;
-  href: string;
+  description: string;
+  ctaLabel: string;
+  ctaHref: string;
+  reason?: string;
 };
 
-export default function HomePage() {
-  const router = useRouter();
-  const [displayName, setDisplayName] = useState("");
+type QuickAction = {
+  key: string;
+  title: string;
+  icon: string;
+  href: string;
+  status?: "active" | "soon";
+};
 
-  useEffect(() => {
-    const token = localStorage.getItem("token");
+type BusinessSnapshot = {
+  businessName: string;
+  greeting?: string;
+};
 
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
+type HomeResponse = {
+  heroAction: HeroAction;
+  quickActions: QuickAction[];
+  businessSnapshot: BusinessSnapshot;
+};
 
-    try {
-      const rawUser = localStorage.getItem("user");
+function getIcon(icon: string) {
+  switch (icon) {
+    case "chat":
+      return "💬";
+    case "video":
+      return "🎥";
+    case "tag":
+      return "🏷️";
+    case "users":
+      return "🤝";
+    case "bot":
+      return "🤖";
+    case "percent":
+      return "📈";
+    case "file":
+      return "📄";
+    case "spark":
+      return "✨";
+    default:
+      return "🧩";
+  }
+}
 
-      if (rawUser) {
-        const parsedUser: StoredUser = JSON.parse(rawUser);
-        setDisplayName(
-          parsedUser.businessName?.trim() || parsedUser.name?.trim() || ""
-        );
-      }
-    } catch (error) {
-      console.error("HOME_PARSE_USER_ERROR:", error);
-    }
-  }, [router]);
-
+function HomeLoadingState() {
   return (
-    <main style={styles.page}>
-      <div style={styles.shell}>
-        <header style={styles.header}>
-          <div style={styles.eyebrow}>נקודת התחלה</div>
-          <h1 style={styles.title}>{displayName || "נתחיל ממשהו פשוט"}</h1>
-          <p style={styles.subtitle}>בחר פעולה אחת והמשך משם</p>
-        </header>
+    <main className="min-h-screen bg-[#f8f6f1] text-[#1f2937]">
+      <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-8 pt-4 sm:max-w-2xl sm:px-6 lg:max-w-4xl">
+        <div className="mb-6 h-16 animate-pulse rounded-2xl bg-white/80" />
 
-        <Link href="/pricing" style={styles.primaryCard}>
-          <div style={styles.primaryBadge}>הפעולה הראשית</div>
-          <div style={styles.primaryTitle}>חשב מחיר למוצר / שירות</div>
-          <div style={styles.primaryText}>
-            התחלה פשוטה, ברורה ומהירה עם מנוע התמחור
-          </div>
-        </Link>
+        <div className="mb-4 h-48 animate-pulse rounded-3xl bg-white/80" />
 
-        <section style={styles.section}>
-          <div style={styles.sectionTitle}>פעולות נוספות</div>
+        <div className="mb-3 h-6 w-32 animate-pulse rounded-xl bg-white/80" />
 
-          <div style={styles.grid}>
-            <ActionLink
-              title="שיחות עם לקוחות"
-              subtitle="כניסה לאינבוקס"
-              badge="זמין"
-              href="/inbox"
-            />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="h-32 animate-pulse rounded-3xl bg-white/80" />
+          <div className="h-32 animate-pulse rounded-3xl bg-white/80" />
+          <div className="h-32 animate-pulse rounded-3xl bg-white/80" />
+          <div className="h-32 animate-pulse rounded-3xl bg-white/80" />
+        </div>
 
-            <ActionLink
-              title="יצירת תוכן"
-              subtitle="הפיצ׳ר ייפתח בהמשך"
-              badge="בקרוב"
-              href="/posts"
-            />
-
-            <ActionLink
-              title="מבצעים"
-              subtitle="הפיצ׳ר ייפתח בהמשך"
-              badge="בקרוב"
-              href="/offers"
-            />
-
-            <ActionLink
-              title="העסק שלי"
-              subtitle="הפיצ׳ר ייפתח בהמשך"
-              badge="בקרוב"
-              href="/business"
-            />
-          </div>
-        </section>
+        <div className="mt-4 h-20 animate-pulse rounded-3xl bg-white/80" />
+        <div className="mt-4 h-20 animate-pulse rounded-3xl bg-white/80" />
       </div>
     </main>
   );
 }
 
-function ActionLink({ title, subtitle, badge, href }: ActionLinkProps) {
+function HomeErrorState({ onRetry }: { onRetry: () => void }) {
   return (
-    <Link href={href} style={styles.card}>
-      <div style={styles.cardTopRow}>
-        <div style={styles.cardTitle}>{title}</div>
-        {badge ? (
-          <span
-            style={
-              badge === "זמין" ? styles.availableBadge : styles.comingSoonBadge
-            }
-          >
-            {badge}
-          </span>
-        ) : null}
-      </div>
+    <main className="min-h-screen bg-[#f8f6f1] text-[#1f2937]">
+      <div className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center px-4 py-10 text-center sm:max-w-2xl sm:px-6 lg:max-w-4xl">
+        <div className="w-full rounded-3xl bg-white p-6 shadow-sm">
+          <div className="mb-3 text-4xl">⚠️</div>
+          <h1 className="mb-2 text-xl font-bold">משהו השתבש</h1>
+          <p className="mb-5 text-sm leading-6 text-gray-600">
+            לא הצלחנו לטעון את דף הבית. אפשר לנסות שוב.
+          </p>
 
-      <div style={styles.cardSubtitle}>{subtitle}</div>
-    </Link>
+          <button
+            onClick={onRetry}
+            className="w-full rounded-2xl bg-[#1f7a5a] px-4 py-3 text-sm font-semibold text-white transition active:scale-[0.99]"
+          >
+            נסה שוב
+          </button>
+        </div>
+      </div>
+    </main>
   );
 }
 
-const baseLinkStyle: React.CSSProperties = {
-  width: "100%",
-  textDecoration: "none",
-  boxSizing: "border-box",
-  WebkitTapHighlightColor: "transparent",
-  touchAction: "manipulation",
-  userSelect: "none",
-  display: "block",
-};
+function HomeHeader({
+  businessName,
+  onOpenTools,
+}: {
+  businessName: string;
+  onOpenTools: () => void;
+}) {
+  return (
+    <header className="mb-5 rounded-3xl bg-white px-4 py-4 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <button
+          onClick={onOpenTools}
+          className="flex h-11 min-w-[44px] items-center justify-center rounded-2xl border border-gray-200 px-3 text-sm font-medium text-gray-700"
+          aria-label="כל הכלים"
+        >
+          ☰
+        </button>
 
-const styles: { [key: string]: React.CSSProperties } = {
-  page: {
-    minHeight: "100vh",
-    background: "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)",
-    direction: "rtl",
-    overflowX: "hidden",
-  },
+        <div className="flex-1 text-center">
+          <p className="truncate text-base font-bold text-gray-900">
+            {businessName || "העסק שלך"}
+          </p>
+          <p className="mt-1 text-xs text-gray-500">דף הבית</p>
+        </div>
 
-  shell: {
-    width: "100%",
-    maxWidth: 560,
-    margin: "0 auto",
-    padding: "24px 16px 40px",
-    boxSizing: "border-box",
-  },
+        <div className="flex h-11 min-w-[44px] items-center justify-center rounded-2xl border border-gray-200 px-3 text-sm text-gray-600">
+          ⚙️
+        </div>
+      </div>
+    </header>
+  );
+}
 
-  header: {
-    marginBottom: 20,
-  },
+function HeroCard({
+  heroAction,
+  onPrimaryClick,
+}: {
+  heroAction: HeroAction;
+  onPrimaryClick: () => void;
+}) {
+  return (
+    <section className="mb-5 rounded-[28px] bg-white p-5 shadow-sm">
+      <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#eef7f2] text-2xl">
+        ✨
+      </div>
 
-  eyebrow: {
-    fontSize: 13,
-    fontWeight: 800,
-    color: "#64748b",
-    marginBottom: 8,
-  },
+      <h1 className="mb-2 text-2xl font-bold leading-tight text-gray-900">
+        {heroAction.title}
+      </h1>
 
-  title: {
-    margin: 0,
-    fontSize: 28,
-    lineHeight: 1.2,
-    fontWeight: 800,
-    color: "#0f172a",
-    wordBreak: "break-word",
-  },
+      <p className="mb-5 text-sm leading-6 text-gray-600">
+        {heroAction.description}
+      </p>
 
-  subtitle: {
-    margin: "10px 0 0",
-    fontSize: 15,
-    lineHeight: 1.6,
-    color: "#475569",
-  },
+      <button
+        onClick={onPrimaryClick}
+        className="w-full rounded-2xl bg-[#1f7a5a] px-4 py-3.5 text-sm font-semibold text-white transition active:scale-[0.99]"
+      >
+        {heroAction.ctaLabel}
+      </button>
+    </section>
+  );
+}
 
-  primaryCard: {
-    ...baseLinkStyle,
-    minHeight: 160,
-    borderRadius: 24,
-    padding: "20px 18px",
-    background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-    color: "#ffffff",
-    boxShadow: "0 18px 40px rgba(16, 185, 129, 0.22)",
-    marginBottom: 24,
-  },
+function QuickActionCard({
+  action,
+  onClick,
+}: {
+  action: QuickAction;
+  onClick: () => void;
+}) {
+  const isSoon = action.status === "soon";
 
-  primaryBadge: {
-    display: "inline-block",
-    fontSize: 12,
-    fontWeight: 800,
-    padding: "6px 10px",
-    borderRadius: 999,
-    background: "rgba(255,255,255,0.18)",
-    marginBottom: 16,
-  },
+  return (
+    <button
+      onClick={onClick}
+      className="relative min-h-[132px] rounded-[24px] bg-white p-4 text-right shadow-sm transition active:scale-[0.99]"
+    >
+      {isSoon && (
+        <span className="absolute left-3 top-3 rounded-full bg-[#f4ead0] px-2.5 py-1 text-[10px] font-semibold text-[#7a5a1f]">
+          בקרוב
+        </span>
+      )}
 
-  primaryTitle: {
-    fontSize: 24,
-    lineHeight: 1.25,
-    fontWeight: 800,
-    marginBottom: 8,
-    wordBreak: "break-word",
-  },
+      <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f8f6f1] text-2xl">
+        {getIcon(action.icon)}
+      </div>
 
-  primaryText: {
-    fontSize: 15,
-    lineHeight: 1.6,
-    opacity: 0.96,
-    wordBreak: "break-word",
-  },
+      <div className="text-sm font-bold text-gray-900">{action.title}</div>
 
-  section: {
-    marginTop: 4,
-  },
+      <p className="mt-2 text-xs leading-5 text-gray-500">
+        {isSoon ? "יכולת שנמצאת בתכנון המערכת" : "כניסה מהירה לפעולה"}
+      </p>
+    </button>
+  );
+}
 
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: 800,
-    color: "#334155",
-    marginBottom: 12,
-  },
+function AllToolsEntry({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="mb-5 flex w-full items-center justify-between rounded-[24px] bg-white px-4 py-4 text-right shadow-sm transition active:scale-[0.99]"
+    >
+      <div>
+        <p className="text-sm font-bold text-gray-900">כל הכלים</p>
+        <p className="mt-1 text-xs text-gray-500">
+          מעבר לכל 8 הפיצ׳רים של המערכת
+        </p>
+      </div>
 
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 12,
-  },
+      <div className="text-xl text-gray-500">←</div>
+    </button>
+  );
+}
 
-  card: {
-    ...baseLinkStyle,
-    minHeight: 118,
-    borderRadius: 20,
-    background: "#ffffff",
-    border: "1px solid #e2e8f0",
-    padding: "16px 14px",
-    boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
-  },
+function BusinessSnapshotCard({
+  businessSnapshot,
+}: {
+  businessSnapshot: BusinessSnapshot;
+}) {
+  return (
+    <section className="rounded-[24px] bg-white p-4 shadow-sm">
+      <p className="text-xs font-semibold text-gray-500">העסק שלך</p>
+      <p className="mt-2 text-lg font-bold text-gray-900">
+        {businessSnapshot.businessName}
+      </p>
 
-  cardTopRow: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-start",
-    gap: 8,
-  },
+      {businessSnapshot.greeting ? (
+        <p className="mt-2 text-sm leading-6 text-gray-600">
+          {businessSnapshot.greeting}
+        </p>
+      ) : (
+        <p className="mt-2 text-sm leading-6 text-gray-600">
+          מקום אחד שמרכז עבורך את הפעולות החשובות של העסק.
+        </p>
+      )}
+    </section>
+  );
+}
 
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: 800,
-    lineHeight: 1.35,
-    color: "#0f172a",
-    wordBreak: "break-word",
-  },
+export default function HomePage() {
+  const router = useRouter();
 
-  cardSubtitle: {
-    marginTop: 10,
-    fontSize: 13,
-    lineHeight: 1.5,
-    color: "#64748b",
-    wordBreak: "break-word",
-  },
+  const [data, setData] = useState<HomeResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  comingSoonBadge: {
-    display: "inline-block",
-    fontSize: 12,
-    fontWeight: 800,
-    color: "#92400e",
-    background: "#fef3c7",
-    padding: "6px 10px",
-    borderRadius: 999,
-  },
+  const token = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem("token");
+  }, []);
 
-  availableBadge: {
-    display: "inline-block",
-    fontSize: 12,
-    fontWeight: 800,
-    color: "#166534",
-    background: "#dcfce7",
-    padding: "6px 10px",
-    borderRadius: 999,
-  },
-};
+  const loadHome = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const currentToken =
+        typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+      if (!currentToken) {
+        router.replace("/login");
+        return;
+      }
+
+      const res = await fetch("/api/home", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+        },
+        cache: "no-store",
+      });
+
+      const json = await res.json();
+
+      if (res.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        router.replace("/login");
+        return;
+      }
+
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to load home");
+      }
+
+      setData(json);
+    } catch (err) {
+      console.error("Home page error:", err);
+      setError("Failed to load home");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    loadHome();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const handleHeroClick = () => {
+    if (!data?.heroAction?.ctaHref) return;
+    router.push(data.heroAction.ctaHref);
+  };
+
+  const handleQuickActionClick = (action: QuickAction) => {
+    if (!action.href) return;
+    router.push(action.href);
+  };
+
+  const handleOpenTools = () => {
+    router.push("/tools");
+  };
+
+  if (loading) {
+    return <HomeLoadingState />;
+  }
+
+  if (error || !data) {
+    return <HomeErrorState onRetry={loadHome} />;
+  }
+
+  return (
+    <main className="min-h-screen bg-[#f8f6f1] text-[#1f2937]">
+      <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-8 pt-4 sm:max-w-2xl sm:px-6 lg:max-w-4xl">
+        <HomeHeader
+          businessName={data.businessSnapshot.businessName}
+          onOpenTools={handleOpenTools}
+        />
+
+        <HeroCard heroAction={data.heroAction} onPrimaryClick={handleHeroClick} />
+
+        <section className="mb-5">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-base font-bold text-gray-900">גישה מהירה</h2>
+            <span className="text-xs text-gray-500">3–4 כלים חשובים עכשיו</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {data.quickActions.map((action) => (
+              <QuickActionCard
+                key={action.key}
+                action={action}
+                onClick={() => handleQuickActionClick(action)}
+              />
+            ))}
+          </div>
+        </section>
+
+        <AllToolsEntry onClick={handleOpenTools} />
+
+        <BusinessSnapshotCard businessSnapshot={data.businessSnapshot} />
+      </div>
+    </main>
+  );
+}

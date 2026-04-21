@@ -7,6 +7,27 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model ContentFeedback {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  success Boolean
+
+  goal      String?
+  valueType String?
+  category  String?
+
+  customerType String?
+  serviceLevel String?
+  tone         String?
+
+  hook   String?
+  idea   String?
+  script String?
+
+  @@index([goal, valueType])
+}
+
 enum BusinessServiceType {
   SERVICE
   PRODUCT
@@ -148,6 +169,31 @@ enum MarketCheckStatus {
   ABOVE_MARKET
 }
 
+enum OfferStatus {
+  ACTIVE
+  PAUSED
+  EXPIRED
+}
+
+enum CouponStatus {
+  ACTIVE
+  REDEEMED
+  EXPIRED
+  CANCELLED
+}
+
+enum CollaborationDealStatus {
+  NEW
+  ACCEPTED
+  DISMISSED
+}
+
+enum CollaborationActionType {
+  SEND_LEAD
+  COUPON
+  REFERRAL
+}
+
 model Business {
   id        Int      @id @default(autoincrement())
   name      String
@@ -159,6 +205,11 @@ model Business {
   leads                  Lead[]
   customers              Customer[]
   deals                  Deal[]
+  collaborationDeals     CollaborationDeal[]
+  offers                 Offer[]
+  issuedCoupons          Coupon[]                @relation("BusinessIssuedCoupons")
+  issuedRedemptions      RedemptionEvent[]       @relation("IssuedCouponRedemptions")
+  redeemedRedemptions    RedemptionEvent[]       @relation("RedeemedCouponRedemptions")
   conversations          Conversation[]
   messages               Message[]
   replySuggestions       ReplySuggestion[]
@@ -171,6 +222,9 @@ model Business {
   users                  User[]
   pricingProfiles        PricingProfile[]
   pricingCalculations    PricingCalculation[]
+  documentsV2            Document[]
+  financialRecords       FinancialRecord[]
+  vendorLearnings        VendorLearning[]
 }
 
 model User {
@@ -287,6 +341,92 @@ model Deal {
   business        Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
   lead            Lead?            @relation(fields: [leadId], references: [id], onDelete: SetNull)
   businessService BusinessService? @relation(fields: [businessServiceId], references: [id], onDelete: SetNull)
+}
+
+model CollaborationDeal {
+  id             String                  @id @default(uuid())
+  businessId     Int
+  title          String
+  description    String
+  partnerType    String
+  actionType     CollaborationActionType
+  estimatedValue Int
+
+  matchScore Int?
+  reasonText String?
+  priority   Int?
+  sourceType String?
+
+  status    CollaborationDealStatus @default(NEW)
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([status])
+  @@index([priority])
+  @@index([businessId, status])
+  @@index([businessId, priority])
+}
+
+model Offer {
+  id                  Int      @id @default(autoincrement())
+  issuingBusinessId   Int
+  title               String
+  description         String?
+  customerBenefitText String
+  validUntil          DateTime
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  issuingBusiness Business @relation(fields: [issuingBusinessId], references: [id], onDelete: Cascade)
+  coupons         Coupon[]
+
+  @@index([issuingBusinessId])
+  @@index([validUntil])
+  @@index([isActive])
+}
+
+model Coupon {
+  id                Int          @id @default(autoincrement())
+  offerId           Int
+  issuingBusinessId Int
+  token             String       @unique
+  qrValue           String       @unique
+  issuedAt          DateTime     @default(now())
+  expiresAt         DateTime
+  status            CouponStatus @default(ACTIVE)
+  redeemedAt        DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  offer            Offer             @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  issuingBusiness  Business          @relation("BusinessIssuedCoupons", fields: [issuingBusinessId], references: [id], onDelete: Cascade)
+  redemptionEvents RedemptionEvent[]
+
+  @@index([offerId])
+  @@index([issuingBusinessId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model RedemptionEvent {
+  id                  Int      @id @default(autoincrement())
+  couponId            Int      @unique
+  issuingBusinessId   Int
+  redeemingBusinessId Int
+  redeemedAt          DateTime @default(now())
+  createdAt           DateTime @default(now())
+
+  coupon            Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  issuingBusiness   Business @relation("IssuedCouponRedemptions", fields: [issuingBusinessId], references: [id], onDelete: Cascade)
+  redeemingBusiness Business @relation("RedeemedCouponRedemptions", fields: [redeemingBusinessId], references: [id], onDelete: Cascade)
+
+  @@index([issuingBusinessId])
+  @@index([redeemingBusinessId])
+  @@index([redeemedAt])
 }
 
 model Conversation {
@@ -607,4 +747,79 @@ model LearningSignal {
   createdAt       DateTime @default(now())
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+model Document {
+  id         Int      @id @default(autoincrement())
+  businessId Int
+  fileUrl    String
+  source     String
+  mimeType   String
+  ocrText    String?
+  status     String
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  extractedData   ExtractedData?
+  financialRecord FinancialRecord?
+}
+
+model ExtractedData {
+  id              Int       @id @default(autoincrement())
+  documentId      Int       @unique
+  amount          Float?
+  date            DateTime?
+  vendorName      String?
+  direction       String?
+  confidenceScore Float?
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+}
+
+model FinancialRecord {
+  id         Int      @id @default(autoincrement())
+  documentId Int      @unique
+  businessId Int
+  amount     Float
+  date       DateTime
+  vendorName String
+  direction  String
+  category   String
+  approvedAt DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+model VendorLearning {
+  id         Int      @id @default(autoincrement())
+  businessId Int
+  vendorName String
+  category   String
+  usageCount Int      @default(1)
+  lastUsedAt DateTime @default(now())
+
+  // 🔥 הוספות חדשות
+  confidence Float   @default(0.8)
+  isGlobal   Boolean @default(false)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, vendorName])
+  @@index([vendorName])
+}
+
+model Usage {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  businessId Int
+
+  type  String // "video_generation"
+  count Int
+
+  weekKey String // למשל: "2026-W15"
+
+  @@index([businessId, type, weekKey])
 }
