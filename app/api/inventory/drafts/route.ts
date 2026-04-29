@@ -1,0 +1,224 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { InventoryDraftStatus, InventoryUnitType } from "@prisma/client";
+import { findInventoryMatches } from "@/lib/services/inventory/inventory-matching.service";
+import { decideInventoryAction } from "@/lib/services/inventory/inventory-decision.service";
+import {
+  InventoryError,
+  InventoryUnauthorizedError,
+  InventoryValidationError,
+} from "@/lib/services/inventory/inventory.errors";
+
+type AuthenticatedUser = {
+  id: number;
+  businessId: number;
+};
+
+async function getAuthenticatedUser(
+  request: NextRequest
+): Promise<AuthenticatedUser> {
+  const authorizationHeader = request.headers.get("authorization");
+
+  if (!authorizationHeader?.startsWith("Bearer ")) {
+    throw new InventoryUnauthorizedError(
+      "Missing or invalid authorization header"
+    );
+  }
+
+  const token = authorizationHeader.replace("Bearer ", "").trim();
+  const userId = Number(token);
+
+  if (!userId || Number.isNaN(userId)) {
+    throw new InventoryUnauthorizedError("Invalid token");
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      businessId: true,
+    },
+  });
+
+  if (!user) {
+    throw new InventoryUnauthorizedError("User not found");
+  }
+
+  return user;
+}
+
+function handleError(error: unknown) {
+  if (error instanceof InventoryUnauthorizedError) {
+    return NextResponse.json({ error: error.message }, { status: 401 });
+  }
+
+  if (error instanceof InventoryValidationError) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  if (error instanceof InventoryError) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  console.error("Inventory drafts route error:", error);
+
+  return NextResponse.json(
+    { error: "Internal server error" },
+    { status: 500 }
+  );
+}
+
+function parseUnitType(value: unknown): InventoryUnitType | undefined {
+  if (value === undefined) return undefined;
+
+  if (typeof value !== "string") {
+    throw new InventoryValidationError("Invalid unitType");
+  }
+
+  const normalized = value.trim().toUpperCase();
+
+  if (
+    !Object.values(InventoryUnitType).includes(
+      normalized as InventoryUnitType
+    )
+  ) {
+    throw new InventoryValidationError("Invalid unitType");
+  }
+
+  return normalized as InventoryUnitType;
+}
+
+function parseOptionalConfidence(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const parsed = Number(value);
+
+  if (Number.isNaN(parsed)) {
+    throw new InventoryValidationError(
+      "confidenceScore must be a valid number"
+    );
+  }
+
+  return parsed;
+}
+
+function parseDraftStatus(value: string): InventoryDraftStatus {
+  const normalized = value.trim().toUpperCase();
+
+  if (
+    !Object.values(InventoryDraftStatus).includes(
+      normalized as InventoryDraftStatus
+    )
+  ) {
+    throw new InventoryValidationError("Invalid status");
+  }
+
+  return normalized as InventoryDraftStatus;
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const user = await getAuthenticatedUser(request);
+    const body = await request.json();
+
+    const draft = await prisma.inventoryDraft.create({
+      data: {
+        businessId: user.businessId,
+        imageUrl: typeof body.imageUrl === "string" ? body.imageUrl : null,
+        detectedName:
+          typeof body.detectedName === "string" ? body.detectedName : null,
+        detectedCategory:
+          typeof body.detectedCategory === "string"
+            ? body.detectedCategory
+            : null,
+        detectedBarcode:
+          typeof body.detectedBarcode === "string"
+            ? body.detectedBarcode
+            : null,
+        detectedUnitType: parseUnitType(body.detectedUnitType),
+        confidenceScore: parseOptionalConfidence(body.confidenceScore),
+        status: InventoryDraftStatus.PENDING_REVIEW,
+        createdByUserId: user.id,
+      },
+    });
+
+    const matches = await findInventoryMatches({
+      businessId: user.businessId,
+      draft,
+    });
+
+    const decision = decideInventoryAction(matches);
+
+    return NextResponse.json(
+      {
+        success: true,
+        draft,
+        matches,
+        decision,
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    return handleError(error);
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const user = await getAuthenticatedUser(request);
+
+    const statusParam = request.nextUrl.searchParams.get("status");
+
+    const where: {
+      businessId: number;
+      status?: InventoryDraftStatus;
+    } = {
+      businessId: user.businessId,
+    };
+
+    if (statusParam) {
+      where.status = parseDraftStatus(statusParam);
+    }
+
+    const drafts = await prisma.inventoryDraft.findMany({
+      where,
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+  const draftsWithMatchesAndDecision = await Promise.all(
+  drafts.map(async (draft) => {
+    if (draft.status !== InventoryDraftStatus.PENDING_REVIEW) {
+      return {
+        ...draft,
+        matches: [],
+        decision: null,
+      };
+    }
+
+    const matches = await findInventoryMatches({
+      businessId: user.businessId,
+      draft,
+    });
+
+    const decision = decideInventoryAction(matches);
+
+    return {
+      ...draft,
+      matches,
+      decision,
+    };
+  })
+);
+
+    return NextResponse.json({
+      success: true,
+      drafts: draftsWithMatchesAndDecision,
+    });
+  } catch (error) {
+    return handleError(error);
+  }
+}

@@ -1,0 +1,302 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { InventoryUnitType } from "@prisma/client";
+import {
+  InventoryError,
+  InventoryNotFoundError,
+  InventoryUnauthorizedError,
+  InventoryValidationError,
+} from "@/lib/services/inventory/inventory.errors";
+
+type AuthenticatedUser = {
+  id: number;
+  businessId: number;
+};
+
+async function getAuthenticatedUser(
+  request: NextRequest
+): Promise<AuthenticatedUser> {
+  const authorizationHeader = request.headers.get("authorization");
+
+  if (!authorizationHeader?.startsWith("Bearer ")) {
+    throw new InventoryUnauthorizedError(
+      "Missing or invalid authorization header"
+    );
+  }
+
+  const token = authorizationHeader.replace("Bearer ", "").trim();
+  const userId = Number(token);
+
+  if (!userId || Number.isNaN(userId)) {
+    throw new InventoryUnauthorizedError("Invalid token");
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      businessId: true,
+    },
+  });
+
+  if (!user) {
+    throw new InventoryUnauthorizedError("User not found");
+  }
+
+  return user;
+}
+
+function handleError(error: unknown) {
+  if (error instanceof InventoryUnauthorizedError) {
+    return NextResponse.json({ error: error.message }, { status: 401 });
+  }
+
+  if (error instanceof InventoryNotFoundError) {
+    return NextResponse.json({ error: error.message }, { status: 404 });
+  }
+
+  if (error instanceof InventoryValidationError) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  if (error instanceof InventoryError) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  console.error("Inventory item [id] route error:", error);
+
+  return NextResponse.json(
+    { error: "Internal server error" },
+    { status: 500 }
+  );
+}
+
+function parseItemIdFromRequest(request: NextRequest): number {
+  const segments = request.nextUrl.pathname.split("/").filter(Boolean);
+  const rawId = segments[segments.length - 1];
+
+  if (!rawId) {
+    throw new InventoryValidationError("Invalid item id");
+  }
+
+  const itemId = Number(rawId);
+
+  if (!itemId || Number.isNaN(itemId)) {
+    throw new InventoryValidationError("Invalid item id");
+  }
+
+  return itemId;
+}
+
+function parseRequiredNonNegativeNumber(
+  value: unknown,
+  fieldName: string
+): number {
+  const parsedValue = Number(value);
+
+  if (Number.isNaN(parsedValue)) {
+    throw new InventoryValidationError(`${fieldName} must be a valid number`);
+  }
+
+  if (parsedValue < 0) {
+    throw new InventoryValidationError(`${fieldName} cannot be negative`);
+  }
+
+  return parsedValue;
+}
+
+function parseOptionalNullableNumber(
+  value: unknown,
+  fieldName: string
+): number | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null || value === "") {
+    return null;
+  }
+
+  const parsedValue = Number(value);
+
+  if (Number.isNaN(parsedValue)) {
+    throw new InventoryValidationError(`${fieldName} must be a valid number`);
+  }
+
+  if (parsedValue < 0) {
+    throw new InventoryValidationError(`${fieldName} cannot be negative`);
+  }
+
+  return parsedValue;
+}
+
+function parseUnitType(value: unknown): InventoryUnitType | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== "string") {
+    throw new InventoryValidationError("Invalid unitType");
+  }
+
+  const normalizedValue = value.trim().toUpperCase();
+
+  if (
+    !Object.values(InventoryUnitType).includes(
+      normalizedValue as InventoryUnitType
+    )
+  ) {
+    throw new InventoryValidationError("Invalid unitType");
+  }
+
+  return normalizedValue as InventoryUnitType;
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const user = await getAuthenticatedUser(request);
+    const itemId = parseItemIdFromRequest(request);
+
+    const item = await prisma.inventoryItem.findFirst({
+      where: {
+        id: itemId,
+        businessId: user.businessId,
+      },
+      include: {
+        alerts: {
+          where: {
+            isResolved: false,
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
+        },
+      },
+    });
+
+    if (!item) {
+      throw new InventoryNotFoundError("Inventory item not found");
+    }
+
+    return NextResponse.json({
+      success: true,
+      item,
+    });
+  } catch (error) {
+    return handleError(error);
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const user = await getAuthenticatedUser(request);
+    const itemId = parseItemIdFromRequest(request);
+
+    const existingItem = await prisma.inventoryItem.findFirst({
+      where: {
+        id: itemId,
+        businessId: user.businessId,
+      },
+    });
+
+    if (!existingItem) {
+      throw new InventoryNotFoundError("Inventory item not found");
+    }
+
+    const body = await request.json();
+
+    const data: {
+      name?: string;
+      unitType?: InventoryUnitType;
+      minimumQuantity?: number;
+      reorderPoint?: number | null;
+      costPerUnit?: number | null;
+      sellPricePerUnit?: number | null;
+      sku?: string | null;
+      barcode?: string | null;
+      imageUrl?: string | null;
+      isActive?: boolean;
+    } = {};
+
+    if (body.name !== undefined) {
+      if (typeof body.name !== "string" || !body.name.trim()) {
+        throw new InventoryValidationError("Invalid name");
+      }
+
+      data.name = body.name.trim();
+    }
+
+    if (body.unitType !== undefined) {
+      data.unitType = parseUnitType(body.unitType);
+    }
+
+    if (body.minimumQuantity !== undefined) {
+      data.minimumQuantity = parseRequiredNonNegativeNumber(
+        body.minimumQuantity,
+        "minimumQuantity"
+      );
+    }
+
+    if (body.reorderPoint !== undefined) {
+      data.reorderPoint = parseOptionalNullableNumber(
+        body.reorderPoint,
+        "reorderPoint"
+      );
+    }
+
+    if (body.costPerUnit !== undefined) {
+      data.costPerUnit = parseOptionalNullableNumber(
+        body.costPerUnit,
+        "costPerUnit"
+      );
+    }
+
+    if (body.sellPricePerUnit !== undefined) {
+      data.sellPricePerUnit = parseOptionalNullableNumber(
+        body.sellPricePerUnit,
+        "sellPricePerUnit"
+      );
+    }
+
+    if (body.sku !== undefined) {
+      data.sku =
+        typeof body.sku === "string" && body.sku.trim()
+          ? body.sku.trim()
+          : null;
+    }
+
+    if (body.barcode !== undefined) {
+      data.barcode =
+        typeof body.barcode === "string" && body.barcode.trim()
+          ? body.barcode.trim()
+          : null;
+    }
+
+    if (body.imageUrl !== undefined) {
+      data.imageUrl =
+        typeof body.imageUrl === "string" && body.imageUrl.trim()
+          ? body.imageUrl.trim()
+          : null;
+    }
+
+    if (body.isActive !== undefined) {
+      if (typeof body.isActive !== "boolean") {
+        throw new InventoryValidationError("isActive must be boolean");
+      }
+
+      data.isActive = body.isActive;
+    }
+
+    const updatedItem = await prisma.inventoryItem.update({
+      where: { id: itemId },
+      data,
+    });
+
+    return NextResponse.json({
+      success: true,
+      item: updatedItem,
+    });
+  } catch (error) {
+    return handleError(error);
+  }
+}
