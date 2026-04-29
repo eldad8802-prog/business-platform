@@ -1,12 +1,12 @@
 "use client";
 
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
 import Header from "@/components/Header";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
 
-export default function Page() {
+function ContentContextPageInner() {
   const router = useRouter();
   const params = useSearchParams();
 
@@ -99,6 +99,14 @@ export default function Page() {
         </button>
       </div>
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={null}>
+      <ContentContextPageInner />
+    </Suspense>
   );
 }
 

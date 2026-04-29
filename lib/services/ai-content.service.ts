@@ -504,3 +504,39 @@ function generateCaption(
       return "לפרטים נוספים דברו איתנו 👇";
   }
 }
+type GenerateAIContentInput = {
+  type?: string;
+  category?: string;
+  goal?: string;
+  audience?: string | string[];
+  valueType?: string;
+  style?: string;
+  mode?: string;
+};
+
+export async function generateAIContent(input: GenerateAIContentInput) {
+  const audience = Array.isArray(input.audience)
+    ? input.audience
+    : input.audience
+      ? [input.audience]
+      : [];
+
+  return generateScript({
+    businessCategory: input.category,
+    goal: input.goal,
+    audience,
+    brandTone: input.style,
+    contentAngle: input.valueType,
+    videoPlan: {
+      videoType: "SHORT",
+      durationSeconds: 30,
+      pace: "medium",
+      structure: ["hook", "pain", "solution", "proof", "cta"],
+      hookStyle: "pattern_break",
+      ctaStyle: "message_now",
+      platform: "instagram",
+      goal: input.goal ?? "leads",
+      contentAngle: input.valueType,
+    },
+  });
+}

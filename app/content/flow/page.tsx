@@ -1,9 +1,9 @@
 "use client";
 
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
-import { baseStyles } from "@/lib/styles/baseStyles";
-export default function FlowPage() {
+
+function ContentFlowPageInner() {
   const router = useRouter();
   const params = useSearchParams();
 
@@ -31,7 +31,6 @@ export default function FlowPage() {
 
   const Button = ({
     label,
-    value,
     selected,
     onClick,
   }: {
@@ -61,7 +60,6 @@ export default function FlowPage() {
     <div style={{ padding: 24, maxWidth: 500, margin: "0 auto" }}>
       <h1 style={{ marginBottom: 20 }}>מה אתה רוצה להשיג?</h1>
 
-      {/* GOAL */}
       <div style={{ marginBottom: 20 }}>
         <p>מטרה</p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -86,7 +84,6 @@ export default function FlowPage() {
         </div>
       </div>
 
-      {/* AUDIENCE */}
       <div style={{ marginBottom: 20 }}>
         <p>קהל יעד</p>
         <input
@@ -102,7 +99,6 @@ export default function FlowPage() {
         />
       </div>
 
-      {/* VALUE */}
       <div style={{ marginBottom: 20 }}>
         <p>סוג תוכן</p>
         <div style={{ display: "flex", gap: 10 }}>
@@ -127,7 +123,6 @@ export default function FlowPage() {
         </div>
       </div>
 
-      {/* STYLE */}
       <div style={{ marginBottom: 30 }}>
         <p>סגנון</p>
         <div style={{ display: "flex", gap: 10 }}>
@@ -152,7 +147,6 @@ export default function FlowPage() {
         </div>
       </div>
 
-      {/* CONTINUE */}
       <button
         onClick={handleContinue}
         disabled={!canContinue}
@@ -170,5 +164,13 @@ export default function FlowPage() {
         המשך
       </button>
     </div>
+  );
+}
+
+export default function FlowPage() {
+  return (
+    <Suspense fallback={null}>
+      <ContentFlowPageInner />
+    </Suspense>
   );
 }

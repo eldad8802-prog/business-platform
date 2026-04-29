@@ -1,12 +1,12 @@
 "use client";
 
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
 import Header from "@/components/Header";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
 
-export default function Page() {
+function ContentModePageInner() {
   const router = useRouter();
   const params = useSearchParams();
 
@@ -25,6 +25,17 @@ export default function Page() {
       )}&goalDescription=${encodeURIComponent(
         goalDescription
       )}&intent=${encodeURIComponent(intent)}&mode=${encodeURIComponent(mode)}`
+    );
+  }
+
+  function card(val: string, title: string, description: string) {
+    const selected = mode === val;
+
+    return (
+      <div onClick={() => setMode(val)} style={btn(selected)}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>{title}</div>
+        <div style={{ fontSize: 14, color: "#555" }}>{description}</div>
+      </div>
     );
   }
 
@@ -59,17 +70,14 @@ export default function Page() {
       </div>
     </div>
   );
+}
 
-  function card(val: string, title: string, description: string) {
-    const selected = mode === val;
-
-    return (
-      <div onClick={() => setMode(val)} style={btn(selected)}>
-        <div style={{ fontWeight: 700, marginBottom: 4 }}>{title}</div>
-        <div style={{ fontSize: 14, color: "#555" }}>{description}</div>
-      </div>
-    );
-  }
+export default function Page() {
+  return (
+    <Suspense fallback={null}>
+      <ContentModePageInner />
+    </Suspense>
+  );
 }
 
 const btn = (selected: boolean) => ({

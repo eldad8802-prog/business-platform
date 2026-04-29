@@ -31,7 +31,7 @@ export async function checkUsage(
   const limits = getLimits(plan);
   const weekKey = getWeekKey();
 
-  const usage = await prisma.Usage.findFirst({
+  const usage = await prisma.usage.findFirst({
     where: {
       businessId,
       type: "video_generation",
@@ -54,7 +54,7 @@ export async function incrementUsage(
 ) {
   const weekKey = getWeekKey();
 
-  const existing = await prisma.Usage.findFirst({
+  const existing = await prisma.usage.findFirst({
     where: {
       businessId,
       type: "video_generation",
@@ -63,7 +63,7 @@ export async function incrementUsage(
   });
 
   if (!existing) {
-    await prisma.Usage.create({
+    await prisma.usage.create({
       data: {
         businessId,
         type: "video_generation",
@@ -75,7 +75,7 @@ export async function incrementUsage(
     return;
   }
 
-  await prisma.Usage.update({
+  await prisma.usage.update({
     where: { id: existing.id },
     data: {
       count: existing.count + 1,

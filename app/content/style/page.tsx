@@ -1,11 +1,11 @@
 "use client";
 
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
 
-export default function Page() {
+function ContentStylePageInner() {
   const router = useRouter();
   const params = useSearchParams();
 
@@ -20,6 +20,16 @@ export default function Page() {
 
     router.push(
       `/content/mode?goal=${goal}&intent=${intent}&value=${value}&style=${style}`
+    );
+  }
+
+  function card(val: string, text: string) {
+    const selected = style === val;
+
+    return (
+      <div onClick={() => setStyle(val)} style={btn(selected)}>
+        {text}
+      </div>
     );
   }
 
@@ -42,16 +52,14 @@ export default function Page() {
       </div>
     </div>
   );
+}
 
-  function card(val: string, text: string) {
-    const selected = style === val;
-
-    return (
-      <div onClick={() => setStyle(val)} style={btn(selected)}>
-        {text}
-      </div>
-    );
-  }
+export default function Page() {
+  return (
+    <Suspense fallback={null}>
+      <ContentStylePageInner />
+    </Suspense>
+  );
 }
 
 const btn = (selected: boolean) => ({

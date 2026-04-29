@@ -225,6 +225,15 @@ model Business {
   documentsV2            Document[]
   financialRecords       FinancialRecord[]
   vendorLearnings        VendorLearning[]
+    inventoryCategories       InventoryCategory[]
+  inventoryItems            InventoryItem[]
+  inventoryMovements        InventoryMovement[]
+  inventoryAlerts           InventoryAlert[]
+  inventoryDrafts           InventoryDraft[]
+  inventoryPendingMatches   InventoryPendingMatch[]
+  inventoryExternalSales    InventoryExternalSale[]
+  posProductMappings        POSProductMapping[]
+  supplierPurchaseDrafts    SupplierPurchaseDraft[]
 }
 
 model User {
@@ -766,13 +775,17 @@ model Document {
 }
 
 model ExtractedData {
-  id              Int       @id @default(autoincrement())
-  documentId      Int       @unique
-  amount          Float?
-  date            DateTime?
-  vendorName      String?
-  direction       String?
-  confidenceScore Float?
+  id                 Int       @id @default(autoincrement())
+  documentId         Int       @unique
+  amount             Float?
+  date               DateTime?
+  vendorName         String?
+  category           String?
+  direction          String?
+  confidenceScore    Float?
+  amountConfidence   String?
+  vendorConfidence   String?
+  categoryConfidence String?
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 }
@@ -822,4 +835,278 @@ model Usage {
   weekKey String // למשל: "2026-W15"
 
   @@index([businessId, type, weekKey])
+}
+enum InventoryUnitType {
+  UNIT
+  ML
+  GRAM
+  KG
+  LITER
+  BOX
+}
+
+enum InventoryMovementType {
+  IN
+  OUT
+  ADJUSTMENT
+}
+
+enum InventoryMovementReason {
+  INITIAL_STOCK
+  MANUAL_ADD
+  MANUAL_REMOVE
+  SALE
+  RETURN
+  DAMAGE
+  INVENTORY_COUNT_CORRECTION
+  SUPPLIER_PURCHASE
+}
+
+enum InventoryAlertType {
+  LOW_STOCK
+  CRITICAL_STOCK
+  UNMATCHED_POS_PRODUCT
+  SUSPICIOUS_CORRECTION
+}
+enum InventoryDraftStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  MERGED
+}
+
+enum InventoryPendingMatchStatus {
+  PENDING
+  RESOLVED
+  REJECTED
+}
+
+enum SupplierPurchaseDraftStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum SupplierLineDecision {
+  MERGE
+  CREATE_NEW
+  REVIEW
+}
+
+enum SupplierLineStatus {
+  PENDING
+  MATCHED
+  NEEDS_REVIEW
+  APPROVED
+  REJECTED
+}
+
+model InventoryCategory {
+  id         Int      @id @default(autoincrement())
+  businessId Int
+  name       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  items    InventoryItem[]
+
+  @@index([businessId])
+}
+
+model InventoryItem {
+  id                   Int               @id @default(autoincrement())
+  businessId            Int
+  name                  String
+  sku                   String?
+  barcode               String?
+  unitType              InventoryUnitType
+  currentQuantity       Float             @default(0)
+  minimumQuantity       Float             @default(0)
+  reorderPoint          Float?
+  costPerUnit           Float?
+  sellPricePerUnit      Float?
+  imageUrl              String?
+  isActive              Boolean           @default(true)
+  categoryId            Int?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  business                      Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category                      InventoryCategory?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  movements                     InventoryMovement[]
+  alerts                        InventoryAlert[]
+  posMappings                   POSProductMapping[]
+  mergedDrafts                  InventoryDraft[]            @relation("InventoryDraftMergedItem")
+  resolvedPendingMatches        InventoryPendingMatch[]     @relation("InventoryPendingMatchResolvedItem")
+  supplierPurchaseDraftLines    SupplierPurchaseDraftLine[]
+
+  @@index([businessId])
+  @@index([sku])
+  @@index([barcode])
+  @@index([businessId, isActive])
+}
+
+model InventoryMovement {
+  id                Int                     @id @default(autoincrement())
+  businessId         Int
+  itemId             Int
+  movementType       InventoryMovementType
+  reason             InventoryMovementReason
+  quantityDelta      Float
+  quantityBefore     Float
+  quantityAfter      Float
+  note               String?
+  createdByUserId    Int?
+  createdAt          DateTime                @default(now())
+
+  business Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  item     InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([itemId])
+  @@index([businessId, createdAt])
+}
+
+model InventoryAlert {
+  id             Int                @id @default(autoincrement())
+  businessId      Int
+  itemId          Int?
+  pendingMatchId  Int?
+  type            InventoryAlertType
+  message         String?
+  isResolved      Boolean            @default(false)
+  resolvedAt      DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  business     Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  item         InventoryItem?          @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  pendingMatch InventoryPendingMatch?  @relation(fields: [pendingMatchId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([itemId])
+  @@index([pendingMatchId])
+  @@index([businessId, isResolved])
+  @@index([businessId, type])
+}
+
+model InventoryDraft {
+  id                Int                  @id @default(autoincrement())
+  businessId         Int
+  imageUrl           String?
+  detectedName       String?
+  detectedCategory   String?
+  detectedBarcode    String?
+  detectedUnitType   InventoryUnitType?
+  confidenceScore    Float?
+  status             InventoryDraftStatus @default(PENDING_REVIEW)
+  createdByUserId    Int?
+  mergedToItemId     Int?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  business     Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  mergedToItem InventoryItem? @relation("InventoryDraftMergedItem", fields: [mergedToItemId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([status])
+  @@index([businessId, status])
+}
+
+model InventoryPendingMatch {
+  id                 Int                         @id @default(autoincrement())
+  businessId          Int
+  externalSaleId      String
+  status              InventoryPendingMatchStatus @default(PENDING)
+  metadata            Json
+  createdAt           DateTime                    @default(now())
+  resolvedAt          DateTime?
+  resolvedByUserId    Int?
+  resolvedItemId      Int?
+
+  business      Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  resolvedItem  InventoryItem?    @relation("InventoryPendingMatchResolvedItem", fields: [resolvedItemId], references: [id], onDelete: SetNull)
+  alerts        InventoryAlert[]
+
+  @@unique([businessId, externalSaleId])
+  @@index([businessId])
+  @@index([status])
+  @@index([businessId, status])
+}
+
+model InventoryExternalSale {
+  id             Int      @id @default(autoincrement())
+  businessId      Int
+  externalSaleId  String
+  source          String?
+  createdAt       DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, externalSaleId])
+  @@index([businessId])
+}
+
+model POSProductMapping {
+  id                 Int      @id @default(autoincrement())
+  businessId          Int
+  itemId              Int
+  source              String
+  externalProductId   String?
+  sku                 String?
+  barcode             String?
+  name                String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  business Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  item     InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([itemId])
+  @@index([sku])
+  @@index([barcode])
+  @@unique([businessId, source, externalProductId])
+}
+
+model SupplierPurchaseDraft {
+  id               Int                         @id @default(autoincrement())
+  businessId        Int
+  supplierName      String?
+  externalOrderId   String?
+  source            String?
+  orderDate         DateTime?
+  status            SupplierPurchaseDraftStatus @default(PENDING_REVIEW)
+  createdAt         DateTime                    @default(now())
+  approvedAt        DateTime?
+  rejectedAt        DateTime?
+  createdByUserId   Int?
+
+  business Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lines    SupplierPurchaseDraftLine[]
+
+  @@index([businessId])
+  @@index([businessId, status])
+}
+
+model SupplierPurchaseDraftLine {
+  id             Int                   @id @default(autoincrement())
+  draftId         Int
+  rawName         String?
+  sku             String?
+  barcode         String?
+  quantity        Float
+  unitType        InventoryUnitType?
+  matchedItemId   Int?
+  matchScore      Float?
+  decision        SupplierLineDecision?
+  status          SupplierLineStatus    @default(PENDING)
+  createdAt       DateTime              @default(now())
+
+  draft SupplierPurchaseDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  item  InventoryItem?        @relation(fields: [matchedItemId], references: [id], onDelete: SetNull)
+
+  @@index([draftId])
+  @@index([matchedItemId])
 }
