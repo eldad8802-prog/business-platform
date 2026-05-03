@@ -4,6 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/ui/page-header";
 import { getInventoryItems } from "@/lib/api/inventory";
 
+
+import pdfMake from "pdfmake/build/pdfmake";
+import pdfFonts from "pdfmake/build/vfs_fonts";
+import { hebrewFontVfs } from "@/lib/pdf/hebrew-font-vfs";
+
+
+
 type Item = {
   id: number;
   name: string;
@@ -196,6 +203,174 @@ export default function PendingSupplierPurchasesPage() {
     const encodedText = encodeURIComponent(supplierOrderText);
     window.open(`https://wa.me/?text=${encodedText}`, "_blank");
   }
+function downloadSupplierPDF(draft: Draft) {
+  const nbsp = "\u00A0";
+const rtlText = (value: string) => value.replaceAll(" ", nbsp);
+  const pdf = pdfMake as any;
+
+  const customVfs = {
+    ...((pdfFonts as any).pdfMake?.vfs || (pdfFonts as any).vfs || {}),
+    ...hebrewFontVfs,
+  };
+
+  pdf.vfs = customVfs;
+
+  if (typeof pdf.addVirtualFileSystem === "function") {
+    pdf.addVirtualFileSystem(customVfs);
+  }
+
+  const fonts = {
+    Hebrew: {
+      normal: "NotoSansHebrew-Regular.ttf",
+      bold: "NotoSansHebrew-Regular.ttf",
+      italics: "NotoSansHebrew-Regular.ttf",
+      bolditalics: "NotoSansHebrew-Regular.ttf",
+    },
+  };
+
+  pdf.fonts = fonts;
+
+  const supplierName = draft.supplierName || "ספק";
+  const today = new Date().toLocaleDateString("he-IL");
+
+  const totalUnits = draft.lines.reduce(
+    (sum, line) => sum + Number(line.quantity || 0),
+    0
+  );
+
+  const tableBody = [
+    [
+      { text: "#", bold: true, alignment: "center" },
+      { text: "מוצר", bold: true, alignment: "right" },
+      { text: "כמות", bold: true, alignment: "center" },
+      { text: "יחידה", bold: true, alignment: "center" },
+    ],
+    ...draft.lines.map((line, index) => [
+      { text: String(index + 1), alignment: "center" },
+      { text: line.rawName || "מוצר ללא שם", alignment: "right" },
+      { text: String(line.quantity), alignment: "center" },
+      { text: line.unitType || "UNIT", alignment: "center" },
+    ]),
+  ];
+
+ const docDefinition: any = {
+  pageSize: "A4",
+  pageMargins: [40, 40, 40, 40],
+
+  defaultStyle: {
+    font: "Hebrew",
+    fontSize: 11,
+    alignment: "right",
+  },
+
+  content: [
+    {
+     text: rtlText("הזמנה לספק"),
+      style: "header",
+      margin: [0, 0, 0, 12],
+    },
+
+    {
+      text:
+        `ספק: ${supplierName}\n` +
+        `מספר הזמנה: #${draft.id}\n` +
+        `תאריך: ${today}`,
+      style: "meta",
+      margin: [0, 0, 0, 18],
+    },
+
+    {
+      text: rtlText("פירוט מוצרים"),
+      style: "sectionTitle",
+      margin: [0, 0, 0, 8],
+    },
+
+    {
+      table: {
+        headerRows: 1,
+        widths: ["*", 60, 70, 35], // מוצר | כמות | יחידה | #
+        body: [
+          [
+           { text: rtlText("מוצר"), style: "tableHeader" },
+            { text: "כמות", style: "tableHeader", alignment: "center" },
+            { text: "יחידה", style: "tableHeader", alignment: "center" },
+            { text: "#", style: "tableHeader", alignment: "center" },
+          ],
+
+          ...draft.lines.map((line, index) => [
+            { text: line.rawName || "מוצר ללא שם" },
+            { text: String(line.quantity), alignment: "center" },
+            { text: line.unitType || "UNIT", alignment: "center" },
+            { text: String(index + 1), alignment: "center" },
+          ]),
+        ],
+      },
+
+      layout: {
+        fillColor: (rowIndex: number) =>
+          rowIndex === 0 ? "#f3f4f6" : null,
+        hLineColor: () => "#e5e7eb",
+        vLineColor: () => "#e5e7eb",
+        paddingTop: () => 8,
+        paddingBottom: () => 8,
+        paddingLeft: () => 8,
+        paddingRight: () => 8,
+      },
+
+      margin: [0, 0, 0, 18],
+    },
+
+    {
+      text:
+  `${rtlText("סה״כ פריטים")}: ${draft.lines.length}\n` +
+  `${rtlText("סה״כ יחידות")}: ${totalUnits}`,
+      style: "summary",
+      margin: [0, 0, 0, 14],
+    },
+
+    {
+      text: rtlText("תודה רבה."),
+      style: "footer",
+    },
+  ],
+
+  styles: {
+    header: {
+      fontSize: 22,
+      bold: true,
+    },
+
+    meta: {
+      fontSize: 12,
+      color: "#374151",
+      lineHeight: 1.5,
+    },
+
+    sectionTitle: {
+      fontSize: 14,
+      bold: true,
+    },
+
+    tableHeader: {
+      bold: true,
+    },
+
+    summary: {
+      bold: true,
+      fontSize: 12,
+      lineHeight: 1.4,
+    },
+
+    footer: {
+      margin: [0, 10, 0, 0],
+    },
+  },
+};
+
+  pdf
+    .createPdf(docDefinition, undefined, fonts, customVfs)
+    .download(`supplier-order-${draft.id}.pdf`);
+}
 
   async function approveDraft(draft: Draft) {
     try {
@@ -917,8 +1092,8 @@ export default function PendingSupplierPurchasesPage() {
                       lineHeight: 1.5,
                     }}
                   >
-                    אפשר להעתיק את ההודעה או לפתוח אותה ב־WhatsApp. פעולה זו
-                    לא מעדכנת מלאי.
+                    אפשר להעתיק את ההודעה, לפתוח אותה ב־WhatsApp או להוריד PDF.
+                    פעולה זו לא מעדכנת מלאי.
                   </div>
                 </div>
 
@@ -998,21 +1173,21 @@ export default function PendingSupplierPurchasesPage() {
                   פתיחה ב־WhatsApp
                 </button>
 
-                <button
-                  type="button"
-                  disabled
-                  style={{
-                    minHeight: 48,
-                    borderRadius: 16,
-                    border: "1px solid #e5e7eb",
-                    background: "#f9fafb",
-                    color: "#9ca3af",
-                    cursor: "not-allowed",
-                    fontWeight: 950,
-                  }}
-                >
-                  הורדת קובץ — בהמשך
-                </button>
+               <button
+  type="button"
+onClick={() => dispatchDraft && downloadSupplierPDF(dispatchDraft)}
+  style={{
+    minHeight: 48,
+    borderRadius: 16,
+    border: "1px solid #e5e7eb",
+    background: "#ffffff",
+    color: "#111827",
+    cursor: "pointer",
+    fontWeight: 950,
+  }}
+>
+  הורדת PDF
+</button>
               </div>
             </section>
           </div>

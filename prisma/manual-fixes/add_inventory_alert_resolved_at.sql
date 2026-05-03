@@ -1,0 +1,1 @@
+ALTER TABLE "InventoryAlert" ADD COLUMN IF NOT EXISTS "resolvedAt" TIMESTAMP(3);

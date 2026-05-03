@@ -52,6 +52,14 @@ const TOOLS: ToolItem[] = [
     status: "active",
     icon: "🏷️",
   },
+    {
+  key: "inventory",
+  title: "מלאי",
+  description: "ניהול פריטים, כמויות, מכירות והזמנות מספקים",
+  href: "/inventory",
+  status: "active",
+  icon: "📦",
+},
   {
     key: "bot",
     title: "בוטים לעסק",
@@ -76,6 +84,7 @@ const TOOLS: ToolItem[] = [
     status: "soon",
     icon: "📈",
   },
+
 ];
 
 function ToolsHeader({ onBack }: { onBack: () => void }) {
