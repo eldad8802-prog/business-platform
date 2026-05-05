@@ -1,14 +1,19 @@
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
+import { resolveDocumentOutputProfile } from "@/lib/services/documents/output-profile-resolver.service";
 
 export async function GET(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await getCurrentUser(req);
+    if (!user) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const params = await context.params; // 🔥 חשוב
     const id = Number(params.id);
-
-    console.log("ID:", id);
 
     if (isNaN(id)) {
       return Response.json(
@@ -31,9 +36,41 @@ export async function GET(
       );
     }
 
+    if (document.businessId !== user.businessId) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const debug =
+      process.env.NODE_ENV !== "production" &&
+      new URL(req.url).searchParams.get("debugOutputProfile") === "1";
+
+    const resolved = await resolveDocumentOutputProfile({
+      documentId: document.id,
+      businessId: user.businessId,
+      ocrText: document.ocrText ?? null,
+      documentStatus: document.status,
+      extracted: document.extractedData
+        ? {
+            amount: document.extractedData.amount ?? null,
+            vendorName: document.extractedData.vendorName ?? null,
+            date: document.extractedData.date ?? null,
+            direction: document.extractedData.direction ?? null,
+            category: document.extractedData.category ?? null,
+            confidenceScore: document.extractedData.confidenceScore ?? null,
+          }
+        : null,
+      allowUnified: true,
+      debug,
+    });
+
     return Response.json({
+      success: true,
       document,
       extracted: document.extractedData,
+      outputProfile: resolved.outputProfile,
+      outputProfileSource: resolved.outputProfileSource,
+      outputProfileComputedAt: resolved.outputProfileComputedAt,
+      ...(resolved.outputProfileDebug ? { outputProfileDebug: resolved.outputProfileDebug } : {}),
     });
   } catch (error) {
     console.error("GET DOCUMENT ERROR:", error);

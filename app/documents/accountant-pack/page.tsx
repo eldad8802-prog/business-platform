@@ -3,15 +3,20 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  header,
-  subheader,
   card,
   primaryBtn,
   secondaryBtn,
   input,
   emptyState,
+  pageMain,
+  hero,
+  heroKicker,
+  heroTitle,
+  heroSubText,
+  alertError,
 } from "../ui";
 import { CATEGORIES } from "@/lib/constants/categories";
+import PageHeader from "@/components/ui/page-header";
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -78,14 +83,23 @@ export default function AccountantPackPage() {
   };
 
   return (
-    <div>
-      {/* STEP 1 */}
-      {step === 1 && (
-        <>
-          <h1 style={header}>בחירת תקופה</h1>
-          <p style={subheader}>על איזה זמן להכין את החבילה</p>
+    <div dir="rtl">
+      <PageHeader title="חבילה לרו״ח" />
 
-          <div style={card}>
+      <main style={pageMain}>
+        <section style={hero}>
+          <div style={heroKicker}>ייצוא</div>
+          <h1 style={heroTitle}>חבילה לרואה חשבון</h1>
+          <p style={heroSubText}>בחר תקופה, סנן קטגוריות, והורד ZIP.</p>
+        </section>
+
+        {/* STEP 1 */}
+        {step === 1 && (
+          <>
+            <div style={card}>
+              <div style={{ fontWeight: 950, marginBottom: 10, color: "#111827" }}>
+                בחירת תקופה
+              </div>
             <button style={secondaryBtn} onClick={() => setType("month")}>
               חודש
             </button>
@@ -132,9 +146,10 @@ export default function AccountantPackPage() {
       {/* STEP 2 */}
       {step === 2 && (
         <>
-          <h1 style={header}>בחירת קטגוריות</h1>
-
           <div style={card}>
+            <div style={{ fontWeight: 950, marginBottom: 10, color: "#111827" }}>
+              בחירת קטגוריות
+            </div>
             <button
               style={secondaryBtn}
               onClick={() => {
@@ -150,10 +165,9 @@ export default function AccountantPackPage() {
                 key={cat.value}
                 style={{
                   ...secondaryBtn,
-                  background: categories.includes(cat.value)
-                    ? "#111"
-                    : "#f5f5f5",
-                  color: categories.includes(cat.value) ? "#fff" : "#000",
+                  background: categories.includes(cat.value) ? "#111827" : "#ffffff",
+                  color: categories.includes(cat.value) ? "#ffffff" : "#111827",
+                  border: "1px solid #e5e7eb",
                 }}
                 onClick={() => {
                   setAllCategories(false);
@@ -177,21 +191,22 @@ export default function AccountantPackPage() {
       {/* STEP 3 */}
       {step === 3 && (
         <>
-          <h1 style={header}>סיכום</h1>
-
           <div style={card}>
-            <p>📅 תקופה: {type}</p>
-            <p>
-              📂 קטגוריות:{" "}
-              {allCategories
-                ? "הכל"
-                : categories
-                    .map(
-                      (c) =>
-                        CATEGORIES.find((cat) => cat.value === c)?.label || c
-                    )
-                    .join(", ")}
-            </p>
+            <div style={{ fontWeight: 950, marginBottom: 10, color: "#111827" }}>סיכום</div>
+            <div style={{ color: "#111827", fontWeight: 800, lineHeight: 1.7 }}>
+              <div>תקופה: {type}</div>
+              <div style={{ marginTop: 8 }}>
+                קטגוריות:{" "}
+                {allCategories
+                  ? "הכל"
+                  : categories
+                      .map(
+                        (c) =>
+                          CATEGORIES.find((cat) => cat.value === c)?.label || c
+                      )
+                      .join(", ")}
+              </div>
+            </div>
           </div>
 
           <button style={primaryBtn} onClick={handleNext}>
@@ -206,8 +221,6 @@ export default function AccountantPackPage() {
       {/* STEP 4 */}
       {step === 4 && (
         <>
-          <h1 style={header}>יצירת חבילה</h1>
-
           {loading ? (
             <div style={emptyState}>מכין חבילה...</div>
           ) : (
@@ -216,9 +229,10 @@ export default function AccountantPackPage() {
             </button>
           )}
 
-          {error && <div style={emptyState}>{error}</div>}
+          {error && <div style={alertError}>{error}</div>}
         </>
       )}
+      </main>
     </div>
   );
 }

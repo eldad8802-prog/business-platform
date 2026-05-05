@@ -3,18 +3,7 @@ import fs from "fs";
 import path from "path";
 
 function resolveCredentialsPath() {
-  const envPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-
-  if (!envPath) {
-    console.error("GOOGLE VISION OCR: GOOGLE_APPLICATION_CREDENTIALS is missing");
-    return null;
-  }
-
-  const absolutePath = path.isAbsolute(envPath)
-    ? envPath
-    : path.join(process.cwd(), envPath);
-
-  return absolutePath;
+  return path.join(process.cwd(), "secrets/google-vision-key.json");
 }
 
 export async function runGoogleVisionOCR(
@@ -22,9 +11,16 @@ export async function runGoogleVisionOCR(
   mimeType?: string
 ): Promise<string> {
   try {
-    console.log("GOOGLE VISION OCR: starting");
+    console.log("========== GOOGLE VISION OCR START ==========");
 
     const credentialsPath = resolveCredentialsPath();
+
+    console.log("credentialsPath:", credentialsPath);
+    console.log("filePath:", filePath);
+    console.log("mimeType:", mimeType);
+
+    console.log("file exists:", fs.existsSync(filePath));
+    console.log("credentials exists:", fs.existsSync(credentialsPath));
 
     if (!credentialsPath || !fs.existsSync(credentialsPath)) {
       throw new Error("Google Vision credentials file not found");
@@ -34,15 +30,25 @@ export async function runGoogleVisionOCR(
       throw new Error("File not found for OCR");
     }
 
-    const client = new vision.ImageAnnotatorClient({
-      keyFilename: credentialsPath,
-    });
+    // קריאת הקובץ כדי לבדוק שהוא תקין
+    try {
+      const raw = fs.readFileSync(credentialsPath, "utf-8");
+      const parsed = JSON.parse(raw);
 
+      console.log("credentials project_id:", parsed.project_id);
+      console.log("credentials client_email:", parsed.client_email);
+    } catch (e) {
+      console.error("FAILED TO PARSE CREDENTIALS:", e);
+    }
+
+    const client = new vision.ImageAnnotatorClient({
+  keyFilename: credentialsPath,
+  fallback: true,
+});
     const isPdf =
       mimeType === "application/pdf" ||
       filePath.toLowerCase().endsWith(".pdf");
 
-    // 🔥 PDF → שימוש ב־documentTextDetection
     if (isPdf) {
       console.log("GOOGLE VISION OCR: PDF detected");
 
@@ -50,25 +56,36 @@ export async function runGoogleVisionOCR(
 
       const text = result.fullTextAnnotation?.text || "";
 
-      console.log("GOOGLE VISION OCR: PDF text length:", text.length);
-      console.log("GOOGLE VISION OCR preview:", text.slice(0, 300));
+      console.log("PDF text length:", text.length);
+      console.log("PDF preview:", text.slice(0, 300));
 
       return text.trim();
     }
 
-    // 🔥 תמונות רגילות
     console.log("GOOGLE VISION OCR: image detected");
 
     const [result] = await client.textDetection(filePath);
 
     const text = result.fullTextAnnotation?.text || "";
 
-    console.log("GOOGLE VISION OCR: image text length:", text.length);
-    console.log("GOOGLE VISION OCR preview:", text.slice(0, 300));
+    console.log("IMAGE text length:", text.length);
+    console.log("IMAGE preview:", text.slice(0, 300));
 
     return text.trim();
-  } catch (error) {
-    console.error("GOOGLE VISION OCR ERROR FULL:", error);
+  } catch (error: any) {
+    console.error("========== GOOGLE VISION OCR ERROR ==========");
+    console.error("FULL:", error);
+    console.error("message:", error?.message);
+    console.error("code:", error?.code);
+    console.error("details:", error?.details);
+    console.error("stack:", error?.stack);
+
+    try {
+      console.error("json:", JSON.stringify(error, null, 2));
+    } catch {}
+
+    console.error("============================================");
+
     return "";
   }
 }

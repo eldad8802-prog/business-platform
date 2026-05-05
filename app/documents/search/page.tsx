@@ -3,14 +3,19 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  header,
-  subheader,
   card,
   input,
   primaryBtn,
   emptyState,
+  pageMain,
+  hero,
+  heroKicker,
+  heroTitle,
+  heroSubText,
+  alertError,
 } from "../ui";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
+import PageHeader from "@/components/ui/page-header";
 
 type SearchResult = {
   id: number;
@@ -52,49 +57,61 @@ export default function SearchPage() {
   };
 
   return (
-    <div>
-      <h1 style={header}>חיפוש מסמכים</h1>
-      <p style={subheader}>חפש לפי ספק או קטגוריה</p>
+    <div dir="rtl">
+      <PageHeader title="חיפוש" />
 
-      <div style={card}>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="לדוגמה: פז / דלק"
-          style={input}
-        />
+      <main style={pageMain}>
+        <section style={hero}>
+          <div style={heroKicker}>חיפוש מסמכים</div>
+          <h1 style={heroTitle}>מצא מסמך</h1>
+          <p style={heroSubText}>חפש לפי ספק או קטגוריה, ואז פתח לבדיקה.</p>
+        </section>
 
-        <button style={primaryBtn} onClick={handleSearch}>
-          {loading ? "מחפש..." : "חפש"}
-        </button>
-      </div>
-
-      {error ? <div style={emptyState}>{error}</div> : null}
-
-      {searched && !loading && results.length === 0 && !error ? (
-        <div style={emptyState}>לא נמצאו תוצאות</div>
-      ) : null}
-
-      {results.map((r) => (
-        <button
-          key={r.id}
-          onClick={() => router.push(`/documents/review/${r.documentId}`)}
-          style={{
-            ...card,
-            width: "100%",
-            textAlign: "right",
-            background: "#fff",
-            cursor: "pointer",
-            border: "1px solid #eee",
-          }}
-        >
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>🏪 {r.vendorName}</div>
-          <div style={{ color: "#666", fontSize: 14, marginBottom: 6 }}>
-            📂 {CATEGORY_MAP[r.category] || r.category}
+        <section style={card}>
+          <div style={{ fontWeight: 950, marginBottom: 10, color: "#111827" }}>
+            חיפוש מהיר
           </div>
-          <div>💰 ₪{r.amount}</div>
-        </button>
-      ))}
+
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="לדוגמה: פז / דלק"
+            style={input}
+          />
+
+          <button style={primaryBtn} onClick={handleSearch} disabled={loading}>
+            {loading ? "מחפש..." : "חפש"}
+          </button>
+        </section>
+
+        {error ? <div style={alertError}>{error}</div> : null}
+
+        {searched && !loading && results.length === 0 && !error ? (
+          <div style={emptyState}>לא נמצאו תוצאות</div>
+        ) : null}
+
+        {results.map((r) => (
+          <button
+            key={r.id}
+            onClick={() => router.push(`/documents/review/${r.documentId}`)}
+            style={{
+              ...card,
+              width: "100%",
+              textAlign: "right",
+              cursor: "pointer",
+              padding: 18,
+            }}
+          >
+            <div style={{ fontWeight: 950, marginBottom: 6, color: "#111827" }}>
+              {r.vendorName}
+            </div>
+            <div style={{ color: "#6b7280", fontSize: 14, marginBottom: 6 }}>
+              {CATEGORY_MAP[r.category] || r.category}
+            </div>
+            <div style={{ fontWeight: 900, color: "#111827" }}>₪{r.amount}</div>
+          </button>
+        ))}
+      </main>
     </div>
   );
 }

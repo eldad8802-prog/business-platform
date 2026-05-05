@@ -10,7 +10,7 @@ type PdfParseFn = (
 ) => Promise<PdfParseResult>;
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse: PdfParseFn = require("pdf-parse/lib/pdf-parse.js");
+const pdfParse: PdfParseFn = require("pdf-parse");
 
 export async function extractTextFromPdf(filePath: string): Promise<string> {
   try {

@@ -103,7 +103,8 @@ function hasReceiptRole(text: string): boolean {
   ]);
 }
 
-function hasPendingOrQuoteRole(text: string): boolean {
+/** Quote / order / future payment — block direction unless strong payment evidence exists. */
+function hasPendingQuoteBlocking(text: string): boolean {
   return includesAny(text, [
     "הצעת מחיר",
     "הזמנה",
@@ -111,14 +112,124 @@ function hasPendingOrQuoteRole(text: string): boolean {
     "לתשלום עד",
     "תשלום עתידי",
     "דרישת תשלום",
-    "טרם שולם",
-    "לא שולם",
-    "ממתין לתשלום",
-    "pending payment",
     "quote",
     "proposal",
     "order summary",
   ]);
+}
+
+/** ₪ / ש"ח alone must not imply executed payment (regulatory PDFs use "בש\"ח"). */
+const CURRENCY_HINT_SIGNALS = ["₪", 'ש"ח'];
+
+/** Card/network tokens — strong for retail slips, not alone on tax/pension certificates. */
+const CARD_OR_APPROVAL_MARKERS = [
+  "מספר אישור",
+  "שבא",
+  "ישראכרט",
+  "ויזה",
+  "מאסטרקארד",
+  "מאסטרכרד",
+  "מסטרקרד",
+  "mastercard",
+  "visa",
+];
+
+/**
+ * Completed payment / tender / slip signals excluding bare currency.
+ * Includes card brands (see regulatory branch in hasStrongPaymentExecution).
+ */
+const EXECUTION_CORE_SIGNALS = [
+  "אישור תשלום",
+  "אישור על קבלת תשלום",
+  "קבלת תשלום",
+  "סכום תשלום",
+  "סכום עסקה",
+  "שולם",
+  "שולמה",
+  "שולם באמצעות",
+  "חיוב בכרטיס",
+  "חויב בכרטיס",
+  "חויב",
+  "אשראי",
+  "כרטיס אשראי",
+  "מזומן",
+  ...CARD_OR_APPROVAL_MARKERS,
+  "paid",
+  "payment approved",
+];
+
+/** Tax/pension / declaration — card line OCR must not imply expense without real payment verbs. */
+const REGULATORY_CERTIFICATE_MARKERS = [
+  "אישור מס",
+  "הצהרת הון",
+  "קרן פנסיה",
+  "פנסיה מקיפה",
+  "הפקדה לקצבה",
+  "פקודת מס הכנסה",
+  "תיק ניכויים",
+  "ניכוי מס במקור",
+];
+
+/** On regulatory docs, only these (plus currency+retail bridge) count as executed payment. */
+const REGULATORY_PAID_EXECUTION_SIGNALS = [
+  "אישור תשלום",
+  "אישור על קבלת תשלום",
+  "קבלת תשלום",
+  "סכום תשלום",
+  "סכום עסקה",
+  "שולם",
+  "שולמה",
+  "שולם באמצעות",
+  "חיוב בכרטיס",
+  "חויב בכרטיס",
+  "חויב",
+  "כרטיס אשראי",
+  "מזומן",
+  "ספח אשראי",
+  "paid",
+  "payment approved",
+];
+
+function hasCurrencyHint(text: string): boolean {
+  return includesAny(text, CURRENCY_HINT_SIGNALS);
+}
+
+function hasRegulatoryCertificateContext(text: string): boolean {
+  return includesAny(text, REGULATORY_CERTIFICATE_MARKERS);
+}
+
+/** Retail / POS framing — currency may reinforce payment only with this (not regulatory boilerplate). */
+function hasRetailPaymentContextForCurrency(text: string): boolean {
+  return hasReceiptRole(text);
+}
+
+function hasExecutionCore(text: string): boolean {
+  return includesAny(text, EXECUTION_CORE_SIGNALS);
+}
+
+function hasRegulatoryPaidExecution(text: string): boolean {
+  return includesAny(text, REGULATORY_PAID_EXECUTION_SIGNALS);
+}
+
+/**
+ * Strong execution: real tender / completion signals.
+ * Currency hints (₪, ש"ח) count only together with retail receipt-like context.
+ * On regulatory certificates, card-brand OCR lines do not suffice unless explicit paid verbs/tender.
+ */
+function hasStrongPaymentExecution(text: string): boolean {
+  const regulatory = hasRegulatoryCertificateContext(text);
+
+  if (regulatory) {
+    return (
+      hasRegulatoryPaidExecution(text) ||
+      (hasCurrencyHint(text) && hasRetailPaymentContextForCurrency(text))
+    );
+  }
+
+  return (
+    hasExecutionCore(text) ||
+    (hasCurrencyHint(text) && hasRetailPaymentContextForCurrency(text))
+  );
 }
 
 function extractIncomeCounterparty(text: string): string | null {
@@ -153,22 +264,7 @@ function detectDirection(input: {
 
   if (!text) return "unknown";
 
-  if (hasNegativePaymentSignal(text)) {
-    return "unknown";
-  }
-
-  if (hasClearIncomeSignal(text)) {
-    return "income";
-  }
-
-  const paymentProof = hasPaymentProof(text);
   const receiptRole = hasReceiptRole(text);
-  const pendingOrQuote = hasPendingOrQuoteRole(text);
-
-  if (pendingOrQuote) {
-    return "unknown";
-  }
-
   const isReceiptLike =
     documentType === "receipt" ||
     documentType.includes("receipt") ||
@@ -178,6 +274,29 @@ function detectDirection(input: {
   const isFinancialTransaction =
     guardrailRoute === "financial_transaction" ||
     guardrailRoute.includes("financial_transaction");
+
+  const strongExecution = hasStrongPaymentExecution(text);
+  const strongPaymentBundle =
+    (receiptRole || isReceiptLike || isFinancialTransaction) &&
+    strongExecution;
+
+  if (hasNegativePaymentSignal(text) && !strongPaymentBundle) {
+    return "unknown";
+  }
+
+  if (strongPaymentBundle) {
+    return "expense";
+  }
+
+  if (hasClearIncomeSignal(text)) {
+    return "income";
+  }
+
+  if (hasPendingQuoteBlocking(text)) {
+    return "unknown";
+  }
+
+  const paymentProof = hasPaymentProof(text);
 
   if ((isReceiptLike || isFinancialTransaction) && paymentProof) {
     return "expense";

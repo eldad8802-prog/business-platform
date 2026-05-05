@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@google-cloud/vision": "^5.3.5",
+    "@napi-rs/canvas": "^0.1.100",
     "@prisma/client": "^6.16.0",
     "@yudiel/react-qr-scanner": "^2.5.1",
     "archiver": "^7.0.1",
@@ -19,6 +20,7 @@
     "jspdf": "^4.2.1",
     "next": "16.2.1",
     "openai": "^6.34.0",
+    "pdf-parse": "^2.4.5",
     "pdfmake": "^0.3.7",
     "qrcode.react": "^4.2.0",
     "react": "19.2.4",

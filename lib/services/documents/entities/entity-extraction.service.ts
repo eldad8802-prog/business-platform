@@ -10,10 +10,17 @@ import { applyAmountStrategy } from "../amount-strategy.service";
 import { applyVendorStrategy } from "../vendor-strategy.service";
 import { understandDocument } from "../understanding/document-understanding.service";
 
+export type DocumentUnderstandingResult = ReturnType<typeof understandDocument>;
+
+export type DocumentEntitiesWithUnderstanding = {
+  entities: DocumentEntities;
+  understanding: DocumentUnderstandingResult;
+};
+
 export function extractDocumentEntities(
   cleanedText: string,
   structure: DocumentStructure
-): DocumentEntities {
+): DocumentEntitiesWithUnderstanding {
   const businessIds = extractBusinessIdEntities(cleanedText, structure);
 
   const rawVendor = extractVendorEntity(
@@ -45,9 +52,12 @@ export function extractDocumentEntities(
   console.log("DOCUMENT UNDERSTANDING:", understanding);
 
   return {
-    vendor: vendorAfterStrategy,
-    businessIds,
-    amount: amountAfterStrategy,
-    date: rawDate,
+    entities: {
+      vendor: vendorAfterStrategy,
+      businessIds,
+      amount: amountAfterStrategy,
+      date: rawDate,
+    },
+    understanding,
   };
 }

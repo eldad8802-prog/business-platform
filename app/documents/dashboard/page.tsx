@@ -2,13 +2,18 @@
 
 import { useEffect, useState } from "react";
 import {
-  header,
-  subheader,
   card,
   primaryBtn,
+  pageMain,
+  hero,
+  heroKicker,
+  heroTitle,
+  heroSubText,
+  alertError,
   emptyState,
 } from "../ui";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
+import PageHeader from "@/components/ui/page-header";
 
 type Report = {
   totalIncome: number;
@@ -53,24 +58,68 @@ export default function Dashboard() {
   }, []);
 
   if (loading) {
-    return <div style={emptyState}>טוען דוח...</div>;
+    return (
+      <div dir="rtl">
+        <PageHeader title="דוחות" />
+        <main style={pageMain}>
+          <section style={hero}>
+            <div style={heroKicker}>דוחות</div>
+            <h1 style={heroTitle}>תמונת מצב</h1>
+            <p style={heroSubText}>רגע לפני החלטות — הנה המספרים.</p>
+          </section>
+          <div style={emptyState}>טוען דוח...</div>
+        </main>
+      </div>
+    );
   }
 
   if (error) {
-    return <div style={emptyState}>{error}</div>;
+    return (
+      <div dir="rtl">
+        <PageHeader title="דוחות" />
+        <main style={pageMain}>
+          <section style={hero}>
+            <div style={heroKicker}>דוחות</div>
+            <h1 style={heroTitle}>תמונת מצב</h1>
+            <p style={heroSubText}>אפשר לנסות שוב בעוד רגע.</p>
+          </section>
+          <div style={alertError}>{error}</div>
+        </main>
+      </div>
+    );
   }
 
   if (!data) {
-    return <div style={emptyState}>אין נתונים להצגה</div>;
+    return (
+      <div dir="rtl">
+        <PageHeader title="דוחות" />
+        <main style={pageMain}>
+          <section style={hero}>
+            <div style={heroKicker}>דוחות</div>
+            <h1 style={heroTitle}>תמונת מצב</h1>
+            <p style={heroSubText}>אין נתונים להצגה כרגע.</p>
+          </section>
+          <div style={emptyState}>אין נתונים להצגה</div>
+        </main>
+      </div>
+    );
   }
 
   return (
-    <div>
-      <h1 style={header}>מצב פיננסי</h1>
-      <p style={subheader}>כאן רואים הכנסות, הוצאות ורווח לפי חודש</p>
+    <div dir="rtl">
+      <PageHeader title="דוחות" />
 
-      <div style={card}>
-        <div style={{ fontWeight: 600, marginBottom: 8 }}>📅 דוח חודשי</div>
+      <main style={pageMain}>
+        <section style={hero}>
+          <div style={heroKicker}>דוחות</div>
+          <h1 style={heroTitle}>מצב פיננסי</h1>
+          <p style={heroSubText}>הכנסות, הוצאות ורווח — לפי חודש.</p>
+        </section>
+
+        <div style={card}>
+          <div style={{ fontWeight: 950, marginBottom: 10, color: "#111827" }}>
+            דוח חודשי
+          </div>
         <input
           type="month"
           value={month}
@@ -78,8 +127,8 @@ export default function Dashboard() {
           style={{
             width: "100%",
             padding: 12,
-            borderRadius: 10,
-            border: "1px solid #ddd",
+            borderRadius: 14,
+            border: "1px solid #d1d5db",
             fontSize: 16,
             boxSizing: "border-box",
           }}
@@ -91,21 +140,29 @@ export default function Dashboard() {
       </div>
 
       <div style={card}>
-        <div style={{ fontWeight: 600, marginBottom: 8 }}>💰 רווח</div>
-        <div style={{ fontSize: 28, fontWeight: 700 }}>{data.profit}</div>
+        <div style={{ fontWeight: 950, marginBottom: 10, color: "#111827" }}>
+          רווח
+        </div>
+        <div style={{ fontSize: 30, fontWeight: 950, color: "#111827" }}>
+          {data.profit}
+        </div>
       </div>
 
       <div style={card}>
-        <div style={{ marginBottom: 8 }}>📈 הכנסות: {data.totalIncome}</div>
-        <div style={{ marginBottom: 8 }}>📉 הוצאות: {data.totalExpense}</div>
-        <div>🧾 רשומות: {data.count}</div>
+        <div style={{ display: "grid", gap: 8, color: "#111827", fontWeight: 800 }}>
+          <div>הכנסות: {data.totalIncome}</div>
+          <div>הוצאות: {data.totalExpense}</div>
+          <div>רשומות: {data.count}</div>
+        </div>
       </div>
 
       <div style={card}>
-        <div style={{ fontWeight: 600, marginBottom: 8 }}>📂 קטגוריות</div>
+        <div style={{ fontWeight: 950, marginBottom: 10, color: "#111827" }}>
+          קטגוריות
+        </div>
 
         {Object.keys(data.categories).length === 0 ? (
-          <div style={{ color: "#666" }}>אין קטגוריות להצגה</div>
+          <div style={{ color: "#6b7280" }}>אין קטגוריות להצגה</div>
         ) : (
           <ul style={{ margin: 0, paddingInlineStart: 18 }}>
             {Object.entries(data.categories).map(([cat, val]) => (
@@ -116,6 +173,7 @@ export default function Dashboard() {
           </ul>
         )}
       </div>
+      </main>
     </div>
   );
 }
