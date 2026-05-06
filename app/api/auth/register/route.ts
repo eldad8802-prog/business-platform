@@ -1,9 +1,24 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcrypt";
+import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
 export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   try {
+    const ip = getClientIp(req);
+    const rl = consumeRateLimit({
+      key: `auth:register:${ip}`,
+      limit: 3,
+      windowMs: 60 * 60_000,
+    });
+
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429 }
+      );
+    }
+
     const body = await req.json();
     const { email, password, name, businessName } = body;
 

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { runExtractionEngine } from "@/lib/services/documents/extraction-engine.service";
 
 export async function POST(req: NextRequest) {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   try {
     const body = await req.json();
     const text = body?.text;

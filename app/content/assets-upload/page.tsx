@@ -82,12 +82,20 @@ export default function AssetsUploadPage() {
     setUploadingIndex(index);
 
     try {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        throw new Error("צריך להתחבר כדי להעלות קבצים");
+      }
+
       const formData = new FormData();
       formData.append("file", file);
 
       const res = await fetch("/api/content/upload", {
         method: "POST",
         body: formData,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
 
       const data = await res.json();

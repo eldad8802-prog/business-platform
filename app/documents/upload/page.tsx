@@ -492,14 +492,19 @@ export default function UploadPage() {
     setError("");
 
     try {
+      if (!authHeader) {
+        throw new Error("צריך להתחבר כדי להעלות מסמך");
+      }
+
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("businessId", "1");
-      formData.append("source", "file");
 
       const res = await fetch("/api/documents/upload", {
         method: "POST",
         body: formData,
+        headers: {
+          Authorization: authHeader,
+        },
       });
 
       const data = await res.json();

@@ -3,6 +3,7 @@ import {
   InventoryAlertType,
   InventoryMovementReason,
   InventoryMovementType,
+  Prisma,
 } from "@prisma/client";
 import {
   CreateInventoryItemInput,
@@ -17,8 +18,14 @@ import {
   NegativeInventoryError,
 } from "./inventory.errors";
 
+type Tx = Prisma.TransactionClient;
+type TxOptions = { tx?: Tx };
+
 class InventoryService {
-  async createItemWithInitialStock(input: CreateInventoryItemInput) {
+  async createItemWithInitialStock(
+    input: CreateInventoryItemInput,
+    options?: TxOptions
+  ) {
     const {
       businessId,
       name,
@@ -49,7 +56,7 @@ class InventoryService {
       throw new NegativeInventoryError();
     }
 
-    return prisma.$transaction(async (tx) => {
+    const run = async (tx: Tx) => {
       const item = await tx.inventoryItem.create({
         data: {
           businessId,
@@ -85,10 +92,16 @@ class InventoryService {
       }
 
       return item;
-    });
+    };
+
+    if (options?.tx) {
+      return run(options.tx);
+    }
+
+    return prisma.$transaction(run);
   }
 
-  async createMovement(input: CreateInventoryMovementInput) {
+  async createMovement(input: CreateInventoryMovementInput, options?: TxOptions) {
     const {
       businessId,
       itemId,
@@ -111,7 +124,7 @@ class InventoryService {
       throw new InventoryValidationError("quantityDelta cannot be zero");
     }
 
-    return prisma.$transaction(async (tx) => {
+    const run = async (tx: Tx) => {
       const item = await tx.inventoryItem.findUnique({
         where: { id: itemId },
       });
@@ -222,10 +235,16 @@ class InventoryService {
       }
 
       return movement;
-    });
+    };
+
+    if (options?.tx) {
+      return run(options.tx);
+    }
+
+    return prisma.$transaction(run);
   }
 
-  async addStock(input: AddInventoryStockInput) {
+  async addStock(input: AddInventoryStockInput, options?: TxOptions) {
     const quantityDelta =
       input.quantityDelta < 0
         ? Math.abs(input.quantityDelta)
@@ -235,10 +254,10 @@ class InventoryService {
       ...input,
       quantityDelta,
       movementType: InventoryMovementType.IN,
-    });
+    }, options);
   }
 
-  async removeStock(input: RemoveInventoryStockInput) {
+  async removeStock(input: RemoveInventoryStockInput, options?: TxOptions) {
     const quantityDelta =
       input.quantityDelta > 0
         ? -input.quantityDelta
@@ -248,7 +267,7 @@ class InventoryService {
       ...input,
       quantityDelta,
       movementType: InventoryMovementType.OUT,
-    });
+    }, options);
   }
 }
 

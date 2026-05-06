@@ -48,6 +48,26 @@ next-env.d.ts
 # local debug / temp
 /tmp/
 
+# uploads (user-generated content; keep out of git)
+/public/uploads/
+
+# local artifacts (debug exports)
+/pricing-page.html
+/pricing-response.json
+
+# prisma local db files (never commit)
+/prisma/*.db
+/prisma/*.db-journal
+/prisma/*.sqlite
+/prisma/*.sqlite-journal
+
+# windows junk
+Thumbs.db
+Desktop.ini
+
+# cursor
+.cursor/
+
 # local secrets (never commit)
 /secrets/
 node_modules

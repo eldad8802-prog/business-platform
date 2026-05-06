@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { runUnifiedDocumentIntelligence } from "@/lib/services/documents/unified-extraction-engine.service";
 
 export async function POST(req: NextRequest) {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   try {
     const body = await req.json();
 

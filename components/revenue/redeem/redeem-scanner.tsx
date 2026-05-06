@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Scanner } from "@yudiel/react-qr-scanner";
 
 type Props = {
   onDetected: (token: string) => void;
@@ -8,63 +9,59 @@ type Props = {
 };
 
 export default function RedeemScanner({ onDetected, isActive }: Props) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [status, setStatus] = useState("מאתחל מצלמה...");
+  const hasDetectedRef = useRef(false);
+  const lastDetectedRef = useRef<string | null>(null);
+
+  const [status, setStatus] = useState("מוכן לסריקה");
   const [errorMessage, setErrorMessage] = useState("");
 
+  const paused = useMemo(() => !isActive, [isActive]);
+
   useEffect(() => {
-    let stream: MediaStream | null = null;
+    if (!isActive) return;
+    hasDetectedRef.current = false;
+    lastDetectedRef.current = null;
+    setErrorMessage("");
+    setStatus("מוכן לסריקה");
+  }, [isActive]);
 
-    const startCamera = async () => {
-      if (!isActive) return;
+  const extractTokenFromRawValue = (rawValue: string): string | null => {
+    const value = (rawValue || "").trim();
+    if (!value) return null;
 
+    // If it's already a token (UUID or similar), use it as-is.
+    if (!value.includes("?") && !value.includes("://") && value.length >= 6) {
+      return value;
+    }
+
+    // Try URL parsing first (works for full links like http://.../redeem?token=...)
+    try {
+      const url = new URL(value);
+      const token = url.searchParams.get("token");
+      if (token && token.trim()) return token.trim();
+    } catch {
+      // ignore
+    }
+
+    // Fallback regex for cases like "redeem?token=..." without full origin
+    const match = value.match(/[?&]token=([^&]+)/i);
+    if (match?.[1]) {
       try {
-        if (!navigator.mediaDevices?.getUserMedia) {
-          setErrorMessage("הדפדפן לא תומך בפתיחת מצלמה");
-          setStatus("");
-          return;
-        }
-
-        setStatus("מבקש הרשאת מצלמה...");
-
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
-          audio: false,
-        });
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-
-        setStatus("המצלמה נפתחה בהצלחה");
-        setErrorMessage("");
-      } catch (error: any) {
-        console.error("getUserMedia error:", error);
-
-        const message =
-          error?.name === "NotAllowedError"
-            ? "הגישה למצלמה נחסמה. אשר הרשאה למצלמה בדפדפן."
-            : error?.name === "NotFoundError"
-            ? "לא נמצאה מצלמה זמינה במכשיר."
-            : error?.name === "NotReadableError"
-            ? "המצלמה תפוסה על ידי אפליקציה אחרת או לא זמינה."
-            : error?.name === "SecurityError"
-            ? "המצלמה זמינה רק ב־localhost או ב־HTTPS."
-            : "לא ניתן לפתוח את המצלמה.";
-
-        setErrorMessage(message);
-        setStatus("");
+        return decodeURIComponent(match[1]).trim();
+      } catch {
+        return match[1].trim();
       }
-    };
+    }
 
-    startCamera();
+    return null;
+  };
 
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-    };
+  useEffect(() => {
+    if (!isActive) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setErrorMessage("הדפדפן לא תומך בפתיחת מצלמה");
+      setStatus("");
+    }
   }, [isActive]);
 
   if (!isActive) return null;
@@ -87,16 +84,53 @@ export default function RedeemScanner({ onDetected, isActive }: Props) {
           position: "relative",
         }}
       >
-        <video
-          ref={videoRef}
-          muted
-          playsInline
-          autoPlay
-          style={{
-            width: "100%",
-            height: 320,
-            objectFit: "cover",
-            display: "block",
+        <Scanner
+          paused={paused}
+          allowMultiple={false}
+          scanDelay={350}
+          constraints={{
+            facingMode: { ideal: "environment" },
+          }}
+          styles={{
+            container: {
+              width: "100%",
+              height: 320,
+            },
+            video: {
+              width: "100%",
+              height: 320,
+              objectFit: "cover",
+              display: "block",
+            },
+          }}
+          onScan={(detectedCodes) => {
+            if (!isActive) return;
+            if (hasDetectedRef.current) return;
+
+            const rawValue = detectedCodes?.[0]?.rawValue || "";
+            const token = extractTokenFromRawValue(rawValue);
+
+            if (!token) {
+              setStatus("זוהה QR אבל לא נמצא token");
+              return;
+            }
+
+            if (lastDetectedRef.current === token) {
+              return;
+            }
+
+            hasDetectedRef.current = true;
+            lastDetectedRef.current = token;
+            setStatus("זוהה קוד, מאמת...");
+            setErrorMessage("");
+            onDetected(token);
+          }}
+          onError={(err) => {
+            console.error("QR scanner error:", err);
+            setStatus("");
+            setErrorMessage(
+              "לא הצלחנו להפעיל את הסריקה. ודא שיש הרשאת מצלמה או עבור להזנה ידנית."
+            );
           }}
         />
       </div>

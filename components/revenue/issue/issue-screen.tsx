@@ -127,12 +127,72 @@ export default function IssueScreen() {
       >
         <IssueHeader />
 
-        {flowState === "idle" && !autoIssue && (
+        {flowState === "idle" && !autoIssue && !offerIdFromQuery && (
           <OfferPicker
             offers={offers}
             selectedOffer={selectedOffer}
             onSelectOffer={handleSelectOffer}
           />
+        )}
+
+        {flowState === "idle" && !autoIssue && offerIdFromQuery && selectedOffer && (
+          <div
+            style={{
+              background: "#ffffff",
+              borderRadius: 24,
+              border: "1px solid #e5e7eb",
+              padding: 20,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 14,
+                color: "#6b7280",
+                marginBottom: 8,
+              }}
+            >
+              ההצעה שנבחרה
+            </div>
+
+            <div
+              style={{
+                fontSize: 24,
+                fontWeight: 800,
+                color: "#111827",
+                marginBottom: 10,
+              }}
+            >
+              {selectedOffer.title}
+            </div>
+
+            <div
+              style={{
+                fontSize: 15,
+                color: "#4b5563",
+                lineHeight: 1.6,
+                marginBottom: 16,
+              }}
+            >
+              {selectedOffer.description || "ללא תיאור"}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handleCreateCoupon(selectedOffer)}
+              style={{
+                width: "100%",
+                padding: "14px 16px",
+                borderRadius: 16,
+                border: "none",
+                background: "#111827",
+                color: "#ffffff",
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              הנפק קופון
+            </button>
+          </div>
         )}
 
         {flowState === "idle" && autoIssue && selectedOffer && (

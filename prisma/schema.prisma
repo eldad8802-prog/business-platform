@@ -201,6 +201,7 @@ model Offer {
   title               String
   description         String?
   customerBenefitText String
+  imageUrl            String?
   validUntil          DateTime
   isActive            Boolean  @default(true)
   createdAt           DateTime @default(now())
@@ -215,6 +216,7 @@ model Offer {
 
 model Coupon {
   id                Int              @id @default(autoincrement())
+  publicId          String           @unique @db.Uuid @default(uuid())
   offerId           Int
   issuingBusinessId Int
   token             String           @unique

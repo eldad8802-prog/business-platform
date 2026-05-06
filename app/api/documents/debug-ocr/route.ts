@@ -17,6 +17,10 @@ function safeExtFromMime(mimeType: string): string {
 }
 
 export async function POST(req: Request) {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   let tempFilePath: string | null = null;
 
   try {

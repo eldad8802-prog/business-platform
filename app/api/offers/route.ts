@@ -42,6 +42,10 @@ export async function POST(req: NextRequest) {
       typeof body.customerBenefitText === "string"
         ? body.customerBenefitText.trim()
         : "";
+    const imageUrl =
+      typeof body.imageUrl === "string" && body.imageUrl.trim()
+        ? body.imageUrl.trim()
+        : null;
     const validUntilRaw = body.validUntil;
     const validUntil = new Date(validUntilRaw);
 
@@ -50,6 +54,7 @@ export async function POST(req: NextRequest) {
       title,
       description,
       customerBenefitText,
+      imageUrl,
       validUntil,
     });
 

@@ -18,6 +18,10 @@ export default function SupplierPurchasesHubPage() {
     router.push("/inventory/supplier-purchases/history");
   }
 
+  function goToImport() {
+    router.push("/inventory/supplier-purchases/import");
+  }
+
   return (
     <div dir="rtl" style={{ minHeight: "100vh", background: "#f8fafc" }}>
       <PageHeader title="הזמנות ספק" />
@@ -158,6 +162,35 @@ export default function SupplierPurchasesHubPage() {
               }}
             >
               צפייה בהזמנות שאושרו או בוטלו
+            </div>
+          </button>
+
+          {/* CSV Import */}
+          <button
+            onClick={goToImport}
+            style={{
+              border: "1px solid #e5e7eb",
+              borderRadius: 22,
+              background: "#ffffff",
+              padding: 18,
+              textAlign: "right",
+              cursor: "pointer",
+              boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+            }}
+          >
+            <div style={{ fontSize: 18, fontWeight: 950, color: "#111827" }}>
+              📄 ייבוא CSV
+            </div>
+
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 13,
+                color: "#6b7280",
+                lineHeight: 1.5,
+              }}
+            >
+              העלאת קובץ מהספק ליצירת טיוטות לבדיקה לפני קליטת מלאי
             </div>
           </button>
         </section>

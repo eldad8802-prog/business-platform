@@ -3,12 +3,19 @@ import { prisma } from "@/lib/prisma";
 import { InventoryMovementReason } from "@prisma/client";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
 import { createPendingMatch } from "@/lib/services/inventory/pending-match.service";
+import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
 
-// 🔐 זה key זמני - בהמשך נכניס ל-DB
-const POS_SECRET = "POS_SECRET_123";
+// Production: set POS_INGEST_SECRET in the deployment environment (never hardcode).
 
 function unauthorized() {
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+}
+
+function misconfigured() {
+  return NextResponse.json(
+    { error: "Misconfigured POS ingest business" },
+    { status: 500 }
+  );
 }
 
 type POSSaleItem = {
@@ -20,16 +27,56 @@ type POSSaleItem = {
 
 export async function POST(request: NextRequest) {
   try {
+    const posIngestSecret = process.env.POS_INGEST_SECRET?.trim();
+
+    if (!posIngestSecret) {
+      console.error("POS_INGEST_SECRET is not configured");
+      return unauthorized();
+    }
+
     // 🔐 אימות חיבור קופה
     const key = request.headers.get("x-pos-key");
 
-    if (!key || key !== POS_SECRET) {
+    if (!key || key !== posIngestSecret) {
       return unauthorized();
+    }
+
+    const configuredBusinessId = Number(process.env.POS_INGEST_BUSINESS_ID);
+
+    if (!configuredBusinessId || Number.isNaN(configuredBusinessId)) {
+      console.error("POS_INGEST_BUSINESS_ID is not configured");
+      return misconfigured();
+    }
+
+    const ip = getClientIp(request);
+    const ipLimit = consumeRateLimit({
+      key: `inventory:pos:sale:ip:${ip}`,
+      limit: 120,
+      windowMs: 60_000,
+    });
+    if (!ipLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429 }
+      );
+    }
+
+    const businessId = configuredBusinessId;
+    const businessLimit = consumeRateLimit({
+      key: `inventory:pos:sale:business:${businessId}`,
+      limit: 600,
+      windowMs: 60_000,
+    });
+    if (!businessLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429 }
+      );
     }
 
     const body = await request.json();
 
-    const { externalSaleId, source = "POS", businessId, items } = body;
+    const { externalSaleId, source = "POS", items } = body;
 
     if (!externalSaleId || !businessId || !Array.isArray(items)) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });

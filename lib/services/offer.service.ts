@@ -7,12 +7,19 @@ type CreateOfferInput = {
   title: string;
   description: string | null;
   customerBenefitText: string;
+  imageUrl?: string | null;
   validUntil: Date;
 };
 
 export async function createOffer(input: CreateOfferInput) {
-  const { businessId, title, description, customerBenefitText, validUntil } =
-    input;
+  const {
+    businessId,
+    title,
+    description,
+    customerBenefitText,
+    imageUrl,
+    validUntil,
+  } = input;
 
   if (!businessId || Number.isNaN(businessId)) {
     throw new UnauthorizedError();
@@ -40,6 +47,7 @@ export async function createOffer(input: CreateOfferInput) {
       title,
       description,
       customerBenefitText,
+      imageUrl: imageUrl ?? null,
       validUntil,
       isActive: true,
     },

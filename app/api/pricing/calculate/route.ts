@@ -6,6 +6,7 @@ import { normalizeInput } from "@/lib/pricing/normalize";
 import { calculatePricing } from "@/lib/pricing/calculate";
 import { checkMarket } from "@/lib/pricing/market-check";
 import { buildExplanation } from "@/lib/pricing/explain";
+import { buildPricingResponse } from "@/lib/pricing/build-pricing-response";
 
 type ProfitIndicator = "LOW" | "OK" | "HIGH";
 
@@ -151,6 +152,13 @@ export async function POST(req: Request) {
       profitIndicator,
     });
 
+    const transparency = buildPricingResponse({
+      calculationResult: result,
+      marketCheckResult: marketStatus,
+      input: normalized,
+      recommendedPrice: result.recommendedPrice,
+    });
+
     const savedCalculation = await prisma.pricingCalculation.create({
       data: {
         businessId: user.businessId,
@@ -209,6 +217,7 @@ export async function POST(req: Request) {
         high: normalized.marketHigh ?? null,
       },
       explanation,
+      transparency,
     });
   } catch (error) {
     console.error("pricing calculate error:", error);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import RedeemScanner from "./redeem-scanner";
 
@@ -353,23 +353,26 @@ function InlineRedeemError({ message, onRetry, onManual }: ErrorProps) {
 }
 
 function mapRedeemError(data: any) {
-  const code = data?.code;
   const backendError = data?.error;
 
-  if (code === "COUPON_ALREADY_REDEEMED") {
+  if (backendError === "Coupon was already redeemed") {
     return "הקופון כבר מומש בעבר";
   }
 
-  if (code === "COUPON_EXPIRED") {
+  if (backendError === "Coupon has expired") {
     return "תוקף הקופון פג ולא ניתן לממש אותו";
   }
 
-  if (code === "COUPON_NOT_FOUND") {
+  if (backendError === "Coupon not found") {
     return "הקופון לא נמצא. נסה לסרוק שוב או להזין ידנית";
   }
 
-  if (code === "UNAUTHORIZED") {
+  if (backendError === "Unauthorized") {
     return "אין הרשאה לבצע מימוש. התחבר מחדש";
+  }
+
+  if (backendError === "Coupon was cancelled") {
+    return "הקופון בוטל ולא ניתן לממש אותו";
   }
 
   if (typeof backendError === "string" && backendError.trim()) {
@@ -388,11 +391,14 @@ export default function RedeemScreen() {
   const [result, setResult] = useState<RedeemResult | null>(null);
   const [isScanning, setIsScanning] = useState(true);
   const [autoTriggered, setAutoTriggered] = useState(false);
+  const redeemInFlightRef = useRef(false);
 
   const authToken =
     typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
   const handleRedeem = async (tokenValue?: string) => {
+    if (redeemInFlightRef.current) return;
+
     const finalToken = (tokenValue || tokenInput).trim();
 
     if (!finalToken) {
@@ -408,6 +414,7 @@ export default function RedeemScreen() {
     }
 
     try {
+      redeemInFlightRef.current = true;
       setIsScanning(false);
       setFlowState("validating");
       setErrorMessage("");
@@ -430,6 +437,7 @@ export default function RedeemScreen() {
     } catch (err: any) {
       setErrorMessage(err?.message || "שגיאה לא ידועה");
       setFlowState("error");
+      redeemInFlightRef.current = false;
     }
   };
 
@@ -446,6 +454,7 @@ export default function RedeemScreen() {
   }, [searchParams, autoTriggered]);
 
   const handleReset = () => {
+    redeemInFlightRef.current = false;
     setFlowState("scan");
     setTokenInput("");
     setErrorMessage("");

@@ -2,10 +2,14 @@ import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import path from "path";
 import { mkdir, unlink, writeFile } from "fs/promises";
+import { getCurrentUser } from "@/lib/auth";
 import { runGoogleVisionOCR } from "@/lib/services/documents/google-vision-ocr.service";
 import { runUnifiedDocumentIntelligence } from "@/lib/services/documents/unified-extraction-engine.service";
+import { consumeRateLimit } from "@/lib/security/rate-limit";
 
 export const runtime = "nodejs";
+
+const MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 15MB
 
 function safeExtFromMime(mimeType: string): string {
   const t = mimeType.toLowerCase();
@@ -18,10 +22,44 @@ function safeExtFromMime(mimeType: string): string {
   return "";
 }
 
+function isAllowedMime(mimeType: string): boolean {
+  const m = String(mimeType || "").toLowerCase().trim();
+  return m === "application/pdf" || m.startsWith("image/");
+}
+
 export async function POST(req: Request) {
   let tempFilePath: string | null = null;
 
   try {
+    const user = await getCurrentUser(req);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const userLimit = consumeRateLimit({
+      key: `documents:upload:user:${user.id}`,
+      limit: 10,
+      windowMs: 60 * 60_000,
+    });
+    if (!userLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429 }
+      );
+    }
+
+    const businessLimit = consumeRateLimit({
+      key: `documents:upload:business:${user.businessId}`,
+      limit: 30,
+      windowMs: 24 * 60 * 60_000,
+    });
+    if (!businessLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429 }
+      );
+    }
+
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
 
@@ -29,7 +67,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No file" }, { status: 400 });
     }
 
-    const businessId = 1;
+    if (typeof file.type !== "string" || !isAllowedMime(file.type)) {
+      return NextResponse.json(
+        { error: "Unsupported file type" },
+        { status: 400 }
+      );
+    }
+
+    if (typeof file.size !== "number" || file.size > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { error: "File too large (max 15MB)" },
+        { status: 413 }
+      );
+    }
+
+    const businessId = user.businessId;
 
     const tmpDir = path.join(process.cwd(), "tmp", "ocr");
     await mkdir(tmpDir, { recursive: true });

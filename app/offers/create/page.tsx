@@ -59,6 +59,9 @@ export default function OfferCreatePage() {
   const [title, setTitle] = useState("");
   const [customerBenefitText, setCustomerBenefitText] = useState("");
   const [description, setDescription] = useState("");
+  const [imageUrl, setImageUrl] = useState<string>("");
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
 
   const [durationType, setDurationType] = useState<DurationType>("day");
   const [validUntil, setValidUntil] = useState("");
@@ -257,11 +260,79 @@ export default function OfferCreatePage() {
     setTitle("");
     setCustomerBenefitText("");
     setDescription("");
+    setImageUrl("");
+    setImageUploading(false);
+    setImageUploadError(null);
     setDurationType("day");
     setValidUntil("");
     setIsSubmitting(false);
     setSubmitError(null);
     setCreatedOffer(null);
+  };
+
+  const uploadImage = async (file: File) => {
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      throw new Error("לא נמצא טוקן התחברות");
+    }
+
+    if (!file || file.size <= 0) {
+      throw new Error("לא נבחר קובץ");
+    }
+
+    const maxBytes = 5 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      throw new Error("הקובץ גדול מדי (מקסימום 5MB)");
+    }
+
+    if (!file.type.startsWith("image/")) {
+      throw new Error("ניתן להעלות תמונה בלבד");
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await fetch("/api/offers/image", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data?.error || "שגיאה בהעלאת התמונה");
+    }
+
+    const url = typeof data?.url === "string" ? data.url : "";
+    if (!url) {
+      throw new Error("העלאה הצליחה אבל לא חזר URL");
+    }
+
+    return url;
+  };
+
+  const handleImageSelect = async (file: File | null) => {
+    if (!file) return;
+
+    try {
+      setImageUploading(true);
+      setImageUploadError(null);
+
+      const url = await uploadImage(file);
+      setImageUrl(url);
+    } catch (err) {
+      console.error("uploadImage error:", err);
+      setImageUrl("");
+      setImageUploadError(
+        err instanceof Error ? err.message : "שגיאה בהעלאת התמונה"
+      );
+    } finally {
+      setImageUploading(false);
+    }
   };
 
   const createOffer = async () => {
@@ -285,6 +356,7 @@ export default function OfferCreatePage() {
           title: title.trim(),
           description: description.trim() ? description.trim() : undefined,
           customerBenefitText: customerBenefitText.trim(),
+          imageUrl: imageUrl.trim() ? imageUrl.trim() : undefined,
           validUntil,
         }),
       });
@@ -292,11 +364,11 @@ export default function OfferCreatePage() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data?.error || "שגיאה ביצירת ההצעה");
+        throw new Error(data?.error || "שגיאה ביצירת הקופון");
       }
 
       if (!data?.offer) {
-        throw new Error("ההצעה נוצרה אבל לא חזר אובייקט offer");
+        throw new Error("הקופון נוצר אבל לא חזר אובייקט offer");
       }
 
       setCreatedOffer(data.offer);
@@ -304,7 +376,7 @@ export default function OfferCreatePage() {
     } catch (error) {
       console.error("createOffer error:", error);
       setSubmitError(
-        error instanceof Error ? error.message : "שגיאה ביצירת ההצעה"
+        error instanceof Error ? error.message : "שגיאה ביצירת הקופון"
       );
     } finally {
       setIsSubmitting(false);
@@ -356,7 +428,7 @@ export default function OfferCreatePage() {
                 marginBottom: 12,
               }}
             >
-              שכבת קופונים / יצירת הצעה
+              קופונים / יצירת קופון חדש
             </div>
 
             <h1
@@ -367,7 +439,7 @@ export default function OfferCreatePage() {
                 color: "#1f2937",
               }}
             >
-              בונים הצעה שתהיה ברורה, פשוטה ושימושית באמת
+              בונים קופון חדש שיהיה ברור, פשוט ושימושי באמת
             </h1>
 
             <p
@@ -379,8 +451,8 @@ export default function OfferCreatePage() {
                 color: "#4b5563",
               }}
             >
-              זהו השלב הראשון בזרימת הקופונים. כאן יוצרים הצעה שאפשר יהיה להנפיק
-              ממנה קופון בשלב הבא.
+              זהו שלב יצירת הקופון. אחרי שתסיים כאן, תעבור למסך ההנפקה כדי ליצור
+              QR ולשתף את הקופון ללקוח.
             </p>
           </div>
 
@@ -403,7 +475,7 @@ export default function OfferCreatePage() {
                     marginBottom: 8,
                   }}
                 >
-                  ההצעה נוצרת עבור העסק:
+                  הקופון נוצר עבור העסק:
                 </div>
 
                 {profileLoading ? (
@@ -464,7 +536,7 @@ export default function OfferCreatePage() {
                   color: "#111827",
                 }}
               >
-                איזה סוג הצעה אתה רוצה ליצור?
+                איזה סוג הטבה תרצה ליצור?
               </h2>
 
               <p
@@ -476,8 +548,8 @@ export default function OfferCreatePage() {
                   color: "#6b7280",
                 }}
               >
-                בחר סוג הצעה פשוט וברור. ככל שההצעה ברורה יותר, כך יהיה קל יותר
-                להסביר אותה, לשלוח אותה ללקוח, ולהפוך אותה לשימוש אמיתי.
+                בחר סוג הטבה פשוט וברור. ככל שהקופון ברור יותר, כך יהיה קל יותר
+                להסביר אותו, לשלוח אותו ללקוח, ולהפוך אותו לשימוש אמיתי.
               </p>
 
               <div
@@ -549,8 +621,8 @@ export default function OfferCreatePage() {
                 }}
               >
                 {offerType
-                  ? `נבחר סוג הצעה: ${selectedOfferTypeLabel}`
-                  : "עדיין לא נבחר סוג הצעה"}
+                  ? `נבחר סוג הטבה: ${selectedOfferTypeLabel}`
+                  : "עדיין לא נבחר סוג הטבה"}
               </div>
 
               <div
@@ -597,8 +669,8 @@ export default function OfferCreatePage() {
                   color: "#6b7280",
                 }}
               >
-                כאן מנסחים את ליבת ההצעה. הצעה טובה היא הצעה שקל להבין במשפט אחד,
-                ושלקוח באמת ירצה להשתמש בה.
+                כאן מנסחים את ליבת הקופון. קופון טוב הוא קופון שקל להבין במשפט אחד,
+                ושלקוח באמת ירצה להשתמש בו.
               </p>
 
               <div
@@ -644,11 +716,11 @@ export default function OfferCreatePage() {
                       color: "#111827",
                     }}
                   >
-                    איך תקרא להצעה?
+                    איך יקראו לקופון?
                   </label>
                   <input
                     type="text"
-                    placeholder="למשל: הנחה ללקוחות חדשים"
+                    placeholder="למשל: הטבה ללקוחות חדשים"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     style={fieldStyle}
@@ -664,7 +736,7 @@ export default function OfferCreatePage() {
                       color: "#111827",
                     }}
                   >
-                    מה הלקוח מקבל?
+                    מה הלקוח מקבל בקופון?
                   </label>
                   <input
                     type="text"
@@ -696,6 +768,103 @@ export default function OfferCreatePage() {
                       resize: "vertical",
                     }}
                   />
+                </div>
+
+                <div>
+                  <label
+                    style={{
+                      display: "block",
+                      marginBottom: 8,
+                      fontWeight: 700,
+                      color: "#111827",
+                    }}
+                  >
+                    תמונה לקופון (אופציונלי)
+                  </label>
+
+                  <div
+                    style={{
+                      border: "1px solid #d1d5db",
+                      borderRadius: 14,
+                      padding: 14,
+                      background: "#ffffff",
+                      display: "grid",
+                      gap: 12,
+                    }}
+                  >
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={imageUploading}
+                      onChange={(e) =>
+                        handleImageSelect(e.target.files?.[0] || null)
+                      }
+                      style={{
+                        width: "100%",
+                        fontSize: 14,
+                      }}
+                    />
+
+                    {imageUploading ? (
+                      <div
+                        style={{
+                          fontSize: 14,
+                          color: "#6b7280",
+                          fontWeight: 600,
+                        }}
+                      >
+                        מעלה תמונה…
+                      </div>
+                    ) : imageUploadError ? (
+                      <div
+                        style={{
+                          fontSize: 14,
+                          color: "#b91c1c",
+                          fontWeight: 700,
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        {imageUploadError}
+                      </div>
+                    ) : null}
+
+                    {imageUrl ? (
+                      <div
+                        style={{
+                          borderRadius: 14,
+                          overflow: "hidden",
+                          border: "1px solid #e5e7eb",
+                          background: "#f9fafb",
+                        }}
+                      >
+                        <img
+                          src={imageUrl}
+                          alt="תצוגה מקדימה לתמונה של הקופון"
+                          style={{
+                            width: "100%",
+                            height: 180,
+                            objectFit: "cover",
+                            display: "block",
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          borderRadius: 14,
+                          border: "1px dashed #d1d5db",
+                          background: "#f9fafb",
+                          color: "#6b7280",
+                          padding: 14,
+                          fontSize: 13,
+                          lineHeight: 1.6,
+                          textAlign: "right",
+                        }}
+                      >
+                        אפשר להעלות תמונה של מוצר/שירות כדי שהקופון יהיה ברור יותר.
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -737,7 +906,7 @@ export default function OfferCreatePage() {
                   color: "#111827",
                 }}
               >
-                כמה זמן ההצעה תהיה תקפה?
+                כמה זמן הקופון יהיה תקף?
               </h2>
 
               <p
@@ -749,8 +918,8 @@ export default function OfferCreatePage() {
                   color: "#6b7280",
                 }}
               >
-                בחר תוקף ברור להצעה. תוקף מוגדר היטב נותן אמינות, מונע בלבול,
-                ומכין את ההצעה להנפקה אמיתית.
+                בחר תוקף ברור לקופון. תוקף מוגדר היטב נותן אמינות, מונע בלבול,
+                ומכין את הקופון להנפקה ולשיתוף.
               </p>
 
               <div
@@ -846,7 +1015,7 @@ export default function OfferCreatePage() {
                       marginBottom: 6,
                     }}
                   >
-                    נבחר תוקף להצעה
+                    נבחר תוקף לקופון
                   </div>
 
                   <div
@@ -911,7 +1080,7 @@ export default function OfferCreatePage() {
                   onClick={createOffer}
                   style={actionButtonStyle(canContinueStep3 && !isSubmitting)}
                 >
-                  {isSubmitting ? "יוצר הצעה..." : "צור הצעה"}
+                  {isSubmitting ? "יוצר קופון..." : "צור קופון"}
                 </button>
               </div>
             </>
@@ -936,7 +1105,7 @@ export default function OfferCreatePage() {
                     marginBottom: 8,
                   }}
                 >
-                  ההצעה נוצרה בהצלחה
+                  הקופון כמעט מוכן
                 </div>
 
                 <div
@@ -947,7 +1116,7 @@ export default function OfferCreatePage() {
                     lineHeight: 1.2,
                   }}
                 >
-                  ההצעה שלך מוכנה לשלב הבא 🎉
+                  הקופון שלך מוכן לשלב הבא 🎉
                 </div>
 
                 <p
@@ -959,8 +1128,8 @@ export default function OfferCreatePage() {
                     fontSize: 15,
                   }}
                 >
-                  זהו השלב הראשון בזרימת הקופונים. עכשיו אפשר להמשיך ישירות
-                  להנפקת קופון מתוך ההצעה שיצרת.
+                  עכשיו אפשר להמשיך להנפקת קופון (QR) ולשיתוף ללקוח — זה השלב הבא
+                  שמתרחש במסך הבא.
                 </p>
               </div>
 
@@ -982,7 +1151,7 @@ export default function OfferCreatePage() {
                     marginBottom: 8,
                   }}
                 >
-                  סיכום ההצעה שנוצרה
+                  סיכום הקופון
                 </div>
 
                 <div
@@ -1054,7 +1223,7 @@ export default function OfferCreatePage() {
                     color: "#6b7280",
                   }}
                 >
-                  מזהה הצעה: #{createdOffer.id}
+                  מזהה קופון: #{createdOffer.id}
                 </div>
               </div>
 
@@ -1088,7 +1257,7 @@ export default function OfferCreatePage() {
                   onClick={resetForm}
                   style={secondaryButtonStyle}
                 >
-                  צור הצעה נוספת
+                  צור קופון נוסף
                 </button>
               </div>
             </>

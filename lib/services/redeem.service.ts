@@ -131,6 +131,15 @@ export async function redeemCoupon(
 
     const updatedCoupon = await tx.coupon.findUnique({
       where: { id: coupon.id },
+      include: {
+        offer: {
+          select: {
+            title: true,
+            customerBenefitText: true,
+            description: true,
+          },
+        },
+      },
     });
 
     if (!updatedCoupon) {

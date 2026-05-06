@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ConversationList } from "@/components/inbox/ConversationList";
+import { ConversationView } from "@/components/inbox/ConversationView";
 
 type Message = {
   id: number;
@@ -141,7 +144,11 @@ function getSmartIndicator(params: {
 }
 
 export default function InboxPage() {
-  const token = "1";
+  const token = "Bearer 1";
+
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const [viewMode, setViewMode] = useState<"OPEN" | "CLOSED">("OPEN");
 
@@ -167,6 +174,45 @@ export default function InboxPage() {
       window.removeEventListener("resize", handleResize);
     };
   }, []);
+
+  function updateConversationIdInUrl(conversationId: number | null, opts?: { replace?: boolean }) {
+    const params = new URLSearchParams(searchParams.toString());
+
+    if (conversationId) {
+      params.set("conversationId", String(conversationId));
+    } else {
+      params.delete("conversationId");
+    }
+
+    const query = params.toString();
+    const nextUrl = query ? `${pathname}?${query}` : pathname;
+
+    if (opts?.replace) {
+      router.replace(nextUrl);
+      return;
+    }
+
+    router.push(nextUrl);
+  }
+
+  useEffect(() => {
+    const raw = searchParams.get("conversationId");
+
+    if (!raw) {
+      if (activeConversationId !== null) {
+        setActiveConversationId(null);
+      }
+      return;
+    }
+
+    const parsed = Number(raw);
+    const nextId = parsed && !Number.isNaN(parsed) ? parsed : null;
+
+    if (nextId !== activeConversationId) {
+      setActiveConversationId(nextId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   async function loadConversations() {
     try {
@@ -204,6 +250,7 @@ export default function InboxPage() {
         activeConversationId &&
         !filtered.some((conversation: Conversation) => conversation.id === activeConversationId)
       ) {
+        updateConversationIdInUrl(null, { replace: true });
         setActiveConversationId(null);
         setMessages([]);
         setSuggestions([]);
@@ -288,20 +335,18 @@ export default function InboxPage() {
       }
 
       await loadConversations();
-      setActiveConversationId(data.conversation.id);
+      updateConversationIdInUrl(data.conversation.id);
       setMessages([]);
       setSuggestions([]);
       setInput("");
       setSelectedSuggestionId(null);
-
-      await loadMessages(data.conversation.id);
     } catch (error) {
       console.error("handleCreateConversation error", error);
     }
   }
 
   function handleSelectConversation(id: number) {
-    setActiveConversationId(id);
+    updateConversationIdInUrl(id);
     setInput("");
     setSelectedSuggestionId(null);
   }
@@ -373,6 +418,8 @@ export default function InboxPage() {
     if (!input.trim() || !activeConversationId) return;
 
     try {
+      const customerId = activeConversation?.customerId ?? null;
+
       if (selectedSuggestionId) {
         const selected = suggestions.find((s) => s.id === selectedSuggestionId);
 
@@ -404,7 +451,7 @@ export default function InboxPage() {
         },
         body: JSON.stringify({
           conversationId: activeConversationId,
-          customerId: 1,
+          ...(customerId != null ? { customerId } : {}),
           contentText: input,
           direction: "OUTBOUND",
           senderType: "BUSINESS_USER",
@@ -459,6 +506,8 @@ export default function InboxPage() {
     if (!input.trim() || !activeConversationId) return;
 
     try {
+      const customerId = activeConversation?.customerId ?? null;
+
       const res = await fetch("/api/message", {
         method: "POST",
         headers: {
@@ -467,7 +516,7 @@ export default function InboxPage() {
         },
         body: JSON.stringify({
           conversationId: activeConversationId,
-          customerId: 1,
+          ...(customerId ? { customerId } : null),
           contentText: input,
           direction: "INBOUND",
           senderType: "CUSTOMER",
@@ -516,6 +565,7 @@ export default function InboxPage() {
         return;
       }
 
+      updateConversationIdInUrl(null);
       setActiveConversationId(null);
       setMessages([]);
       setSuggestions([]);
@@ -606,413 +656,47 @@ export default function InboxPage() {
         boxSizing: "border-box",
       }}
     >
-      <div
-        style={{
-          width: isMobile ? "100%" : 320,
-          maxWidth: "100%",
-          minWidth: 0,
-          borderLeft: isMobile ? "none" : "1px solid #e5e7eb",
-          borderBottom: isMobile ? "1px solid #e5e7eb" : "none",
-          padding: isMobile ? 12 : 16,
-          boxSizing: "border-box",
-          background: "#ffffff",
-          flexShrink: 0,
+      <ConversationList
+        isMobile={isMobile}
+        viewMode={viewMode}
+        onChangeViewMode={setViewMode}
+        onCreateConversation={handleCreateConversation}
+        conversations={conversations}
+        activeConversationId={activeConversationId}
+        onSelectConversation={handleSelectConversation}
+        getStageLabel={getStageLabel}
+        styles={{
+          softButtonStyle,
+          accentButtonStyle,
+          warmButtonStyle,
         }}
-      >
-        <h3 style={{ marginTop: 0, marginBottom: 12, color: "#111827" }}>שיחות</h3>
+      />
 
-        <div
-          style={{
-            display: "flex",
-            gap: 10,
-            marginBottom: 12,
-            flexWrap: "wrap",
-          }}
-        >
-          <Pressable
-            onPress={() => setViewMode("OPEN")}
-            style={{
-              ...(viewMode === "OPEN" ? accentButtonStyle : softButtonStyle),
-              flex: "1 1 140px",
-            }}
-          >
-            פתוחות
-          </Pressable>
-
-          <Pressable
-            onPress={() => setViewMode("CLOSED")}
-            style={{
-              ...(viewMode === "CLOSED" ? warmButtonStyle : softButtonStyle),
-              flex: "1 1 140px",
-            }}
-          >
-            סגורות
-          </Pressable>
-        </div>
-
-        <Pressable
-          onPress={handleCreateConversation}
-          style={{
-            ...accentButtonStyle,
-            width: "100%",
-            marginBottom: 16,
-            minHeight: 56,
-            fontSize: 18,
-          }}
-        >
-          התחל שיחה חדשה
-        </Pressable>
-
-        {conversations.length === 0 && (
-          <div style={{ color: "#6b7280", padding: "8px 2px" }}>
-            {viewMode === "OPEN" ? "אין שיחות פתוחות" : "אין שיחות סגורות"}
-          </div>
-        )}
-
-        {conversations.map((conversation) => (
-          <Pressable
-            key={conversation.id}
-            onPress={() => handleSelectConversation(conversation.id)}
-            style={{
-              width: "100%",
-              display: "block",
-              textAlign: "right",
-              padding: 14,
-              marginBottom: 10,
-              border:
-                activeConversationId === conversation.id
-                  ? "1px solid #86efac"
-                  : "1px solid #e5e7eb",
-              borderRadius: 16,
-              background:
-                activeConversationId === conversation.id
-                  ? "linear-gradient(180deg, #ecfdf5 0%, #d1fae5 100%)"
-                  : "#fff",
-              color: "#111",
-              boxShadow: "0 6px 20px rgba(15, 23, 42, 0.05)",
-              justifyContent: "flex-start",
-              alignItems: "stretch",
-            }}
-          >
-            <div style={{ fontWeight: 700 }}>שיחה #{conversation.id}</div>
-
-            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-              {conversation.channel} • {conversation.status}
-            </div>
-
-            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
-              שלב: {getStageLabel(conversation.currentStage)}
-            </div>
-
-            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
-              {new Date(conversation.startedAt).toLocaleString("he-IL")}
-            </div>
-          </Pressable>
-        ))}
-      </div>
-
-      <div
-        style={{
-          flex: "1 1 420px",
-          minWidth: 0,
-          padding: isMobile ? 14 : 20,
-          boxSizing: "border-box",
-          width: "100%",
-          maxWidth: "100%",
-          overflowX: "hidden",
+      <ConversationView
+        isMobile={isMobile}
+        viewMode={viewMode}
+        activeConversationId={activeConversationId}
+        activeConversation={activeConversation}
+        activeIndicator={activeIndicator}
+        getStageLabel={getStageLabel}
+        messages={messages}
+        suggestions={suggestions}
+        selectedSuggestionId={selectedSuggestionId}
+        input={input}
+        onInputChange={setInput}
+        onCloseConversation={handleCloseConversation}
+        onChooseSuggestion={handleChooseSuggestion}
+        onDismissSuggestion={handleDismissSuggestion}
+        onManualReply={handleManualReply}
+        onSendBusinessMessage={handleSendBusinessMessage}
+        onSimulateCustomerMessage={handleSimulateCustomerMessage}
+        styles={{
+          softButtonStyle,
+          accentButtonStyle,
+          warmButtonStyle,
+          dangerButtonStyle,
         }}
-      >
-        {!activeConversationId && !isMobile && (
-          <div
-            style={{
-              background: "#fff",
-              border: "1px solid #e5e7eb",
-              borderRadius: 20,
-              padding: isMobile ? 16 : 24,
-              boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
-            }}
-          >
-            <h2
-              style={{
-                marginTop: 0,
-                wordBreak: "break-word",
-                color: "#111827",
-              }}
-            >
-              Inbox
-            </h2>
-            <div
-              style={{
-                color: "#4b5563",
-                lineHeight: 1.8,
-                wordBreak: "break-word",
-                fontSize: isMobile ? 18 : 16,
-              }}
-            >
-              {viewMode === "OPEN"
-                ? 'בחר שיחה פתוחה קיימת או לחץ על "התחל שיחה חדשה"'
-                : "בחר שיחה סגורה לצפייה"}
-            </div>
-          </div>
-        )}
-
-        {activeConversationId && (
-          <div>
-            <div
-              style={{
-                marginBottom: 20,
-                padding: 16,
-                border: `1px solid ${activeIndicator.border}`,
-                borderRadius: 18,
-                background: "#ffffff",
-                width: "100%",
-                boxSizing: "border-box",
-                boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: isMobile ? "column" : "row",
-                  justifyContent: "space-between",
-                  alignItems: isMobile ? "stretch" : "center",
-                  gap: 12,
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <h2
-                    style={{
-                      margin: 0,
-                      wordBreak: "break-word",
-                      color: "#111827",
-                    }}
-                  >
-                    שיחה #{activeConversation?.id}
-                  </h2>
-
-                  <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>
-                    {activeConversation?.channel} • {activeConversation?.status}
-                  </div>
-
-                  <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
-                    שלב: {getStageLabel(activeConversation?.currentStage)}
-                  </div>
-
-                  {activeConversation?.status === "OPEN" && (
-                    <div style={{ marginTop: 12 }}>
-                      <Pressable
-                        onPress={handleCloseConversation}
-                        style={dangerButtonStyle}
-                      >
-                        סגור שיחה
-                      </Pressable>
-                    </div>
-                  )}
-                </div>
-
-                <div
-                  style={{
-                    padding: "10px 14px",
-                    borderRadius: 999,
-                    border: `1px solid ${activeIndicator.border}`,
-                    color: activeIndicator.color,
-                    fontWeight: 700,
-                    background: "#fff",
-                    whiteSpace: "nowrap",
-                    maxWidth: "100%",
-                    alignSelf: isMobile ? "flex-start" : "center",
-                  }}
-                >
-                  {activeIndicator.emoji} {activeIndicator.label}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 24 }}>
-              <h4 style={{ marginTop: 0, color: "#111827" }}>הודעות</h4>
-
-              {messages.length === 0 && (
-                <div style={{ color: "#6b7280" }}>אין הודעות בשיחה הזו</div>
-              )}
-
-              {messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  style={{
-                    padding: 12,
-                    marginBottom: 10,
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 14,
-                    background: "#fff",
-                    width: "100%",
-                    boxSizing: "border-box",
-                    overflowWrap: "anywhere",
-                    wordBreak: "break-word",
-                    boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
-                  }}
-                >
-                  <b>{msg.senderType}:</b> {msg.contentText}
-                </div>
-              ))}
-            </div>
-
-            <div style={{ marginBottom: 24 }}>
-              <h4 style={{ marginTop: 0, color: "#111827" }}>הצעות</h4>
-
-              {suggestions.length === 0 && (
-                <div style={{ color: "#6b7280" }}>אין הצעות כרגע</div>
-              )}
-
-              {suggestions.map((s) => (
-                <div
-                  key={s.id}
-                  style={{
-                    border:
-                      selectedSuggestionId === s.id
-                        ? "2px solid #22c55e"
-                        : "1px solid #d1d5db",
-                    borderRadius: 16,
-                    background:
-                      selectedSuggestionId === s.id ? "#f0fdf4" : "#ffffff",
-                    padding: 14,
-                    marginBottom: 12,
-                    width: "100%",
-                    boxSizing: "border-box",
-                    overflowX: "hidden",
-                    boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
-                  }}
-                >
-                  <div
-                    style={{
-                      marginBottom: 12,
-                      overflowWrap: "anywhere",
-                      wordBreak: "break-word",
-                      color: "#111827",
-                      lineHeight: 1.7,
-                    }}
-                  >
-                    {s.text}
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 8,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <Pressable
-                      onPress={() => handleChooseSuggestion(s)}
-                      style={{
-                        ...accentButtonStyle,
-                        flex: "1 1 120px",
-                      }}
-                    >
-                      בחר
-                    </Pressable>
-
-                    <Pressable
-                      onPress={() => handleChooseSuggestion(s)}
-                      style={{
-                        ...warmButtonStyle,
-                        flex: "1 1 120px",
-                      }}
-                    >
-                      ערוך
-                    </Pressable>
-
-                    <Pressable
-                      onPress={() => handleDismissSuggestion(s.id)}
-                      style={{
-                        ...softButtonStyle,
-                        flex: "1 1 120px",
-                      }}
-                    >
-                      דלג
-                    </Pressable>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {activeConversation?.status === "OPEN" && (
-              <div
-                style={{
-                  background: "#fff",
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 18,
-                  padding: isMobile ? 14 : 18,
-                  boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
-                }}
-              >
-                <h4 style={{ marginTop: 0, color: "#111827" }}>כתיבת הודעה</h4>
-
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  style={{
-                    width: "100%",
-                    maxWidth: "100%",
-                    height: 110,
-                    padding: 12,
-                    boxSizing: "border-box",
-                    borderRadius: 14,
-                    border: "1px solid #d1d5db",
-                    resize: "vertical",
-                    fontFamily: "inherit",
-                    fontSize: 16,
-                    outline: "none",
-                    color: "#111827",
-                    background: "#fcfcfc",
-                    WebkitAppearance: "none",
-                    appearance: "none",
-                    pointerEvents: "auto",
-                  }}
-                />
-
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 10,
-                    marginTop: 14,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <Pressable
-                    onPress={handleSendBusinessMessage}
-                    style={{
-                      ...accentButtonStyle,
-                      flex: "1 1 180px",
-                    }}
-                  >
-                    שלח כבעל עסק
-                  </Pressable>
-
-                  <Pressable
-                    onPress={handleManualReply}
-                    style={{
-                      ...softButtonStyle,
-                      flex: "1 1 180px",
-                    }}
-                  >
-                    נקה למענה עצמאי
-                  </Pressable>
-
-                  <Pressable
-                    onPress={handleSimulateCustomerMessage}
-                    style={{
-                      ...warmButtonStyle,
-                      flex: "1 1 180px",
-                    }}
-                  >
-                    שלח כלקוח
-                  </Pressable>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      />
     </div>
   );
 }

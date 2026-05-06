@@ -83,7 +83,20 @@ export async function createCouponFromOffer(
   }
 
   const token = randomUUID();
-  const qrValue = `http://localhost:3000/revenue/redeem?token=${token}`;
+  const baseUrl =
+    process.env.APP_BASE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.NODE_ENV === "development" ? "http://localhost:3000" : "");
+
+  if (!baseUrl) {
+    throw new Error(
+      "Missing APP_BASE_URL (or NEXT_PUBLIC_APP_URL). Cannot generate coupon qrValue in production."
+    );
+  }
+
+  const redeemUrl = new URL("/revenue/redeem", baseUrl);
+  redeemUrl.searchParams.set("token", token);
+  const qrValue = redeemUrl.toString();
 
   const coupon = await prisma.coupon.create({
     data: {

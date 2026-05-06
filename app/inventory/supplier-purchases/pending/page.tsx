@@ -28,6 +28,7 @@ type DraftLine = {
 type Draft = {
   id: number;
   supplierName: string | null;
+  externalOrderId?: string | null;
   status: string;
   createdAt?: string;
   lines: DraftLine[];
@@ -106,16 +107,13 @@ export default function PendingSupplierPurchasesPage() {
       setLoading(true);
       setError(null);
 
-      const [itemsData, draftsResponse] = await Promise.all([
-        getInventoryItems(),
-        fetch("/api/inventory/supplier-purchases", {
-          method: "GET",
-          headers: buildHeaders(),
-          cache: "no-store",
-        }),
-      ]);
+      const draftsResponse = await fetch("/api/inventory/supplier-purchases", {
+        method: "GET",
+        headers: buildHeaders(),
+        cache: "no-store",
+      });
 
-      const draftsData = await draftsResponse.json();
+      const draftsData = await draftsResponse.json().catch(() => null);
 
       if (!draftsResponse.ok) {
         throw new Error(draftsData?.error || "לא הצלחנו לטעון הזמנות");
@@ -127,8 +125,15 @@ export default function PendingSupplierPurchasesPage() {
           )
         : [];
 
-      setItems(Array.isArray(itemsData) ? itemsData : []);
       setDrafts(pendingDrafts);
+
+      try {
+        const itemsData = await getInventoryItems();
+        setItems(Array.isArray(itemsData) ? itemsData : []);
+      } catch (itemsError) {
+        console.warn("Failed loading inventory items for supplier purchases:", itemsError);
+        setItems([]);
+      }
     } catch (err: any) {
       setError(err?.message || "שגיאה בטעינת הזמנות ממתינות");
     } finally {
@@ -256,6 +261,28 @@ const rtlText = (value: string) => value.replaceAll(" ", nbsp);
  const docDefinition: any = {
   pageSize: "A4",
   pageMargins: [40, 40, 40, 40],
+  footer: (currentPage: number, pageCount: number) => ({
+    margin: [40, 0, 40, 22],
+    font: "Hebrew",
+    fontSize: 9,
+    color: "#9ca3af",
+    columns: [
+      { text: rtlText("נוצר אוטומטית במערכת"), alignment: "left" },
+      {
+        alignment: "right",
+        columns: [
+          { width: "auto", text: rtlText("עמוד"), style: "pageFooterText" },
+          { width: 6, text: "" },
+          { width: "auto", text: String(currentPage), style: "pageFooterPage" },
+          { width: 10, text: "" },
+          { width: "auto", text: rtlText("מתוך"), style: "pageFooterText" },
+          { width: 6, text: "" },
+          { width: "auto", text: String(pageCount), style: "pageFooterPage" },
+        ],
+        columnGap: 0,
+      },
+    ],
+  }),
 
   defaultStyle: {
     font: "Hebrew",
@@ -265,18 +292,49 @@ const rtlText = (value: string) => value.replaceAll(" ", nbsp);
 
   content: [
     {
-     text: rtlText("הזמנה לספק"),
+      text: rtlText(
+        (typeof document !== "undefined" ? document.title : "").trim()
+      ),
+      style: "businessName",
+      margin: [0, 0, 0, 4],
+    },
+    {
+      text: rtlText("הזמנה לספק"),
       style: "header",
       margin: [0, 0, 0, 12],
     },
 
     {
-      text:
-        `ספק: ${supplierName}\n` +
-        `מספר הזמנה: #${draft.id}\n` +
-        `תאריך: ${today}`,
-      style: "meta",
       margin: [0, 0, 0, 18],
+      table: {
+        // value | label (fixed width) — keeps RTL spacing stable
+        widths: ["*", 110],
+        body: [
+          [
+            { text: supplierName, style: "metaValue" },
+            { text: rtlText("ספק"), style: "metaLabel" },
+          ],
+          [
+            { text: `#${draft.id}`, style: "metaValue" },
+            { text: rtlText("מספר הזמנה"), style: "metaLabel" },
+          ],
+          [
+            { text: today, style: "metaValue" },
+            { text: rtlText("תאריך"), style: "metaLabel" },
+          ],
+        ],
+      },
+      layout: {
+        fillColor: () => "#f9fafb",
+        hLineColor: () => "#e5e7eb",
+        vLineColor: () => "#e5e7eb",
+        hLineWidth: (i: number) => (i === 0 || i === 3 ? 1 : 0.75),
+        vLineWidth: () => 1,
+        paddingTop: () => 8,
+        paddingBottom: () => 8,
+        paddingLeft: () => 10,
+        paddingRight: () => 10,
+      },
     },
 
     {
@@ -288,44 +346,71 @@ const rtlText = (value: string) => value.replaceAll(" ", nbsp);
     {
       table: {
         headerRows: 1,
-        widths: ["*", 60, 70, 35], // מוצר | כמות | יחידה | #
+        // Column order (left-to-right): number, unit, quantity, product
+        widths: [35, 65, 70, "*"],
         body: [
           [
-           { text: rtlText("מוצר"), style: "tableHeader" },
-            { text: "כמות", style: "tableHeader", alignment: "center" },
-            { text: "יחידה", style: "tableHeader", alignment: "center" },
             { text: "#", style: "tableHeader", alignment: "center" },
+            { text: rtlText("יחידה"), style: "tableHeader", alignment: "center" },
+            { text: rtlText("כמות"), style: "tableHeader", alignment: "center" },
+            { text: rtlText("מוצר"), style: "tableHeader", alignment: "right" },
           ],
-
           ...draft.lines.map((line, index) => [
-            { text: line.rawName || "מוצר ללא שם" },
-            { text: String(line.quantity), alignment: "center" },
-            { text: line.unitType || "UNIT", alignment: "center" },
             { text: String(index + 1), alignment: "center" },
+            { text: line.unitType || "UNIT", alignment: "center" },
+            { text: String(line.quantity), alignment: "center" },
+            {
+              text: line.rawName || "מוצר ללא שם",
+              alignment: "right",
+            },
           ]),
         ],
       },
 
       layout: {
-        fillColor: (rowIndex: number) =>
-          rowIndex === 0 ? "#f3f4f6" : null,
+        fillColor: (rowIndex: number) => {
+          if (rowIndex === 0) return "#eef2ff";
+          return rowIndex % 2 === 0 ? "#fbfdff" : null;
+        },
+        hLineWidth: (i: number) => (i === 0 || i === 1 ? 1.2 : 0.75),
         hLineColor: () => "#e5e7eb",
+        vLineWidth: () => 0.75,
         vLineColor: () => "#e5e7eb",
-        paddingTop: () => 8,
-        paddingBottom: () => 8,
-        paddingLeft: () => 8,
-        paddingRight: () => 8,
+        paddingTop: () => 9,
+        paddingBottom: () => 9,
+        paddingLeft: () => 10,
+        paddingRight: () => 10,
       },
 
       margin: [0, 0, 0, 18],
     },
 
     {
-      text:
-  `${rtlText("סה״כ פריטים")}: ${draft.lines.length}\n` +
-  `${rtlText("סה״כ יחידות")}: ${totalUnits}`,
-      style: "summary",
       margin: [0, 0, 0, 14],
+      table: {
+        widths: ["*", 110],
+        body: [
+          [
+            { text: String(draft.lines.length), style: "summaryValue" },
+            { text: rtlText("סה״כ פריטים"), style: "summaryLabel" },
+          ],
+          [
+            { text: String(totalUnits), style: "summaryValue" },
+            { text: rtlText("סה״כ יחידות"), style: "summaryLabel" },
+          ],
+        ],
+      },
+      layout: {
+        fillColor: () => "#ffffff",
+        hLineColor: () => "#e5e7eb",
+        vLineColor: () => "#ffffff",
+        hLineWidth: (i: number) => (i === 0 || i === 2 ? 0 : 0.75),
+        vLineWidth: () => 0,
+        paddingTop: () => 6,
+        paddingBottom: () => 6,
+        paddingLeft: () => 0,
+        paddingRight: () => 0,
+      },
     },
 
     {
@@ -335,15 +420,26 @@ const rtlText = (value: string) => value.replaceAll(" ", nbsp);
   ],
 
   styles: {
+    businessName: {
+      fontSize: 14,
+      bold: true,
+      color: "#111827",
+    },
     header: {
       fontSize: 22,
       bold: true,
     },
 
-    meta: {
-      fontSize: 12,
+    metaLabel: {
+      fontSize: 11,
+      bold: true,
+      color: "#111827",
+      alignment: "right",
+    },
+    metaValue: {
+      fontSize: 11,
       color: "#374151",
-      lineHeight: 1.5,
+      alignment: "right",
     },
 
     sectionTitle: {
@@ -353,16 +449,31 @@ const rtlText = (value: string) => value.replaceAll(" ", nbsp);
 
     tableHeader: {
       bold: true,
+      color: "#111827",
     },
 
-    summary: {
+    summaryLabel: {
       bold: true,
       fontSize: 12,
-      lineHeight: 1.4,
+      alignment: "right",
+      color: "#111827",
+    },
+    summaryValue: {
+      bold: true,
+      fontSize: 12,
+      alignment: "right",
+      color: "#111827",
     },
 
     footer: {
       margin: [0, 10, 0, 0],
+    },
+    pageFooterText: {
+      color: "#9ca3af",
+    },
+    pageFooterPage: {
+      color: "#6b7280",
+      bold: true,
     },
   },
 };
@@ -786,6 +897,21 @@ const rtlText = (value: string) => value.replaceAll(" ", nbsp);
                         הזמנה #{draft.id} · {draft.lines.length} פריטים ·{" "}
                         {totalUnits} יחידות
                       </div>
+
+                      {typeof draft.externalOrderId === "string" &&
+                      draft.externalOrderId.trim() ? (
+                        <div
+                          style={{
+                            marginTop: 4,
+                            color: "#6b7280",
+                            fontSize: 13,
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          מספר הזמנה חיצוני:{" "}
+                          {draft.externalOrderId.trim()}
+                        </div>
+                      ) : null}
                     </div>
 
                     <button
