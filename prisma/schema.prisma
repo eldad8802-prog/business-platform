@@ -32,6 +32,8 @@ model Business {
   updatedAt               DateTime                @updatedAt
   profile                 BusinessProfile?
   services                BusinessService[]
+  billingDocuments        BillingDocument[]
+  billingNumberSequences  BillingDocumentNumberSequence[]
   collaborationDeals      CollaborationDeal[]
   conversations           Conversation[]
   issuedCoupons           Coupon[]                @relation("BusinessIssuedCoupons")
@@ -143,6 +145,7 @@ model Customer {
   conversations Conversation[]
   business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
   messages      Message[]
+  billingDocuments BillingDocument[]
 }
 
 model Deal {
@@ -889,6 +892,73 @@ model SupplierPurchaseDraftLine {
   @@index([matchedItemId])
 }
 
+model BillingDocument {
+  id                       Int                       @id @default(autoincrement())
+  businessId               Int
+  documentType             BillingDocumentType
+  status                   BillingDocumentStatus     @default(DRAFT)
+  documentNumber           Int?
+  documentNumberFormatted  String?
+  customerId               Int?
+  customerNameSnapshot     String?
+  subtotalAmount           Decimal                   @default(0) @db.Decimal(18, 2)
+  vatAmount                Decimal                   @default(0) @db.Decimal(18, 2)
+  totalAmount              Decimal                   @default(0) @db.Decimal(18, 2)
+  currency                 String                    @default("ILS")
+  issuedAt                 DateTime?
+  issuedByUserId           Int?
+  createdByUserId          Int?
+  issuedSnapshot           Json?
+  pdfRenderStatus          BillingPdfRenderStatus    @default(PENDING)
+  pdfTemplateVersion       String?
+  pdfStorageKey            String?
+  pdfHash                  String?
+  pdfRenderedAt            DateTime?
+  pdfRenderError           String?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  business                 Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer                 Customer?                 @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  lines                    BillingDocumentLine[]
+
+  @@unique([businessId, documentType, documentNumber])
+  @@index([businessId, status, issuedAt])
+  @@index([businessId, createdAt])
+  @@index([businessId, customerId])
+  @@index([pdfRenderStatus])
+}
+
+model BillingDocumentLine {
+  id                 Int             @id @default(autoincrement())
+  billingDocumentId  Int
+  lineIndex          Int
+  description        String
+  quantity           Decimal         @db.Decimal(18, 4)
+  unitPrice          Decimal         @db.Decimal(18, 4)
+  vatRatePercent     Decimal         @db.Decimal(5, 2)
+  lineSubtotal       Decimal         @db.Decimal(18, 2)
+  vatAmount          Decimal         @db.Decimal(18, 2)
+  lineTotal          Decimal         @db.Decimal(18, 2)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  document           BillingDocument @relation(fields: [billingDocumentId], references: [id], onDelete: Cascade)
+
+  @@unique([billingDocumentId, lineIndex])
+  @@index([billingDocumentId])
+}
+
+model BillingDocumentNumberSequence {
+  id            Int                  @id @default(autoincrement())
+  businessId    Int
+  documentType  BillingDocumentType
+  nextNumber    Int                  @default(1)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  business      Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, documentType])
+}
+
 enum BusinessServiceType {
   SERVICE
   PRODUCT
@@ -1119,4 +1189,20 @@ enum SupplierLineStatus {
   NEEDS_REVIEW
   APPROVED
   REJECTED
+}
+
+enum BillingDocumentType {
+  TAX_INVOICE
+}
+
+enum BillingDocumentStatus {
+  DRAFT
+  PENDING_REVIEW
+  ISSUED
+}
+
+enum BillingPdfRenderStatus {
+  PENDING
+  RENDERED
+  FAILED
 }

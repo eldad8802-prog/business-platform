@@ -21,6 +21,14 @@ const TOOLS: ToolItem[] = [
     icon: "💬",
   },
   {
+    key: "attention",
+    title: "דורש תשומת לב",
+    description: "תור טיפול: ריכוז שיחות שמחכות לפעולה עכשיו",
+    href: "/attention",
+    status: "active",
+    icon: "⚡",
+  },
+  {
     key: "content",
     title: "יצירת תוכן",
     description: "יצירת תוכן שיווקי מותאם לעסק שלך",
@@ -43,6 +51,14 @@ const TOOLS: ToolItem[] = [
     href: "/documents",
     status: "active",
     icon: "📄",
+  },
+  {
+    key: "billing",
+    title: "חשבונית",
+    description: "יצירה וניהול חשבוניות מס ומסמכים שהעסק מפיק ללקוחות",
+    href: "/billing",
+    status: "active",
+    icon: "🧾",
   },
   {
     key: "offers",
