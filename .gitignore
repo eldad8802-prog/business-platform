@@ -48,6 +48,9 @@ next-env.d.ts
 # local debug / temp
 /tmp/
 
+# local generated artifacts (e.g. billing PDFs)
+/storage/
+
 # uploads (user-generated content; keep out of git)
 /public/uploads/
 
