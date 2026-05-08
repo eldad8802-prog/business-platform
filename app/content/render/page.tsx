@@ -187,11 +187,13 @@ export default function RenderPage() {
     let cancelled = false;
     const stepTimers: number[] = [];
     let pollTimeout: number | null = null;
+    const token = localStorage.getItem("token");
 
     async function pollStatus(currentRenderId: string) {
       try {
         const res = await fetch(`/api/content/render/status/${currentRenderId}`, {
           method: "GET",
+          headers: { Authorization: `Bearer ${token ?? ""}` },
         });
 
         const data = await res.json();
@@ -241,6 +243,11 @@ export default function RenderPage() {
         setIsReady(false);
         setActiveStep(0);
 
+        if (!token) {
+          setError("לא מחובר. אנא התחבר מחדש.");
+          return;
+        }
+
         steps.forEach((_, index) => {
           const timer = window.setTimeout(() => {
             if (!cancelled) {
@@ -255,6 +262,7 @@ export default function RenderPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             flow,

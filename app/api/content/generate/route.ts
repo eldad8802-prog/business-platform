@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateAIContent } from "@/lib/services/ai-content.service";
+import { getCurrentUser } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
+  const user = await getCurrentUser(req);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
 

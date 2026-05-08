@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -26,24 +25,24 @@ model ContentFeedback {
 }
 
 model Business {
-  id                      Int                     @id @default(autoincrement())
+  id                      Int                             @id @default(autoincrement())
   name                    String
-  createdAt               DateTime                @default(now())
-  updatedAt               DateTime                @updatedAt
-  profile                 BusinessProfile?
-  services                BusinessService[]
+  createdAt               DateTime                        @default(now())
+  updatedAt               DateTime                        @updatedAt
   billingDocuments        BillingDocument[]
   billingNumberSequences  BillingDocumentNumberSequence[]
+  profile                 BusinessProfile?
+  services                BusinessService[]
   collaborationDeals      CollaborationDeal[]
   conversations           Conversation[]
-  issuedCoupons           Coupon[]                @relation("BusinessIssuedCoupons")
+  issuedCoupons           Coupon[]                        @relation("BusinessIssuedCoupons")
   customers               Customer[]
   deals                   Deal[]
   documentsV2             Document[]
+  emailAttachmentImports  EmailAttachmentImport[]
+  emailConnections        EmailConnection[]
   documents               FinancialDocument[]
   financialRecords        FinancialRecord[]
-  emailConnections        EmailConnection[]
-  emailAttachmentImports  EmailAttachmentImport[]
   inventoryAlerts         InventoryAlert[]
   inventoryCategories     InventoryCategory[]
   inventoryDrafts         InventoryDraft[]
@@ -61,8 +60,8 @@ model Business {
   pricingProfiles         PricingProfile[]
   recommendations         Recommendation[]
   recommendationOutcomes  RecommendationOutcome[]
-  issuedRedemptions       RedemptionEvent[]       @relation("IssuedCouponRedemptions")
-  redeemedRedemptions     RedemptionEvent[]       @relation("RedeemedCouponRedemptions")
+  issuedRedemptions       RedemptionEvent[]               @relation("IssuedCouponRedemptions")
+  redeemedRedemptions     RedemptionEvent[]               @relation("RedeemedCouponRedemptions")
   replySuggestions        ReplySuggestion[]
   supplierPurchaseDrafts  SupplierPurchaseDraft[]
   tasks                   Task[]
@@ -133,19 +132,19 @@ model Lead {
 }
 
 model Customer {
-  id            Int            @id @default(autoincrement())
-  businessId    Int
-  name          String
-  phone         String?
-  email         String?
-  city          String?
-  notes         String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  conversations Conversation[]
-  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  messages      Message[]
+  id               Int               @id @default(autoincrement())
+  businessId       Int
+  name             String
+  phone            String?
+  email            String?
+  city             String?
+  notes            String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
   billingDocuments BillingDocument[]
+  conversations    Conversation[]
+  business         Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  messages         Message[]
 }
 
 model Deal {
@@ -204,11 +203,11 @@ model Offer {
   title               String
   description         String?
   customerBenefitText String
-  imageUrl            String?
   validUntil          DateTime
   isActive            Boolean  @default(true)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+  imageUrl            String?
   coupons             Coupon[]
   issuingBusiness     Business @relation(fields: [issuingBusinessId], references: [id], onDelete: Cascade)
 
@@ -219,7 +218,6 @@ model Offer {
 
 model Coupon {
   id                Int              @id @default(autoincrement())
-  publicId          String           @unique @db.Uuid @default(uuid())
   offerId           Int
   issuingBusinessId Int
   token             String           @unique
@@ -230,6 +228,7 @@ model Coupon {
   redeemedAt        DateTime?
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
+  publicId          String           @unique @default(uuid()) @db.Uuid
   issuingBusiness   Business         @relation("BusinessIssuedCoupons", fields: [issuingBusinessId], references: [id], onDelete: Cascade)
   offer             Offer            @relation(fields: [offerId], references: [id], onDelete: Cascade)
   redemptionEvents  RedemptionEvent?
@@ -534,53 +533,36 @@ model LearningSignal {
 }
 
 model Document {
-  id              Int              @id @default(autoincrement())
+  id              Int                    @id @default(autoincrement())
   businessId      Int
   fileUrl         String
   source          String
   mimeType        String
   ocrText         String?
   status          String
-  createdAt       DateTime         @default(now())
-  business        Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt       DateTime               @default(now())
+  business        Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  emailImport     EmailAttachmentImport?
   extractedData   ExtractedData?
   financialRecord FinancialRecord?
-  emailImport     EmailAttachmentImport?
-}
-
-enum EmailProvider {
-  gmail
-}
-
-enum EmailConnectionStatus {
-  connected
-  revoked
-  error
-}
-
-enum EmailAttachmentImportStatus {
-  imported
-  skipped_duplicate
-  failed
 }
 
 model EmailConnection {
-  id                Int                   @id @default(autoincrement())
-  businessId         Int
-  provider           EmailProvider
-  status             EmailConnectionStatus @default(connected)
-  emailAddress       String
-  providerAccountId  String
-  scopes             String
-  lastSyncedAt       DateTime?
-  lastSyncCursor     String?
-  lastError          String?
-  createdAt          DateTime              @default(now())
-  updatedAt          DateTime              @updatedAt
-
-  business           Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  token              OAuthToken?
-  imports            EmailAttachmentImport[]
+  id                Int                     @id @default(autoincrement())
+  businessId        Int
+  provider          EmailProvider
+  status            EmailConnectionStatus   @default(connected)
+  emailAddress      String
+  providerAccountId String
+  scopes            String
+  lastSyncedAt      DateTime?
+  lastSyncCursor    String?
+  lastError         String?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  imports           EmailAttachmentImport[]
+  business          Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  token             OAuthToken?
 
   @@unique([businessId, provider, emailAddress])
   @@index([businessId, provider])
@@ -588,47 +570,42 @@ model EmailConnection {
 }
 
 model OAuthToken {
-  id                    Int            @id @default(autoincrement())
-  connectionId          Int            @unique
+  id                    Int             @id @default(autoincrement())
+  connectionId          Int             @unique
   accessTokenEncrypted  String
   refreshTokenEncrypted String?
   expiresAt             DateTime
   tokenType             String?
   encryptionKeyId       String
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
-
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
   connection            EmailConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
 
   @@index([expiresAt])
 }
 
 model EmailAttachmentImport {
-  id                Int                        @id @default(autoincrement())
-  businessId         Int
-  connectionId       Int
-  provider           EmailProvider
-
-  messageId          String
-  threadId           String?
-  attachmentId       String
-  filename           String?
-  mimeType           String
-  sizeBytes          Int?
-
-  fromEmail          String?
-  subject            String?
-  sentAt             DateTime?
-
-  contentHashSha256  String
-  status             EmailAttachmentImportStatus
-  error              String?
-  documentId         Int?                       @unique
-  createdAt          DateTime                   @default(now())
-
-  business           Business                   @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  connection         EmailConnection            @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-  document           Document?                  @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  id                Int                         @id @default(autoincrement())
+  businessId        Int
+  connectionId      Int
+  provider          EmailProvider
+  messageId         String
+  threadId          String?
+  attachmentId      String
+  filename          String?
+  mimeType          String
+  sizeBytes         Int?
+  fromEmail         String?
+  subject           String?
+  sentAt            DateTime?
+  contentHashSha256 String
+  status            EmailAttachmentImportStatus
+  error             String?
+  documentId        Int?                        @unique
+  createdAt         DateTime                    @default(now())
+  business          Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  connection        EmailConnection             @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  document          Document?                   @relation(fields: [documentId], references: [id])
 
   @@unique([businessId, provider, messageId, attachmentId])
   @@unique([businessId, contentHashSha256])
@@ -893,33 +870,33 @@ model SupplierPurchaseDraftLine {
 }
 
 model BillingDocument {
-  id                       Int                       @id @default(autoincrement())
-  businessId               Int
-  documentType             BillingDocumentType
-  status                   BillingDocumentStatus     @default(DRAFT)
-  documentNumber           Int?
-  documentNumberFormatted  String?
-  customerId               Int?
-  customerNameSnapshot     String?
-  subtotalAmount           Decimal                   @default(0) @db.Decimal(18, 2)
-  vatAmount                Decimal                   @default(0) @db.Decimal(18, 2)
-  totalAmount              Decimal                   @default(0) @db.Decimal(18, 2)
-  currency                 String                    @default("ILS")
-  issuedAt                 DateTime?
-  issuedByUserId           Int?
-  createdByUserId          Int?
-  issuedSnapshot           Json?
-  pdfRenderStatus          BillingPdfRenderStatus    @default(PENDING)
-  pdfTemplateVersion       String?
-  pdfStorageKey            String?
-  pdfHash                  String?
-  pdfRenderedAt            DateTime?
-  pdfRenderError           String?
-  createdAt                DateTime                  @default(now())
-  updatedAt                DateTime                  @updatedAt
-  business                 Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  customer                 Customer?                 @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  lines                    BillingDocumentLine[]
+  id                      Int                    @id @default(autoincrement())
+  businessId              Int
+  documentType            BillingDocumentType
+  status                  BillingDocumentStatus  @default(DRAFT)
+  documentNumber          Int?
+  documentNumberFormatted String?
+  customerId              Int?
+  customerNameSnapshot    String?
+  subtotalAmount          Decimal                @default(0) @db.Decimal(18, 2)
+  vatAmount               Decimal                @default(0) @db.Decimal(18, 2)
+  totalAmount             Decimal                @default(0) @db.Decimal(18, 2)
+  currency                String                 @default("ILS")
+  issuedAt                DateTime?
+  issuedByUserId          Int?
+  createdByUserId         Int?
+  issuedSnapshot          Json?
+  pdfRenderStatus         BillingPdfRenderStatus @default(PENDING)
+  pdfTemplateVersion      String?
+  pdfStorageKey           String?
+  pdfHash                 String?
+  pdfRenderedAt           DateTime?
+  pdfRenderError          String?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  business                Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer                Customer?              @relation(fields: [customerId], references: [id])
+  lines                   BillingDocumentLine[]
 
   @@unique([businessId, documentType, documentNumber])
   @@index([businessId, status, issuedAt])
@@ -929,34 +906,50 @@ model BillingDocument {
 }
 
 model BillingDocumentLine {
-  id                 Int             @id @default(autoincrement())
-  billingDocumentId  Int
-  lineIndex          Int
-  description        String
-  quantity           Decimal         @db.Decimal(18, 4)
-  unitPrice          Decimal         @db.Decimal(18, 4)
-  vatRatePercent     Decimal         @db.Decimal(5, 2)
-  lineSubtotal       Decimal         @db.Decimal(18, 2)
-  vatAmount          Decimal         @db.Decimal(18, 2)
-  lineTotal          Decimal         @db.Decimal(18, 2)
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  document           BillingDocument @relation(fields: [billingDocumentId], references: [id], onDelete: Cascade)
+  id                Int             @id @default(autoincrement())
+  billingDocumentId Int
+  lineIndex         Int
+  description       String
+  quantity          Decimal         @db.Decimal(18, 4)
+  unitPrice         Decimal         @db.Decimal(18, 4)
+  vatRatePercent    Decimal         @db.Decimal(5, 2)
+  lineSubtotal      Decimal         @db.Decimal(18, 2)
+  vatAmount         Decimal         @db.Decimal(18, 2)
+  lineTotal         Decimal         @db.Decimal(18, 2)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  document          BillingDocument @relation(fields: [billingDocumentId], references: [id], onDelete: Cascade)
 
   @@unique([billingDocumentId, lineIndex])
   @@index([billingDocumentId])
 }
 
 model BillingDocumentNumberSequence {
-  id            Int                  @id @default(autoincrement())
-  businessId    Int
-  documentType  BillingDocumentType
-  nextNumber    Int                  @default(1)
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
-  business      Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id           Int                 @id @default(autoincrement())
+  businessId   Int
+  documentType BillingDocumentType
+  nextNumber   Int                 @default(1)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  business     Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, documentType])
+}
+
+enum EmailProvider {
+  gmail
+}
+
+enum EmailConnectionStatus {
+  connected
+  revoked
+  error
+}
+
+enum EmailAttachmentImportStatus {
+  imported
+  skipped_duplicate
+  failed
 }
 
 enum BusinessServiceType {

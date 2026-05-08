@@ -1,14 +1,20 @@
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
 const archiver = require("archiver");
 import { PassThrough } from "stream";
 
 export async function POST(req: Request) {
+  const user = await getCurrentUser(req);
+  if (!user) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
   try {
     const body = await req.json();
 
     const { type, month, year, quarter, categories } = body;
 
-    const businessId = 1;
+    const businessId = user.businessId;
 
     // 🧠 חישוב תאריכים
     let fromDate: Date | undefined;
@@ -67,6 +73,7 @@ export async function POST(req: Request) {
     const documents = await prisma.document.findMany({
       where: {
         id: { in: documentIds },
+        businessId,
       },
     });
 

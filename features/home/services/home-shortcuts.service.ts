@@ -10,6 +10,13 @@ export function getHomeQuickActions(): QuickAction[] {
       status: "active",
     },
     {
+      key: "attention",
+      title: "דורש תשומת לב",
+      icon: "spark",
+      href: "/attention",
+      status: "active",
+    },
+    {
       key: "content",
       title: "יצירת תוכן",
       icon: "video",

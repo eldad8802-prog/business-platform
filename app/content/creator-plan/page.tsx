@@ -210,16 +210,23 @@ export default function CreatorPlanPage() {
 
     const currentFlow = flow;
     let cancelled = false;
+    const token = localStorage.getItem("token");
 
     async function loadPlan() {
       try {
         setIsLoading(true);
         setError("");
 
+        if (!token) {
+          setError("לא מחובר. אנא התחבר מחדש.");
+          return;
+        }
+
         const res = await fetch("/api/video/plan", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
               body: JSON.stringify({
             mode: currentFlow.mode,

@@ -1,9 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
-
+import { getCurrentUser } from "@/lib/auth";
 
 // POST generate suggestions
 export async function POST(req: Request) {
+  const user = await getCurrentUser(req);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
     const messageId = body.messageId;
@@ -24,6 +29,10 @@ export async function POST(req: Request) {
         { error: "Message not found" },
         { status: 404 }
       );
+    }
+
+    if (message.businessId !== user.businessId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const text = message.contentText || "";

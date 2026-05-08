@@ -1,4 +1,5 @@
 import { generateFinalContent } from "@/lib/services/final-generation.service";
+import { getCurrentUser } from "@/lib/auth";
 
 type Body = {
   selectedFormat?: "reel" | "video" | "image" | "post";
@@ -6,6 +7,11 @@ type Body = {
 };
 
 export async function POST(req: Request) {
+  const user = await getCurrentUser(req);
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = (await req.json()) as Body;
 

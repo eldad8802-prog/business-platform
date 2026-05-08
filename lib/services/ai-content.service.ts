@@ -21,6 +21,13 @@ type VideoPlan = {
   contentAngle?: string;
 };
 
+/** Thin slice of direction card — optional plumbing from video plan flow. */
+type SelectedDirectionInput = {
+  title?: string;
+  description?: string;
+  whyItFits?: string;
+};
+
 type GenerateScriptInput = {
   businessType?: string;
   businessCategory?: string;
@@ -34,6 +41,8 @@ type GenerateScriptInput = {
   priceLevel?: "budget" | "mid" | "premium";
   differentiators?: string[];
   videoPlan: VideoPlan;
+  contentGoalPrompt?: string;
+  selectedDirection?: SelectedDirectionInput;
 };
 
 type Shot = {
@@ -112,6 +121,50 @@ function getDifferentiatorLabel(input: GenerateScriptInput) {
   return "הדרך שבה אתם מציגים את הערך שלכם";
 }
 
+function normalizeOptionalTrim(value?: string): string | undefined {
+  const t = value?.trim();
+  return t ? t : undefined;
+}
+
+const EXPLANATION_USER_SNIPPET_MAX_CHARS = 100;
+
+/** Short clip for suffix — no raw long paste; used only on explanation branch. */
+function clipExplanationUserSnippet(text: string, maxLen: number): string {
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  if (!collapsed) return "";
+  if (collapsed.length <= maxLen) return collapsed;
+
+  const slice = collapsed.slice(0, maxLen);
+  const lastSpace = slice.lastIndexOf(" ");
+  if (lastSpace > maxLen * 0.45) {
+    return `${slice.slice(0, lastSpace).trim()}…`;
+  }
+
+  return `${slice.trim()}…`;
+}
+
+function explanationVoiceWithOptionalUserCue(
+  base: string,
+  context: {
+    contentGoalPrompt?: string;
+    directionTitle?: string;
+  }
+): string {
+  const raw =
+    normalizeOptionalTrim(context.contentGoalPrompt) ??
+    normalizeOptionalTrim(context.directionTitle);
+  if (!raw) {
+    return base;
+  }
+
+  const snippet = clipExplanationUserSnippet(raw, EXPLANATION_USER_SNIPPET_MAX_CHARS);
+  if (!snippet) {
+    return base;
+  }
+
+  return `${base} זה מתחבר ישירות לנקודה שרציתם להבהיר: ${snippet}.`;
+}
+
 function buildContext(input: GenerateScriptInput) {
   const businessProfile = getBusinessContentProfile({
     businessType: input.businessType,
@@ -133,6 +186,14 @@ function buildContext(input: GenerateScriptInput) {
     mainOfferLabel: getMainOfferLabel(input),
     differentiatorLabel: getDifferentiatorLabel(input),
     goalLabel: getGoalLabel(input.goal),
+    contentGoalPrompt: normalizeOptionalTrim(input.contentGoalPrompt),
+    directionTitle: normalizeOptionalTrim(input.selectedDirection?.title),
+    directionDescription: normalizeOptionalTrim(
+      input.selectedDirection?.description
+    ),
+    directionWhyItFits: normalizeOptionalTrim(
+      input.selectedDirection?.whyItFits
+    ),
   };
 }
 
@@ -176,26 +237,6 @@ function generateHook(
 ): string {
   const { businessProfile, audienceLabel, mainOfferLabel, goalLabel } = context;
 
-  if (businessProfile.hookPriority === "trust_first") {
-    if (businessProfile.trustLevel === "high") {
-      return `אם חשוב לכם לבחור נכון ב-${mainOfferLabel} — כדאי שתראו את זה.`;
-    }
-
-    return `יש סיבה שיותר ויותר אנשים בוחרים נכון ב-${mainOfferLabel}.`;
-  }
-
-  if (businessProfile.hookPriority === "result_first") {
-    return `אם אתם רוצים ${goalLabel} — זה בדיוק סוג התוכן שעושה את ההבדל.`;
-  }
-
-  if (businessProfile.hookPriority === "offer_first") {
-    return `אם חיפשתם ${mainOfferLabel} שבאמת נותן ערך — שווה לכם לעצור רגע.`;
-  }
-
-  if (businessProfile.hookPriority === "pattern_break") {
-    return `רגע לפני שאתם ממשיכים לגלול — זה משהו ש-${audienceLabel} חייבים לראות.`;
-  }
-
   switch (plan.hookStyle) {
     case "pain_first":
       return `אם גם אתם מרגישים שהדברים לא עובדים כמו שצריך — זה בשבילכם.`;
@@ -210,7 +251,29 @@ function generateHook(
       return `יש דרך להציג את ${mainOfferLabel} בצורה שגורמת לאנשים לפעול.`;
 
     case "pattern_break":
+      return `יש משהו שרוב העסקים מפספסים כשהם מנסים להביא ${goalLabel}.`;
+
     default:
+      if (businessProfile.hookPriority === "trust_first") {
+        if (businessProfile.trustLevel === "high") {
+          return `אם חשוב לכם לבחור נכון ב-${mainOfferLabel} — כדאי שתראו את זה.`;
+        }
+
+        return `יש סיבה שיותר ויותר אנשים בוחרים נכון ב-${mainOfferLabel}.`;
+      }
+
+      if (businessProfile.hookPriority === "result_first") {
+        return `אם אתם רוצים ${goalLabel} — זה בדיוק סוג התוכן שעושה את ההבדל.`;
+      }
+
+      if (businessProfile.hookPriority === "offer_first") {
+        return `אם חיפשתם ${mainOfferLabel} שבאמת נותן ערך — שווה לכם לעצור רגע.`;
+      }
+
+      if (businessProfile.hookPriority === "pattern_break") {
+        return `רגע לפני שאתם ממשיכים לגלול — זה משהו ש-${audienceLabel} חייבים לראות.`;
+      }
+
       return `יש משהו שרוב העסקים מפספסים כשהם מנסים להביא ${goalLabel}.`;
   }
 }
@@ -330,6 +393,8 @@ function getVoice(
     mainOfferLabel: string;
     differentiatorLabel: string;
     goalLabel: string;
+    contentGoalPrompt?: string;
+    directionTitle?: string;
   }
 ): string {
   const {
@@ -366,23 +431,46 @@ function getVoice(
     case "context":
       return `כשהמסר ברור מהשנייה הראשונה, הרבה יותר קל לגרום לאנשים להבין מהר אם זה מתאים להם או לא.`;
 
-    case "explanation":
+    case "explanation": {
+      let base: string;
       if (businessProfile.contentStyle === "authority") {
-        return `מה שעושה את ההבדל הוא לא רק מה מציעים, אלא איך מסבירים את זה בצורה שמרגישה מקצועית ואמינה.`;
+        base = `מה שעושה את ההבדל הוא לא רק מה מציעים, אלא איך מסבירים את זה בצורה שמרגישה מקצועית ואמינה.`;
+      } else if (businessProfile.contentStyle === "transformation") {
+        base = `ברגע שמראים נכון את הדרך ואת התוצאה, התוכן הופך מיפה בלבד למשהו שבאמת מזיז אנשים.`;
+      } else if (businessProfile.contentStyle === "offer") {
+        base = `לא מספיק להציע משהו טוב, צריך להציג אותו בצורה שאנשים מבינים מיד למה כדאי להם לפעול.`;
+      } else {
+        base = `רוב העסקים מדברים יותר מדי כללי, במקום להעביר מסר אחד ברור שאנשים יכולים להבין מהר.`;
       }
 
-      if (businessProfile.contentStyle === "transformation") {
-        return `ברגע שמראים נכון את הדרך ואת התוצאה, התוכן הופך מיפה בלבד למשהו שבאמת מזיז אנשים.`;
-      }
-
-      if (businessProfile.contentStyle === "offer") {
-        return `לא מספיק להציע משהו טוב, צריך להציג אותו בצורה שאנשים מבינים מיד למה כדאי להם לפעול.`;
-      }
-
-      return `רוב העסקים מדברים יותר מדי כללי, במקום להעביר מסר אחד ברור שאנשים יכולים להבין מהר.`;
+      return explanationVoiceWithOptionalUserCue(base, context);
+    }
 
     case "solution":
-      return `במקום זה, מציגים את ${mainOfferLabel} בצורה ברורה, פשוטה ומדויקת יותר — כזאת שמובילה את הצופה צעד קדימה.`
+      {
+        const base = `במקום זה, מציגים את ${mainOfferLabel} בצורה ברורה, פשוטה ומדויקת יותר — כזאת שמובילה את הצופה צעד קדימה.`;
+
+        const raw =
+          normalizeOptionalTrim(context.contentGoalPrompt) ??
+          normalizeOptionalTrim(context.directionTitle);
+
+        if (!raw) {
+          return base;
+        }
+
+        const normalized = raw.replace(/\s+/g, " ").trim();
+        if (!normalized) {
+          return base;
+        }
+
+        const maxLen = 90;
+        const snippet =
+          normalized.length <= maxLen
+            ? normalized
+            : `${normalized.slice(0, maxLen).trim()}…`;
+
+        return `${base} כדי שזה ישרת את הכיוון שבחרתם: ${snippet}.`;
+      }
 
     case "proof":
       if (businessProfile.contentStyle === "testimonial") {

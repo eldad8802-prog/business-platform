@@ -47,6 +47,32 @@ type ContentResult = {
   selectedVariant?: SelectedVariant;
 };
 
+type SocialPlatform = "instagram" | "tiktok" | "facebook" | "other";
+
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function parseNonNegativeInt(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return 0;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return null;
+  return n;
+}
+
+function clipText(value: string, maxLen: number): string {
+  const t = (value || "").trim();
+  if (!t) return "";
+  if (t.length <= maxLen) return t;
+  return t.slice(0, maxLen).trim();
+}
+
 function getVideoTypeLabel(videoType?: SelectedVariant["videoType"]) {
   switch (videoType) {
     case "SHORT":
@@ -88,6 +114,21 @@ export default function ResultPage() {
 
   const [renderOutput, setRenderOutput] = useState<RenderOutput | null>(null);
   const [contentResult, setContentResult] = useState<ContentResult | null>(null);
+  const [defaultPlatform, setDefaultPlatform] = useState<SocialPlatform>("other");
+  const [platform, setPlatform] = useState<SocialPlatform>("other");
+  const [postUrl, setPostUrl] = useState("");
+  const [savedPostUrl, setSavedPostUrl] = useState<string>("");
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveError, setSaveError] = useState("");
+  const [perfDms, setPerfDms] = useState("0");
+  const [perfLeads, setPerfLeads] = useState("0");
+  const [perfSaves, setPerfSaves] = useState("0");
+  const [perfShares, setPerfShares] = useState("0");
+  const [perfProfileVisits, setPerfProfileVisits] = useState("0");
+  const [perfViews, setPerfViews] = useState("0");
+  const [perfNote, setPerfNote] = useState("");
+  const [perfStatus, setPerfStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [perfError, setPerfError] = useState("");
   const [error, setError] = useState("");
 
   const selectedVariant = useMemo(() => {
@@ -113,6 +154,22 @@ export default function ResultPage() {
 
       setRenderOutput(parsedRender);
 
+      try {
+        const flowRaw = localStorage.getItem("content_flow");
+        if (flowRaw) {
+          const parsedFlow = JSON.parse(flowRaw) as {
+            selectedPlatform?: "instagram" | "tiktok" | "facebook";
+          };
+          const p = parsedFlow?.selectedPlatform;
+          const resolved: SocialPlatform =
+            p === "instagram" || p === "tiktok" || p === "facebook" ? p : "other";
+          setDefaultPlatform(resolved);
+          setPlatform(resolved);
+        }
+      } catch {
+        // ignore flow parse issues; platform remains "other"
+      }
+
       if (resultRaw) {
         const parsedResult = JSON.parse(resultRaw) as ContentResult;
         setContentResult(parsedResult);
@@ -122,6 +179,201 @@ export default function ResultPage() {
       setError("לא הצלחנו לטעון את התוצאה");
     }
   }, [router]);
+
+  async function handleSavePostLink() {
+    if (saveStatus === "saving") return;
+
+    setSaveError("");
+
+    const renderId = renderOutput?.renderId?.trim() || "";
+    const renderedVideoUrl = renderOutput?.url?.trim() || "";
+    const selectedVariantId = selectedVariant?.id?.trim() || "";
+    const cleanPostUrl = postUrl.trim();
+
+    if (!renderId || !renderedVideoUrl || !selectedVariantId) {
+      setSaveError("חסרים נתונים לשמירת הקישור (Render/Variant)");
+      return;
+    }
+
+    if (!cleanPostUrl) {
+      setSaveError("צריך להדביק קישור לפוסט");
+      return;
+    }
+
+    if (!isValidHttpUrl(cleanPostUrl)) {
+      setSaveError("קישור לא תקין — הדבק קישור שמתחיל ב־http/https");
+      return;
+    }
+
+    const token = localStorage.getItem("token") || "";
+    if (!token) {
+      setSaveError("צריך להתחבר כדי לשמור קישור לפוסט");
+      return;
+    }
+
+    try {
+      setSaveStatus("saving");
+
+      const res = await fetch("/api/content/social-post-link", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          contentArtifact: {
+            selectedVariantId,
+            structure: Array.isArray(selectedVariant?.structure)
+              ? selectedVariant?.structure
+              : undefined,
+            videoType: selectedVariant?.videoType,
+            durationSeconds: selectedVariant?.durationSeconds,
+            pace:
+              selectedVariant?.pace === "fast" ||
+              selectedVariant?.pace === "medium" ||
+              selectedVariant?.pace === "slow"
+                ? selectedVariant.pace
+                : undefined,
+            script: {
+              hook: clipText(selectedVariant?.script?.hook || "", 220),
+              caption: clipText(selectedVariant?.script?.caption || "", 500),
+              scriptText: clipText(selectedVariant?.script?.scriptText || "", 3500),
+              shots: Array.isArray(selectedVariant?.script?.shots)
+                ? selectedVariant!.script!.shots!.slice(0, 18).map((s) => ({
+                    voice: clipText(String(s?.voice ?? ""), 360),
+                    visual: clipText(String(s?.visual ?? ""), 360),
+                  }))
+                : undefined,
+            },
+          },
+          executionArtifact: {
+            renderId,
+            renderedVideoUrl,
+            snapshotUrl: renderOutput?.snapshotUrl || undefined,
+          },
+          publishedArtifact: {
+            platform,
+            postUrl: cleanPostUrl,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        let msg = "שמירת הקישור נכשלה";
+        try {
+          const data = await res.json();
+          if (typeof data?.error === "string" && data.error) {
+            msg = data.error;
+          }
+        } catch {
+          // ignore
+        }
+        throw new Error(msg);
+      }
+
+      setSaveStatus("saved");
+      setSavedPostUrl(cleanPostUrl);
+    } catch (err: any) {
+      setSaveStatus("idle");
+      setSaveError(err?.message || "שמירת הקישור נכשלה");
+    }
+  }
+
+  async function handleSavePerformance() {
+    if (perfStatus === "saving") return;
+
+    setPerfError("");
+
+    const renderId = renderOutput?.renderId?.trim() || "";
+    const selectedVariantId = selectedVariant?.id?.trim() || "";
+
+    const effectivePostUrl = (savedPostUrl || postUrl).trim();
+
+    if (!renderId || !selectedVariantId) {
+      setPerfError("חסרים נתונים לשמירת ביצועים (Render/Variant)");
+      return;
+    }
+
+    if (!effectivePostUrl) {
+      setPerfError("צריך להדביק קישור לפוסט לפני שמזינים ביצועים");
+      return;
+    }
+
+    if (!isValidHttpUrl(effectivePostUrl)) {
+      setPerfError("קישור לא תקין — הדבק קישור שמתחיל ב־http/https");
+      return;
+    }
+
+    const dms = parseNonNegativeInt(perfDms);
+    const leads = parseNonNegativeInt(perfLeads);
+    const saves = parseNonNegativeInt(perfSaves);
+    const shares = parseNonNegativeInt(perfShares);
+    const profileVisits = parseNonNegativeInt(perfProfileVisits);
+    const views = parseNonNegativeInt(perfViews);
+
+    if (
+      dms === null ||
+      leads === null ||
+      saves === null ||
+      shares === null ||
+      profileVisits === null ||
+      views === null
+    ) {
+      setPerfError("כל המדדים חייבים להיות מספרים שלמים (0 ומעלה)");
+      return;
+    }
+
+    const token = localStorage.getItem("token") || "";
+    if (!token) {
+      setPerfError("צריך להתחבר כדי לשמור ביצועים");
+      return;
+    }
+
+    try {
+      setPerfStatus("saving");
+
+      const res = await fetch("/api/content/social-post-performance", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          renderId,
+          selectedVariantId,
+          platform,
+          postUrl: effectivePostUrl,
+          metrics: {
+            dms,
+            leads,
+            saves,
+            shares,
+            profileVisits,
+            views,
+          },
+          note: perfNote.trim() || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        let msg = "שמירת הביצועים נכשלה";
+        try {
+          const data = await res.json();
+          if (typeof data?.error === "string" && data.error) {
+            msg = data.error;
+          }
+        } catch {
+          // ignore
+        }
+        throw new Error(msg);
+      }
+
+      setPerfStatus("saved");
+    } catch (err: any) {
+      setPerfStatus("idle");
+      setPerfError(err?.message || "שמירת הביצועים נכשלה");
+    }
+  }
 
   function handleBackHome() {
     router.push("/");
@@ -189,6 +441,172 @@ export default function ResultPage() {
                   אפשר לצפות, לבדוק את הזרימה, ואז להחליט אם להמשיך לשיפור או
                   ליצור תוכן חדש.
                 </div>
+              </div>
+            </div>
+          ) : null}
+
+          {renderOutput?.url && selectedVariant?.id ? (
+            <div style={socialTraceCardStyle}>
+              <div style={socialTraceTitleStyle}>פרסמת את הסרטון?</div>
+              <div style={socialTraceSubtitleStyle}>
+                הדבק כאן קישור לפוסט כדי שנשמור קשר בין הרנדר לפרסום הידני.
+              </div>
+
+              <div style={socialTraceRowStyle}>
+                <div style={socialTraceFieldStyle}>
+                  <div style={socialTraceLabelStyle}>פלטפורמה</div>
+                  <select
+                    value={platform}
+                    onChange={(e) => {
+                      setPlatform((e.target.value as SocialPlatform) || "other");
+                      if (saveStatus === "saved") setSaveStatus("idle");
+                      if (saveError) setSaveError("");
+                    }}
+                    style={socialTraceSelectStyle}
+                  >
+                    <option value="instagram">Instagram</option>
+                    <option value="tiktok">TikTok</option>
+                    <option value="facebook">Facebook</option>
+                    <option value="other">אחר</option>
+                  </select>
+                </div>
+
+                <div style={socialTraceFieldStyle}>
+                  <div style={socialTraceLabelStyle}>קישור לפוסט</div>
+                  <input
+                    type="url"
+                    placeholder="https://..."
+                    value={postUrl}
+                    onChange={(e) => {
+                      setPostUrl(e.target.value);
+                      setSavedPostUrl("");
+                      if (saveStatus === "saved") setSaveStatus("idle");
+                      if (saveError) setSaveError("");
+                      if (perfStatus === "saved") setPerfStatus("idle");
+                      if (perfError) setPerfError("");
+                    }}
+                    style={socialTraceInputStyle}
+                  />
+                </div>
+              </div>
+
+              {saveError ? (
+                <div style={socialTraceErrorStyle}>{saveError}</div>
+              ) : null}
+
+              {saveStatus === "saved" ? (
+                <div style={socialTraceSuccessStyle}>הקישור נשמר</div>
+              ) : null}
+
+              <div style={socialTraceActionsStyle}>
+                <button
+                  type="button"
+                  onClick={handleSavePostLink}
+                  disabled={saveStatus === "saving"}
+                  style={socialTraceButtonStyle(saveStatus === "saving")}
+                >
+                  {saveStatus === "saving" ? "שומר..." : "שמור קישור לפוסט"}
+                </button>
+
+                {defaultPlatform !== "other" ? (
+                  <div style={socialTraceHintStyle}>
+                    פלטפורמה ברירת מחדל: {defaultPlatform}
+                  </div>
+                ) : null}
+              </div>
+
+              <div style={perfDividerStyle} />
+
+              <div style={perfTitleStyle}>הזן ביצועים ידנית</div>
+              <div style={perfSubtitleStyle}>
+                אפשר להזין ביצועים ידנית כדי שנוכל לעקוב אחרי התוכן בהמשך.
+              </div>
+
+              <div style={perfGridStyle}>
+                <PerfField
+                  label="DMs / שיחות נכנסות"
+                  value={perfDms}
+                  onChange={(v) => {
+                    setPerfDms(v);
+                    if (perfStatus === "saved") setPerfStatus("idle");
+                    if (perfError) setPerfError("");
+                  }}
+                />
+                <PerfField
+                  label="Leads / פניות"
+                  value={perfLeads}
+                  onChange={(v) => {
+                    setPerfLeads(v);
+                    if (perfStatus === "saved") setPerfStatus("idle");
+                    if (perfError) setPerfError("");
+                  }}
+                />
+                <PerfField
+                  label="Saves"
+                  value={perfSaves}
+                  onChange={(v) => {
+                    setPerfSaves(v);
+                    if (perfStatus === "saved") setPerfStatus("idle");
+                    if (perfError) setPerfError("");
+                  }}
+                />
+                <PerfField
+                  label="Shares"
+                  value={perfShares}
+                  onChange={(v) => {
+                    setPerfShares(v);
+                    if (perfStatus === "saved") setPerfStatus("idle");
+                    if (perfError) setPerfError("");
+                  }}
+                />
+                <PerfField
+                  label="Profile visits"
+                  value={perfProfileVisits}
+                  onChange={(v) => {
+                    setPerfProfileVisits(v);
+                    if (perfStatus === "saved") setPerfStatus("idle");
+                    if (perfError) setPerfError("");
+                  }}
+                />
+                <PerfField
+                  label="Views"
+                  value={perfViews}
+                  onChange={(v) => {
+                    setPerfViews(v);
+                    if (perfStatus === "saved") setPerfStatus("idle");
+                    if (perfError) setPerfError("");
+                  }}
+                />
+              </div>
+
+              <div style={perfNoteWrapStyle}>
+                <div style={socialTraceLabelStyle}>הערה (אופציונלי)</div>
+                <textarea
+                  value={perfNote}
+                  onChange={(e) => {
+                    setPerfNote(e.target.value);
+                    if (perfStatus === "saved") setPerfStatus("idle");
+                    if (perfError) setPerfError("");
+                  }}
+                  placeholder="מה קרה בפועל? למה זה עבד/לא עבד?"
+                  style={perfNoteStyle}
+                />
+              </div>
+
+              {perfError ? <div style={socialTraceErrorStyle}>{perfError}</div> : null}
+              {perfStatus === "saved" ? (
+                <div style={socialTraceSuccessStyle}>הביצועים נשמרו</div>
+              ) : null}
+
+              <div style={socialTraceActionsStyle}>
+                <button
+                  type="button"
+                  onClick={handleSavePerformance}
+                  disabled={perfStatus === "saving"}
+                  style={socialTraceButtonStyle(perfStatus === "saving")}
+                >
+                  {perfStatus === "saving" ? "שומר..." : "שמור ביצועים"}
+                </button>
               </div>
             </div>
           ) : null}
@@ -440,6 +858,182 @@ const videoMetaTextStyle: React.CSSProperties = {
   fontSize: 14,
   lineHeight: 1.8,
   color: "#6b7280",
+};
+
+const socialTraceCardStyle: React.CSSProperties = {
+  background: "#ffffff",
+  borderRadius: 18,
+  padding: 16,
+  border: "1px solid #e5e7eb",
+  boxShadow: "0 4px 14px rgba(0,0,0,0.04)",
+  marginBottom: 18,
+};
+
+const socialTraceTitleStyle: React.CSSProperties = {
+  fontSize: 18,
+  fontWeight: 800,
+  color: "#111827",
+  marginBottom: 6,
+};
+
+const socialTraceSubtitleStyle: React.CSSProperties = {
+  fontSize: 14,
+  lineHeight: 1.8,
+  color: "#6b7280",
+  marginBottom: 14,
+};
+
+const socialTraceRowStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "240px 1fr",
+  gap: 12,
+  alignItems: "end",
+  marginBottom: 12,
+};
+
+const socialTraceFieldStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 6,
+};
+
+const socialTraceLabelStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 800,
+  color: "#374151",
+};
+
+const socialTraceSelectStyle: React.CSSProperties = {
+  height: 42,
+  borderRadius: 12,
+  border: "1px solid #e5e7eb",
+  padding: "0 12px",
+  background: "#ffffff",
+  fontSize: 14,
+  fontWeight: 700,
+  color: "#111827",
+};
+
+const socialTraceInputStyle: React.CSSProperties = {
+  height: 42,
+  borderRadius: 12,
+  border: "1px solid #e5e7eb",
+  padding: "0 12px",
+  background: "#ffffff",
+  fontSize: 14,
+  color: "#111827",
+};
+
+const socialTraceActionsStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  marginTop: 6,
+};
+
+const socialTraceButtonStyle = (disabled: boolean): React.CSSProperties => ({
+  height: 42,
+  borderRadius: 12,
+  border: "none",
+  padding: "0 14px",
+  background: disabled ? "#d1d5db" : "#111827",
+  color: "#ffffff",
+  fontSize: 14,
+  fontWeight: 800,
+  cursor: disabled ? "not-allowed" : "pointer",
+});
+
+const socialTraceHintStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "#6b7280",
+  fontWeight: 700,
+};
+
+const socialTraceErrorStyle: React.CSSProperties = {
+  background: "#fff7ed",
+  border: "1px solid #fed7aa",
+  color: "#9a3412",
+  borderRadius: 12,
+  padding: 10,
+  fontSize: 13,
+  lineHeight: 1.7,
+  marginBottom: 10,
+};
+
+const socialTraceSuccessStyle: React.CSSProperties = {
+  background: "#ecfdf5",
+  border: "1px solid #a7f3d0",
+  color: "#065f46",
+  borderRadius: 12,
+  padding: 10,
+  fontSize: 13,
+  fontWeight: 800,
+  marginBottom: 10,
+};
+
+function PerfField(props: {
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div style={socialTraceFieldStyle}>
+      <div style={socialTraceLabelStyle}>{props.label}</div>
+      <input
+        inputMode="numeric"
+        pattern="[0-9]*"
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value)}
+        placeholder="0"
+        style={socialTraceInputStyle}
+      />
+    </div>
+  );
+}
+
+const perfDividerStyle: React.CSSProperties = {
+  height: 1,
+  background: "#e5e7eb",
+  margin: "16px 0 14px 0",
+};
+
+const perfTitleStyle: React.CSSProperties = {
+  fontSize: 16,
+  fontWeight: 800,
+  color: "#111827",
+  marginBottom: 6,
+};
+
+const perfSubtitleStyle: React.CSSProperties = {
+  fontSize: 13,
+  lineHeight: 1.7,
+  color: "#6b7280",
+  marginBottom: 12,
+};
+
+const perfGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 12,
+  marginBottom: 12,
+};
+
+const perfNoteWrapStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 6,
+  marginBottom: 10,
+};
+
+const perfNoteStyle: React.CSSProperties = {
+  width: "100%",
+  minHeight: 84,
+  borderRadius: 12,
+  border: "1px solid #e5e7eb",
+  padding: "10px 12px",
+  background: "#ffffff",
+  fontSize: 14,
+  color: "#111827",
+  resize: "vertical",
 };
 
 const detailsCardStyle: React.CSSProperties = {

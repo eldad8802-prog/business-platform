@@ -466,23 +466,25 @@ export function ConversationView(props: {
                   </button>
                 </div>
 
-                <div style={{ marginTop: 12 }}>
-                  <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
-                    כלי בדיקה
+                {process.env.NODE_ENV === "development" && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
+                      כלי בדיקה
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onSimulateCustomerMessage}
+                      style={{
+                        ...styles.softButtonStyle,
+                        minHeight: 40,
+                        padding: "10px 12px",
+                        boxShadow: "none",
+                      }}
+                    >
+                      סימולציה: שלח כלקוח
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={onSimulateCustomerMessage}
-                    style={{
-                      ...styles.softButtonStyle,
-                      minHeight: 40,
-                      padding: "10px 12px",
-                      boxShadow: "none",
-                    }}
-                  >
-                    סימולציה: שלח כלקוח
-                  </button>
-                </div>
+                )}
               </div>
             )}
           </div>

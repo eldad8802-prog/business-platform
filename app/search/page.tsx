@@ -7,9 +7,14 @@ export default function SearchPage() {
   const [results, setResults] = useState<any[]>([]);
 
   const handleSearch = async () => {
-    const res = await fetch(`/api/search?q=${query}`);
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    const res = await fetch(`/api/search?q=${query}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
     const data = await res.json();
-    setResults(data.results);
+    setResults(data.results || []);
   };
 
   return (

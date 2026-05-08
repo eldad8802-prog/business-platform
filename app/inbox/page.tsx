@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ConversationList } from "@/components/inbox/ConversationList";
 import { ConversationView } from "@/components/inbox/ConversationView";
@@ -25,6 +25,7 @@ type Conversation = {
   status: string;
   currentStage: string;
   startedAt: string;
+  customerId?: number | null;
 };
 
 type SmartIndicator = {
@@ -143,9 +144,7 @@ function getSmartIndicator(params: {
   };
 }
 
-export default function InboxPage() {
-  const token = "Bearer 1";
-
+function InboxPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -161,6 +160,8 @@ export default function InboxPage() {
   const [input, setInput] = useState("");
   const [selectedSuggestionId, setSelectedSuggestionId] = useState<number | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
     function handleResize() {
@@ -174,6 +175,14 @@ export default function InboxPage() {
       window.removeEventListener("resize", handleResize);
     };
   }, []);
+
+  useEffect(() => {
+    const raw = localStorage.getItem("token");
+    setAuthToken(raw);
+    setAuthChecked(true);
+  }, []);
+
+  const token = authToken ? `Bearer ${authToken}` : "";
 
   function updateConversationIdInUrl(conversationId: number | null, opts?: { replace?: boolean }) {
     const params = new URLSearchParams(searchParams.toString());
@@ -579,11 +588,14 @@ export default function InboxPage() {
   }
 
   useEffect(() => {
-    loadConversations();
+    if (authChecked && authToken) {
+      loadConversations();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode]);
+  }, [viewMode, authChecked]);
 
   useEffect(() => {
+    if (!authChecked || !authToken) return;
     if (activeConversationId) {
       loadMessages(activeConversationId);
     } else {
@@ -591,7 +603,7 @@ export default function InboxPage() {
       setSuggestions([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConversationId]);
+  }, [activeConversationId, authChecked]);
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeConversationId) || null,
@@ -640,6 +652,18 @@ export default function InboxPage() {
     border: "1px solid #fca5a5",
     color: "#991b1b",
   };
+
+  if (!authChecked) {
+    return null;
+  }
+
+  if (!authToken) {
+    return (
+      <div style={{ direction: "rtl", padding: 32, textAlign: "center", color: "#64748b" }}>
+        יש להתחבר כדי לגשת לתיבת הדואר.
+      </div>
+    );
+  }
 
   return (
     <div
@@ -698,6 +722,14 @@ export default function InboxPage() {
         }}
       />
     </div>
+  );
+}
+
+export default function InboxPage() {
+  return (
+    <Suspense fallback={null}>
+      <InboxPageContent />
+    </Suspense>
   );
 }
 

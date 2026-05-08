@@ -1,9 +1,15 @@
 import { getCreatomateRenderStatus } from "@/lib/services/creatomate.service";
+import { getCurrentUser } from "@/lib/auth";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  const user = await getCurrentUser(req);
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const { id } = await context.params;
 

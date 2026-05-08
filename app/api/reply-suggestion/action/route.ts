@@ -1,8 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import { updateLearningFromAction } from "@/lib/learning/update-learning";
+import { getCurrentUser } from "@/lib/auth";
 
 export async function POST(req: Request) {
+  const user = await getCurrentUser(req);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
 
@@ -25,6 +31,10 @@ export async function POST(req: Request) {
         { error: "Suggestion not found" },
         { status: 404 }
       );
+    }
+
+    if (existingSuggestion.businessId !== user.businessId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const now = new Date();

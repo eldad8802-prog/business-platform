@@ -1,6 +1,12 @@
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
 
 export async function GET(req: Request) {
+  const user = await getCurrentUser(req);
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const { searchParams } = new URL(req.url);
 
@@ -10,7 +16,7 @@ export async function GET(req: Request) {
 
     const results = await prisma.financialRecord.findMany({
       where: {
-        businessId: 1,
+        businessId: user.businessId,
         AND: [
           q
             ? {

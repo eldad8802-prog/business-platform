@@ -183,6 +183,7 @@ useEffect(() => {
   setIsReady(false);
 
   const stepTimers: number[] = [];
+  const token = localStorage.getItem("token");
 
   steps.forEach((_, index) => {
     const timer = window.setTimeout(() => {
@@ -194,10 +195,15 @@ useEffect(() => {
 
   async function build() {
     try {
+      if (!token) {
+        throw new Error("no_token");
+      }
+
       const res = await fetch("/api/video/plan", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(flow),
       });

@@ -1,32 +1,15 @@
 import { buildVideoPlan } from "@/lib/services/video-plan.service";
-import { getBusinessContentProfile } from "@/lib/services/business-content-profile.service";
-
-type Goal = "leads" | "trust" | "exposure" | "sales";
-type ContentAngle =
-  | "show_result"
-  | "explain"
-  | "show_difference"
-  | "attention"
-  | "trust"
-  | "cta";
-
-type SelectedFormat = "reel" | "video" | "image" | "post";
-type SelectedPlatform = "instagram" | "tiktok" | "facebook";
-type Mode = "ai" | "camera" | "voice";
-type VideoType = "SHORT" | "MID" | "FULL";
-
-type DirectionInput = {
-  id?: string;
-  title?: string;
-  description?: string;
-  whyItFits?: string;
-  type?: string;
-  strategy?: string;
-  tone?: string;
-  pace?: string;
-  recommendedFormat?: SelectedFormat;
-  score?: number;
-};
+import {
+  runContentDecisionEngine,
+  type DecisionInput,
+  type Goal,
+  type ContentAngle,
+  type SelectedFormat,
+  type SelectedPlatform,
+  type Mode,
+  type DirectionInput,
+} from "@/lib/features/content/decision";
+import { getCurrentUser } from "@/lib/auth";
 
 type VideoPlanRequestBody = {
   mode?: Mode;
@@ -50,34 +33,6 @@ type VideoPlanRequestBody = {
   differentiators?: string[];
 };
 
-type VideoDecision = {
-  videoType: VideoType;
-  durationSeconds: number;
-  structure: string[];
-  pace: "fast" | "medium" | "slow";
-  hookStyle:
-    | "pattern_break"
-    | "pain_first"
-    | "result_first"
-    | "trust_first"
-    | "offer_first";
-  ctaStyle:
-    | "message_now"
-    | "book_now"
-    | "buy_now"
-    | "follow"
-    | "learn_more";
-  reasoning: string;
-};
-
-function normalizeText(value?: string) {
-  return (value || "").trim().toLowerCase();
-}
-
-function includesAny(text: string, keywords: string[]) {
-  return keywords.some((keyword) => text.includes(keyword));
-}
-
 function validateBody(body: VideoPlanRequestBody) {
   if (!body.goal) {
     return "missing_goal";
@@ -94,198 +49,12 @@ function validateBody(body: VideoPlanRequestBody) {
   return null;
 }
 
-function decideVideoType(input: {
-  goal?: Goal;
-  contentAngle?: ContentAngle;
-  contentGoalPrompt?: string;
-  selectedFormat?: SelectedFormat;
-  selectedPlatform?: SelectedPlatform;
-  selectedDirection?: DirectionInput;
-  businessProfile: ReturnType<typeof getBusinessContentProfile>;
-}): VideoDecision {
-  const goal = normalizeText(input.goal);
-  const angle = normalizeText(input.contentAngle);
-  const prompt = normalizeText(input.contentGoalPrompt);
-  const directionTitle = normalizeText(input.selectedDirection?.title);
-  const directionDescription = normalizeText(input.selectedDirection?.description);
-  const directionWhyItFits = normalizeText(input.selectedDirection?.whyItFits);
-
-  const combined = [
-    goal,
-    angle,
-    prompt,
-    directionTitle,
-    directionDescription,
-    directionWhyItFits,
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  const profile = input.businessProfile;
-
-  let videoType: VideoType = profile.recommendedVideoType;
-  let durationSeconds =
-    videoType === "SHORT" ? 15 : videoType === "MID" ? 28 : 42;
-
-  if (input.selectedFormat === "video") {
-    videoType = "FULL";
-    durationSeconds = Math.max(durationSeconds, 40);
-  }
-
-  if (input.selectedFormat === "reel" && videoType === "FULL") {
-    durationSeconds = 40;
-  }
-
-  const painIndicators = [
-    "בעיה",
-    "קשה",
-    "לא מצליח",
-    "לא מצליחה",
-    "לא עובד",
-    "למה",
-    "טעויות",
-    "טעות",
-    "לפני שאתם",
-    "לפני שאתן",
-    "אם אתם",
-    "אם אתן",
-    "התנגדות",
-    "כאב",
-    "pain",
-    "show_difference",
-    "trust",
-  ];
-
-  const explanationIndicators = [
-    "איך",
-    "שלבים",
-    "טיפ",
-    "טיפים",
-    "הסבר",
-    "מה לעשות",
-    "דרך",
-    "שיטה",
-    "explain",
-    "show_result",
-  ];
-
-  if (
-    includesAny(combined, painIndicators) &&
-    (profile.trustLevel === "high" || profile.salesCycle === "long")
-  ) {
-    videoType = "FULL";
-    durationSeconds = Math.max(durationSeconds, 40);
-  } else if (
-    includesAny(combined, explanationIndicators) &&
-    videoType === "SHORT"
-  ) {
-    videoType = "MID";
-    durationSeconds = 25;
-  }
-
-  let structure: string[] = ["hook", "value", "cta"];
-
-  switch (profile.contentStyle) {
-    case "transformation":
-      structure =
-        videoType === "SHORT"
-          ? ["hook", "result", "cta"]
-          : videoType === "MID"
-          ? ["hook", "pain", "solution", "cta"]
-          : ["hook", "pain", "explanation", "solution", "proof", "cta"];
-      break;
-
-    case "authority":
-      structure =
-        videoType === "SHORT"
-          ? ["hook", "trust", "cta"]
-          : videoType === "MID"
-          ? ["hook", "context", "explanation", "cta"]
-          : ["hook", "pain", "explanation", "proof", "trust", "cta"];
-      break;
-
-    case "testimonial":
-      structure =
-        videoType === "SHORT"
-          ? ["hook", "proof", "cta"]
-          : videoType === "MID"
-          ? ["hook", "context", "proof", "cta"]
-          : ["hook", "pain", "solution", "proof", "cta"];
-      break;
-
-    case "offer":
-      structure =
-        videoType === "SHORT"
-          ? ["hook", "offer", "cta"]
-          : videoType === "MID"
-          ? ["hook", "context", "offer", "cta"]
-          : ["hook", "pain", "offer", "proof", "cta"];
-      break;
-
-    case "demonstration":
-      structure =
-        videoType === "SHORT"
-          ? ["hook", "value", "cta"]
-          : videoType === "MID"
-          ? ["hook", "context", "solution", "cta"]
-          : ["hook", "pain", "solution", "proof", "cta"];
-      break;
-
-    case "explanation":
-    default:
-      structure =
-        videoType === "SHORT"
-          ? ["hook", "value", "cta"]
-          : videoType === "MID"
-          ? ["hook", "context", "solution", "cta"]
-          : ["hook", "pain", "explanation", "solution", "proof", "cta"];
-      break;
-  }
-
-  let pace: "fast" | "medium" | "slow" =
-    profile.visualStrength === "high"
-      ? "fast"
-      : profile.visualStrength === "medium"
-      ? "medium"
-      : "slow";
-
-  if (input.selectedPlatform === "tiktok") {
-    pace = "fast";
-  } else if (input.selectedPlatform === "instagram") {
-    pace = pace === "slow" ? "medium" : pace;
-  } else if (input.selectedPlatform === "facebook" && pace === "fast") {
-    pace = "medium";
-  }
-
-  const hookStyle = profile.hookPriority;
-  let ctaStyle = profile.ctaStyle;
-
-  if (input.goal === "trust") {
-    ctaStyle = "follow";
-  } else if (input.goal === "sales") {
-    ctaStyle =
-      profile.offerType === "product" ? "buy_now" : profile.ctaStyle;
-  } else if (input.goal === "leads") {
-    ctaStyle =
-      profile.offerType === "service" || profile.offerType === "hybrid"
-        ? "message_now"
-        : profile.ctaStyle;
-  } else if (input.goal === "exposure") {
-    ctaStyle = "follow";
-  }
-
-  return {
-    videoType,
-    durationSeconds,
-    structure,
-    pace,
-    hookStyle,
-    ctaStyle,
-    reasoning: `Built from business profile (${profile.marketCategory}, ${profile.contentStyle}, trust=${profile.trustLevel}, visual=${profile.visualStrength}) and goal/platform context.`,
-  };
-}
-
 export async function POST(req: Request) {
+  const user = await getCurrentUser(req);
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = (await req.json()) as VideoPlanRequestBody;
 
@@ -301,28 +70,35 @@ export async function POST(req: Request) {
       );
     }
 
-    const businessProfile = getBusinessContentProfile({
-      businessType: body.businessType,
-      businessCategory: body.businessCategory,
-      businessName: body.businessName,
-      services: body.services ?? [],
-      products: body.products ?? [],
-      targetAudience: body.audienceTypes ?? [],
-      brandTone: body.brandTone ?? body.selectedDirection?.tone,
-      primaryGoal: body.goal,
-      priceLevel: body.priceLevel,
-      differentiators: body.differentiators ?? [],
-    });
-
-    const decision = decideVideoType({
+    const decisionInput: DecisionInput = {
       goal: body.goal,
+      intent: body.intent,
       contentAngle: body.contentAngle,
       contentGoalPrompt: body.contentGoalPrompt,
       selectedFormat: body.selectedFormat,
       selectedPlatform: body.selectedPlatform,
       selectedDirection: body.selectedDirection,
-      businessProfile,
+      brandTone: body.brandTone ?? body.selectedDirection?.tone,
+    };
+
+    const { decision, businessProfile } = runContentDecisionEngine({
+      decisionInput,
+      businessProfileRequest: {
+        businessType: body.businessType,
+        businessCategory: body.businessCategory,
+        businessName: body.businessName,
+        services: body.services,
+        products: body.products,
+        audienceTypes: body.audienceTypes,
+        brandTone: body.brandTone,
+        primaryGoal: body.goal,
+        priceLevel: body.priceLevel,
+        differentiators: body.differentiators,
+        selectedDirectionTone: body.selectedDirection?.tone,
+      },
     });
+
+    const lm = decision.legacyMapping;
 
     const planInput = {
       mode: body.mode,
@@ -350,13 +126,13 @@ export async function POST(req: Request) {
 
       businessProfile,
 
-      videoType: decision.videoType,
-      durationSeconds: decision.durationSeconds,
-      structure: decision.structure,
-      pace: decision.pace,
-      hookStyle: decision.hookStyle,
-      ctaStyle: decision.ctaStyle,
-      decisionReasoning: decision.reasoning,
+      videoType: lm.videoType,
+      durationSeconds: lm.durationSeconds,
+      structure: lm.structure,
+      pace: lm.pace,
+      hookStyle: lm.hookStyle,
+      ctaStyle: lm.ctaStyle,
+      decisionReasoning: decision.decisionReason,
     };
 
     const result = await buildVideoPlan(planInput);
@@ -364,7 +140,15 @@ export async function POST(req: Request) {
     return Response.json({
       success: true,
       variants: result?.variants ?? [],
-      videoDecision: decision,
+      videoDecision: {
+        videoType: lm.videoType,
+        durationSeconds: lm.durationSeconds,
+        structure: lm.structure,
+        pace: lm.pace,
+        hookStyle: lm.hookStyle,
+        ctaStyle: lm.ctaStyle,
+        reasoning: decision.decisionReason,
+      },
       businessProfile,
     });
   } catch (error) {

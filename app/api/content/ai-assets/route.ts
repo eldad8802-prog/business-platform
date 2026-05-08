@@ -1,4 +1,5 @@
 import { generateAiAssets } from "@/lib/services/ai-asset-generation.service";
+import { getCurrentUser } from "@/lib/auth";
 
 type ContentFlow = {
   mode?: "ai" | "camera" | "voice";
@@ -18,6 +19,11 @@ type ContentResult = {
 };
 
 export async function POST(req: Request) {
+  const user = await getCurrentUser(req);
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = (await req.json()) as {
       flow?: ContentFlow;

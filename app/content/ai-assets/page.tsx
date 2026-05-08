@@ -147,6 +147,7 @@ export default function AiAssetsPage() {
     let cancelled = false;
     const stepTimers: number[] = [];
     let redirectTimer: number | null = null;
+    const token = localStorage.getItem("token");
 
     async function startGeneration() {
       try {
@@ -154,6 +155,11 @@ export default function AiAssetsPage() {
         setIsReady(false);
         setActiveStep(0);
         setGeneratedCount(0);
+
+        if (!token) {
+          setError("לא מחובר. אנא התחבר מחדש.");
+          return;
+        }
 
         steps.forEach((_, index) => {
           const timer = window.setTimeout(() => {
@@ -169,6 +175,7 @@ export default function AiAssetsPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             flow,

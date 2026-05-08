@@ -475,36 +475,47 @@ async function buildVariant(
   index: number,
   businessProfile: BusinessContentProfile
 ): Promise<Variant> {
-  const resolvedVideoType: VideoType =
-    input.videoType || businessProfile.recommendedVideoType;
+  // Baseline plan from Decision Engine + normalized VideoPlanInput (per-variant adaptation not applied yet).
+  const baseFromDecision = {
+    videoType: input.videoType || businessProfile.recommendedVideoType,
+    durationSeconds: input.durationSeconds,
+    structure: input.structure || ["hook", "value", "cta"],
+    pace: input.pace,
+    hookStyle: input.hookStyle,
+    ctaStyle: input.ctaStyle,
+    contentAngle: input.contentAngle,
+    platform: input.selectedPlatform || "instagram",
+    goal: input.goal || "leads",
+  };
 
+  // Variant adaptation (temporary): getStyleAdjusted* and getVariantPace remain here until variant policy moves. Keep call order unchanged.
   const resolvedDuration = getStyleAdjustedDuration(
-    input.durationSeconds,
-    resolvedVideoType,
+    baseFromDecision.durationSeconds,
+    baseFromDecision.videoType,
     style
   );
 
-  const resolvedPace = getVariantPace(input.pace, style);
-  const resolvedStructure = input.structure || ["hook", "value", "cta"];
+  const resolvedPace = getVariantPace(baseFromDecision.pace, style);
+  const resolvedStructure = baseFromDecision.structure;
   const resolvedHookStyle = getStyleAdjustedHookStyle(
-    input.hookStyle,
+    baseFromDecision.hookStyle,
     style,
     businessProfile
   );
   const resolvedCtaStyle = getStyleAdjustedCtaStyle(
-    input.ctaStyle,
+    baseFromDecision.ctaStyle,
     style,
     businessProfile
   );
-  const resolvedPlatform = input.selectedPlatform || "instagram";
-  const resolvedGoal = input.goal || "leads";
+  const resolvedPlatform = baseFromDecision.platform;
+  const resolvedGoal = baseFromDecision.goal;
   const resolvedContentAngle = getStyleAdjustedContentAngle(
-    input.contentAngle,
+    baseFromDecision.contentAngle,
     style
   );
 
   const videoPlan: ScriptVideoPlan = {
-    videoType: resolvedVideoType,
+    videoType: baseFromDecision.videoType,
     durationSeconds: resolvedDuration,
     pace: resolvedPace,
     structure: resolvedStructure,
@@ -528,6 +539,14 @@ async function buildVariant(
     priceLevel: input.priceLevel,
     differentiators: input.differentiators,
     videoPlan,
+    contentGoalPrompt: input.contentGoalPrompt,
+    selectedDirection: input.selectedDirection
+      ? {
+          title: input.selectedDirection.title,
+          description: input.selectedDirection.description,
+          whyItFits: input.selectedDirection.whyItFits,
+        }
+      : undefined,
   });
 
   const shots = generated.shots || [];

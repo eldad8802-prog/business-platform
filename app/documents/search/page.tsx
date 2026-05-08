@@ -36,12 +36,20 @@ export default function SearchPage() {
   const handleSearch = async () => {
     if (!query.trim()) return;
 
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setError("לא מחובר. אנא התחבר מחדש.");
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
       setSearched(true);
 
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
 
       if (!res.ok) {

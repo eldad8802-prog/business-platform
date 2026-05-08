@@ -1,5 +1,6 @@
 import { checkUsage, incrementUsage } from "@/lib/services/usage.service";
 import { createCreatomateRender } from "@/lib/services/creatomate.service";
+import { getCurrentUser } from "@/lib/auth";
 
 type ContentFlow = {
   selectedFormat?: "reel" | "video" | "image" | "post";
@@ -41,8 +42,13 @@ type ContentResult = {
 };
 
 export async function POST(req: Request) {
+  const user = await getCurrentUser(req);
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
-    const businessId = 1;
+    const businessId = user.businessId;
     const plan = "FREE" as const;
 
     const usage = await checkUsage(businessId, plan);
