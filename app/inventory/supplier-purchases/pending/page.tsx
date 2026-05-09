@@ -837,12 +837,12 @@ const rtlText = (value: string) => value.replaceAll(" ", nbsp);
                   key={draft.id}
                   style={{
                     border: "1px solid #e5e7eb",
-                    borderRadius: 22,
-                    padding: 16,
+                    borderRadius: 20,
+                    padding: 14,
                     background: "#ffffff",
                     display: "flex",
                     flexDirection: "column",
-                    gap: 14,
+                    gap: 10,
                   }}
                 >
                   <div
@@ -921,243 +921,281 @@ const rtlText = (value: string) => value.replaceAll(" ", nbsp);
                         minHeight: 42,
                         borderRadius: 14,
                         border: "1px solid #d1d5db",
-                        background: "#ffffff",
+                        background: isOpen ? "#111827" : "#ffffff",
                         color: "#111827",
                         cursor: "pointer",
                         padding: "0 14px",
                         fontSize: 14,
                         fontWeight: 950,
+                        transition: "background 160ms ease, color 160ms ease",
+                        ...(isOpen
+                          ? { color: "#ffffff", border: "1px solid #111827" }
+                          : null),
                       }}
                     >
-                      {isOpen ? "סגור פרטים" : "בדיקת קבלה"}
+                      {isOpen ? "סגור" : "בדיקת קבלה"}
                     </button>
                   </div>
 
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(180px, 1fr))",
-                      gap: 10,
+                      gridTemplateRows: isOpen ? "1fr" : "0fr",
+                      transition: "grid-template-rows 180ms ease",
                     }}
                   >
-                    <button
-                      type="button"
-                      onClick={() => setDispatchDraft(draft)}
-                      style={{
-                        minHeight: 46,
-                        borderRadius: 15,
-                        border: "1px solid #d1d5db",
-                        background: "#ffffff",
-                        color: "#111827",
-                        cursor: "pointer",
-                        fontSize: 14,
-                        fontWeight: 950,
-                      }}
-                    >
-                      הכנת הזמנה לספק
-                    </button>
-                  </div>
-
-                  {isOpen && (
                     <div
                       style={{
-                        borderTop: "1px solid #e5e7eb",
-                        paddingTop: 14,
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 12,
+                        overflow: "hidden",
                       }}
                     >
-                      {draft.lines.map((line) => {
-                        const decision = decisions[line.id];
-
-                        return (
-                          <div
-                            key={line.id}
-                            style={{
-                              border: "1px solid #e5e7eb",
-                              borderRadius: 18,
-                              padding: 14,
-                              background: "#f9fafb",
-                              display: "grid",
-                              gridTemplateColumns:
-                                "minmax(0, 1fr) minmax(160px, 220px)",
-                              gap: 12,
-                              alignItems: "center",
-                            }}
-                          >
-                            <div>
-                              <div
-                                style={{
-                                  color: "#111827",
-                                  fontSize: 15,
-                                  fontWeight: 950,
-                                }}
-                              >
-                                {line.rawName || "מוצר ללא שם"}
-                              </div>
-                              <div
-                                style={{
-                                  marginTop: 5,
-                                  color: "#6b7280",
-                                  fontSize: 12,
-                                  lineHeight: 1.5,
-                                }}
-                              >
-                                כמות לקליטה: {line.quantity} · יחידה:{" "}
-                                {line.unitType || "UNIT"}
-                              </div>
-                            </div>
-
-                            <div
-                              style={{
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 8,
-                              }}
-                            >
-                              <select
-                                value={decision?.action || "CREATE_NEW"}
-                                onChange={(event) => {
-                                  if (event.target.value === "MERGE") {
-                                    updateDecision(line.id, {
-                                      action: "MERGE",
-                                      itemId: line.matchedItemId || "",
-                                    });
-                                  } else {
-                                    updateDecision(line.id, {
-                                      action: "CREATE_NEW",
-                                      name: line.rawName || "",
-                                      unitType: line.unitType || "UNIT",
-                                    });
-                                  }
-                                }}
-                                style={{
-                                  minHeight: 42,
-                                  borderRadius: 14,
-                                  border: "1px solid #d1d5db",
-                                  background: "#ffffff",
-                                  padding: "0 10px",
-                                  fontSize: 13,
-                                  fontWeight: 800,
-                                  outline: "none",
-                                }}
-                              >
-                                <option value="MERGE">שיוך למוצר קיים</option>
-                                <option value="CREATE_NEW">
-                                  יצירת מוצר חדש
-                                </option>
-                              </select>
-
-                              {decision?.action === "MERGE" && (
-                                <select
-                                  value={decision.itemId || ""}
-                                  onChange={(event) =>
-                                    updateDecision(line.id, {
-                                      action: "MERGE",
-                                      itemId: Number(event.target.value),
-                                    })
-                                  }
-                                  style={{
-                                    minHeight: 42,
-                                    borderRadius: 14,
-                                    border: "1px solid #d1d5db",
-                                    background: "#ffffff",
-                                    padding: "0 10px",
-                                    fontSize: 13,
-                                    fontWeight: 800,
-                                    outline: "none",
-                                  }}
-                                >
-                                  <option value="">בחרו מוצר קיים</option>
-                                  {items.map((item) => (
-                                    <option key={item.id} value={item.id}>
-                                      {item.name} · במלאי:{" "}
-                                      {item.currentQuantity}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-
-                              {decision?.action === "CREATE_NEW" && (
-                                <input
-                                  value={decision.name}
-                                  onChange={(event) =>
-                                    updateDecision(line.id, {
-                                      action: "CREATE_NEW",
-                                      name: event.target.value,
-                                      unitType: decision.unitType,
-                                    })
-                                  }
-                                  placeholder="שם מוצר חדש"
-                                  style={{
-                                    minHeight: 42,
-                                    borderRadius: 14,
-                                    border: "1px solid #d1d5db",
-                                    background: "#ffffff",
-                                    padding: "0 10px",
-                                    fontSize: 13,
-                                    fontWeight: 800,
-                                    outline: "none",
-                                  }}
-                                />
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      <div
+                      <section
                         style={{
-                          display: "grid",
-                          gridTemplateColumns:
-                            "repeat(auto-fit, minmax(180px, 1fr))",
-                          gap: 10,
-                          marginTop: 4,
+                          marginTop: 10,
+                          border: "1px solid #e5e7eb",
+                          borderRadius: 18,
+                          background: "#f9fafb",
+                          padding: 14,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 12,
+                          opacity: isOpen ? 1 : 0,
+                          transform: isOpen ? "translateY(0)" : "translateY(-2px)",
+                          transition:
+                            "opacity 160ms ease, transform 160ms ease",
                         }}
                       >
-                        <button
-                          type="button"
-                          onClick={() => approveDraft(draft)}
-                          disabled={actionLoading}
+                        <div
                           style={{
-                            minHeight: 50,
-                            borderRadius: 16,
-                            border: "none",
-                            background: "#059669",
-                            color: "#ffffff",
-                            fontSize: 15,
-                            fontWeight: 950,
-                            cursor: actionLoading ? "not-allowed" : "pointer",
-                            opacity: actionLoading ? 0.65 : 1,
-                            boxShadow: "0 10px 22px rgba(5, 150, 105, 0.16)",
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: 10,
+                            alignItems: "center",
+                            justifyContent: "space-between",
                           }}
                         >
-                          אישור קבלת סחורה
-                        </button>
+                          <div
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 950,
+                              color: "#111827",
+                            }}
+                          >
+                            בדיקת קבלה
+                          </div>
 
-                        <button
-                          type="button"
-                          onClick={() => rejectDraft(draft.id)}
-                          disabled={actionLoading}
+                          <button
+                            type="button"
+                            onClick={() => setDispatchDraft(draft)}
+                            style={{
+                              minHeight: 40,
+                              borderRadius: 14,
+                              border: "1px solid #d1d5db",
+                              background: "#ffffff",
+                              color: "#111827",
+                              cursor: "pointer",
+                              padding: "0 12px",
+                              fontSize: 13,
+                              fontWeight: 900,
+                            }}
+                          >
+                            הכנת הזמנה לספק
+                          </button>
+                        </div>
+
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          {draft.lines.map((line) => {
+                            const decision = decisions[line.id];
+
+                            return (
+                              <div
+                                key={line.id}
+                                style={{
+                                  border: "1px solid #e5e7eb",
+                                  borderRadius: 16,
+                                  padding: 12,
+                                  background: "#ffffff",
+                                  display: "grid",
+                                  gridTemplateColumns:
+                                    "minmax(0, 1fr) minmax(160px, 220px)",
+                                  gap: 12,
+                                  alignItems: "center",
+                                }}
+                              >
+                                <div>
+                                  <div
+                                    style={{
+                                      color: "#111827",
+                                      fontSize: 14,
+                                      fontWeight: 950,
+                                    }}
+                                  >
+                                    {line.rawName || "מוצר ללא שם"}
+                                  </div>
+                                  <div
+                                    style={{
+                                      marginTop: 5,
+                                      color: "#6b7280",
+                                      fontSize: 12,
+                                      lineHeight: 1.5,
+                                    }}
+                                  >
+                                    כמות לקליטה: {line.quantity} · יחידה:{" "}
+                                    {line.unitType || "UNIT"}
+                                  </div>
+                                </div>
+
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: 8,
+                                  }}
+                                >
+                                  <select
+                                    value={decision?.action || "CREATE_NEW"}
+                                    onChange={(event) => {
+                                      if (event.target.value === "MERGE") {
+                                        updateDecision(line.id, {
+                                          action: "MERGE",
+                                          itemId: line.matchedItemId || "",
+                                        });
+                                      } else {
+                                        updateDecision(line.id, {
+                                          action: "CREATE_NEW",
+                                          name: line.rawName || "",
+                                          unitType: line.unitType || "UNIT",
+                                        });
+                                      }
+                                    }}
+                                    style={{
+                                      minHeight: 40,
+                                      borderRadius: 14,
+                                      border: "1px solid #d1d5db",
+                                      background: "#ffffff",
+                                      padding: "0 10px",
+                                      fontSize: 13,
+                                      fontWeight: 800,
+                                      outline: "none",
+                                    }}
+                                  >
+                                    <option value="MERGE">שיוך למוצר קיים</option>
+                                    <option value="CREATE_NEW">
+                                      יצירת מוצר חדש
+                                    </option>
+                                  </select>
+
+                                  {decision?.action === "MERGE" && (
+                                    <select
+                                      value={decision.itemId || ""}
+                                      onChange={(event) =>
+                                        updateDecision(line.id, {
+                                          action: "MERGE",
+                                          itemId: Number(event.target.value),
+                                        })
+                                      }
+                                      style={{
+                                        minHeight: 40,
+                                        borderRadius: 14,
+                                        border: "1px solid #d1d5db",
+                                        background: "#ffffff",
+                                        padding: "0 10px",
+                                        fontSize: 13,
+                                        fontWeight: 800,
+                                        outline: "none",
+                                      }}
+                                    >
+                                      <option value="">בחרו מוצר קיים</option>
+                                      {items.map((item) => (
+                                        <option key={item.id} value={item.id}>
+                                          {item.name} · במלאי:{" "}
+                                          {item.currentQuantity}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  )}
+
+                                  {decision?.action === "CREATE_NEW" && (
+                                    <input
+                                      value={decision.name}
+                                      onChange={(event) =>
+                                        updateDecision(line.id, {
+                                          action: "CREATE_NEW",
+                                          name: event.target.value,
+                                          unitType: decision.unitType,
+                                        })
+                                      }
+                                      placeholder="שם מוצר חדש"
+                                      style={{
+                                        minHeight: 40,
+                                        borderRadius: 14,
+                                        border: "1px solid #d1d5db",
+                                        background: "#ffffff",
+                                        padding: "0 10px",
+                                        fontSize: 13,
+                                        fontWeight: 800,
+                                        outline: "none",
+                                      }}
+                                    />
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <footer
                           style={{
-                            minHeight: 50,
-                            borderRadius: 16,
-                            border: "1px solid #fecaca",
-                            background: "#fef2f2",
-                            color: "#991b1b",
-                            fontSize: 15,
-                            fontWeight: 950,
-                            cursor: actionLoading ? "not-allowed" : "pointer",
-                            opacity: actionLoading ? 0.65 : 1,
+                            borderTop: "1px solid #e5e7eb",
+                            paddingTop: 12,
+                            display: "grid",
+                            gridTemplateColumns:
+                              "repeat(auto-fit, minmax(180px, 1fr))",
+                            gap: 10,
                           }}
                         >
-                          ביטול הזמנה
-                        </button>
-                      </div>
+                          <button
+                            type="button"
+                            onClick={() => approveDraft(draft)}
+                            disabled={actionLoading}
+                            style={{
+                              minHeight: 50,
+                              borderRadius: 16,
+                              border: "none",
+                              background: "#059669",
+                              color: "#ffffff",
+                              fontSize: 15,
+                              fontWeight: 950,
+                              cursor: actionLoading ? "not-allowed" : "pointer",
+                              opacity: actionLoading ? 0.65 : 1,
+                              boxShadow: "0 10px 22px rgba(5, 150, 105, 0.16)",
+                            }}
+                          >
+                            אישור קבלת סחורה
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => rejectDraft(draft.id)}
+                            disabled={actionLoading}
+                            style={{
+                              minHeight: 50,
+                              borderRadius: 16,
+                              border: "1px solid #fecaca",
+                              background: "#fef2f2",
+                              color: "#991b1b",
+                              fontSize: 15,
+                              fontWeight: 950,
+                              cursor: actionLoading ? "not-allowed" : "pointer",
+                              opacity: actionLoading ? 0.65 : 1,
+                            }}
+                          >
+                            ביטול הזמנה
+                          </button>
+                        </footer>
+                      </section>
                     </div>
-                  )}
+                  </div>
                 </article>
               );
             })}

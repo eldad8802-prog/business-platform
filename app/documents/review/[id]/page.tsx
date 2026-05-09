@@ -1,8 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { CATEGORIES, CATEGORY_MAP } from "@/lib/constants/categories";
+import {
+  card,
+  alertError,
+  alertSuccess,
+  metricTile,
+  editPillBtn,
+} from "../../ui";
+import DocumentsHeader from "@/components/documents/DocumentsHeader";
 
 type OutputProfile = {
   profileId:
@@ -80,11 +88,26 @@ function hasNonEmptyText(v: unknown): boolean {
 
 function isUsableFileUrl(fileUrl: string): boolean {
   const value = fileUrl.trim();
-  return (
-    value.startsWith("http://") ||
-    value.startsWith("https://") ||
-    value.startsWith("/")
-  );
+  if (!value) return false;
+
+  // Absolute remote URL — trust it. If the remote host returns 404 that's a
+  // separate concern from the Next.js 404 page we're guarding against here.
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    return true;
+  }
+
+  // Relative path: must point at a real file we can serve. The current
+  // upload pipeline stores placeholders like `/uploads/<timestamp>` (no
+  // extension, no actual file on disk), which Next.js resolves to its 404
+  // page when opened in a new tab. Require a known file extension so the
+  // preview falls back to the empty-state explanation instead of showing a
+  // "פתח מסמך" button that leads to a 404.
+  if (value.startsWith("/")) {
+    const pathOnly = value.split("?")[0].split("#")[0].toLowerCase();
+    return /\.(pdf|png|jpe?g|webp|gif|heic|heif|tiff?|bmp)$/.test(pathOnly);
+  }
+
+  return false;
 }
 
 function getPreviewKind(
@@ -136,43 +159,6 @@ function heroStyle() {
     flexDirection: "column" as const,
     gap: 18,
     boxSizing: "border-box" as const,
-  };
-}
-
-function cardStyle() {
-  return {
-    border: "1px solid #e5e7eb",
-    borderRadius: 26,
-    background: "#ffffff",
-    padding: 18,
-    boxShadow: "0 10px 30px rgba(15, 23, 42, 0.06)",
-    boxSizing: "border-box" as const,
-  };
-}
-
-function alertErrorStyle() {
-  return {
-    border: "1px solid #fecaca",
-    background: "#fef2f2",
-    color: "#991b1b",
-    borderRadius: 18,
-    padding: 14,
-    fontSize: 14,
-    fontWeight: 800,
-    lineHeight: 1.5,
-  };
-}
-
-function alertSuccessStyle() {
-  return {
-    border: "1px solid #bbf7d0",
-    background: "#f0fdf4",
-    color: "#166534",
-    borderRadius: 18,
-    padding: 14,
-    fontSize: 14,
-    fontWeight: 800,
-    lineHeight: 1.5,
   };
 }
 
@@ -244,6 +230,16 @@ export default function ReviewPage() {
   const [document, setDocument] = useState<ApiDocument | null>(null);
   const [outputProfile, setOutputProfile] = useState<OutputProfile | null>(null);
 
+  // Source-file preview state. The original bytes are streamed from the
+  // protected `/api/documents/[id]/file` route (which requires Bearer auth),
+  // turned into a Blob URL for `<iframe>` / `<img>` consumption, and
+  // revoked when the document changes or the page unmounts.
+  const [fileBlobUrl, setFileBlobUrl] = useState<string | null>(null);
+  const [fileStatus, setFileStatus] = useState<
+    "idle" | "loading" | "ready" | "missing"
+  >("idle");
+  const blobUrlRef = useRef<string | null>(null);
+
   const [draft, setDraft] = useState<{
     amount: number | null;
     vendorName: string;
@@ -298,7 +294,32 @@ export default function ReviewPage() {
         });
 
         const pid = json.outputProfile.profileId;
-        setReviewMode(pid === "financial_transaction" ? "financial" : "document");
+
+        // When the profile is `unknown_review` but the extracted draft already
+        // looks like a real transaction (positive amount + vendor + date +
+        // explicit direction + category), default the UI to the financial
+        // flow. This preserves the explicit-user-choice rule (the API still
+        // requires `explicitFinancial: true`) while making sure a clearly
+        // financial document does not silently fall into the document-only
+        // path and skip Reports/Search.
+        const draftAmount =
+          typeof json.extracted?.amount === "number" ? json.extracted.amount : null;
+        const hasStrongFinancialSignals =
+          draftAmount !== null &&
+          draftAmount > 0 &&
+          Boolean(json.extracted?.vendorName) &&
+          Boolean(json.extracted?.date) &&
+          (dir === "income" || dir === "expense") &&
+          Boolean(json.extracted?.category);
+
+        const defaultMode: ReviewMode =
+          pid === "financial_transaction"
+            ? "financial"
+            : pid === "unknown_review" && hasStrongFinancialSignals
+              ? "financial"
+              : "document";
+
+        setReviewMode(defaultMode);
         setState("decision");
       } catch (e: any) {
         setError(e?.message || "שגיאה בטעינת המסמך");
@@ -309,6 +330,67 @@ export default function ReviewPage() {
 
     void load();
   }, [id, authHeader]);
+
+  // Stream the original file bytes from the protected route once the
+  // document loads. We deliberately use `fetch` + Blob URL (not <iframe
+  // src=route>) because the route requires `Authorization: Bearer ...` and
+  // <iframe>/<img> cannot attach the header.
+  useEffect(() => {
+    if (!document || !authHeader) {
+      setFileStatus("idle");
+      return;
+    }
+
+    const ctrl = new AbortController();
+    setFileStatus("loading");
+    setPreviewFailed(false);
+
+    fetch(`/api/documents/${document.id}/file`, {
+      headers: { authorization: authHeader },
+      signal: ctrl.signal,
+      cache: "no-store",
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          // 404 here is the expected outcome for legacy documents whose
+          // `fileUrl` is a `/uploads/<timestamp>` placeholder with no real
+          // bytes on disk. The UI falls back to the explanatory empty state.
+          setFileStatus("missing");
+          return;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+
+        // Revoke any previously-held blob URL for this component before
+        // installing the new one, so we never leak object URLs across
+        // navigations between documents.
+        if (blobUrlRef.current) {
+          URL.revokeObjectURL(blobUrlRef.current);
+        }
+        blobUrlRef.current = url;
+        setFileBlobUrl(url);
+        setFileStatus("ready");
+      })
+      .catch((e) => {
+        if (e?.name === "AbortError") return;
+        setFileStatus("missing");
+      });
+
+    return () => {
+      ctrl.abort();
+    };
+  }, [document?.id, authHeader]);
+
+  // Final cleanup on unmount — revoke any blob URL still held by this
+  // component so we never leave dangling object URLs in memory.
+  useEffect(() => {
+    return () => {
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
+    };
+  }, []);
 
   const pid = outputProfile?.profileId || "unknown_review";
   const isUnknown = pid === "unknown_review";
@@ -453,18 +535,25 @@ export default function ReviewPage() {
     }
   }
 
-  const fileUrl = document?.fileUrl || "";
-  const canUseFileUrl = isUsableFileUrl(fileUrl);
-  const previewKind = getPreviewKind(fileUrl, document?.mimeType);
+  // Preview readiness is now driven by the protected file fetch, not by
+  // `document.fileUrl`. The latter is just a stored basename and never a
+  // navigable URL on its own.
+  const previewReady = fileStatus === "ready" && !!fileBlobUrl;
+  const previewLoading = fileStatus === "loading";
+  const previewKind = getPreviewKind(
+    fileBlobUrl || "",
+    document?.mimeType
+  );
   const shouldShowDocumentPreview = state !== "done";
   const showPreviewFallback =
-    !canUseFileUrl || previewKind === "unsupported" || previewFailed;
+    !previewReady || previewKind === "unsupported" || previewFailed;
 
   if (pageLoading) {
     return (
       <div dir="rtl" style={basePageStyle()}>
+        <DocumentsHeader title="בדיקת מסמך" />
         <main style={mainStyle()}>
-          <div style={cardStyle()}>
+          <div style={card}>
             <div
               style={{
                 fontSize: 18,
@@ -488,8 +577,9 @@ export default function ReviewPage() {
   if (!document) {
     return (
       <div dir="rtl" style={basePageStyle()}>
+        <DocumentsHeader title="בדיקת מסמך" />
         <main style={mainStyle()}>
-          <div style={cardStyle()}>
+          <div style={card}>
             <div
               style={{
                 fontSize: 22,
@@ -528,6 +618,7 @@ export default function ReviewPage() {
 
   return (
     <div dir="rtl" style={basePageStyle()}>
+      <DocumentsHeader title="בדיקת מסמך" />
       <main style={mainStyle()}>
         <section style={heroStyle()}>
           <div>
@@ -574,10 +665,10 @@ export default function ReviewPage() {
           ) : null}
         </section>
 
-        {error ? <div style={alertErrorStyle()}>{error}</div> : null}
+        {error ? <div style={alertError}>{error}</div> : null}
 
         {state === "decision" ? (
-          <section style={cardStyle()}>
+          <section style={card}>
             <div style={{ fontWeight: 950, color: "#111827", fontSize: 18, marginBottom: 14 }}>
               מה זיהינו עד עכשיו
             </div>
@@ -589,20 +680,12 @@ export default function ReviewPage() {
                 gap: 10,
               }}
             >
-              <div
-                style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 22,
-                  padding: 14,
-                  background: "#f9fafb",
-                }}
-              >
+              <div style={metricTile}>
                 <div style={{ fontSize: 12, color: "#6b7280", fontWeight: 800 }}>
                   ספק
                 </div>
                 <div
                   style={{
-                    marginTop: 6,
                     fontSize: 18,
                     fontWeight: 950,
                     color: "#111827",
@@ -613,34 +696,20 @@ export default function ReviewPage() {
                 </div>
               </div>
 
-              <div
-                style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 22,
-                  padding: 14,
-                  background: "#f9fafb",
-                }}
-              >
+              <div style={metricTile}>
                 <div style={{ fontSize: 12, color: "#6b7280", fontWeight: 800 }}>
                   סכום
                 </div>
-                <div style={{ marginTop: 6, fontSize: 28, fontWeight: 950, color: "#111827" }}>
+                <div style={{ fontSize: 28, fontWeight: 950, color: "#111827" }}>
                   {typeof draft.amount === "number" ? draft.amount : "—"}
                 </div>
               </div>
 
-              <div
-                style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 22,
-                  padding: 14,
-                  background: "#f9fafb",
-                }}
-              >
+              <div style={metricTile}>
                 <div style={{ fontSize: 12, color: "#6b7280", fontWeight: 800 }}>
                   תאריך
                 </div>
-                <div style={{ marginTop: 6, fontSize: 18, fontWeight: 950, color: "#111827" }}>
+                <div style={{ fontSize: 18, fontWeight: 950, color: "#111827" }}>
                   {formatDateShort(draft.date) || "—"}
                 </div>
               </div>
@@ -676,7 +745,7 @@ export default function ReviewPage() {
         ) : null}
 
         {state === "summary" ? (
-          <section style={cardStyle()}>
+          <section style={card}>
             {reviewMode === "financial" ? (
               <>
                 <div style={{ fontWeight: 950, color: "#111827", fontSize: 18, marginBottom: 10 }}>
@@ -738,16 +807,7 @@ export default function ReviewPage() {
                     </div>
                     <button
                       type="button"
-                      style={{
-                        padding: "10px 12px",
-                        borderRadius: 14,
-                        border: "1px solid #e5e7eb",
-                        background: "#f9fafb",
-                        color: "#111827",
-                        fontWeight: 900,
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                      }}
+                      style={editPillBtn}
                       onClick={() => {
                         setEditField(row.k);
                         setState("edit-field");
@@ -757,6 +817,23 @@ export default function ReviewPage() {
                     </button>
                   </div>
                 ))}
+
+                {/* Outcome notice — explains exactly what will happen on approve */}
+                <div
+                  style={{
+                    marginTop: 14,
+                    border: "1px solid #bbf7d0",
+                    background: "#f0fdf4",
+                    color: "#065f46",
+                    borderRadius: 16,
+                    padding: 12,
+                    fontSize: 13,
+                    fontWeight: 800,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  אישור ייצור עסקה. המסמך יופיע בחיפוש וישפיע על הדוחות.
+                </div>
 
                 <div style={{ marginTop: 16 }}>
                   <button
@@ -777,8 +854,21 @@ export default function ReviewPage() {
                       const missing = firstMissingFinancialField();
                       if (loading) return "שומר...";
                       if (missing) return "השלם שדה נדרש";
-                      return "מאשר ושומר";
+                      return "אשר ושמור כעסקה";
                     })()}
+                  </button>
+                </div>
+
+                {/* Allow the user to fall back to document-only mode if they
+                    decide this is informational, not an actual transaction. */}
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    type="button"
+                    disabled={loading}
+                    style={secondaryButton(loading)}
+                    onClick={() => setReviewMode("document")}
+                  >
+                    שמור כמסמך מידע במקום
                   </button>
                 </div>
               </>
@@ -810,16 +900,7 @@ export default function ReviewPage() {
                     </div>
                     <button
                       type="button"
-                      style={{
-                        padding: "10px 12px",
-                        borderRadius: 14,
-                        border: "1px solid #e5e7eb",
-                        background: "#f9fafb",
-                        color: "#111827",
-                        fontWeight: 900,
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                      }}
+                      style={editPillBtn}
                       onClick={() => {
                         setEditField("category");
                         setState("edit-field");
@@ -830,6 +911,23 @@ export default function ReviewPage() {
                   </div>
                 </div>
 
+                {/* Outcome notice — explicit about what will NOT happen */}
+                <div
+                  style={{
+                    marginTop: 14,
+                    border: "1px solid #e5e7eb",
+                    background: "#f9fafb",
+                    color: "#374151",
+                    borderRadius: 16,
+                    padding: 12,
+                    fontSize: 13,
+                    fontWeight: 800,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  ייקלט כמסמך מידע. לא ייכנס לחיפוש ולא ישפיע על הדוחות.
+                </div>
+
                 <div style={{ marginTop: 16 }}>
                   <button
                     type="button"
@@ -837,16 +935,33 @@ export default function ReviewPage() {
                     style={primaryDarkButton(loading)}
                     onClick={() => void approveDocumentOnly()}
                   >
-                    {loading ? "שומר..." : "מאשר ושומר"}
+                    {loading ? "שומר..." : "אשר ושמור כמסמך מידע"}
                   </button>
                 </div>
+
+                {/* Escape hatch: only for `unknown_review` profiles, since the
+                    approve API only honours explicitFinancial=true for those.
+                    For tax/quote/non_financial profiles we keep document-only
+                    behaviour to avoid auto-promoting non-financial documents. */}
+                {isUnknown ? (
+                  <div style={{ marginTop: 10 }}>
+                    <button
+                      type="button"
+                      disabled={loading}
+                      style={secondaryButton(loading)}
+                      onClick={() => setReviewMode("financial")}
+                    >
+                      זו בעצם קבלה / עסקה — שמור כעסקה
+                    </button>
+                  </div>
+                ) : null}
               </>
             )}
           </section>
         ) : null}
 
         {state === "edit-field" ? (
-          <section style={cardStyle()}>
+          <section style={card}>
             <div style={{ fontWeight: 950, color: "#111827", fontSize: 18, marginBottom: 10 }}>
               {editFieldTitle}
             </div>
@@ -967,6 +1082,11 @@ export default function ReviewPage() {
               </select>
             ) : null}
 
+            {/* The "confirm" button here only commits the field edit to local
+                draft state and returns to the summary; the actual DB write
+                happens when the user approves on the summary screen. The copy
+                is intentionally "אישור" rather than "שמור" so users do not
+                expect this click alone to persist the document. */}
             <div style={{ marginTop: 16 }}>
               <button
                 type="button"
@@ -974,7 +1094,7 @@ export default function ReviewPage() {
                 style={primaryDarkButton(loading)}
                 onClick={() => setState("summary")}
               >
-                שמור
+                אישור
               </button>
             </div>
 
@@ -992,8 +1112,8 @@ export default function ReviewPage() {
         ) : null}
 
         {state === "done" ? (
-          <section style={cardStyle()}>
-            <div style={alertSuccessStyle()}>
+          <section style={card}>
+            <div style={alertSuccess}>
               {reviewMode === "financial"
                 ? draft.direction === "income"
                   ? "נשמר כהכנסה"
@@ -1014,7 +1134,7 @@ export default function ReviewPage() {
         ) : null}
 
         {shouldShowDocumentPreview ? (
-          <section style={cardStyle()}>
+          <section style={card}>
             <div style={{ fontWeight: 950, color: "#111827", fontSize: 16, marginBottom: 12 }}>
               תצוגת מסמך
             </div>
@@ -1031,7 +1151,9 @@ export default function ReviewPage() {
               >
                 <div style={{ fontSize: 34, marginBottom: 8 }}>📄</div>
                 <div style={{ fontSize: 18, fontWeight: 950, color: "#111827" }}>
-                  אין תצוגה מקדימה זמינה
+                  {previewLoading
+                    ? "טוען תצוגת מסמך..."
+                    : "אין תצוגה מקדימה זמינה"}
                 </div>
                 <div
                   style={{
@@ -1041,31 +1163,14 @@ export default function ReviewPage() {
                     lineHeight: 1.6,
                   }}
                 >
-                  המסמך קיים במערכת, אבל לא ניתן להציג אותו כאן כרגע.
+                  {previewLoading
+                    ? "מורידים את קובץ המקור."
+                    : "אין קובץ מקור זמין למסמך הזה. הנתונים שחולצו עדיין שמורים, אבל לא נשמר עותק להצגה."}
                 </div>
-                {canUseFileUrl ? (
-                  <a
-                    href={fileUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      display: "inline-flex",
-                      marginTop: 14,
-                      padding: "12px 16px",
-                      borderRadius: 14,
-                      background: "#111827",
-                      color: "#ffffff",
-                      fontWeight: 900,
-                      textDecoration: "none",
-                    }}
-                  >
-                    פתח מסמך
-                  </a>
-                ) : null}
               </div>
             ) : previewKind === "pdf" ? (
               <iframe
-                src={fileUrl}
+                src={fileBlobUrl as string}
                 title="תצוגת מסמך"
                 onError={() => setPreviewFailed(true)}
                 style={{
@@ -1078,7 +1183,7 @@ export default function ReviewPage() {
               />
             ) : (
               <img
-                src={fileUrl}
+                src={fileBlobUrl as string}
                 alt="תצוגת מסמך"
                 onError={() => setPreviewFailed(true)}
                 style={{

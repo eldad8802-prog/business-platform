@@ -125,6 +125,11 @@ export async function POST(request: NextRequest) {
 
     const unitType = parseInventoryUnitType(body.unitType);
 
+    const supplierName =
+      typeof body.supplierName === "string" && body.supplierName.trim()
+        ? body.supplierName.trim()
+        : undefined;
+
     // 🔥 חדש — קטגוריה
     let categoryId: number | undefined = undefined;
 
@@ -153,6 +158,7 @@ export async function POST(request: NextRequest) {
       businessId: user.businessId,
       name,
       unitType,
+      supplierName,
       initialQuantity: parseOptionalNumber(body.initialQuantity, "initialQuantity"),
       minimumQuantity: parseOptionalNumber(body.minimumQuantity, "minimumQuantity"),
       reorderPoint: parseOptionalNumber(body.reorderPoint, "reorderPoint"),

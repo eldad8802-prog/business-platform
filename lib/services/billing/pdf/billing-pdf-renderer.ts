@@ -81,6 +81,14 @@ function getPrinter(): PdfPrinterLike {
 export async function renderBillingPdfFromSnapshot(
   snapshot: BillingIssuedSnapshotV1
 ): Promise<Buffer> {
+  if (process.env.BILLING_PDF_DEBUG_LOG === "1") {
+    const firstLine = snapshot.lines[0]?.description ?? "(no lines)";
+    console.log("[billing-pdf-debug] ENTER renderBillingPdfFromSnapshot (pdfmake)", {
+      customerNameFromSnapshot: snapshot.customer.name,
+      firstLineDescriptionFromSnapshot: firstLine,
+    });
+  }
+
   const printer = getPrinter();
   const docDef = buildDocDefinition(snapshot);
   const doc = await printer.createPdfKitDocument(docDef);

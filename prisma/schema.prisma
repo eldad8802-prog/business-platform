@@ -688,6 +688,7 @@ model InventoryItem {
   sku                        String?
   barcode                    String?
   unitType                   InventoryUnitType
+  supplierName               String?
   currentQuantity            Float                       @default(0)
   minimumQuantity            Float                       @default(0)
   reorderPoint               Float?

@@ -159,3 +159,57 @@ export const alertSuccess = {
   fontWeight: 800,
   lineHeight: 1.5,
 };
+
+// --- Phase 1 additions (do not modify existing tokens above) ---
+
+export const cardTitle = {
+  fontWeight: 950,
+  fontSize: 16,
+  marginBottom: 6,
+  color: "#111827",
+  lineHeight: 1.35,
+};
+
+export const cardSubText = {
+  color: "#6b7280",
+  fontSize: 14,
+  lineHeight: 1.6,
+  margin: 0,
+};
+
+export const metricTile = {
+  border: "1px solid #e5e7eb",
+  borderRadius: 22,
+  padding: 14,
+  background: "#f9fafb",
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: 6,
+  minWidth: 0,
+};
+
+export const editPillBtn = {
+  padding: "10px 12px",
+  borderRadius: 14,
+  border: "1px solid #e5e7eb",
+  background: "#f9fafb",
+  color: "#111827",
+  fontSize: 13,
+  fontWeight: 900,
+  cursor: "pointer",
+  whiteSpace: "nowrap" as const,
+  minHeight: 40,
+};
+
+export const iconWrap = {
+  width: 44,
+  height: 44,
+  borderRadius: 14,
+  background: "#f3f4f6",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 22,
+  lineHeight: 1,
+  flexShrink: 0,
+};

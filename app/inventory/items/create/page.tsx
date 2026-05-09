@@ -30,6 +30,7 @@ export default function CreateInventoryItemPage() {
 
   const [name, setName] = useState("");
   const [barcode, setBarcode] = useState("");
+  const [supplierName, setSupplierName] = useState("");
   const [unitType, setUnitType] = useState("UNIT");
   const [initialQuantity, setInitialQuantity] = useState("0");
   const [minimumQuantity, setMinimumQuantity] = useState("0");
@@ -218,6 +219,7 @@ export default function CreateInventoryItemPage() {
       const createdItem = await createInventoryItem({
         name: name.trim(),
         barcode: barcode.trim() ? barcode.trim() : null,
+        supplierName: supplierName.trim() ? supplierName.trim() : null,
         unitType,
         initialQuantity: parsedInitialQuantity,
         minimumQuantity: parsedMinimumQuantity,
@@ -374,6 +376,44 @@ export default function CreateInventoryItemPage() {
                 setError(null);
               }}
               placeholder="לא חובה"
+              style={{
+                width: "100%",
+                minHeight: "46px",
+                padding: "10px 12px",
+                borderRadius: "12px",
+                border: "1px solid #d1d5db",
+                fontSize: "14px",
+                background: loading ? "#f9fafb" : "#ffffff",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="inventory-item-supplier-name"
+              style={{
+                display: "block",
+                marginBottom: "6px",
+                fontSize: "13px",
+                fontWeight: 700,
+                color: "#111827",
+              }}
+            >
+              שם ספק{" "}
+              <span style={{ color: "#6b7280", fontWeight: 600 }}>(אופציונלי)</span>
+            </label>
+
+            <input
+              id="inventory-item-supplier-name"
+              type="text"
+              value={supplierName}
+              disabled={loading}
+              onChange={(e) => {
+                setSupplierName(e.target.value);
+                setError(null);
+              }}
+              placeholder="למשל: שוורצקופף, לוריאל, ספק מקומי"
               style={{
                 width: "100%",
                 minHeight: "46px",

@@ -581,6 +581,7 @@ export default function BillingDocumentWorkspacePage() {
       <div style={{ maxWidth: 720, margin: "0 auto" }}>
         <header
           style={{
+            direction: "rtl",
             display: "flex",
             alignItems: "center",
             gap: 8,
@@ -589,24 +590,25 @@ export default function BillingDocumentWorkspacePage() {
         >
           <Link
             href="/billing"
-            aria-label="חזרה לרשימת המסמכים"
+            aria-label="חזרה"
             style={{
-              width: 36,
-              height: 36,
+              minHeight: 40,
               flexShrink: 0,
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              borderRadius: 10,
+              borderRadius: 12,
               background: "#ffffff",
               border: "1px solid #e2e8f0",
               textDecoration: "none",
               color: "#0f172a",
-              fontSize: 18,
-              fontWeight: 700,
+              padding: "0 12px",
+              fontSize: 14,
+              fontWeight: 800,
+              whiteSpace: "nowrap",
             }}
           >
-            →
+            חזרה
           </Link>
           <div style={{ flex: 1, minWidth: 0 }}>
             <h1

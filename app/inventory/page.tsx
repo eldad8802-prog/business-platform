@@ -333,34 +333,52 @@ export default function InventoryPage() {
 
       <main
         style={{
-          maxWidth: "860px",
+          maxWidth: 980,
           margin: "0 auto",
           padding: "16px",
           display: "flex",
           flexDirection: "column",
           gap: "16px",
+          boxSizing: "border-box",
+          direction: "rtl",
         }}
       >
         <section
           style={{
-            border: "1px solid #e5e7eb",
-            borderRadius: "22px",
-            background: "#ffffff",
-            padding: "18px",
-            boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
+            borderRadius: 30,
+            padding: 22,
+            background:
+              "linear-gradient(135deg, #111827 0%, #1f2937 50%, #0f766e 100%)",
+            color: "#ffffff",
+            boxShadow: "0 18px 44px rgba(15, 23, 42, 0.22)",
             display: "flex",
             flexDirection: "column",
-            gap: "14px",
+            gap: 16,
+            overflow: "hidden",
           }}
         >
           <div>
+            <div
+              style={{
+                display: "inline-flex",
+                padding: "7px 11px",
+                borderRadius: 999,
+                background: "rgba(255,255,255,0.12)",
+                border: "1px solid rgba(255,255,255,0.18)",
+                fontSize: 12,
+                fontWeight: 900,
+                marginBottom: 12,
+              }}
+            >
+              Workspace מלאי
+            </div>
+
             <h1
               style={{
-                fontSize: "20px",
-                fontWeight: 800,
-                color: "#111827",
                 margin: 0,
-                marginBottom: "6px",
+                fontSize: 28,
+                lineHeight: 1.25,
+                fontWeight: 950,
               }}
             >
               ניהול מלאי
@@ -368,14 +386,112 @@ export default function InventoryPage() {
 
             <p
               style={{
-                fontSize: "14px",
-                lineHeight: 1.6,
-                color: "#6b7280",
-                margin: 0,
+                margin: "8px 0 0",
+                color: "rgba(255,255,255,0.78)",
+                fontSize: 14,
+                lineHeight: 1.7,
+                maxWidth: 760,
               }}
             >
-              כאן אפשר לראות את כל הפריטים, להוסיף פריט חדש ולעדכן כמויות דרך
-              תנועות מלאי מסודרות.
+              צפייה בפריטים, יצירה מהירה, ועדכון כמויות דרך תנועות מלאי — הכל
+              במקום אחד.
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+              gap: 10,
+              direction: "rtl",
+            }}
+          >
+            <div
+              style={{
+                borderRadius: 22,
+                padding: 14,
+                background: "rgba(255,255,255,0.12)",
+                border: "1px solid rgba(255,255,255,0.18)",
+                minWidth: 0,
+              }}
+            >
+              <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>
+                פריטים
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 950, marginTop: 4 }}>
+                {items.length}
+              </div>
+            </div>
+
+            <div
+              style={{
+                borderRadius: 22,
+                padding: 14,
+                background: "rgba(255,255,255,0.12)",
+                border: "1px solid rgba(255,255,255,0.18)",
+                minWidth: 0,
+              }}
+            >
+              <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>
+                התראות פתוחות
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 950, marginTop: 4 }}>
+                {openAlertsCount}
+              </div>
+            </div>
+
+            <div
+              style={{
+                borderRadius: 22,
+                padding: 14,
+                background: "rgba(255,255,255,0.12)",
+                border: "1px solid rgba(255,255,255,0.18)",
+                minWidth: 0,
+              }}
+            >
+              <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>
+                תובנות פעילות
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 950, marginTop: 4 }}>
+                {insights.length}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section
+          style={{
+            border: "1px solid #e5e7eb",
+            borderRadius: 26,
+            background: "#ffffff",
+            padding: 18,
+            boxShadow: "0 10px 30px rgba(15, 23, 42, 0.06)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+          }}
+        >
+          <div>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 18,
+                fontWeight: 950,
+                color: "#111827",
+              }}
+            >
+              פעולות מהירות
+            </h2>
+            <p
+              style={{
+                margin: "6px 0 0",
+                color: "#6b7280",
+                fontSize: 13,
+                lineHeight: 1.6,
+                maxWidth: 760,
+              }}
+            >
+              התחילו מהפעולה המרכזית, או עברו לכלי תפעול נוספים במלאי.
             </p>
           </div>
 
@@ -383,101 +499,243 @@ export default function InventoryPage() {
             <div
               style={{
                 border: "1px solid #fde68a",
-                borderRadius: "14px",
+                borderRadius: 16,
                 background: "#fffbeb",
                 color: "#92400e",
-                padding: "10px 12px",
-                fontSize: "13px",
-                fontWeight: 700,
+                padding: "12px 14px",
+                fontSize: 13,
+                fontWeight: 800,
                 lineHeight: 1.5,
               }}
             >
-              יש {openAlertsCount} התראות פתוחות במלאי. כדאי לפתוח את הפריטים
-              המסומנים ולטפל בהם.
+              יש {openAlertsCount} התראות פתוחות. כדאי לפתוח פריטים מסומנים
+              ולטפל בהם.
             </div>
           )}
 
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-              gap: "10px",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 10,
+              direction: "rtl",
+              justifyContent: "flex-start",
+              alignItems: "stretch",
             }}
           >
             <button
               type="button"
               onClick={() => router.push("/inventory/items/create")}
               style={{
-                minHeight: "50px",
-                padding: "12px 16px",
-                borderRadius: "15px",
+                flex: "0 1 280px",
+                width: "100%",
+                minHeight: 96,
+                padding: "14px 16px",
+                borderRadius: 22,
                 background: "#111827",
                 color: "#ffffff",
                 border: "none",
                 cursor: "pointer",
-                fontSize: "15px",
-                fontWeight: 800,
-                boxShadow: "0 8px 20px rgba(17, 24, 39, 0.12)",
+                boxShadow: "0 12px 26px rgba(17, 24, 39, 0.18)",
+                boxSizing: "border-box",
+                textAlign: "center",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                gap: 6,
               }}
             >
-              + הוספת פריט חדש
+              <div style={{ fontSize: 16, fontWeight: 950, lineHeight: 1.2 }}>
+                + הוספת פריט חדש
+              </div>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  lineHeight: 1.5,
+                  opacity: 0.85,
+                }}
+              >
+                יצירת פריט חדש והכנסתו למלאי
+              </div>
             </button>
 
             <button
               type="button"
               onClick={() => router.push("/inventory/sales/create")}
               style={{
-                minHeight: "50px",
-                padding: "12px 16px",
-                borderRadius: "15px",
-                background: "#059669",
-                color: "#ffffff",
-                border: "none",
+                flex: "0 1 280px",
+                width: "100%",
+                minHeight: 96,
+                padding: "14px 16px",
+                borderRadius: 22,
+                background: "#f0fdf4",
+                color: "#065f46",
+                border: "1px solid #bbf7d0",
                 cursor: "pointer",
-                fontSize: "15px",
-                fontWeight: 800,
-                boxShadow: "0 8px 20px rgba(5, 150, 105, 0.12)",
+                boxShadow: "0 8px 22px rgba(15, 23, 42, 0.06)",
+                boxSizing: "border-box",
+                textAlign: "center",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                gap: 6,
               }}
             >
-              רישום מכירה
+              <div style={{ fontSize: 16, fontWeight: 950, lineHeight: 1.2 }}>
+                רישום מכירה
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
+                עדכון מלאי אוטומטי דרך תנועת SALE
+              </div>
             </button>
 
             <button
               type="button"
+              onClick={() => router.push("/inventory/supplier-purchases")}
+              style={{
+                flex: "0 1 280px",
+                width: "100%",
+                minHeight: 96,
+                padding: "14px 16px",
+                borderRadius: 22,
+                background: "#ffffff",
+                color: "#111827",
+                border: "1px solid #d1d5db",
+                cursor: "pointer",
+                boxShadow: "0 8px 22px rgba(15, 23, 42, 0.06)",
+                boxSizing: "border-box",
+                textAlign: "center",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                gap: 6,
+              }}
+            >
+              <div style={{ fontSize: 16, fontWeight: 950, lineHeight: 1.2 }}>
+                הזמנות מספקים
+              </div>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  lineHeight: 1.5,
+                  color: "#6b7280",
+                }}
+              >
+                תכנון הזמנה וקליטת סחורה למלאי
+              </div>
+            </button>
+          </div>
+        </section>
+
+        <section
+          style={{
+            border: "1px solid #e5e7eb",
+            borderRadius: 22,
+            background: "#ffffff",
+            padding: 16,
+            boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+          }}
+        >
+          <div>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 16,
+                fontWeight: 900,
+                color: "#111827",
+              }}
+            >
+              ממתינים לבדיקה
+            </h2>
+            <p
+              style={{
+                margin: "6px 0 0",
+                color: "#6b7280",
+                fontSize: 13,
+                lineHeight: 1.6,
+                maxWidth: 760,
+              }}
+            >
+              דברים שנכנסו למערכת ומחכים להחלטה שלך (אישור / שיוך / דחייה).
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 10,
+              direction: "rtl",
+              justifyContent: "flex-start",
+              alignItems: "stretch",
+            }}
+          >
+            <button
+              type="button"
               onClick={() => router.push("/inventory/unmatched")}
               style={{
-                minHeight: "50px",
-                padding: "12px 16px",
-                borderRadius: "15px",
+                flex: "0 1 260px",
+                width: "100%",
+                minHeight: 90,
+                padding: "14px 16px",
+                borderRadius: 22,
                 background: "#eff6ff",
                 color: "#1d4ed8",
                 border: "1px solid #bfdbfe",
                 cursor: "pointer",
-                fontSize: "15px",
-                fontWeight: 800,
+                boxShadow: "0 8px 22px rgba(15, 23, 42, 0.06)",
+                boxSizing: "border-box",
+                textAlign: "center",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                gap: 6,
               }}
             >
-              מוצרים שלא זוהו
+              <div style={{ fontSize: 15, fontWeight: 950, lineHeight: 1.2 }}>
+                מוצרים שלא זוהו
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
+                שיוך למוצר קיים או יצירת מוצר חדש
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => router.push("/inventory/drafts")}
+              style={{
+                flex: "0 1 260px",
+                width: "100%",
+                minHeight: 90,
+                padding: "14px 16px",
+                borderRadius: 22,
+                background: "#fffbeb",
+                color: "#92400e",
+                border: "1px solid #fde68a",
+                cursor: "pointer",
+                boxShadow: "0 8px 22px rgba(15, 23, 42, 0.06)",
+                boxSizing: "border-box",
+                textAlign: "center",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                gap: 6,
+              }}
+            >
+              <div style={{ fontSize: 15, fontWeight: 950, lineHeight: 1.2 }}>
+                טיוטות מלאי
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
+                אישור / מיזוג / דחייה של פריטים ממתינים
+              </div>
             </button>
           </div>
         </section>
-<button
-  type="button"
-  onClick={() => router.push("/inventory/supplier-purchases")}
-  style={{
-    minHeight: "50px",
-    padding: "12px 16px",
-    borderRadius: "15px",
-    background: "#fef3c7",
-    color: "#92400e",
-    border: "1px solid #fde68a",
-    cursor: "pointer",
-    fontSize: "15px",
-    fontWeight: 800,
-  }}
->
-  הזמנות מספקים
-</button>
         {insightSuccessMessage && (
           <section
             style={{
@@ -878,19 +1136,20 @@ export default function InventoryPage() {
         ) : items.length === 0 ? (
           <section
             style={{
-              border: "1px solid #e5e7eb",
-              borderRadius: "18px",
+              border: "1px dashed #d1d5db",
+              borderRadius: 26,
               background: "#ffffff",
-              padding: "28px",
+              padding: 26,
               textAlign: "center",
               color: "#6b7280",
-              boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
+              boxShadow: "0 10px 30px rgba(15, 23, 42, 0.06)",
+              overflow: "hidden",
             }}
           >
             <div
               style={{
-                fontSize: "28px",
-                marginBottom: "8px",
+                fontSize: 38,
+                marginBottom: 10,
               }}
             >
               📦
@@ -898,15 +1157,25 @@ export default function InventoryPage() {
 
             <div
               style={{
-                fontWeight: 800,
+                fontSize: 18,
+                fontWeight: 950,
                 color: "#111827",
-                marginBottom: "6px",
+                marginBottom: 6,
               }}
             >
               עדיין אין פריטים במלאי
             </div>
 
-            <div style={{ fontSize: "14px", marginBottom: "16px" }}>
+            <div
+              style={{
+                fontSize: 14,
+                lineHeight: 1.6,
+                marginBottom: 16,
+                maxWidth: 520,
+                marginLeft: "auto",
+                marginRight: "auto",
+              }}
+            >
               כדאי להתחיל מפריט ראשון כדי לבנות מקור אמת מסודר.
             </div>
 
@@ -914,14 +1183,18 @@ export default function InventoryPage() {
               type="button"
               onClick={() => router.push("/inventory/items/create")}
               style={{
-                minHeight: "44px",
-                padding: "10px 18px",
-                borderRadius: "12px",
+                width: "100%",
+                maxWidth: 420,
+                minHeight: 52,
+                padding: "12px 18px",
+                borderRadius: 18,
                 border: "none",
                 background: "#111827",
                 color: "#ffffff",
                 cursor: "pointer",
-                fontWeight: 800,
+                fontWeight: 950,
+                fontSize: 15,
+                boxShadow: "0 10px 22px rgba(17, 24, 39, 0.14)",
               }}
             >
               הוספת פריט ראשון

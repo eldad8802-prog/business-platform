@@ -8,6 +8,7 @@ export type CreateInventoryItemInput = {
   businessId: number;
   name: string;
   unitType: InventoryUnitType;
+  supplierName?: string;
   initialQuantity?: number;
   minimumQuantity?: number;
   reorderPoint?: number;

@@ -53,6 +53,7 @@ export type InventoryItemDTO = {
   sku?: string | null;
   barcode: string | null;
   unitType: string;
+  supplierName?: string | null;
   currentQuantity: number;
   minimumQuantity: number;
   reorderPoint: number | null;
@@ -230,6 +231,7 @@ export async function getInventoryMovementsByItemId(
 export async function createInventoryItem(data: {
   name: string;
   barcode?: string | null;
+  supplierName?: string | null;
   unitType: string;
   initialQuantity: number;
   minimumQuantity: number;

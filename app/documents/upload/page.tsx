@@ -12,8 +12,25 @@ import {
   heroTitle,
   heroSubText,
   alertError,
+  cardTitle,
+  cardSubText,
+  iconWrap,
 } from "../ui";
-import PageHeader from "@/components/ui/page-header";
+import DocumentsHeader from "@/components/documents/DocumentsHeader";
+
+const btnFlex = {
+  display: "flex" as const,
+  alignItems: "center" as const,
+  justifyContent: "center" as const,
+  gap: 10,
+};
+
+const cardHeaderRow = {
+  display: "flex" as const,
+  alignItems: "center" as const,
+  gap: 12,
+  marginBottom: 8,
+};
 
 type GmailStatusResponse =
   | { error: string }
@@ -233,9 +250,12 @@ export default function UploadPage() {
       setCameraUi("error");
       setCameraError(
         e?.name === "NotAllowedError"
-          ? "אין הרשאה למצלמה. אפשר לבחור קובץ במקום."
+          ? "אין הרשאה למצלמה. נפתח בחירת קובץ במקום."
           : "לא הצלחנו לפתוח מצלמה. אפשר לבחור קובץ במקום."
       );
+      if (e?.name === "NotAllowedError") {
+        cameraInputRef.current?.click();
+      }
     }
   }
 
@@ -339,6 +359,14 @@ export default function UploadPage() {
       stopCameraStream();
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (capturedPreviewUrl) {
+        URL.revokeObjectURL(capturedPreviewUrl);
+      }
+    };
+  }, [capturedPreviewUrl]);
 
   const scoredAttachments = useMemo((): ScoredAttachment[] => {
     return attachments.map((a) => {
@@ -523,7 +551,7 @@ export default function UploadPage() {
 
   return (
     <div dir="rtl">
-      <PageHeader title="העלאה" />
+      <DocumentsHeader title="העלאה" />
 
       <main style={pageMain}>
         <section style={hero}>
@@ -544,17 +572,10 @@ export default function UploadPage() {
             setFile(e.target.files?.[0] || null);
           }}
         />
-        <input
-          ref={cameraInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          style={{ display: "none" }}
-          onChange={(e) => {
-            setMode("camera");
-            setFile(e.target.files?.[0] || null);
-          }}
-        />
+        {/* The camera input is rendered inside its <label> button below
+            so that a tap on the visible button is treated by iOS Safari as
+            a direct, trusted user gesture on the input, which is required
+            for `capture="environment"` to actually open the camera. */}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <button
@@ -562,6 +583,7 @@ export default function UploadPage() {
             disabled={loading}
             style={{
               ...primaryBtn,
+              ...btnFlex,
               width: "100%",
               opacity: loading ? 0.6 : 1,
             }}
@@ -572,71 +594,91 @@ export default function UploadPage() {
               uploadInputRef.current?.click();
             }}
           >
-            העלאה
+            <span aria-hidden>📤</span>
+            <span>העלאה</span>
           </button>
 
-          <button
-            type="button"
-            disabled={loading}
+          {/* `label` wraps the input so a tap on the button IS a user-gesture
+              tap on the input (iOS Safari requirement for `capture` to work).
+              The input must be visually hidden but NOT `display: none`, or
+              iOS may ignore the capture hint and open a generic file picker. */}
+          <label
+            aria-label="צילום"
+            aria-disabled={loading || undefined}
             style={{
               ...primaryBtn,
+              ...btnFlex,
               width: "100%",
               background: "#fff",
               color: "#111827",
               border: "1px solid #e5e7eb",
               opacity: loading ? 0.6 : 1,
-            }}
-            onClick={() => {
-              setError("");
-              setMode("camera");
-              setFile(null);
-
-              // Mobile: native camera capture input.
-              if (isProbablyMobile) {
-                cameraInputRef.current?.click();
-                return;
-              }
-
-              // Desktop: try real camera preview via getUserMedia.
-              if (canUseGetUserMedia) {
-                void openDesktopCamera();
-                return;
-              }
-
-              // Fallback: file picker.
-              setCameraUi("error");
-              setCameraError("המצלמה לא נתמכת בדפדפן הזה. אפשר לבחור קובץ במקום.");
-              uploadInputRef.current?.click();
+              cursor: loading ? "not-allowed" : "pointer",
+              pointerEvents: loading ? "none" : "auto",
+              position: "relative",
             }}
           >
-            צילום
-          </button>
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              disabled={loading}
+              onClick={() => {
+                setError("");
+                setMode("camera");
+                setFile(null);
+                setCameraUi("closed");
+                setCameraError("");
+              }}
+              onChange={(e) => {
+                setMode("camera");
+                setFile(e.target.files?.[0] || null);
+              }}
+              style={{
+                position: "absolute",
+                width: 1,
+                height: 1,
+                padding: 0,
+                margin: -1,
+                overflow: "hidden",
+                clipPath: "inset(50%)",
+                whiteSpace: "nowrap",
+                border: 0,
+              }}
+            />
+            <span aria-hidden>📷</span>
+            <span>צילום</span>
+          </label>
 
           <button
             type="button"
             disabled={loading}
             style={{
               ...primaryBtn,
+              ...btnFlex,
               width: "100%",
               opacity: loading ? 0.6 : 1,
             }}
             onClick={() => {
-              setMode("email");
-              setFile(null);
               setError("");
-              setScanError("");
-              setAttachments([]);
-              setImportResult(null);
-              setImportingKey("");
-              setImportStatusByKey({});
-              setBulkSummary(null);
-              setBulkProgress(null);
+              router.push("/documents/email");
             }}
           >
-            מייל
+            <span aria-hidden>📧</span>
+            <span>מייל</span>
           </button>
         </div>
 
+        {/*
+          DEPRECATED: the inline email/Gmail flow below is unreachable now that
+          the "מייל" button navigates to /documents/email. Kept temporarily as
+          dead code to minimize regression risk; scheduled for full removal in
+          a follow-up cleanup commit (state vars, refreshGmailStatus, importOne,
+          importAllRecommendedSequential, scoreAttachment helper, related
+          types). `mode` is never set to "email" anywhere, so this conditional
+          always evaluates to false at runtime.
+        */}
         {mode === "email" ? (
           <div style={{ marginTop: 14 }}>
             {!authHeader ? (
@@ -695,6 +737,7 @@ export default function UploadPage() {
                       disabled={scanLoading || bulkImportRunning}
                       style={{
                         ...primaryBtn,
+                        ...btnFlex,
                         opacity: scanLoading || bulkImportRunning ? 0.6 : 1,
                       }}
                       onClick={async () => {
@@ -732,7 +775,8 @@ export default function UploadPage() {
                         }
                       }}
                     >
-                      {scanLoading ? "סורק מיילים..." : "סרוק מיילים"}
+                      <span aria-hidden>🔎</span>
+                      <span>{scanLoading ? "סורק מיילים..." : "סרוק מיילים"}</span>
                     </button>
 
                     {scanError ? <div style={emptyState}>{scanError}</div> : null}
@@ -746,10 +790,15 @@ export default function UploadPage() {
                           background: "#fff",
                         }}
                       >
-                        <div style={{ fontWeight: 800, marginBottom: 6 }}>
-                          נמצאו {attachments.length} מסמכים
+                        <div style={cardHeaderRow}>
+                          <div style={iconWrap} aria-hidden>
+                            📨
+                          </div>
+                          <div style={cardTitle}>
+                            נמצאו {attachments.length} מסמכים
+                          </div>
                         </div>
-                        <div style={{ color: "#666", fontSize: 14 }}>
+                        <div style={cardSubText}>
                           {recommendedAttachments.length} מומלצים לייבוא,{" "}
                           {Math.max(0, visibleAttachments.length - recommendedAttachments.length)} אולי
                           רלוונטיים
@@ -761,14 +810,18 @@ export default function UploadPage() {
                             disabled={bulkImportRunning || !recommendedAttachments.length}
                             style={{
                               ...primaryBtn,
+                              ...btnFlex,
                               opacity:
                                 bulkImportRunning || !recommendedAttachments.length ? 0.6 : 1,
                             }}
                             onClick={() => void importAllRecommendedSequential()}
                           >
-                            {bulkImportRunning
-                              ? "מייבא מסמכים מומלצים..."
-                              : "ייבא מסמכים מומלצים"}
+                            <span aria-hidden>📥</span>
+                            <span>
+                              {bulkImportRunning
+                                ? "מייבא מסמכים מומלצים..."
+                                : "ייבא מסמכים מומלצים"}
+                            </span>
                           </button>
                         </div>
 
@@ -780,8 +833,8 @@ export default function UploadPage() {
 
                         {bulkSummary ? (
                           <div style={{ marginTop: 12 }}>
-                            <div style={{ fontWeight: 800, marginBottom: 6 }}>סיכום ייבוא</div>
-                            <div style={{ color: "#666", fontSize: 14 }}>
+                            <div style={cardTitle}>סיכום ייבוא</div>
+                            <div style={cardSubText}>
                               יובאו {bulkSummary.imported} • כפילויות {bulkSummary.duplicates} • נכשלו{" "}
                               {bulkSummary.failed}
                             </div>
@@ -930,7 +983,7 @@ export default function UploadPage() {
         ) : null}
 
         {!file && mode !== "email" && (
-          <div style={{ marginTop: 14, color: "#666", fontSize: 14 }}>
+          <div style={{ ...cardSubText, marginTop: 14 }}>
             {mode === "camera"
               ? "עדיין לא צולמה תמונה"
               : "עדיין לא נבחר קובץ"}
@@ -1032,8 +1085,8 @@ export default function UploadPage() {
 
         {file && mode !== "email" && (
           <div style={{ marginTop: 14 }}>
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>הקובץ שנבחר</div>
-            <div style={{ color: "#666", fontSize: 14 }}>{file.name}</div>
+            <div style={cardTitle}>הקובץ שנבחר</div>
+            <div style={cardSubText}>{file.name}</div>
             {mode === "camera" && capturedPreviewUrl ? (
               <img
                 src={capturedPreviewUrl}
@@ -1046,24 +1099,23 @@ export default function UploadPage() {
                 }}
               />
             ) : null}
+            <button
+              onClick={handleUpload}
+              disabled={loading}
+              style={{
+                ...primaryBtn,
+                ...btnFlex,
+                opacity: loading ? 0.6 : 1,
+              }}
+            >
+              <span aria-hidden>📤</span>
+              <span>{loading ? "מעלה ומנתח..." : "העלה ונתח"}</span>
+            </button>
           </div>
         )}
       </div>
 
       {error ? <div style={alertError}>{error}</div> : null}
-
-      {mode !== "email" ? (
-        <button
-          onClick={handleUpload}
-          disabled={loading || !file}
-          style={{
-            ...primaryBtn,
-            opacity: loading || !file ? 0.6 : 1,
-          }}
-        >
-          {loading ? "מעלה ומנתח..." : "המשך"}
-        </button>
-      ) : null}
       </main>
     </div>
   );

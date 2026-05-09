@@ -46,6 +46,7 @@ export default function SupplierPurchasesHubPage() {
             padding: 22,
             boxShadow: "0 16px 40px rgba(15, 23, 42, 0.18)",
             color: "#ffffff",
+            textAlign: "center",
           }}
         >
           <div
@@ -64,6 +65,9 @@ export default function SupplierPurchasesHubPage() {
               fontSize: 14,
               lineHeight: 1.6,
               color: "rgba(255,255,255,0.8)",
+              maxWidth: 520,
+              marginLeft: "auto",
+              marginRight: "auto",
             }}
           >
             תכנון הזמנות, קליטת סחורה ועדכון מלאי — הכל במקום אחד.
@@ -86,9 +90,13 @@ export default function SupplierPurchasesHubPage() {
               borderRadius: 22,
               background: "#ffffff",
               padding: 18,
-              textAlign: "right",
+              textAlign: "center",
               cursor: "pointer",
               boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
             <div style={{ fontSize: 18, fontWeight: 950, color: "#111827" }}>
@@ -101,6 +109,7 @@ export default function SupplierPurchasesHubPage() {
                 fontSize: 13,
                 color: "#6b7280",
                 lineHeight: 1.5,
+                maxWidth: 520,
               }}
             >
               המערכת תציע מה להזמין לפי מצב המלאי
@@ -115,9 +124,13 @@ export default function SupplierPurchasesHubPage() {
               borderRadius: 22,
               background: "#ffffff",
               padding: 18,
-              textAlign: "right",
+              textAlign: "center",
               cursor: "pointer",
               boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
             <div style={{ fontSize: 18, fontWeight: 950, color: "#111827" }}>
@@ -130,6 +143,7 @@ export default function SupplierPurchasesHubPage() {
                 fontSize: 13,
                 color: "#6b7280",
                 lineHeight: 1.5,
+                maxWidth: 520,
               }}
             >
               אישור קבלת סחורה יעדכן את המלאי בפועל
@@ -144,9 +158,13 @@ export default function SupplierPurchasesHubPage() {
               borderRadius: 22,
               background: "#ffffff",
               padding: 18,
-              textAlign: "right",
+              textAlign: "center",
               cursor: "pointer",
               boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
             <div style={{ fontSize: 18, fontWeight: 950, color: "#111827" }}>
@@ -159,6 +177,7 @@ export default function SupplierPurchasesHubPage() {
                 fontSize: 13,
                 color: "#6b7280",
                 lineHeight: 1.5,
+                maxWidth: 520,
               }}
             >
               צפייה בהזמנות שאושרו או בוטלו
@@ -173,9 +192,13 @@ export default function SupplierPurchasesHubPage() {
               borderRadius: 22,
               background: "#ffffff",
               padding: 18,
-              textAlign: "right",
+              textAlign: "center",
               cursor: "pointer",
               boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
             <div style={{ fontSize: 18, fontWeight: 950, color: "#111827" }}>
@@ -188,6 +211,7 @@ export default function SupplierPurchasesHubPage() {
                 fontSize: 13,
                 color: "#6b7280",
                 lineHeight: 1.5,
+                maxWidth: 520,
               }}
             >
               העלאת קובץ מהספק ליצירת טיוטות לבדיקה לפני קליטת מלאי

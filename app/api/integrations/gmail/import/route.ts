@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import path from "path";
+import { mkdir, unlink, writeFile } from "fs/promises";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getGmailAccessTokenForBusiness } from "@/lib/services/integrations/gmail/gmail-auth.service";
@@ -8,6 +10,7 @@ import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
 import { writeTempOcrFile } from "@/lib/services/integrations/gmail/temp-ocr-file.service";
 import { runGoogleVisionOCR } from "@/lib/services/documents/google-vision-ocr.service";
 import { createDocumentFromOcrText } from "@/lib/services/documents/create-document-from-ocr.service";
+import { buildStoredDocumentFileName } from "@/lib/services/documents/document-storage-paths";
 
 export const runtime = "nodejs";
 
@@ -44,6 +47,8 @@ function safeNullableNumber(v: unknown): number | null {
 
 export async function POST(req: NextRequest) {
   let cleanup: (() => Promise<void>) | null = null;
+  let permanentFilePath: string | null = null;
+  let permanentFilePersisted = false;
 
   try {
     const user = await getCurrentUser(req);
@@ -165,15 +170,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const fileUrl = `/uploads/gmail/${Date.now()}`;
+    // Same storage contract as POST /api/documents/upload: basename only on
+    // Document.fileUrl, bytes under storage/documents/<businessId>/.
+    const storageDir = path.join(
+      process.cwd(),
+      "storage",
+      "documents",
+      String(user.businessId)
+    );
+    await mkdir(storageDir, { recursive: true });
+
+    const storedFileName = buildStoredDocumentFileName(body.mimeType);
+    const storedFilePath = path.join(storageDir, storedFileName);
+    permanentFilePath = storedFilePath;
+    await writeFile(storedFilePath, Buffer.from(bytes));
 
     const created = await createDocumentFromOcrText({
       businessId: user.businessId,
       source: "email",
       mimeType: body.mimeType,
       ocrText: rawText,
-      fileUrl,
+      fileUrl: storedFileName,
     });
+    permanentFilePersisted = true;
 
     const emailImport = await prisma.emailAttachmentImport.create({
       data: {
@@ -206,6 +225,13 @@ export async function POST(req: NextRequest) {
       analysis: created.analysis,
     });
   } catch (error) {
+    if (permanentFilePath && !permanentFilePersisted) {
+      try {
+        await unlink(permanentFilePath);
+      } catch {
+        // ignore cleanup errors
+      }
+    }
     console.error("GMAIL_IMPORT_ERROR:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   } finally {

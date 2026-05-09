@@ -14,11 +14,20 @@ import {
   heroTitle,
   heroSubText,
   alertError,
+  cardTitle,
+  iconWrap,
 } from "../ui";
 import { CATEGORIES } from "@/lib/constants/categories";
-import PageHeader from "@/components/ui/page-header";
+import DocumentsHeader from "@/components/documents/DocumentsHeader";
 
 type Step = 1 | 2 | 3 | 4;
+
+const cardHeaderRow = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  marginBottom: 12,
+};
 
 export default function AccountantPackPage() {
   const router = useRouter();
@@ -52,10 +61,25 @@ export default function AccountantPackPage() {
     setError("");
 
     try {
+      // The export endpoint runs through `getCurrentUser`, which requires a
+      // Bearer token. Without it the server returns 401 and the user just sees
+      // a generic "error" toast. Send the same token used everywhere else in
+      // the Documents feature.
+      const token =
+        typeof window !== "undefined"
+          ? window.localStorage.getItem("token")
+          : null;
+
+      if (!token) {
+        router.replace("/login");
+        return;
+      }
+
       const res = await fetch("/api/reports/export-zip", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           type,
@@ -66,6 +90,15 @@ export default function AccountantPackPage() {
         }),
       });
 
+      if (res.status === 401) {
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem("token");
+          window.localStorage.removeItem("user");
+        }
+        router.replace("/login");
+        return;
+      }
+
       if (!res.ok) throw new Error("שגיאה ביצירת חבילה");
 
       const blob = await res.blob();
@@ -75,6 +108,7 @@ export default function AccountantPackPage() {
       a.href = url;
       a.download = "accountant-pack.zip";
       a.click();
+      window.URL.revokeObjectURL(url);
     } catch (e: any) {
       setError(e.message || "שגיאה");
     } finally {
@@ -84,7 +118,7 @@ export default function AccountantPackPage() {
 
   return (
     <div dir="rtl">
-      <PageHeader title="חבילה לרו״ח" />
+      <DocumentsHeader title="חבילה לרו״ח" />
 
       <main style={pageMain}>
         <section style={hero}>
@@ -97,141 +131,154 @@ export default function AccountantPackPage() {
         {step === 1 && (
           <>
             <div style={card}>
-              <div style={{ fontWeight: 950, marginBottom: 10, color: "#111827" }}>
-                בחירת תקופה
+              <div style={cardHeaderRow}>
+                <div style={iconWrap} aria-hidden>
+                  📅
+                </div>
+                <div style={cardTitle}>בחירת תקופה</div>
               </div>
-            <button style={secondaryBtn} onClick={() => setType("month")}>
-              חודש
-            </button>
-            <button style={secondaryBtn} onClick={() => setType("quarter")}>
-              רבעון
-            </button>
-            <button style={secondaryBtn} onClick={() => setType("year")}>
-              שנה קודמת
-            </button>
 
-            {type === "month" && (
-              <input
-                type="month"
-                value={month}
-                onChange={(e) => setMonth(e.target.value)}
-                style={input}
-              />
-            )}
+              <button style={secondaryBtn} onClick={() => setType("month")}>
+                חודש
+              </button>
+              <button style={secondaryBtn} onClick={() => setType("quarter")}>
+                רבעון
+              </button>
+              <button style={secondaryBtn} onClick={() => setType("year")}>
+                שנה קודמת
+              </button>
 
-            {type === "quarter" && (
-              <>
+              {type === "month" && (
                 <input
-                  placeholder="שנה (2026)"
-                  value={year}
-                  onChange={(e) => setYear(e.target.value)}
+                  type="month"
+                  value={month}
+                  onChange={(e) => setMonth(e.target.value)}
                   style={input}
                 />
-                <input
-                  placeholder="רבעון (1-4)"
-                  value={quarter}
-                  onChange={(e) => setQuarter(e.target.value)}
-                  style={input}
-                />
-              </>
-            )}
-          </div>
+              )}
 
-          <button style={primaryBtn} onClick={handleNext}>
-            המשך
-          </button>
-        </>
-      )}
-
-      {/* STEP 2 */}
-      {step === 2 && (
-        <>
-          <div style={card}>
-            <div style={{ fontWeight: 950, marginBottom: 10, color: "#111827" }}>
-              בחירת קטגוריות
+              {type === "quarter" && (
+                <>
+                  <input
+                    placeholder="שנה (2026)"
+                    value={year}
+                    onChange={(e) => setYear(e.target.value)}
+                    style={input}
+                  />
+                  <input
+                    placeholder="רבעון (1-4)"
+                    value={quarter}
+                    onChange={(e) => setQuarter(e.target.value)}
+                    style={input}
+                  />
+                </>
+              )}
             </div>
-            <button
-              style={secondaryBtn}
-              onClick={() => {
-                setAllCategories(true);
-                setCategories([]);
-              }}
-            >
-              כל הקטגוריות
-            </button>
 
-            {CATEGORIES.map((cat) => (
+            <button style={primaryBtn} onClick={handleNext}>
+              המשך
+            </button>
+          </>
+        )}
+
+        {/* STEP 2 */}
+        {step === 2 && (
+          <>
+            <div style={card}>
+              <div style={cardHeaderRow}>
+                <div style={iconWrap} aria-hidden>
+                  🏷️
+                </div>
+                <div style={cardTitle}>בחירת קטגוריות</div>
+              </div>
+
               <button
-                key={cat.value}
-                style={{
-                  ...secondaryBtn,
-                  background: categories.includes(cat.value) ? "#111827" : "#ffffff",
-                  color: categories.includes(cat.value) ? "#ffffff" : "#111827",
-                  border: "1px solid #e5e7eb",
-                }}
+                style={secondaryBtn}
                 onClick={() => {
-                  setAllCategories(false);
-                  toggleCategory(cat.value);
+                  setAllCategories(true);
+                  setCategories([]);
                 }}
               >
-                {cat.label}
+                כל הקטגוריות
               </button>
-            ))}
-          </div>
 
-          <button style={primaryBtn} onClick={handleNext}>
-            המשך
-          </button>
-          <button style={secondaryBtn} onClick={handleBack}>
-            חזרה
-          </button>
-        </>
-      )}
+              {CATEGORIES.map((cat) => (
+                <button
+                  key={cat.value}
+                  style={{
+                    ...secondaryBtn,
+                    background: categories.includes(cat.value) ? "#111827" : "#ffffff",
+                    color: categories.includes(cat.value) ? "#ffffff" : "#111827",
+                    border: "1px solid #e5e7eb",
+                  }}
+                  onClick={() => {
+                    setAllCategories(false);
+                    toggleCategory(cat.value);
+                  }}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
 
-      {/* STEP 3 */}
-      {step === 3 && (
-        <>
-          <div style={card}>
-            <div style={{ fontWeight: 950, marginBottom: 10, color: "#111827" }}>סיכום</div>
-            <div style={{ color: "#111827", fontWeight: 800, lineHeight: 1.7 }}>
-              <div>תקופה: {type}</div>
-              <div style={{ marginTop: 8 }}>
-                קטגוריות:{" "}
-                {allCategories
-                  ? "הכל"
-                  : categories
-                      .map(
-                        (c) =>
-                          CATEGORIES.find((cat) => cat.value === c)?.label || c
-                      )
-                      .join(", ")}
+            <button style={primaryBtn} onClick={handleNext}>
+              המשך
+            </button>
+            <button style={secondaryBtn} onClick={handleBack}>
+              חזרה
+            </button>
+          </>
+        )}
+
+        {/* STEP 3 */}
+        {step === 3 && (
+          <>
+            <div style={card}>
+              <div style={cardHeaderRow}>
+                <div style={iconWrap} aria-hidden>
+                  📋
+                </div>
+                <div style={cardTitle}>סיכום</div>
+              </div>
+              <div style={{ color: "#111827", fontWeight: 800, lineHeight: 1.7 }}>
+                <div>תקופה: {type}</div>
+                <div style={{ marginTop: 8 }}>
+                  קטגוריות:{" "}
+                  {allCategories
+                    ? "הכל"
+                    : categories
+                        .map(
+                          (c) =>
+                            CATEGORIES.find((cat) => cat.value === c)?.label || c
+                        )
+                        .join(", ")}
+                </div>
               </div>
             </div>
-          </div>
 
-          <button style={primaryBtn} onClick={handleNext}>
-            הכנס חבילה
-          </button>
-          <button style={secondaryBtn} onClick={handleBack}>
-            חזרה
-          </button>
-        </>
-      )}
-
-      {/* STEP 4 */}
-      {step === 4 && (
-        <>
-          {loading ? (
-            <div style={emptyState}>מכין חבילה...</div>
-          ) : (
-            <button style={primaryBtn} onClick={handleGenerate}>
-              הורד ZIP
+            <button style={primaryBtn} onClick={handleNext}>
+              הכנס חבילה
             </button>
-          )}
+            <button style={secondaryBtn} onClick={handleBack}>
+              חזרה
+            </button>
+          </>
+        )}
 
-          {error && <div style={alertError}>{error}</div>}
-        </>
-      )}
+        {/* STEP 4 */}
+        {step === 4 && (
+          <>
+            {loading ? (
+              <div style={emptyState}>מכין חבילה...</div>
+            ) : (
+              <button style={primaryBtn} onClick={handleGenerate}>
+                הורד ZIP
+              </button>
+            )}
+
+            {error && <div style={alertError}>{error}</div>}
+          </>
+        )}
       </main>
     </div>
   );

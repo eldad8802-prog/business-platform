@@ -663,6 +663,7 @@ export async function runUnifiedDocumentIntelligence(params: {
   let enforcedAmount: number | null = publishAmountAllowed
     ? decision.amount
     : null;
+  let enforcedAmountConfidence: ConfidenceLabel = decision.amountConfidence;
 
   const onlyMismatchBlock =
     amountPublishDecisionLog.blockReasons.length === 1 &&
@@ -701,6 +702,28 @@ export async function runUnifiedDocumentIntelligence(params: {
     }
   }
 
+  const shouldPrefillBlockedAmount =
+    !publishAmountAllowed &&
+    enforcedAmount === null &&
+    Number.isFinite(decision.amount) &&
+    decision.amount > 0 &&
+    decision.amountConfidence !== "low";
+
+  if (shouldPrefillBlockedAmount) {
+    enforcedAmount = decision.amount;
+    enforcedAmountConfidence = "low";
+
+    console.log("BLOCKED_AMOUNT_PREFILLED_FOR_REVIEW:", {
+      amount: decision.amount,
+      originalAmountConfidence: decision.amountConfidence,
+      enforcedAmountConfidence,
+      blockReasons: amountPublishDecisionLog.blockReasons,
+      financialEvidenceLevel: evidence.financialEvidenceLevel,
+      amountEligible: evidence.amountEligible,
+      publishAmountAllowed,
+    });
+  }
+
   const enforcedNeedsReview = !publishAmountAllowed || needsReview;
 
   const outputProfile = buildDocumentOutputProfile({
@@ -721,7 +744,7 @@ export async function runUnifiedDocumentIntelligence(params: {
     direction,
     confidence: decision.confidenceScore,
     needsReview: enforcedNeedsReview,
-    amountConfidence: decision.amountConfidence,
+    amountConfidence: enforcedAmountConfidence,
     vendorConfidence: decision.vendorConfidence,
     dateConfidence: decision.dateConfidence,
     categoryConfidence: categoryResult.confidence,

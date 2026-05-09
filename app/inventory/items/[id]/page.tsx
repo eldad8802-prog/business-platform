@@ -16,6 +16,7 @@ type InventoryItemDetails = {
   id: number;
   name: string;
   barcode: string | null;
+  supplierName?: string | null;
   unitType: string;
   currentQuantity: number;
   minimumQuantity: number;
@@ -416,6 +417,7 @@ export default function InventoryItemPage() {
             }}
           >
             <InfoCard label="ברקוד" value={item.barcode || "—"} />
+            <InfoCard label="שם ספק" value={item.supplierName || "—"} />
             <InfoCard
               label="יחידת מידה"
               value={UNIT_LABELS[item.unitType] || item.unitType}

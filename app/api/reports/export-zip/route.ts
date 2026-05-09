@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { readFile } from "fs/promises";
+import { resolveStoredDocumentFilePath } from "@/lib/services/documents/document-storage-paths";
 const archiver = require("archiver");
 import { PassThrough } from "stream";
 
@@ -100,20 +102,25 @@ export async function POST(req: Request) {
     // CSV
     archive.append(csv, { name: "report.csv" });
 
-    // 📁 קבצים
+    // 📁 קבצים — same source-of-truth as GET /api/documents/[id]/file
     for (const doc of documents) {
       try {
         if (!doc.fileUrl) continue;
 
-        const fileRes = await fetch(doc.fileUrl);
-        const buffer = Buffer.from(await fileRes.arrayBuffer());
+        const resolved = resolveStoredDocumentFilePath(businessId, doc.fileUrl);
+        if (!resolved.ok) {
+          console.error("Export skip (no stored file):", doc.id, doc.fileUrl);
+          continue;
+        }
+
+        const buffer = await readFile(resolved.absolutePath);
 
         const ext = doc.fileUrl.split(".").pop() || "file";
         const filename = `documents/doc-${doc.id}.${ext}`;
 
         archive.append(buffer, { name: filename });
       } catch (e) {
-        console.error("File fetch failed:", doc.fileUrl);
+        console.error("File read failed for export:", doc.id, doc.fileUrl, e);
       }
     }
 

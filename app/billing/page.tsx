@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import PageHeader from "@/components/ui/page-header";
 
 type BillingStatus = "DRAFT" | "PENDING_REVIEW" | "ISSUED";
 
@@ -144,88 +145,170 @@ export default function BillingHubPage() {
   }, [load]);
 
   return (
-    <main
-      style={{
-        minHeight: "100dvh",
-        background: "#f8fafc",
-        padding: "24px 16px 80px",
-      }}
-    >
-      <div style={{ maxWidth: 720, margin: "0 auto" }}>
-        <header style={{ marginBottom: 16 }}>
-          <h1
-            style={{
-              fontSize: 24,
-              fontWeight: 700,
-              color: "#0f172a",
-              margin: 0,
-            }}
-          >
-            מסמכי חיוב
-          </h1>
-          <p
-            style={{
-              fontSize: 14,
-              color: "#64748b",
-              margin: "4px 0 16px 0",
-            }}
-          >
-            חשבוניות מס ומסמכים שהעסק מפיק ללקוחות
-          </p>
-          <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            style={{
-              cursor: "pointer",
-              padding: "10px 16px",
-              borderRadius: 10,
-              border: "1px solid #0f172a",
-              background: "#0f172a",
-              color: "#ffffff",
-              fontSize: 14,
-              fontWeight: 600,
-            }}
-          >
-            + חשבונית חדשה
-          </button>
-        </header>
+    <div dir="rtl" style={{ minHeight: "100dvh", background: "#f8fafc" }}>
+      <PageHeader
+        title="חשבוניות"
+        backHref="/tools"
+        backLabel="חזרה"
+        showBack
+      />
 
-        <div
+      <main
+        style={{
+          maxWidth: 980,
+          margin: "0 auto",
+          padding: "16px",
+          paddingBottom: 80,
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+          boxSizing: "border-box",
+          direction: "rtl",
+        }}
+      >
+        <section
           style={{
+            borderRadius: 30,
+            padding: 22,
+            background:
+              "linear-gradient(135deg, #111827 0%, #1f2937 50%, #0f766e 100%)",
+            color: "#ffffff",
+            boxShadow: "0 18px 44px rgba(15, 23, 42, 0.22)",
             display: "flex",
-            flexWrap: "wrap",
-            gap: 8,
-            marginBottom: 16,
+            flexDirection: "column",
+            gap: 16,
+            overflow: "hidden",
           }}
-          role="tablist"
-          aria-label="סינון לפי סטטוס"
         >
-          {FILTER_OPTIONS.map((opt) => {
-            const active = filter === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setFilter(opt.value)}
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: 999,
-                  border: "1px solid",
-                  borderColor: active ? "#0f172a" : "#e2e8f0",
-                  background: active ? "#0f172a" : "#ffffff",
-                  color: active ? "#ffffff" : "#334155",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
+          <div>
+            <div
+              style={{
+                display: "inline-flex",
+                padding: "7px 11px",
+                borderRadius: 999,
+                background: "rgba(255,255,255,0.12)",
+                border: "1px solid rgba(255,255,255,0.18)",
+                fontSize: 12,
+                fontWeight: 900,
+                marginBottom: 12,
+              }}
+            >
+              מרכז חיוב
+            </div>
+
+            <h1
+              style={{
+                margin: 0,
+                fontSize: 28,
+                lineHeight: 1.25,
+                fontWeight: 950,
+              }}
+            >
+              מסמכי חיוב
+            </h1>
+
+            <p
+              style={{
+                margin: "8px 0 0",
+                color: "rgba(255,255,255,0.78)",
+                fontSize: 14,
+                lineHeight: 1.7,
+                maxWidth: 760,
+              }}
+            >
+              חשבוניות מס ומסמכים שהעסק מפיק ללקוחות
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 10,
+              alignItems: "stretch",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              style={{
+                width: "100%",
+                flex: "1 1 280px",
+                minHeight: 56,
+                padding: "14px 16px",
+                borderRadius: 18,
+                border: "none",
+                background: "#ffffff",
+                color: "#111827",
+                fontSize: 15,
+                fontWeight: 950,
+                cursor: "pointer",
+                boxShadow: "0 10px 22px rgba(15, 23, 42, 0.12)",
+              }}
+            >
+              + חשבונית חדשה
+            </button>
+          </div>
+        </section>
+
+        <section
+          style={{
+            border: "1px solid #e5e7eb",
+            borderRadius: 26,
+            background: "#ffffff",
+            padding: 14,
+            boxShadow: "0 10px 30px rgba(15, 23, 42, 0.06)",
+          }}
+          role="region"
+          aria-label="סינון"
+        >
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+            role="tablist"
+            aria-label="סינון לפי סטטוס"
+          >
+            {FILTER_OPTIONS.map((opt) => {
+              const active = filter === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setFilter(opt.value)}
+                  style={{
+                    padding: "10px 16px",
+                    borderRadius: 999,
+                    border: "1px solid",
+                    borderColor: active ? "#111827" : "#e5e7eb",
+                    background: active ? "#111827" : "#f9fafb",
+                    color: active ? "#ffffff" : "#334155",
+                    fontSize: 13,
+                    fontWeight: active ? 900 : 800,
+                    cursor: "pointer",
+                    minHeight: 42,
+                    lineHeight: 1,
+                    whiteSpace: "nowrap",
+                    boxShadow: active
+                      ? "0 10px 22px rgba(17, 24, 39, 0.16)"
+                      : "none",
+                    transform: active ? "translateY(-1px)" : "none",
+                    transition:
+                      "background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease",
+                  }}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </section>
 
         {loading ? (
           <DocumentsSkeleton />
@@ -240,7 +323,7 @@ export default function BillingHubPage() {
               padding: 0,
               margin: 0,
               display: "grid",
-              gap: 10,
+              gap: 12,
             }}
           >
             {docs.map((d) => (
@@ -248,7 +331,7 @@ export default function BillingHubPage() {
             ))}
           </ul>
         )}
-      </div>
+      </main>
 
       {createOpen ? (
         <CreateDraftModal
@@ -258,7 +341,7 @@ export default function BillingHubPage() {
           }}
         />
       ) : null}
-    </main>
+    </div>
   );
 }
 
@@ -335,7 +418,7 @@ function CreateDraftModal({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="יצירת חשבונית חדשה"
+      aria-label="יצירת טיוטה"
       onClick={handleClose}
       style={{
         position: "fixed",
@@ -356,7 +439,7 @@ function CreateDraftModal({
           maxHeight: "calc(100dvh - 32px)",
           overflowY: "auto",
           background: "#ffffff",
-          borderRadius: 16,
+          borderRadius: 18,
           padding: 20,
           display: "flex",
           flexDirection: "column",
@@ -364,26 +447,51 @@ function CreateDraftModal({
           boxShadow: "0 10px 40px rgba(0, 0, 0, 0.18)",
         }}
       >
-        <h2
+        <section
           style={{
-            fontSize: 18,
-            fontWeight: 700,
-            color: "#0f172a",
-            margin: 0,
+            background: "#f0fdf4",
+            border: "1px solid #bbf7d0",
+            borderRadius: 16,
+            padding: 16,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
           }}
         >
-          חשבונית חדשה
-        </h2>
-        <p
-          style={{
-            fontSize: 13,
-            color: "#64748b",
-            margin: 0,
-            lineHeight: 1.5,
-          }}
-        >
-          ייווצר מסמך בסטטוס טיוטה. עריכת שורות וכותרת תתווסף בשלב הבא.
-        </p>
+          <h2
+            style={{
+              fontSize: 18,
+              fontWeight: 800,
+              color: "#166534",
+              margin: 0,
+            }}
+          >
+            יצירת טיוטה
+          </h2>
+          <p
+            style={{
+              fontSize: 13,
+              color: "#475569",
+              margin: 0,
+              lineHeight: 1.55,
+            }}
+          >
+            צריך רק שם לקוח כדי להתחיל. אחר כך נוסיף שורות במסך הטיוטה.
+          </p>
+          <div
+            style={{
+              marginTop: 6,
+              paddingTop: 10,
+              borderTop: "1px solid rgba(22, 101, 52, 0.18)",
+              fontSize: 12,
+              color: "#065f46",
+              lineHeight: 1.5,
+              fontWeight: 700,
+            }}
+          >
+            אחרי היצירה תועבר למסך עריכת טיוטה כדי להוסיף שורות ולהפיק.
+          </div>
+        </section>
 
         <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <span
@@ -421,6 +529,9 @@ function CreateDraftModal({
               boxSizing: "border-box",
             }}
           />
+          <span style={{ fontSize: 12, color: "#64748b", lineHeight: 1.5 }}>
+            זה השדה היחיד שחובה כדי ליצור טיוטה.
+          </span>
         </label>
 
         {errorMsg ? (
@@ -485,7 +596,7 @@ function CreateDraftModal({
               minWidth: 130,
             }}
           >
-            {submitting ? "יוצר טיוטה..." : "צור טיוטה"}
+            {submitting ? "יוצר טיוטה..." : "צור טיוטה והמשך"}
           </button>
         </div>
       </div>
@@ -621,6 +732,7 @@ function DocumentCard({ doc }: { doc: BillingDocumentListItem }) {
           border: "1px solid #e2e8f0",
           borderRadius: 14,
           padding: 14,
+          boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
         }}
       >
         <div

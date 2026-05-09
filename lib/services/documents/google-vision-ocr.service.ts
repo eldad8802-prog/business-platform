@@ -52,14 +52,31 @@ export async function runGoogleVisionOCR(
     if (isPdf) {
       console.log("GOOGLE VISION OCR: PDF detected");
 
-      const [result] = await client.documentTextDetection(filePath);
+      const pdfBytes = fs.readFileSync(filePath);
 
-      const text = result.fullTextAnnotation?.text || "";
+      const [batchResult] = await client.batchAnnotateFiles({
+        requests: [
+          {
+            inputConfig: {
+              mimeType: "application/pdf",
+              content: pdfBytes,
+            },
+            features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
+          },
+        ],
+      });
 
+      const pages = batchResult.responses?.[0]?.responses ?? [];
+      const text = pages
+        .map((p) => p.fullTextAnnotation?.text || "")
+        .join("\n")
+        .trim();
+
+      console.log("PDF pages:", pages.length);
       console.log("PDF text length:", text.length);
       console.log("PDF preview:", text.slice(0, 300));
 
-      return text.trim();
+      return text;
     }
 
     console.log("GOOGLE VISION OCR: image detected");

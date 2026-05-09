@@ -38,16 +38,68 @@ function buildDate(day: number, month: number, year: number): Date | null {
   return date;
 }
 
+const HEBREW_MONTHS: Readonly<Record<string, number>> = {
+  "ינואר": 1,
+  "פברואר": 2,
+  "מרץ": 3,
+  "מארס": 3,
+  "אפריל": 4,
+  "מאי": 5,
+  "יוני": 6,
+  "יולי": 7,
+  "אוגוסט": 8,
+  "ספטמבר": 9,
+  "אוקטובר": 10,
+  "נובמבר": 11,
+  "דצמבר": 12,
+};
+
+const HEBREW_MONTH_GROUP = Object.keys(HEBREW_MONTHS).join("|");
+
+const ENGLISH_MONTHS: Readonly<Record<string, number>> = {
+  january: 1,
+  jan: 1,
+  february: 2,
+  feb: 2,
+  march: 3,
+  mar: 3,
+  april: 4,
+  apr: 4,
+  may: 5,
+  june: 6,
+  jun: 6,
+  july: 7,
+  jul: 7,
+  august: 8,
+  aug: 8,
+  september: 9,
+  sept: 9,
+  sep: 9,
+  october: 10,
+  oct: 10,
+  november: 11,
+  nov: 11,
+  december: 12,
+  dec: 12,
+};
+
+const ENGLISH_MONTH_GROUP =
+  "January|February|March|April|May|June|July|August|September|October|November|December|" +
+  "Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec";
+
 function extractDates(text: string): { raw: string; date: Date }[] {
-  const patterns = [
+  const results: { raw: string; date: Date }[] = [];
+  const seen = new Set<string>();
+
+  // Existing strict numeric patterns: dot/slash/dash, no spaces.
+  // Kept verbatim so that documents that already work continue to score
+  // exactly the same as before (slash/dot bonus, ISO detection, etc.).
+  const strictNumericPatterns = [
     /\b\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}\b/g,
     /\b\d{4}[\/\-.]\d{1,2}[\/\-.]\d{1,2}\b/g,
   ];
 
-  const results: { raw: string; date: Date }[] = [];
-  const seen = new Set<string>();
-
-  for (const pattern of patterns) {
+  for (const pattern of strictNumericPatterns) {
     let match: RegExpExecArray | null;
 
     while ((match = pattern.exec(text)) !== null) {
@@ -72,11 +124,152 @@ function extractDates(text: string): { raw: string; date: Date }[] {
     }
   }
 
+  // Whitespace-tolerant numeric: e.g. "12 / 05 / 25", "12 - 05 - 2025".
+  // Strict matches above already populated `seen`, so identical no-space
+  // strings won't be double-counted. Whitespace is stripped before parsing
+  // so the ISO check still works for "2025 / 05 / 12".
+  const looseNumericPatterns = [
+    /\b\d{1,2}\s*[\/\-.]\s*\d{1,2}\s*[\/\-.]\s*\d{2,4}\b/g,
+    /\b\d{4}\s*[\/\-.]\s*\d{1,2}\s*[\/\-.]\s*\d{1,2}\b/g,
+  ];
+
+  for (const pattern of looseNumericPatterns) {
+    let match: RegExpExecArray | null;
+
+    while ((match = pattern.exec(text)) !== null) {
+      const raw = match[0];
+      if (seen.has(raw)) continue;
+
+      const compact = raw.replace(/\s+/g, "");
+      const parts = compact.split(/[\/\-.]/).map(Number);
+      let date: Date | null = null;
+
+      if (/^\d{4}[\/\-.]\d{1,2}[\/\-.]\d{1,2}$/.test(compact)) {
+        const [year, month, day] = parts;
+        date = buildDate(day, month, year);
+      } else {
+        const [day, month, year] = parts;
+        date = buildDate(day, month, year);
+      }
+
+      if (date) {
+        seen.add(raw);
+        results.push({ raw, date });
+      }
+    }
+  }
+
+  // Hebrew month names: "12 במאי 2025", "1 ביוני 2024", "12 מאי 2025".
+  // Day must be 1–2 digits followed by whitespace; month may be preceded by
+  // an optional ב prefix; year is 2–4 digits with no trailing digit.
+  // No \b on the Hebrew side because Hebrew letters aren't word characters
+  // in JavaScript regex; the explicit \s+ acts as the boundary instead.
+  const hebrewPattern = new RegExp(
+    `(\\d{1,2})\\s+ב?(${HEBREW_MONTH_GROUP})\\s+(\\d{2,4})(?!\\d)`,
+    "g"
+  );
+
+  let hebrewMatch: RegExpExecArray | null;
+
+  while ((hebrewMatch = hebrewPattern.exec(text)) !== null) {
+    const raw = hebrewMatch[0];
+    if (seen.has(raw)) continue;
+
+    const day = Number(hebrewMatch[1]);
+    const month = HEBREW_MONTHS[hebrewMatch[2]];
+    const year = Number(hebrewMatch[3]);
+
+    if (
+      !Number.isFinite(day) ||
+      !Number.isFinite(year) ||
+      month === undefined
+    ) {
+      continue;
+    }
+
+    const date = buildDate(day, month, year);
+
+    if (date) {
+      seen.add(raw);
+      results.push({ raw, date });
+    }
+  }
+
+  // English month names, day-first: "12 May 2025", "12 May, 2025", "12 May. 2025".
+  const englishForwardPattern = new RegExp(
+    `\\b(\\d{1,2})\\s+(${ENGLISH_MONTH_GROUP})\\.?,?\\s+(\\d{2,4})\\b`,
+    "gi"
+  );
+
+  let englishForwardMatch: RegExpExecArray | null;
+
+  while ((englishForwardMatch = englishForwardPattern.exec(text)) !== null) {
+    const raw = englishForwardMatch[0];
+    if (seen.has(raw)) continue;
+
+    const day = Number(englishForwardMatch[1]);
+    const monthKey = englishForwardMatch[2].toLowerCase();
+    const month = ENGLISH_MONTHS[monthKey];
+    const year = Number(englishForwardMatch[3]);
+
+    if (
+      !Number.isFinite(day) ||
+      !Number.isFinite(year) ||
+      month === undefined
+    ) {
+      continue;
+    }
+
+    const date = buildDate(day, month, year);
+
+    if (date) {
+      seen.add(raw);
+      results.push({ raw, date });
+    }
+  }
+
+  // English month names, month-first: "May 12, 2025", "May 12 2025".
+  const englishReversePattern = new RegExp(
+    `\\b(${ENGLISH_MONTH_GROUP})\\.?\\s+(\\d{1,2}),?\\s+(\\d{2,4})\\b`,
+    "gi"
+  );
+
+  let englishReverseMatch: RegExpExecArray | null;
+
+  while ((englishReverseMatch = englishReversePattern.exec(text)) !== null) {
+    const raw = englishReverseMatch[0];
+    if (seen.has(raw)) continue;
+
+    const monthKey = englishReverseMatch[1].toLowerCase();
+    const month = ENGLISH_MONTHS[monthKey];
+    const day = Number(englishReverseMatch[2]);
+    const year = Number(englishReverseMatch[3]);
+
+    if (
+      !Number.isFinite(day) ||
+      !Number.isFinite(year) ||
+      month === undefined
+    ) {
+      continue;
+    }
+
+    const date = buildDate(day, month, year);
+
+    if (date) {
+      seen.add(raw);
+      results.push({ raw, date });
+    }
+  }
+
   return results;
 }
 
 function findDateLine(lines: string[], raw: string): string | null {
   return lines.find((line) => line.includes(raw)) ?? null;
+}
+
+function findDateLineIndex(lines: string[], raw: string): number {
+  return lines.findIndex((line) => line.includes(raw));
 }
 
 function isInHeader(line: string, structure: DocumentStructure): boolean {
@@ -130,6 +323,7 @@ function scoreDateCandidate(
   raw: string,
   date: Date,
   line: string | null,
+  previousLine: string | null,
   structure: DocumentStructure
 ): DateCandidate {
   let score = 40;
@@ -143,6 +337,20 @@ function scoreDateCandidate(
   if (isInvoiceDateSignal(line)) {
     score += 35;
     signals.push("invoice/date label");
+  }
+
+  // When the current line has no date label but the previous line does
+  // (e.g. "תאריך מסמך" on one line and the actual value on the next),
+  // grant the same boost. Reuses isInvoiceDateSignal to avoid duplicated rules.
+  // Only applies when current line is unlabeled, to avoid double-counting
+  // the same signal that already fired above.
+  if (
+    previousLine !== null &&
+    !isInvoiceDateSignal(line) &&
+    isInvoiceDateSignal(previousLine)
+  ) {
+    score += 35;
+    signals.push("invoice/date label on previous line");
   }
 
   if (isPaymentDateSignal(line)) {
@@ -213,15 +421,37 @@ export function extractDateEntity(
   }
 
   const candidates = rawDates
-    .map((item) =>
-      scoreDateCandidate(
+    .map((item) => {
+      const lineIndex = findDateLineIndex(allLines, item.raw);
+      const line = lineIndex >= 0 ? allLines[lineIndex] : null;
+      const previousLine = lineIndex > 0 ? allLines[lineIndex - 1] : null;
+
+      return scoreDateCandidate(
         item.raw,
         item.date,
-        findDateLine(allLines, item.raw),
+        line,
+        previousLine,
         structure
-      )
-    )
+      );
+    })
     .sort((a, b) => b.score - a.score);
+
+  console.log(
+    "DATE_CANDIDATES_DEBUG:",
+    candidates.map((candidate) => {
+      const lineIndex = findDateLineIndex(allLines, candidate.raw);
+      const previousLine = lineIndex > 0 ? allLines[lineIndex - 1] : null;
+
+      return {
+        raw: candidate.raw,
+        date: candidate.date.toISOString().slice(0, 10),
+        score: candidate.score,
+        lineIndex: lineIndex >= 0 ? lineIndex : null,
+        currentHasDateLabel: isInvoiceDateSignal(candidate.line),
+        previousHasDateLabel: isInvoiceDateSignal(previousLine),
+      };
+    })
+  );
 
   const best = candidates[0];
 

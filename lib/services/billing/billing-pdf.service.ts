@@ -12,6 +12,9 @@
 // pdfTemplateVersion is recorded for documentation/debug only. A mismatch
 // between the stored version and BILLING_PDF_TEMPLATE_VERSION does NOT
 // trigger a re-render in MVP.
+//
+// Debug (dev): `BILLING_PDF_DEBUG_LOG=1` logs cache vs render + snapshot excerpts.
+// Force re-render without deleting data: `BILLING_PDF_SKIP_CACHE=1` (skips serving stored PDF).
 
 import { createHash } from "crypto";
 import {
@@ -26,6 +29,7 @@ import {
 } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
+import { renderBillingPdfHtmlFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-html-renderer";
 import { renderBillingPdfFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-renderer";
 import {
   assertSnapshotV1,
@@ -41,6 +45,24 @@ import {
 } from "@/lib/services/billing/pdf/billing-pdf-storage";
 
 const RENDER_ERROR_MESSAGE_MAX = 500;
+
+/** When `BILLING_PDF_RENDERER=html`, use Playwright HTML→PDF; otherwise pdfmake (default). */
+function shouldUseHtmlBillingPdfRenderer(): boolean {
+  return process.env.BILLING_PDF_RENDERER === "html";
+}
+
+/** Temporary diagnostics — set `BILLING_PDF_DEBUG_LOG=1` (dev only). */
+function billingPdfDebugEnabled(): boolean {
+  return process.env.BILLING_PDF_DEBUG_LOG === "1";
+}
+
+/**
+ * When `BILLING_PDF_SKIP_CACHE=1`, never serve a stored PDF; always re-render.
+ * Does not delete DB rows or storage files; safe for local debugging.
+ */
+function billingPdfSkipCache(): boolean {
+  return process.env.BILLING_PDF_SKIP_CACHE === "1";
+}
 
 export type GetOrRenderBillingPdfInput = {
   businessId: number;
@@ -135,17 +157,41 @@ export async function getOrRenderBillingPdf(
 
   const documentNumberFormatted = doc.documentNumberFormatted;
 
+  const firstLineDescription =
+    snapshot.lines.length > 0 ? snapshot.lines[0].description : "(no lines)";
+
+  if (billingPdfDebugEnabled()) {
+    console.log("[billing-pdf-debug] snapshot + env (before cache/render)", {
+      billingDocumentId: doc.id,
+      businessId: input.businessId,
+      BILLING_PDF_RENDERER: process.env.BILLING_PDF_RENDERER ?? "(unset)",
+      useHtmlRenderer: shouldUseHtmlBillingPdfRenderer(),
+      BILLING_PDF_SKIP_CACHE: billingPdfSkipCache(),
+      customerNameFromSnapshot: snapshot.customer.name,
+      firstLineDescriptionFromSnapshot: firstLineDescription,
+    });
+  }
+
   // ---------------------------------------------------------------------
   // Cache decision
   // pdfTemplateVersion is intentionally NOT part of the cache check (MVP):
   // an existing valid file is served regardless of its template version.
   // ---------------------------------------------------------------------
-  const cacheCandidate =
+  let cacheCandidate =
     doc.pdfRenderStatus === BillingPdfRenderStatus.RENDERED &&
     typeof doc.pdfStorageKey === "string" &&
     doc.pdfStorageKey.length > 0 &&
     typeof doc.pdfHash === "string" &&
     doc.pdfHash.length > 0;
+
+  if (billingPdfSkipCache()) {
+    cacheCandidate = false;
+    if (billingPdfDebugEnabled()) {
+      console.log(
+        "[billing-pdf-debug] SKIP_CACHE=1 — bypassing stored PDF (will re-render if reached)"
+      );
+    }
+  }
 
   if (cacheCandidate) {
     const storageKey = doc.pdfStorageKey as string;
@@ -159,6 +205,16 @@ export async function getOrRenderBillingPdf(
     if (fileExists) {
       try {
         const buffer = await readByKey(storageKey);
+        if (billingPdfDebugEnabled()) {
+          console.log("[billing-pdf-debug] CACHE_HIT — returning bytes from storage (no renderer)", {
+            billingDocumentId: doc.id,
+            pdfStorageKey: storageKey,
+            pdfHashPrefix: pdfHash.slice(0, 16),
+            byteLength: buffer.length,
+            note:
+              "bytes may be from pdfmake or html depending on what rendered last; use SKIP_CACHE+DEBUG to force re-render",
+          });
+        }
         return {
           buffer,
           pdfHash,
@@ -183,7 +239,17 @@ export async function getOrRenderBillingPdf(
   let storageKey: string;
 
   try {
-    buffer = await renderBillingPdfFromSnapshot(snapshot);
+    if (billingPdfDebugEnabled()) {
+      console.log("[billing-pdf-debug] RENDER_PATH — invoking renderer", {
+        billingDocumentId: doc.id,
+        renderer: shouldUseHtmlBillingPdfRenderer()
+          ? "renderBillingPdfHtmlFromSnapshot"
+          : "renderBillingPdfFromSnapshot (pdfmake)",
+      });
+    }
+    buffer = shouldUseHtmlBillingPdfRenderer()
+      ? await renderBillingPdfHtmlFromSnapshot(snapshot)
+      : await renderBillingPdfFromSnapshot(snapshot);
     if (!buffer || buffer.length === 0) {
       throw new Error("Renderer produced empty buffer");
     }

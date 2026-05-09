@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import PageHeader from "@/components/ui/page-header";
 import {
   getInventoryCategories,
@@ -14,6 +14,7 @@ type Item = {
   sku?: string | null;
   barcode?: string | null;
   unitType: string;
+  supplierName?: string | null;
   currentQuantity: number;
   minimumQuantity: number;
   reorderPoint: number | null;
@@ -28,6 +29,18 @@ type ReorderSuggestion = {
   reorderPoint: number | null;
   suggestedOrderQuantity: number;
 };
+
+type LocalSupplierPurchaseDraftV1 = {
+  version: 1;
+  savedAt: string;
+  supplierName: string;
+  order: Record<number, number>;
+  categoryId: string;
+  itemId: string;
+  quantity: string;
+};
+
+const LOCAL_DRAFT_KEY = "inventory:supplierPurchases:newDraft:v1";
 
 function buildHeaders() {
   const token =
@@ -54,6 +67,73 @@ export default function NewSupplierPurchasePage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [hasLocalDraft, setHasLocalDraft] = useState(false);
+  const [showExitGuard, setShowExitGuard] = useState(false);
+
+  const exitIntentRef = useRef<null | { type: "BACK" }>(null);
+  const allowNextExitRef = useRef(false);
+
+  const hasUnsavedWork = useMemo(() => {
+    const hasOrder = Object.keys(order).length > 0;
+    const hasSupplierName = Boolean(supplierName.trim());
+    const hasInProgressSelection =
+      Boolean(categoryId) ||
+      Boolean(itemId) ||
+      (quantity.trim() !== "" && quantity.trim() !== "1");
+
+    return hasSupplierName || hasOrder || hasInProgressSelection;
+  }, [supplierName, order, categoryId, itemId, quantity]);
+
+  function readLocalDraft(): LocalSupplierPurchaseDraftV1 | null {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = localStorage.getItem(LOCAL_DRAFT_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as LocalSupplierPurchaseDraftV1;
+      if (!parsed || parsed.version !== 1) return null;
+      if (typeof parsed.supplierName !== "string") return null;
+      if (!parsed.order || typeof parsed.order !== "object") return null;
+      if (typeof parsed.categoryId !== "string") return null;
+      if (typeof parsed.itemId !== "string") return null;
+      if (typeof parsed.quantity !== "string") return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeLocalDraft() {
+    if (typeof window === "undefined") return;
+    const draft: LocalSupplierPurchaseDraftV1 = {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      supplierName,
+      order,
+      categoryId,
+      itemId,
+      quantity,
+    };
+    localStorage.setItem(LOCAL_DRAFT_KEY, JSON.stringify(draft));
+    setHasLocalDraft(true);
+  }
+
+  function clearLocalDraft() {
+    if (typeof window === "undefined") return;
+    localStorage.removeItem(LOCAL_DRAFT_KEY);
+    setHasLocalDraft(false);
+  }
+
+  function restoreLocalDraft() {
+    const draft = readLocalDraft();
+    if (!draft) return;
+    setSupplierName(draft.supplierName || "");
+    setOrder(draft.order || {});
+    setCategoryId(draft.categoryId || "");
+    setItemId(draft.itemId || "");
+    setQuantity(draft.quantity || "1");
+    setError(null);
+    setSuccess("המשכנו הזמנה שנשמרה מקומית.");
+  }
 
   async function load() {
     try {
@@ -109,16 +189,121 @@ export default function NewSupplierPurchasePage() {
     load();
   }, []);
 
+  useEffect(() => {
+    const existing = readLocalDraft();
+    setHasLocalDraft(Boolean(existing));
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!hasUnsavedWork) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      // We only block for refresh/close; route transitions are handled separately.
+      event.preventDefault();
+      // Chrome requires returnValue to be set.
+      event.returnValue = "";
+      return "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedWork]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // Minimal back navigation guard without touching routing: use history popstate.
+    // Strategy: add a "sentinel" history entry. When user goes back, we immediately
+    // re-push it and show a modal. If user confirms exit, we allow back once.
+    window.history.pushState({ __inventorySupplierNewGuard: true }, "", window.location.href);
+
+    const handlePopState = () => {
+      if (allowNextExitRef.current) {
+        allowNextExitRef.current = false;
+        return;
+      }
+
+      if (!hasUnsavedWork) {
+        allowNextExitRef.current = true;
+        window.history.back();
+        return;
+      }
+
+      // Stay on the page and show a guard.
+      window.history.pushState(
+        { __inventorySupplierNewGuard: true },
+        "",
+        window.location.href
+      );
+      exitIntentRef.current = { type: "BACK" };
+      setShowExitGuard(true);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [hasUnsavedWork]);
+
   const selectedItems = useMemo(() => {
     return items.filter((item) => Number(order[item.id] || 0) > 0);
   }, [items, order]);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
+      const selectedSupplier = supplierName.trim();
+      if (selectedSupplier) {
+        if (
+          (item.supplierName || "").trim().toLowerCase() !==
+          selectedSupplier.toLowerCase()
+        ) {
+          return false;
+        }
+      }
       if (!categoryId) return true;
       return item.categoryId === Number(categoryId);
     });
-  }, [items, categoryId]);
+  }, [items, categoryId, supplierName]);
+
+  const supplierOptions = useMemo(() => {
+    const unique = new Set<string>();
+    for (const item of items) {
+      const value = typeof item.supplierName === "string" ? item.supplierName.trim() : "";
+      if (!value) continue;
+      unique.add(value);
+    }
+
+    return Array.from(unique).sort((a, b) => a.localeCompare(b, "he"));
+  }, [items]);
+
+  const filteredCategories = useMemo(() => {
+    const selectedSupplier = supplierName.trim();
+    if (!selectedSupplier) {
+      return categories.slice().sort((a, b) => a.name.localeCompare(b.name, "he"));
+    }
+
+    const categoryIds = new Set<number>();
+    for (const item of items) {
+      const itemSupplier = typeof item.supplierName === "string" ? item.supplierName.trim() : "";
+      if (!itemSupplier) continue;
+      if (itemSupplier.toLowerCase() !== selectedSupplier.toLowerCase()) continue;
+      if (typeof item.categoryId === "number" && Number.isFinite(item.categoryId)) {
+        categoryIds.add(item.categoryId);
+      }
+    }
+
+    return categories
+      .filter((category) => categoryIds.has(category.id))
+      .sort((a, b) => a.name.localeCompare(b.name, "he"));
+  }, [items, categories, supplierName]);
+
+  const supplierHasItems = useMemo(() => {
+    const selectedSupplier = supplierName.trim();
+    if (!selectedSupplier) return true;
+    return items.some((item) => {
+      const value = typeof item.supplierName === "string" ? item.supplierName.trim() : "";
+      return value.toLowerCase() === selectedSupplier.toLowerCase();
+    });
+  }, [items, supplierName]);
 
   const summary = useMemo(() => {
     return {
@@ -239,6 +424,10 @@ export default function NewSupplierPurchasePage() {
 
       setOrder({});
       setSupplierName("");
+      setCategoryId("");
+      setItemId("");
+      setQuantity("1");
+      clearLocalDraft();
       setSuccess("ההזמנה נוצרה וממתינה לקליטת סחורה");
     } catch (err: any) {
       setError(err?.message || "שגיאה ביצירת הזמנה");
@@ -272,6 +461,66 @@ export default function NewSupplierPurchasePage() {
           gap: 16,
         }}
       >
+        {hasLocalDraft && !hasUnsavedWork && (
+          <section
+            style={{
+              border: "1px solid #bfdbfe",
+              background: "#eff6ff",
+              color: "#1d4ed8",
+              borderRadius: 18,
+              padding: 14,
+              fontSize: 14,
+              fontWeight: 800,
+              lineHeight: 1.5,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 10,
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <div style={{ flex: "1 1 260px" }}>
+              יש הזמנה שלא הושלמה ונשמרה מקומית.
+            </div>
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <button
+                type="button"
+                onClick={restoreLocalDraft}
+                style={{
+                  minHeight: 42,
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  border: "none",
+                  background: "#1d4ed8",
+                  color: "#ffffff",
+                  cursor: "pointer",
+                  fontWeight: 900,
+                }}
+              >
+                המשך הזמנה
+              </button>
+
+              <button
+                type="button"
+                onClick={clearLocalDraft}
+                style={{
+                  minHeight: 42,
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  border: "1px solid #bfdbfe",
+                  background: "#ffffff",
+                  color: "#1d4ed8",
+                  cursor: "pointer",
+                  fontWeight: 900,
+                }}
+              >
+                מחק והתחל מחדש
+              </button>
+            </div>
+          </section>
+        )}
+
         {error && (
           <div
             style={{
@@ -301,6 +550,19 @@ export default function NewSupplierPurchasePage() {
             }}
           >
             {success}
+          </div>
+        )}
+
+        {hasUnsavedWork && !success && (
+          <div
+            style={{
+              fontSize: 12,
+              color: "#6b7280",
+              textAlign: "center",
+              lineHeight: 1.6,
+            }}
+          >
+            שינויים לא נשמרו. אפשר לשמור להמשך לפני יציאה מהמסך.
           </div>
         )}
 
@@ -442,6 +704,120 @@ export default function NewSupplierPurchasePage() {
             {actionLoading ? "יוצר הזמנה..." : "צור הזמנה"}
           </button>
         </section>
+
+        {showExitGuard && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(15, 23, 42, 0.45)",
+              zIndex: 60,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 16,
+            }}
+          >
+            <section
+              style={{
+                width: "100%",
+                maxWidth: 520,
+                borderRadius: 20,
+                background: "#ffffff",
+                boxShadow: "0 24px 70px rgba(15, 23, 42, 0.28)",
+                padding: 18,
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 16,
+                  fontWeight: 950,
+                  color: "#111827",
+                }}
+              >
+                יש הזמנה בתהליך
+              </div>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: "#6b7280",
+                  lineHeight: 1.6,
+                }}
+              >
+                לפני יציאה מהמסך, תרצו לשמור את ההזמנה להמשך?
+              </div>
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    writeLocalDraft();
+                    setShowExitGuard(false);
+                    allowNextExitRef.current = true;
+                    window.history.back();
+                  }}
+                  style={{
+                    flex: "1 1 160px",
+                    minHeight: 46,
+                    borderRadius: 14,
+                    border: "none",
+                    background: "#111827",
+                    color: "#ffffff",
+                    cursor: "pointer",
+                    fontWeight: 950,
+                  }}
+                >
+                  שמור להמשך
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearLocalDraft();
+                    setShowExitGuard(false);
+                    allowNextExitRef.current = true;
+                    window.history.back();
+                  }}
+                  style={{
+                    flex: "1 1 160px",
+                    minHeight: 46,
+                    borderRadius: 14,
+                    border: "1px solid #fecaca",
+                    background: "#fef2f2",
+                    color: "#991b1b",
+                    cursor: "pointer",
+                    fontWeight: 950,
+                  }}
+                >
+                  צא בלי לשמור
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    exitIntentRef.current = null;
+                    setShowExitGuard(false);
+                  }}
+                  style={{
+                    flex: "1 1 160px",
+                    minHeight: 46,
+                    borderRadius: 14,
+                    border: "1px solid #e5e7eb",
+                    background: "#ffffff",
+                    color: "#111827",
+                    cursor: "pointer",
+                    fontWeight: 900,
+                  }}
+                >
+                  המשך עריכה
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
 
         <section
           style={{
@@ -657,6 +1033,43 @@ export default function NewSupplierPurchasePage() {
                     color: "#374151",
                   }}
                 >
+                  ספק
+                </span>
+                <select
+                  value={supplierName}
+                  onChange={(event) => {
+                    setSupplierName(event.target.value);
+                    setCategoryId("");
+                    setItemId("");
+                  }}
+                  style={{
+                    minHeight: 46,
+                    borderRadius: 14,
+                    border: "1px solid #d1d5db",
+                    padding: "0 12px",
+                    background: "#ffffff",
+                    fontSize: 14,
+                    fontWeight: 800,
+                    outline: "none",
+                  }}
+                >
+                  <option value="">בחר ספק</option>
+                  {supplierOptions.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 900,
+                    color: "#374151",
+                  }}
+                >
                   קטגוריה
                 </span>
                 <select
@@ -677,13 +1090,30 @@ export default function NewSupplierPurchasePage() {
                   }}
                 >
                   <option value="">כל הקטגוריות</option>
-                  {categories.map((category) => (
+                  {filteredCategories.map((category) => (
                     <option key={category.id} value={String(category.id)}>
                       {category.name}
                     </option>
                   ))}
                 </select>
               </label>
+
+              {supplierName.trim() && !supplierHasItems && (
+                <div
+                  style={{
+                    border: "1px dashed #d1d5db",
+                    borderRadius: 14,
+                    background: "#f9fafb",
+                    padding: 12,
+                    textAlign: "center",
+                    color: "#6b7280",
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                  }}
+                >
+                  לא נמצאו מוצרים לספק הזה.
+                </div>
+              )}
 
               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <span

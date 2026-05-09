@@ -32,6 +32,8 @@ export async function POST(
       return Response.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    const wasAlreadyApproved = document.status === "approved";
+
     const body = (await req.json().catch(() => null)) as
       | null
       | {
@@ -181,29 +183,32 @@ export async function POST(
         });
       }
 
-      // Vendor learning only when we actually create/update a financial record
-      await prisma.vendorLearning.upsert({
-        where: {
-          businessId_vendorName: {
+      // Vendor learning only when we actually create/update a financial record,
+      // and only on first approval — avoids usageCount inflation on duplicate approve/retry.
+      if (!wasAlreadyApproved) {
+        await prisma.vendorLearning.upsert({
+          where: {
+            businessId_vendorName: {
+              businessId: user.businessId,
+              vendorName,
+            },
+          },
+          update: {
+            usageCount: { increment: 1 },
+            category,
+            confidence: { increment: 0.02 },
+            lastUsedAt: new Date(),
+          },
+          create: {
             businessId: user.businessId,
             vendorName,
+            category,
+            confidence: 0.8,
+            usageCount: 1,
+            isGlobal: false,
           },
-        },
-        update: {
-          usageCount: { increment: 1 },
-          category,
-          confidence: { increment: 0.02 },
-          lastUsedAt: new Date(),
-        },
-        create: {
-          businessId: user.businessId,
-          vendorName,
-          category,
-          confidence: 0.8,
-          usageCount: 1,
-          isGlobal: false,
-        },
-      });
+        });
+      }
     }
 
     // 🧠 LEARNING (רק לפי עסק — בלי global)

@@ -6,21 +6,14 @@ import { getCurrentUser } from "@/lib/auth";
 import { runGoogleVisionOCR } from "@/lib/services/documents/google-vision-ocr.service";
 import { runUnifiedDocumentIntelligence } from "@/lib/services/documents/unified-extraction-engine.service";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
+import {
+  buildStoredDocumentFileName,
+  safeExtFromMime,
+} from "@/lib/services/documents/document-storage-paths";
 
 export const runtime = "nodejs";
 
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 15MB
-
-function safeExtFromMime(mimeType: string): string {
-  const t = mimeType.toLowerCase();
-  if (t === "application/pdf") return ".pdf";
-  if (t === "image/jpeg") return ".jpg";
-  if (t === "image/png") return ".png";
-  if (t === "image/webp") return ".webp";
-  if (t === "image/gif") return ".gif";
-  if (t.startsWith("image/")) return ".img";
-  return "";
-}
 
 function isAllowedMime(mimeType: string): boolean {
   const m = String(mimeType || "").toLowerCase().trim();
@@ -29,6 +22,11 @@ function isAllowedMime(mimeType: string): boolean {
 
 export async function POST(req: Request) {
   let tempFilePath: string | null = null;
+  // Tracks a permanent file we wrote to disk that must be removed on error
+  // before we managed to associate it with a Document row, otherwise the
+  // file would become an orphan with no DB pointer.
+  let permanentFilePath: string | null = null;
+  let permanentFilePersisted = false;
 
   try {
     const user = await getCurrentUser(req);
@@ -128,16 +126,42 @@ export async function POST(req: Request) {
       evidenceReasons: extracted.evidenceReasons,
     });
 
+    // Persist the original source file under a per-business storage tree so
+    // the protected file route can stream it back later. Storage lives
+    // outside `public/` so the bytes are never directly addressable; access
+    // is gated by `GET /api/documents/[id]/file`.
+    const storageDir = path.join(
+      process.cwd(),
+      "storage",
+      "documents",
+      String(businessId)
+    );
+    await mkdir(storageDir, { recursive: true });
+
+    const storedFileName = buildStoredDocumentFileName(mimeType);
+    const storedFilePath = path.join(storageDir, storedFileName);
+
+    permanentFilePath = storedFilePath;
+    await writeFile(storedFilePath, buffer);
+
     const document = await prisma.document.create({
       data: {
         businessId,
-        fileUrl: `/uploads/${Date.now()}`,
+        // `fileUrl` stores ONLY the stored basename (no slashes, no business
+        // id). The file route resolves the full path using the authenticated
+        // user's businessId, which prevents cross-tenant access even if the
+        // stored name leaks.
+        fileUrl: storedFileName,
         source: "file",
         mimeType: file.type || "image/jpeg",
         status: "needs_review",
         ocrText: rawText,
       },
     });
+
+    // Once the Document row points at the stored file we no longer want to
+    // delete it on error; leaving it lets the user re-open the document.
+    permanentFilePersisted = true;
 
     const extractedData = await prisma.extractedData.create({
       data: {
@@ -181,6 +205,15 @@ export async function POST(req: Request) {
     });
   } catch (e) {
     console.error(e);
+    // If we wrote a permanent copy but failed before persisting the Document
+    // row, remove the orphan from disk so it does not accumulate.
+    if (permanentFilePath && !permanentFilePersisted) {
+      try {
+        await unlink(permanentFilePath);
+      } catch {
+        // ignore cleanup errors
+      }
+    }
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   } finally {
     if (tempFilePath) {

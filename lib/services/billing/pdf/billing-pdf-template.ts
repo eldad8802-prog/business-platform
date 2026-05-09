@@ -15,6 +15,49 @@ export const BILLING_PDF_SCHEMA_VERSION_SUPPORTED = 1;
 
 const HEBREW_FONT_NAME = "NotoSansHebrew";
 const ILS_SYMBOL = "\u20AA"; // ₪
+const BRAND_DARK = "#0f172a";
+const BRAND_MUTED = "#475569";
+const BORDER_SOFT = "#e5e7eb";
+const BG_SOFT = "#f8fafc";
+const BG_TOTAL = "#eef2ff";
+const BG_PARTY_CARD = "#f8fafc";
+
+// ---------------------------------------------------------------------------
+// Text helpers (RTL/LTR without BiDi control chars)
+// ---------------------------------------------------------------------------
+//
+// pdfmake/pdfkit + the current Hebrew font can sometimes render Unicode BiDi
+// control characters (RLI/LRI/PDI/LRM/RLM) as visible squares. We therefore
+// DO NOT use any directionality control chars at all.
+//
+// Instead, we:
+// - Keep labels and values in separate cells/columns (no "label: value" string).
+// - Use NBSP in fixed multi-word Hebrew labels to prevent space collapse.
+// - Strip any BiDi control chars defensively from any incoming strings.
+const NBSP = "\u00A0";
+
+function stripBidiControls(value: string): string {
+  return value.replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, "");
+}
+
+function safeText(value: string): string {
+  const raw = typeof value === "string" ? value : String(value);
+  return stripBidiControls(raw);
+}
+
+function rtlText(value: string, opts?: { nbspWords?: boolean }): string {
+  const raw = safeText(value);
+  return opts?.nbspWords ? raw.replace(/ +/g, NBSP) : raw;
+}
+
+function ltrText(value: string): string {
+  // Keep plain string; direction is controlled by layout (alignment/columns).
+  return safeText(value);
+}
+
+function rtlLabel(value: string): string {
+  return rtlText(value, { nbspWords: true });
+}
 
 const DOCUMENT_TYPE_LABELS_HE: Record<string, string> = {
   TAX_INVOICE: "חשבונית מס",
@@ -169,65 +212,147 @@ function getDocumentTypeLabel(type: string): string {
   return DOCUMENT_TYPE_LABELS_HE[type] ?? type;
 }
 
+function isDataImageUrl(value: string | null): boolean {
+  if (!value || typeof value !== "string") return false;
+  const trimmed = value.trim();
+  // pdfmake supports `image` as a data URL / base64 string. We intentionally
+  // do NOT fetch remote URLs in the template layer.
+  return /^data:image\/(png|jpe?g|webp);base64,[a-z0-9+/=]+$/i.test(trimmed);
+}
+
 // ---------------------------------------------------------------------------
 // Layout helpers (pdfmake nodes)
 // ---------------------------------------------------------------------------
 
 type AnyNode = Record<string, unknown>;
 
+function buildPartyCard(args: {
+  title: "מוכר" | "לקוח";
+  name: string;
+  lines: Array<{ label: string; value: string; valueDir: "rtl" | "ltr" }>;
+  align: "right" | "left";
+}): AnyNode {
+  const { title, name, lines, align } = args;
+  const secondary = lines.filter(
+    (l) => typeof l?.value === "string" && l.value.trim().length > 0
+  );
+
+  return {
+    width: "*",
+    table: {
+      widths: ["*"],
+      body: [
+        [
+          {
+            stack: [
+              {
+                text: rtlLabel(title),
+                fontSize: 10,
+                bold: true,
+                color: BRAND_MUTED,
+                alignment: align,
+                margin: [0, 0, 0, 6],
+                lineHeight: 1.1,
+              },
+              {
+                // Free-form names must NOT be reversed. We isolate RTL to keep
+                // visual order stable without changing characters.
+                text: rtlText(name),
+                fontSize: 13,
+                bold: true,
+                color: BRAND_DARK,
+                alignment: align,
+                margin: [0, 0, 0, secondary.length > 0 ? 6 : 0],
+                lineHeight: 1.2,
+              },
+              ...(secondary.length > 0
+                ? secondary.map((row) => ({
+                    columns: [
+                      {
+                        text: rtlLabel(row.label),
+                        alignment: "right",
+                        color: BRAND_MUTED,
+                        fontSize: 10,
+                        width: "auto",
+                      },
+                      {
+                        text:
+                          row.valueDir === "ltr"
+                            ? ltrText(row.value)
+                            : rtlText(row.value),
+                        alignment: "left",
+                        color: BRAND_DARK,
+                        fontSize: 10,
+                        width: "*",
+                      },
+                    ],
+                    columnGap: 8,
+                    margin: [0, 0, 0, 2],
+                  }))
+                : []),
+            ],
+            fillColor: BG_PARTY_CARD,
+            margin: [0, 0, 0, 0],
+          },
+        ],
+      ],
+    },
+    layout: {
+      hLineWidth: () => 0,
+      vLineWidth: () => 0,
+      paddingLeft: () => 14,
+      paddingRight: () => 14,
+      paddingTop: () => 12,
+      paddingBottom: () => 12,
+    },
+  };
+}
+
 function buildIssuerStack(
   issuer: BillingIssuedSnapshotV1Issuer
 ): AnyNode {
-  const stack: AnyNode[] = [
-    {
-      text: "פרטי המוכר",
-      bold: true,
-      fontSize: 11,
-      margin: [0, 0, 0, 4],
-      color: "#1f2937",
-      alignment: "right",
-    },
-    { text: issuer.name, alignment: "right", bold: true },
-  ];
+  const lines: Array<{ label: string; value: string; valueDir: "rtl" | "ltr" }> =
+    [];
   if (issuer.taxId) {
-    stack.push({ text: `ע.מ./ח.פ.: ${issuer.taxId}`, alignment: "right" });
+    lines.push({ label: 'ע.מ./ח.פ.', value: issuer.taxId, valueDir: "ltr" });
   }
   if (issuer.phone) {
-    stack.push({ text: `טלפון: ${issuer.phone}`, alignment: "right" });
+    lines.push({ label: "טלפון", value: issuer.phone, valueDir: "ltr" });
   }
   if (issuer.email) {
-    stack.push({ text: issuer.email, alignment: "right", fontSize: 9 });
+    lines.push({ label: 'דוא"ל', value: issuer.email, valueDir: "ltr" });
   }
-  return { width: "*", stack };
+  return buildPartyCard({
+    title: "מוכר",
+    name: issuer.name,
+    lines,
+    align: "right",
+  });
 }
 
 function buildCustomerStack(
   customer: BillingIssuedSnapshotV1Customer
 ): AnyNode {
-  const stack: AnyNode[] = [
-    {
-      text: "פרטי הלקוח",
-      bold: true,
-      fontSize: 11,
-      margin: [0, 0, 0, 4],
-      color: "#1f2937",
-      alignment: "left",
-    },
-    { text: customer.name, alignment: "left" },
-  ];
+  const lines: Array<{ label: string; value: string; valueDir: "rtl" | "ltr" }> =
+    [];
   if (customer.taxId) {
-    stack.push({ text: `ע.מ./ת.ז.: ${customer.taxId}`, alignment: "left" });
+    lines.push({ label: "ע.מ./ת.ז.", value: customer.taxId, valueDir: "ltr" });
   }
   if (customer.city) {
-    stack.push({ text: customer.city, alignment: "left" });
+    lines.push({ label: "עיר", value: customer.city, valueDir: "rtl" });
   }
   if (customer.phone) {
-    stack.push({ text: `טלפון: ${customer.phone}`, alignment: "left" });
+    lines.push({ label: "טלפון", value: customer.phone, valueDir: "ltr" });
   }
   if (customer.email) {
-    stack.push({ text: customer.email, alignment: "left", fontSize: 9 });
+    lines.push({ label: 'דוא"ל', value: customer.email, valueDir: "ltr" });
   }
-  return { width: "*", stack };
+  return buildPartyCard({
+    title: "לקוח",
+    name: customer.name,
+    lines,
+    align: "left",
+  });
 }
 
 function buildLineRow(
@@ -238,13 +363,18 @@ function buildLineRow(
   // pdfmake renders left-to-right, so we lay out the columns in their
   // visual right-to-left order which produces the correct Hebrew layout.
   return [
-    { text: formatMoney(line.lineTotal, currency), alignment: "left" },
-    { text: formatMoney(line.vatAmount, currency), alignment: "left" },
-    { text: formatMoney(line.unitPrice, currency), alignment: "left" },
-    { text: formatQuantity(line.quantity), alignment: "center" },
-    { text: line.description, alignment: "right" },
     {
-      text: String(line.lineIndex),
+      text: ltrText(formatMoney(line.lineTotal, currency)),
+      alignment: "left",
+      bold: true,
+      color: BRAND_DARK,
+    },
+    { text: ltrText(formatMoney(line.vatAmount, currency)), alignment: "left" },
+    { text: ltrText(formatMoney(line.unitPrice, currency)), alignment: "left" },
+    { text: ltrText(formatQuantity(line.quantity)), alignment: "center" },
+    { text: rtlText(line.description), alignment: "right" },
+    {
+      text: ltrText(String(line.lineIndex)),
       alignment: "center",
       color: "#6b7280",
     },
@@ -257,15 +387,16 @@ function buildLinesTable(
 ): AnyNode {
   const headerCellStyle = {
     bold: true,
-    fillColor: "#f3f4f6",
+    fillColor: BG_SOFT,
+    color: BRAND_DARK,
   };
   const tableHeader: AnyNode[] = [
-    { text: 'סה"כ', alignment: "center", ...headerCellStyle },
-    { text: 'מע"מ', alignment: "center", ...headerCellStyle },
-    { text: "מחיר יחידה", alignment: "center", ...headerCellStyle },
-    { text: "כמות", alignment: "center", ...headerCellStyle },
-    { text: "תיאור", alignment: "right", ...headerCellStyle },
-    { text: "מס'", alignment: "center", ...headerCellStyle },
+    { text: rtlLabel('סה"כ'), alignment: "center", ...headerCellStyle },
+    { text: rtlLabel('מע"מ'), alignment: "center", ...headerCellStyle },
+    { text: rtlLabel("מחיר יחידה"), alignment: "center", ...headerCellStyle },
+    { text: rtlLabel("כמות"), alignment: "center", ...headerCellStyle },
+    { text: rtlLabel("תיאור"), alignment: "right", ...headerCellStyle },
+    { text: rtlLabel("מס׳"), alignment: "center", ...headerCellStyle },
   ];
   const tableBody: AnyNode[][] = [tableHeader];
   for (const line of lines) {
@@ -280,11 +411,22 @@ function buildLinesTable(
     },
     layout: {
       fillColor: (rowIndex: number) =>
-        rowIndex === 0 ? "#f3f4f6" : rowIndex % 2 === 0 ? "#fafafa" : null,
-      hLineColor: () => "#d1d5db",
-      vLineColor: () => "#d1d5db",
+        rowIndex === 0 ? BG_SOFT : rowIndex % 2 === 0 ? "#fbfdff" : null,
+      hLineColor: () => BORDER_SOFT,
+      vLineColor: () => BORDER_SOFT,
+      hLineWidth: (i: number, node: { table?: { body?: unknown[] } }) => {
+        const rows = Array.isArray(node?.table?.body) ? node.table?.body.length : 0;
+        // Top + bottom borders slightly stronger; inner separators hairline.
+        if (i === 0 || i === rows) return 0.8;
+        return 0.4;
+      },
+      vLineWidth: () => 0,
+      paddingLeft: (colIndex: number) => (colIndex === 0 ? 6 : 8),
+      paddingRight: () => 8,
+      paddingTop: (rowIndex: number) => (rowIndex === 0 ? 9 : 8),
+      paddingBottom: (rowIndex: number) => (rowIndex === 0 ? 9 : 8),
     },
-    margin: [0, 0, 0, 14],
+    margin: [0, 0, 0, 16],
   };
 }
 
@@ -293,42 +435,83 @@ function buildTotalsBlock(
   vatLabelSuffix: string | null,
   currency: string
 ): AnyNode {
-  const vatLabel = vatLabelSuffix
-    ? `מע"מ (${vatLabelSuffix}):`
-    : 'מע"מ:';
+  const vatLabelNode: AnyNode = vatLabelSuffix
+    ? {
+        text: [
+          { text: rtlText('מע"מ') },
+          { text: ltrText(` (${vatLabelSuffix})`) },
+        ],
+      }
+    : { text: rtlText('מע"מ') };
   const totalsBody: AnyNode[][] = [
     [
-      { text: formatMoney(totals.subtotal, currency), alignment: "left" },
-      { text: 'סה"כ לפני מע"מ:', alignment: "right" },
-    ],
-    [
-      { text: formatMoney(totals.vat, currency), alignment: "left" },
-      { text: vatLabel, alignment: "right" },
+      {
+        text: ltrText(formatMoney(totals.subtotal, currency)),
+        alignment: "left",
+        color: BRAND_DARK,
+      },
+      { text: rtlLabel('סה"כ לפני מע"מ'), alignment: "right", color: BRAND_MUTED },
     ],
     [
       {
-        text: formatMoney(totals.total, currency),
+        text: ltrText(formatMoney(totals.vat, currency)),
+        alignment: "left",
+        color: BRAND_DARK,
+      },
+      { ...vatLabelNode, alignment: "right", color: BRAND_MUTED },
+    ],
+    [
+      {
+        text: ltrText(formatMoney(totals.total, currency)),
         alignment: "left",
         bold: true,
-        fontSize: 13,
-        fillColor: "#eef2ff",
+        fontSize: 14,
+        fillColor: BG_TOTAL,
+        color: BRAND_DARK,
       },
       {
-        text: 'סה"כ לתשלום:',
+        text: rtlLabel('סה"כ לתשלום'),
         alignment: "right",
         bold: true,
-        fontSize: 13,
-        fillColor: "#eef2ff",
+        fontSize: 14,
+        fillColor: BG_TOTAL,
+        color: BRAND_DARK,
       },
     ],
   ];
   return {
+    margin: [0, 4, 0, 0],
     columns: [
       { text: "", width: "*" },
       {
-        width: "auto",
-        table: { widths: ["auto", "auto"], body: totalsBody },
-        layout: "noBorders",
+        width: 280,
+        table: {
+          widths: ["*"],
+          body: [
+            [
+              {
+                fillColor: "#f1f5f9",
+                table: { widths: ["auto", "*"], body: totalsBody },
+                layout: {
+                  hLineWidth: () => 0,
+                  vLineWidth: () => 0,
+                  paddingLeft: () => 12,
+                  paddingRight: () => 12,
+                  paddingTop: () => 10,
+                  paddingBottom: () => 10,
+                },
+              },
+            ],
+          ],
+        },
+        layout: {
+          hLineWidth: () => 0,
+          vLineWidth: () => 0,
+          paddingLeft: () => 0,
+          paddingRight: () => 0,
+          paddingTop: () => 0,
+          paddingBottom: () => 0,
+        },
       },
     ],
   };
@@ -349,17 +532,19 @@ export function buildDocDefinition(
     metadata.timezone || "Asia/Jerusalem"
   );
   const vatLabelSuffix = deriveCommonVatRateLabel(lines);
+  const hasLogo = isDataImageUrl(issuer.logoUrl);
+  const docNumber = document.numberFormatted;
 
   return {
     pageSize: "A4",
-    pageMargins: [40, 90, 40, 60],
+    pageMargins: [44, 110, 44, 64],
     defaultStyle: {
       font: HEBREW_FONT_NAME,
-      fontSize: 10,
+      fontSize: 11,
       alignment: "right",
     },
     info: {
-      title: `${documentTypeLabel} ${document.numberFormatted}`,
+      title: `${documentTypeLabel} ${docNumber}`,
       author: issuer.name,
       subject: documentTypeLabel,
       creator: `billing-platform/${BILLING_PDF_TEMPLATE_VERSION}`,
@@ -368,75 +553,127 @@ export function buildDocDefinition(
     header: () => ({
       columns: [
         {
-          text: issuer.name,
+          stack: [
+            ...(hasLogo
+              ? [
+                  {
+                    image: issuer.logoUrl as string,
+                    width: 48,
+                    height: 48,
+                    alignment: "left",
+                    margin: [0, 0, 0, 6],
+                  },
+                ]
+              : []),
+            {
+              text: rtlText(issuer.name),
+              alignment: "left",
+              color: BRAND_DARK,
+              fontSize: 18,
+              bold: true,
+              lineHeight: 1.05,
+            },
+          ],
           alignment: "left",
-          margin: [40, 30, 0, 0],
-          color: "#444",
-          fontSize: 9,
+          margin: [44, 26, 0, 0],
         },
         {
-          text: documentTypeLabel,
+          stack: [
+            {
+              text: rtlLabel(documentTypeLabel),
+              alignment: "right",
+              fontSize: 22,
+              bold: true,
+              color: BRAND_DARK,
+              lineHeight: 1.05,
+            },
+            {
+              columns: [
+                {
+                  text: rtlLabel("מס׳ מסמך"),
+                  alignment: "right",
+                  fontSize: 11,
+                  color: BRAND_MUTED,
+                  width: "auto",
+                },
+                {
+                  text: ltrText(docNumber),
+                  alignment: "left",
+                  fontSize: 11,
+                  color: BRAND_DARK,
+                  width: "*",
+                },
+              ],
+              columnGap: 8,
+              margin: [0, 10, 0, 0],
+            },
+            {
+              columns: [
+                {
+                  text: rtlLabel("תאריך הוצאה"),
+                  alignment: "right",
+                  fontSize: 11,
+                  color: BRAND_MUTED,
+                  width: "auto",
+                },
+                {
+                  text: ltrText(issuedAtFormatted),
+                  alignment: "left",
+                  fontSize: 11,
+                  color: BRAND_DARK,
+                  width: "*",
+                },
+              ],
+              columnGap: 8,
+              margin: [0, 6, 0, 0],
+            },
+          ],
           alignment: "right",
-          margin: [0, 25, 40, 0],
-          fontSize: 18,
-          bold: true,
+          margin: [0, 26, 44, 0],
         },
       ],
     }),
     footer: (currentPage: number, pageCount: number) => ({
       columns: [
         {
-          text: document.numberFormatted,
+          text: rtlText(issuer.name),
           alignment: "left",
-          margin: [40, 20, 0, 0],
+          margin: [44, 20, 0, 0],
           fontSize: 8,
-          color: "#777",
+          color: "#64748b",
         },
         {
-          text: `עמוד ${currentPage} מתוך ${pageCount}`,
+          text: rtlText(`עמוד ${currentPage} מתוך ${pageCount}`),
           alignment: "right",
-          margin: [0, 20, 40, 0],
-          fontSize: 9,
+          margin: [0, 20, 44, 0],
+          fontSize: 8,
+          color: "#64748b",
         },
       ],
     }),
     content: [
       {
-        columns: [
-          {
-            text: `תאריך הוצאה: ${issuedAtFormatted}`,
-            alignment: "left",
-            fontSize: 10,
-          },
-          {
-            text: `מס' מסמך: ${document.numberFormatted}`,
-            alignment: "right",
-            fontSize: 10,
-            bold: true,
-          },
-        ],
-        margin: [0, 0, 0, 14],
+        columns: [buildCustomerStack(customer), buildIssuerStack(issuer)],
+        columnGap: 14,
+        margin: [0, 6, 0, 20],
       },
       {
-        columns: [buildCustomerStack(customer), buildIssuerStack(issuer)],
-        columnGap: 24,
-        margin: [0, 0, 0, 18],
+        text: rtlLabel("פירוט פריטים"),
+        fontSize: 14,
+        bold: true,
+        color: BRAND_DARK,
+        margin: [0, 0, 0, 10],
       },
       buildLinesTable(lines, currency),
       buildTotalsBlock(totals, vatLabelSuffix, currency),
       {
-        text: "מסמך זה הופק אלקטרונית. נא לשמור לצרכי הנהלת חשבונות ודיווח.",
+        text: rtlText(
+          "מסמך זה הופק אלקטרונית. נא לשמור לצרכי הנהלת חשבונות ודיווח."
+        ),
         fontSize: 8,
         color: "#555",
         alignment: "right",
-        margin: [0, 26, 0, 0],
-      },
-      {
-        text: `Template: ${BILLING_PDF_TEMPLATE_VERSION}`,
-        fontSize: 7,
-        color: "#9ca3af",
-        alignment: "left",
-        margin: [0, 6, 0, 0],
+        margin: [0, 24, 0, 0],
       },
     ],
   };
