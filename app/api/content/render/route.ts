@@ -1,5 +1,6 @@
 import { checkUsage, incrementUsage } from "@/lib/services/usage.service";
 import { createCreatomateRender } from "@/lib/services/creatomate.service";
+import type { RenderBlueprint } from "@/lib/features/content/render-blueprint/types";
 import { getCurrentUser } from "@/lib/auth";
 
 type ContentFlow = {
@@ -35,6 +36,7 @@ type SelectedVariant = {
     requiredAssets: string[];
     optionalAssets: string[];
   };
+  renderBlueprint?: RenderBlueprint;
 };
 
 type ContentResult = {
@@ -137,6 +139,7 @@ export async function POST(req: Request) {
       caption: script.caption,
       selectedFormat: flow.selectedFormat,
       selectedPlatform: flow.selectedPlatform,
+      renderBlueprint: selectedVariant.renderBlueprint,
     });
 
     console.log("CREATE RENDER RESULT:", render);

@@ -87,6 +87,17 @@ export async function PATCH(
       input.customerNameSnapshot = body.customerNameSnapshot;
     }
 
+    if ("validUntil" in body) {
+      const raw = body.validUntil;
+      if (raw === null || raw === "") {
+        input.validUntil = null;
+      } else if (typeof raw === "string") {
+        input.validUntil = raw;
+      } else {
+        throw new ValidationError("validUntil must be a string, null, or empty");
+      }
+    }
+
     const document = await updateBillingDraftHeader(input);
 
     return NextResponse.json({ document }, { status: 200 });

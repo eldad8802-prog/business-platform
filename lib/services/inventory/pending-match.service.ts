@@ -148,6 +148,67 @@ export async function resolvePendingMatchWithExistingItem(
       },
     });
 
+    const src = (metadata.source?.trim() || "POS").trim();
+    const skuNorm = metadata.sku?.trim() || null;
+    const barcodeNorm = metadata.barcode?.trim() || null;
+
+    if (skuNorm || barcodeNorm) {
+      let existingMapping = null as {
+        id: number;
+        sku: string | null;
+        barcode: string | null;
+        name: string | null;
+      } | null;
+
+      if (skuNorm) {
+        existingMapping = await tx.pOSProductMapping.findFirst({
+          where: {
+            businessId,
+            source: src,
+            sku: skuNorm,
+          },
+          select: { id: true, sku: true, barcode: true, name: true },
+        });
+      }
+
+      if (!existingMapping && barcodeNorm) {
+        existingMapping = await tx.pOSProductMapping.findFirst({
+          where: {
+            businessId,
+            source: src,
+            barcode: barcodeNorm,
+          },
+          select: { id: true, sku: true, barcode: true, name: true },
+        });
+      }
+
+      if (existingMapping) {
+        await tx.pOSProductMapping.update({
+          where: { id: existingMapping.id },
+          data: {
+            itemId,
+            ...(skuNorm ? { sku: skuNorm } : {}),
+            ...(barcodeNorm ? { barcode: barcodeNorm } : {}),
+            ...(metadata.name != null && metadata.name !== ""
+              ? { name: metadata.name }
+              : {}),
+          },
+        });
+      } else {
+        await tx.pOSProductMapping.create({
+          data: {
+            businessId,
+            source: src,
+            itemId,
+            sku: skuNorm,
+            barcode: barcodeNorm,
+            name: metadata.name ?? null,
+            externalProductId: null,
+          },
+        });
+      }
+    }
+
     return {
       success: true,
       pendingMatchId,

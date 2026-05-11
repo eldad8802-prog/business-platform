@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { serializeInboxItem } from "@/lib/inbox-view/inbox-item.serializer";
+
+const PENDING_SUGGESTION_STATUSES = ["GENERATED", "SHOWN", "SELECTED"] as const;
 
 export async function GET(req: Request) {
   try {
@@ -14,22 +17,46 @@ export async function GET(req: Request) {
     }
 
     const conversations = await prisma.conversation.findMany({
-  where: {
-    businessId: user.businessId,
-  },
-  orderBy: {
-    updatedAt: "desc",
-  },
-  include: {
-    customer: true,
-    lead: true,
-  },
-});
+      where: {
+        businessId: user.businessId,
+      },
+      orderBy: {
+        updatedAt: "desc",
+      },
+      include: {
+        customer: true,
+        lead: true,
+        messages: {
+          take: 1,
+          orderBy: { createdAt: "desc" },
+          select: {
+            contentText: true,
+            senderType: true,
+            createdAt: true,
+          },
+        },
+        replySuggestions: {
+          where: { status: { in: [...PENDING_SUGGESTION_STATUSES] } },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    const now = new Date();
+    const items = conversations.map((conversation) =>
+      serializeInboxItem({ conversation, now })
+    );
 
     return NextResponse.json(
       {
         success: true,
         conversations,
+        items,
       },
       { status: 200 }
     );

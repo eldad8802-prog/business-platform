@@ -2,8 +2,13 @@ import {
   BillingDocument,
   BillingDocumentLine,
   BillingDocumentStatus,
+  BillingDocumentType,
 } from "@prisma/client";
-import { ForbiddenError, UnauthorizedError } from "@/lib/errors";
+import {
+  ForbiddenError,
+  UnauthorizedError,
+  ValidationError,
+} from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
 
@@ -29,6 +34,38 @@ export async function submitBillingDraftForReview(
   input: SubmitBillingDraftForReviewInput
 ): Promise<BillingDocument & { lines: BillingDocumentLine[] }> {
   assertBusinessId(input.businessId);
+
+  const existing = await prisma.billingDocument.findFirst({
+    where: {
+      id: input.billingDocumentId,
+      businessId: input.businessId,
+      status: BillingDocumentStatus.DRAFT,
+    },
+    include: { lines: { orderBy: { lineIndex: "asc" } } },
+  });
+
+  if (!existing) {
+    throw new ForbiddenError("Cannot submit document for review");
+  }
+
+  if (existing.documentType === BillingDocumentType.QUOTE) {
+    throw new ValidationError(
+      "הצעות מחיר לא נשלחות לאישור — ערכו, שתפו PDF או המירו לחשבונית"
+    );
+  }
+
+  const customerName = (existing.customerNameSnapshot ?? "").trim();
+  if (customerName.length === 0) {
+    throw new ValidationError(
+      "יש למלא שם לקוח ולשמור לפני שליחה לאישור"
+    );
+  }
+
+  if (existing.lines.length === 0) {
+    throw new ValidationError(
+      "יש להוסיף לפחות שורת מוצר/שירות שמורה בשרת לפני שליחה לאישור"
+    );
+  }
 
   const result = await prisma.billingDocument.updateMany({
     where: {

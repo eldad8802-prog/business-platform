@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { getVelocityMap } from "@/lib/services/inventory/inventory-velocity.service";
 
 export async function GET(req: NextRequest) {
   try {
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    // ── Existing reorder logic — unchanged ────────────────────────────────────
     const suggestions = items
       .map((item) => {
         const threshold =
@@ -51,10 +53,34 @@ export async function GET(req: NextRequest) {
           suggestedOrderQuantity,
         };
       })
-      .filter(Boolean);
+      .filter((s): s is NonNullable<typeof s> => s !== null);
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Velocity enrichment — read-only, never alters suggestedOrderQuantity ─
+    const currentQtyMap = new Map(
+      suggestions.map((s) => [s.itemId, s.currentQuantity])
+    );
+    const velocityMap = await getVelocityMap(
+      user.businessId,
+      suggestions.map((s) => s.itemId),
+      currentQtyMap
+    );
+
+    const enriched = suggestions.map((s) => {
+      const v = velocityMap.get(s.itemId);
+      return {
+        ...s,
+        soldLast30d: v?.soldLast30d ?? 0,
+        txCount: v?.txCount ?? 0,
+        avgDailyRate: v?.avgDailyRate ?? 0,
+        daysOfStockLeft: v?.daysOfStockLeft ?? null,
+        urgency: v?.urgency ?? null,
+      };
+    });
+    // ─────────────────────────────────────────────────────────────────────────
 
     return NextResponse.json({
-      suggestions,
+      suggestions: enriched,
     });
   } catch (error) {
     console.error("reorder-suggestions error:", error);

@@ -1,63 +1,95 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
-type AttentionItem = {
-  conversationId: number;
-  customerName: string | null;
-  channel: string;
-  status: string;
-  currentStage: string | null;
-  lastRelevantMessageText: string | null;
-  reasonCode: string;
-  reasonText: string;
-  relevantAt: string;
-  createdAt: string;
-  primaryAction: string;
-  hasPendingSuggestion: boolean;
-  priorityRank: number;
-  priorityType: string;
-};
+import type {
+  BusinessStatusItem,
+  BusinessStatusSnapshot,
+  PaperworkInsightPayload,
+  Severity,
+} from "@/lib/business-status/types";
 
-type AttentionResponse = {
-  success: boolean;
-  generatedAt: string;
-  businessId: number;
-  waitingForReply: AttentionItem[];
-  pendingSmartSuggestion: AttentionItem[];
-  recentlyHandled: AttentionItem[];
-};
-
-function channelLabel(channel: string): string {
-  const map: Record<string, string> = {
-    WHATSAPP: "וואטסאפ",
-    INSTAGRAM: "אינסטגרם",
-    FACEBOOK: "פייסבוק",
-    EMAIL: "אימייל",
-    PHONE: "טלפון",
-    OTHER: "אחר",
-  };
-  return map[channel] ?? channel;
+function domainLabel(domain: BusinessStatusItem["domain"]): string {
+  switch (domain) {
+    case "inbox":
+      return "תיבה";
+    case "documents":
+      return "מסמכים";
+    case "inventory":
+      return "מלאי";
+    case "billing":
+      return "חשבוניות";
+    case "supplier":
+      return "רכש ספקים";
+    default:
+      return domain;
+  }
 }
 
-function formatWhen(iso: string): string {
+function severityBadge(severity: Severity): {
+  label: string;
+  bg: string;
+  color: string;
+  border: string;
+  weight: number;
+} {
+  switch (severity) {
+    case "CRITICAL":
+      return {
+        label: "קריטי",
+        bg: "#fef2f2",
+        color: "#b91c1c",
+        border: "rgba(185, 28, 28, 0.22)",
+        weight: 700,
+      };
+    case "HIGH":
+      return {
+        label: "גבוה",
+        bg: "#fffbeb",
+        color: "#b45309",
+        border: "rgba(180, 83, 9, 0.22)",
+        weight: 700,
+      };
+    case "MEDIUM":
+      return {
+        label: "בינוני",
+        bg: "#f1f5f9",
+        color: "#475569",
+        border: "rgba(15, 23, 42, 0.1)",
+        weight: 600,
+      };
+    case "LOW":
+      return {
+        label: "נמוך",
+        bg: "#f8fafc",
+        color: "#64748b",
+        border: "rgba(15, 23, 42, 0.06)",
+        weight: 500,
+      };
+    case "INFO":
+      return {
+        label: "מידע",
+        bg: "#f8fafc",
+        color: "#94a3b8",
+        border: "rgba(15, 23, 42, 0.05)",
+        weight: 500,
+      };
+    default:
+      return {
+        label: severity,
+        bg: "#f8fafc",
+        color: "#64748b",
+        border: "rgba(15, 23, 42, 0.06)",
+        weight: 500,
+      };
+  }
+}
+
+function formatCreated(iso: string): string {
   try {
     const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) {
-      return "";
-    }
-    const now = new Date();
-    const sameDay =
-      d.getDate() === now.getDate() &&
-      d.getMonth() === now.getMonth() &&
-      d.getFullYear() === now.getFullYear();
-    if (sameDay) {
-      return d.toLocaleTimeString("he-IL", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    }
+    if (Number.isNaN(d.getTime())) return "";
     return d.toLocaleString("he-IL", {
       day: "numeric",
       month: "short",
@@ -71,52 +103,57 @@ function formatWhen(iso: string): string {
 
 function friendlyHttpMessage(status: number): string {
   if (status === 401) {
-    return "כדי לראות את הרשימה צריך להיות מחובר. נסה לרענן או להתחבר שוב.";
+    return "כדי לראות את הרשימה צריך להיות מחובר.";
   }
   if (status === 403) {
-    return "אין גישה לרשימה הזו.";
+    return "אין גישה.";
   }
   if (status >= 500) {
     return "אירעה תקלה בטעינה. נסה שוב בעוד רגע.";
   }
-  return "לא הצלחנו לטעון את הרשימה. נסה שוב בעוד רגע.";
+  return "לא הצלחנו לטעון. נסה שוב בעוד רגע.";
 }
 
-function cardSnippet(item: AttentionItem): string {
-  const fromMsg = item.lastRelevantMessageText?.trim();
-  if (fromMsg) {
-    return fromMsg;
+function formatSnapshotTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleString("he-IL", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
   }
-  return item.reasonText;
-}
-
-function showReasonSubline(item: AttentionItem): boolean {
-  return Boolean(item.lastRelevantMessageText?.trim());
 }
 
 export default function AttentionPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<AttentionResponse | null>(null);
+  const [snapshot, setSnapshot] = useState<BusinessStatusSnapshot | null>(
+    null
+  );
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      const raw = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const raw =
+        typeof window !== "undefined" ? localStorage.getItem("token") : null;
       if (!raw) {
         setError("יש להתחבר כדי לראות את הרשימה.");
         setLoading(false);
         return;
       }
-      const token = raw;
 
       try {
-        const res = await fetch("/api/inbox/attention", {
+        const res = await fetch("/api/business-status", {
           cache: "no-store",
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${raw}`,
           },
         });
 
@@ -127,29 +164,23 @@ export default function AttentionPage() {
           json = null;
         }
 
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
 
         if (!res.ok) {
           setError(friendlyHttpMessage(res.status));
-          setData(null);
+          setSnapshot(null);
           return;
         }
 
         setError(null);
-        setData(json as AttentionResponse);
-      } catch (e) {
+        setSnapshot(json as BusinessStatusSnapshot);
+      } catch {
         if (!cancelled) {
-          setError(
-            "לא הצלחנו להגיע לשרת. בדוק את החיבור ונסה שוב."
-          );
-          setData(null);
+          setError("לא הצלחנו להגיע לשרת. בדוק את החיבור ונסה שוב.");
+          setSnapshot(null);
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
 
@@ -159,136 +190,16 @@ export default function AttentionPage() {
     };
   }, []);
 
-  const waiting = data?.waitingForReply ?? [];
-  const pending = data?.pendingSmartSuggestion ?? [];
-  const handled = data?.recentlyHandled ?? [];
-  const allEmpty =
-    !loading &&
-    !error &&
-    waiting.length === 0 &&
-    pending.length === 0 &&
-    handled.length === 0;
+  const items = snapshot?.items ?? [];
+  const isEmpty = !loading && !error && items.length === 0;
+  const snapshotLabel = snapshot?.generatedAt
+    ? formatSnapshotTime(snapshot.generatedAt)
+    : "";
+  const paperworkInsight: PaperworkInsightPayload | null | undefined =
+    snapshot?.paperworkInsight ?? undefined;
 
-  const cardShell: React.CSSProperties = {
-    width: "100%",
-    textAlign: "right",
-    padding: "18px 18px 16px",
-    marginBottom: 12,
-    borderRadius: 16,
-    border: "1px solid rgba(15, 23, 42, 0.06)",
-    background: "#ffffff",
-    cursor: "pointer",
-    boxSizing: "border-box",
-    WebkitTapHighlightColor: "transparent",
-    touchAction: "manipulation",
-    boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 6px rgba(15, 23, 42, 0.03)",
-  };
-
-  const sectionTitle: React.CSSProperties = {
-    margin: "0 0 14px 0",
-    fontSize: 15,
-    fontWeight: 600,
-    color: "#1e293b",
-    letterSpacing: "0.02em",
-  };
-
-  const reasonSubline: React.CSSProperties = {
-    fontSize: 12,
-    color: "#94a3b8",
-    marginTop: 8,
-    lineHeight: 1.5,
-  };
-
-  function AttentionCard({ item }: { item: AttentionItem }) {
-    const title =
-      item.customerName?.trim() || "שיחה ללא שם";
-    const snippet = cardSnippet(item);
-    const when = formatWhen(item.relevantAt);
-    const channel = channelLabel(item.channel);
-
-    return (
-      <button
-        type="button"
-        className="attention-card-btn"
-        onClick={() =>
-          router.push(`/inbox?conversationId=${item.conversationId}`)
-        }
-        style={cardShell}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: 10,
-          }}
-        >
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div
-              style={{
-                fontWeight: 700,
-                color: "#0f172a",
-                fontSize: 16,
-                lineHeight: 1.35,
-                wordBreak: "break-word",
-              }}
-            >
-              {title}
-            </div>
-            {item.hasPendingSuggestion && (
-              <span
-                style={{
-                  display: "inline-block",
-                  marginTop: 6,
-                  fontSize: 10,
-                  fontWeight: 500,
-                  color: "#64748b",
-                  padding: "3px 8px",
-                  borderRadius: 6,
-                  border: "1px solid rgba(15, 23, 42, 0.06)",
-                  background: "rgba(248, 250, 252, 0.9)",
-                }}
-              >
-                טיוטת הצעה
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div
-          style={{
-            fontSize: 14,
-            fontWeight: 400,
-            color: "#475569",
-            marginTop: 12,
-            lineHeight: 1.55,
-            wordBreak: "break-word",
-          }}
-        >
-          {snippet}
-        </div>
-
-        {showReasonSubline(item) && (
-          <div style={{ ...reasonSubline, marginTop: 10 }}>
-            <span>{item.reasonText}</span>
-          </div>
-        )}
-
-        <div
-          style={{
-            marginTop: 14,
-            paddingTop: 12,
-            borderTop: "1px solid rgba(15, 23, 42, 0.05)",
-            fontSize: 11,
-            color: "#94a3b8",
-            lineHeight: 1.45,
-          }}
-        >
-          {channel}
-          {when ? ` · ${when}` : ""}
-        </div>
-      </button>
-    );
+  function navigateTo(href: string) {
+    router.push(href);
   }
 
   return (
@@ -297,158 +208,335 @@ export default function AttentionPage() {
         direction: "rtl",
         minHeight: "100vh",
         background: "#f1f5f9",
-        padding: "12px 0 36px",
+        padding: "12px 0 40px",
         boxSizing: "border-box",
         maxWidth: "100%",
         overflowX: "hidden",
       }}
     >
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-            button.attention-card-btn:hover {
-              box-shadow: 0 2px 8px rgba(15, 23, 42, 0.07);
-              border-color: rgba(15, 23, 42, 0.09);
-            }
-            button.attention-card-btn:focus-visible {
-              outline: 2px solid rgba(100, 116, 139, 0.35);
-              outline-offset: 2px;
-            }
-          `,
-        }}
-      />
       <div
         style={{
           width: "100%",
           maxWidth: 640,
           margin: "0 auto",
-          padding: "8px 18px 12px",
+          padding: "8px 16px 12px",
           boxSizing: "border-box",
         }}
       >
-      <header style={{ marginBottom: 28, paddingTop: 8 }}>
-        <h1
-          style={{
-            margin: "0 0 10px 0",
-            fontSize: 21,
-            fontWeight: 700,
-            color: "#0f172a",
-            letterSpacing: "-0.02em",
-          }}
-        >
-          דורש תשומת לב
-        </h1>
-        <p style={{ margin: 0, fontSize: 14, color: "#64748b", lineHeight: 1.65 }}>
-          ריכוז קצר של מה שמחכה לטיפול — אתה בוחר מתי לענות.
-        </p>
-      </header>
+        <header style={{ marginBottom: 24, paddingTop: 6 }}>
+          <h1
+            style={{
+              margin: "0 0 8px 0",
+              fontSize: 22,
+              fontWeight: 700,
+              color: "#0f172a",
+              letterSpacing: "-0.02em",
+              lineHeight: 1.25,
+            }}
+          >
+            דורש תשומת לב
+          </h1>
+          <p
+            style={{
+              margin: 0,
+              fontSize: 15,
+              color: "#64748b",
+              lineHeight: 1.6,
+            }}
+          >
+            דברים שדורשים טיפול או החלטה עכשיו.
+          </p>
+          {snapshotLabel ? (
+            <p
+              style={{
+                margin: "10px 0 0",
+                fontSize: 12,
+                color: "#94a3b8",
+              }}
+            >
+              עודכן {snapshotLabel}
+            </p>
+          ) : null}
+        </header>
 
-      {loading && (
-        <div
-          style={{
-            padding: "28px 8px",
-            textAlign: "center",
-            color: "#94a3b8",
-            fontSize: 14,
-          }}
-        >
-          טוענים את הרשימה…
-        </div>
-      )}
+        {!loading &&
+          !error &&
+          paperworkInsight &&
+          paperworkInsight.evidenceLines?.length === 2 && (
+            <PaperworkObservation
+              insight={paperworkInsight}
+              onOpenDocuments={() =>
+                navigateTo(paperworkInsight.ctaHref)
+              }
+            />
+          )}
 
-      {!loading && error && (
-        <div
-          style={{
-            padding: "18px 18px",
-            borderRadius: 16,
-            border: "1px solid rgba(180, 83, 9, 0.18)",
-            background: "#fffbeb",
-            color: "#92400e",
-            fontSize: 14,
-            lineHeight: 1.65,
-            boxShadow: "0 1px 3px rgba(15, 23, 42, 0.04)",
-          }}
-        >
-          {error}
-        </div>
-      )}
-
-      {!loading && !error && allEmpty && (
-        <div
-          style={{
-            padding: "32px 20px",
-            textAlign: "center",
-            borderRadius: 16,
-            border: "1px solid rgba(15, 23, 42, 0.06)",
-            background: "#ffffff",
-            color: "#64748b",
-            fontSize: 15,
-            lineHeight: 1.7,
-            boxShadow: "0 1px 3px rgba(15, 23, 42, 0.04)",
-          }}
-        >
-          נראה שאין כרגע משהו דחוף.
-          <div style={{ marginTop: 10, fontSize: 13, color: "#94a3b8" }}>
-            כשמשהו יצטרך אותך, הוא יופיע כאן.
+        {loading && (
+          <div
+            style={{
+              padding: "32px 12px",
+              textAlign: "center",
+              color: "#94a3b8",
+              fontSize: 15,
+            }}
+          >
+            טוען…
           </div>
-        </div>
-      )}
+        )}
 
-      {!loading && !error && data && !allEmpty && (
-        <>
-          <section
+        {!loading && error && (
+          <div
             style={{
-              paddingBottom: 26,
-              marginBottom: 26,
-              borderBottom: "1px solid rgba(15, 23, 42, 0.06)",
+              padding: "18px 16px",
+              borderRadius: 14,
+              border: "1px solid rgba(180, 83, 9, 0.2)",
+              background: "#fffbeb",
+              color: "#92400e",
+              fontSize: 14,
+              lineHeight: 1.65,
             }}
           >
-            <h2 style={sectionTitle}>ממתין לתשובה</h2>
-            {waiting.length === 0 ? (
-              <div style={{ fontSize: 13, color: "#94a3b8", padding: "4px 0" }}>
-                אין כאן כרגע ממתינים לתשובה.
-              </div>
-            ) : (
-              waiting.map((item) => (
-                <AttentionCard key={`w-${item.conversationId}`} item={item} />
-              ))
-            )}
-          </section>
+            {error}
+          </div>
+        )}
 
-          <section
+        {!loading && !error && isEmpty && (
+          <div
             style={{
-              paddingBottom: 26,
-              marginBottom: 26,
-              borderBottom: "1px solid rgba(15, 23, 42, 0.06)",
+              padding: "36px 22px",
+              textAlign: "center",
+              borderRadius: 14,
+              border: "1px solid rgba(15, 23, 42, 0.06)",
+              background: "#ffffff",
+              color: "#64748b",
+              fontSize: 16,
+              lineHeight: 1.65,
+              boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
             }}
           >
-            <h2 style={sectionTitle}>הצעה חכמה ממתינה</h2>
-            {pending.length === 0 ? (
-              <div style={{ fontSize: 13, color: "#94a3b8", padding: "4px 0" }}>
-                אין כאן טיוטות הצעה פתוחות.
-              </div>
-            ) : (
-              pending.map((item) => (
-                <AttentionCard key={`p-${item.conversationId}`} item={item} />
-              ))
-            )}
-          </section>
+            כרגע אין דברים שדורשים טיפול.
+          </div>
+        )}
 
-          <section style={{ paddingBottom: 4, marginBottom: 0 }}>
-            <h2 style={sectionTitle}>טופל לאחרונה</h2>
-            {handled.length === 0 ? (
-              <div style={{ fontSize: 13, color: "#94a3b8", padding: "4px 0" }}>
-                אין כאן סגירות אחרונות להצגה.
-              </div>
-            ) : (
-              handled.map((item) => (
-                <AttentionCard key={`h-${item.conversationId}`} item={item} />
-              ))
-            )}
-          </section>
-        </>
-      )}
+        {!loading && !error && !isEmpty && (
+          <ul
+            style={{
+              listStyle: "none",
+              margin: 0,
+              padding: 0,
+            }}
+          >
+            {items.map((item) => (
+              <li key={item.itemId} style={{ marginBottom: 12 }}>
+                <StatusCard
+                  item={item}
+                  onOpen={() => navigateTo(item.primaryAction.href)}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
+  );
+}
+
+function PaperworkObservation({
+  insight,
+  onOpenDocuments,
+}: {
+  insight: PaperworkInsightPayload;
+  onOpenDocuments: () => void;
+}) {
+  return (
+    <section
+      aria-label="תצפית מערכת"
+      style={{
+        marginBottom: 28,
+        padding: "20px 18px 18px",
+        borderRadius: 16,
+        background: "rgba(248, 250, 252, 0.95)",
+        boxSizing: "border-box",
+      }}
+    >
+      <p
+        style={{
+          margin: "0 0 12px 0",
+          fontSize: 12,
+          fontWeight: 600,
+          color: "#94a3b8",
+        }}
+      >
+        שמים לב
+      </p>
+      <h2
+        style={{
+          margin: "0 0 10px 0",
+          fontSize: 17,
+          fontWeight: 600,
+          color: "#1e293b",
+          lineHeight: 1.35,
+        }}
+      >
+        {insight.title}
+      </h2>
+      <p
+        style={{
+          margin: "0 0 16px 0",
+          fontSize: 14,
+          color: "#64748b",
+          lineHeight: 1.65,
+        }}
+      >
+        {insight.explanation}
+      </p>
+      <ul
+        style={{
+          margin: "0 0 18px 0",
+          padding: "0 18px 0 0",
+          fontSize: 14,
+          color: "#475569",
+          lineHeight: 1.7,
+        }}
+      >
+        <li style={{ marginBottom: 6 }}>{insight.evidenceLines[0]}</li>
+        <li>{insight.evidenceLines[1]}</li>
+      </ul>
+      <button
+        type="button"
+        onClick={onOpenDocuments}
+        style={{
+          padding: "12px 16px",
+          fontSize: 15,
+          fontWeight: 600,
+          color: "#1d4ed8",
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          paddingInlineStart: 0,
+          WebkitTapHighlightColor: "transparent",
+        }}
+      >
+        {insight.ctaLabel}
+      </button>
+    </section>
+  );
+}
+
+function StatusCard({
+  item,
+  onOpen,
+}: {
+  item: BusinessStatusItem;
+  onOpen: () => void;
+}) {
+  const badge = severityBadge(item.severity);
+  const domain = domainLabel(item.domain);
+  const created = formatCreated(item.createdAt);
+  const isStrong =
+    item.severity === "CRITICAL" || item.severity === "HIGH";
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      style={{
+        width: "100%",
+        textAlign: "right",
+        padding: "16px 16px 14px",
+        borderRadius: 14,
+        border: isStrong
+          ? `1px solid ${badge.border}`
+          : "1px solid rgba(15, 23, 42, 0.06)",
+        background: "#ffffff",
+        cursor: "pointer",
+        boxSizing: "border-box",
+        WebkitTapHighlightColor: "transparent",
+        touchAction: "manipulation",
+        boxShadow: isStrong
+          ? "0 1px 4px rgba(15, 23, 42, 0.06)"
+          : "0 1px 2px rgba(15, 23, 42, 0.04)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 10,
+          marginBottom: 8,
+        }}
+      >
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div
+            style={{
+              fontWeight: 700,
+              fontSize: 16,
+              color: "#0f172a",
+              lineHeight: 1.35,
+              wordBreak: "break-word",
+            }}
+          >
+            {item.title}
+          </div>
+        </div>
+        <span
+          style={{
+            flexShrink: 0,
+            fontSize: 11,
+            fontWeight: badge.weight,
+            padding: "4px 8px",
+            borderRadius: 8,
+            background: badge.bg,
+            color: badge.color,
+            border: `1px solid ${badge.border}`,
+          }}
+        >
+          {badge.label}
+        </span>
+      </div>
+
+      <div
+        style={{
+          fontSize: 11,
+          color: "#94a3b8",
+          marginBottom: item.summary ? 10 : 6,
+        }}
+      >
+        {domain}
+        {created ? ` · ${created}` : ""}
+      </div>
+
+      {item.summary ? (
+        <div
+          style={{
+            fontSize: 14,
+            color: "#475569",
+            lineHeight: 1.55,
+            wordBreak: "break-word",
+            marginBottom: 14,
+          }}
+        >
+          {item.summary}
+        </div>
+      ) : null}
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "flex-start",
+        }}
+      >
+        <span
+          style={{
+            fontSize: 14,
+            fontWeight: 600,
+            color: "#2563eb",
+          }}
+        >
+          {item.primaryAction.label}
+        </span>
+      </div>
+    </button>
   );
 }

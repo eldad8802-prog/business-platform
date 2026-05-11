@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { GlobalBusinessAvatar } from "@/components/business/GlobalBusinessAvatar";
 
 type HeroAction = {
   actionKey: string;
@@ -119,11 +120,14 @@ function HomeHeader({
           ☰
         </button>
 
-        <div className="flex-1 text-center">
-          <p className="truncate text-base font-bold text-gray-900">
-            {businessName || "העסק שלך"}
-          </p>
-          <p className="mt-1 text-xs text-gray-500">דף הבית</p>
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
+          <GlobalBusinessAvatar displayName={businessName || "העסק שלך"} />
+          <div className="min-w-0 text-center">
+            <p className="truncate text-base font-bold text-gray-900">
+              {businessName || "העסק שלך"}
+            </p>
+            <p className="mt-1 text-xs text-gray-500">דף הבית</p>
+          </div>
         </div>
 
         <div className="flex h-11 min-w-[44px] items-center justify-center rounded-2xl border border-gray-200 px-3 text-sm text-gray-600">

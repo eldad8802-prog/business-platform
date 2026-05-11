@@ -46,9 +46,23 @@ import {
 
 const RENDER_ERROR_MESSAGE_MAX = 500;
 
-/** When `BILLING_PDF_RENDERER=html`, use Playwright HTML→PDF; otherwise pdfmake (default). */
+/**
+ * Billing PDF renderer selection.
+ *
+ * Default: HTML (Playwright Chromium) — better for Hebrew/RTL.
+ * Override: set `BILLING_PDF_RENDERER=pdfmake` to force the legacy pdfmake path.
+ */
 function shouldUseHtmlBillingPdfRenderer(): boolean {
-  return process.env.BILLING_PDF_RENDERER === "html";
+  return process.env.BILLING_PDF_RENDERER !== "pdfmake";
+}
+
+function billingPdfRendererName(): "html" | "pdfmake" {
+  return shouldUseHtmlBillingPdfRenderer() ? "html" : "pdfmake";
+}
+
+function billingPdfTemplateVersionForRenderer(): string {
+  // Used to prevent serving old cached PDFs produced by a different renderer.
+  return `${BILLING_PDF_TEMPLATE_VERSION}-${billingPdfRendererName()}`;
 }
 
 /** Temporary diagnostics — set `BILLING_PDF_DEBUG_LOG=1` (dev only). */
@@ -156,6 +170,7 @@ export async function getOrRenderBillingPdf(
   }
 
   const documentNumberFormatted = doc.documentNumberFormatted;
+  const effectivePdfTemplateVersion = billingPdfTemplateVersionForRenderer();
 
   const firstLineDescription =
     snapshot.lines.length > 0 ? snapshot.lines[0].description : "(no lines)";
@@ -166,6 +181,8 @@ export async function getOrRenderBillingPdf(
       businessId: input.businessId,
       BILLING_PDF_RENDERER: process.env.BILLING_PDF_RENDERER ?? "(unset)",
       useHtmlRenderer: shouldUseHtmlBillingPdfRenderer(),
+      effectiveRenderer: billingPdfRendererName(),
+      effectivePdfTemplateVersion,
       BILLING_PDF_SKIP_CACHE: billingPdfSkipCache(),
       customerNameFromSnapshot: snapshot.customer.name,
       firstLineDescriptionFromSnapshot: firstLineDescription,
@@ -182,7 +199,8 @@ export async function getOrRenderBillingPdf(
     typeof doc.pdfStorageKey === "string" &&
     doc.pdfStorageKey.length > 0 &&
     typeof doc.pdfHash === "string" &&
-    doc.pdfHash.length > 0;
+    doc.pdfHash.length > 0 &&
+    doc.pdfTemplateVersion === effectivePdfTemplateVersion;
 
   if (billingPdfSkipCache()) {
     cacheCandidate = false;
@@ -218,8 +236,7 @@ export async function getOrRenderBillingPdf(
         return {
           buffer,
           pdfHash,
-          pdfTemplateVersion:
-            doc.pdfTemplateVersion ?? BILLING_PDF_TEMPLATE_VERSION,
+          pdfTemplateVersion: effectivePdfTemplateVersion,
           documentNumberFormatted,
           renderedNow: false,
         };
@@ -310,13 +327,16 @@ export async function getOrRenderBillingPdf(
         id: doc.id,
         businessId: input.businessId,
         status: BillingDocumentStatus.ISSUED,
-        pdfRenderStatus: { not: BillingPdfRenderStatus.RENDERED },
+        OR: [
+          { pdfRenderStatus: { not: BillingPdfRenderStatus.RENDERED } },
+          { pdfTemplateVersion: { not: effectivePdfTemplateVersion } },
+        ],
       },
       data: {
         pdfRenderStatus: BillingPdfRenderStatus.RENDERED,
         pdfStorageKey: storageKey,
         pdfHash,
-        pdfTemplateVersion: BILLING_PDF_TEMPLATE_VERSION,
+        pdfTemplateVersion: effectivePdfTemplateVersion,
         pdfRenderedAt: new Date(),
         pdfRenderError: null,
       },
@@ -355,7 +375,7 @@ export async function getOrRenderBillingPdf(
   return {
     buffer,
     pdfHash,
-    pdfTemplateVersion: BILLING_PDF_TEMPLATE_VERSION,
+    pdfTemplateVersion: effectivePdfTemplateVersion,
     documentNumberFormatted,
     renderedNow: true,
   };

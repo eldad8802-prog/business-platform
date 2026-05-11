@@ -37,6 +37,8 @@ export type UpdateBillingDraftHeaderInput = {
   billingDocumentId: number;
   customerId?: number | null;
   customerNameSnapshot?: string | null;
+  /** ISO date string (yyyy-mm-dd) or full ISO datetime; null clears */
+  validUntil?: string | null;
 };
 
 export type ReplaceBillingDraftLinesInput = {
@@ -239,6 +241,10 @@ export async function updateBillingDraftHeader(
     throw new ForbiddenError("Document is not editable");
   }
 
+  if (existing.convertedToInvoiceId !== null) {
+    throw new ForbiddenError("לא ניתן לערוך הצעה שכבר הומרה לחשבונית");
+  }
+
   const data: Prisma.BillingDocumentUncheckedUpdateManyInput = {};
 
   if (input.customerId !== undefined) {
@@ -275,6 +281,21 @@ export async function updateBillingDraftHeader(
       customerNameSnapshot: input.customerNameSnapshot,
     });
     data.customerNameSnapshot = parsed.customerNameSnapshot;
+  }
+
+  if (input.validUntil !== undefined) {
+    if (existing.documentType !== BillingDocumentType.QUOTE) {
+      throw new ValidationError("validUntil applies only to quote documents");
+    }
+    if (input.validUntil === null || input.validUntil === "") {
+      data.validUntil = null;
+    } else {
+      const d = new Date(input.validUntil);
+      if (Number.isNaN(d.getTime())) {
+        throw new ValidationError("validUntil must be a valid date");
+      }
+      data.validUntil = d;
+    }
   }
 
   if (Object.keys(data).length === 0) {
@@ -338,7 +359,7 @@ export async function replaceBillingDraftLines(
         id: input.billingDocumentId,
         businessId: input.businessId,
       },
-      select: { id: true, status: true },
+      select: { id: true, status: true, convertedToInvoiceId: true },
     });
 
     if (!found) {
@@ -347,6 +368,10 @@ export async function replaceBillingDraftLines(
 
     if (!canEditDraft(found.status)) {
       throw new ForbiddenError("Document is not editable");
+    }
+
+    if (found.convertedToInvoiceId !== null) {
+      throw new ForbiddenError("לא ניתן לערוך הצעה שכבר הומרה לחשבונית");
     }
 
     const { lineCount, totals } = await persistLinesAndTotals(

@@ -58,6 +58,18 @@ next-env.d.ts
 /pricing-page.html
 /pricing-response.json
 
+# tsc temp output files
+tsc_out*.txt
+tsc_output.txt
+tsc_final.txt
+
+# QA result snapshots (code stays, data outputs don't)
+tmp_qa/*.json
+tmp_qa/*.log
+
+# local screenshot artifacts
+/artifacts/screenshots/
+
 # prisma local db files (never commit)
 /prisma/*.db
 /prisma/*.db-journal

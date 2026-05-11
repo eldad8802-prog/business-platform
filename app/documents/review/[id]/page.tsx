@@ -7,7 +7,6 @@ import {
   card,
   alertError,
   alertSuccess,
-  metricTile,
   editPillBtn,
 } from "../../ui";
 import DocumentsHeader from "@/components/documents/DocumentsHeader";
@@ -38,6 +37,10 @@ type ApiExtracted = {
   direction?: string | null;
   date?: string | null;
   confidenceScore?: number | null;
+  /** DB labels from extraction: typically high | medium | low */
+  amountConfidence?: string | null;
+  vendorConfidence?: string | null;
+  categoryConfidence?: string | null;
 };
 
 type ApiDocument = {
@@ -65,6 +68,100 @@ type ReviewState = "decision" | "summary" | "edit-field" | "done";
 type ReviewMode = "financial" | "document";
 type EditableField = "amount" | "vendorName" | "date" | "direction" | "category";
 type Direction = "expense" | "income" | "unknown";
+
+/** Traffic-light band for field reliability (UI only). */
+type TrafficLevel = "high" | "medium" | "low";
+
+type ExtractionConfidenceMeta = {
+  amountConfidence: string | null;
+  vendorConfidence: string | null;
+  categoryConfidence: string | null;
+  confidenceScore: number | null;
+};
+
+const TRAFFIC: Record<
+  TrafficLevel,
+  { dot: string; caption: string; captionColor: string }
+> = {
+  high: { dot: "#22c55e", caption: "גבוהה", captionColor: "#15803d" },
+  medium: { dot: "#eab308", caption: "לבדיקה", captionColor: "#a16207" },
+  low: { dot: "#ef4444", caption: "נמוכה", captionColor: "#b91c1c" },
+};
+
+function normalizeConfidenceLabel(raw: string | null | undefined): TrafficLevel {
+  const v = String(raw ?? "")
+    .trim()
+    .toLowerCase();
+  if (v === "high") return "high";
+  if (v === "medium") return "medium";
+  if (v === "low") return "low";
+  return "medium";
+}
+
+/** Mirrors inbox `dateProxyFromScore` — there is no persisted dateConfidence column. */
+function scoreToTrafficLevel(score: number | null | undefined): TrafficLevel {
+  if (score == null || !Number.isFinite(Number(score))) return "medium";
+  const s = Number(score);
+  if (s >= 0.85) return "high";
+  if (s >= 0.65) return "medium";
+  return "low";
+}
+
+function buildExtractionMeta(extracted: ApiExtracted | null): ExtractionConfidenceMeta | null {
+  if (!extracted) return null;
+  return {
+    amountConfidence: extracted.amountConfidence ?? null,
+    vendorConfidence: extracted.vendorConfidence ?? null,
+    categoryConfidence: extracted.categoryConfidence ?? null,
+    confidenceScore:
+      typeof extracted.confidenceScore === "number" ? extracted.confidenceScore : null,
+  };
+}
+
+function formatAmountDisplay(n: number): string {
+  return n.toLocaleString("he-IL", { maximumFractionDigits: 2 });
+}
+
+function trafficForAmount(
+  meta: ExtractionConfidenceMeta | null,
+  draft: { amount: number | null }
+): TrafficLevel {
+  if (!isValidPositiveAmount(draft.amount)) return "low";
+  if (meta?.amountConfidence) return normalizeConfidenceLabel(meta.amountConfidence);
+  return "medium";
+}
+
+function trafficForVendor(
+  meta: ExtractionConfidenceMeta | null,
+  draft: { vendorName: string }
+): TrafficLevel {
+  if (!hasNonEmptyText(draft.vendorName)) return "low";
+  if (meta?.vendorConfidence) return normalizeConfidenceLabel(meta.vendorConfidence);
+  return "medium";
+}
+
+function trafficForDate(
+  meta: ExtractionConfidenceMeta | null,
+  draft: { date: string | null }
+): TrafficLevel {
+  if (!draft.date || !formatDateShort(draft.date)) return "low";
+  return scoreToTrafficLevel(meta?.confidenceScore);
+}
+
+function trafficForCategory(
+  meta: ExtractionConfidenceMeta | null,
+  draft: { category: string }
+): TrafficLevel {
+  if (!hasNonEmptyText(draft.category)) return "low";
+  if (meta?.categoryConfidence) return normalizeConfidenceLabel(meta.categoryConfidence);
+  return "medium";
+}
+
+/** No persisted direction confidence — explicit income/expense → medium; unknown → low. */
+function trafficForDirection(draft: { direction: Direction }): TrafficLevel {
+  if (draft.direction === "expense" || draft.direction === "income") return "medium";
+  return "low";
+}
 
 function formatDateShort(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -206,6 +303,77 @@ function smallPillButton(disabled?: boolean) {
   } as const;
 }
 
+function ReviewFieldRow(props: {
+  label: string;
+  displayValue: string;
+  level: TrafficLevel;
+  missing: boolean;
+  onPrimary: () => void;
+}) {
+  const cfg = TRAFFIC[props.level];
+  const primaryLabel = props.missing ? "הוסף" : "ערוך";
+  return (
+    <div
+      style={{
+        border: "1px solid #e5e7eb",
+        borderRadius: 16,
+        padding: "12px 14px",
+        background: "#fafafa",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+              marginBottom: 6,
+            }}
+          >
+            <span style={{ fontSize: 13, color: "#6b7280", fontWeight: 800 }}>{props.label}</span>
+            <span
+              aria-hidden
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: cfg.dot,
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ fontSize: 12, fontWeight: 800, color: cfg.captionColor }}>
+              {cfg.caption}
+            </span>
+          </div>
+          <div
+            style={{
+              fontSize: 17,
+              fontWeight: 950,
+              color: props.missing ? "#9ca3af" : "#111827",
+              overflowWrap: "anywhere",
+              lineHeight: 1.35,
+            }}
+          >
+            {props.missing ? "לא זוהה" : props.displayValue}
+          </div>
+        </div>
+        <button type="button" style={editPillBtn} onClick={props.onPrimary}>
+          {primaryLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ReviewPage() {
   const router = useRouter();
   const params = useParams();
@@ -229,6 +397,8 @@ export default function ReviewPage() {
 
   const [document, setDocument] = useState<ApiDocument | null>(null);
   const [outputProfile, setOutputProfile] = useState<OutputProfile | null>(null);
+  const [extractionMeta, setExtractionMeta] = useState<ExtractionConfidenceMeta | null>(null);
+  const [editReturnTarget, setEditReturnTarget] = useState<"decision" | "summary">("summary");
 
   // Source-file preview state. The original bytes are streamed from the
   // protected `/api/documents/[id]/file` route (which requires Bearer auth),
@@ -281,6 +451,8 @@ export default function ReviewPage() {
 
         setDocument(json.document);
         setOutputProfile(json.outputProfile);
+        setExtractionMeta(buildExtractionMeta(json.extracted as ApiExtracted | null));
+        setEditReturnTarget("summary");
 
         const dir = parseDirection(json.extracted?.direction);
 
@@ -669,50 +841,77 @@ export default function ReviewPage() {
 
         {state === "decision" ? (
           <section style={card}>
-            <div style={{ fontWeight: 950, color: "#111827", fontSize: 18, marginBottom: 14 }}>
+            <div style={{ fontWeight: 950, color: "#111827", fontSize: 18, marginBottom: 8 }}>
               מה זיהינו עד עכשיו
             </div>
+            <p style={{ margin: "0 0 14px", fontSize: 14, color: "#6b7280", lineHeight: 1.55 }}>
+              ירוק — אמינות גבוהה. צהוב — כדאי לבדוק. אדום — חסר או אמינות נמוכה.
+            </p>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-                gap: 10,
-              }}
-            >
-              <div style={metricTile}>
-                <div style={{ fontSize: 12, color: "#6b7280", fontWeight: 800 }}>
-                  ספק
-                </div>
-                <div
-                  style={{
-                    fontSize: 18,
-                    fontWeight: 950,
-                    color: "#111827",
-                    overflowWrap: "anywhere",
-                  }}
-                >
-                  {draft.vendorName || "—"}
-                </div>
-              </div>
-
-              <div style={metricTile}>
-                <div style={{ fontSize: 12, color: "#6b7280", fontWeight: 800 }}>
-                  סכום
-                </div>
-                <div style={{ fontSize: 28, fontWeight: 950, color: "#111827" }}>
-                  {typeof draft.amount === "number" ? draft.amount : "—"}
-                </div>
-              </div>
-
-              <div style={metricTile}>
-                <div style={{ fontSize: 12, color: "#6b7280", fontWeight: 800 }}>
-                  תאריך
-                </div>
-                <div style={{ fontSize: 18, fontWeight: 950, color: "#111827" }}>
-                  {formatDateShort(draft.date) || "—"}
-                </div>
-              </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <ReviewFieldRow
+                label="סכום"
+                missing={!isValidPositiveAmount(draft.amount)}
+                displayValue={
+                  typeof draft.amount === "number" ? formatAmountDisplay(draft.amount) : ""
+                }
+                level={trafficForAmount(extractionMeta, draft)}
+                onPrimary={() => {
+                  setEditReturnTarget("decision");
+                  setEditField("amount");
+                  setState("edit-field");
+                }}
+              />
+              <ReviewFieldRow
+                label="ספק"
+                missing={!hasNonEmptyText(draft.vendorName)}
+                displayValue={draft.vendorName}
+                level={trafficForVendor(extractionMeta, draft)}
+                onPrimary={() => {
+                  setEditReturnTarget("decision");
+                  setEditField("vendorName");
+                  setState("edit-field");
+                }}
+              />
+              <ReviewFieldRow
+                label="תאריך"
+                missing={!draft.date || !formatDateShort(draft.date)}
+                displayValue={formatDateShort(draft.date)}
+                level={trafficForDate(extractionMeta, draft)}
+                onPrimary={() => {
+                  setEditReturnTarget("decision");
+                  setEditField("date");
+                  setState("edit-field");
+                }}
+              />
+              <ReviewFieldRow
+                label="קטגוריה"
+                missing={!hasNonEmptyText(draft.category)}
+                displayValue={CATEGORY_MAP[draft.category] || draft.category}
+                level={trafficForCategory(extractionMeta, draft)}
+                onPrimary={() => {
+                  setEditReturnTarget("decision");
+                  setEditField("category");
+                  setState("edit-field");
+                }}
+              />
+              <ReviewFieldRow
+                label="כיוון"
+                missing={draft.direction === "unknown"}
+                displayValue={
+                  draft.direction === "expense"
+                    ? "הוצאה"
+                    : draft.direction === "income"
+                      ? "הכנסה"
+                      : ""
+                }
+                level={trafficForDirection(draft)}
+                onPrimary={() => {
+                  setEditReturnTarget("decision");
+                  setEditField("direction");
+                  setState("edit-field");
+                }}
+              />
             </div>
 
             <div style={{ marginTop: 16 }}>
@@ -752,71 +951,71 @@ export default function ReviewPage() {
                   פרטי עסקה
                 </div>
 
-                {(
-                  [
-                    {
-                      k: "amount",
-                      label: "סכום",
-                      value: typeof draft.amount === "number" ? String(draft.amount) : "לא הוזן",
-                    },
-                    {
-                      k: "vendorName",
-                      label: "ספק",
-                      value: draft.vendorName ? draft.vendorName : "לא הוזן",
-                    },
-                    {
-                      k: "date",
-                      label: "תאריך",
-                      value: formatDateShort(draft.date) || "לא הוזן",
-                    },
-                    {
-                      k: "direction",
-                      label: "כיוון",
-                      value:
-                        draft.direction === "expense"
-                          ? "הוצאה"
-                          : draft.direction === "income"
-                            ? "הכנסה"
-                            : "לא הוזן",
-                    },
-                    {
-                      k: "category",
-                      label: "קטגוריה",
-                      value: CATEGORY_MAP[draft.category] || draft.category || "לא הוזן",
-                    },
-                  ] as const
-                ).map((row) => (
-                  <div
-                    key={row.k}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 12,
-                      padding: "12px 0",
-                      borderBottom: "1px solid #f1f5f9",
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <ReviewFieldRow
+                    label="סכום"
+                    missing={!isValidPositiveAmount(draft.amount)}
+                    displayValue={
+                      typeof draft.amount === "number" ? formatAmountDisplay(draft.amount) : ""
+                    }
+                    level={trafficForAmount(extractionMeta, draft)}
+                    onPrimary={() => {
+                      setEditReturnTarget("summary");
+                      setEditField("amount");
+                      setState("edit-field");
                     }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, color: "#6b7280", fontWeight: 800 }}>
-                        {row.label}
-                      </div>
-                      <div style={{ fontSize: 16, fontWeight: 950, color: "#111827" }}>
-                        {row.value}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      style={editPillBtn}
-                      onClick={() => {
-                        setEditField(row.k);
-                        setState("edit-field");
-                      }}
-                    >
-                      ערוך
-                    </button>
-                  </div>
-                ))}
+                  />
+                  <ReviewFieldRow
+                    label="ספק"
+                    missing={!hasNonEmptyText(draft.vendorName)}
+                    displayValue={draft.vendorName}
+                    level={trafficForVendor(extractionMeta, draft)}
+                    onPrimary={() => {
+                      setEditReturnTarget("summary");
+                      setEditField("vendorName");
+                      setState("edit-field");
+                    }}
+                  />
+                  <ReviewFieldRow
+                    label="תאריך"
+                    missing={!draft.date || !formatDateShort(draft.date)}
+                    displayValue={formatDateShort(draft.date)}
+                    level={trafficForDate(extractionMeta, draft)}
+                    onPrimary={() => {
+                      setEditReturnTarget("summary");
+                      setEditField("date");
+                      setState("edit-field");
+                    }}
+                  />
+                  <ReviewFieldRow
+                    label="כיוון"
+                    missing={draft.direction === "unknown"}
+                    displayValue={
+                      draft.direction === "expense"
+                        ? "הוצאה"
+                        : draft.direction === "income"
+                          ? "הכנסה"
+                          : ""
+                    }
+                    level={trafficForDirection(draft)}
+                    onPrimary={() => {
+                      setEditReturnTarget("summary");
+                      setEditField("direction");
+                      setState("edit-field");
+                    }}
+                  />
+                  <ReviewFieldRow
+                    label="קטגוריה"
+                    missing={!hasNonEmptyText(draft.category)}
+                    displayValue={CATEGORY_MAP[draft.category] || draft.category}
+                    level={trafficForCategory(extractionMeta, draft)}
+                    onPrimary={() => {
+                      setEditReturnTarget("summary");
+                      setEditField("category");
+                      setState("edit-field");
+                    }}
+                  />
+                </div>
 
                 {/* Outcome notice — explains exactly what will happen on approve */}
                 <div
@@ -843,6 +1042,7 @@ export default function ReviewPage() {
                     onClick={() => {
                       const missing = firstMissingFinancialField();
                       if (missing) {
+                        setEditReturnTarget("summary");
                         setEditField(missing);
                         setState("edit-field");
                         return;
@@ -879,36 +1079,73 @@ export default function ReviewPage() {
                 </div>
 
                 <div style={{ color: "#6b7280", fontSize: 14, lineHeight: 1.6 }}>
-                  בדיקה קצרה לפני שמירה. אפשר לערוך קטגוריה אם צריך.
+                  בדיקה קצרה לפני שמירה. אפשר לערוך כל שדה נקודתית.
                 </div>
 
-                <div style={{ marginTop: 14 }}>
-                  <div style={{ fontSize: 13, color: "#6b7280", fontWeight: 800 }}>
-                    קטגוריה
-                  </div>
-                  <div
-                    style={{
-                      marginTop: 6,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 12,
+                <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+                  <ReviewFieldRow
+                    label="סכום"
+                    missing={!isValidPositiveAmount(draft.amount)}
+                    displayValue={
+                      typeof draft.amount === "number" ? formatAmountDisplay(draft.amount) : ""
+                    }
+                    level={trafficForAmount(extractionMeta, draft)}
+                    onPrimary={() => {
+                      setEditReturnTarget("summary");
+                      setEditField("amount");
+                      setState("edit-field");
                     }}
-                  >
-                    <div style={{ fontSize: 16, fontWeight: 950, color: "#111827" }}>
-                      {CATEGORY_MAP[draft.category] || draft.category || "general"}
-                    </div>
-                    <button
-                      type="button"
-                      style={editPillBtn}
-                      onClick={() => {
-                        setEditField("category");
-                        setState("edit-field");
-                      }}
-                    >
-                      ערוך
-                    </button>
-                  </div>
+                  />
+                  <ReviewFieldRow
+                    label="ספק"
+                    missing={!hasNonEmptyText(draft.vendorName)}
+                    displayValue={draft.vendorName}
+                    level={trafficForVendor(extractionMeta, draft)}
+                    onPrimary={() => {
+                      setEditReturnTarget("summary");
+                      setEditField("vendorName");
+                      setState("edit-field");
+                    }}
+                  />
+                  <ReviewFieldRow
+                    label="תאריך"
+                    missing={!draft.date || !formatDateShort(draft.date)}
+                    displayValue={formatDateShort(draft.date)}
+                    level={trafficForDate(extractionMeta, draft)}
+                    onPrimary={() => {
+                      setEditReturnTarget("summary");
+                      setEditField("date");
+                      setState("edit-field");
+                    }}
+                  />
+                  <ReviewFieldRow
+                    label="קטגוריה"
+                    missing={!hasNonEmptyText(draft.category)}
+                    displayValue={CATEGORY_MAP[draft.category] || draft.category}
+                    level={trafficForCategory(extractionMeta, draft)}
+                    onPrimary={() => {
+                      setEditReturnTarget("summary");
+                      setEditField("category");
+                      setState("edit-field");
+                    }}
+                  />
+                  <ReviewFieldRow
+                    label="כיוון"
+                    missing={draft.direction === "unknown"}
+                    displayValue={
+                      draft.direction === "expense"
+                        ? "הוצאה"
+                        : draft.direction === "income"
+                          ? "הכנסה"
+                          : ""
+                    }
+                    level={trafficForDirection(draft)}
+                    onPrimary={() => {
+                      setEditReturnTarget("summary");
+                      setEditField("direction");
+                      setState("edit-field");
+                    }}
+                  />
                 </div>
 
                 {/* Outcome notice — explicit about what will NOT happen */}
@@ -1092,7 +1329,7 @@ export default function ReviewPage() {
                 type="button"
                 disabled={loading}
                 style={primaryDarkButton(loading)}
-                onClick={() => setState("summary")}
+                onClick={() => setState(editReturnTarget)}
               >
                 אישור
               </button>
@@ -1103,7 +1340,7 @@ export default function ReviewPage() {
                 type="button"
                 disabled={loading}
                 style={secondaryButton(loading)}
-                onClick={() => setState("summary")}
+                onClick={() => setState(editReturnTarget)}
               >
                 ביטול
               </button>

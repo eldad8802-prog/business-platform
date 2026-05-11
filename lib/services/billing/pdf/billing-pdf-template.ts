@@ -1,3 +1,8 @@
+import {
+  parseBillingPdfTemplateStyle,
+  type BillingPdfTemplateStyle,
+} from "@/lib/billing/billing-pdf-template-style";
+
 // Billing PDF template — pure, deterministic.
 //
 // Owns:
@@ -34,6 +39,10 @@ const BG_PARTY_CARD = "#f8fafc";
 // - Keep labels and values in separate cells/columns (no "label: value" string).
 // - Use NBSP in fixed multi-word Hebrew labels to prevent space collapse.
 // - Strip any BiDi control chars defensively from any incoming strings.
+//
+// pdfmake lays out `columns` left → right. For RTL Hebrew rows we put **value
+// first** (left/wider) and **label second** (right/auto) so reading RTL meets
+// the label on the inner edge first — without reversing string contents.
 const NBSP = "\u00A0";
 
 function stripBidiControls(value: string): string {
@@ -61,6 +70,7 @@ function rtlLabel(value: string): string {
 
 const DOCUMENT_TYPE_LABELS_HE: Record<string, string> = {
   TAX_INVOICE: "חשבונית מס",
+  QUOTE: "הצעת מחיר",
 };
 
 // Structural type that mirrors the v1 issuedSnapshot produced by
@@ -135,6 +145,8 @@ export type BillingIssuedSnapshotV1 = {
     actorUserId: number;
     source: string;
   };
+  /** Present from snapshot migration onward; older snapshots omit → CLASSIC in renderers. */
+  pdfTemplateStyle?: BillingPdfTemplateStyle | string;
   extensions: Record<string, unknown>;
 };
 
@@ -212,6 +224,65 @@ function getDocumentTypeLabel(type: string): string {
   return DOCUMENT_TYPE_LABELS_HE[type] ?? type;
 }
 
+function getBillingFooterLegalNote(snapshot: BillingIssuedSnapshotV1): string {
+  if (snapshot.document.type === "QUOTE") {
+    const ext = snapshot.extensions;
+    let profileNote = "";
+    if (
+      ext &&
+      typeof ext === "object" &&
+      "billingFooterNote" in ext &&
+      typeof (ext as { billingFooterNote?: unknown }).billingFooterNote ===
+        "string"
+    ) {
+      profileNote = (
+        (ext as { billingFooterNote: string }).billingFooterNote ?? ""
+      ).trim();
+    }
+    const base =
+      "מסמך זה אינו חשבונית מס. ההצעה ללא התחייבות עד להפקת חשבונית מס רשמית במערכת.";
+    return profileNote.length > 0 ? `${base}\n${profileNote}` : base;
+  }
+  const ext = snapshot.extensions;
+  if (
+    ext &&
+    typeof ext === "object" &&
+    "billingFooterNote" in ext &&
+    typeof (ext as { billingFooterNote?: unknown }).billingFooterNote ===
+      "string"
+  ) {
+    const n = (
+      (ext as { billingFooterNote: string }).billingFooterNote ?? ""
+    ).trim();
+    if (n.length > 0) return n;
+  }
+  return "מסמך זה הופק אלקטרונית. נא לשמור לצרכי הנהלת חשבונות ודיווח.";
+}
+
+function buildPaymentDetailsBlock(paymentNote: string): AnyNode {
+  const t = paymentNote.trim();
+  return {
+    margin: [0, 18, 0, 0],
+    stack: [
+      {
+        text: rtlLabel("פרטי תשלום"),
+        fontSize: 12,
+        bold: true,
+        color: BRAND_DARK,
+        alignment: "right",
+        margin: [0, 0, 0, 8],
+      },
+      {
+        text: rtlText(t),
+        fontSize: 10,
+        color: BRAND_MUTED,
+        alignment: "right",
+        lineHeight: 1.35,
+      },
+    ],
+  };
+}
+
 function isDataImageUrl(value: string | null): boolean {
   if (!value || typeof value !== "string") return false;
   const trimmed = value.trim();
@@ -269,21 +340,22 @@ function buildPartyCard(args: {
                 ? secondary.map((row) => ({
                     columns: [
                       {
+                        text:
+                          row.valueDir === "ltr"
+                            ? ltrText(row.value)
+                            : rtlText(row.value),
+                        alignment:
+                          row.valueDir === "ltr" ? "left" : "right",
+                        color: BRAND_DARK,
+                        fontSize: 10,
+                        width: "*",
+                      },
+                      {
                         text: rtlLabel(row.label),
                         alignment: "right",
                         color: BRAND_MUTED,
                         fontSize: 10,
                         width: "auto",
-                      },
-                      {
-                        text:
-                          row.valueDir === "ltr"
-                            ? ltrText(row.value)
-                            : rtlText(row.value),
-                        alignment: "left",
-                        color: BRAND_DARK,
-                        fontSize: 10,
-                        width: "*",
                       },
                     ],
                     columnGap: 8,
@@ -316,11 +388,28 @@ function buildIssuerStack(
   if (issuer.taxId) {
     lines.push({ label: 'ע.מ./ח.פ.', value: issuer.taxId, valueDir: "ltr" });
   }
+  if (issuer.vatRegistration) {
+    lines.push({
+      label: "עוסק מורשה",
+      value: issuer.vatRegistration,
+      valueDir: "ltr",
+    });
+  }
   if (issuer.phone) {
     lines.push({ label: "טלפון", value: issuer.phone, valueDir: "ltr" });
   }
   if (issuer.email) {
     lines.push({ label: 'דוא"ל', value: issuer.email, valueDir: "ltr" });
+  }
+  if (issuer.address && typeof issuer.address === "string") {
+    const flat = issuer.address
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join(" · ");
+    if (flat.length > 0) {
+      lines.push({ label: "כתובת", value: flat, valueDir: "rtl" });
+    }
   }
   return buildPartyCard({
     title: "מוכר",
@@ -351,7 +440,7 @@ function buildCustomerStack(
     title: "לקוח",
     name: customer.name,
     lines,
-    align: "left",
+    align: "right",
   });
 }
 
@@ -359,9 +448,8 @@ function buildLineRow(
   line: BillingIssuedSnapshotV1Line,
   currency: string
 ): AnyNode[] {
-  // Visual order is right-to-left (RTL): index | description | qty | unit | vat | total.
-  // pdfmake renders left-to-right, so we lay out the columns in their
-  // visual right-to-left order which produces the correct Hebrew layout.
+  // Table columns are drawn left → right. Order is outer (סה״כ) … inner (מס׳).
+  // Hebrew description: alignment right + rtlText (logical order unchanged).
   return [
     {
       text: ltrText(formatMoney(line.lineTotal, currency)),
@@ -372,7 +460,10 @@ function buildLineRow(
     { text: ltrText(formatMoney(line.vatAmount, currency)), alignment: "left" },
     { text: ltrText(formatMoney(line.unitPrice, currency)), alignment: "left" },
     { text: ltrText(formatQuantity(line.quantity)), alignment: "center" },
-    { text: rtlText(line.description), alignment: "right" },
+    {
+      text: rtlText(line.description),
+      alignment: "right",
+    },
     {
       text: ltrText(String(line.lineIndex)),
       alignment: "center",
@@ -521,26 +612,84 @@ function buildTotalsBlock(
 // Public: build pdfmake docDefinition from a v1 snapshot
 // ---------------------------------------------------------------------------
 
+function resolvePdfmakeTemplateStyle(
+  snapshot: BillingIssuedSnapshotV1
+): BillingPdfTemplateStyle {
+  return parseBillingPdfTemplateStyle(
+    typeof snapshot.pdfTemplateStyle === "string"
+      ? snapshot.pdfTemplateStyle
+      : undefined
+  );
+}
+
+function pdfmakeMetricsForStyle(style: BillingPdfTemplateStyle): {
+  pageMargins: [number, number, number, number];
+  baseFont: number;
+  docTitle: number;
+  issuerHeader: number;
+} {
+  switch (style) {
+    case "MODERN":
+      return {
+        pageMargins: [40, 112, 40, 62],
+        baseFont: 11,
+        docTitle: 24,
+        issuerHeader: 19,
+      };
+    case "COMPACT":
+      return {
+        pageMargins: [40, 102, 40, 56],
+        baseFont: 10,
+        docTitle: 20,
+        issuerHeader: 17,
+      };
+    default:
+      return {
+        pageMargins: [44, 110, 44, 64],
+        baseFont: 11,
+        docTitle: 22,
+        issuerHeader: 18,
+      };
+  }
+}
+
 export function buildDocDefinition(
   snapshot: BillingIssuedSnapshotV1
 ): BillingPdfDocDefinition {
+  const pm = pdfmakeMetricsForStyle(resolvePdfmakeTemplateStyle(snapshot));
   const { document, issuer, customer, lines, totals, metadata } = snapshot;
   const currency = document.currency || snapshot.tax.currency || "ILS";
   const documentTypeLabel = getDocumentTypeLabel(document.type);
-  const issuedAtFormatted = formatIssuedAt(
-    snapshot.issuedAt,
-    metadata.timezone || "Asia/Jerusalem"
-  );
+  const tz = metadata.timezone || "Asia/Jerusalem";
+  const issuedAtFormatted = formatIssuedAt(snapshot.issuedAt, tz);
+  let quoteValidUntilFormatted = "";
+  if (
+    document.type === "QUOTE" &&
+    snapshot.extensions &&
+    typeof snapshot.extensions === "object" &&
+    "quoteValidUntil" in snapshot.extensions &&
+    typeof (snapshot.extensions as { quoteValidUntil?: unknown })
+      .quoteValidUntil === "string"
+  ) {
+    const raw = (
+      snapshot.extensions as { quoteValidUntil: string }
+    ).quoteValidUntil.trim();
+    if (raw.length > 0) {
+      quoteValidUntilFormatted = formatIssuedAt(raw, tz);
+    }
+  }
+  const dateRowLabel =
+    document.type === "QUOTE" ? "תאריך" : "תאריך הוצאה";
   const vatLabelSuffix = deriveCommonVatRateLabel(lines);
   const hasLogo = isDataImageUrl(issuer.logoUrl);
   const docNumber = document.numberFormatted;
 
   return {
     pageSize: "A4",
-    pageMargins: [44, 110, 44, 64],
+    pageMargins: pm.pageMargins,
     defaultStyle: {
       font: HEBREW_FONT_NAME,
-      fontSize: 11,
+      fontSize: pm.baseFont,
       alignment: "right",
     },
     info: {
@@ -567,11 +716,11 @@ export function buildDocDefinition(
               : []),
             {
               text: rtlText(issuer.name),
-              alignment: "left",
+              alignment: "right",
               color: BRAND_DARK,
-              fontSize: 18,
+              fontSize: pm.issuerHeader,
               bold: true,
-              lineHeight: 1.05,
+              lineHeight: 1.15,
             },
           ],
           alignment: "left",
@@ -582,7 +731,7 @@ export function buildDocDefinition(
             {
               text: rtlLabel(documentTypeLabel),
               alignment: "right",
-              fontSize: 22,
+              fontSize: pm.docTitle,
               bold: true,
               color: BRAND_DARK,
               lineHeight: 1.05,
@@ -590,18 +739,18 @@ export function buildDocDefinition(
             {
               columns: [
                 {
-                  text: rtlLabel("מס׳ מסמך"),
-                  alignment: "right",
-                  fontSize: 11,
-                  color: BRAND_MUTED,
-                  width: "auto",
-                },
-                {
                   text: ltrText(docNumber),
                   alignment: "left",
                   fontSize: 11,
                   color: BRAND_DARK,
                   width: "*",
+                },
+                {
+                  text: rtlLabel("מס׳ מסמך"),
+                  alignment: "right",
+                  fontSize: 11,
+                  color: BRAND_MUTED,
+                  width: "auto",
                 },
               ],
               columnGap: 8,
@@ -610,23 +759,47 @@ export function buildDocDefinition(
             {
               columns: [
                 {
-                  text: rtlLabel("תאריך הוצאה"),
-                  alignment: "right",
-                  fontSize: 11,
-                  color: BRAND_MUTED,
-                  width: "auto",
-                },
-                {
                   text: ltrText(issuedAtFormatted),
                   alignment: "left",
                   fontSize: 11,
                   color: BRAND_DARK,
                   width: "*",
                 },
+                {
+                  text: rtlLabel(dateRowLabel),
+                  alignment: "right",
+                  fontSize: 11,
+                  color: BRAND_MUTED,
+                  width: "auto",
+                },
               ],
               columnGap: 8,
               margin: [0, 6, 0, 0],
             },
+            ...(quoteValidUntilFormatted.length > 0
+              ? [
+                  {
+                    columns: [
+                      {
+                        text: ltrText(quoteValidUntilFormatted),
+                        alignment: "left",
+                        fontSize: 11,
+                        color: BRAND_DARK,
+                        width: "*",
+                      },
+                      {
+                        text: rtlLabel("בתוקף עד"),
+                        alignment: "right",
+                        fontSize: 11,
+                        color: BRAND_MUTED,
+                        width: "auto",
+                      },
+                    ],
+                    columnGap: 8,
+                    margin: [0, 6, 0, 0],
+                  },
+                ]
+              : []),
           ],
           alignment: "right",
           margin: [0, 26, 44, 0],
@@ -637,7 +810,7 @@ export function buildDocDefinition(
       columns: [
         {
           text: rtlText(issuer.name),
-          alignment: "left",
+          alignment: "right",
           margin: [44, 20, 0, 0],
           fontSize: 8,
           color: "#64748b",
@@ -666,10 +839,12 @@ export function buildDocDefinition(
       },
       buildLinesTable(lines, currency),
       buildTotalsBlock(totals, vatLabelSuffix, currency),
+      ...(typeof issuer.bankDetails === "string" &&
+      issuer.bankDetails.trim().length > 0
+        ? [buildPaymentDetailsBlock(issuer.bankDetails)]
+        : []),
       {
-        text: rtlText(
-          "מסמך זה הופק אלקטרונית. נא לשמור לצרכי הנהלת חשבונות ודיווח."
-        ),
+        text: rtlText(getBillingFooterLegalNote(snapshot)),
         fontSize: 8,
         color: "#555",
         alignment: "right",

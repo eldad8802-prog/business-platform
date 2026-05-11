@@ -1,4 +1,5 @@
 import React from "react";
+import type { InboxItemViewModel } from "@/lib/inbox-view/inbox-item.types";
 
 type Conversation = {
   id: number;
@@ -8,12 +9,46 @@ type Conversation = {
   startedAt: string;
 };
 
+/** Signals we treat as "no badge" — neutral/empty states should be quiet. */
+const QUIET_SIGNALS: ReadonlySet<InboxItemViewModel["primarySignal"]> = new Set([
+  "neutral",
+  "fresh_lead",
+]);
+
+function formatWaitingLine(waitingMinutes: number | null): string | null {
+  if (waitingMinutes === null || waitingMinutes <= 0) return null;
+  if (waitingMinutes < 60) {
+    return `ממתין ${waitingMinutes} דק׳`;
+  }
+  const hours = Math.floor(waitingMinutes / 60);
+  return `ממתין ${hours} שעות`;
+}
+
+function resolveTitle(item: InboxItemViewModel): string {
+  if (item.customerName && item.customerName.trim().length > 0) {
+    return item.customerName.trim();
+  }
+  if (item.customerPhone && item.customerPhone.trim().length > 0) {
+    return item.customerPhone.trim();
+  }
+  return "לקוח חדש";
+}
+
+function shouldShowStage(stageLabel: string, stage: InboxItemViewModel["currentStage"]): boolean {
+  if (stage === null || stage === "NEW") return false;
+  if (!stageLabel || stageLabel.trim().length === 0) return false;
+  if (stageLabel === "חדשה") return false;
+  return true;
+}
+
 export function ConversationList(props: {
   isMobile: boolean;
   viewMode: "OPEN" | "CLOSED";
   onChangeViewMode: (mode: "OPEN" | "CLOSED") => void;
   onCreateConversation: () => void;
   conversations: Conversation[];
+  /** When defined, rows with a matching item use enriched UI; missing per-row match falls back to legacy. */
+  items?: InboxItemViewModel[];
   activeConversationId: number | null;
   onSelectConversation: (id: number) => void;
   getStageLabel: (stage: string | null | undefined) => string;
@@ -29,6 +64,7 @@ export function ConversationList(props: {
     onChangeViewMode,
     onCreateConversation,
     conversations,
+    items,
     activeConversationId,
     onSelectConversation,
     getStageLabel,
@@ -120,42 +156,181 @@ export function ConversationList(props: {
         </div>
       )}
 
-      {conversations.map((conversation) => (
-        <button
-          key={conversation.id}
-          type="button"
-          onClick={() => onSelectConversation(conversation.id)}
-          style={{
-            width: "100%",
-            display: "block",
-            textAlign: "right",
-            padding: "10px 12px",
-            marginBottom: 6,
-            border:
-              activeConversationId === conversation.id
-                ? "1px solid rgba(99, 102, 241, 0.35)"
-                : "1px solid rgba(15, 23, 42, 0.06)",
-            borderRadius: 12,
-            background:
-              activeConversationId === conversation.id ? "#eef2ff" : "rgba(248, 250, 252, 0.6)",
-            color: "#0f172a",
-            cursor: "pointer",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-            <div style={{ fontWeight: 700, color: "#0f172a" }}>שיחה #{conversation.id}</div>
-            <div style={{ fontSize: 12, color: "#475569", whiteSpace: "nowrap" }}>
-              {getStageLabel(conversation.currentStage)}
-            </div>
-          </div>
+      {conversations.map((conversation) => {
+        const item =
+          items !== undefined
+            ? items.find((i) => i.conversationId === conversation.id)
+            : undefined;
+        const enriched = items !== undefined && item !== undefined;
 
-          <div style={{ fontSize: 12, color: "#64748b", marginTop: 4, lineHeight: 1.5 }}>
-            {conversation.channel} • {conversation.status} •{" "}
-            {new Date(conversation.startedAt).toLocaleString("he-IL")}
-          </div>
-        </button>
-      ))}
+        return (
+          <button
+            key={conversation.id}
+            type="button"
+            onClick={() => onSelectConversation(conversation.id)}
+            style={{
+              width: "100%",
+              display: "block",
+              textAlign: "right",
+              padding: "10px 12px",
+              marginBottom: 6,
+              border:
+                activeConversationId === conversation.id
+                  ? "1px solid rgba(99, 102, 241, 0.35)"
+                  : "1px solid rgba(15, 23, 42, 0.06)",
+              borderRadius: 12,
+              background:
+                activeConversationId === conversation.id ? "#eef2ff" : "rgba(248, 250, 252, 0.6)",
+              color: "#0f172a",
+              cursor: "pointer",
+            }}
+          >
+            {!enriched ? (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ fontWeight: 700, color: "#0f172a" }}>
+                    לקוח חדש
+                  </div>
+                  <div style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap" }}>
+                    {getStageLabel(conversation.currentStage)}
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 12, color: "#64748b", marginTop: 4, lineHeight: 1.5 }}>
+                  {conversation.channel}
+                </div>
+              </>
+            ) : (
+              (() => {
+                const title = resolveTitle(item);
+                const showStage = shouldShowStage(item.stageLabel, item.currentStage);
+                const showSignal = !QUIET_SIGNALS.has(item.primarySignal);
+                const showAction = item.suggestedActionLabel.trim().length > 0;
+                const waitingLine = formatWaitingLine(item.waitingMinutes);
+                const showHotPill = item.temperatureBucket === "hot";
+                const snippet = item.lastMessage?.snippet?.trim() ?? "";
+
+                return (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <div
+                        style={{
+                          fontWeight: 700,
+                          color: "#0f172a",
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {title}
+                      </div>
+                      {showStage ? (
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "#94a3b8",
+                            whiteSpace: "nowrap",
+                            flexShrink: 0,
+                            fontWeight: 500,
+                          }}
+                        >
+                          {item.stageLabel}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {snippet.length > 0 ? (
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: "#475569",
+                          marginTop: 4,
+                          lineHeight: 1.45,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {snippet}
+                      </div>
+                    ) : null}
+
+                    {(showSignal || waitingLine || showHotPill) ? (
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: 8,
+                          alignItems: "center",
+                          marginTop: 6,
+                          fontSize: 11,
+                        }}
+                      >
+                        {showSignal ? (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "2px 8px",
+                              borderRadius: 999,
+                              background: "rgba(254, 243, 199, 0.6)",
+                              border: "1px solid rgba(245, 158, 11, 0.35)",
+                              color: "#92400e",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {item.signalLabel}
+                          </span>
+                        ) : null}
+                        {showHotPill ? (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "2px 8px",
+                              borderRadius: 999,
+                              background: "rgba(254, 226, 226, 0.7)",
+                              border: "1px solid rgba(220, 38, 38, 0.35)",
+                              color: "#991b1b",
+                              fontWeight: 600,
+                            }}
+                          >
+                            חם
+                          </span>
+                        ) : null}
+                        {waitingLine ? (
+                          <span
+                            style={{
+                              color: "#94a3b8",
+                              whiteSpace: "nowrap",
+                              fontWeight: 500,
+                            }}
+                          >
+                            {waitingLine}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {showAction ? (
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: "#3730a3",
+                          marginTop: 6,
+                          lineHeight: 1.4,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {item.suggestedActionLabel}
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
-

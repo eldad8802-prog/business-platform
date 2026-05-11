@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { BillingDocumentType } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
-import { ValidationError } from "@/lib/errors";
+import { NotFoundError, ValidationError } from "@/lib/errors";
+import { prisma } from "@/lib/prisma";
 import { getOrRenderBillingPdf } from "@/lib/services/billing/billing-pdf.service";
+import { getOrRenderQuotePdf } from "@/lib/services/billing/quote-pdf.service";
 
 // pdfmake is a Node-only dependency (CJS, uses Buffer + fs internally via
 // pdfkit). Pinning the route to the Node runtime is mandatory.
@@ -33,6 +36,12 @@ function buildContentDisposition(documentNumberFormatted: string): string {
   return `inline; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`;
 }
 
+function buildQuoteContentDisposition(documentNumberFormatted: string): string {
+  const asciiName = `quote-${documentNumberFormatted}.pdf`;
+  const utf8Name = encodeURIComponent(`הצעת-מחיר-${documentNumberFormatted}.pdf`);
+  return `inline; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`;
+}
+
 export async function GET(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -46,11 +55,27 @@ export async function GET(
     const { id } = await context.params;
     const billingDocumentId = parseBillingDocumentId(id);
 
-    const result = await getOrRenderBillingPdf({
-      businessId: user.businessId,
-      actorUserId: user.id,
-      billingDocumentId,
+    const meta = await prisma.billingDocument.findFirst({
+      where: { id: billingDocumentId, businessId: user.businessId },
+      select: { documentType: true },
     });
+
+    if (!meta) {
+      throw new NotFoundError("Billing document not found");
+    }
+
+    const result =
+      meta.documentType === BillingDocumentType.QUOTE
+        ? await getOrRenderQuotePdf({
+            businessId: user.businessId,
+            actorUserId: user.id,
+            billingDocumentId,
+          })
+        : await getOrRenderBillingPdf({
+            businessId: user.businessId,
+            actorUserId: user.id,
+            billingDocumentId,
+          });
 
     const etag = `"${result.pdfHash}"`;
     const ifNoneMatch = req.headers.get("if-none-match");
@@ -64,10 +89,15 @@ export async function GET(
       });
     }
 
+    const contentDisposition =
+      meta.documentType === BillingDocumentType.QUOTE
+        ? buildQuoteContentDisposition(result.documentNumberFormatted)
+        : buildContentDisposition(result.documentNumberFormatted);
+
     const headers = new Headers({
       "Content-Type": "application/pdf",
       "Content-Length": String(result.buffer.byteLength),
-      "Content-Disposition": buildContentDisposition(result.documentNumberFormatted),
+      "Content-Disposition": contentDisposition,
       ETag: etag,
       "Cache-Control": "private, max-age=0, must-revalidate",
       "X-Billing-Pdf-Template-Version": result.pdfTemplateVersion,

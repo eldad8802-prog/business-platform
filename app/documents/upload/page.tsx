@@ -166,6 +166,7 @@ export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
   const router = useRouter();
 
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -561,7 +562,7 @@ export default function UploadPage() {
         </section>
 
         <div style={card}>
-        {/* Hidden pickers triggered programmatically */}
+        {/* Hidden file inputs triggered programmatically */}
         <input
           ref={uploadInputRef}
           type="file"
@@ -572,92 +573,212 @@ export default function UploadPage() {
             setFile(e.target.files?.[0] || null);
           }}
         />
-        {/* The camera input is rendered inside its <label> button below
-            so that a tap on the visible button is treated by iOS Safari as
-            a direct, trusted user gesture on the input, which is required
-            for `capture="environment"` to actually open the camera. */}
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {/* Primary CTA */}
           <button
             type="button"
             disabled={loading}
             style={{
               ...primaryBtn,
-              ...btnFlex,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
               width: "100%",
+              padding: "16px 20px",
               opacity: loading ? 0.6 : 1,
             }}
             onClick={() => {
               setError("");
-              setMode("upload");
-              setFile(null);
-              uploadInputRef.current?.click();
+              setPickerOpen((v) => !v);
             }}
           >
-            <span aria-hidden>📤</span>
-            <span>העלאה</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span aria-hidden>📤</span>
+              <span>העלאת מסמך</span>
+            </span>
+            <span aria-hidden style={{ fontSize: 12, opacity: 0.7 }}>
+              {pickerOpen ? "▲" : "▼"}
+            </span>
           </button>
 
-          {/* `label` wraps the input so a tap on the button IS a user-gesture
-              tap on the input (iOS Safari requirement for `capture` to work).
-              The input must be visually hidden but NOT `display: none`, or
-              iOS may ignore the capture hint and open a generic file picker. */}
-          <label
-            aria-label="צילום"
-            aria-disabled={loading || undefined}
-            style={{
-              ...primaryBtn,
-              ...btnFlex,
-              width: "100%",
-              background: "#fff",
-              color: "#111827",
-              border: "1px solid #e5e7eb",
-              opacity: loading ? 0.6 : 1,
-              cursor: loading ? "not-allowed" : "pointer",
-              pointerEvents: loading ? "none" : "auto",
-              position: "relative",
-            }}
-          >
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              disabled={loading}
-              onClick={() => {
-                setError("");
-                setMode("camera");
-                setFile(null);
-                setCameraUi("closed");
-                setCameraError("");
-              }}
-              onChange={(e) => {
-                setMode("camera");
-                setFile(e.target.files?.[0] || null);
-              }}
+          {/* Expandable picker panel */}
+          {pickerOpen && (
+            <div
               style={{
-                position: "absolute",
-                width: 1,
-                height: 1,
-                padding: 0,
-                margin: -1,
+                border: "1px solid #e5e7eb",
+                borderRadius: 12,
                 overflow: "hidden",
-                clipPath: "inset(50%)",
-                whiteSpace: "nowrap",
-                border: 0,
+                background: "#fff",
               }}
-            />
-            <span aria-hidden>📷</span>
-            <span>צילום</span>
-          </label>
+            >
+              {/* Camera — label wraps input so iOS Safari treats the tap as a
+                  direct user gesture on the input, which is required for
+                  capture="environment" to open the camera (not a file picker). */}
+              <label
+                aria-label="צילום מסמך"
+                aria-disabled={loading || undefined}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 14,
+                  padding: "16px 18px",
+                  borderBottom: "1px solid #f3f4f6",
+                  cursor: loading ? "not-allowed" : "pointer",
+                  pointerEvents: loading ? "none" : "auto",
+                  position: "relative",
+                  background: "#fff",
+                }}
+              >
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  disabled={loading}
+                  onClick={() => {
+                    setError("");
+                    setMode("camera");
+                    setFile(null);
+                    setCameraUi("closed");
+                    setCameraError("");
+                    setPickerOpen(false);
+                  }}
+                  onChange={(e) => {
+                    setMode("camera");
+                    setFile(e.target.files?.[0] || null);
+                  }}
+                  style={{
+                    position: "absolute",
+                    width: 1,
+                    height: 1,
+                    padding: 0,
+                    margin: -1,
+                    overflow: "hidden",
+                    clipPath: "inset(50%)",
+                    whiteSpace: "nowrap" as const,
+                    border: 0,
+                  }}
+                />
+                <span style={{ fontSize: 24 }} aria-hidden>📷</span>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 15 }}>צילום מסמך</div>
+                  <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>פתח את המצלמה לסריקה</div>
+                </div>
+              </label>
 
+              {/* Gallery — label wraps input: same trusted-gesture pattern as camera.
+                  Picker stays open until onChange fires so the input is still
+                  mounted when the user completes the selection. */}
+              <label
+                aria-label="בחירה מהגלריה"
+                aria-disabled={loading || undefined}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 14,
+                  padding: "16px 18px",
+                  borderBottom: "1px solid #f3f4f6",
+                  cursor: loading ? "not-allowed" : "pointer",
+                  pointerEvents: loading ? "none" : "auto",
+                  position: "relative",
+                  background: "#fff",
+                }}
+              >
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={loading}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] ?? null;
+                    setError("");
+                    setMode("upload");
+                    setFile(f);
+                    if (f) setPickerOpen(false);
+                  }}
+                  style={{
+                    position: "absolute",
+                    width: 1,
+                    height: 1,
+                    padding: 0,
+                    margin: -1,
+                    overflow: "hidden",
+                    clipPath: "inset(50%)",
+                    whiteSpace: "nowrap" as const,
+                    border: 0,
+                  }}
+                />
+                <span style={{ fontSize: 24 }} aria-hidden>🖼️</span>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 15 }}>בחירה מהגלריה</div>
+                  <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>בחר תמונה מהמכשיר</div>
+                </div>
+              </label>
+
+              {/* Files — same label+input pattern; accept PDF too */}
+              <label
+                aria-label="בחירה מקבצים"
+                aria-disabled={loading || undefined}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 14,
+                  padding: "16px 18px",
+                  cursor: loading ? "not-allowed" : "pointer",
+                  pointerEvents: loading ? "none" : "auto",
+                  position: "relative",
+                  background: "#fff",
+                }}
+              >
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  disabled={loading}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] ?? null;
+                    setError("");
+                    setMode("upload");
+                    setFile(f);
+                    if (f) setPickerOpen(false);
+                  }}
+                  style={{
+                    position: "absolute",
+                    width: 1,
+                    height: 1,
+                    padding: 0,
+                    margin: -1,
+                    overflow: "hidden",
+                    clipPath: "inset(50%)",
+                    whiteSpace: "nowrap" as const,
+                    border: 0,
+                  }}
+                />
+                <span style={{ fontSize: 24 }} aria-hidden>📁</span>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 15 }}>בחירה מקבצים</div>
+                  <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>PDF או תמונה מהנייד</div>
+                </div>
+              </label>
+            </div>
+          )}
+
+          {/* Email import — secondary, visually distinct from the upload CTA */}
           <button
             type="button"
             disabled={loading}
             style={{
-              ...primaryBtn,
-              ...btnFlex,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 10,
               width: "100%",
+              padding: "13px 16px",
+              borderRadius: 12,
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+              color: "#374151",
+              fontWeight: 600,
+              fontSize: 15,
+              cursor: loading ? "not-allowed" : "pointer",
               opacity: loading ? 0.6 : 1,
             }}
             onClick={() => {
@@ -665,8 +786,8 @@ export default function UploadPage() {
               router.push("/documents/email");
             }}
           >
-            <span aria-hidden>📧</span>
-            <span>מייל</span>
+            <span aria-hidden>✉️</span>
+            <span>ייבוא מהמייל</span>
           </button>
         </div>
 

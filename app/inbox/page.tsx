@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ConversationList } from "@/components/inbox/ConversationList";
 import { ConversationView } from "@/components/inbox/ConversationView";
+import type { InboxItemViewModel } from "@/lib/inbox-view/inbox-item.types";
 
 type Message = {
   id: number;
@@ -152,6 +153,10 @@ function InboxPageContent() {
   const [viewMode, setViewMode] = useState<"OPEN" | "CLOSED">("OPEN");
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  /** View-models from GET /api/conversations when present; undefined = API without `items` (legacy fallback). */
+  const [conversationItems, setConversationItems] = useState<
+    InboxItemViewModel[] | undefined
+  >(undefined);
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -239,12 +244,14 @@ function InboxPageContent() {
       } catch (e) {
         console.error("Invalid conversations JSON response", e);
         setConversations([]);
+        setConversationItems(undefined);
         return;
       }
 
       if (!res.ok) {
         console.error("Failed to load conversations", data);
         setConversations([]);
+        setConversationItems(undefined);
         return;
       }
 
@@ -254,6 +261,15 @@ function InboxPageContent() {
       );
 
       setConversations(filtered);
+
+      if (Array.isArray(data.items)) {
+        const filteredItems = (data.items as InboxItemViewModel[]).filter(
+          (item) => item.status === viewMode
+        );
+        setConversationItems(filteredItems);
+      } else {
+        setConversationItems(undefined);
+      }
 
       if (
         activeConversationId &&
@@ -269,6 +285,7 @@ function InboxPageContent() {
     } catch (error) {
       console.error("loadConversations error", error);
       setConversations([]);
+      setConversationItems(undefined);
     }
   }
 
@@ -610,6 +627,16 @@ function InboxPageContent() {
     [conversations, activeConversationId]
   );
 
+  const activeItem = useMemo(() => {
+    if (activeConversationId == null || conversationItems === undefined) {
+      return null;
+    }
+    return (
+      conversationItems.find((i) => i.conversationId === activeConversationId) ??
+      null
+    );
+  }, [activeConversationId, conversationItems]);
+
   const activeIndicator = getSmartIndicator({
     currentStage: activeConversation?.currentStage,
     messages,
@@ -686,6 +713,7 @@ function InboxPageContent() {
         onChangeViewMode={setViewMode}
         onCreateConversation={handleCreateConversation}
         conversations={conversations}
+        items={conversationItems}
         activeConversationId={activeConversationId}
         onSelectConversation={handleSelectConversation}
         getStageLabel={getStageLabel}
@@ -701,6 +729,7 @@ function InboxPageContent() {
         viewMode={viewMode}
         activeConversationId={activeConversationId}
         activeConversation={activeConversation}
+        activeItem={activeItem}
         activeIndicator={activeIndicator}
         getStageLabel={getStageLabel}
         messages={messages}

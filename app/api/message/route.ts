@@ -4,6 +4,7 @@ import { analyzeMessage } from "@/lib/conversation-analysis/analyze-message";
 import { generateReplySuggestions } from "@/lib/reply-suggestions/generate-reply-suggestions";
 import { getContextMessages } from "@/lib/conversation-context/get-context-messages";
 import { getSuggestionMode } from "@/lib/decision/get-suggestion-mode";
+import { applyMessageEvent } from "@/lib/conversation-state/conversation-state.service";
 import { getCurrentUser } from "@/lib/auth";
 
 type StageLabel = "early" | "middle" | "closing" | string | null | undefined;
@@ -225,6 +226,19 @@ export async function POST(req: Request) {
     });
 
     if (!(direction === "INBOUND" && senderType === "CUSTOMER")) {
+      try {
+        await applyMessageEvent({
+          message: createdMessage,
+          conversation,
+          analysis: null,
+        });
+      } catch (error) {
+        console.warn(
+          "conversation-state writer (non-customer-inbound) failed:",
+          error
+        );
+      }
+
       return NextResponse.json(
         {
           message: createdMessage,
@@ -261,6 +275,19 @@ export async function POST(req: Request) {
         stageLabel: analysis.stage,
       },
     });
+
+    try {
+      await applyMessageEvent({
+        message,
+        conversation,
+        analysis,
+      });
+    } catch (error) {
+      console.warn(
+        "conversation-state writer (customer-inbound) failed:",
+        error
+      );
+    }
 
     const previousMessageWithStage = [...previousMessages]
       .reverse()

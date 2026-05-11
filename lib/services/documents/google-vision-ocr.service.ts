@@ -103,6 +103,6 @@ export async function runGoogleVisionOCR(
 
     console.error("============================================");
 
-    return "";
+    throw error;
   }
 }

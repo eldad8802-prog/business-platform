@@ -9,7 +9,10 @@ import {
   type Mode,
   type DirectionInput,
 } from "@/lib/features/content/decision";
+import { buildCreativeBlueprint } from "@/lib/features/content/creative-blueprint/creative-blueprint.engine";
+import { buildRenderBlueprint } from "@/lib/features/content/render-blueprint/render-blueprint.engine";
 import { getCurrentUser } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 type VideoPlanRequestBody = {
   mode?: Mode;
@@ -70,6 +73,28 @@ export async function POST(req: Request) {
       );
     }
 
+    // ── Business identity resolution ──────────────────────────────────────────
+    // Priority: body > DB category > DB subCategory > undefined (falls to "other")
+    // DB read is best-effort: failure silently falls back to body values.
+    let dbCategory: string | undefined;
+    let dbSubCategory: string | undefined;
+
+    try {
+      const dbProfile = await prisma.businessProfile.findUnique({
+        where: { businessId: user.businessId },
+        select: { category: true, subCategory: true },
+      });
+      dbCategory = dbProfile?.category ?? undefined;
+      dbSubCategory = dbProfile?.subCategory ?? undefined;
+    } catch {
+      // DB unavailable — proceed without profile enrichment
+    }
+
+    const resolvedBusinessType =
+      body.businessType ?? body.businessCategory ?? dbCategory ?? dbSubCategory;
+
+    // ─────────────────────────────────────────────────────────────────────────
+
     const decisionInput: DecisionInput = {
       goal: body.goal,
       intent: body.intent,
@@ -84,8 +109,8 @@ export async function POST(req: Request) {
     const { decision, businessProfile } = runContentDecisionEngine({
       decisionInput,
       businessProfileRequest: {
-        businessType: body.businessType,
-        businessCategory: body.businessCategory,
+        businessType: resolvedBusinessType,
+        businessCategory: body.businessCategory ?? dbCategory,
         businessName: body.businessName,
         services: body.services,
         products: body.products,
@@ -115,8 +140,8 @@ export async function POST(req: Request) {
         "reel",
       selectedPlatform: body.selectedPlatform ?? "instagram",
 
-      businessType: body.businessType,
-      businessCategory: body.businessCategory,
+      businessType: resolvedBusinessType,
+      businessCategory: body.businessCategory ?? dbCategory,
       businessName: body.businessName,
       services: body.services ?? [],
       products: body.products ?? [],
@@ -135,7 +160,30 @@ export async function POST(req: Request) {
       decisionReasoning: decision.decisionReason,
     };
 
-    const result = await buildVideoPlan(planInput);
+    const blueprint = buildCreativeBlueprint({
+      businessProfile,
+      decision,
+      mode: body.mode,
+      selectedFormat: body.selectedFormat ?? body.selectedDirection?.recommendedFormat ?? "reel",
+      selectedPlatform: body.selectedPlatform ?? "instagram",
+      goal: body.goal,
+      contentAngle: body.contentAngle,
+      selectedDirection: body.selectedDirection,
+      audienceTypes: body.audienceTypes,
+      contentGoalPrompt: body.contentGoalPrompt,
+    });
+
+    const result = await buildVideoPlan({ ...planInput, blueprint });
+
+    const renderBlueprint = buildRenderBlueprint(
+      blueprint,
+      body.selectedPlatform ?? "instagram",
+      {
+        marketCategory: businessProfile.marketCategory,
+        contentStyle: businessProfile.contentStyle,
+        trustLevel: businessProfile.trustLevel,
+      }
+    );
 
     return Response.json({
       success: true,
@@ -150,6 +198,8 @@ export async function POST(req: Request) {
         reasoning: decision.decisionReason,
       },
       businessProfile,
+      blueprint,
+      renderBlueprint,
     });
   } catch (error) {
     console.error("VIDEO PLAN ROUTE ERROR:", error);

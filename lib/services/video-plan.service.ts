@@ -3,6 +3,14 @@ import {
   getBusinessContentProfile,
   type BusinessContentProfile,
 } from "@/lib/services/business-content-profile.service";
+import type { CreativeBlueprint } from "@/lib/features/content/creative-blueprint/types";
+import { applyVariantCinematicIdentity } from "@/lib/features/content/creative-blueprint/variant-cinematic-identity";
+import { buildRenderBlueprint } from "@/lib/features/content/render-blueprint/render-blueprint.engine";
+import type { RenderBlueprint } from "@/lib/features/content/render-blueprint/types";
+import { scoreVariant } from "@/lib/features/content/creative-scoring/creative-scoring.engine";
+import type { CreativeScore } from "@/lib/features/content/creative-scoring/types";
+import { buildGrowthSemantics } from "@/lib/features/content/growth-semantics/growth-semantics.engine";
+import type { GrowthSemantics } from "@/lib/features/content/growth-semantics/types";
 
 type Goal = "leads" | "trust" | "exposure" | "sales";
 type ContentAngle =
@@ -55,6 +63,8 @@ type VideoPlanInput = {
   differentiators?: string[];
 
   businessProfile?: BusinessContentProfile;
+
+  blueprint?: CreativeBlueprint;
 
   videoType?: VideoType;
   durationSeconds?: number;
@@ -109,6 +119,10 @@ type Variant = {
   script: Script;
   shotRequests: ShotRequest[];
   assetsPlan: AssetsPlan;
+  variantBlueprint?: CreativeBlueprint;
+  renderBlueprint?: RenderBlueprint;
+  creativeScore?: CreativeScore;
+  growthSemantics?: GrowthSemantics;
 };
 
 type VideoPlanResult = {
@@ -414,14 +428,54 @@ function buildAssetsPlan(
   const requiredAssets: string[] = [];
   const optionalAssets: string[] = [];
 
+  const bp = input.blueprint;
+
   if (input.mode === "camera" || input.mode === "voice") {
     requiredAssets.push("צילום אנכי 9:16");
     requiredAssets.push("שוט פתיחה חזק ל־Hook");
     requiredAssets.push("שוטי B-roll קצרים שתומכים במסר");
     requiredAssets.push("שוט סיום ברור ל־CTA");
+
+    // Blueprint-aware camera guidance
+    if (bp) {
+      if (bp.interruption_style === "visual_shock") {
+        requiredAssets.push("שוט פתיחה מפתיע — זווית, תנועה, או מסר חזק");
+      } else if (bp.interruption_style === "question") {
+        requiredAssets.push("שוט פתיחה שבו אתם שואלים שאלה ישירה למצלמה");
+      }
+      if (bp.narration_strategy === "on_camera") {
+        requiredAssets.push("שוטי דיבור ישיר למצלמה — בגובה העיניים, תאורה טובה");
+      }
+    }
   } else {
-    requiredAssets.push("ויזואלים אנכיים שתומכים בכל שלב בתסריט");
-    requiredAssets.push("תמונות או קטעי וידאו תואמים למסר הראשי");
+    // Blueprint determines the visual type hint for AI / stock mode
+    if (bp) {
+      switch (bp.visual_strategy) {
+        case "stock_footage":
+          requiredAssets.push("קטעי וידאו stock תואמי מסר — לפחות כמספר השוטים");
+          requiredAssets.push("ויזואלים אנכיים 9:16 ברורים");
+          break;
+        case "motion_graphics":
+          requiredAssets.push("עיצובי טקסט ואנימציה תואמי מותג");
+          requiredAssets.push("ויזואלים מינימלים עם הדגשות גרפיות");
+          break;
+        case "ui_visuals":
+          requiredAssets.push("הקלטות מסך או תצוגות ממשק — נקיות, ברורות, עם קצב");
+          break;
+        case "typography_heavy":
+          requiredAssets.push("רקע נקי עם טקסט גדול וחזק — לפי צבעי המותג");
+          break;
+        case "luxury_minimal":
+          requiredAssets.push("ויזואלים ספורים, מוקפדים ואיכותיים — פחות זה יותר");
+          break;
+        default:
+          requiredAssets.push("ויזואלים אנכיים שתומכים בכל שלב בתסריט");
+          requiredAssets.push("תמונות או קטעי וידאו תואמים למסר הראשי");
+      }
+    } else {
+      requiredAssets.push("ויזואלים אנכיים שתומכים בכל שלב בתסריט");
+      requiredAssets.push("תמונות או קטעי וידאו תואמים למסר הראשי");
+    }
   }
 
   if (businessProfile.visualStrength === "high") {
@@ -439,6 +493,13 @@ function buildAssetsPlan(
 
   if (shots.length >= 6) {
     optionalAssets.push("שוטי תמיכה נוספים להחזיק קצב לאורך הסרטון");
+  }
+
+  // Blueprint audio hints
+  if (bp && bp.soundtrack_strategy !== "none") {
+    optionalAssets.push(
+      `מוזיקת רקע: ${bp.soundtrack_genre} — ${bp.soundtrack_strategy}`
+    );
   }
 
   optionalAssets.push("לוגו לשימוש רק בסיום אם צריך");
@@ -526,6 +587,56 @@ async function buildVariant(
     contentAngle: resolvedContentAngle,
   };
 
+  // Adapt the base blueprint for this specific variant style.
+  // If no blueprint exists the adapter is never called and generateScript
+  // falls through to its existing template logic unchanged.
+  const variantBlueprint = input.blueprint
+    ? applyVariantCinematicIdentity(
+        input.blueprint,
+        style,
+        businessProfile,
+        input.selectedPlatform ?? "instagram",
+        input.mode
+      )
+    : undefined;
+
+  const renderBlueprint: RenderBlueprint | undefined = variantBlueprint
+    ? buildRenderBlueprint(
+        variantBlueprint,
+        input.selectedPlatform ?? "instagram",
+        businessProfile
+          ? {
+              marketCategory: businessProfile.marketCategory,
+              contentStyle: businessProfile.contentStyle,
+              trustLevel: businessProfile.trustLevel,
+            }
+          : undefined,
+        style
+      )
+    : undefined;
+
+  const creativeScore: CreativeScore | undefined =
+    variantBlueprint && renderBlueprint
+      ? scoreVariant({
+          variantBlueprint,
+          renderBlueprint,
+          profile: businessProfile,
+          variantStyle: style,
+          platform: input.selectedPlatform ?? "instagram",
+        })
+      : undefined;
+
+  const growthSemantics: GrowthSemantics | undefined =
+    variantBlueprint && renderBlueprint
+      ? buildGrowthSemantics({
+          variantBlueprint,
+          renderBlueprint,
+          profile: businessProfile,
+          variantStyle: style,
+          platform: input.selectedPlatform ?? "instagram",
+        })
+      : undefined;
+
   const generated = await generateScript({
     businessType: input.businessType,
     businessCategory: input.businessCategory,
@@ -547,6 +658,7 @@ async function buildVariant(
           whyItFits: input.selectedDirection.whyItFits,
         }
       : undefined,
+    blueprint: variantBlueprint,
   });
 
   const shots = generated.shots || [];
@@ -572,6 +684,10 @@ async function buildVariant(
     },
     shotRequests: buildShotRequests(shots, style),
     assetsPlan: buildAssetsPlan(input, style, businessProfile, shots),
+    variantBlueprint,
+    renderBlueprint,
+    creativeScore,
+    growthSemantics,
   };
 }
 

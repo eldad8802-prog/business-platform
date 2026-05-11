@@ -97,13 +97,25 @@ export async function POST(req: Request) {
     const buffer = Buffer.from(await file.arrayBuffer());
     await writeFile(tempFilePath, buffer);
 
-    const rawText = (
-      await runGoogleVisionOCR(tempFilePath, mimeType || undefined)
-    ).trim();
+    let rawText: string;
+    try {
+      rawText = (
+        await runGoogleVisionOCR(tempFilePath, mimeType || undefined)
+      ).trim();
+    } catch {
+      return NextResponse.json(
+        { error: "שגיאה בעיבוד המסמך. אנא נסה שוב מאוחר יותר." },
+        { status: 500 }
+      );
+    }
 
     if (!rawText) {
       return NextResponse.json(
-        { error: "OCR produced no text", needsReview: true },
+        {
+          error:
+            "לא הצלחנו לזהות טקסט במסמך. נסה תמונה חדה יותר או PDF.",
+          needsReview: true,
+        },
         { status: 400 }
       );
     }

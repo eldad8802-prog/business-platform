@@ -1,10 +1,74 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import PageHeader from "@/components/ui/page-header";
 
+const LOCAL_DRAFT_KEY = "inventory:supplierPurchases:newDraft:v1";
+
+type SuggestionLine = {
+  matchedItemId: number;
+  name: string;
+  medianQty: number;
+};
+
+type SupplierReorderSuggestion = {
+  supplierName: string;
+  lastApprovedAt: string;
+  medianIntervalDays: number;
+  daysSinceLast: number;
+  isTimely: boolean;
+  recurringItemCount: number;
+  lines: SuggestionLine[];
+};
+
 export default function SupplierPurchasesHubPage() {
   const router = useRouter();
+  const [reorderSuggestions, setReorderSuggestions] = useState<
+    SupplierReorderSuggestion[]
+  >([]);
+
+  useEffect(() => {
+    async function fetchReorderSuggestions() {
+      try {
+        const token =
+          typeof window !== "undefined" ? localStorage.getItem("token") : null;
+        const res = await fetch(
+          "/api/inventory/supplier-purchases/reorder-suggestions",
+          {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            cache: "no-store",
+          }
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data?.suggestions)) {
+          setReorderSuggestions(data.suggestions);
+        }
+      } catch {
+        // Silent fail — suggestions are an enhancement, not a core flow.
+      }
+    }
+    fetchReorderSuggestions();
+  }, []);
+
+  function prefillAndNavigate(suggestion: SupplierReorderSuggestion) {
+    const order: Record<number, number> = {};
+    for (const line of suggestion.lines) {
+      order[line.matchedItemId] = line.medianQty;
+    }
+    const draft = {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      supplierName: suggestion.supplierName,
+      order,
+      categoryId: "",
+      itemId: "",
+      quantity: "1",
+    };
+    localStorage.setItem(LOCAL_DRAFT_KEY, JSON.stringify(draft));
+    router.push("/inventory/supplier-purchases/new");
+  }
 
   function goToNew() {
     router.push("/inventory/supplier-purchases/new");
@@ -20,6 +84,10 @@ export default function SupplierPurchasesHubPage() {
 
   function goToImport() {
     router.push("/inventory/supplier-purchases/import");
+  }
+
+  function goToIntegrations() {
+    router.push("/inventory/supplier-purchases/integrations");
   }
 
   return (
@@ -73,6 +141,100 @@ export default function SupplierPurchasesHubPage() {
             תכנון הזמנות, קליטת סחורה ועדכון מלאי — הכל במקום אחד.
           </div>
         </section>
+
+        {/* Reorder suggestions — shown only when isTimely === true */}
+        {reorderSuggestions.filter((s) => s.isTimely).length > 0 && (
+          <section
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 900,
+                color: "#374151",
+                paddingRight: 4,
+              }}
+            >
+              מומלץ להזמין עכשיו
+            </div>
+
+            {reorderSuggestions
+              .filter((s) => s.isTimely)
+              .slice(0, 3)
+              .map((suggestion) => (
+                <article
+                  key={suggestion.supplierName}
+                  style={{
+                    border: "1px solid #d1fae5",
+                    borderRadius: 22,
+                    background: "#f0fdf4",
+                    padding: 16,
+                    boxShadow: "0 4px 12px rgba(16, 185, 129, 0.08)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <div
+                        style={{
+                          fontSize: 15,
+                          fontWeight: 950,
+                          color: "#065f46",
+                        }}
+                      >
+                        {suggestion.supplierName}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: "#047857",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        בדרך כלל כל ~{suggestion.medianIntervalDays} ימים ·{" "}
+                        עבר {suggestion.daysSinceLast} ימים ·{" "}
+                        {suggestion.recurringItemCount} פריטים שחוזרים
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => prefillAndNavigate(suggestion)}
+                      style={{
+                        minHeight: 40,
+                        padding: "0 16px",
+                        borderRadius: 14,
+                        border: "none",
+                        background: "#059669",
+                        color: "#ffffff",
+                        fontSize: 13,
+                        fontWeight: 950,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}
+                    >
+                      צור טיוטה דומה
+                    </button>
+                  </div>
+                </article>
+              ))}
+          </section>
+        )}
 
         {/* Actions */}
         <section
@@ -215,6 +377,40 @@ export default function SupplierPurchasesHubPage() {
               }}
             >
               העלאת קובץ מהספק ליצירת טיוטות לבדיקה לפני קליטת מלאי
+            </div>
+          </button>
+
+          {/* Supplier integrations */}
+          <button
+            onClick={goToIntegrations}
+            style={{
+              border: "1px solid #e5e7eb",
+              borderRadius: 22,
+              background: "#ffffff",
+              padding: 18,
+              textAlign: "center",
+              cursor: "pointer",
+              boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <div style={{ fontSize: 18, fontWeight: 950, color: "#111827" }}>
+              🔌 חיבורי ספקים
+            </div>
+
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 13,
+                color: "#6b7280",
+                lineHeight: 1.5,
+                maxWidth: 520,
+              }}
+            >
+              תשתית לחיבור ספקים וקטלוגים — בשלבי הרחבה
             </div>
           </button>
         </section>

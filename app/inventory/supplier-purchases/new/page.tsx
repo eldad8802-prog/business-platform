@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import PageHeader from "@/components/ui/page-header";
 import {
   getInventoryCategories,
@@ -42,6 +43,24 @@ type LocalSupplierPurchaseDraftV1 = {
 
 const LOCAL_DRAFT_KEY = "inventory:supplierPurchases:newDraft:v1";
 
+function extractCreatedDraftId(payload: unknown): number | null {
+  if (!payload || typeof payload !== "object") return null;
+  const root = payload as Record<string, unknown>;
+  const nestedDraft =
+    root.data && typeof root.data === "object"
+      ? (root.data as Record<string, unknown>).draft
+      : undefined;
+  const draft = root.draft ?? nestedDraft;
+  if (!draft || typeof draft !== "object") return null;
+  const raw = (draft as Record<string, unknown>).id;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string") {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
 function buildHeaders() {
   const token =
     typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -53,6 +72,7 @@ function buildHeaders() {
 }
 
 export default function NewSupplierPurchasePage() {
+  const router = useRouter();
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<InventoryCategoryDTO[]>([]);
   const [suggestions, setSuggestions] = useState<ReorderSuggestion[]>([]);
@@ -416,19 +436,34 @@ export default function NewSupplierPurchasePage() {
         }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data?.error || "לא הצלחנו ליצור הזמנה");
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        throw new Error("לא התקבלה תגובה תקינה מהשרת.");
       }
 
-      setOrder({});
-      setSupplierName("");
-      setCategoryId("");
-      setItemId("");
-      setQuantity("1");
-      clearLocalDraft();
-      setSuccess("ההזמנה נוצרה וממתינה לקליטת סחורה");
+      if (!response.ok) {
+        const msg =
+          payload &&
+          typeof payload === "object" &&
+          "error" in payload &&
+          typeof (payload as { error?: unknown }).error === "string"
+            ? (payload as { error: string }).error
+            : "לא הצלחנו ליצור הזמנה";
+        throw new Error(msg);
+      }
+
+      const draftId = extractCreatedDraftId(payload);
+      if (draftId !== null) {
+        clearLocalDraft();
+        router.replace(`/inventory/supplier-purchases/${draftId}/send`);
+        return;
+      }
+
+      throw new Error(
+        "ההזמנה נוצרה אך לא התקבל מזהה מהשרת. רעננו את העמוד או נסו שוב."
+      );
     } catch (err: any) {
       setError(err?.message || "שגיאה ביצירת הזמנה");
     } finally {

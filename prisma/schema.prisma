@@ -43,6 +43,7 @@ model Business {
   emailConnections        EmailConnection[]
   documents               FinancialDocument[]
   financialRecords        FinancialRecord[]
+  financialEvents         FinancialEvent[]
   inventoryAlerts         InventoryAlert[]
   inventoryCategories     InventoryCategory[]
   inventoryDrafts         InventoryDraft[]
@@ -55,6 +56,7 @@ model Business {
   learningSignals         LearningSignal[]
   messages                Message[]
   offers                  Offer[]
+  posApiKeys              POSApiKey[]
   posProductMappings      POSProductMapping[]
   pricingCalculations     PricingCalculation[]
   pricingProfiles         PricingProfile[]
@@ -86,6 +88,21 @@ model BusinessProfile {
   category      String?
   subCategory   String?
   businessModel String?
+  /// Legal / display name on tax invoices (falls back to Business.name when empty)
+  billingLegalName    String?
+  /// EXEMPT_DEALER | AUTHORIZED_DEALER | LTD_COMPANY — Israeli business registration category
+  billingBusinessKind String?
+  billingTaxId        String?
+  billingVatNumber    String?
+  billingPhone        String?
+  billingEmail        String?
+  billingAddress      String?
+  billingPaymentNote  String?
+  billingFooterNote   String?
+  /// Small logo as data URL — pdfmake/HTML renderer embed only (no remote fetch)
+  billingLogoDataUrl  String?
+  /// CLASSIC | MODERN | COMPACT — drives billing PDF layout presets (business-wide).
+  billingPdfTemplateStyle String @default("CLASSIC")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   business      Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -810,6 +827,20 @@ model InventoryExternalSale {
   @@index([businessId])
 }
 
+model POSApiKey {
+  id         Int       @id @default(autoincrement())
+  businessId Int
+  keyHash    String    @unique
+  source     String    @default("POS")
+  label      String?
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  business   Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+}
+
 model POSProductMapping {
   id                Int           @id @default(autoincrement())
   businessId        Int
@@ -879,6 +910,8 @@ model BillingDocument {
   documentNumberFormatted String?
   customerId              Int?
   customerNameSnapshot    String?
+  validUntil              DateTime?
+  convertedToInvoiceId    Int?                   @unique
   subtotalAmount          Decimal                @default(0) @db.Decimal(18, 2)
   vatAmount               Decimal                @default(0) @db.Decimal(18, 2)
   totalAmount             Decimal                @default(0) @db.Decimal(18, 2)
@@ -898,6 +931,9 @@ model BillingDocument {
   business                Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
   customer                Customer?              @relation(fields: [customerId], references: [id])
   lines                   BillingDocumentLine[]
+  financialEvent          FinancialEvent?
+  convertedToInvoice      BillingDocument?       @relation("QuoteConvertedToInvoice", fields: [convertedToInvoiceId], references: [id])
+  quotesConvertedToHere   BillingDocument[]      @relation("QuoteConvertedToInvoice")
 
   @@unique([businessId, documentType, documentNumber])
   @@index([businessId, status, issuedAt])
@@ -935,6 +971,28 @@ model BillingDocumentNumberSequence {
   business     Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, documentType])
+}
+
+model FinancialEvent {
+  id                Int                       @id @default(autoincrement())
+  businessId        Int
+  direction         FinancialEventDirection
+  amount            Decimal                   @db.Decimal(18, 2)
+  currency          String                    @default("ILS")
+  occurredAt        DateTime
+  category          String
+  counterpartyName  String?
+  sourceType        FinancialEventSourceType
+  sourceKey         String
+  status            FinancialEventStatus
+  billingDocumentId Int?                      @unique
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  business          Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  billingDocument   BillingDocument?          @relation(fields: [billingDocumentId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, sourceType, sourceKey])
+  @@index([businessId, occurredAt])
 }
 
 enum EmailProvider {
@@ -1187,6 +1245,7 @@ enum SupplierLineStatus {
 
 enum BillingDocumentType {
   TAX_INVOICE
+  QUOTE
 }
 
 enum BillingDocumentStatus {
@@ -1199,4 +1258,19 @@ enum BillingPdfRenderStatus {
   PENDING
   RENDERED
   FAILED
+}
+
+enum FinancialEventDirection {
+  INCOME
+  EXPENSE
+}
+
+enum FinancialEventSourceType {
+  BILLING_INVOICE
+  OCR_DOCUMENT
+  PAYMENT
+}
+
+enum FinancialEventStatus {
+  POSTED
 }

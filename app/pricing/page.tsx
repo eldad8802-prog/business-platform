@@ -6,6 +6,10 @@ import { useRouter } from "next/navigation";
 type PricingItem = {
   id: number;
   name: string;
+  defaultMaterialCost: number;
+  defaultLaborMinutes: number;
+  defaultHourlyRate: number;
+  defaultOverheadPercent: number;
 };
 
 type BusinessProfile = {
@@ -147,6 +151,12 @@ export default function PricingPage() {
   const [loadingItems, setLoadingItems] = useState(false);
   const [loadingCalculation, setLoadingCalculation] = useState(false);
   const [creatingItem, setCreatingItem] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  const [calcMaterialCost, setCalcMaterialCost] = useState("");
+  const [calcLaborMinutes, setCalcLaborMinutes] = useState("");
+  const [calcHourlyRate, setCalcHourlyRate] = useState("");
+  const [calcOverheadPercent, setCalcOverheadPercent] = useState("");
 
   const [error, setError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -257,12 +267,16 @@ export default function PricingPage() {
         throw new Error(data?.error || "שגיאה בטעינת המוצרים והשירותים");
       }
 
-      const nextItems = Array.isArray(data.profiles) ? data.profiles : [];
+      const raw = Array.isArray(data.profiles) ? data.profiles : [];
+      const nextItems: PricingItem[] = raw.map((p: Record<string, unknown>) => ({
+        id: Number(p.id),
+        name: String(p.name ?? ""),
+        defaultMaterialCost: Number(p.defaultMaterialCost ?? 0),
+        defaultLaborMinutes: Number(p.defaultLaborMinutes ?? 0),
+        defaultHourlyRate: Number(p.defaultHourlyRate ?? 0),
+        defaultOverheadPercent: Number(p.defaultOverheadPercent ?? 10),
+      }));
       setItems(nextItems);
-
-      if (nextItems.length > 0 && !selectedItemId) {
-        setSelectedItemId(nextItems[0].id);
-      }
     } catch (err) {
       console.error("Failed to load pricing items:", err);
       setItems([]);
@@ -279,6 +293,74 @@ export default function PricingPage() {
     loadItems(token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  useEffect(() => {
+    const item = items.find((i) => i.id === selectedItemId);
+    if (!item) {
+      setCalcMaterialCost("");
+      setCalcLaborMinutes("");
+      setCalcHourlyRate("");
+      setCalcOverheadPercent("");
+      return;
+    }
+    setCalcMaterialCost(String(item.defaultMaterialCost ?? ""));
+    setCalcLaborMinutes(String(item.defaultLaborMinutes ?? ""));
+    setCalcHourlyRate(String(item.defaultHourlyRate ?? ""));
+    setCalcOverheadPercent(String(item.defaultOverheadPercent ?? ""));
+  }, [selectedItemId, items]);
+
+  const handlePricingItemSelect = (nextId: number | null) => {
+    setSelectedItemId((prev) => {
+      if (prev !== nextId) {
+        setResult(null);
+        setShowTransparencyDetails(false);
+      }
+      return nextId;
+    });
+  };
+
+  const handleSaveProfileDefaults = async () => {
+    if (!selectedItemId || !token) return;
+
+    try {
+      setSavingProfile(true);
+      setError(null);
+
+      const res = await fetch(`/api/pricing/profiles/${selectedItemId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          defaultMaterialCost: Number(calcMaterialCost || 0),
+          defaultLaborMinutes: Number(calcLaborMinutes || 0),
+          defaultHourlyRate: Number(calcHourlyRate || 0),
+          defaultOverheadPercent: Number(calcOverheadPercent || 0),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        router.replace("/login");
+        return;
+      }
+
+      if (!res.ok) {
+        throw new Error(data?.error || "שגיאה בשמירת הנתונים");
+      }
+
+      await loadItems(token);
+    } catch (err) {
+      console.error("Failed to save pricing profile:", err);
+      setError(err instanceof Error ? err.message : "שגיאה בשמירת הנתונים");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   const handleCalculate = async () => {
     if (!selectedItemId || !token) return;
@@ -297,6 +379,10 @@ export default function PricingPage() {
         },
         body: JSON.stringify({
           pricingProfileId: selectedItemId,
+          materialCost: Number(calcMaterialCost || 0),
+          laborMinutes: Number(calcLaborMinutes || 0),
+          hourlyRate: Number(calcHourlyRate || 0),
+          overheadPercent: Number(calcOverheadPercent || 0),
         }),
       });
 
@@ -397,33 +483,11 @@ export default function PricingPage() {
   }, [items, selectedItemId]);
 
   const homeHeroLeadText = useMemo(() => {
-    if (result && selectedItemId) {
-      return "יש חישוב אחרון לפריט הנבחר — אפשר להמשיך מאותה נקודה או לבחור פעולה למטה.";
-    }
     if (result) {
-      return "יש תוצאת תמחור אחרונה במסך — בוחרים פריט מהרשימה כדי להמשיך בצורה מלאה.";
+      return "יש תוצאת חישוב בסשן הנוכחי — אפשר לפתוח חישוב מחדש או להוסיף פריט למטה.";
     }
-    if (selectedItemId && items.some((item) => item.id === selectedItemId)) {
-      return "נשמר פריט פעיל ברשימה — נמשיך ממנו בפעולה הבאה בלי להתחיל מאפס.";
-    }
-    return "בוחרים מוצר או שירות, מחשבים מחיר — ורואים עלות, מחיר מומלץ ומה נשאר לך מכל מכירה, בצעדים קצרים וברורים.";
-  }, [result, selectedItemId, items]);
-
-  const businessContextText = useMemo(() => {
-    if (!businessProfile?.category) return null;
-
-    const normalizedCategory = businessProfile.category.toLowerCase();
-
-    if (normalizedCategory.includes("beauty")) {
-      return "בעסק שירותי, שני הדברים שהכי משפיעים על המספרים הם כמה זמן זה לוקח וכמה נשאר לך בסוף מכל טיפול.";
-    }
-
-    if (normalizedCategory.includes("food")) {
-      return "בעסק מוצרי, קל לפספס במחיר אם לא יודעים את העלות האמיתית של החומר/קנייה לכל יחידה.";
-    }
-
-    return "הרעיון כאן פשוט: להבין כמה זה עולה לך בפועל, ומה נשאר לך מכל מכירה במחירים שונים.";
-  }, [businessProfile]);
+    return "מה תרצו לעשות? חישוב מהיר של מחיר מומלץ ורווח — בלי סיבוכים.";
+  }, [result]);
 
   const pricingText = useMemo(() => {
     if (!businessProfile?.businessModel) {
@@ -666,12 +730,13 @@ export default function PricingPage() {
 
   const inputStyle: React.CSSProperties = {
     width: "100%",
+    minHeight: 48,
     padding: "12px 14px",
     marginBottom: 16,
     border: "1px solid #d1d5db",
     borderRadius: 12,
     outline: "none",
-    fontSize: 15,
+    fontSize: 16,
     background: "#fff",
     boxSizing: "border-box",
     fontFamily: "inherit",
@@ -745,8 +810,34 @@ export default function PricingPage() {
     ...hubCardStyle,
     display: "flex",
     flexDirection: "column",
-    minHeight: 210,
+    minHeight: 0,
     boxSizing: "border-box",
+    padding: "clamp(16px, 4vw, 22px)",
+  };
+
+  const subPanelNavStyle: React.CSSProperties = {
+    display: "flex",
+    justifyContent: "flex-start",
+    alignItems: "center",
+    marginBottom: 12,
+    paddingInline: "clamp(4px, 2vw, 12px)",
+    paddingTop: 2,
+  };
+
+  const backChipStyle: React.CSSProperties = {
+    ...secondaryButtonStyle,
+    minHeight: 48,
+    minWidth: 48,
+    padding: "12px 20px",
+    borderRadius: 999,
+    fontSize: 15,
+    width: "auto",
+    boxSizing: "border-box",
+  };
+
+  const goHome = () => {
+    setActivePanel("home");
+    setShowCreateForm(false);
   };
 
   if (bootLoading) {
@@ -768,22 +859,59 @@ export default function PricingPage() {
 
   return (
     <div
+      className="pricing-page-root"
       style={{
         minHeight: "100vh",
         background: "#f8fafc",
         direction: "rtl",
-        padding: "28px 18px 48px",
+        padding:
+          "clamp(16px, 4vw, 28px) clamp(14px, 5vw, 22px) clamp(28px, 7vw, 48px)",
+        boxSizing: "border-box",
       }}
     >
-      <div style={{ maxWidth: 1120, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1120, margin: "0 auto", width: "100%" }}>
         <style
           dangerouslySetInnerHTML={{
             __html: `@keyframes pricingPanelEnter {
               from { opacity: 0; transform: translateY(8px); }
               to { opacity: 1; transform: translateY(0); }
+            }
+            details.pricing-calc-details > summary::-webkit-details-marker {
+              display: none;
+            }
+            details.pricing-calc-details > summary {
+              list-style: none;
+              min-height: 48px;
+              padding: 10px 8px 10px 0;
+              align-items: center;
+              display: flex;
+              touch-action: manipulation;
+              -webkit-tap-highlight-color: transparent;
+            }
+            .pricing-page-root .pricing-long-text {
+              overflow-wrap: anywhere;
+              word-break: break-word;
             }`,
           }}
         />
+        {(activePanel === "home" ||
+          activePanel === "calculate" ||
+          activePanel === "create") && (
+          <div style={subPanelNavStyle}>
+            <Pressable
+              onPress={() => {
+                if (activePanel === "home") {
+                  router.push("/");
+                  return;
+                }
+                goHome();
+              }}
+              style={backChipStyle}
+            >
+              חזרה
+            </Pressable>
+          </div>
+        )}
         <div
           key={activePanel}
           style={{
@@ -791,14 +919,14 @@ export default function PricingPage() {
           }}
         >
         {activePanel === "home" && (
-        <div style={{ marginBottom: 32 }}>
+        <div style={{ marginBottom: "clamp(20px, 5vw, 32px)" }}>
           <div
             style={{
-              borderRadius: 24,
-              padding: "clamp(24px, 5vw, 42px)",
+              borderRadius: "clamp(18px, 4vw, 24px)",
+              padding: "clamp(18px, 4.5vw, 38px)",
               background:
                 "linear-gradient(135deg, #0f172a 0%, #1e293b 48%, #0f766e 100%)",
-              boxShadow: "0 22px 56px rgba(15, 23, 42, 0.28)",
+              boxShadow: "0 14px 36px rgba(15, 23, 42, 0.22)",
               border: "1px solid rgba(255, 255, 255, 0.1)",
             }}
           >
@@ -807,7 +935,7 @@ export default function PricingPage() {
                 margin: 0,
                 color: "rgba(52, 211, 153, 0.95)",
                 fontWeight: 700,
-                fontSize: 13,
+                fontSize: 12,
                 letterSpacing: "0.06em",
               }}
             >
@@ -815,155 +943,67 @@ export default function PricingPage() {
             </p>
             <h1
               style={{
-                margin: "12px 0 16px 0",
-                fontSize: "clamp(28px, 6vw, 42px)",
+                margin: "8px 0 10px 0",
+                fontSize: "clamp(22px, 5.5vw, 40px)",
                 color: "#f8fafc",
                 letterSpacing: "-0.03em",
-                lineHeight: 1.12,
+                lineHeight: 1.15,
                 fontWeight: 800,
               }}
             >
               תמחור שמבינים בשנייה
             </h1>
             <p
+              className="pricing-long-text"
               style={{
                 margin: 0,
-                maxWidth: 640,
+                maxWidth: 560,
                 color: "rgba(248, 250, 252, 0.9)",
-                fontSize: 16,
-                lineHeight: 1.65,
+                fontSize: "clamp(14px, 3.8vw, 16px)",
+                lineHeight: 1.55,
               }}
             >
               {homeHeroLeadText}
             </p>
-
-            {businessContextText && (
-              <p
-                style={{
-                  marginTop: 16,
-                  marginBottom: 0,
-                  color: "rgba(167, 243, 208, 0.95)",
-                  fontSize: 14,
-                  lineHeight: 1.6,
-                  fontWeight: 500,
-                  maxWidth: 680,
-                }}
-              >
-                {businessContextText}
-              </p>
-            )}
-
-            <div
-              style={{
-                marginTop: 24,
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                gap: 14,
-              }}
-            >
-              <div
-                style={{
-                  background: "rgba(255, 255, 255, 0.08)",
-                  border: "1px solid rgba(255, 255, 255, 0.14)",
-                  borderRadius: 18,
-                  padding: 18,
-                }}
-              >
-                <div
-                  style={{
-                    color: "rgba(248, 250, 252, 0.7)",
-                    fontSize: 13,
-                    marginBottom: 8,
-                    fontWeight: 600,
-                  }}
-                >
-                  פריטים לתמחור
-                </div>
-                <div style={{ fontWeight: 800, color: "#f8fafc", fontSize: 26 }}>
-                  {loadingItems ? "…" : items.length}
-                </div>
-                {loadingItems && (
-                  <div
-                    style={{
-                      marginTop: 8,
-                      fontSize: 13,
-                      color: "rgba(248, 250, 252, 0.65)",
-                    }}
-                  >
-                    טוען רשימה…
-                  </div>
-                )}
-              </div>
-              <div
-                style={{
-                  background: "rgba(255, 255, 255, 0.08)",
-                  border: "1px solid rgba(255, 255, 255, 0.14)",
-                  borderRadius: 18,
-                  padding: 18,
-                }}
-              >
-                <div
-                  style={{
-                    color: "rgba(248, 250, 252, 0.7)",
-                    fontSize: 13,
-                    marginBottom: 8,
-                    fontWeight: 600,
-                  }}
-                >
-                  {result ? "המשך מהחישוב" : selectedItemId ? "פריט פעיל" : "הצעד הבא"}
-                </div>
-                <div
-                  style={{
-                    fontWeight: 800,
-                    color: "#f8fafc",
-                    fontSize: 17,
-                    lineHeight: 1.35,
-                  }}
-                >
-                  {result
-                    ? "מוכן להמשך"
-                    : selectedItemId && selectedItemName
-                    ? selectedItemName
-                    : "בחרו פעולה למטה"}
-                </div>
-              </div>
-            </div>
           </div>
 
           {result && (
             <div
               style={{
-                marginTop: 18,
-                padding: "16px 18px",
-                borderRadius: 18,
+                marginTop: 12,
+                padding: "clamp(10px, 3vw, 14px)",
+                borderRadius: 14,
                 background: "#ffffff",
-                border: "1px solid rgba(15, 118, 110, 0.22)",
-                boxShadow: "0 10px 28px rgba(15, 23, 42, 0.07)",
+                border: "1px solid rgba(15, 118, 110, 0.18)",
+                boxShadow: "0 8px 22px rgba(15, 23, 42, 0.06)",
                 display: "flex",
                 flexWrap: "wrap",
-                alignItems: "center",
+                alignItems: "flex-start",
                 justifyContent: "space-between",
-                gap: 16,
+                gap: 12,
               }}
             >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13, color: "#64748b", marginBottom: 6, fontWeight: 600 }}>
-                  תוצאה אחרונה
+              <div style={{ minWidth: 0, flex: "1 1 140px" }}>
+                <div
+                  className="pricing-long-text"
+                  style={{ fontSize: 11, color: "#64748b", marginBottom: 4, fontWeight: 600, lineHeight: 1.35 }}
+                >
+                  תוצאה בסשן (לא נשמרת כהיסטוריה)
                 </div>
-                <div style={{ fontWeight: 700, color: "#0f172a", fontSize: 15 }}>
-                  {selectedItemName ? `עבור ${selectedItemName}` : "עבור הפריט האחרון"}
+                <div style={{ fontWeight: 700, color: "#0f172a", fontSize: 14 }}>
+                  {selectedItemName ? `${selectedItemName}` : "חישוב אחרון"}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
                 <div>
-                  <div style={{ fontSize: 12, color: "#64748b", marginBottom: 4 }}>מחיר מומלץ</div>
-                  <div style={{ fontWeight: 800, fontSize: 20, color: "#0f766e" }}>
+                  <div style={{ fontSize: 11, color: "#64748b", marginBottom: 2 }}>מומלץ</div>
+                  <div style={{ fontWeight: 800, fontSize: 17, color: "#0f766e" }}>
                     ₪ {result.priceOptions.recommended}
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 12, color: "#64748b", marginBottom: 4 }}>רווח משוער</div>
-                  <div style={{ fontWeight: 800, fontSize: 20, color: "#111827" }}>
+                  <div style={{ fontSize: 11, color: "#64748b", marginBottom: 2 }}>רווח</div>
+                  <div style={{ fontWeight: 800, fontSize: 17, color: "#111827" }}>
                     ₪ {result.profit.amount}
                   </div>
                 </div>
@@ -973,22 +1013,18 @@ export default function PricingPage() {
 
           <div
             style={{
-              marginTop: 22,
+              marginTop: "clamp(14px, 4vw, 18px)",
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-              gap: 18,
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 260px), 1fr))",
+              gap: "clamp(12px, 3vw, 14px)",
             }}
           >
             <div style={hubActionCardStyle}>
-              <h2 style={{ margin: "0 0 10px 0", fontSize: 19, color: "#111827" }}>
-                חשב מחיר לפריט קיים
+              <h2 style={{ margin: "0 0 6px 0", fontSize: "clamp(17px, 4vw, 18px)", color: "#111827" }}>
+                חשב מחיר
               </h2>
-              <p style={{ ...mutedTextStyle, margin: "0 0 20px 0", flex: 1 }}>
-                {result && selectedItemId
-                  ? "ממשיכים מהחישוב האחרון — פותחים את זרימת החישוב לכל הפרטים."
-                  : selectedItemId
-                  ? "ממשיכים עם הפריט האחרון שנבחר — חישוב מלא ועדכני."
-                  : "בוחרים פריט מהרשימה ומקבלים מחיר מומלץ ורווח — מיד."}
+              <p style={{ ...mutedTextStyle, margin: "0 0 12px 0", flex: 1, fontSize: 14, lineHeight: 1.5 }}>
+                בוחרים פריט, מתקנים נתונים במידת הצורך, ומקבלים מחיר ורווח.
               </p>
               <Pressable
                 onPress={() => {
@@ -999,23 +1035,21 @@ export default function PricingPage() {
                   ...buttonStyle,
                   marginTop: "auto",
                   width: "100%",
-                  minHeight: 52,
+                  minHeight: 48,
                   borderRadius: 14,
                   fontSize: 15,
                 }}
               >
-                חשב מחיר לפריט קיים
+                חשב מחיר
               </Pressable>
             </div>
 
             <div style={hubActionCardStyle}>
-              <h2 style={{ margin: "0 0 10px 0", fontSize: 19, color: "#111827" }}>
-                הוסף מוצר / שירות
+              <h2 style={{ margin: "0 0 6px 0", fontSize: "clamp(17px, 4vw, 18px)", color: "#111827" }}>
+                הוסף מוצר או שירות
               </h2>
-              <p style={{ ...mutedTextStyle, margin: "0 0 20px 0", flex: 1 }}>
-                {selectedItemId || result
-                  ? "מוסיפים פריט חדש בלי לאבד את מה שכבר נשמר ברשימה ובחישוב."
-                  : "שם, עלות וזמן — נשמור כברירת מחדל לפעמים הבאות."}
+              <p style={{ ...mutedTextStyle, margin: "0 0 12px 0", flex: 1, fontSize: 14, lineHeight: 1.5 }}>
+                שם ונתוני עלות בסיסיים — יישמרו לפעם הבאה.
               </p>
               <Pressable
                 onPress={() => {
@@ -1028,41 +1062,19 @@ export default function PricingPage() {
                   ...secondaryButtonStyle,
                   marginTop: "auto",
                   width: "100%",
-                  minHeight: 52,
+                  minHeight: 48,
                   borderRadius: 14,
                   fontSize: 15,
                 }}
               >
-                הוסף מוצר / שירות
+                הוסף לרשימה
               </Pressable>
             </div>
           </div>
         </div>
         )}
 
-        {activePanel !== "home" && (
-          <div style={{ marginBottom: 24 }}>
-            <Pressable
-              onPress={() => {
-                setActivePanel("home");
-                setShowCreateForm(false);
-              }}
-              style={{
-                ...secondaryButtonStyle,
-                minHeight: 52,
-                padding: "14px 20px",
-                borderRadius: 14,
-                width: "100%",
-                maxWidth: 400,
-                fontSize: 15,
-              }}
-            >
-              חזרה לדף הבית
-            </Pressable>
-          </div>
-        )}
-
-        {error && activePanel !== "home" && (
+        {error && (
           <div
             style={{
               ...cardStyle,
@@ -1093,30 +1105,39 @@ export default function PricingPage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-            gap: 20,
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))",
+            gap: "clamp(12px, 3vw, 16px)",
+            alignItems: "start",
           }}
         >
-          <div style={{ display: "grid", gap: 20 }}>
-            <div style={{ ...cardStyle, borderRadius: 22 }}>
-              <div style={{ marginBottom: 18 }}>
-                <h2 style={sectionTitleStyle}>1. בוחרים פריט</h2>
-                <p style={{ ...mutedTextStyle, margin: 0 }}>
-                  בוחרים מהרשימה — המספרים השמורים על הפריט ישמשו בחישוב.
-                </p>
-              </div>
+            <div
+              style={{
+                ...cardStyle,
+                borderRadius: "clamp(16px, 3vw, 20px)",
+                padding: "clamp(14px, 4vw, 18px)",
+              }}
+            >
+              <h2 style={{ ...sectionTitleStyle, fontSize: "clamp(18px, 4.5vw, 20px)" }}>
+                חישוב מחיר
+              </h2>
+              <p
+                className="pricing-long-text"
+                style={{ ...mutedTextStyle, margin: "0 0 12px 0", fontSize: 14, lineHeight: 1.5 }}
+              >
+                בוחרים פריט, מתאימים מספרים, ומחשבים — בלי ליצור פריט מחדש.
+              </p>
 
               {loadingItems && (
                 <div
                   style={{
-                    padding: 18,
-                    borderRadius: 18,
+                    padding: 14,
+                    borderRadius: 14,
                     background: "#f1f5f9",
                     border: "1px solid #e2e8f0",
                   }}
                 >
-                  <p style={{ margin: 0, color: "#475569", fontSize: 15, lineHeight: 1.6 }}>
-                    טוען את רשימת המוצרים והשירותים…
+                  <p style={{ margin: 0, color: "#475569", fontSize: 14, lineHeight: 1.6 }}>
+                    טוען רשימה…
                   </p>
                 </div>
               )}
@@ -1124,104 +1145,201 @@ export default function PricingPage() {
               {!loadingItems && items.length === 0 && (
                 <div
                   style={{
-                    padding: 20,
-                    borderRadius: 18,
+                    padding: 16,
+                    borderRadius: 14,
                     background: "#f8fafc",
                     border: "1px dashed #cbd5e1",
                   }}
                 >
-                  <p style={{ margin: 0, color: "#334155", fontWeight: 800, fontSize: 16 }}>
-                    עדיין אין פריטים לתמחור
+                  <p style={{ margin: 0, color: "#334155", fontWeight: 800, fontSize: 15 }}>
+                    עדיין אין פריטים
                   </p>
-                  <p style={{ ...mutedTextStyle, margin: "10px 0 0 0", fontSize: 15 }}>
-                    הוסיפו מוצר או שירות ממסך הבית, ואז חזרו לכאן לחישוב.
+                  <p style={{ ...mutedTextStyle, margin: "8px 0 0 0", fontSize: 14 }}>
+                    הוסיפו פריט ממסך הבית וחזרו לכאן.
                   </p>
                 </div>
               )}
 
               {items.length > 0 && (
                 <>
-                  <label style={labelStyle}>על מה מחשבים עכשיו?</label>
+                  <label style={{ ...labelStyle, marginBottom: 6, fontSize: 13 }}>פריט</label>
                   <select
                     value={selectedItemId ?? ""}
                     onChange={(e) =>
-                      setSelectedItemId(e.target.value ? Number(e.target.value) : null)
+                      handlePricingItemSelect(
+                        e.target.value ? Number(e.target.value) : null
+                      )
                     }
                     disabled={loadingItems}
                     style={{
                       ...inputStyle,
-                      marginBottom: 8,
+                      marginBottom: 12,
+                      padding: "12px 14px",
+                      fontSize: 16,
                     }}
                   >
-                    <option value="">בחר...</option>
+                    <option value="">בחרו פריט…</option>
                     {items.map((item) => (
                       <option key={item.id} value={item.id}>
                         {item.name}
                       </option>
                     ))}
                   </select>
-                  <div style={helperStyle}>
-                    זו בחירה מהרשימה. המספרים ששמורים לפריט ישמשו בחישוב.
-                  </div>
                 </>
               )}
-            </div>
-          </div>
 
-          <div style={{ display: "grid", gap: 20 }}>
-            <div style={{ ...cardStyle, borderRadius: 22 }}>
-              <h2 style={sectionTitleStyle}>2. מחשבים את המחיר</h2>
-              <p style={{ ...mutedTextStyle, marginTop: 0, marginBottom: 18 }}>
-                אחרי שבחרת פריט, לוחצים “חשב מחיר” ומקבלים תשובה ברורה: כמה זה עולה,
-                מה מחיר מומלץ, וכמה נשאר לך מכל מכירה.
-              </p>
-
-              {selectedItemName && (
-                <div
-                  style={{
-                    marginBottom: 16,
-                    padding: 12,
-                    borderRadius: 12,
-                    background: "#f8fafc",
-                    border: "1px solid #e5e7eb",
-                  }}
-                >
-                  <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 4 }}>
-                    פריט נבחר
-                  </div>
-                  <div style={{ fontWeight: 800, color: "#111827" }}>
-                    {selectedItemName}
-                  </div>
-                </div>
-              )}
-
-              <Pressable
-                onPress={handleCalculate}
-                disabled={!selectedItemId || loadingCalculation}
+              <div
                 style={{
-                  ...buttonStyle,
-                  width: "100%",
-                  minHeight: 52,
-                  borderRadius: 14,
-                  fontSize: 15,
-                  opacity: !selectedItemId || loadingCalculation ? 0.6 : 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                  marginTop: items.length > 0 ? 4 : 0,
+                  marginBottom: items.length > 0 && selectedItemId ? 12 : 0,
                 }}
               >
-                {loadingCalculation
-                  ? "מחשב..."
-                  : !selectedItemId
-                  ? "בחר פריט כדי לחשב"
-                  : "חשב מחיר"}
-              </Pressable>
+                <Pressable
+                  onPress={handleCalculate}
+                  disabled={!selectedItemId || loadingCalculation}
+                  style={{
+                    ...buttonStyle,
+                    width: "100%",
+                    minHeight: 52,
+                    borderRadius: 14,
+                    fontSize: 16,
+                    opacity: !selectedItemId || loadingCalculation ? 0.55 : 1,
+                  }}
+                >
+                  {loadingCalculation
+                    ? "מחשב..."
+                    : !selectedItemId
+                    ? "בחרו פריט כדי לחשב"
+                    : "חשב מחיר"}
+                </Pressable>
+                <Pressable
+                  onPress={handleSaveProfileDefaults}
+                  disabled={!selectedItemId || savingProfile}
+                  style={{
+                    ...secondaryButtonStyle,
+                    width: "100%",
+                    minHeight: 48,
+                    borderRadius: 14,
+                    fontSize: 15,
+                    opacity: !selectedItemId || savingProfile ? 0.55 : 1,
+                  }}
+                >
+                  {savingProfile ? "שומר…" : "שמור נתונים לפריט"}
+                </Pressable>
+              </div>
+
+              {items.length > 0 && selectedItemId && (
+                <details
+                  className="pricing-calc-details"
+                  style={{
+                    marginBottom: 0,
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 14,
+                    padding: "10px 14px 14px",
+                    background: "#fafafa",
+                  }}
+                >
+                  <summary
+                    style={{
+                      cursor: "pointer",
+                      fontWeight: 700,
+                      color: "#111827",
+                      fontSize: 15,
+                    }}
+                  >
+                    התאמת עלות וזמן (אופציונלי)
+                  </summary>
+                  <p
+                    className="pricing-long-text"
+                    style={{ ...mutedTextStyle, margin: "10px 0 12px 0", fontSize: 13 }}
+                  >
+                    השדות משפיעים על החישוב מיד. ״שמירה לפריט״ מעדכנת את ברירת המחדל
+                    לפעם הבאה.
+                  </p>
+                  <div style={{ display: "grid", gap: "clamp(10px, 3vw, 14px)" }}>
+                    <div style={{ ...resultBoxStyle, padding: "12px 14px" }}>
+                      <label style={{ ...labelStyle, marginBottom: 6, fontSize: 13 }}>
+                        חומרים / קנייה (₪)
+                      </label>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        value={calcMaterialCost}
+                        onChange={(e) => setCalcMaterialCost(e.target.value)}
+                        style={{ ...inputStyle, marginBottom: 6 }}
+                        placeholder="0"
+                      />
+                      <div style={{ ...helperStyle, marginBottom: 0, fontSize: 12 }}>
+                        {fieldText.material}
+                      </div>
+                    </div>
+                    <div style={{ ...resultBoxStyle, padding: "12px 14px" }}>
+                      <label style={{ ...labelStyle, marginBottom: 6, fontSize: 13 }}>
+                        זמן (דקות)
+                      </label>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        value={calcLaborMinutes}
+                        onChange={(e) => setCalcLaborMinutes(e.target.value)}
+                        style={{ ...inputStyle, marginBottom: 6 }}
+                        placeholder="0"
+                      />
+                      <div style={{ ...helperStyle, marginBottom: 0, fontSize: 12 }}>
+                        {fieldText.labor}
+                      </div>
+                    </div>
+                    <div style={{ ...resultBoxStyle, padding: "12px 14px" }}>
+                      <label style={{ ...labelStyle, marginBottom: 6, fontSize: 13 }}>
+                        שווי שעה (₪)
+                      </label>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        value={calcHourlyRate}
+                        onChange={(e) => setCalcHourlyRate(e.target.value)}
+                        style={{ ...inputStyle, marginBottom: 6 }}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div style={{ ...resultBoxStyle, padding: "12px 14px" }}>
+                      <label style={{ ...labelStyle, marginBottom: 6, fontSize: 13 }}>
+                        הוצאות כלליות (%)
+                      </label>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        value={calcOverheadPercent}
+                        onChange={(e) => setCalcOverheadPercent(e.target.value)}
+                        style={{ ...inputStyle, marginBottom: 0 }}
+                        placeholder="10"
+                      />
+                    </div>
+                  </div>
+                </details>
+              )}
             </div>
 
-            <div style={{ ...cardStyle, borderRadius: 22 }}>
-              <h2 style={sectionTitleStyle}>3. תוצאה</h2>
+            <div
+              style={{
+                ...cardStyle,
+                borderRadius: "clamp(16px, 3vw, 20px)",
+                padding: "clamp(14px, 4vw, 18px)",
+              }}
+            >
+              <h2 style={{ ...sectionTitleStyle, fontSize: "clamp(18px, 4.5vw, 20px)" }}>
+                תוצאה
+              </h2>
 
               {!result && (
-                <p style={{ ...mutedTextStyle, margin: 0 }}>
-                  כאן תופיע התוצאה המלאה מיד אחרי החישוב — עלות, מחיר מומלץ,
-                  רווח, והסבר קצר שיעזור לך להבין את המספרים.
+                <p
+                  className="pricing-long-text"
+                  style={{ ...mutedTextStyle, margin: 0, fontSize: 14, lineHeight: 1.5 }}
+                >
+                  אחרי חישוב תראו כאן כמה לגבות, כמה נשאר לכם, ואיפה קו האדום — בלי כפילויות.
                 </p>
               )}
 
@@ -1229,63 +1347,122 @@ export default function PricingPage() {
                 <>
                   <div
                     style={{
-                      ...resultBoxStyle,
-                      marginBottom: 14,
-                      background: "#eff6ff",
-                      border: "1px solid #bfdbfe",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 10,
+                      marginBottom: 12,
                     }}
                   >
-                    <div style={{ color: "#475569", fontSize: 13 }}>
-                      מחיר מומלץ (זה המספר המרכזי לצאת איתו)
+                    <div
+                      style={{
+                        ...resultBoxStyle,
+                        background: "#eff6ff",
+                        border: "1px solid #bfdbfe",
+                        padding: "clamp(12px, 3.5vw, 14px)",
+                      }}
+                    >
+                      <div style={{ color: "#475569", fontSize: 12, fontWeight: 600 }}>
+                        כמה לגבות (מומלץ)
+                      </div>
+                      <div
+                        style={{
+                          ...highlightValueStyle,
+                          fontSize: "clamp(22px, 6vw, 28px)",
+                          marginTop: 4,
+                          lineHeight: 1.15,
+                        }}
+                      >
+                        ₪ {result.priceOptions.recommended}
+                      </div>
                     </div>
-                    <div style={highlightValueStyle}>
-                      ₪ {result.priceOptions.recommended}
+                    <div
+                      style={{
+                        ...resultBoxStyle,
+                        padding: "clamp(12px, 3.5vw, 14px)",
+                      }}
+                    >
+                      <div style={{ color: "#475569", fontSize: 12, fontWeight: 600 }}>
+                        כמה מרוויחים (במומלץ)
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "clamp(22px, 6vw, 26px)",
+                          fontWeight: 800,
+                          color: "#111827",
+                          marginTop: 4,
+                          lineHeight: 1.15,
+                        }}
+                      >
+                        ₪ {result.profit.amount}
+                      </div>
+                      <div style={{ ...mutedTextStyle, marginTop: 6, fontSize: 12 }}>
+                        {result.profit.percent}% מהמחיר למכירה
+                      </div>
                     </div>
                   </div>
 
                   <div
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                      gap: 12,
-                      marginBottom: 18,
+                      ...resultBoxStyle,
+                      border: "1px solid #fecaca",
+                      background: "#fffafa",
+                      padding: "clamp(12px, 3.5vw, 14px)",
+                      marginBottom: 12,
                     }}
                   >
-                    <div style={resultBoxStyle}>
-                      <h4 style={{ marginTop: 0, marginBottom: 10 }}>
-                        גבול תחתון (לא לרדת מתחת)
-                      </h4>
-                      <p style={{ margin: 0, fontWeight: 800, fontSize: 22 }}>
-                        ₪ {result.costBreakdown.fullCost}
-                      </p>
-                      <p style={{ ...mutedTextStyle, margin: "10px 0 0 0" }}>
-                        זה הקו שבו אין רווח ואין הפסד (מבוסס על העלות המלאה).
-                      </p>
+                    <div
+                      style={{
+                        fontSize: "clamp(12px, 3.5vw, 13px)",
+                        fontWeight: 800,
+                        color: "#991b1b",
+                        marginBottom: 8,
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      קו אדום — אל תמכרו מתחת בלי שתדעו למה
                     </div>
-
-                    <div style={resultBoxStyle}>
-                      <h4 style={{ marginTop: 0, marginBottom: 10 }}>רווח צפוי</h4>
-                      <p style={{ margin: 0, fontWeight: 800, fontSize: 22 }}>
-                        ₪ {result.profit.amount}
-                      </p>
-                      <p style={{ ...mutedTextStyle, margin: "10px 0 0 0" }}>
-                        זה מה שנשאר לך מכל מכירה במחיר המומלץ. אחוז רווח:{" "}
-                        {result.profit.percent}%.
-                      </p>
-                    </div>
+                    <p
+                      className="pricing-long-text"
+                      style={{
+                        margin: "0 0 10px 0",
+                        color: "#374151",
+                        fontSize: 14,
+                        lineHeight: 1.55,
+                      }}
+                    >
+                      <strong>עלות מלאה (פריצה):</strong> ₪ {result.costBreakdown.fullCost}
+                      <span style={{ color: "#6b7280" }}>
+                        {" "}
+                        — מתחת לזה מכירה מכסה פחות מהעלות הכוללת שלך.
+                      </span>
+                    </p>
+                    <p
+                      className="pricing-long-text"
+                      style={{ margin: 0, color: "#374151", fontSize: 14, lineHeight: 1.55 }}
+                    >
+                      <strong>רצפת מחיר נמוכה (לפי המודל):</strong> ₪{" "}
+                      {result.priceOptions.minimum}
+                      <span style={{ color: "#6b7280" }}>
+                        {" "}
+                        — זה המינימום שהחישוב מתחשב בו לפני המומלץ; לא אותו דבר כמו עלות מלאה.
+                      </span>
+                    </p>
                   </div>
 
                   {decisionTip && (
                     <div
                       style={{
                         ...resultBoxStyle,
-                        marginBottom: 18,
+                        marginBottom: 14,
                         background: "#ffffff",
                         border: "1px solid rgba(15, 118, 110, 0.22)",
                       }}
                     >
-                      <h4 style={{ marginTop: 0, marginBottom: 8 }}>{decisionTip.title}</h4>
-                      <p style={{ margin: "0 0 10px 0", color: "#0f172a", lineHeight: 1.75 }}>
+                      <h4 style={{ marginTop: 0, marginBottom: 8, fontSize: 15 }}>{decisionTip.title}</h4>
+                      <p
+                        className="pricing-long-text"
+                        style={{ margin: "0 0 10px 0", color: "#0f172a", lineHeight: 1.65, fontSize: 14 }}
+                      >
                         {decisionTip.body}
                       </p>
                       <p style={{ margin: 0, color: "#0f766e", fontWeight: 800 }}>
@@ -1294,18 +1471,18 @@ export default function PricingPage() {
                     </div>
                   )}
 
-                  <div style={{ marginBottom: 18 }}>
+                  <div style={{ marginBottom: 12 }}>
                     <Pressable
                       onPress={() => setShowTransparencyDetails((prev) => !prev)}
                       style={{
                         ...secondaryButtonStyle,
                         width: "100%",
-                        minHeight: 52,
+                        minHeight: 48,
                         borderRadius: 14,
                         fontSize: 15,
                       }}
                     >
-                      {showTransparencyDetails ? "הסתר פירוט מלא" : "הצג פירוט מלא"}
+                      {showTransparencyDetails ? "הסתר פירוט נוסף" : "פירוט נוסף (עלויות והסבר)"}
                     </Pressable>
                   </div>
 
@@ -1338,43 +1515,25 @@ export default function PricingPage() {
                         </div>
                       )}
 
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                          gap: 12,
-                          marginBottom: 12,
-                        }}
-                      >
-                        <div style={resultBoxStyle}>
-                          <h4 style={{ marginTop: 0, marginBottom: 10 }}>פירוט עלויות</h4>
-                          <p style={{ margin: "0 0 8px 0" }}>
-                            עלות חומרים (מה שנצרך/נקנה): ₪ {result.costBreakdown.materialCost}
-                          </p>
-                          <p style={{ margin: "0 0 8px 0" }}>
-                            עלות עבודה (זמן * שווי שעה): ₪ {result.costBreakdown.laborCost}
-                          </p>
-                          <p style={{ margin: "0 0 8px 0" }}>
-                            עלות ישירה (חומרים + עבודה): ₪ {result.costBreakdown.directCost}
-                          </p>
-                          <p style={{ margin: 0 }}>
-                            הוצאות כלליות (אחוז מהעלות): ₪ {result.costBreakdown.overheadCost}
-                          </p>
-                        </div>
-
-                        <div style={resultBoxStyle}>
-                          <h4 style={{ marginTop: 0, marginBottom: 10 }}>טווחי מחיר</h4>
-                          <p style={{ margin: "0 0 8px 0" }}>
-                            מחיר מינימום: ₪ {result.priceOptions.minimum}
-                          </p>
-                          <p style={{ margin: "0 0 8px 0", fontWeight: 700, color: "#2563eb" }}>
-                            מחיר מומלץ: ₪ {result.priceOptions.recommended}
-                          </p>
-                          <p style={{ margin: 0 }}>
-                            מחיר פרימיום: ₪ {result.priceOptions.premium}
-                          </p>
-                        </div>
+                      <div style={{ ...resultBoxStyle, marginBottom: 12 }}>
+                        <h4 style={{ marginTop: 0, marginBottom: 10 }}>פירוט עלויות</h4>
+                        <p style={{ margin: "0 0 8px 0" }}>
+                          עלות חומרים (מה שנצרך/נקנה): ₪ {result.costBreakdown.materialCost}
+                        </p>
+                        <p style={{ margin: "0 0 8px 0" }}>
+                          עלות עבודה (זמן * שווי שעה): ₪ {result.costBreakdown.laborCost}
+                        </p>
+                        <p style={{ margin: "0 0 8px 0" }}>
+                          עלות ישירה (חומרים + עבודה): ₪ {result.costBreakdown.directCost}
+                        </p>
+                        <p style={{ margin: 0 }}>
+                          הוצאות כלליות (אחוז מהעלות): ₪ {result.costBreakdown.overheadCost}
+                        </p>
                       </div>
+                      <p style={{ ...mutedTextStyle, margin: "0 0 12px 0", fontSize: 13 }}>
+                        שלוש רמות המחיר (מינימום / מומלץ / פרימיום) מופיעות בתקציר למעלה; כאן רק
+                        הפירוט החישובי.
+                      </p>
 
                       {result.transparency && (
                         <div style={{ marginBottom: 12 }}>
@@ -1402,7 +1561,8 @@ export default function PricingPage() {
                           <div
                             style={{
                               display: "grid",
-                              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                              gridTemplateColumns:
+                                "repeat(auto-fit, minmax(min(100%, 260px), 1fr))",
                               gap: 12,
                               marginBottom: 12,
                             }}
@@ -1473,7 +1633,7 @@ export default function PricingPage() {
                         }}
                       >
                         <h4 style={{ marginTop: 0, marginBottom: 10 }}>הסבר פשוט</h4>
-                        <p style={{ margin: 0, color: "#374151", lineHeight: 1.8 }}>
+                        <p className="pricing-long-text" style={{ margin: 0, color: "#374151", lineHeight: 1.75, fontSize: 14 }}>
                           {result.explanation}
                         </p>
                       </div>
@@ -1482,15 +1642,25 @@ export default function PricingPage() {
                 </>
               )}
             </div>
-          </div>
         </div>
         )}
 
         {activePanel === "create" && (
-        <div style={{ display: "grid", gap: 20 }}>
-          <div style={{ ...cardStyle, borderRadius: 22 }}>
-            <h2 style={sectionTitleStyle}>{pricingText.createTitle}</h2>
-            <p style={{ ...mutedTextStyle, marginTop: 0, marginBottom: 22 }}>
+        <div style={{ display: "grid", gap: "clamp(14px, 4vw, 20px)" }}>
+          <div
+            style={{
+              ...cardStyle,
+              borderRadius: "clamp(16px, 3vw, 22px)",
+              padding: "clamp(14px, 4vw, 20px)",
+            }}
+          >
+            <h2 style={{ ...sectionTitleStyle, fontSize: "clamp(18px, 4.5vw, 22px)" }}>
+              {pricingText.createTitle}
+            </h2>
+            <p
+              className="pricing-long-text"
+              style={{ ...mutedTextStyle, marginTop: 0, marginBottom: "clamp(16px, 4vw, 22px)", lineHeight: 1.55 }}
+            >
               {pricingText.createDescription}
             </p>
 

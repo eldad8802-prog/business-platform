@@ -3,13 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/ui/page-header";
 import { getInventoryItems } from "@/lib/api/inventory";
-
-
-import pdfMake from "pdfmake/build/pdfmake";
-import pdfFonts from "pdfmake/build/vfs_fonts";
-import { hebrewFontVfs } from "@/lib/pdf/hebrew-font-vfs";
-
-
+import {
+  buildSupplierOrderText,
+  downloadSupplierPurchaseOrderPdf,
+  openWhatsAppWithSupplierOrderText,
+} from "@/lib/services/inventory/supplier-purchase-document.service";
 
 type Item = {
   id: number;
@@ -29,6 +27,7 @@ type Draft = {
   id: number;
   supplierName: string | null;
   externalOrderId?: string | null;
+  orderDate?: string | null;
   status: string;
   createdAt?: string;
   lines: DraftLine[];
@@ -46,31 +45,6 @@ function buildHeaders() {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
-}
-
-function buildSupplierOrderText(draft: Draft) {
-  const supplierName = draft.supplierName || "ספק";
-  const today = new Date().toLocaleDateString("he-IL");
-
-  const linesText = draft.lines
-    .map((line, index) => {
-      const name = line.rawName || "מוצר ללא שם";
-      const unit = line.unitType || "יחידות";
-      return `${index + 1}. ${name} — ${line.quantity} ${unit}`;
-    })
-    .join("\n");
-
-  return `שלום,
-נשמח לבצע הזמנה מספק.
-
-ספק: ${supplierName}
-מספר הזמנה: #${draft.id}
-תאריך: ${today}
-
-מוצרים להזמנה:
-${linesText}
-
-תודה.`;
 }
 
 export default function PendingSupplierPurchasesPage() {
@@ -204,284 +178,8 @@ export default function PendingSupplierPurchasesPage() {
 
   function openWhatsAppWithOrderText() {
     if (!supplierOrderText) return;
-
-    const encodedText = encodeURIComponent(supplierOrderText);
-    window.open(`https://wa.me/?text=${encodedText}`, "_blank");
+    openWhatsAppWithSupplierOrderText(supplierOrderText);
   }
-function downloadSupplierPDF(draft: Draft) {
-  const nbsp = "\u00A0";
-const rtlText = (value: string) => value.replaceAll(" ", nbsp);
-  const pdf = pdfMake as any;
-
-  const customVfs = {
-    ...((pdfFonts as any).pdfMake?.vfs || (pdfFonts as any).vfs || {}),
-    ...hebrewFontVfs,
-  };
-
-  pdf.vfs = customVfs;
-
-  if (typeof pdf.addVirtualFileSystem === "function") {
-    pdf.addVirtualFileSystem(customVfs);
-  }
-
-  const fonts = {
-    Hebrew: {
-      normal: "NotoSansHebrew-Regular.ttf",
-      bold: "NotoSansHebrew-Regular.ttf",
-      italics: "NotoSansHebrew-Regular.ttf",
-      bolditalics: "NotoSansHebrew-Regular.ttf",
-    },
-  };
-
-  pdf.fonts = fonts;
-
-  const supplierName = draft.supplierName || "ספק";
-  const today = new Date().toLocaleDateString("he-IL");
-
-  const totalUnits = draft.lines.reduce(
-    (sum, line) => sum + Number(line.quantity || 0),
-    0
-  );
-
-  const tableBody = [
-    [
-      { text: "#", bold: true, alignment: "center" },
-      { text: "מוצר", bold: true, alignment: "right" },
-      { text: "כמות", bold: true, alignment: "center" },
-      { text: "יחידה", bold: true, alignment: "center" },
-    ],
-    ...draft.lines.map((line, index) => [
-      { text: String(index + 1), alignment: "center" },
-      { text: line.rawName || "מוצר ללא שם", alignment: "right" },
-      { text: String(line.quantity), alignment: "center" },
-      { text: line.unitType || "UNIT", alignment: "center" },
-    ]),
-  ];
-
- const docDefinition: any = {
-  pageSize: "A4",
-  pageMargins: [40, 40, 40, 40],
-  footer: (currentPage: number, pageCount: number) => ({
-    margin: [40, 0, 40, 22],
-    font: "Hebrew",
-    fontSize: 9,
-    color: "#9ca3af",
-    columns: [
-      { text: rtlText("נוצר אוטומטית במערכת"), alignment: "left" },
-      {
-        alignment: "right",
-        columns: [
-          { width: "auto", text: rtlText("עמוד"), style: "pageFooterText" },
-          { width: 6, text: "" },
-          { width: "auto", text: String(currentPage), style: "pageFooterPage" },
-          { width: 10, text: "" },
-          { width: "auto", text: rtlText("מתוך"), style: "pageFooterText" },
-          { width: 6, text: "" },
-          { width: "auto", text: String(pageCount), style: "pageFooterPage" },
-        ],
-        columnGap: 0,
-      },
-    ],
-  }),
-
-  defaultStyle: {
-    font: "Hebrew",
-    fontSize: 11,
-    alignment: "right",
-  },
-
-  content: [
-    {
-      text: rtlText(
-        (typeof document !== "undefined" ? document.title : "").trim()
-      ),
-      style: "businessName",
-      margin: [0, 0, 0, 4],
-    },
-    {
-      text: rtlText("הזמנה לספק"),
-      style: "header",
-      margin: [0, 0, 0, 12],
-    },
-
-    {
-      margin: [0, 0, 0, 18],
-      table: {
-        // value | label (fixed width) — keeps RTL spacing stable
-        widths: ["*", 110],
-        body: [
-          [
-            { text: supplierName, style: "metaValue" },
-            { text: rtlText("ספק"), style: "metaLabel" },
-          ],
-          [
-            { text: `#${draft.id}`, style: "metaValue" },
-            { text: rtlText("מספר הזמנה"), style: "metaLabel" },
-          ],
-          [
-            { text: today, style: "metaValue" },
-            { text: rtlText("תאריך"), style: "metaLabel" },
-          ],
-        ],
-      },
-      layout: {
-        fillColor: () => "#f9fafb",
-        hLineColor: () => "#e5e7eb",
-        vLineColor: () => "#e5e7eb",
-        hLineWidth: (i: number) => (i === 0 || i === 3 ? 1 : 0.75),
-        vLineWidth: () => 1,
-        paddingTop: () => 8,
-        paddingBottom: () => 8,
-        paddingLeft: () => 10,
-        paddingRight: () => 10,
-      },
-    },
-
-    {
-      text: rtlText("פירוט מוצרים"),
-      style: "sectionTitle",
-      margin: [0, 0, 0, 8],
-    },
-
-    {
-      table: {
-        headerRows: 1,
-        // Column order (left-to-right): number, unit, quantity, product
-        widths: [35, 65, 70, "*"],
-        body: [
-          [
-            { text: "#", style: "tableHeader", alignment: "center" },
-            { text: rtlText("יחידה"), style: "tableHeader", alignment: "center" },
-            { text: rtlText("כמות"), style: "tableHeader", alignment: "center" },
-            { text: rtlText("מוצר"), style: "tableHeader", alignment: "right" },
-          ],
-          ...draft.lines.map((line, index) => [
-            { text: String(index + 1), alignment: "center" },
-            { text: line.unitType || "UNIT", alignment: "center" },
-            { text: String(line.quantity), alignment: "center" },
-            {
-              text: line.rawName || "מוצר ללא שם",
-              alignment: "right",
-            },
-          ]),
-        ],
-      },
-
-      layout: {
-        fillColor: (rowIndex: number) => {
-          if (rowIndex === 0) return "#eef2ff";
-          return rowIndex % 2 === 0 ? "#fbfdff" : null;
-        },
-        hLineWidth: (i: number) => (i === 0 || i === 1 ? 1.2 : 0.75),
-        hLineColor: () => "#e5e7eb",
-        vLineWidth: () => 0.75,
-        vLineColor: () => "#e5e7eb",
-        paddingTop: () => 9,
-        paddingBottom: () => 9,
-        paddingLeft: () => 10,
-        paddingRight: () => 10,
-      },
-
-      margin: [0, 0, 0, 18],
-    },
-
-    {
-      margin: [0, 0, 0, 14],
-      table: {
-        widths: ["*", 110],
-        body: [
-          [
-            { text: String(draft.lines.length), style: "summaryValue" },
-            { text: rtlText("סה״כ פריטים"), style: "summaryLabel" },
-          ],
-          [
-            { text: String(totalUnits), style: "summaryValue" },
-            { text: rtlText("סה״כ יחידות"), style: "summaryLabel" },
-          ],
-        ],
-      },
-      layout: {
-        fillColor: () => "#ffffff",
-        hLineColor: () => "#e5e7eb",
-        vLineColor: () => "#ffffff",
-        hLineWidth: (i: number) => (i === 0 || i === 2 ? 0 : 0.75),
-        vLineWidth: () => 0,
-        paddingTop: () => 6,
-        paddingBottom: () => 6,
-        paddingLeft: () => 0,
-        paddingRight: () => 0,
-      },
-    },
-
-    {
-      text: rtlText("תודה רבה."),
-      style: "footer",
-    },
-  ],
-
-  styles: {
-    businessName: {
-      fontSize: 14,
-      bold: true,
-      color: "#111827",
-    },
-    header: {
-      fontSize: 22,
-      bold: true,
-    },
-
-    metaLabel: {
-      fontSize: 11,
-      bold: true,
-      color: "#111827",
-      alignment: "right",
-    },
-    metaValue: {
-      fontSize: 11,
-      color: "#374151",
-      alignment: "right",
-    },
-
-    sectionTitle: {
-      fontSize: 14,
-      bold: true,
-    },
-
-    tableHeader: {
-      bold: true,
-      color: "#111827",
-    },
-
-    summaryLabel: {
-      bold: true,
-      fontSize: 12,
-      alignment: "right",
-      color: "#111827",
-    },
-    summaryValue: {
-      bold: true,
-      fontSize: 12,
-      alignment: "right",
-      color: "#111827",
-    },
-
-    footer: {
-      margin: [0, 10, 0, 0],
-    },
-    pageFooterText: {
-      color: "#9ca3af",
-    },
-    pageFooterPage: {
-      color: "#6b7280",
-      bold: true,
-    },
-  },
-};
-
-  pdf
-    .createPdf(docDefinition, undefined, fonts, customVfs)
-    .download(`supplier-order-${draft.id}.pdf`);
-}
 
   async function approveDraft(draft: Draft) {
     try {
@@ -1339,7 +1037,10 @@ const rtlText = (value: string) => value.replaceAll(" ", nbsp);
 
                <button
   type="button"
-onClick={() => dispatchDraft && downloadSupplierPDF(dispatchDraft)}
+onClick={() =>
+                  dispatchDraft &&
+                  downloadSupplierPurchaseOrderPdf(dispatchDraft)
+                }
   style={{
     minHeight: 48,
     borderRadius: 16,

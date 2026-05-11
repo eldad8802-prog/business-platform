@@ -1,3 +1,6 @@
+import type { RenderBlueprint } from "@/lib/features/content/render-blueprint/types";
+import { applyRenderBlueprint } from "@/lib/features/content/render-blueprint/creatomate-adapter";
+
 type SelectedFormat = "reel" | "video" | "image" | "post";
 type SelectedPlatform = "instagram" | "tiktok" | "facebook";
 
@@ -13,6 +16,7 @@ type RenderInput = {
   caption?: string;
   selectedFormat: SelectedFormat;
   selectedPlatform: SelectedPlatform;
+  renderBlueprint?: RenderBlueprint;
 };
 
 type CreatomateRenderResponse = {
@@ -212,7 +216,10 @@ export async function createCreatomateRender(
     return createMockRenderResponse();
   }
 
-  const payload = buildPayload(input);
+  const rawPayload = buildPayload(input);
+  const payload = input.renderBlueprint
+    ? applyRenderBlueprint(rawPayload, input.renderBlueprint)
+    : rawPayload;
 
   console.log("CREATOMATE PAYLOAD:", JSON.stringify(payload, null, 2));
 

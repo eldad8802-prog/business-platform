@@ -5,7 +5,7 @@
  *
  * Production / serverless (e.g. Vercel): bundling Chromium or calling a remote browser
  * is not addressed here — deploy targets without a local Playwright browser should keep
- * `BILLING_PDF_RENDERER` unset (pdfmake path) or supply a compatible runtime.
+ * `BILLING_PDF_RENDERER=pdfmake` (legacy path) or supply a compatible runtime.
  */
 
 import { existsSync, readFileSync } from "fs";

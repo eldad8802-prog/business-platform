@@ -1,4 +1,5 @@
 import React from "react";
+import type { InboxItemViewModel } from "@/lib/inbox-view/inbox-item.types";
 
 type Message = {
   id: number;
@@ -29,11 +30,45 @@ type SmartIndicator = {
   border: string;
 };
 
+function formatWaitingLine(waitingMinutes: number | null): string | null {
+  if (waitingMinutes === null || waitingMinutes <= 0) return null;
+  if (waitingMinutes < 60) {
+    return `ממתין ${waitingMinutes} דק׳`;
+  }
+  const hours = Math.floor(waitingMinutes / 60);
+  return `ממתין ${hours} שעות`;
+}
+
+/** Signals we treat as "no badge" — neutral states should be quiet. */
+const QUIET_SIGNALS: ReadonlySet<InboxItemViewModel["primarySignal"]> = new Set([
+  "neutral",
+  "fresh_lead",
+]);
+
+function resolveTitle(item: InboxItemViewModel | null): string {
+  if (!item) return "לקוח חדש";
+  if (item.customerName && item.customerName.trim().length > 0) {
+    return item.customerName.trim();
+  }
+  if (item.customerPhone && item.customerPhone.trim().length > 0) {
+    return item.customerPhone.trim();
+  }
+  return "לקוח חדש";
+}
+
+function shouldShowStage(stageLabel: string, stage: InboxItemViewModel["currentStage"]): boolean {
+  if (stage === null || stage === "NEW") return false;
+  if (!stageLabel || stageLabel.trim().length === 0) return false;
+  if (stageLabel === "חדשה") return false;
+  return true;
+}
+
 export function ConversationView(props: {
   isMobile: boolean;
   viewMode: "OPEN" | "CLOSED";
   activeConversationId: number | null;
   activeConversation: Conversation | null;
+  activeItem?: InboxItemViewModel | null;
   activeIndicator: SmartIndicator;
   getStageLabel: (stage: string | null | undefined) => string;
   messages: Message[];
@@ -59,6 +94,7 @@ export function ConversationView(props: {
     viewMode,
     activeConversationId,
     activeConversation,
+    activeItem = null,
     activeIndicator,
     getStageLabel,
     messages,
@@ -81,6 +117,37 @@ export function ConversationView(props: {
   const isSuggestionDraft = hasSelectedSuggestion;
   const isManualDraft = !hasSelectedSuggestion && hasDraft;
   const isIdleDraft = !hasSelectedSuggestion && !hasDraft;
+
+  const headerTitle = resolveTitle(activeItem);
+
+  const showActiveSignal =
+    activeItem !== null && !QUIET_SIGNALS.has(activeItem.primarySignal);
+  const showHotPill = activeItem?.temperatureBucket === "hot";
+  const activeWaitingLine = activeItem
+    ? formatWaitingLine(activeItem.waitingMinutes)
+    : null;
+  const showActiveAction =
+    activeItem !== null && activeItem.suggestedActionLabel.trim().length > 0;
+  const showContextStrip =
+    showActiveSignal || activeWaitingLine !== null || showHotPill;
+
+  const indicatorLabel = showActiveSignal
+    ? activeItem!.signalLabel
+    : activeIndicator.label;
+  const indicatorIsMeaningful = showActiveSignal
+    ? true
+    : activeItem === null && activeIndicator.label !== "שיחה חדשה";
+  const showIndicator = indicatorIsMeaningful;
+
+  const showStageInMeta = activeItem
+    ? shouldShowStage(activeItem.stageLabel, activeItem.currentStage)
+    : Boolean(
+        activeConversation?.currentStage &&
+          activeConversation.currentStage !== "NEW"
+      );
+  const metaStageLabel = activeItem
+    ? activeItem.stageLabel
+    : getStageLabel(activeConversation?.currentStage);
 
   const draftLabel = isSuggestionDraft
     ? "טיוטה פעילה (מבוססת על הצעה)"
@@ -175,13 +242,76 @@ export function ConversationView(props: {
                       fontSize: 18,
                     }}
                   >
-                    שיחה
+                    {headerTitle}
                   </h2>
 
-                  <div style={{ fontSize: 13, color: "#64748b", marginTop: 6 }}>
-                    #{activeConversation?.id} • {activeConversation?.channel} •{" "}
-                    {activeConversation?.status} • {getStageLabel(activeConversation?.currentStage)}
+                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+                    #{activeConversation?.id} · {activeConversation?.channel}
+                    {showStageInMeta ? ` · ${metaStageLabel}` : ""}
                   </div>
+
+                  {showContextStrip ? (
+                    <div
+                      style={{
+                        marginTop: 10,
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 8,
+                        alignItems: "center",
+                        fontSize: 12,
+                      }}
+                    >
+                      {showActiveSignal ? (
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "3px 10px",
+                            borderRadius: 999,
+                            background: "rgba(254, 243, 199, 0.7)",
+                            border: "1px solid rgba(245, 158, 11, 0.4)",
+                            color: "#92400e",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {activeItem!.signalLabel}
+                        </span>
+                      ) : null}
+                      {showHotPill ? (
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "3px 10px",
+                            borderRadius: 999,
+                            background: "rgba(254, 226, 226, 0.7)",
+                            border: "1px solid rgba(220, 38, 38, 0.4)",
+                            color: "#991b1b",
+                            fontWeight: 600,
+                          }}
+                        >
+                          חם
+                        </span>
+                      ) : null}
+                      {activeWaitingLine ? (
+                        <span style={{ color: "#64748b" }}>
+                          {activeWaitingLine}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {showActiveAction ? (
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: "#3730a3",
+                        marginTop: 8,
+                        lineHeight: 1.4,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {activeItem!.suggestedActionLabel}
+                    </div>
+                  ) : null}
 
                   {activeConversation?.status === "OPEN" && (
                     <div style={{ marginTop: 12 }}>
@@ -196,22 +326,24 @@ export function ConversationView(props: {
                   )}
                 </div>
 
-                <div
-                  style={{
-                    padding: "8px 12px",
-                    borderRadius: 999,
-                    border: "1px solid rgba(15, 23, 42, 0.10)",
-                    color: "#0f172a",
-                    fontWeight: 700,
-                    background: "#f8fafc",
-                    whiteSpace: "nowrap",
-                    maxWidth: "100%",
-                    alignSelf: isMobile ? "flex-start" : "center",
-                    fontSize: 12,
-                  }}
-                >
-                  {activeIndicator.emoji} {activeIndicator.label}
-                </div>
+                {showIndicator ? (
+                  <div
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: 999,
+                      border: "1px solid rgba(15, 23, 42, 0.10)",
+                      color: "#0f172a",
+                      fontWeight: 700,
+                      background: "#f8fafc",
+                      whiteSpace: "nowrap",
+                      maxWidth: "100%",
+                      alignSelf: isMobile ? "flex-start" : "center",
+                      fontSize: 12,
+                    }}
+                  >
+                    {indicatorLabel}
+                  </div>
+                ) : null}
               </div>
             </div>
 

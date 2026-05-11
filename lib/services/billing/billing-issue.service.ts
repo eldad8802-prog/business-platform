@@ -2,6 +2,7 @@ import {
   BillingDocument,
   BillingDocumentLine,
   BillingDocumentStatus,
+  BillingDocumentType,
   BillingPdfRenderStatus,
   Prisma,
 } from "@prisma/client";
@@ -14,6 +15,12 @@ import {
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
 import { recomputeAll } from "@/lib/services/billing/totals/billing-totals.service";
+import { ensureBillingInvoicePostedEvent } from "@/lib/services/financial-events/financial-event.service";
+import { assertBillingIdentityReadyForTaxInvoice } from "@/lib/billing/business-identity";
+import {
+  parseBillingPdfTemplateStyle,
+  type BillingPdfTemplateStyle,
+} from "@/lib/billing/billing-pdf-template-style";
 
 const SNAPSHOT_SCHEMA_VERSION = 1;
 const DOCUMENT_NUMBER_PAD = 6;
@@ -97,8 +104,31 @@ type IssuedSnapshot = {
     actorUserId: number;
     source: string;
   };
+  /** Frozen layout preset at issue time (CLASSIC | MODERN | COMPACT). */
+  pdfTemplateStyle: BillingPdfTemplateStyle;
   extensions: Record<string, unknown>;
 };
+
+type BusinessProfileForInvoice = {
+  billingLegalName: string | null;
+  billingBusinessKind: string | null;
+  billingTaxId: string | null;
+  billingVatNumber: string | null;
+  billingPhone: string | null;
+  billingEmail: string | null;
+  billingAddress: string | null;
+  billingPaymentNote: string | null;
+  billingFooterNote: string | null;
+  billingLogoDataUrl: string | null;
+  billingPdfTemplateStyle?: string | null;
+} | null;
+
+function isValidBillingLogoDataUrl(value: string | null | undefined): boolean {
+  if (!value || typeof value !== "string") return false;
+  const t = value.trim();
+  if (t.length > 500_000) return false;
+  return /^data:image\/(png|jpe?g|webp);base64,[a-z0-9+/=\s]+$/i.test(t);
+}
 
 function formatDocumentNumber(value: number): string {
   return String(value).padStart(DOCUMENT_NUMBER_PAD, "0");
@@ -119,7 +149,7 @@ function formatPercent(value: Prisma.Decimal): string {
 function buildIssuedSnapshot(args: {
   document: BillingDocument;
   lines: BillingDocumentLine[];
-  business: { id: number; name: string };
+  business: { id: number; name: string; profile: BusinessProfileForInvoice };
   customer: {
     id: number;
     name: string;
@@ -149,6 +179,25 @@ function buildIssuedSnapshot(args: {
     totals,
   } = args;
 
+  const profile = business.profile;
+  const displayName = (profile?.billingLegalName ?? "").trim() || business.name;
+  const taxId = (profile?.billingTaxId ?? "").trim() || null;
+  const vatReg = (profile?.billingVatNumber ?? "").trim() || null;
+  const phone = (profile?.billingPhone ?? "").trim() || null;
+  const email = (profile?.billingEmail ?? "").trim() || null;
+  const addressRaw = (profile?.billingAddress ?? "").trim() || null;
+  const paymentNote = (profile?.billingPaymentNote ?? "").trim() || null;
+  const footerNote = (profile?.billingFooterNote ?? "").trim() || null;
+  const businessKind = (profile?.billingBusinessKind ?? "").trim() || null;
+  const logoUrl =
+    profile && isValidBillingLogoDataUrl(profile.billingLogoDataUrl)
+      ? profile.billingLogoDataUrl!.trim()
+      : null;
+
+  const pdfTemplateStyle = parseBillingPdfTemplateStyle(
+    profile?.billingPdfTemplateStyle
+  );
+
   const customerNameSnapshot = (document.customerNameSnapshot ?? "").trim();
   if (customerNameSnapshot.length === 0) {
     throw new ValidationError(
@@ -169,15 +218,15 @@ function buildIssuedSnapshot(args: {
 
   const issuerSnapshot: IssuerSnapshot = {
     id: business.id,
-    name: business.name,
-    legalName: null,
-    taxId: null,
-    vatRegistration: null,
-    address: null,
-    phone: null,
-    email: null,
-    logoUrl: null,
-    bankDetails: null,
+    name: displayName,
+    legalName: (profile?.billingLegalName ?? "").trim() || null,
+    taxId: taxId,
+    vatRegistration: vatReg,
+    address: addressRaw,
+    phone: phone,
+    email: email,
+    logoUrl: logoUrl,
+    bankDetails: paymentNote,
   };
 
   const lineSnapshots: LineSnapshot[] = lines.map((line) => ({
@@ -223,7 +272,11 @@ function buildIssuedSnapshot(args: {
       actorUserId,
       source: DEFAULT_SOURCE,
     },
-    extensions: {},
+    pdfTemplateStyle,
+    extensions: {
+      billingFooterNote: footerNote,
+      billingBusinessKind: businessKind,
+    },
   };
 }
 
@@ -267,7 +320,16 @@ export async function issueBillingDocument(
       throw new NotFoundError("Billing document not found");
     }
 
-    if (doc.status !== BillingDocumentStatus.PENDING_REVIEW) {
+    if (doc.documentType === BillingDocumentType.QUOTE) {
+      throw new ValidationError(
+        "לא ניתן להפיק חשבונית מס ישירות מהצעת מחיר — יש להשתמש ב\"הפוך לחשבונית\""
+      );
+    }
+
+    if (
+      doc.status !== BillingDocumentStatus.PENDING_REVIEW &&
+      doc.status !== BillingDocumentStatus.DRAFT
+    ) {
       throw new ForbiddenError(DOCUMENT_ALREADY_HANDLED_MESSAGE);
     }
 
@@ -306,12 +368,32 @@ export async function issueBillingDocument(
 
     const business = await tx.business.findUnique({
       where: { id: input.businessId },
-      select: { id: true, name: true },
+      select: {
+        id: true,
+        name: true,
+        profile: {
+          select: {
+            billingLegalName: true,
+            billingBusinessKind: true,
+            billingTaxId: true,
+            billingVatNumber: true,
+            billingPhone: true,
+            billingEmail: true,
+            billingAddress: true,
+            billingPaymentNote: true,
+            billingFooterNote: true,
+            billingLogoDataUrl: true,
+            billingPdfTemplateStyle: true,
+          },
+        },
+      },
     });
 
     if (!business) {
       throw new NotFoundError("Business not found");
     }
+
+    assertBillingIdentityReadyForTaxInvoice(business.profile);
 
     let customerData:
       | {
@@ -375,7 +457,12 @@ export async function issueBillingDocument(
       where: {
         id: input.billingDocumentId,
         businessId: input.businessId,
-        status: BillingDocumentStatus.PENDING_REVIEW,
+        status: {
+          in: [
+            BillingDocumentStatus.PENDING_REVIEW,
+            BillingDocumentStatus.DRAFT,
+          ],
+        },
       },
       data: {
         status: BillingDocumentStatus.ISSUED,
@@ -399,6 +486,8 @@ export async function issueBillingDocument(
       },
       include: { lines: { orderBy: { lineIndex: "asc" } } },
     });
+
+    await ensureBillingInvoicePostedEvent(tx, issued);
 
     return {
       issued,

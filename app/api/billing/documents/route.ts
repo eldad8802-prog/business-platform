@@ -12,6 +12,7 @@ import {
   createBillingDraft,
   CreateBillingDraftInput,
 } from "@/lib/services/billing/billing-draft.service";
+import { assertBillingIdentityReadyForTaxInvoice } from "@/lib/billing/business-identity";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -32,6 +33,7 @@ const LIST_SELECT = {
   issuedAt: true,
   issuedByUserId: true,
   createdByUserId: true,
+  convertedToInvoiceId: true,
   pdfRenderStatus: true,
   pdfTemplateVersion: true,
   pdfStorageKey: true,
@@ -86,6 +88,21 @@ export async function POST(req: NextRequest) {
       documentType: documentTypeRaw as BillingDocumentType,
     };
 
+    if (documentTypeRaw === BillingDocumentType.TAX_INVOICE) {
+      const issuerProfile = await prisma.businessProfile.findUnique({
+        where: { businessId: user.businessId },
+        select: {
+          billingLegalName: true,
+          billingBusinessKind: true,
+          billingTaxId: true,
+          billingPhone: true,
+          billingEmail: true,
+          billingAddress: true,
+        },
+      });
+      assertBillingIdentityReadyForTaxInvoice(issuerProfile);
+    }
+
     if ("customerId" in body) {
       input.customerId = body.customerId;
     }
@@ -116,6 +133,8 @@ export async function GET(req: NextRequest) {
     const customerIdParam = searchParams.get("customerId");
     const limitParam = searchParams.get("limit");
     const cursorParam = searchParams.get("cursor");
+    const searchRaw = (searchParams.get("search") ?? "").trim();
+    const documentTypeParam = searchParams.get("documentType");
 
     let status: BillingDocumentStatus | undefined;
     if (statusParam !== null && statusParam !== "") {
@@ -127,6 +146,18 @@ export async function GET(req: NextRequest) {
         throw new ValidationError("Invalid status filter");
       }
       status = statusParam as BillingDocumentStatus;
+    }
+
+    let documentTypeFilter: BillingDocumentType | undefined;
+    if (documentTypeParam !== null && documentTypeParam !== "") {
+      if (
+        !Object.values(BillingDocumentType).includes(
+          documentTypeParam as BillingDocumentType
+        )
+      ) {
+        throw new ValidationError("Invalid documentType filter");
+      }
+      documentTypeFilter = documentTypeParam as BillingDocumentType;
     }
 
     const customerId = parsePositiveInt(customerIdParam, "customerId");
@@ -145,16 +176,57 @@ export async function GET(req: NextRequest) {
     const where: Prisma.BillingDocumentWhereInput = {
       businessId: user.businessId,
       ...(status !== undefined ? { status } : {}),
+      ...(documentTypeFilter !== undefined ? { documentType: documentTypeFilter } : {}),
       ...(customerId !== undefined ? { customerId } : {}),
       ...(cursor !== undefined ? { id: { lt: cursor } } : {}),
+      ...(searchRaw.length > 0
+        ? {
+            OR: [
+              {
+                customerNameSnapshot: {
+                  contains: searchRaw,
+                  mode: "insensitive",
+                },
+              },
+              {
+                documentNumberFormatted: {
+                  contains: searchRaw,
+                },
+              },
+            ],
+          }
+        : {}),
     };
 
-    const documents = await prisma.billingDocument.findMany({
-      where,
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: limit,
-      select: LIST_SELECT,
-    });
+    const [documents, rawTotals] = await Promise.all([
+      prisma.billingDocument.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit,
+        select: LIST_SELECT,
+      }),
+      prisma.billingDocument.groupBy({
+        by: ["documentType", "status"],
+        where: { businessId: user.businessId },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const totals = {
+      all: rawTotals.reduce((s, r) => s + r._count._all, 0),
+      quotes: rawTotals
+        .filter((r) => r.documentType === BillingDocumentType.QUOTE)
+        .reduce((s, r) => s + r._count._all, 0),
+      invoices: rawTotals
+        .filter((r) => r.documentType === BillingDocumentType.TAX_INVOICE)
+        .reduce((s, r) => s + r._count._all, 0),
+      drafts: rawTotals
+        .filter((r) => r.status === BillingDocumentStatus.DRAFT)
+        .reduce((s, r) => s + r._count._all, 0),
+      issued: rawTotals
+        .filter((r) => r.status === BillingDocumentStatus.ISSUED)
+        .reduce((s, r) => s + r._count._all, 0),
+    };
 
     const nextCursor =
       documents.length === limit
@@ -162,7 +234,7 @@ export async function GET(req: NextRequest) {
         : null;
 
     return NextResponse.json(
-      { documents, nextCursor },
+      { documents, totals, nextCursor },
       { status: 200 }
     );
   } catch (error) {
