@@ -118,7 +118,7 @@ async function main(): Promise<void> {
         allocated?.documentNumberFormatted ??
         "(missing)",
       snapshotDate: new Date(),
-      actorUserId: doc.updatedByUserId ?? 1,
+      actorUserId: doc.createdByUserId ?? 1,
       totals,
     });
 

@@ -24,6 +24,124 @@ model ContentFeedback {
   @@index([goal, valueType])
 }
 
+/// ContentRun
+/// Why: One content creation run (shared context + provenance) that groups variants.
+/// Source of truth: Run-level context snapshot + lifecycle status.
+/// Intentionally NOT here: Per-variant creative variables, render outputs, performance/learning.
+model ContentRun {
+  id              Int              @id @default(autoincrement())
+  businessId      Int
+  createdByUserId Int?
+  status          ContentRunStatus @default(PENDING)
+
+  /// JSON governance: must include { schemaVersion, generatedAt, source, data }.
+  inputSnapshot           Json
+  businessContextSnapshot Json?
+  metadata                Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business      Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdByUser User?    @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  variants ContentVariant[]
+  events   ContentEvent[]
+
+  @@index([businessId, createdAt])
+}
+
+/// ContentVariant
+/// Why: Comparable unit per run (DNA + blueprint/score/semantics + render plan).
+/// Source of truth: Immutable snapshots of creative variables produced by the pipeline.
+/// Intentionally NOT here: Media blobs, analytics/performance, learning/memory tables.
+model ContentVariant {
+  id           Int                  @id @default(autoincrement())
+  contentRunId Int
+  variantKey   String
+  status       ContentVariantStatus @default(PENDING)
+
+  /// JSON governance: must include { schemaVersion, generatedAt, source, data }.
+  creativeDna       Json
+  creativeBlueprint Json
+  renderBlueprint   Json
+  creativeScore     Json
+  growthSemantics   Json
+  llmOutput         Json?
+
+  provenance Json?
+  metadata   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contentRun ContentRun      @relation(fields: [contentRunId], references: [id], onDelete: Cascade)
+  renders    ContentRender[]
+  events     ContentEvent[]
+
+  @@unique([contentRunId, variantKey])
+}
+
+/// ContentRender
+/// Why: Track external render lifecycle and store only URLs + minimal provider metadata.
+/// Source of truth: Provider status + outputUrl (not the video file itself).
+/// Intentionally NOT here: Storing the actual media, heavy provider dumps.
+model ContentRender {
+  id               Int                   @id @default(autoincrement())
+  contentVariantId Int
+  provider         ContentRenderProvider
+  status           ContentRenderStatus   @default(QUEUED)
+
+  outputUrl    String?
+  thumbnailUrl String?
+
+  completedAt  DateTime?
+  failedAt     DateTime?
+  errorCode    String?
+  errorMessage String?
+
+  /// JSON governance: must include { schemaVersion, generatedAt, source, data } when present.
+  providerPayload Json?
+  metadata        Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contentVariant ContentVariant @relation(fields: [contentVariantId], references: [id], onDelete: Cascade)
+
+  @@index([contentVariantId, createdAt])
+}
+
+/// ContentEvent
+/// Why: Append-only timeline of product/system events for runs/variants.
+/// Source of truth: Event log (immutable per row).
+/// Intentionally NOT here: Strongly-typed event taxonomy (eventType stays String), analytics.
+model ContentEvent {
+  id               Int  @id @default(autoincrement())
+  businessId       Int
+  contentRunId     Int?
+  contentVariantId Int?
+  actorUserId      Int?
+
+  /// Intentionally String (aligned with LearningEvent.eventType).
+  eventType String
+
+  /// JSON governance: must include { schemaVersion, generatedAt, source, data } when present.
+  payload  Json?
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contentRun     ContentRun?     @relation(fields: [contentRunId], references: [id], onDelete: Cascade)
+  contentVariant ContentVariant? @relation(fields: [contentVariantId], references: [id], onDelete: Cascade)
+  actorUser      User?           @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt])
+  @@index([contentRunId, createdAt])
+  @@index([contentVariantId, createdAt])
+}
+
 model Business {
   id                      Int                             @id @default(autoincrement())
   name                    String
@@ -69,43 +187,47 @@ model Business {
   tasks                   Task[]
   users                   User[]
   vendorLearnings         VendorLearning[]
+  contentRuns             ContentRun[]
+  contentEvents           ContentEvent[]
 }
 
 model User {
-  id         Int      @id @default(autoincrement())
-  email      String   @unique
-  password   String
-  name       String?
-  businessId Int
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id                 Int            @id @default(autoincrement())
+  email              String         @unique
+  password           String
+  name               String?
+  businessId         Int
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  business           Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contentRunsCreated ContentRun[]
+  contentEvents      ContentEvent[]
 }
 
 model BusinessProfile {
-  id            Int      @id @default(autoincrement())
-  businessId    Int      @unique
-  category      String?
-  subCategory   String?
-  businessModel String?
+  id                      Int      @id @default(autoincrement())
+  businessId              Int      @unique
+  category                String?
+  subCategory             String?
+  businessModel           String?
   /// Legal / display name on tax invoices (falls back to Business.name when empty)
-  billingLegalName    String?
+  billingLegalName        String?
   /// EXEMPT_DEALER | AUTHORIZED_DEALER | LTD_COMPANY — Israeli business registration category
-  billingBusinessKind String?
-  billingTaxId        String?
-  billingVatNumber    String?
-  billingPhone        String?
-  billingEmail        String?
-  billingAddress      String?
-  billingPaymentNote  String?
-  billingFooterNote   String?
+  billingBusinessKind     String?
+  billingTaxId            String?
+  billingVatNumber        String?
+  billingPhone            String?
+  billingEmail            String?
+  billingAddress          String?
+  billingPaymentNote      String?
+  billingFooterNote       String?
   /// Small logo as data URL — pdfmake/HTML renderer embed only (no remote fetch)
-  billingLogoDataUrl  String?
+  billingLogoDataUrl      String?
   /// CLASSIC | MODERN | COMPACT — drives billing PDF layout presets (business-wide).
-  billingPdfTemplateStyle String @default("CLASSIC")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  business      Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  billingPdfTemplateStyle String   @default("CLASSIC")
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  business                Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([category])
   @@index([subCategory])
@@ -974,22 +1096,22 @@ model BillingDocumentNumberSequence {
 }
 
 model FinancialEvent {
-  id                Int                       @id @default(autoincrement())
+  id                Int                      @id @default(autoincrement())
   businessId        Int
   direction         FinancialEventDirection
-  amount            Decimal                   @db.Decimal(18, 2)
-  currency          String                    @default("ILS")
+  amount            Decimal                  @db.Decimal(18, 2)
+  currency          String                   @default("ILS")
   occurredAt        DateTime
   category          String
   counterpartyName  String?
   sourceType        FinancialEventSourceType
   sourceKey         String
   status            FinancialEventStatus
-  billingDocumentId Int?                      @unique
-  createdAt         DateTime                  @default(now())
-  updatedAt         DateTime                  @updatedAt
-  business          Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  billingDocument   BillingDocument?          @relation(fields: [billingDocumentId], references: [id], onDelete: Cascade)
+  billingDocumentId Int?                     @unique
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  business          Business                 @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  billingDocument   BillingDocument?         @relation(fields: [billingDocumentId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, sourceType, sourceKey])
   @@index([businessId, occurredAt])
@@ -1014,6 +1136,30 @@ enum EmailAttachmentImportStatus {
 enum BusinessServiceType {
   SERVICE
   PRODUCT
+}
+
+enum ContentRunStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ContentVariantStatus {
+  PENDING
+  READY
+  FAILED
+}
+
+enum ContentRenderStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ContentRenderProvider {
+  CREATOMATE
 }
 
 enum LeadStatus {
