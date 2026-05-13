@@ -11,6 +11,7 @@ import {
   adaptBlueprintForVariant,
   type VariantStyle,
 } from "./blueprint-rules/variant.rules";
+import { applyHumanAmplificationVariantGuards } from "./blueprint-rules/human-amplification-variant-guards";
 
 export type { VariantStyle };
 
@@ -140,6 +141,7 @@ function applyPlatformGuards(
  *
  * Layer order:
  *   1. adaptBlueprintForVariant — per-field narrative/audio/visual adapters
+ *   1b. humanAmplification variant guards (Phase 1B) — numeric/enum caps only when set
  *   2. visual_energy — business-aware energy level per variant
  *   3. subtitle_behavior — variant-specific subtitle strategy
  *   4. platform guards — TikTok-specific pacing and attention overrides
@@ -158,9 +160,16 @@ export function applyVariantCinematicIdentity(
   // Step 1: per-field narrative/audio/visual field adapters (existing rules layer)
   const step1 = adaptBlueprintForVariant(base, variantStyle, profile);
 
+  const step1b = applyHumanAmplificationVariantGuards(
+    step1,
+    variantStyle,
+    profile,
+    platform
+  );
+
   // Step 2 + 3: visual_energy and subtitle_behavior (not handled in step 1)
   const step3: CreativeBlueprint = {
-    ...step1,
+    ...step1b,
     visual_energy: resolveVariantVisualEnergy(
       base.visual_energy,
       variantStyle,
