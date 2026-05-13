@@ -11,7 +11,7 @@
  */
 
 import type { RenderPresetConfig, SubtitleRhythm } from "./types";
-import type { CreativeBlueprint } from "@/lib/features/content/creative-blueprint/types";
+import type { CreativeBlueprint, HumanAmplification } from "@/lib/features/content/creative-blueprint/types";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -33,6 +33,54 @@ function upgradeRhythm(r: SubtitleRhythm): SubtitleRhythm {
 function downgradeRhythm(r: SubtitleRhythm): SubtitleRhythm {
   const i = RHYTHM_ORDER.indexOf(r);
   return i > 0 ? RHYTHM_ORDER[i - 1] : r;
+}
+
+/** Final numeric/font bounds after cinematic + HA (matches legacy cinematic clamp). */
+export function clampPresetConfigSafeRanges(c: RenderPresetConfig): RenderPresetConfig {
+  return {
+    ...c,
+    clipDurationDelta: round2(clamp(c.clipDurationDelta, -0.4, 0.9)),
+    firstClipBonus: round2(clamp(c.firstClipBonus, -0.3, 1.0)),
+    lastClipBonus: round2(clamp(c.lastClipBonus, 0, 1.0)),
+    hookFontSize: clamp(c.hookFontSize, 20, 56),
+    hookBgOpacity: clamp(c.hookBgOpacity, 0, 0.9),
+    subtitleBgOpacity: clamp(c.subtitleBgOpacity, 0, 0.9),
+    ctaBgOpacity: clamp(c.ctaBgOpacity, 0, 0.9),
+    subtitleFontSize: clamp(c.subtitleFontSize, 20, 56),
+  };
+}
+
+function hasDefinedHumanAmplificationField(ha: HumanAmplification): boolean {
+  return (
+    ha.conversationalCutAggression !== undefined ||
+    ha.awkwardHoldWeight !== undefined ||
+    ha.conversationalDensity !== undefined ||
+    ha.productionPolish !== undefined ||
+    ha.viewerMotivationPrimary !== undefined
+  );
+}
+
+/** All defined fields are at baseline — HA layer is a no-op. */
+function isHumanAmplificationNeutral(ha: HumanAmplification): boolean {
+  if (ha.conversationalCutAggression !== undefined && ha.conversationalCutAggression !== 0) {
+    return false;
+  }
+  if (ha.awkwardHoldWeight !== undefined && ha.awkwardHoldWeight !== 0) {
+    return false;
+  }
+  if (ha.conversationalDensity !== undefined && ha.conversationalDensity !== 0) {
+    return false;
+  }
+  if (ha.productionPolish !== undefined && ha.productionPolish !== "balanced") {
+    return false;
+  }
+  if (
+    ha.viewerMotivationPrimary !== undefined &&
+    ha.viewerMotivationPrimary !== "business_default"
+  ) {
+    return false;
+  }
+  return true;
 }
 
 // ─── Cinematic translation rules ──────────────────────────────────────────────
@@ -169,14 +217,168 @@ export function applyCinematicBehavior(
   }
 
   // ── Final bounds clamp ────────────────────────────────────────────────────
-  // Prevent modifier stacking from exceeding safe ranges.
-  c.clipDurationDelta = clamp(c.clipDurationDelta, -0.4, 0.9);
-  c.firstClipBonus    = clamp(c.firstClipBonus, -0.3, 1.0);
-  c.lastClipBonus     = clamp(c.lastClipBonus, 0, 1.0);
-  c.hookFontSize      = clamp(c.hookFontSize, 20, 56);
-  c.hookBgOpacity     = clamp(c.hookBgOpacity, 0, 0.9);
-  c.subtitleBgOpacity = clamp(c.subtitleBgOpacity, 0, 0.9);
-  c.ctaBgOpacity      = clamp(c.ctaBgOpacity, 0, 0.9);
+  return { config: clampPresetConfigSafeRanges(c), modifiers: m };
+}
 
-  return { config: c, modifiers: m };
+// ─── Phase 1C — Human amplification → presetConfig deltas (bounded) ─────────────
+
+/**
+ * Applies Human Amplification render deltas after cinematic behavior.
+ * Pure: does not mutate `config`. No-op when `humanAmplification` is missing, empty, or neutral.
+ */
+export function applyHumanAmplificationRenderDelta(
+  config: RenderPresetConfig,
+  blueprint: CreativeBlueprint,
+  variantStyle?: string
+): { config: RenderPresetConfig; haModifiers: string[] } {
+  const ha = blueprint.humanAmplification;
+  if (
+    ha === undefined ||
+    !hasDefinedHumanAmplificationField(ha) ||
+    isHumanAmplificationNeutral(ha)
+  ) {
+    return { config, haModifiers: [] };
+  }
+
+  let sumClip = 0;
+  let sumFirst = 0;
+  let sumSubtitleBg = 0;
+  let sumHookBg = 0;
+  let sumSubtitleFont = 0;
+  const haModifiers: string[] = [];
+
+  const isTrust = variantStyle === "trust";
+
+  if (ha.conversationalCutAggression !== undefined) {
+    const a = ha.conversationalCutAggression;
+    sumClip += -0.08 * a;
+    sumFirst += -0.05 * a;
+    if (a >= 0.5) {
+      haModifiers.push(
+        `HA: conversationalCutAggression=${a} → clip/firstClip deltas, rhythm+1 if allowed`
+      );
+    } else if (a !== 0) {
+      haModifiers.push(`HA: conversationalCutAggression=${a} → clip/firstClip deltas`);
+    }
+  }
+
+  if (ha.awkwardHoldWeight !== undefined) {
+    const w = ha.awkwardHoldWeight;
+    sumClip += 0.1 * w;
+    sumFirst += 0.06 * w;
+    sumHookBg += -0.04 * w;
+    if (w !== 0) {
+      haModifiers.push(`HA: awkwardHoldWeight=${w} → longer holds, lighter hook bg`);
+    }
+  }
+
+  if (ha.conversationalDensity !== undefined) {
+    const d = ha.conversationalDensity;
+    sumSubtitleFont += Math.round(2 * d);
+    sumSubtitleBg += 0.06 * d;
+    if (d !== 0) {
+      haModifiers.push(`HA: conversationalDensity=${d} → subtitle size/bg`);
+    }
+  }
+
+  if (ha.productionPolish !== undefined) {
+    switch (ha.productionPolish) {
+      case "raw":
+        sumClip += 0.04;
+        sumSubtitleBg += -0.05;
+        sumHookBg += -0.03;
+        haModifiers.push("HA: productionPolish=raw → air + lighter overlays");
+        break;
+      case "balanced":
+        break;
+      case "polished":
+        sumClip += -0.03;
+        sumSubtitleBg += 0.04;
+        sumHookBg += 0.02;
+        haModifiers.push("HA: productionPolish=polished → tighter clips, cleaner overlays");
+        break;
+      default:
+        break;
+    }
+  }
+
+  let entertainmentClip = 0;
+  let wantEntertainmentRhythm = false;
+  let wantHybridRhythm = false;
+
+  if (ha.viewerMotivationPrimary !== undefined) {
+    switch (ha.viewerMotivationPrimary) {
+      case "business_default":
+        break;
+      case "utility":
+        sumClip += 0.02;
+        haModifiers.push("HA: viewerMotivation=utility → slight clip breathing");
+        break;
+      case "entertainment":
+        if (isTrust) {
+          entertainmentClip = -0.015;
+          haModifiers.push(
+            "HA: viewerMotivation=entertainment+trust → half clip delta, no rhythm step"
+          );
+        } else {
+          entertainmentClip = -0.03;
+          wantEntertainmentRhythm = true;
+          haModifiers.push("HA: viewerMotivation=entertainment → snappier clips, rhythm+1");
+        }
+        break;
+      case "hybrid":
+        sumClip += -0.015;
+        wantHybridRhythm = true;
+        haModifiers.push("HA: viewerMotivation=hybrid → mild clip delta, rhythm+1 if slow/medium");
+        break;
+      default:
+        break;
+    }
+  }
+
+  sumClip += entertainmentClip;
+
+  sumClip = clamp(round2(sumClip), -0.12, 0.12);
+  sumFirst = clamp(round2(sumFirst), -0.08, 0.08);
+  sumSubtitleBg = clamp(round2(sumSubtitleBg), -0.08, 0.08);
+  sumHookBg = clamp(round2(sumHookBg), -0.08, 0.08);
+  sumSubtitleFont = clamp(Math.round(sumSubtitleFont), 0, 2);
+
+  let next: RenderPresetConfig = {
+    ...config,
+    clipDurationDelta: round2(config.clipDurationDelta + sumClip),
+    firstClipBonus: round2(config.firstClipBonus + sumFirst),
+    subtitleBgOpacity: clamp(config.subtitleBgOpacity + sumSubtitleBg, 0, 0.9),
+    hookBgOpacity: clamp(config.hookBgOpacity + sumHookBg, 0, 0.9),
+    subtitleFontSize: clamp(config.subtitleFontSize + sumSubtitleFont, 20, 56),
+  };
+
+  const startRhythm = config.subtitleRhythm;
+  let rhythm = startRhythm;
+
+  const wantCutRhythm =
+    ha.conversationalCutAggression !== undefined && ha.conversationalCutAggression >= 0.5;
+  const wantDensityRhythm =
+    ha.conversationalDensity !== undefined && ha.conversationalDensity >= 0.6;
+
+  if (startRhythm !== "burst") {
+    if (wantCutRhythm) {
+      rhythm = upgradeRhythm(rhythm);
+    } else if (wantDensityRhythm) {
+      rhythm = upgradeRhythm(rhythm);
+    } else if (wantEntertainmentRhythm) {
+      rhythm = upgradeRhythm(rhythm);
+    } else if (
+      wantHybridRhythm &&
+      (startRhythm === "slow" || startRhythm === "medium")
+    ) {
+      rhythm = upgradeRhythm(rhythm);
+    }
+  }
+
+  next = { ...next, subtitleRhythm: rhythm };
+
+  next = clampPresetConfigSafeRanges(next);
+
+  return { config: next, haModifiers };
 }

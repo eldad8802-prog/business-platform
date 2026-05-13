@@ -14,7 +14,10 @@ import type {
   EnergyProfile,
 } from "./types";
 import { RENDER_PRESETS } from "./render-presets";
-import { applyCinematicBehavior } from "./render-behavior";
+import {
+  applyCinematicBehavior,
+  applyHumanAmplificationRenderDelta,
+} from "./render-behavior";
 
 // ─── Business context (minimal — no full profile import needed) ───────────────
 
@@ -233,7 +236,20 @@ export function buildRenderBlueprint(
   const baseConfig = RENDER_PRESETS[name];
 
   // Apply cinematic translation: psychological fields → config overrides
-  const { config, modifiers } = applyCinematicBehavior(baseConfig, blueprint, variantStyle);
+  const { config: cinematicConfig, modifiers } = applyCinematicBehavior(
+    baseConfig,
+    blueprint,
+    variantStyle
+  );
+
+  const { config, haModifiers } = applyHumanAmplificationRenderDelta(
+    cinematicConfig,
+    blueprint,
+    variantStyle
+  );
+
+  const behavior_modifiers_reasoning =
+    haModifiers.length > 0 ? [...modifiers, ...haModifiers] : modifiers;
 
   return {
     preset: name,
@@ -257,6 +273,6 @@ export function buildRenderBlueprint(
     energy_profile:     deriveEnergyProfile(blueprint),
 
     preset_reasoning: reason,
-    behavior_modifiers_reasoning: modifiers,
+    behavior_modifiers_reasoning,
   };
 }
