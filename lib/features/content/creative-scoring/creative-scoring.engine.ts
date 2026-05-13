@@ -17,6 +17,10 @@ import { scoreCtaAlignment } from "./scoring-rules/cta.rules";
 import { scorePacingFit } from "./scoring-rules/pacing.rules";
 import { scorePlatformFit } from "./scoring-rules/platform.rules";
 import { scoreCinematicDistinction } from "./scoring-rules/differentiation.rules";
+import {
+  computeHumanAmplificationScoreGrowthDeltas,
+  HA_SCORE_STRENGTH_LINE,
+} from "@/lib/features/content/human-amplification/human-amplification-score-growth.delta";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -144,7 +148,7 @@ export function scoreVariant({
 
   // ── Assemble dimensions (round to 1 decimal, clamp 0-10) ─────────────────
 
-  const dimensions: CreativeScore["dimensions"] = {
+  const dimensionsBase: CreativeScore["dimensions"] = {
     hook_strength:                  roundTo(clamp(hookResult.score, 0, 10), 1),
     business_identity_preservation: roundTo(clamp(identityResult.score, 0, 10), 1),
     emotional_clarity:              roundTo(clamp(clarityResult.score, 0, 10), 1),
@@ -154,6 +158,40 @@ export function scoreVariant({
     platform_fit:                   roundTo(clamp(platformResult.score, 0, 10), 1),
     trust_safety:                   roundTo(clamp(trustResult.score, 0, 10), 1),
     cinematic_distinction:          roundTo(clamp(distinctionResult.score, 0, 10), 1),
+  };
+
+  const recommendation = deriveRecommendation(dimensionsBase, variantStyle, profile);
+
+  const { dimensionDelta, affected: haAffected } = computeHumanAmplificationScoreGrowthDeltas(
+    variantBlueprint,
+    { profile, variantStyle, platform, renderBlueprint }
+  );
+
+  const dimensions: CreativeScore["dimensions"] = {
+    hook_strength: roundTo(
+      clamp(dimensionsBase.hook_strength + dimensionDelta.hook_strength, 0, 10),
+      1
+    ),
+    business_identity_preservation: roundTo(
+      clamp(dimensionsBase.business_identity_preservation + dimensionDelta.business_identity_preservation, 0, 10),
+      1
+    ),
+    emotional_clarity: roundTo(
+      clamp(dimensionsBase.emotional_clarity + dimensionDelta.emotional_clarity, 0, 10),
+      1
+    ),
+    pacing_fit: roundTo(clamp(dimensionsBase.pacing_fit + dimensionDelta.pacing_fit, 0, 10), 1),
+    render_coherence: roundTo(
+      clamp(dimensionsBase.render_coherence + dimensionDelta.render_coherence, 0, 10),
+      1
+    ),
+    cta_alignment: roundTo(clamp(dimensionsBase.cta_alignment + dimensionDelta.cta_alignment, 0, 10), 1),
+    platform_fit: roundTo(clamp(dimensionsBase.platform_fit + dimensionDelta.platform_fit, 0, 10), 1),
+    trust_safety: roundTo(clamp(dimensionsBase.trust_safety + dimensionDelta.trust_safety, 0, 10), 1),
+    cinematic_distinction: roundTo(
+      clamp(dimensionsBase.cinematic_distinction + dimensionDelta.cinematic_distinction, 0, 10),
+      1
+    ),
   };
 
   // ── Total: equal-weighted average of all 9 dimensions (0–100) ────────────
@@ -173,6 +211,7 @@ export function scoreVariant({
     ...platformResult.strengths,
     ...trustResult.strengths,
     ...distinctionResult.strengths,
+    ...(haAffected ? [HA_SCORE_STRENGTH_LINE] : []),
   ];
 
   const risks = [
@@ -186,8 +225,6 @@ export function scoreVariant({
     ...trustResult.risks,
     ...distinctionResult.risks,
   ];
-
-  const recommendation = deriveRecommendation(dimensions, variantStyle, profile);
 
   const reasoning = buildReasoning(
     variantStyle,

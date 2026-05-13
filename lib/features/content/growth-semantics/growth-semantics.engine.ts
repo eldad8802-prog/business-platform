@@ -14,6 +14,10 @@ import { scoreEngagement } from "./outcome-rules/engagement.rules";
 import { scoreRetention } from "./outcome-rules/retention.rules";
 import { scoreVirality } from "./outcome-rules/virality.rules";
 import { scoreAuthority } from "./outcome-rules/authority.rules";
+import {
+  computeHumanAmplificationScoreGrowthDeltas,
+  HA_GROWTH_REASON_LINE,
+} from "@/lib/features/content/human-amplification/human-amplification-score-growth.delta";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -287,7 +291,7 @@ export function buildGrowthSemantics({
 
   // ── Assemble outcomes (round to 1 decimal, clamp 0-10) ────────────────────
 
-  const predicted_outcomes: GrowthSemantics["predicted_outcomes"] = {
+  const predicted_outcomes_base: GrowthSemantics["predicted_outcomes"] = {
     conversion_probability:  roundTo(clamp(conversionResult.score, 0, 10), 1),
     trust_building_strength: roundTo(clamp(trustResult.score, 0, 10), 1),
     engagement_potential:    roundTo(clamp(engagementResult.score, 0, 10), 1),
@@ -296,7 +300,39 @@ export function buildGrowthSemantics({
     authority_positioning:   roundTo(clamp(authorityResult.score, 0, 10), 1),
   };
 
-  const dominant_growth_profile = deriveDominantProfile(predicted_outcomes);
+  const dominant_growth_profile = deriveDominantProfile(predicted_outcomes_base);
+
+  const { outcomeDelta, affected: haGrowthAffected } = computeHumanAmplificationScoreGrowthDeltas(
+    variantBlueprint,
+    { profile, variantStyle, platform, renderBlueprint }
+  );
+
+  const predicted_outcomes: GrowthSemantics["predicted_outcomes"] = {
+    conversion_probability: roundTo(
+      clamp(predicted_outcomes_base.conversion_probability + outcomeDelta.conversion_probability, 0, 10),
+      1
+    ),
+    trust_building_strength: roundTo(
+      clamp(predicted_outcomes_base.trust_building_strength + outcomeDelta.trust_building_strength, 0, 10),
+      1
+    ),
+    engagement_potential: roundTo(
+      clamp(predicted_outcomes_base.engagement_potential + outcomeDelta.engagement_potential, 0, 10),
+      1
+    ),
+    retention_strength: roundTo(
+      clamp(predicted_outcomes_base.retention_strength + outcomeDelta.retention_strength, 0, 10),
+      1
+    ),
+    virality_potential: roundTo(
+      clamp(predicted_outcomes_base.virality_potential + outcomeDelta.virality_potential, 0, 10),
+      1
+    ),
+    authority_positioning: roundTo(
+      clamp(predicted_outcomes_base.authority_positioning + outcomeDelta.authority_positioning, 0, 10),
+      1
+    ),
+  };
 
   const audience_reaction_model = {
     likely_stop_behavior:      deriveStopBehavior(variantBlueprint),
@@ -304,19 +340,22 @@ export function buildGrowthSemantics({
     likely_action:             deriveLikelyAction(variantBlueprint, variantStyle, platform, predicted_outcomes),
   };
 
-  const growth_reasoning = buildGrowthReasoning(
-    variantBlueprint,
-    renderBlueprint,
-    variantStyle,
-    platform,
-    predicted_outcomes,
-    conversionResult.topSignals,
-    trustResult.topSignals,
-    engagementResult.topSignals,
-    authorityResult.topSignals,
-    viralityResult.topSignals,
-    retentionResult.topSignals
-  );
+  const growth_reasoning = [
+    ...buildGrowthReasoning(
+      variantBlueprint,
+      renderBlueprint,
+      variantStyle,
+      platform,
+      predicted_outcomes_base,
+      conversionResult.topSignals,
+      trustResult.topSignals,
+      engagementResult.topSignals,
+      authorityResult.topSignals,
+      viralityResult.topSignals,
+      retentionResult.topSignals
+    ),
+    ...(haGrowthAffected ? [HA_GROWTH_REASON_LINE] : []),
+  ];
 
   return {
     predicted_outcomes,
