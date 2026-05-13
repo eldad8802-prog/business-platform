@@ -143,6 +143,22 @@ export type PlatformBehavior = {
   orientationNote: string;       // e.g. "vertical 9:16 only"
 };
 
+// ─── Human / cultural / entertainment amplification (Phase 1A) ───────────────
+// Optional layer on top of marketing/cinematic blueprint. All fields optional;
+// omit the whole object or leave fields unset for full backward compatibility (no-op).
+
+export type HumanAmplification = {
+  conversationalCutAggression?: number;
+  awkwardHoldWeight?: number;
+  conversationalDensity?: number;
+  productionPolish?: "raw" | "balanced" | "polished";
+  viewerMotivationPrimary?:
+    | "business_default"
+    | "entertainment"
+    | "utility"
+    | "hybrid";
+};
+
 // ─── Blueprint ───────────────────────────────────────────────────────────────
 
 export type CreativeBlueprint = {
@@ -176,4 +192,7 @@ export type CreativeBlueprint = {
   // Meta
   blueprint_reasoning: string;
   confidence: "high" | "medium" | "low";
+
+  /** Human/cultural/entertainment knobs; undefined = no change vs pre–Phase 1A behavior */
+  humanAmplification?: HumanAmplification;
 };
