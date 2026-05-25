@@ -135,6 +135,7 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const monthParam = url.searchParams.get("month");
+    const summaryOnly = url.searchParams.get("summaryOnly")?.trim() === "1";
     const limit = clampLimit(url.searchParams.get("limit"));
     const cursorRaw = url.searchParams.get("cursor");
 
@@ -158,12 +159,126 @@ export async function GET(req: Request) {
       );
     }
 
+    const businessId = user.businessId;
+
+    if (summaryOnly) {
+      const [
+        incomeAgg,
+        expenseAgg,
+        recordCount,
+        pendingReview,
+        approvedDocuments,
+        nextPendingDoc,
+      ] = await Promise.all([
+        prisma.financialRecord.aggregate({
+          where: {
+            businessId,
+            date: { gte: from, lt: toExclusive },
+            direction: "income",
+          },
+          _sum: { amount: true },
+        }),
+        prisma.financialRecord.aggregate({
+          where: {
+            businessId,
+            date: { gte: from, lt: toExclusive },
+            direction: "expense",
+          },
+          _sum: { amount: true },
+        }),
+        prisma.financialRecord.count({
+          where: {
+            businessId,
+            date: { gte: from, lt: toExclusive },
+          },
+        }),
+        prisma.document.count({
+          where: {
+            businessId,
+            createdAt: { gte: from, lt: toExclusive },
+            status: "needs_review",
+          },
+        }),
+        prisma.document.count({
+          where: {
+            businessId,
+            createdAt: { gte: from, lt: toExclusive },
+            status: "approved",
+          },
+        }),
+        prisma.document.findFirst({
+          where: {
+            businessId,
+            createdAt: { gte: from, lt: toExclusive },
+            status: "needs_review",
+          },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: {
+            id: true,
+            status: true,
+            extractedData: {
+              select: {
+                amount: true,
+                vendorName: true,
+              },
+            },
+          },
+        }),
+      ]);
+
+      const incomeSum = incomeAgg._sum.amount ?? 0;
+      const expenseSum = expenseAgg._sum.amount ?? 0;
+
+      const nextPending = nextPendingDoc
+        ? {
+            documentId: nextPendingDoc.id,
+            status: nextPendingDoc.status,
+            extracted: nextPendingDoc.extractedData
+              ? {
+                  amount: nextPendingDoc.extractedData.amount,
+                  vendorName: nextPendingDoc.extractedData.vendorName,
+                }
+              : null,
+          }
+        : null;
+
+      return NextResponse.json({
+        success: true,
+        scope: {
+          month: resolvedMonth,
+          timezone: TIMEZONE_LABEL,
+        },
+        financialPulse: {
+          period: {
+            month: resolvedMonth,
+            from: from.toISOString(),
+            toExclusive: toExclusive.toISOString(),
+          },
+          fromFinancialRecords: {
+            income: incomeSum,
+            expense: expenseSum,
+            net: incomeSum - expenseSum,
+            recordCount,
+          },
+          inboxDocumentCounts: {
+            pendingReview,
+            approvedDocuments,
+          },
+        },
+        nextPending,
+        items: [],
+        pagination: {
+          limit: 0,
+          nextCursor: null,
+          hasMore: false,
+        },
+      });
+    }
+
     const cursor = cursorRaw?.trim() ? decodeCursor(cursorRaw.trim()) : null;
     if (cursorRaw?.trim() && !cursor) {
       return NextResponse.json({ error: "Invalid cursor" }, { status: 400 });
     }
-
-    const businessId = user.businessId;
 
     const [
       incomeAgg,

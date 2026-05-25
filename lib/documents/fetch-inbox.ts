@@ -1,4 +1,5 @@
 import type {
+  DocumentsHubNextPending,
   InboxFinancialPulse,
   InboxListItem,
   InboxPagination,
@@ -49,6 +50,64 @@ export type DocumentsInboxSnapshot = {
   items: InboxListItem[];
   pagination: InboxPagination;
 };
+
+type ApiHubSummaryBody = {
+  success: true;
+  scope: InboxScope;
+  financialPulse: InboxFinancialPulse;
+  nextPending: DocumentsHubNextPending;
+  items: [];
+  pagination: InboxPagination;
+};
+
+export type DocumentsHubSnapshot = {
+  scope: InboxScope;
+  financialPulse: InboxFinancialPulse;
+  nextPending: DocumentsHubNextPending;
+};
+
+export async function fetchDocumentsHubSummary(
+  token: string,
+  query?: { month?: string }
+): Promise<DocumentsHubSnapshot> {
+  const sp = new URLSearchParams();
+  sp.set("summaryOnly", "1");
+  if (query?.month) sp.set("month", query.month);
+
+  const url = `/api/documents/inbox?${sp.toString()}`;
+
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+
+  if (res.status === 401) {
+    throw new Error("Unauthorized");
+  }
+
+  const json = (await res.json()) as ApiHubSummaryBody | { error?: string };
+
+  if (!res.ok) {
+    throw new Error(
+      typeof (json as { error?: string }).error === "string"
+        ? (json as { error: string }).error
+        : "Request failed"
+    );
+  }
+
+  const body = json as ApiHubSummaryBody;
+  if (!body.success) {
+    throw new Error("Invalid hub summary response");
+  }
+
+  return {
+    scope: body.scope,
+    financialPulse: body.financialPulse,
+    nextPending: body.nextPending ?? null,
+  };
+}
 
 export async function fetchDocumentsInbox(
   token: string,

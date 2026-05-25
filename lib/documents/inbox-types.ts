@@ -80,3 +80,13 @@ export type InboxPagination = {
   nextCursor: string | null;
   hasMore: boolean;
 };
+
+/** Hub summary mode (`summaryOnly=1`) — next document awaiting review in scope month. */
+export type DocumentsHubNextPending = {
+  documentId: number;
+  status: string;
+  extracted: {
+    amount: number | null;
+    vendorName: string | null;
+  } | null;
+} | null;
