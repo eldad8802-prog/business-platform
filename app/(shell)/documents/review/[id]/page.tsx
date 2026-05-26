@@ -8,9 +8,11 @@ import DocumentsReviewSkeleton from "@/components/documents/skeletons/DocumentsR
 import ReviewHero from "@/components/documents/review/ReviewHero";
 import ReviewDecisionPanel from "@/components/documents/review/ReviewDecisionPanel";
 import ReviewSummarySection from "@/components/documents/review/ReviewSummarySection";
-import ReviewFieldEditor from "@/components/documents/review/ReviewFieldEditor";
-import ReviewDocumentPreview from "@/components/documents/review/ReviewDocumentPreview";
-import ReviewDoneState from "@/components/documents/review/ReviewDoneState";
+import {
+  ReviewDocumentPreviewLazy,
+  ReviewDoneStateLazy,
+  ReviewFieldEditorLazy,
+} from "@/components/documents/review/review-lazy";
 import ReviewNotFound from "@/components/documents/review/ReviewNotFound";
 import { basePageStyle, mainStyle } from "@/components/documents/review/review-ui";
 import { errorMessage } from "@/lib/documents/review/format";
@@ -474,7 +476,7 @@ export default function ReviewPage() {
         ) : null}
 
         {state === "edit-field" ? (
-          <ReviewFieldEditor
+          <ReviewFieldEditorLazy
             editFieldTitle={editFieldTitle}
             editField={editField}
             draft={draft}
@@ -486,7 +488,7 @@ export default function ReviewPage() {
         ) : null}
 
         {state === "done" ? (
-          <ReviewDoneState
+          <ReviewDoneStateLazy
             approvedAs={approvedAs}
             directionDisplay={trustContext.directionDisplay}
             amountDisplay={trustContext.amountDisplay}
@@ -502,7 +504,7 @@ export default function ReviewPage() {
         ) : null}
 
         {shouldShowDocumentPreview ? (
-          <ReviewDocumentPreview
+          <ReviewDocumentPreviewLazy
             showPreviewFallback={showPreviewFallback}
             previewLoading={previewLoading}
             previewKind={previewKind}
