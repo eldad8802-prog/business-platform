@@ -236,48 +236,6 @@ function IntakeTile({
   );
 }
 
-function FlowStep({
-  icon,
-  title,
-  subtitle,
-  active,
-}: {
-  icon: string;
-  title: string;
-  subtitle: string;
-  active?: boolean;
-}) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-      <div
-        style={{
-          width: 42,
-          height: 42,
-          borderRadius: 999,
-          border: active ? "1px solid #22c55e" : "1px solid #dbeafe",
-          background: active ? "#f0fdf4" : "#f8fbff",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: active ? "#16a34a" : "#002b6b",
-          fontSize: 20,
-          flexShrink: 0,
-        }}
-      >
-        {icon}
-      </div>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ color: "#0f172a", fontSize: 12, fontWeight: 950 }}>
-          {title}
-        </div>
-        <div style={{ color: "#64748b", fontSize: 10, fontWeight: 750, marginTop: 2 }}>
-          {subtitle}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function DocumentsHome() {
   const router = useRouter();
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -436,6 +394,11 @@ export default function DocumentsHome() {
   const readyPercent =
     monthDocs === 0 ? 0 : Math.round((approvedCount / Math.max(monthDocs, 1)) * 100);
 
+  const accountantPackSubtitle =
+    pendingCount > 0
+      ? `${pendingCount.toLocaleString("he-IL")} עדיין לבדיקה`
+      : "הורד ושלח";
+
   return (
     <div dir="rtl" style={mainShellStyle()}>
       <main style={contentStyle()}>
@@ -454,43 +417,6 @@ export default function DocumentsHome() {
           style={{ display: "none" }}
           onChange={(e) => void uploadDocument(e.target.files?.[0])}
         />
-        <header
-          style={{
-            background: "#ffffff",
-            border: "1px solid #dfe7f3",
-            borderRadius: 18,
-            padding: "14px 16px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
-          }}
-        >
-          <div>
-            <div style={{ color: "#0f172a", fontSize: 20, fontWeight: 950 }}>
-              מרכז פיננסי - סקירה
-            </div>
-            <div style={{ color: "#64748b", fontSize: 12, fontWeight: 800, marginTop: 3 }}>
-              התמונה המלאה על המסמכים והדוחות
-            </div>
-          </div>
-          <div
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: 999,
-              background: "#eff6ff",
-              color: "#002b6b",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: 950,
-            }}
-          >
-            ↻
-          </div>
-        </header>
-
         {state.status === "error" ? (
           <section
             style={{
@@ -615,6 +541,55 @@ export default function DocumentsHome() {
         </section>
 
         <section style={cardStyle()}>
+          <div style={{ color: "#0f172a", fontWeight: 950, fontSize: 16, marginBottom: 12 }}>
+            פעולות מהירות
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+              gap: 10,
+            }}
+          >
+            <IntakeTile
+              icon="⬆"
+              title="העלה מסמך"
+              subtitle="פתח בחירה מהמכשיר"
+              href="direct-upload"
+              onClick={() => openUploadPicker()}
+            />
+            <IntakeTile
+              icon="✉"
+              title="ייבוא מייל"
+              subtitle="Gmail וקבצים"
+              href="/documents/email"
+              onClick={(href) => router.push(href)}
+            />
+            <IntakeTile
+              icon="▣"
+              title="סריקה"
+              subtitle="צילום מהנייד"
+              href="direct-camera"
+              onClick={() => openCameraPicker()}
+            />
+            <IntakeTile
+              icon="⌕"
+              title="חיפוש"
+              subtitle="מסמכים"
+              href="/documents/search"
+              onClick={(href) => router.push(href)}
+            />
+            <IntakeTile
+              icon="□"
+              title="הכן חבילה לרו״ח"
+              subtitle={accountantPackSubtitle}
+              href="/documents/accountant-pack"
+              onClick={(href) => router.push(href)}
+            />
+          </div>
+        </section>
+
+        <section style={cardStyle()}>
           <div style={{ textAlign: "center" }}>
             <div style={{ color: "#0f172a", fontWeight: 950, fontSize: 17 }}>
               יש {pendingCount.toLocaleString("he-IL")} מסמכים שממתינים לבדיקה
@@ -665,77 +640,6 @@ export default function DocumentsHome() {
           >
             ראה את כל התור
           </button>
-        </section>
-
-        <section style={cardStyle()}>
-          <div style={{ color: "#0f172a", fontWeight: 950, fontSize: 16, marginBottom: 12 }}>
-            כניסת מסמכים
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-              gap: 10,
-            }}
-          >
-            <IntakeTile
-              icon="⬆"
-              title="העלה מסמך"
-              subtitle="פתח בחירה מהמכשיר"
-              href="direct-upload"
-              onClick={() => openUploadPicker()}
-            />
-            <IntakeTile
-              icon="✉"
-              title="ייבוא מייל"
-              subtitle="Gmail וקבצים"
-              href="/documents/email"
-              onClick={(href) => router.push(href)}
-            />
-            <IntakeTile
-              icon="▣"
-              title="סריקה"
-              subtitle="צילום מהנייד"
-              href="direct-camera"
-              onClick={() => openCameraPicker()}
-            />
-            <IntakeTile
-              icon="⌕"
-              title="חיפוש"
-              subtitle="מסמכים"
-              href="/documents/search"
-              onClick={(href) => router.push(href)}
-            />
-          </div>
-        </section>
-
-        <section style={{ ...cardStyle(), marginTop: 28 }}>
-          <div style={{ color: "#0f172a", fontWeight: 950, fontSize: 16, marginBottom: 14 }}>
-            איך זה עובד?
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-              gap: 8,
-            }}
-          >
-            <FlowStep icon="▤" title="מסמך נכנס" subtitle="ידני או מייל" />
-            <FlowStep icon="⚙" title="זיהוי וסיווג" subtitle="חילוץ פרטים" />
-            <FlowStep
-              icon="✓"
-              title="בדיקה"
-              subtitle="אישור אנושי"
-              active={pendingCount > 0}
-            />
-            <FlowStep
-              icon="▥"
-              title="דוחות"
-              subtitle="עדכון אוטומטי"
-              active={recordCount > 0}
-            />
-            <FlowStep icon="□" title="רו״ח" subtitle="חבילה מוכנה" />
-          </div>
         </section>
         </>
         ) : null}
