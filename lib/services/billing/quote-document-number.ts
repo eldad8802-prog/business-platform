@@ -1,5 +1,6 @@
 import { BillingDocumentType, Prisma } from "@prisma/client";
 import { NotFoundError } from "@/lib/errors";
+import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
 
 const DOCUMENT_NUMBER_PAD = 6;
 
@@ -63,13 +64,14 @@ export async function allocateQuoteDocumentNumberIfMissing(
   const documentNumber = sequence.nextNumber - 1;
   const documentNumberFormatted = formatQuoteDocumentNumber(documentNumber);
 
-  await tx.billingDocument.updateMany({
+  await updateBillingDocuments(tx, {
     where: {
       id: args.billingDocumentId,
       businessId: args.businessId,
       documentType: BillingDocumentType.QUOTE,
       documentNumber: null,
     },
+    intent: "quote_allocate_number",
     data: {
       documentNumber,
       documentNumberFormatted,

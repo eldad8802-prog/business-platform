@@ -78,10 +78,10 @@ const TOOLS: ToolItem[] = [
 },
   {
     key: "bot",
-    title: "בוטים לעסק",
-    description: "יצירה והגדרה של בוטים עסקיים",
-    href: "/bots",
-    status: "soon",
+    title: "בוט לשיחות עם לקוחות",
+    description: "הגדרת בוט הפתיחה — נפרד מרשימת השיחות באינבוקס",
+    href: "/business/bot",
+    status: "active",
     icon: "🤖",
   },
   {

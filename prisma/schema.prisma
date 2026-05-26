@@ -148,8 +148,10 @@ model Business {
   createdAt               DateTime                        @default(now())
   updatedAt               DateTime                        @updatedAt
   billingDocuments        BillingDocument[]
+  billingAuditEvents      BillingAuditEvent[]
   billingNumberSequences  BillingDocumentNumberSequence[]
   profile                 BusinessProfile?
+  botSettings             BusinessBotSettings?
   services                BusinessService[]
   collaborationDeals      CollaborationDeal[]
   conversations           Conversation[]
@@ -202,6 +204,7 @@ model User {
   business           Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
   contentRunsCreated ContentRun[]
   contentEvents      ContentEvent[]
+  billingAuditEvents BillingAuditEvent[]
 }
 
 model BusinessProfile {
@@ -232,6 +235,28 @@ model BusinessProfile {
   @@index([category])
   @@index([subCategory])
   @@index([businessModel])
+}
+
+/// Per-business starter bot configuration (runtime wiring is separate).
+model BusinessBotSettings {
+  id                            Int      @id @default(autoincrement())
+  businessId                    Int      @unique
+  enabled                       Boolean  @default(false)
+  mode                          String   @default("STARTER")
+  channel                       String   @default("WHATSAPP")
+  welcomeMessage                String?
+  questions                     Json?
+  finalAction                   String?
+  finalActionPayload            Json?
+  handoffRules                  Json?
+  showDraftSuggestionsInInbox   Boolean  @default(false)
+  /// Product Link Mode v1: single catalog/landing URL (no commerce engine).
+  productLinkEnabled            Boolean  @default(false)
+  productLinkUrl                String?
+  productLinkIntro              String?
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+  business                      Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 }
 
 model BusinessService {
@@ -1042,6 +1067,9 @@ model BillingDocument {
   issuedByUserId          Int?
   createdByUserId         Int?
   issuedSnapshot          Json?
+  lockedAt                DateTime?
+  legalSnapshotHash       String?
+  referenceDocumentId     Int?
   pdfRenderStatus         BillingPdfRenderStatus @default(PENDING)
   pdfTemplateVersion      String?
   pdfStorageKey           String?
@@ -1053,15 +1081,41 @@ model BillingDocument {
   business                Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
   customer                Customer?              @relation(fields: [customerId], references: [id])
   lines                   BillingDocumentLine[]
+  auditEvents             BillingAuditEvent[]
   financialEvent          FinancialEvent?
   convertedToInvoice      BillingDocument?       @relation("QuoteConvertedToInvoice", fields: [convertedToInvoiceId], references: [id])
   quotesConvertedToHere   BillingDocument[]      @relation("QuoteConvertedToInvoice")
+  referencedDocument      BillingDocument?       @relation("BillingDocumentReversalReference", fields: [referenceDocumentId], references: [id], onDelete: Restrict)
+  creditNotes             BillingDocument[]      @relation("BillingDocumentReversalReference")
 
   @@unique([businessId, documentType, documentNumber])
   @@index([businessId, status, issuedAt])
   @@index([businessId, createdAt])
   @@index([businessId, customerId])
+  @@index([businessId, referenceDocumentId])
   @@index([pdfRenderStatus])
+}
+
+model BillingAuditEvent {
+  id                Int      @id @default(autoincrement())
+  businessId        Int
+  billingDocumentId Int?
+  actorUserId       Int?
+  eventType         String
+  source            String   @default("USER")
+  summary           String
+  metadata          Json?
+  eventHash         String
+  occurredAt        DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  business        Business         @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  billingDocument BillingDocument? @relation(fields: [billingDocumentId], references: [id], onDelete: Restrict)
+  actorUser       User?            @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, occurredAt])
+  @@index([billingDocumentId, occurredAt])
+  @@index([eventType, occurredAt])
 }
 
 model BillingDocumentLine {
@@ -1392,6 +1446,7 @@ enum SupplierLineStatus {
 enum BillingDocumentType {
   TAX_INVOICE
   QUOTE
+  CREDIT_NOTE
 }
 
 enum BillingDocumentStatus {

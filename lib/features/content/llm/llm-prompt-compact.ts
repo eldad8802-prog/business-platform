@@ -1,5 +1,6 @@
 import type { CreativeBlueprint } from "@/lib/features/content/creative-blueprint/types";
 import type { LLMPromptContext, LLMPromptPlan, LLMPrompt } from "./llm-prompt-builder";
+// StoryPremise type is on LLMPromptContext — imported via context.storyPremise, no direct import needed
 
 // ─── Domain bucket detection ──────────────────────────────────────────────────
 
@@ -88,11 +89,11 @@ const FEW_SHOT_EXAMPLES: Record<DomainBucket, string> = {
   generic: `
 דוגמה — שירות מקצועי, 3 שוטים:
 {
-  "hook": "רוב האנשים לא יודעים שיש דרך פשוטה יותר לעשות את זה.",
+  "hook": "יש דרך פשוטה יותר לסגור את זה — ורוב הסיכויים שעוד לא ניסיתם אותה.",
   "shots": [
-    {"visual": "מומחה עובד עם לקוח, שיחה מקצועית", "voice": "רוב האנשים לא יודעים שיש דרך פשוטה יותר לעשות את זה."},
-    {"visual": "תוצאה ברורה: לפני מול אחרי", "voice": "אנחנו לוקחים על עצמנו את כל הכאב ראש — ואתם נהנים מהתוצאה."},
-    {"visual": "לקוח מרוצה, בסביבת השירות", "voice": "פנו אלינו היום לפגישת ייעוץ ראשונה."}
+    {"visual": "מומחה עובד עם לקוח, שיחה מקצועית", "voice": "בלי בלגן ובלי סיבוכים — מסדרים לכם את זה צעד אחר צעד."},
+    {"visual": "תוצאה ברורה: לפני מול אחרי", "voice": "מה שנראה בלתי אפשרי — הופך לברור ברגע שמישהו שמבין נכנס לתמונה."},
+    {"visual": "לקוח מרוצה, בסביבת השירות", "voice": "תשלחו הודעה — נדבר ונראה אם זה בכלל בשבילכם."}
   ],
   "caption": "מקצועי, אמין, מביא תוצאות. #שירות #מקצועי",
   "cta": "פנו אלינו עכשיו."
@@ -131,22 +132,32 @@ export function buildCompactPrompt(
 ): LLMPrompt {
   const bucket = detectDomainBucket(context);
 
-  const system = `אתה מנהל קריאייטיב AI. כתוב תסריט ל${context.businessLabel} על ${context.mainOfferLabel} עבור ${context.audienceLabel}. פלט JSON בלבד — ללא markdown, ללא הסברים.`;
+  const system = `אתה כותב תוכן לרילים — אמירה חדה וקצב מדובר, לא דף נחיתה ולא מודעה.
+ה-hook צריך לעצור גלילה: טענה, מתח, או שבירת תפיסה — לא "רוצים X בלי Y?" כמו באנר.
+אתה מקבל חומר רקע פנימי; אסור לצטט אותו מילה במילה. פלט JSON בלבד — ללא markdown, ללא הסברים.`;
 
   const anchorLines: string[] = [
-    `# נושא הסרטון`,
+    `# נושא וקהל`,
     `הסרטון הוא על: ${context.mainOfferLabel} של ${context.businessLabel}`,
     `קהל היעד: ${context.audienceLabel}`,
     `הסרטון פונה אל הלקוחות — לא אל בעל העסק.`,
   ];
+
+  const briefingLines: string[] = [];
   if (context.contentGoalPrompt) {
-    anchorLines.push(`דרישה חובה: ${context.contentGoalPrompt}`);
+    briefingLines.push(
+      `## רקע מבעל העסק (הבנה בלבד — לא להעתיק)\n${context.contentGoalPrompt}`
+    );
   }
-  if (context.directionTitle) {
-    anchorLines.push(`כיוון: ${context.directionTitle}`);
-    if (context.directionDescription) {
-      anchorLines.push(`פירוט: ${context.directionDescription}`);
-    }
+  if (context.directionTitle || context.directionDescription || context.directionWhyItFits) {
+    const d: string[] = ["## כיוון (רקע — לא לציטוט)"];
+    if (context.directionTitle) d.push(`כותרת: ${context.directionTitle}`);
+    if (context.directionDescription) d.push(`תיאור: ${context.directionDescription}`);
+    if (context.directionWhyItFits) d.push(`התאמה: ${context.directionWhyItFits}`);
+    briefingLines.push(d.join("\n"));
+  }
+  if (context.archetypeBehaviorBrief) {
+    briefingLines.push(context.archetypeBehaviorBrief.trim());
   }
 
   const instructionLines = [
@@ -164,7 +175,14 @@ export function buildCompactPrompt(
     `- כל hook, שוט ו-CTA חייבים להתייחס ישירות ל: ${context.mainOfferLabel}`,
     `- פונה לקהל: ${context.audienceLabel} — לא לבעל העסק`,
     `- הכל בעברית`,
+    `- hook: טענה או מתח — לא פתיח שמסביר את המוצר; לא שפת הצעה מדף נחיתה`,
+    `- voice: משפטים קצרים, נקודה אחת לשוט; לא סיסמאות ("הפתרון המושלם", "גלו איך", "הורד עכשיו")`,
+    `- מיישם interruption_style: ${blueprint.interruption_style} — הפרעה, לא נימוס שיווקי`,
     `- אסור תוכן גנרי על שיווק/צמיחה עסקית אלא אם זה תחום העסק`,
+    `- אסור לצטט את חומר הרקע הפנימי; נסח מחדש בשפה של צופה`,
+    `- אסור מטא-שיח ("בחרתם", "רציתם להבהיר", "הכיוון שבחרתם")`,
+    `- אסור "רוב האנשים", "אם גם אתם", "יש דרך", "זה ההבדל"`,
+    `- לא clickbait מוגזם — עדיין חד ואנושי`,
   ];
 
   const schemaLines = [
@@ -179,12 +197,50 @@ export function buildCompactPrompt(
 }`,
   ];
 
-  const parts: string[] = [
-    anchorLines.join("\n"),
+  const parts: string[] = [anchorLines.join("\n")];
+  if (briefingLines.length) {
+    parts.push(
+      `# חומר רקע פנימי — לא להעתיק למלל הסרטון\n${briefingLines.join("\n\n")}`
+    );
+  }
+  if (context.humanInsight) {
+    const hi = context.humanInsight;
+    parts.push(
+      `# שכבת תובנה אנושית — לא לציטוט — לחשיבה בלבד
+מצב אנושי: ${hi.humanSituation}
+פרשנות רגשית: ${hi.emotionalInterpretation}
+אמת נסתרת: ${hi.hiddenTruth}
+מתח: ${hi.tension}
+הזדמנות נרטיבית: ${hi.narrativeOpportunity}
+מה הצופה אמור להרגיש: ${hi.viewerFeeling}
+פיצוי רגשי: ${hi.payoff}
+נתיב קריאייטיב: ${hi.creativeRoute}
+תקשורת ישראלית: ${hi.israeliCommunicationDirection}`
+    );
+  }
+  if (context.storyPremise) {
+    const sp = context.storyPremise;
+    parts.push(
+      `# הסיפור שאתה מספר — לא לציטוט ישיר — כתוב shots שמגשימים אותו, לא שמסבירים אותו
+---
+רגע פתיחה: ${sp.openingMoment}
+דמות: ${sp.protagonist}
+ליבת הרגש: ${sp.emotionalCore}
+קונפליקט: ${sp.conflict}
+הסלמה: ${sp.escalation}
+נקודת מפנה: ${sp.turningPoint}
+payoff: ${sp.emotionalPayoff}
+משמעות שיווקית: ${sp.marketingMeaning}
+
+התקדמות הסצנות — השתמש בהן כ-creative anchor לכל shot במבנה:
+${sp.sceneProgression.map((s, i) => `${i + 1}. ${s}`).join("\n")}`
+    );
+  }
+  parts.push(
     instructionLines.join("\n"),
     structureLines.join("\n"),
-    rulesLines.join("\n"),
-  ];
+    rulesLines.join("\n")
+  );
 
   if (withFewShot) {
     parts.push(`# דוגמה לסגנון הפלט הנדרש\n${FEW_SHOT_EXAMPLES[bucket].trim()}`);

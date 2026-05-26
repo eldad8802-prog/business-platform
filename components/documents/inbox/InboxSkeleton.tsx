@@ -1,39 +1,50 @@
 "use client";
 
-import type { CSSProperties } from "react";
-import { card } from "@/app/documents/ui";
-
-const BAR: CSSProperties = {
-  borderRadius: 12,
-  background: "#e5e7eb",
-  height: 14,
-  animation: "pulse 1.2s ease-in-out infinite",
-};
-
-const BLOCK: CSSProperties = {
-  ...card,
-  padding: 16,
-};
+import {
+  SkeletonBlock,
+  documentsShellCard,
+  skeletonBar,
+} from "@/components/documents/skeletons/skeleton-primitives";
 
 export default function InboxSkeleton() {
   return (
-    <div dir="rtl" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 0.55; }
-          50% { opacity: 0.95; }
-        }
-      `}</style>
-      <div style={{ ...BLOCK, height: 120 }} />
-      <div style={BLOCK}>
-        <div style={{ ...BAR, width: "45%", marginBottom: 12 }} />
-        <div style={{ ...BAR, width: "70%", marginBottom: 10 }} />
-        <div style={{ ...BAR, width: "35%" }} />
-      </div>
-      <div style={BLOCK}>
-        <div style={{ ...BAR, width: "55%", marginBottom: 12 }} />
-        <div style={{ ...BAR, width: "80%" }} />
-      </div>
-    </div>
+    <SkeletonBlock>
+      <section style={documentsShellCard()}>
+        <div style={skeletonBar("40%", 16)} />
+        <div style={{ ...skeletonBar("65%", 12), marginTop: 8 }} />
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+            gap: 10,
+            marginTop: 14,
+          }}
+        >
+          {[0, 1].map((i) => (
+            <div
+              key={i}
+              style={{
+                border: "1px solid #dfe7f3",
+                borderRadius: 12,
+                padding: 12,
+                textAlign: "center",
+              }}
+            >
+              <div style={{ ...skeletonBar("55%", 12), margin: "0 auto" }} />
+              <div style={{ ...skeletonBar("35%", 24), margin: "8px auto 0" }} />
+            </div>
+          ))}
+        </div>
+      </section>
+      <section style={documentsShellCard()}>
+        <div style={{ ...skeletonBar("45%", 14), marginBottom: 12 }} />
+        <div style={{ ...skeletonBar("70%", 12), marginBottom: 10 }} />
+        <div style={skeletonBar("35%")} />
+      </section>
+      <section style={documentsShellCard()}>
+        <div style={{ ...skeletonBar("55%", 14), marginBottom: 12 }} />
+        <div style={skeletonBar("80%")} />
+      </section>
+    </SkeletonBlock>
   );
 }

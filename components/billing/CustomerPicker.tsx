@@ -155,7 +155,7 @@ export function CustomerPicker({
     <div ref={wrapRef} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>
-          לקוח <span style={{ color: "#ef4444" }}>*</span>
+          למי המסמך מיועד? <span style={{ color: "#ef4444" }}>*</span>
         </span>
         <div style={{ position: "relative" }}>
           <input
@@ -171,7 +171,7 @@ export function CustomerPicker({
               setOpen(true);
               void fetchList(displayName.slice(0, 40));
             }}
-            placeholder="שם לקוח או חיפוש מהרשימה"
+            placeholder="שם לקוח או חיפוש לקוח קיים"
             maxLength={200}
             dir="auto"
             autoComplete="off"
@@ -249,11 +249,11 @@ export function CustomerPicker({
 
       {linkedCustomerId ? (
         <div style={{ fontSize: 12, color: "#166534", fontWeight: 600 }}>
-          מקושר ללקוח במערכת (#{linkedCustomerId})
+          נשמר כלקוח קיים (#{linkedCustomerId})
         </div>
       ) : (
         <div style={{ fontSize: 12, color: "#64748b" }}>
-          ניתן לחפש לקוח קיים או להזין שם חופשי — השם יופיע על החשבונית.
+          אפשר לבחור לקוח קיים או לכתוב שם חדש כפי שיופיע במסמך.
         </div>
       )}
 
@@ -273,7 +273,7 @@ export function CustomerPicker({
           cursor: disabled ? "not-allowed" : "pointer",
         }}
       >
-        + לקוח חדש מהיר
+        + הוסף לקוח חדש
       </button>
 
       {quickOpen ? (

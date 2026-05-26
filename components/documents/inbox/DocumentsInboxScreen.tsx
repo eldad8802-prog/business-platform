@@ -1,55 +1,18 @@
 "use client";
 
-import type { CSSProperties } from "react";
 import { useMemo, useState } from "react";
-import DocumentsHeader from "@/components/documents/DocumentsHeader";
+import { useRouter } from "next/navigation";
 import { useDocumentsInbox } from "@/hooks/useDocumentsInbox";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
-import {
-  alertError,
-  pageMain,
-  primaryBtn,
-  secondaryBtn,
-} from "@/app/documents/ui";
-import AttentionBand from "./AttentionBand";
 import DocumentCard from "./DocumentCard";
-import FinancialPulse from "./FinancialPulse";
 import InboxEmptyState from "./InboxEmptyState";
 import InboxSkeleton from "./InboxSkeleton";
 import MonthSection from "./MonthSection";
 
 type TabKey = "pending" | "approved";
 
-const TAB_ROW: CSSProperties = {
-  display: "flex",
-  gap: 8,
-  marginBottom: 12,
-  flexWrap: "wrap",
-};
-
-const TAB_BTN = (active: boolean) =>
-  ({
-    padding: "10px 16px",
-    borderRadius: 999,
-    border: active ? "1px solid #111827" : "1px solid #e5e7eb",
-    background: active ? "#111827" : "#ffffff",
-    color: active ? "#ffffff" : "#111827",
-    fontSize: 14,
-    fontWeight: 900,
-    cursor: "pointer",
-  }) as const;
-
-const SCROLL_MAIN: CSSProperties = {
-  ...pageMain,
-  flex: 1,
-  minHeight: 0,
-  paddingBottom: 28,
-};
-
 function filterByTab(items: InboxListItem[], tab: TabKey): InboxListItem[] {
-  if (tab === "pending") {
-    return items.filter((i) => i.status === "needs_review");
-  }
+  if (tab === "pending") return items.filter((i) => i.status === "needs_review");
   return items.filter((i) => i.status === "approved");
 }
 
@@ -58,11 +21,49 @@ function groupByMonthDescending(items: InboxListItem[]): string[] {
   return Array.from(keys).sort().reverse();
 }
 
+function QueueStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "warning" | "success";
+}) {
+  return (
+    <div
+      style={{
+        border: "1px solid #dfe7f3",
+        borderRadius: 12,
+        background: "#ffffff",
+        padding: 12,
+        textAlign: "center",
+      }}
+    >
+      <div style={{ color: "#64748b", fontSize: 12, fontWeight: 850 }}>
+        {label}
+      </div>
+      <div
+        style={{
+          color: tone === "warning" ? "#d97706" : "#16a34a",
+          fontSize: 24,
+          fontWeight: 950,
+          marginTop: 4,
+          lineHeight: 1.1,
+        }}
+      >
+        {value.toLocaleString("he-IL")}
+      </div>
+    </div>
+  );
+}
+
 export default function DocumentsInboxScreen({
   authToken,
 }: {
   authToken: string | null;
 }) {
+  const router = useRouter();
   const [tab, setTab] = useState<TabKey>("pending");
 
   const {
@@ -77,11 +78,19 @@ export default function DocumentsInboxScreen({
     loadMore,
   } = useDocumentsInbox(authToken);
 
+  const pendingCount = useMemo(
+    () => items.filter((i) => i.status === "needs_review").length,
+    [items]
+  );
+  const approvedCount = useMemo(
+    () => items.filter((i) => i.status === "approved").length,
+    [items]
+  );
   const filtered = useMemo(() => filterByTab(items, tab), [items, tab]);
-
-  const monthKeys = useMemo(
-    () => groupByMonthDescending(filtered),
-    [filtered]
+  const monthKeys = useMemo(() => groupByMonthDescending(filtered), [filtered]);
+  const nextPending = useMemo(
+    () => items.find((i) => i.status === "needs_review") ?? null,
+    [items]
   );
 
   const emptyVariant = useMemo(() => {
@@ -90,123 +99,309 @@ export default function DocumentsInboxScreen({
   }, [loading, error, items.length]);
 
   const tabEmptyVariant = useMemo(() => {
-    if (loading || error || items.length === 0 || filtered.length > 0) {
-      return null;
-    }
+    if (loading || error || items.length === 0 || filtered.length > 0) return null;
     if (tab === "pending") return "no_pending" as const;
     return "no_approved" as const;
   }, [loading, error, items.length, filtered.length, tab]);
 
-  const showAttention =
-    financialPulse != null &&
-    financialPulse.inboxDocumentCounts.pendingReview > 0;
+  const pulsePendingCount = financialPulse?.inboxDocumentCounts.pendingReview ?? pendingCount;
+  const pulseApprovedCount =
+    financialPulse?.inboxDocumentCounts.approvedDocuments ?? approvedCount;
 
   return (
-    <div dir="rtl" style={{ minHeight: "100vh", background: "#f8fafc" }}>
-      <DocumentsHeader title="תיבת מסמכים" />
-
-      <main style={SCROLL_MAIN}>
+    <div dir="rtl" style={{ minHeight: "100vh", background: "#f3f7ff" }}>
+      {/* Header */}
+      <div
+        style={{
+          maxWidth: 760,
+          margin: "0 auto",
+          padding: "18px 14px 0",
+          boxSizing: "border-box",
+        }}
+      >
         <div
           style={{
+            background: "#ffffff",
+            border: "1px solid #dfe7f3",
+            borderRadius: 18,
+            padding: "14px 16px",
             display: "flex",
-            justifyContent: "space-between",
             alignItems: "center",
+            justifyContent: "space-between",
             gap: 12,
-            marginBottom: 12,
-            flexWrap: "wrap",
+            boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
           }}
         >
-          <div style={{ fontSize: 13, color: "#6b7280", fontWeight: 800 }}>
-            {scope ? `חודש: ${scope.month}` : null}
+          <div>
+            <div style={{ color: "#0f172a", fontSize: 20, fontWeight: 950 }}>
+              תור בדיקת מסמכים
+            </div>
+            <div style={{ color: "#64748b", fontSize: 12, fontWeight: 800, marginTop: 3 }}>
+              {scope ? `${scope.month} · מסמכים שמחכים להחלטה` : "מסמכים שמחכים להחלטה"}
+            </div>
           </div>
+
           <button
             type="button"
-            style={{ ...secondaryBtn, width: "auto", marginTop: 0, minHeight: 44 }}
             onClick={() => refetch()}
             disabled={loading}
+            style={{
+              background: "#eff6ff",
+              border: "1px solid #dbeafe",
+              borderRadius: 999,
+              width: 38,
+              height: 38,
+              fontSize: 16,
+              fontWeight: 950,
+              color: "#002b6b",
+              cursor: loading ? "not-allowed" : "pointer",
+              opacity: loading ? 0.5 : 1,
+              flexShrink: 0,
+            }}
+            aria-label="רענון"
           >
-            רענון
+            ↻
           </button>
         </div>
+      </div>
 
-        {!error && !(loading && items.length === 0) ? (
-          <FinancialPulse pulse={financialPulse} />
-        ) : null}
-
+      {/* Main content */}
+      <div
+        style={{
+          padding: "14px 14px 40px",
+          maxWidth: 760,
+          margin: "0 auto",
+          boxSizing: "border-box",
+        }}
+      >
+        {/* Error state */}
         {error ? (
-          <div style={alertError}>
-            <div style={{ marginBottom: 10 }}>{error}</div>
+          <div
+            style={{
+              background: "#fff1f2",
+              border: "1px solid rgba(220, 38, 38, 0.2)",
+              borderRadius: 16,
+              padding: "20px 16px",
+              textAlign: "center",
+              marginBottom: 16,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 14,
+                color: "#991b1b",
+                fontWeight: 700,
+                marginBottom: 12,
+              }}
+            >
+              {error}
+            </div>
             <button
               type="button"
-              style={{ ...primaryBtn, marginTop: 0 }}
               onClick={() => refetch()}
+              style={{
+                background: "#dc2626",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: 12,
+                padding: "10px 20px",
+                fontSize: 14,
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
             >
               נסה שוב
             </button>
           </div>
         ) : null}
 
+        {/* Skeleton */}
         {loading && items.length === 0 ? <InboxSkeleton /> : null}
 
+        {/* Global empty */}
         {!loading && !error && emptyVariant ? (
           <InboxEmptyState variant={emptyVariant} />
         ) : null}
 
         {!error && items.length > 0 ? (
           <>
-            {showAttention ? (
-              <AttentionBand
-                pendingCount={financialPulse!.inboxDocumentCounts.pendingReview}
-              />
-            ) : null}
+            <section
+              style={{
+                background: "#ffffff",
+                border: "1px solid #dfe7f3",
+                borderRadius: 18,
+                padding: 16,
+                boxShadow: "0 10px 28px rgba(15, 23, 42, 0.06)",
+                marginBottom: 14,
+              }}
+            >
+              <div style={{ color: "#0f172a", fontSize: 16, fontWeight: 950 }}>
+                מצב התור
+              </div>
+              <p
+                style={{
+                  margin: "6px 0 0",
+                  color: "#64748b",
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                  fontWeight: 800,
+                }}
+              >
+                כאן מטפלים במסמכים שמחכים להחלטה. דוחות, חיפוש וחבילה לרו״ח
+                מתעדכנים אחרי אישור.
+              </p>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                  gap: 10,
+                  marginTop: 12,
+                }}
+              >
+                <QueueStat label="ממתינים" value={pulsePendingCount} tone="warning" />
+                <QueueStat label="טופלו" value={pulseApprovedCount} tone="success" />
+              </div>
+              {nextPending ? (
+                <button
+                  type="button"
+                  onClick={() => router.push(`/documents/review/${nextPending.documentId}`)}
+                  style={{
+                    width: "100%",
+                    minHeight: 48,
+                    border: "none",
+                    borderRadius: 9,
+                    background: "#002b6b",
+                    color: "#ffffff",
+                    fontSize: 15,
+                    fontWeight: 950,
+                    cursor: "pointer",
+                    marginTop: 12,
+                  }}
+                >
+                  בדוק את המסמך הבא <span style={{ marginInlineStart: 10 }}>←</span>
+                </button>
+              ) : null}
+            </section>
 
-            <div style={TAB_ROW}>
-              <button
-                type="button"
-                style={TAB_BTN(tab === "pending")}
-                onClick={() => setTab("pending")}
-              >
-                ממתינים
-              </button>
-              <button
-                type="button"
-                style={TAB_BTN(tab === "approved")}
-                onClick={() => setTab("approved")}
-              >
-                מאושרים
-              </button>
+            {/* Tab row */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 8,
+                marginBottom: 16,
+                background: "#ffffff",
+                border: "1px solid #dfe7f3",
+                borderRadius: 14,
+                padding: 6,
+              }}
+            >
+              {(
+                [
+                  { key: "pending" as const, label: "ממתינים", count: pendingCount },
+                  { key: "approved" as const, label: "מאושרים", count: approvedCount },
+                ] as const
+              ).map(({ key, label, count }) => {
+                const active = tab === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setTab(key)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 7,
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      border: active ? "1px solid #002b6b" : "1px solid transparent",
+                      background: active ? "#002b6b" : "#ffffff",
+                      color: active ? "#ffffff" : "#475569",
+                      fontSize: 14,
+                      fontWeight: 950,
+                      cursor: "pointer",
+                      boxShadow: active ? "0 6px 14px rgba(0, 43, 107, 0.16)" : "none",
+                    }}
+                  >
+                    {label}
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        minWidth: 20,
+                        height: 20,
+                        borderRadius: 999,
+                        background: active
+                          ? "rgba(255,255,255,0.18)"
+                          : "rgba(15, 23, 42, 0.07)",
+                        fontSize: 11,
+                        fontWeight: 900,
+                        padding: "0 5px",
+                      }}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
+            {/* Tab-empty state */}
             {tabEmptyVariant ? (
               <InboxEmptyState variant={tabEmptyVariant} />
             ) : (
-              monthKeys.map((mk) => (
-                <MonthSection key={mk} monthKey={mk}>
-                  {filtered
-                    .filter((i) => i.groupMonth === mk)
-                    .map((item) => (
-                      <DocumentCard key={item.documentId} item={item} />
-                    ))}
-                </MonthSection>
-              ))
+              <div
+                style={{
+                  background: "#ffffff",
+                  border: "1px solid #dfe7f3",
+                  borderRadius: 18,
+                  padding: 14,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 16,
+                }}
+              >
+                {monthKeys.map((mk) => (
+                  <MonthSection key={mk} monthKey={mk}>
+                    {filtered
+                      .filter((i) => i.groupMonth === mk)
+                      .map((item) => (
+                        <DocumentCard key={item.documentId} item={item} />
+                      ))}
+                  </MonthSection>
+                ))}
+              </div>
             )}
 
+            {/* Load more */}
             {pagination?.hasMore ? (
-              <button
-                type="button"
-                style={{
-                  ...secondaryBtn,
-                  marginTop: 16,
-                }}
-                disabled={loadingMore}
-                onClick={() => void loadMore()}
-              >
-                {loadingMore ? "טוען…" : "טען עוד"}
-              </button>
+              <div style={{ marginTop: 20, textAlign: "center" }}>
+                <button
+                  type="button"
+                  disabled={loadingMore}
+                  onClick={() => void loadMore()}
+                  style={{
+                    background: "#ffffff",
+                    border: "1px solid #dfe7f3",
+                    borderRadius: 10,
+                    padding: "12px 28px",
+                    fontSize: 14,
+                    fontWeight: 800,
+                    color: "#002b6b",
+                    cursor: loadingMore ? "not-allowed" : "pointer",
+                    opacity: loadingMore ? 0.6 : 1,
+                    boxShadow: "0 1px 4px rgba(15, 23, 42, 0.06)",
+                  }}
+                >
+                  {loadingMore ? "טוען…" : "טען עוד"}
+                </button>
+              </div>
             ) : null}
           </>
         ) : null}
-      </main>
+      </div>
     </div>
   );
 }

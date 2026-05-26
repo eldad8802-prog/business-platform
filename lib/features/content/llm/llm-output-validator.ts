@@ -3,26 +3,49 @@ const HEBREW_RE = /[א-ת]/;
 // Hebrew conjunction/preposition prefixes that the LLM strips when inflecting
 const HE_PREFIX_RE = /^[והבלמכשאל]+/;
 
-export function checkDomainRelevance(
-  output: LLMScriptOutput,
-  mainOfferLabel: string
-): boolean {
-  const words = mainOfferLabel
-    .split(/[\s,\/\-]+/)
-    .map((w) => w.trim().replace(HE_PREFIX_RE, ""))
-    .filter((w) => w.length > 2);
-  if (words.length === 0) return true;
-  const haystack = [
-    output.hook,
-    output.shots[0]?.visual ?? "",
-    output.shots[0]?.voice ?? "",
-    output.shots[1]?.voice ?? "",
-    output.shots[1]?.visual ?? "",
-    output.caption,
-  ]
-    .join(" ")
-    .toLowerCase();
-  return words.some((w) => haystack.includes(w.toLowerCase()));
+/** System default when no service/product — must not force-validate against LLM wording. */
+export const GENERIC_MAIN_OFFER_PLACEHOLDER = "השירות או המוצר שלך";
+
+const GOAL_STOPWORDS = new Set([
+  "אני",
+  "רוצה",
+  "רוצים",
+  "לקדם",
+  "שלי",
+  "שלנו",
+  "שלכם",
+  "את",
+  "אתם",
+  "אתן",
+  "זה",
+  "זו",
+  "יש",
+  "עם",
+  "על",
+  "אבל",
+  "גם",
+  "כי",
+  "מה",
+  "איך",
+  "למה",
+  "של",
+  "הוא",
+  "היא",
+  "הם",
+  "הן",
+  "כל",
+  "יותר",
+  "פחות",
+  "כמו",
+  "או",
+  "עוד",
+]);
+
+export function isNonSpecificMainOfferLabel(label: string): boolean {
+  const t = label.trim();
+  if (!t) return true;
+  if (t === GENERIC_MAIN_OFFER_PLACEHOLDER) return true;
+  return false;
 }
 
 export type LLMScriptOutput = {
@@ -31,6 +54,54 @@ export type LLMScriptOutput = {
   caption: string;
   cta: string;
 };
+
+function tokenizeForRelevance(text: string): string[] {
+  return text
+    .split(/[\s,.;:!?/\\\-–—"'()]+/)
+    .map((w) => w.trim().replace(HE_PREFIX_RE, ""))
+    .filter((w) => w.length > 2 && !GOAL_STOPWORDS.has(w));
+}
+
+function haystackFromOutput(output: LLMScriptOutput): string {
+  const shotBits = output.shots.flatMap((s) => [s.voice, s.visual]);
+  return [output.hook, ...shotBits, output.caption].join(" ").toLowerCase();
+}
+
+export function checkDomainRelevance(
+  output: LLMScriptOutput,
+  mainOfferLabel: string,
+  options?: { contentGoalPrompt?: string; businessLabel?: string }
+): boolean {
+  if (isNonSpecificMainOfferLabel(mainOfferLabel)) {
+    return true;
+  }
+
+  const haystack = haystackFromOutput(output);
+
+  const offerWords = tokenizeForRelevance(mainOfferLabel);
+  if (offerWords.length === 0) return true;
+  if (offerWords.some((w) => haystack.includes(w.toLowerCase()))) {
+    return true;
+  }
+
+  const goalRaw = options?.contentGoalPrompt?.trim();
+  if (goalRaw) {
+    const goalWords = tokenizeForRelevance(goalRaw);
+    if (goalWords.some((w) => haystack.includes(w.toLowerCase()))) {
+      return true;
+    }
+  }
+
+  const biz = options?.businessLabel?.trim();
+  if (biz && biz !== "העסק") {
+    const bizWords = tokenizeForRelevance(biz);
+    if (bizWords.some((w) => haystack.includes(w.toLowerCase()))) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 export class LLMOutputValidationError extends Error {
   constructor(message: string) {

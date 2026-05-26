@@ -1,6 +1,6 @@
 // Pure, frontend-safe scoring for Gmail discovery attachments.
 //
-// Mirrors what was previously inline in `app/documents/upload/page.tsx`.
+// Mirrors what was previously inline in `app/(shell)/documents/upload/page.tsx`.
 // Kept in `lib/services/email-import/` so it can be reused by both the
 // upload screen and the new `/documents/email` screen without pulling in
 // any UI dependencies. No backend, no schema, no API contract changes.

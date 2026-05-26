@@ -6,6 +6,25 @@ import { getContextMessages } from "@/lib/conversation-context/get-context-messa
 import { getSuggestionMode } from "@/lib/decision/get-suggestion-mode";
 import { applyMessageEvent } from "@/lib/conversation-state/conversation-state.service";
 import { getCurrentUser } from "@/lib/auth";
+import { runBotPolicyEngine } from "@/lib/features/conversation/bot-policy";
+import {
+  isHumanTakeoverConversation,
+  resolveBotWorkMode,
+  shouldOfferAutoReplySuggestions,
+  shouldOfferStarterBotDrafts,
+} from "@/lib/features/conversation/bot-control";
+import type {
+  BotPolicyAnalysisSnapshot,
+  BotPolicyConversationSnapshot,
+  BotPolicyMessageSnapshot,
+  BotPolicySettingsSnapshot,
+} from "@/lib/features/conversation/bot-policy";
+import {
+  deriveStarterBotNextQuestionIndex,
+  isStarterBotFlowCompletedSent,
+  planStarterBotReply,
+} from "@/lib/features/conversation/starter-bot";
+import type { StarterBotSettingsSnapshot } from "@/lib/features/conversation/starter-bot";
 
 type StageLabel = "early" | "middle" | "closing" | string | null | undefined;
 
@@ -289,6 +308,243 @@ export async function POST(req: Request) {
       );
     }
 
+    type BotSettingsObserveRow = {
+      enabled: boolean;
+      showDraftSuggestionsInInbox: boolean;
+      mode: string;
+      channel: string;
+      welcomeMessage: string | null;
+      questions: unknown;
+      finalAction: string | null;
+      finalActionPayload: unknown;
+      handoffRules: unknown;
+    };
+
+    const humanTakeover = isHumanTakeoverConversation(conversation.outcomeReason);
+    let botRow: BotSettingsObserveRow | null = null;
+
+    try {
+      try {
+        botRow = await prisma.businessBotSettings.findUnique({
+          where: { businessId: user.businessId },
+          select: {
+            enabled: true,
+            showDraftSuggestionsInInbox: true,
+            mode: true,
+            channel: true,
+            welcomeMessage: true,
+            questions: true,
+            finalAction: true,
+            finalActionPayload: true,
+            handoffRules: true,
+          },
+        });
+      } catch (settingsErr) {
+        console.warn("bot-settings observe-only load failed:", settingsErr);
+      }
+
+      const settingsSnapshot: BotPolicySettingsSnapshot = botRow
+        ? {
+            enabled: botRow.enabled,
+            mode: botRow.mode,
+            channel: botRow.channel,
+          }
+        : null;
+
+      const messageSnapshot: BotPolicyMessageSnapshot = {
+        direction: message.direction as BotPolicyMessageSnapshot["direction"],
+        senderType: message.senderType as BotPolicyMessageSnapshot["senderType"],
+        contentText: message.contentText,
+      };
+      const analysisSnapshot: BotPolicyAnalysisSnapshot = {
+        intent: analysis.intent,
+        stage: analysis.stage,
+      };
+      const conversationSnapshot: BotPolicyConversationSnapshot = {
+        status: conversation.status,
+        currentStage: conversation.currentStage,
+      };
+
+      let inboundMessageCount = 0;
+      try {
+        inboundMessageCount = await prisma.message.count({
+          where: {
+            conversationId: conversation.id,
+            direction: "INBOUND",
+            senderType: "CUSTOMER",
+          },
+        });
+      } catch (countErr) {
+        console.warn("inbound message count failed:", countErr);
+      }
+
+      const policy = runBotPolicyEngine({
+        message: messageSnapshot,
+        analysis: analysisSnapshot,
+        conversation: conversationSnapshot,
+        settings: settingsSnapshot,
+        handoffRules: botRow?.handoffRules,
+        inboundMessageCount,
+        humanTakeover,
+      });
+
+      console.log("[bot-policy observe]", {
+        conversationId: conversation.id,
+        decision: policy.decision,
+        reason: policy.reason,
+        canAutoReply: policy.canAutoReply,
+      });
+
+      if (policy.decision === "HANDOFF_REQUIRED") {
+        console.log("[starter-bot-lifecycle observe]", {
+          conversationId: conversation.id,
+          starterBotPolicyHandoff: true,
+          policyReason: policy.reason,
+          requiresHandoff: policy.requiresHandoff,
+        });
+      }
+
+      if (policy.decision === "STARTER_BOT_ELIGIBLE" && botRow) {
+        let starterBotFlowAlreadyCompleted = false;
+        try {
+          starterBotFlowAlreadyCompleted = await isStarterBotFlowCompletedSent({
+            businessId: user.businessId,
+            conversationId: conversation.id,
+          });
+        } catch (completedCheckErr) {
+          console.warn(
+            "starter-bot flow completion check failed:",
+            completedCheckErr
+          );
+          starterBotFlowAlreadyCompleted = false;
+        }
+
+        if (starterBotFlowAlreadyCompleted) {
+          console.log("[starter-bot-lifecycle observe]", {
+            conversationId: conversation.id,
+            starterBotFlowCompleted: true,
+            skippedStarterBotDraft: true,
+            reason: "terminal_bot_draft_already_sent",
+          });
+        } else {
+          try {
+            let derivedNextQuestionIndex = 0;
+            try {
+              derivedNextQuestionIndex = await deriveStarterBotNextQuestionIndex({
+                businessId: user.businessId,
+                conversationId: conversation.id,
+              });
+            } catch (deriveErr) {
+              console.warn("derive starter-bot nextQuestionIndex failed:", deriveErr);
+              derivedNextQuestionIndex = 0;
+            }
+
+            const plannerSettings: StarterBotSettingsSnapshot = {
+              enabled: botRow.enabled,
+              mode: botRow.mode,
+              channel: botRow.channel,
+              welcomeMessage: botRow.welcomeMessage,
+              questions: botRow.questions,
+              finalAction: botRow.finalAction,
+              finalActionPayload: botRow.finalActionPayload,
+              handoffRules: botRow.handoffRules,
+            };
+
+            const starterDraft = planStarterBotReply({
+              settings: plannerSettings,
+              conversation: {
+                id: conversation.id,
+                currentStage: conversation.currentStage,
+              },
+              analysis: {
+                intent: analysis.intent,
+                stage: analysis.stage,
+              },
+              nextQuestionIndex: derivedNextQuestionIndex,
+            });
+
+            const starterBotTerminalDraft =
+              starterDraft.replyKind === "COMPLETE" ||
+              starterDraft.replyKind === "HANDOFF";
+
+            console.log("[starter-bot-planner observe]", {
+              conversationId: conversation.id,
+              derivedNextQuestionIndex,
+              replyKind: starterDraft.replyKind,
+              shouldDraftReply: starterDraft.shouldDraftReply,
+              reason: starterDraft.reason,
+              starterBotTerminalDraft,
+            });
+
+            const workMode = resolveBotWorkMode({
+              enabled: botRow.enabled,
+              showDraftSuggestionsInInbox: botRow.showDraftSuggestionsInInbox,
+              handoffRules: botRow.handoffRules,
+            });
+            const offerStarterDrafts = shouldOfferStarterBotDrafts({
+              workMode,
+              humanTakeover,
+              enabled: botRow.enabled,
+              showDraftSuggestionsInInbox: botRow.showDraftSuggestionsInInbox,
+            });
+
+            if (
+              offerStarterDrafts &&
+              policy.decision === "STARTER_BOT_ELIGIBLE" &&
+              starterDraft.shouldDraftReply === true &&
+              starterDraft.replyText.trim().length > 0
+            ) {
+              try {
+                const existingBotDraft = await prisma.replySuggestion.findFirst({
+                  where: {
+                    businessId: user.businessId,
+                    conversationId: conversation.id,
+                    messageId: message.id,
+                    suggestionType: "STARTER_BOT_DRAFT",
+                  },
+                });
+
+                if (!existingBotDraft) {
+                  const variantType =
+                    starterDraft.replyKind && starterDraft.replyKind.trim().length > 0
+                      ? starterDraft.replyKind
+                      : "BOT_DRAFT";
+
+                  await prisma.replySuggestion.create({
+                    data: {
+                      businessId: user.businessId,
+                      conversationId: conversation.id,
+                      messageId: message.id,
+                      suggestionType: "STARTER_BOT_DRAFT",
+                      strategyType: "STARTER_BOT",
+                      variantType,
+                      variantIndex: 0,
+                      text: starterDraft.replyText.trim(),
+                      toneLabel: "bot",
+                      strategyLabel: "Starter Bot",
+                      status: "GENERATED",
+                    },
+                  });
+                }
+              } catch (botDraftSuggestionErr) {
+                console.warn(
+                  "starter-bot ReplySuggestion draft create failed:",
+                  botDraftSuggestionErr
+                );
+              }
+            }
+        } catch (plannerObserveErr) {
+          console.warn(
+            "starter-bot-planner observe-only failed:",
+            plannerObserveErr
+          );
+        }
+        }
+      }
+    } catch (policyObserveErr) {
+      console.warn("bot-policy observe-only failed:", policyObserveErr);
+    }
+
     const previousMessageWithStage = [...previousMessages]
       .reverse()
       .find((message) => message.stageLabel);
@@ -305,24 +561,34 @@ export async function POST(req: Request) {
       message.contentText ?? body.contentText ?? ""
     );
 
-    const generatedSuggestions = await generateReplySuggestions(
-      message,
-      analysis,
-      contextMessages
-    );
+    const workModeForSuggestions = botRow
+      ? resolveBotWorkMode({
+          enabled: botRow.enabled,
+          showDraftSuggestionsInInbox: botRow.showDraftSuggestionsInInbox,
+          handoffRules: botRow.handoffRules,
+        })
+      : ("MANUAL" as const);
+
+    const offerAutoSuggestions = shouldOfferAutoReplySuggestions({
+      workMode: workModeForSuggestions,
+      humanTakeover,
+    });
+
+    const generatedSuggestions = offerAutoSuggestions
+      ? await generateReplySuggestions(message, analysis, contextMessages)
+      : [];
 
     let suggestions: any[] = [];
-    let shouldGenerate = true;
+    let shouldGenerate = offerAutoSuggestions;
 
-    if (mode === "FULL") {
+    if (!offerAutoSuggestions) {
+      suggestions = [];
+      shouldGenerate = false;
+    } else if (mode === "FULL") {
       suggestions = generatedSuggestions;
-    }
-
-    if (mode === "SOFT") {
+    } else if (mode === "SOFT") {
       suggestions = generatedSuggestions.slice(0, 1);
-    }
-
-    if (mode === "MINIMAL") {
+    } else if (mode === "MINIMAL") {
       suggestions = [];
       shouldGenerate = false;
     }

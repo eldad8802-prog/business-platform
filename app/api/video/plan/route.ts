@@ -13,6 +13,12 @@ import { buildCreativeBlueprint } from "@/lib/features/content/creative-blueprin
 import { buildRenderBlueprint } from "@/lib/features/content/render-blueprint/render-blueprint.engine";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { persistContentPlanV1 } from "@/lib/services/content-plan-persistence-v1.service";
+import {
+  normalizeContentGoalPromptForStorage,
+  isSubstantiveContentGoalBrief,
+} from "@/lib/content/content-goal-prompt-normalize";
+import type { ContentInsightAnswer } from "@/lib/features/content/question-engine/types";
 
 type VideoPlanRequestBody = {
   mode?: Mode;
@@ -21,6 +27,10 @@ type VideoPlanRequestBody = {
   audienceTypes?: string[];
   contentAngle?: ContentAngle;
   contentGoalPrompt?: string;
+
+  contentArchetypeId?: string;
+  /** Optional — human insight Q&A from setup; not merged into `contentGoalPrompt`. */
+  contentInsightAnswers?: ContentInsightAnswer[];
 
   selectedDirection?: DirectionInput;
   selectedFormat?: SelectedFormat;
@@ -73,6 +83,18 @@ export async function POST(req: Request) {
       );
     }
 
+    if (!isSubstantiveContentGoalBrief(body.contentGoalPrompt)) {
+      return Response.json(
+        {
+          success: false,
+          error: "brief_required",
+          message:
+            "חסר בריף יעד מפורט. חזרו לשלב ההגדרה והשלימו «מה מקדמים» ו«מה עוצר לקוחות» לפני יצירת סרטון.",
+        },
+        { status: 400 }
+      );
+    }
+
     // ── Business identity resolution ──────────────────────────────────────────
     // Priority: body > DB category > DB subCategory > undefined (falls to "other")
     // DB read is best-effort: failure silently falls back to body values.
@@ -95,11 +117,15 @@ export async function POST(req: Request) {
 
     // ─────────────────────────────────────────────────────────────────────────
 
+    const normalizedGoalPrompt = normalizeContentGoalPromptForStorage(
+      body.contentGoalPrompt ?? ""
+    );
+
     const decisionInput: DecisionInput = {
       goal: body.goal,
       intent: body.intent,
       contentAngle: body.contentAngle,
-      contentGoalPrompt: body.contentGoalPrompt,
+      contentGoalPrompt: normalizedGoalPrompt ?? body.contentGoalPrompt,
       selectedFormat: body.selectedFormat,
       selectedPlatform: body.selectedPlatform,
       selectedDirection: body.selectedDirection,
@@ -120,6 +146,7 @@ export async function POST(req: Request) {
         priceLevel: body.priceLevel,
         differentiators: body.differentiators,
         selectedDirectionTone: body.selectedDirection?.tone,
+        contentGoalPrompt: normalizedGoalPrompt,
       },
     });
 
@@ -131,7 +158,13 @@ export async function POST(req: Request) {
       intent: body.intent,
       audienceTypes: body.audienceTypes ?? [],
       contentAngle: body.contentAngle,
-      contentGoalPrompt: body.contentGoalPrompt ?? "",
+      contentGoalPrompt: normalizedGoalPrompt ?? "",
+
+      contentArchetypeId: body.contentArchetypeId,
+
+      contentInsightAnswers: Array.isArray(body.contentInsightAnswers)
+        ? body.contentInsightAnswers
+        : undefined,
 
       selectedDirection: body.selectedDirection,
       selectedFormat:
@@ -170,10 +203,20 @@ export async function POST(req: Request) {
       contentAngle: body.contentAngle,
       selectedDirection: body.selectedDirection,
       audienceTypes: body.audienceTypes,
-      contentGoalPrompt: body.contentGoalPrompt,
+      contentGoalPrompt: normalizedGoalPrompt ?? body.contentGoalPrompt,
     });
 
     const result = await buildVideoPlan({ ...planInput, blueprint });
+
+    await persistContentPlanV1({
+      user: { id: user.id, businessId: user.businessId },
+      body,
+      resolvedBusinessType,
+      profileCategory: dbCategory,
+      profileSubCategory: dbSubCategory,
+      variants: result.variants,
+      selectedPlatform: body.selectedPlatform ?? "instagram",
+    });
 
     const renderBlueprint = buildRenderBlueprint(
       blueprint,

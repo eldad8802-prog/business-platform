@@ -15,6 +15,8 @@ export type BusinessProfileRequestInput = {
   priceLevel?: "budget" | "mid" | "premium";
   differentiators?: string[];
   selectedDirectionTone?: string;
+  /** Normalized user brief — steers vertical when it conflicts with stale DB category. */
+  contentGoalPrompt?: string;
 };
 
 export function resolveBusinessContext(
@@ -31,5 +33,6 @@ export function resolveBusinessContext(
     primaryGoal: input.primaryGoal,
     priceLevel: input.priceLevel,
     differentiators: input.differentiators ?? [],
+    contentGoalPrompt: input.contentGoalPrompt,
   });
 }

@@ -11,6 +11,8 @@ import {
 } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
+import { assertCanMutateBillingLegalFields } from "@/lib/services/billing/domain/billing-immutability.guard";
+import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
 
 export type SubmitBillingDraftForReviewInput = {
   businessId: number;
@@ -48,6 +50,8 @@ export async function submitBillingDraftForReview(
     throw new ForbiddenError("Cannot submit document for review");
   }
 
+  assertCanMutateBillingLegalFields(existing.status);
+
   if (existing.documentType === BillingDocumentType.QUOTE) {
     throw new ValidationError(
       "הצעות מחיר לא נשלחות לאישור — ערכו, שתפו PDF או המירו לחשבונית"
@@ -67,12 +71,13 @@ export async function submitBillingDraftForReview(
     );
   }
 
-  const result = await prisma.billingDocument.updateMany({
+  const result = await updateBillingDocuments(prisma, {
     where: {
       id: input.billingDocumentId,
       businessId: input.businessId,
       status: BillingDocumentStatus.DRAFT,
     },
+    intent: "pre_issue_edit",
     data: {
       status: BillingDocumentStatus.PENDING_REVIEW,
     },
@@ -109,12 +114,27 @@ export async function revertBillingDocumentToDraft(
 ): Promise<BillingDocument & { lines: BillingDocumentLine[] }> {
   assertBusinessId(input.businessId);
 
-  const result = await prisma.billingDocument.updateMany({
+  const existing = await prisma.billingDocument.findFirst({
+    where: {
+      id: input.billingDocumentId,
+      businessId: input.businessId,
+    },
+    select: { status: true },
+  });
+
+  if (!existing) {
+    throw new ForbiddenError("Cannot revert document to draft");
+  }
+
+  assertCanMutateBillingLegalFields(existing.status);
+
+  const result = await updateBillingDocuments(prisma, {
     where: {
       id: input.billingDocumentId,
       businessId: input.businessId,
       status: BillingDocumentStatus.PENDING_REVIEW,
     },
+    intent: "pre_issue_edit",
     data: {
       status: BillingDocumentStatus.DRAFT,
     },

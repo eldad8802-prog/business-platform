@@ -1,18 +1,16 @@
 import { createHash } from "crypto";
 import {
-  BillingDocumentStatus,
   BillingDocumentType,
   BillingPdfRenderStatus,
-  Prisma,
 } from "@prisma/client";
 import {
-  ForbiddenError,
   NotFoundError,
   UnauthorizedError,
   ValidationError,
 } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
+import { createBillingAuditEventBestEffort } from "@/lib/services/billing/billing-audit.service";
 import { allocateQuoteDocumentNumberIfMissing } from "@/lib/services/billing/quote-document-number";
 import { buildQuotePdfSnapshot } from "@/lib/services/billing/quote-pdf-snapshot";
 import { renderBillingPdfHtmlFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-html-renderer";
@@ -29,6 +27,7 @@ import {
   unlinkByKeyQuiet,
   writeAtomic,
 } from "@/lib/services/billing/pdf/billing-pdf-storage";
+import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
 
 const RENDER_ERROR_MESSAGE_MAX = 500;
 
@@ -274,13 +273,14 @@ export async function getOrRenderQuotePdf(
         : "PDF rendering failed"
     );
     try {
-      await prisma.billingDocument.updateMany({
+      await updateBillingDocuments(prisma, {
         where: {
           id: doc.id,
           businessId: input.businessId,
           documentType: BillingDocumentType.QUOTE,
           pdfRenderStatus: { not: BillingPdfRenderStatus.RENDERED },
         },
+        intent: "quote_operational",
         data: {
           pdfRenderStatus: BillingPdfRenderStatus.FAILED,
           pdfRenderError: message,
@@ -289,12 +289,26 @@ export async function getOrRenderQuotePdf(
     } catch (dbErr) {
       console.error("quote-pdf: failed to record FAILED status", dbErr);
     }
+    await createBillingAuditEventBestEffort({
+      businessId: input.businessId,
+      billingDocumentId: doc.id,
+      actorUserId: input.actorUserId,
+      eventType: "BILLING_PDF_RENDER_FAILED",
+      summary: "Quote PDF render failed",
+      metadata: {
+        documentId: doc.id,
+        documentType: doc.documentType,
+        actorUserId: input.actorUserId,
+        errorMessage: message,
+        pdfTemplateVersion: effectivePdfTemplateVersion,
+      },
+    });
     throw renderError;
   }
 
   let dbUpdateCount = 0;
   try {
-    const result = await prisma.billingDocument.updateMany({
+    const result = await updateBillingDocuments(prisma, {
       where: {
         id: doc.id,
         businessId: input.businessId,
@@ -304,6 +318,7 @@ export async function getOrRenderQuotePdf(
           { pdfTemplateVersion: { not: effectivePdfTemplateVersion } },
         ],
       },
+      intent: "quote_operational",
       data: {
         pdfRenderStatus: BillingPdfRenderStatus.RENDERED,
         pdfStorageKey: storageKey,
@@ -322,6 +337,22 @@ export async function getOrRenderQuotePdf(
 
   if (dbUpdateCount === 1) {
     try {
+      await createBillingAuditEventBestEffort({
+        businessId: input.businessId,
+        billingDocumentId: doc.id,
+        actorUserId: input.actorUserId,
+        eventType: "BILLING_QUOTE_PDF_RENDERED",
+        summary: "Quote PDF rendered",
+        metadata: {
+          documentId: doc.id,
+          documentType: doc.documentType,
+          actorUserId: input.actorUserId,
+          pdfHash,
+          pdfStorageKey: storageKey,
+          pdfTemplateVersion: effectivePdfTemplateVersion,
+          byteLength: buffer.length,
+        },
+      });
       await logAuditEvent({
         businessId: input.businessId,
         eventType: "BILLING_QUOTE_PDF_RENDERED",

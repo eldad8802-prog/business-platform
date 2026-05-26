@@ -86,3 +86,4 @@ Desktop.ini
 # local secrets (never commit)
 /secrets/
 node_modules
+stash-backup-*.patch

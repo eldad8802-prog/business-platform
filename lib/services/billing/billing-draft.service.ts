@@ -14,6 +14,12 @@ import {
 } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
+import { assertCreditAmountWithinRemaining } from "@/lib/services/billing/billing-credit-reversal.service";
+import {
+  assertBillingDocumentLinesMutable,
+  assertCanMutateBillingLegalFields,
+} from "@/lib/services/billing/domain/billing-immutability.guard";
+import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
 import { canEditDraft } from "@/lib/services/billing/domain/billing-status.machine";
 import type { BillingLineInputRaw } from "@/lib/services/billing/domain/billing.types";
 import { recomputeAll } from "@/lib/services/billing/totals/billing-totals.service";
@@ -96,6 +102,15 @@ async function persistLinesAndTotals(
   totals: [Prisma.Decimal, Prisma.Decimal, Prisma.Decimal];
   lineCount: number;
 }> {
+  const docForLines = await tx.billingDocument.findFirst({
+    where: { id: billingDocumentId, businessId },
+    select: { status: true },
+  });
+  if (!docForLines) {
+    throw new NotFoundError("Billing document not found");
+  }
+  assertBillingDocumentLinesMutable(docForLines.status);
+
   const parsed = lines.map((raw, i) =>
     validateAndParseLineInput(
       {
@@ -130,17 +145,9 @@ async function persistLinesAndTotals(
     });
   }
 
-  const updated = await tx.billingDocument.updateMany({
-    where: {
-      id: billingDocumentId,
-      businessId,
-      status: {
-        in: [
-          BillingDocumentStatus.DRAFT,
-          BillingDocumentStatus.PENDING_REVIEW,
-        ],
-      },
-    },
+  const updated = await updateBillingDocuments(tx, {
+    where: { id: billingDocumentId, businessId },
+    intent: "pre_issue_edit",
     data: {
       subtotalAmount: totals.subtotalAmount,
       vatAmount: totals.vatAmount,
@@ -168,6 +175,12 @@ export async function createBillingDraft(
   input: CreateBillingDraftInput
 ): Promise<BillingDocument & { lines: BillingDocumentLine[] }> {
   assertBusinessId(input.businessId);
+
+  if (input.documentType === BillingDocumentType.CREDIT_NOTE) {
+    throw new ValidationError(
+      "Credit notes must be created from an issued source invoice"
+    );
+  }
 
   const { customerId, customerNameSnapshot } = await resolveCustomerForCreate(
     input.businessId,
@@ -236,6 +249,8 @@ export async function updateBillingDraftHeader(
   if (!existing) {
     throw new NotFoundError("Billing document not found");
   }
+
+  assertCanMutateBillingLegalFields(existing.status);
 
   if (!canEditDraft(existing.status)) {
     throw new ForbiddenError("Document is not editable");
@@ -307,17 +322,12 @@ export async function updateBillingDraftHeader(
     });
   }
 
-  const result = await prisma.billingDocument.updateMany({
+  const result = await updateBillingDocuments(prisma, {
     where: {
       id: input.billingDocumentId,
       businessId: input.businessId,
-      status: {
-        in: [
-          BillingDocumentStatus.DRAFT,
-          BillingDocumentStatus.PENDING_REVIEW,
-        ],
-      },
     },
+    intent: "pre_issue_edit",
     data,
   });
 
@@ -359,12 +369,21 @@ export async function replaceBillingDraftLines(
         id: input.billingDocumentId,
         businessId: input.businessId,
       },
-      select: { id: true, status: true, convertedToInvoiceId: true },
+      select: {
+        id: true,
+        status: true,
+        documentType: true,
+        convertedToInvoiceId: true,
+        referenceDocumentId: true,
+        currency: true,
+      },
     });
 
     if (!found) {
       throw new NotFoundError("Billing document not found");
     }
+
+    assertCanMutateBillingLegalFields(found.status);
 
     if (!canEditDraft(found.status)) {
       throw new ForbiddenError("Document is not editable");
@@ -380,6 +399,20 @@ export async function replaceBillingDraftLines(
       input.businessId,
       input.lines
     );
+
+    if (found.documentType === BillingDocumentType.CREDIT_NOTE) {
+      if (found.referenceDocumentId === null) {
+        throw new ValidationError(
+          "Credit note must reference an issued source invoice"
+        );
+      }
+      await assertCreditAmountWithinRemaining(tx, {
+        businessId: input.businessId,
+        sourceBillingDocumentId: found.referenceDocumentId,
+        creditTotalAmount: totals[2],
+        currency: found.currency,
+      });
+    }
 
     const full = await tx.billingDocument.findFirstOrThrow({
       where: {

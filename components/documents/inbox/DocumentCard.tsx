@@ -1,83 +1,8 @@
 "use client";
 
-import type { CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
 import ConfidenceDots from "./ConfidenceDots";
-
-const CARD: CSSProperties = {
-  background: "#ffffff",
-  border: "1px solid #e5e7eb",
-  borderRadius: 22,
-  padding: 16,
-  boxShadow: "0 10px 30px rgba(15, 23, 42, 0.06)",
-  cursor: "pointer",
-};
-
-const TITLE_ROW: CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  gap: 12,
-  minWidth: 0,
-};
-
-const VENDOR: CSSProperties = {
-  fontSize: 15,
-  fontWeight: 950,
-  color: "#111827",
-  flex: 1,
-  minWidth: 0,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-};
-
-const AMOUNT: CSSProperties = {
-  fontSize: 18,
-  fontWeight: 950,
-  color: "#111827",
-  marginTop: 6,
-};
-
-const META: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 700,
-  color: "#6b7280",
-  marginTop: 4,
-};
-
-const FOOTER_ROW: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  marginTop: 10,
-  gap: 10,
-  flexWrap: "wrap",
-};
-
-const QUICK_BTN: CSSProperties = {
-  padding: "10px 14px",
-  borderRadius: 14,
-  border: "1px solid #111827",
-  background: "#111827",
-  color: "#ffffff",
-  fontSize: 13,
-  fontWeight: 950,
-  cursor: "default",
-};
-
-const OPEN_HINT: CSSProperties = {
-  fontSize: 13,
-  fontWeight: 900,
-  color: "#0f766e",
-};
-
-function previewEmoji(item: InboxListItem): string {
-  if (!item.preview.fileAvailable) return "📂";
-  if (item.preview.kind === "pdf") return "📄";
-  if (item.preview.kind === "image") return "🖼";
-  return "📎";
-}
 
 function fmtMoney(n: number) {
   return `₪${n.toLocaleString("he-IL", { maximumFractionDigits: 2 })}`;
@@ -94,25 +19,26 @@ function formatShortDate(iso: string | null | undefined) {
   });
 }
 
+function previewEmoji(item: InboxListItem): string {
+  if (!item.preview.fileAvailable) return "📂";
+  if (item.preview.kind === "pdf") return "📄";
+  if (item.preview.kind === "image") return "🖼";
+  return "📎";
+}
+
 export default function DocumentCard({ item }: { item: InboxListItem }) {
   const router = useRouter();
-  const reviewPath = `/documents/review/${item.documentId}`;
+  const isPending = item.status === "needs_review";
 
   const vendor =
-    item.financial?.vendorName ??
-    item.extracted?.vendorName ??
-    "לא צוין";
-
+    item.financial?.vendorName ?? item.extracted?.vendorName ?? "לא צוין";
   const amountRaw =
     item.financial?.amount ?? item.extracted?.amount ?? null;
   const amountLabel =
     amountRaw != null && Number.isFinite(amountRaw) ? fmtMoney(amountRaw) : "—";
-
   const dateIso = item.financial?.date ?? item.extracted?.date ?? null;
 
-  const goReview = () => {
-    router.push(reviewPath);
-  };
+  const goReview = () => router.push(`/documents/review/${item.documentId}`);
 
   return (
     <article
@@ -126,60 +52,132 @@ export default function DocumentCard({ item }: { item: InboxListItem }) {
           goReview();
         }
       }}
-      style={CARD}
+      style={{
+        background: "#ffffff",
+        border: "1px solid #dfe7f3",
+        borderRadius: 14,
+        padding: "14px 16px",
+        boxShadow: "0 6px 18px rgba(15, 23, 42, 0.04)",
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 12,
+        WebkitTapHighlightColor: "transparent",
+        userSelect: "none",
+      }}
     >
-      <div style={TITLE_ROW}>
-        <div
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 14,
-            background: "#f3f4f6",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 22,
-            flexShrink: 0,
-          }}
-          aria-hidden
-        >
-          {previewEmoji(item)}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={VENDOR} title={vendor}>
-            {vendor}
-          </div>
-          <div style={META}>
-            {item.source === "email" ? "מייל" : "העלאה"} ·{" "}
-            {formatShortDate(item.createdAt)}
-          </div>
-        </div>
+      <div
+        style={{
+          width: 42,
+          height: 42,
+          borderRadius: 12,
+          background: isPending
+            ? "#fff7ed"
+            : "#f0fdf4",
+          border: isPending
+            ? "1px solid #fed7aa"
+            : "1px solid #bbf7d0",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 21,
+          flexShrink: 0,
+        }}
+        aria-hidden
+      >
+        {previewEmoji(item)}
       </div>
 
-      <div style={AMOUNT}>{amountLabel}</div>
-      {dateIso ? (
-        <div style={META}>תאריך מסמך: {formatShortDate(dateIso)}</div>
-      ) : null}
-
-      <ConfidenceDots dots={item.confidenceDots} />
-
-      <div style={FOOTER_ROW}>
-        {item.quickApproveEligible ? (
-          <button
-            type="button"
-            style={QUICK_BTN}
-            onClick={(e) => {
-              e.stopPropagation();
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+            marginBottom: 3,
+          }}
+        >
+          <span
+            style={{
+              fontWeight: 800,
+              color: "#0f172a",
+              fontSize: 15,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              flex: 1,
+            }}
+            title={vendor}
+          >
+            {vendor}
+          </span>
+          <span
+            style={{
+              fontWeight: 900,
+              color: "#0f172a",
+              fontSize: 16,
+              flexShrink: 0,
             }}
           >
-            אישור מהיר
-          </button>
-        ) : (
-          <span style={OPEN_HINT}>פתח לבדיקה</span>
-        )}
-        <span style={{ fontSize: 12, fontWeight: 800, color: "#9ca3af" }}>
-          {item.status === "approved" ? "מאושר" : "ממתין"}
-        </span>
+            {amountLabel}
+          </span>
+        </div>
+
+        <div
+          style={{
+            fontSize: 12,
+            color: "#6b7280",
+            fontWeight: 600,
+            marginBottom: 9,
+          }}
+        >
+          {formatShortDate(dateIso || item.createdAt)} ·{" "}
+          {item.source === "email" ? "מייל" : "העלאה"}
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            flexWrap: "wrap",
+          }}
+        >
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "4px 10px",
+              borderRadius: 999,
+              background: isPending ? "#fef3c7" : "#dcfce7",
+              border: isPending ? "1px solid #fde68a" : "1px solid #bbf7d0",
+              color: isPending ? "#92400e" : "#166534",
+              fontSize: 12,
+              fontWeight: 850,
+            }}
+          >
+            <span aria-hidden>{isPending ? "⏳" : "✓"}</span>
+            {isPending ? "ממתין לבדיקה" : "מאושר"}
+          </span>
+          <span
+            style={{
+              padding: "4px 10px",
+              borderRadius: 999,
+              background: "#eff6ff",
+              border: "1px solid #dbeafe",
+              color: "#002b6b",
+              fontSize: 12,
+              fontWeight: 900,
+            }}
+          >
+            פתח ←
+          </span>
+        </div>
+
+        {isPending ? <ConfidenceDots dots={item.confidenceDots} /> : null}
       </div>
     </article>
   );

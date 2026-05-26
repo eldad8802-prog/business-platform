@@ -1,4 +1,6 @@
 import { generateScript } from "@/lib/services/ai-content.service";
+import { buildNarrativeProfile, type NarrativeBeat } from "@/lib/features/content/narrative-profile";
+import { normalizeContentGoalPromptForStorage } from "@/lib/content/content-goal-prompt-normalize";
 import {
   getBusinessContentProfile,
   type BusinessContentProfile,
@@ -11,6 +13,7 @@ import { scoreVariant } from "@/lib/features/content/creative-scoring/creative-s
 import type { CreativeScore } from "@/lib/features/content/creative-scoring/types";
 import { buildGrowthSemantics } from "@/lib/features/content/growth-semantics/growth-semantics.engine";
 import type { GrowthSemantics } from "@/lib/features/content/growth-semantics/types";
+import type { ContentInsightAnswer } from "@/lib/features/content/question-engine/types";
 
 type Goal = "leads" | "trust" | "exposure" | "sales";
 type ContentAngle =
@@ -49,6 +52,10 @@ type VideoPlanInput = {
   contentAngle?: ContentAngle;
   contentGoalPrompt?: string;
 
+  contentArchetypeId?: string;
+  /** Optional — from client `content_flow`; never merged into `contentGoalPrompt`. */
+  contentInsightAnswers?: ContentInsightAnswer[];
+
   selectedDirection?: DirectionInput;
   selectedFormat?: SelectedFormat;
   selectedPlatform?: SelectedPlatform;
@@ -83,6 +90,10 @@ type VideoPlanInput = {
 type Shot = {
   visual: string;
   voice: string;
+  beatDurationSeconds?: number;
+  emotionalFunction?: string;
+  narrativeRole?: string;
+  retentionDriver?: string;
 };
 
 type Script = {
@@ -527,6 +538,9 @@ function getResolvedBusinessProfile(input: VideoPlanInput): BusinessContentProfi
     primaryGoal: input.goal,
     priceLevel: input.priceLevel,
     differentiators: input.differentiators,
+    contentGoalPrompt:
+      normalizeContentGoalPromptForStorage(input.contentGoalPrompt) ??
+      input.contentGoalPrompt,
   });
 }
 
@@ -534,8 +548,9 @@ async function buildVariant(
   input: VideoPlanInput,
   style: VariantStyle,
   index: number,
-  businessProfile: BusinessContentProfile
-): Promise<Variant> {
+  businessProfile: BusinessContentProfile,
+  avoidCreativeRoutes?: string[]
+): Promise<{ variant: Variant; creativeRoute: string | undefined }> {
   // Baseline plan from Decision Engine + normalized VideoPlanInput (per-variant adaptation not applied yet).
   const baseFromDecision = {
     videoType: input.videoType || businessProfile.recommendedVideoType,
@@ -575,18 +590,6 @@ async function buildVariant(
     style
   );
 
-  const videoPlan: ScriptVideoPlan = {
-    videoType: baseFromDecision.videoType,
-    durationSeconds: resolvedDuration,
-    pace: resolvedPace,
-    structure: resolvedStructure,
-    hookStyle: resolvedHookStyle,
-    ctaStyle: resolvedCtaStyle,
-    platform: resolvedPlatform,
-    goal: resolvedGoal,
-    contentAngle: resolvedContentAngle,
-  };
-
   // Adapt the base blueprint for this specific variant style.
   // If no blueprint exists the adapter is never called and generateScript
   // falls through to its existing template logic unchanged.
@@ -599,6 +602,44 @@ async function buildVariant(
         input.mode
       )
     : undefined;
+
+  // Narrative Time Intelligence — override structure and duration when blueprint is available.
+  let narrativeStructure = resolvedStructure;
+  let narrativeDuration  = resolvedDuration;
+  let narrativeBeats: NarrativeBeat[] | undefined;
+  if (variantBlueprint) {
+    try {
+      const narrativeProfile = buildNarrativeProfile({
+        variantBlueprint,
+        businessProfile,
+        goal: resolvedGoal,
+        platform: resolvedPlatform,
+        style,
+        resolvedPace,
+        resolvedHookStyle,
+        contentAngle: resolvedContentAngle,
+        fallbackStructure: resolvedStructure,
+        fallbackDurationSeconds: resolvedDuration,
+      });
+      narrativeStructure = narrativeProfile.narrativeBeats.map((b) => b.role);
+      narrativeDuration  = narrativeProfile.estimatedDurationSeconds;
+      narrativeBeats     = narrativeProfile.narrativeBeats;
+    } catch {
+      // fallback: keep resolvedStructure and resolvedDuration
+    }
+  }
+
+  const videoPlan: ScriptVideoPlan = {
+    videoType: baseFromDecision.videoType,
+    durationSeconds: narrativeDuration,
+    pace: resolvedPace,
+    structure: narrativeStructure,
+    hookStyle: resolvedHookStyle,
+    ctaStyle: resolvedCtaStyle,
+    platform: resolvedPlatform,
+    goal: resolvedGoal,
+    contentAngle: resolvedContentAngle,
+  };
 
   const renderBlueprint: RenderBlueprint | undefined = variantBlueprint
     ? buildRenderBlueprint(
@@ -659,12 +700,29 @@ async function buildVariant(
         }
       : undefined,
     blueprint: variantBlueprint,
+    contentArchetypeId: input.contentArchetypeId,
+    contentInsightAnswers: input.contentInsightAnswers,
+    avoidCreativeRoutes,
   });
 
-  const shots = generated.shots || [];
+  const rawShots = generated.shots || [];
+  const beats    = narrativeBeats;
+  const shots = beats
+    ? rawShots.map((shot, i) => {
+        const beat = beats[i] ?? beats[beats.length - 1];
+        if (!beat) return shot;
+        return {
+          ...shot,
+          beatDurationSeconds: beat.durationSeconds,
+          emotionalFunction:   beat.emotionalFunction,
+          narrativeRole:       beat.role,
+          retentionDriver:     beat.retentionDriver,
+        };
+      })
+    : rawShots;
   const title = getVariantTitle(input, style);
 
-  return {
+  const variant: Variant = {
     id: `variant_${style}_${index + 1}`,
     title,
     description: getVariantDescription(style, input),
@@ -689,6 +747,8 @@ async function buildVariant(
     creativeScore,
     growthSemantics,
   };
+
+  return { variant, creativeRoute: generated.creativeRoute };
 }
 
 export async function buildVideoPlan(
@@ -713,13 +773,18 @@ export async function buildVideoPlan(
     businessProfile,
   };
 
-  const variants = await Promise.all([
-    buildVariant(normalizedInput, "direct", 0, businessProfile),
-    buildVariant(normalizedInput, "explanatory", 1, businessProfile),
-    buildVariant(normalizedInput, "trust", 2, businessProfile),
-  ]);
+  // Sequential — each variant passes its creativeRoute forward so the next one diverges.
+  const usedCreativeRoutes: string[] = [];
+
+  const r1 = await buildVariant(normalizedInput, "direct", 0, businessProfile, usedCreativeRoutes);
+  if (r1.creativeRoute) usedCreativeRoutes.push(r1.creativeRoute);
+
+  const r2 = await buildVariant(normalizedInput, "explanatory", 1, businessProfile, usedCreativeRoutes);
+  if (r2.creativeRoute) usedCreativeRoutes.push(r2.creativeRoute);
+
+  const r3 = await buildVariant(normalizedInput, "trust", 2, businessProfile, usedCreativeRoutes);
 
   return {
-    variants,
+    variants: [r1.variant, r2.variant, r3.variant],
   };
 }

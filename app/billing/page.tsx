@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import PageHeader from "@/components/ui/page-header";
 import { parseBillingPdfTemplateStyle } from "@/lib/billing/billing-pdf-template-style";
 import { BillingIdentityBanner } from "@/components/billing/BillingIdentityBanner";
 import {
@@ -49,19 +48,14 @@ const FILTER_OPTIONS: { value: FilterView; label: string }[] = [
   { value: "PENDING_REVIEW", label: "ממתין לאישור" },
 ];
 
-const STATUS_LABEL: Record<BillingStatus, string> = {
-  DRAFT: "טיוטה",
-  PENDING_REVIEW: "ממתין לאישור",
-  ISSUED: "הופק",
-};
-
 const STATUS_STYLE: Record<
-  BillingStatus,
+  BillingStatus | "QUOTE",
   { bg: string; fg: string; border: string }
 > = {
-  DRAFT: { bg: "#f1f5f9", fg: "#334155", border: "#e2e8f0" },
-  PENDING_REVIEW: { bg: "#fef3c7", fg: "#92400e", border: "#fde68a" },
-  ISSUED: { bg: "#dcfce7", fg: "#166534", border: "#bbf7d0" },
+  DRAFT: { bg: "#eff6ff", fg: "#1d4ed8", border: "#dbeafe" },
+  PENDING_REVIEW: { bg: "#fff7ed", fg: "#d97706", border: "#fed7aa" },
+  ISSUED: { bg: "#ecfdf5", fg: "#16a34a", border: "#bbf7d0" },
+  QUOTE: { bg: "#f3e8ff", fg: "#7c3aed", border: "#e9d5ff" },
 };
 
 const DOCUMENT_TYPE_LABEL: Record<string, string> = {
@@ -140,6 +134,7 @@ export default function BillingHubPage() {
   >("TAX_INVOICE");
   const [searchInput, setSearchInput] = useState<string>("");
   const [debouncedSearch, setDebouncedSearch] = useState<string>("");
+  const [visibleDocsCount, setVisibleDocsCount] = useState<number>(5);
 
   useEffect(() => {
     const t = window.setTimeout(
@@ -241,8 +236,14 @@ export default function BillingHubPage() {
   }, [filter, debouncedSearch, nextCursor, loadingMore]);
 
   useEffect(() => {
-    void loadInitial();
+    const t = window.setTimeout(() => void loadInitial(), 0);
+    return () => window.clearTimeout(t);
   }, [loadInitial]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setVisibleDocsCount(5), 0);
+    return () => window.clearTimeout(t);
+  }, [filter, debouncedSearch]);
 
   useEffect(() => {
     if (!identityGateOpen) return;
@@ -280,213 +281,331 @@ export default function BillingHubPage() {
     };
   }, [identityGateOpen]);
 
+  function openCreateFlow(type: "TAX_INVOICE" | "QUOTE") {
+    if (billingIdentityOk === false) {
+      setPendingCreateType(type);
+      setGateError(null);
+      setIdentityGateOpen(true);
+      return;
+    }
+    setCreateDocumentType(type);
+    setCreateOpen(true);
+  }
+
+  const latestDraft = docs.find((doc) => doc.status === "DRAFT") ?? null;
+  const visibleDocs = docs.slice(0, visibleDocsCount);
+  const hasMoreVisibleDocs =
+    visibleDocsCount < docs.length || nextCursor !== null;
+
+  async function handleShowMoreDocuments() {
+    if (visibleDocsCount < docs.length) {
+      setVisibleDocsCount((prev) => prev + 5);
+      return;
+    }
+    if (nextCursor !== null) {
+      await loadMore();
+      setVisibleDocsCount((prev) => prev + 5);
+    }
+  }
+
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: "#f8fafc" }}>
-      <PageHeader
-        title="חשבוניות"
-        backHref="/tools"
-        backLabel="חזרה"
-        showBack
-      />
+    <div dir="rtl" style={{ minHeight: "100dvh", background: "#ffffff" }}>
+      <header
+        className="billing-hub-header"
+        style={{
+          background: "#ffffff",
+          borderBottom: "1px solid #edf2f7",
+          minHeight: 64,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-start",
+          gap: 16,
+          padding: "0 26px",
+          boxSizing: "border-box",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => router.push("/tools")}
+          aria-label="חזרה"
+          style={{
+            minHeight: 40,
+            borderRadius: 12,
+            border: "1px solid #e5e7eb",
+            background: "#ffffff",
+            color: "#111827",
+            fontSize: 14,
+            fontWeight: 900,
+            padding: "0 12px",
+            cursor: "pointer",
+            lineHeight: 1,
+          }}
+        >
+          חזרה
+        </button>
+      </header>
 
       <main
+        className="billing-hub-main"
         style={{
           maxWidth: 980,
           margin: "0 auto",
-          padding: "16px",
+          padding: "30px 26px",
           paddingBottom: 80,
           display: "flex",
           flexDirection: "column",
-          gap: 16,
+          gap: 18,
           boxSizing: "border-box",
           direction: "rtl",
         }}
       >
-        {/* ─── Operational header ─── */}
+        {/* ─── Document workspace actions ─── */}
         <section
+          className="billing-actions-section"
           style={{
-            borderRadius: 20,
-            padding: "14px 18px",
-            background:
-              "linear-gradient(135deg, #111827 0%, #1f2937 60%, #0f766e 100%)",
-            color: "#ffffff",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-            gap: 12,
+            display: "grid",
+            gap: 18,
+            padding: "6px 0 18px",
+            borderBottom: "1px solid #edf2f7",
           }}
         >
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, lineHeight: 1.2 }}>
-            מסמכי חיוב
-          </h1>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a" }}>
+              מה עושים עכשיו?!
+            </div>
+            <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>
+              צרו מסמך חדש או המשיכו עבודה קיימת מול לקוח.
+            </div>
+          </div>
+
+          <div
+            className="billing-action-buttons"
+            style={{
+              display: "flex",
+              gap: 10,
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "100%",
+            }}
+          >
             <button
+              className="billing-action-button"
               type="button"
-              onClick={() => {
-                if (billingIdentityOk === false) {
-                  setPendingCreateType("TAX_INVOICE");
-                  setGateError(null);
-                  setIdentityGateOpen(true);
-                  return;
-                }
-                setCreateDocumentType("TAX_INVOICE");
-                setCreateOpen(true);
-              }}
+              onClick={() => openCreateFlow("TAX_INVOICE")}
               style={{
-                padding: "9px 16px",
-                borderRadius: 12,
-                border: "none",
+                padding: "12px 18px",
+                borderRadius: 8,
+                border: "1px solid #1e3a5f",
                 background: "#ffffff",
-                color: "#111827",
+                color: "#1e3a5f",
                 fontSize: 14,
                 fontWeight: 800,
                 cursor: "pointer",
                 whiteSpace: "nowrap",
+                minHeight: 48,
+                flex: "0 1 264px",
               }}
             >
-              + חשבונית חדשה
+              + צור מסמך
             </button>
             <button
+              className="billing-action-button"
               type="button"
-              onClick={() => {
-                if (billingIdentityOk === false) {
-                  setPendingCreateType("QUOTE");
-                  setGateError(null);
-                  setIdentityGateOpen(true);
-                  return;
-                }
-                setCreateDocumentType("QUOTE");
-                setCreateOpen(true);
-              }}
+              onClick={() => openCreateFlow("QUOTE")}
               style={{
-                padding: "9px 16px",
-                borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.4)",
-                background: "rgba(255,255,255,0.1)",
-                color: "#ffffff",
+                padding: "12px 18px",
+                borderRadius: 8,
+                border: "1px solid #1e3a5f",
+                background: "#ffffff",
+                color: "#1e3a5f",
                 fontSize: 14,
-                fontWeight: 700,
+                fontWeight: 800,
                 cursor: "pointer",
                 whiteSpace: "nowrap",
+                minHeight: 48,
+                flex: "0 1 264px",
               }}
             >
-              + הצעת מחיר
+              + צור הצעת מחיר
             </button>
           </div>
         </section>
 
-        {/* ─── Business identity (not editable inline when complete) ─── */}
-        <BillingIdentityBanner onIdentityResolved={setBillingIdentityOk} />
-
-        {/* ─── Summary strip ─── */}
-        {totals !== null ? (
-          <section
-            style={{
-              display: "flex",
-              gap: 6,
-              flexWrap: "wrap",
-              padding: "10px 14px",
-              background: "#ffffff",
-              border: "1px solid #e5e7eb",
-              borderRadius: 16,
-              boxShadow: "0 2px 8px rgba(15,23,42,0.04)",
-            }}
-            aria-label="סיכום מסמכים"
-          >
-            <SummaryPill label="סה״כ" count={totals.all} />
-            <SummaryPill label="חשבוניות" count={totals.invoices} />
-            <SummaryPill label="הצעות מחיר" count={totals.quotes} />
-            <SummaryPill label="טיוטות" count={totals.drafts} />
-            <SummaryPill label="הופקו" count={totals.issued} />
+        {latestDraft ? (
+          <section style={{ display: "grid", gap: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 900, color: "#0f172a" }}>
+              המשך עבודה
+            </div>
+            <ContinueDraftCard doc={latestDraft} />
           </section>
         ) : null}
 
-        {/* ─── Search + filter ─── */}
-        <section
-          style={{
-            border: "1px solid #e5e7eb",
-            borderRadius: 20,
-            background: "#ffffff",
-            padding: "12px 14px",
-            display: "flex",
-            flexDirection: "column",
-            gap: 10,
-            boxShadow: "0 2px 8px rgba(15,23,42,0.04)",
-          }}
-          role="region"
-          aria-label="סינון וחיפוש"
-        >
-          <div style={{ position: "relative" }}>
-            <span
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                insetInlineStart: 10,
-                top: "50%",
-                transform: "translateY(-50%)",
-                fontSize: 15,
-                pointerEvents: "none",
-                color: "#94a3b8",
-                lineHeight: 1,
-              }}
-            >
-              🔍
-            </span>
-            <input
-              type="search"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="חיפוש לפי לקוח או מספר מסמך..."
-              style={{
-                paddingInlineStart: 34,
-                paddingInlineEnd: 12,
-                paddingTop: 10,
-                paddingBottom: 10,
-                borderRadius: 12,
-                border: "1px solid #e2e8f0",
-                fontSize: 14,
-                width: "100%",
-                boxSizing: "border-box",
-                minHeight: 44,
-              }}
-            />
-          </div>
+        {billingIdentityOk !== true ? (
+          <BillingIdentityBanner onIdentityResolved={setBillingIdentityOk} />
+        ) : null}
+
+        <section className="billing-utility-section" style={{ display: "grid", gap: 10 }}>
           <div
-            style={{ display: "flex", flexWrap: "wrap", gap: 6 }}
-            role="tablist"
-            aria-label="סינון לפי סטטוס"
+            className="billing-utility-row"
+            style={{
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              alignItems: "flex-start",
+            }}
           >
-            {FILTER_OPTIONS.map((opt) => {
-              const active = filter === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setFilter(opt.value)}
+            {billingIdentityOk === true ? (
+              <details
+                className="billing-utility-details"
+                style={{
+                  background: "#ffffff",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 12,
+                  padding: "8px 12px",
+                  flex: "1 1 230px",
+                }}
+              >
+                <summary
                   style={{
-                    padding: "7px 14px",
-                    borderRadius: 999,
-                    border: "1px solid",
-                    borderColor: active ? "#111827" : "#e5e7eb",
-                    background: active ? "#111827" : "#f9fafb",
-                    color: active ? "#ffffff" : "#475569",
-                    fontSize: 13,
-                    fontWeight: active ? 700 : 500,
                     cursor: "pointer",
-                    minHeight: 36,
-                    lineHeight: 1,
-                    whiteSpace: "nowrap",
-                    transition: "background 140ms ease, border-color 140ms ease",
+                    fontSize: 13,
+                    fontWeight: 800,
+                    color: "#64748b",
                   }}
                 >
-                  {opt.label}
-                </button>
-              );
-            })}
+                  פרטי העסק במסמכים
+                </summary>
+                <div style={{ marginTop: 10 }}>
+                  <BillingIdentityBanner onIdentityResolved={setBillingIdentityOk} />
+                </div>
+              </details>
+            ) : null}
+
+            {totals !== null ? (
+              <details
+                className="billing-utility-details"
+                style={{
+                  background: "#ffffff",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 12,
+                  padding: "8px 12px",
+                  flex: "1 1 230px",
+                }}
+              >
+                <summary
+                  style={{
+                    cursor: "pointer",
+                    fontSize: 13,
+                    fontWeight: 800,
+                    color: "#64748b",
+                  }}
+                >
+                  סקירה קצרה
+                </summary>
+                <section
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    flexWrap: "wrap",
+                    marginTop: 10,
+                  }}
+                  aria-label="סיכום מסמכים"
+                >
+                  <SummaryPill label="סה״כ" count={totals.all} />
+                  <SummaryPill label="חשבוניות" count={totals.invoices} />
+                  <SummaryPill label="הצעות מחיר" count={totals.quotes} />
+                  <SummaryPill label="טיוטות" count={totals.drafts} />
+                  <SummaryPill label="הופקו" count={totals.issued} />
+                </section>
+              </details>
+            ) : null}
           </div>
+
+          <section
+            className="billing-search-panel"
+            style={{
+              display: "grid",
+              gap: 10,
+              background: "#ffffff",
+              border: "1px solid #edf2f7",
+              borderRadius: 12,
+              padding: 12,
+            }}
+            role="region"
+            aria-label="חיפוש וסינון מסמכים"
+          >
+            <div style={{ position: "relative" }}>
+              <span
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  insetInlineStart: 10,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  fontSize: 15,
+                  pointerEvents: "none",
+                  color: "#94a3b8",
+                  lineHeight: 1,
+                }}
+              >
+                🔍
+              </span>
+              <input
+                type="search"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="חיפוש לפי לקוח או מספר מסמך..."
+                style={{
+                  paddingInlineStart: 34,
+                  paddingInlineEnd: 12,
+                  paddingTop: 10,
+                  paddingBottom: 10,
+                  borderRadius: 10,
+                  border: "1px solid #e2e8f0",
+                  fontSize: 14,
+                  width: "100%",
+                  boxSizing: "border-box",
+                  minHeight: 44,
+                }}
+              />
+            </div>
+            <div
+              style={{ display: "flex", flexWrap: "wrap", gap: 6 }}
+              role="tablist"
+              aria-label="סינון לפי סטטוס"
+            >
+              {FILTER_OPTIONS.map((opt) => {
+                const active = filter === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setFilter(opt.value)}
+                    style={{
+                      padding: "7px 14px",
+                      borderRadius: 999,
+                      border: "1px solid",
+                      borderColor: active ? "#111827" : "#e5e7eb",
+                      background: active ? "#111827" : "#ffffff",
+                      color: active ? "#ffffff" : "#475569",
+                      fontSize: 13,
+                      fontWeight: active ? 700 : 500,
+                      cursor: "pointer",
+                      minHeight: 36,
+                      lineHeight: 1,
+                      whiteSpace: "nowrap",
+                      transition: "background 140ms ease, border-color 140ms ease",
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
         </section>
 
         {loading ? (
@@ -494,47 +613,242 @@ export default function BillingHubPage() {
         ) : error ? (
           <ErrorBanner message={error} onRetry={() => void loadInitial()} />
         ) : docs.length === 0 ? (
-          <EmptyState filter={filter} />
+          <EmptyState
+            filter={filter}
+            onClearFilter={() => {
+              setFilter("ALL");
+              setSearchInput("");
+            }}
+            onCreate={() => openCreateFlow("TAX_INVOICE")}
+          />
         ) : (
-          <>
+          <section
+            className="billing-archive"
+            style={{
+              background: "#ffffff",
+              border: "1px solid #edf2f7",
+              borderRadius: 8,
+              overflowX: "hidden",
+              overflowY: "hidden",
+            }}
+            aria-label="ארכיון מסמכים"
+          >
+            <div
+              className="billing-archive-title-row"
+              style={{
+                padding: "11px 14px",
+                borderBottom: "1px solid #edf2f7",
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                alignItems: "baseline",
+              }}
+            >
+              <div style={{ fontSize: 16, fontWeight: 900, color: "#0f172a" }}>
+                מסמכים אחרונים ({Math.min(visibleDocsCount, docs.length)} מתוך {docs.length})
+              </div>
+              <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                ארכיון מסמכים
+              </div>
+            </div>
+            <div
+              className="billing-archive-columns"
+              aria-hidden="true"
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "112px 100px 132px minmax(170px, 1fr) 128px 132px 96px",
+                gap: 12,
+                alignItems: "center",
+                padding: "9px 14px",
+                borderBottom: "1px solid #eef2f7",
+                background: "#ffffff",
+                color: "#475569",
+                fontSize: 11,
+                fontWeight: 900,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span>תאריך</span>
+              <span>מספר</span>
+              <span>סוג</span>
+              <span>לקוח</span>
+              <span>סכום</span>
+              <span>סטטוס</span>
+              <span>פתיחה</span>
+            </div>
             <ul
               style={{
                 listStyle: "none",
                 padding: 0,
                 margin: 0,
-                display: "grid",
-                gap: 12,
               }}
             >
-              {docs.map((d) => (
-                <DocumentCard key={d.id} doc={d} />
+              {visibleDocs.map((d, index) => (
+                <DocumentCard
+                  key={d.id}
+                  doc={d}
+                  hasDivider={index < visibleDocs.length - 1}
+                />
               ))}
             </ul>
-            {nextCursor !== null ? (
-              <button
-                type="button"
-                onClick={() => void loadMore()}
-                disabled={loadingMore}
-                style={{
-                  marginTop: 8,
-                  width: "100%",
-                  padding: "12px 16px",
-                  borderRadius: 12,
-                  border: "1px solid #cbd5e1",
-                  background: "#f8fafc",
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: "#334155",
-                  cursor: loadingMore ? "wait" : "pointer",
-                }}
-              >
-                {loadingMore ? "טוען…" : "טען עוד"}
-              </button>
+            {hasMoreVisibleDocs ? (
+              <div style={{ padding: 10, borderTop: "1px solid #f1f5f9" }}>
+                <button
+                  className="billing-load-more-button"
+                  type="button"
+                  onClick={() => void handleShowMoreDocuments()}
+                  disabled={loadingMore}
+                  style={{
+                    width: "100%",
+                    padding: "11px 16px",
+                    borderRadius: 10,
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: "#334155",
+                    cursor: loadingMore ? "wait" : "pointer",
+                  }}
+                >
+                  {loadingMore ? "טוען…" : "טען עוד"}
+                </button>
+              </div>
             ) : null}
-          </>
+          </section>
         )}
 
       </main>
+
+      <style jsx global>{`
+        .billing-action-button:focus-visible,
+        .billing-load-more-button:focus-visible,
+        .billing-hub-header button:focus-visible,
+        .billing-doc-row:focus-visible,
+        .billing-active-record:focus-visible {
+          outline: 3px solid rgba(37, 99, 235, 0.22);
+          outline-offset: 2px;
+        }
+
+        @media (max-width: 980px) {
+          .billing-hub-header {
+            min-height: 56px !important;
+            padding: 0 14px !important;
+          }
+
+          .billing-hub-main {
+            padding: 18px 14px 72px !important;
+            gap: 14px !important;
+          }
+
+          .billing-actions-section {
+            gap: 14px !important;
+            padding: 2px 0 16px !important;
+          }
+
+          .billing-action-buttons {
+            flex-direction: column !important;
+            align-items: stretch !important;
+          }
+
+          .billing-action-button {
+            width: 100% !important;
+            flex: 1 1 auto !important;
+            min-height: 48px !important;
+          }
+
+          .billing-utility-row {
+            flex-direction: column !important;
+          }
+
+          .billing-utility-details {
+            width: 100% !important;
+            flex: 1 1 auto !important;
+            box-sizing: border-box !important;
+          }
+
+          .billing-search-panel {
+            padding: 10px !important;
+          }
+
+          .billing-archive {
+            overflow-x: visible !important;
+            border-radius: 12px !important;
+          }
+
+          .billing-archive-title-row {
+            align-items: flex-start !important;
+            flex-direction: column !important;
+            gap: 4px !important;
+          }
+
+          .billing-archive-columns {
+            display: none !important;
+          }
+
+          .billing-doc-row {
+            min-width: 0 !important;
+            grid-template-columns: minmax(0, 1fr) auto !important;
+            gap: 10px 12px !important;
+            min-height: 0 !important;
+            padding: 14px !important;
+            align-items: start !important;
+          }
+
+          .billing-doc-row > div:nth-child(1) {
+            order: 4;
+            grid-column: 1;
+          }
+
+          .billing-doc-row > div:nth-child(2) {
+            order: 2;
+            grid-column: 1;
+          }
+
+          .billing-doc-row > div:nth-child(3) {
+            order: 3;
+            grid-column: 1;
+          }
+
+          .billing-doc-row > div:nth-child(4) {
+            order: 1;
+            grid-column: 1;
+          }
+
+          .billing-doc-row > div:nth-child(5) {
+            order: 1;
+            grid-column: 2;
+            text-align: left;
+          }
+
+          .billing-doc-row > div:nth-child(6) {
+            order: 2;
+            grid-column: 2;
+            justify-self: end;
+          }
+
+          .billing-doc-row > div:nth-child(7) {
+            order: 5;
+            grid-column: 1 / -1;
+            justify-self: stretch;
+            padding-top: 10px;
+            border-top: 1px solid #f1f5f9;
+            text-align: center;
+          }
+
+          .billing-active-record {
+            grid-template-columns: 4px minmax(0, 1fr) !important;
+          }
+
+          .billing-active-record-amount {
+            grid-column: 2 !important;
+            border-right: 0 !important;
+            border-top: 1px solid #edf2f7 !important;
+            padding: 12px 18px !important;
+            justify-items: start !important;
+          }
+        }
+      `}</style>
 
       {identityGateOpen ? (
         <IdentityGateModal
@@ -579,7 +893,7 @@ export default function BillingHubPage() {
                 setGateError("חסרים עדיין שדות חובה לזהות העסק.");
               }
             } catch {
-              setGateError("שגיאת רשת");
+              setGateError("לא הצלחנו להתחבר כדי לשמור. נסו שוב בעוד רגע.");
             } finally {
               setGateSaving(false);
             }
@@ -659,7 +973,7 @@ function IdentityGateModal({
           הגדרת זהות העסק
         </h2>
         <p style={{ margin: "0 0 14px", fontSize: 13, color: "#475569" }}>
-          לפני שמתחילים צריך להגדיר את פרטי העסק שיופיעו על המסמכים שלך.
+          צריך רק להשלים את פרטי העסק שיופיעו במסמך הראשון.
         </p>
         <BusinessIdentitySetupForm form={form} onChange={onFormChange} />
         {error ? (
@@ -822,7 +1136,7 @@ function CreateDraftModal({
       const data = await res.json();
       const id: unknown = data?.document?.id;
       if (typeof id !== "number") {
-        setErrorMsg("תגובת השרת לא תקינה");
+        setErrorMsg("התקבלה תגובה לא תקינה");
         setSubmitting(false);
         return;
       }
@@ -903,8 +1217,8 @@ function CreateDraftModal({
               lineHeight: 1.55,
             }}
           >
-            בחרו לקוח מהרשימה או הקלידו שם חופשי. בהמשך נוסיף שורות וסיכומים במסך
-            העריכה.
+            בחרו למי המסמך מיועד. אחר כך נוסיף את מה שסוכם עם הלקוח ונבדוק את
+            הסיכום לפני שליחה.
           </p>
           <div
             style={{
@@ -920,8 +1234,8 @@ function CreateDraftModal({
             }}
           >
             {isQuote
-              ? "הצעת מחיר היא מסמך עסקי בלבד. ניתן לשתף PDF ולהמיר לחשבונית מס כשמוכנים."
-              : "אחרי היצירה תועבר למסך עריכת טיוטה כדי להוסיף שורות ולהפיק חשבונית."}
+              ? "הצעה היא מסמך עסקי לשיתוף עם הלקוח. כשיש הסכמה, אפשר להפוך אותה לחשבונית."
+              : "אחרי היצירה תועבר לטיוטה, שם בודקים את הפריטים ומפיקים חשבונית רשמית."}
           </div>
         </section>
 
@@ -933,7 +1247,7 @@ function CreateDraftModal({
               color: "#334155",
             }}
           >
-            בחירת לקוח מהירה
+            לקוח קיים
           </span>
           <select
             value={pickedCustomerId ?? ""}
@@ -976,7 +1290,7 @@ function CreateDraftModal({
               color: "#334155",
             }}
           >
-            או שם לקוח (חופשי)
+            או שם לקוח חדש
           </span>
           <input
             type="text"
@@ -1008,7 +1322,7 @@ function CreateDraftModal({
             }}
           />
           <span style={{ fontSize: 12, color: "#64748b", lineHeight: 1.5 }}>
-            נדרש לבחור לקוח מהרשימה או למלא שם חופשי.
+            השם יופיע במסמך כפי שייכתב כאן.
           </span>
         </label>
 
@@ -1074,7 +1388,7 @@ function CreateDraftModal({
               minWidth: 130,
             }}
           >
-            {submitting ? "יוצר טיוטה..." : "צור טיוטה והמשך"}
+            {submitting ? "יוצר טיוטה..." : "התחל מסמך"}
           </button>
         </div>
       </div>
@@ -1187,12 +1501,20 @@ function ErrorBanner({
   );
 }
 
-function EmptyState({ filter }: { filter: FilterView }) {
+function EmptyState({
+  filter,
+  onClearFilter,
+  onCreate,
+}: {
+  filter: FilterView;
+  onClearFilter: () => void;
+  onCreate: () => void;
+}) {
   const filterLabel = FILTER_OPTIONS.find((o) => o.value === filter)?.label;
   const subtitle =
     filter === "ALL"
-      ? "עדיין לא נוצרו מסמכי חיוב."
-      : `אין מסמכים בסטטוס ״${filterLabel ?? ""}״.`;
+      ? "התחילו במסמך ראשון ללקוח. אפשר ליצור חשבונית או הצעה ולהמשיך משם."
+      : `אין כרגע מסמכים בסטטוס ״${filterLabel ?? ""}״.`;
 
   return (
     <div
@@ -1206,187 +1528,310 @@ function EmptyState({ filter }: { filter: FilterView }) {
       }}
     >
       <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>
-        אין מסמכים להצגה
+        אין עדיין מסמכים להצגה
       </div>
-      <div style={{ fontSize: 14 }}>{subtitle}</div>
+      <div style={{ fontSize: 14, lineHeight: 1.5 }}>{subtitle}</div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          gap: 8,
+          flexWrap: "wrap",
+          marginTop: 16,
+        }}
+      >
+        {filter === "ALL" ? (
+          <button
+            type="button"
+            onClick={onCreate}
+            style={{
+              padding: "10px 16px",
+              borderRadius: 10,
+              border: "1px solid #0f172a",
+              background: "#0f172a",
+              color: "#ffffff",
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            התחל מסמך ללקוח
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onClearFilter}
+            style={{
+              padding: "10px 16px",
+              borderRadius: 10,
+              border: "1px solid #cbd5e1",
+              background: "#ffffff",
+              color: "#334155",
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            נקה סינון
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
-function DocumentCard({ doc }: { doc: BillingDocumentListItem }) {
+function ContinueDraftCard({ doc }: { doc: BillingDocumentListItem }) {
+  const customer = doc.customerNameSnapshot ?? "לקוח לא הוגדר";
+  const money = formatMoney(doc.totalAmount, doc.currency);
+  const typeLabel = DOCUMENT_TYPE_LABEL[doc.documentType] ?? "מסמך";
+  const number = getDisplayNumber(doc);
+
+  return (
+    <Link
+      className="billing-active-record"
+      href={`/billing/${doc.id}`}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "4px minmax(0, 1fr) minmax(150px, 190px)",
+        gap: 0,
+        border: "1px solid #dbeafe",
+        background: "#ffffff",
+        borderRadius: 6,
+        overflow: "hidden",
+        textDecoration: "none",
+        color: "inherit",
+      }}
+    >
+      <div style={{ background: "#1d4ed8" }} aria-hidden="true" />
+      <div className="billing-active-record-main" style={{ display: "grid", gap: 10, padding: "16px 18px" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            alignItems: "baseline",
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 900, color: "#1d4ed8" }}>
+              טיוטה
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 950, color: "#0f172a", marginTop: 4 }}>
+              {typeLabel} # {number}
+            </div>
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>
+              לקוח: {customer}
+            </div>
+          </div>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            alignItems: "center",
+            flexWrap: "wrap",
+            borderTop: "1px solid #edf2f7",
+            paddingTop: 8,
+          }}
+        >
+          <div style={{ fontSize: 12, color: "#94a3b8" }}>
+            עודכן לאחרונה לפי רשומת המסמך
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 900, color: "#1d4ed8" }}>
+            פתח והמשך
+          </div>
+        </div>
+      </div>
+      <div
+        className="billing-active-record-amount"
+        style={{
+          borderRight: "1px solid #edf2f7",
+          padding: "18px 20px",
+          display: "grid",
+          alignContent: "center",
+          justifyItems: "start",
+          gap: 5,
+        }}
+      >
+        <div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>
+          סכום
+        </div>
+        <div
+          style={{
+            fontSize: 17,
+            fontWeight: 950,
+            color: "#0f172a",
+            fontVariantNumeric: "tabular-nums",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {money}
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function DocumentCard({
+  doc,
+  hasDivider = false,
+}: {
+  doc: BillingDocumentListItem;
+  hasDivider?: boolean;
+}) {
   const status = doc.status;
-  const statusStyle = STATUS_STYLE[status];
   const number = getDisplayNumber(doc);
   const customer = doc.customerNameSnapshot ?? "—";
   const date = getDisplayDate(doc);
   const money = formatMoney(doc.totalAmount, doc.currency);
   const pdfIssue = doc.status === "ISSUED" && doc.pdfRenderStatus === "FAILED";
-  const pdfOk = doc.status === "ISSUED" && doc.pdfRenderStatus === "DONE";
   const isQuote = doc.documentType === "QUOTE";
   const isConverted = isQuote && (doc.convertedToInvoiceId ?? null) !== null;
   const typeLabel = DOCUMENT_TYPE_LABEL[doc.documentType] ?? doc.documentType;
-  const updatedDate = doc.updatedAt ? formatDate(doc.updatedAt) : null;
+  const statusTone = isQuote && status !== "PENDING_REVIEW" && !pdfIssue ? "QUOTE" : status;
+  const statusStyle = STATUS_STYLE[statusTone];
+  const lifecycleLabel = pdfIssue
+    ? "דורש טיפול"
+    : isQuote && status !== "PENDING_REVIEW"
+    ? "הצעה"
+    : status === "ISSUED"
+    ? "הופק"
+    : status === "PENDING_REVIEW"
+    ? "ממתין לאישור"
+    : "טיוטה";
 
   return (
     <li>
       <Link
+        className="billing-doc-row"
         href={`/billing/${doc.id}`}
         style={{
-          display: "block",
+          display: "grid",
+          gridTemplateColumns:
+            "112px 100px 132px minmax(170px, 1fr) 128px 132px 96px",
+          gap: 12,
+          alignItems: "center",
+          minHeight: 58,
+          padding: "0 14px",
           textDecoration: "none",
           color: "inherit",
           background: "#ffffff",
-          border: pdfIssue
-            ? "1px solid #fecaca"
-            : isQuote
-            ? "1px solid #99f6e4"
-            : "1px solid #e2e8f0",
-          borderRadius: 14,
-          padding: 14,
-          boxShadow: "0 2px 10px rgba(15, 23, 42, 0.04)",
+          borderBottom: hasDivider ? "1px solid #f1f5f9" : "none",
+          boxShadow: "none",
+          boxSizing: "border-box",
         }}
       >
-        {/* Row 1: number + badges */}
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              color: "#0f172a",
+              fontSize: 12,
+              fontWeight: 900,
+              fontVariantNumeric: "tabular-nums",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {date}
+          </div>
+          <div style={{ color: "#94a3b8", fontSize: 11, marginTop: 2 }}>
+            {status === "ISSUED" ? "הופק" : status === "PENDING_REVIEW" ? "נשלח לאישור" : "עודכן"}
+          </div>
+        </div>
+
         <div
           style={{
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "space-between",
-            gap: 8,
-            marginBottom: 6,
+            color: "#0f172a",
+            fontSize: 12,
+            fontWeight: 900,
+            fontVariantNumeric: "tabular-nums",
+            whiteSpace: "nowrap",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", lineHeight: 1.3 }}>
-              {number}
-            </span>
-            {isQuote ? (
-              <span
-                style={{
-                  padding: "2px 8px",
-                  borderRadius: 999,
-                  border: "1px solid #99f6e4",
-                  background: "#f0fdfa",
-                  color: "#0f766e",
-                  fontSize: 11,
-                  fontWeight: 700,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {typeLabel}
-              </span>
-            ) : null}
+          {number}
+        </div>
+
+        <div
+          style={{
+            color: "#475569",
+            fontSize: 12,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            minWidth: 0,
+            whiteSpace: "nowrap",
+          }}
+        >
+          <span aria-hidden="true" style={{ color: "#64748b" }}>
+            ◰
+          </span>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+            {typeLabel}
+          </span>
+        </div>
+
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 900, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {customer}
           </div>
+          {isConverted || pdfIssue ? (
+            <div style={{ fontSize: 11, color: pdfIssue ? "#991b1b" : "#15803d", marginTop: 2, fontWeight: 700 }}>
+              {pdfIssue ? "צריך טיפול ב־PDF" : "הומרה לחשבונית"}
+            </div>
+          ) : null}
+        </div>
+
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 900,
+            color: "#0f172a",
+            fontVariantNumeric: "tabular-nums",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {money}
+        </div>
+
+        <div>
           <span
             style={{
               display: "inline-flex",
-              gap: 5,
               alignItems: "center",
-              flexWrap: "wrap",
-              justifyContent: "flex-end",
+              gap: 6,
+              padding: "5px 10px",
+              borderRadius: 999,
+              border: `1px solid ${statusStyle?.border ?? "#e2e8f0"}`,
+              background: statusStyle?.bg ?? "#f8fafc",
+              color: statusStyle?.fg ?? "#334155",
+              fontSize: 12,
+              fontWeight: 900,
+              whiteSpace: "nowrap",
             }}
           >
-            {pdfIssue ? (
-              <span
-                style={{
-                  padding: "2px 8px",
-                  borderRadius: 999,
-                  border: "1px solid #fecaca",
-                  background: "#fef2f2",
-                  color: "#991b1b",
-                  fontSize: 11,
-                  fontWeight: 700,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                PDF נכשל
-              </span>
-            ) : null}
-            {pdfOk ? (
-              <span
-                style={{
-                  padding: "2px 8px",
-                  borderRadius: 999,
-                  border: "1px solid #bbf7d0",
-                  background: "#f0fdf4",
-                  color: "#15803d",
-                  fontSize: 11,
-                  fontWeight: 700,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                PDF ✓
-              </span>
-            ) : null}
             <span
+              aria-hidden="true"
               style={{
-                padding: "2px 8px",
+                width: 6,
+                height: 6,
                 borderRadius: 999,
-                border: `1px solid ${statusStyle?.border ?? "#e2e8f0"}`,
-                background: statusStyle?.bg ?? "#f1f5f9",
-                color: statusStyle?.fg ?? "#334155",
-                fontSize: 11,
-                fontWeight: 600,
-                whiteSpace: "nowrap",
+                background: statusStyle?.fg ?? "#334155",
               }}
-            >
-              {STATUS_LABEL[status] ?? status}
-            </span>
+            />
+            {lifecycleLabel}
           </span>
         </div>
 
-        {/* Row 2: customer */}
-        <div style={{ fontSize: 13, color: "#475569", marginBottom: 8 }}>
-          <span style={{ color: "#94a3b8" }}>לקוח: </span>
-          <span style={{ fontWeight: 600, color: "#0f172a" }}>{customer}</span>
-        </div>
-
-        {/* Row 3: continuity */}
-        {isConverted ? (
-          <div
-            style={{
-              marginBottom: 8,
-              padding: "4px 10px",
-              borderRadius: 8,
-              background: "#f0fdf4",
-              border: "1px solid #bbf7d0",
-              fontSize: 12,
-              color: "#15803d",
-              fontWeight: 600,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-            }}
-          >
-            ✓ הומרה לחשבונית מס
-          </div>
-        ) : null}
-
-        {/* Row 4: amount + date + open */}
         <div
           style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 8,
+            color: "#1e3a5f",
+            fontSize: 12,
+            fontWeight: 900,
+            whiteSpace: "nowrap",
           }}
         >
-          <div style={{ fontSize: 14, color: "#0f172a" }}>
-            <span style={{ fontWeight: 700 }}>{money}</span>
-            {date ? (
-              <span style={{ color: "#94a3b8", fontSize: 12, marginInlineStart: 6 }}>
-                · {date}
-              </span>
-            ) : null}
-            {updatedDate && updatedDate !== date ? (
-              <span style={{ color: "#cbd5e1", fontSize: 11, marginInlineStart: 6 }}>
-                עודכן {updatedDate}
-              </span>
-            ) : null}
-          </div>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "#475569", whiteSpace: "nowrap" }}>
-            פתח ←
-          </span>
+          פתח מסמך
         </div>
       </Link>
     </li>

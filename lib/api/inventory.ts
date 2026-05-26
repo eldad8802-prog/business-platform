@@ -1,3 +1,5 @@
+import { buildClientAuthHeaders } from "@/lib/client-session";
+
 export type InventoryAlertDTO = {
   id: number;
   type: string;
@@ -105,18 +107,8 @@ export type ResolvePendingMatchInput =
       action: "REJECT";
     };
 
-function getAuthToken() {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("token");
-}
-
 function buildHeaders() {
-  const token = getAuthToken();
-
-  return {
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
+  return buildClientAuthHeaders();
 }
 
 export async function getInventoryItems(): Promise<InventoryItemDTO[]> {

@@ -1,54 +1,65 @@
 "use client";
 
-import type { CSSProperties } from "react";
 import type { InboxFinancialPulse } from "@/lib/documents/inbox-types";
-
-const WRAP: CSSProperties = {
-  position: "sticky",
-  top: 0,
-  zIndex: 20,
-  background: "#f8fafc",
-  paddingBottom: 10,
-  marginBottom: 4,
-};
-
-const CARD: React.CSSProperties = {
-  background: "#ffffff",
-  border: "1px solid #e5e7eb",
-  borderRadius: 22,
-  padding: 14,
-  boxShadow: "0 10px 30px rgba(15, 23, 42, 0.06)",
-};
-
-const GRID: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 10,
-};
-
-const TILE: CSSProperties = {
-  background: "#f9fafb",
-  borderRadius: 16,
-  padding: 12,
-  border: "1px solid #e5e7eb",
-  minWidth: 0,
-};
-
-const LABEL: CSSProperties = {
-  fontSize: 11,
-  fontWeight: 800,
-  color: "#6b7280",
-  marginBottom: 4,
-};
-
-const VALUE: CSSProperties = {
-  fontSize: 16,
-  fontWeight: 950,
-  color: "#111827",
-};
 
 function fmtMoney(n: number) {
   return `₪${n.toLocaleString("he-IL", { maximumFractionDigits: 2 })}`;
+}
+
+function StatCell({
+  label,
+  value,
+  valueColor,
+  icon,
+}: {
+  label: string;
+  value: string | number;
+  valueColor: string;
+  icon: string;
+}) {
+  return (
+    <div
+      style={{
+        flex: "1 1 70px",
+        minWidth: 0,
+        padding: "10px 14px",
+        borderLeft: "1px solid rgba(15, 23, 42, 0.06)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          marginBottom: 3,
+        }}
+      >
+        <span style={{ fontSize: 13 }}>{icon}</span>
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 800,
+            color: "#9ca3af",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {label}
+        </span>
+      </div>
+      <div
+        style={{
+          fontSize: 15,
+          fontWeight: 900,
+          color: valueColor,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
 }
 
 export default function FinancialPulse({
@@ -56,56 +67,46 @@ export default function FinancialPulse({
 }: {
   pulse: InboxFinancialPulse | null;
 }) {
-  if (!pulse) {
-    return (
-      <div style={WRAP}>
-        <div style={CARD}>
-          <div style={{ fontSize: 14, color: "#6b7280" }}>טוען סיכום…</div>
-        </div>
-      </div>
-    );
-  }
+  if (!pulse) return null;
 
   const { fromFinancialRecords, inboxDocumentCounts } = pulse;
-  const { income, expense, net, recordCount } = fromFinancialRecords;
+  const net = fromFinancialRecords.net;
 
   return (
-    <div style={WRAP}>
-      <div style={CARD}>
-        <div style={GRID}>
-          <div style={TILE}>
-            <div style={LABEL}>הכנסות</div>
-            <div style={{ ...VALUE, color: "#047857" }}>{fmtMoney(income)}</div>
-          </div>
-          <div style={TILE}>
-            <div style={LABEL}>הוצאות</div>
-            <div style={{ ...VALUE, color: "#b91c1c" }}>{fmtMoney(expense)}</div>
-          </div>
-          <div style={{ ...TILE, gridColumn: "1 / -1" }}>
-            <div style={LABEL}>מאזן</div>
-            <div
-              style={{
-                ...VALUE,
-                color: net >= 0 ? "#047857" : "#b91c1c",
-              }}
-            >
-              {fmtMoney(net)}
-            </div>
-          </div>
-        </div>
-        <div
-          style={{
-            marginTop: 12,
-            fontSize: 12,
-            fontWeight: 800,
-            color: "#6b7280",
-          }}
-        >
-          רשומות מאושרות בתקופה: {recordCount} · ממתינים בתיבה:{" "}
-          {inboxDocumentCounts.pendingReview} · מאושרים בתיבה:{" "}
-          {inboxDocumentCounts.approvedDocuments}
-        </div>
-      </div>
+    <div
+      style={{
+        background: "#ffffff",
+        border: "1px solid #dfe7f3",
+        borderRadius: 14,
+        display: "flex",
+        overflowX: "auto",
+        boxShadow: "0 8px 24px rgba(15, 23, 42, 0.04)",
+      }}
+    >
+      <StatCell
+        label="הכנסות"
+        value={fmtMoney(fromFinancialRecords.income)}
+        valueColor="#047857"
+        icon="↑"
+      />
+      <StatCell
+        label="הוצאות"
+        value={fmtMoney(fromFinancialRecords.expense)}
+        valueColor="#b91c1c"
+        icon="↓"
+      />
+      <StatCell
+        label="מאזן"
+        value={fmtMoney(net)}
+        valueColor={net >= 0 ? "#047857" : "#b91c1c"}
+        icon="="
+      />
+      <StatCell
+        label="ממתינים"
+        value={inboxDocumentCounts.pendingReview}
+        valueColor="#d97706"
+        icon="⏳"
+      />
     </div>
   );
 }

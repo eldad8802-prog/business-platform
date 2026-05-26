@@ -6,6 +6,7 @@ import {
   BillingPdfRenderStatus,
   Prisma,
 } from "@prisma/client";
+import { createHash } from "crypto";
 import {
   ForbiddenError,
   NotFoundError,
@@ -14,9 +15,15 @@ import {
 } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
+import { createBillingAuditEventTx } from "@/lib/services/billing/billing-audit.service";
+import {
+  assertCanReferenceSourceInvoice,
+  assertCreditAmountWithinRemaining,
+} from "@/lib/services/billing/billing-credit-reversal.service";
 import { recomputeAll } from "@/lib/services/billing/totals/billing-totals.service";
 import { ensureBillingInvoicePostedEvent } from "@/lib/services/financial-events/financial-event.service";
 import { assertBillingIdentityReadyForTaxInvoice } from "@/lib/billing/business-identity";
+import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
 import {
   parseBillingPdfTemplateStyle,
   type BillingPdfTemplateStyle,
@@ -146,6 +153,29 @@ function formatPercent(value: Prisma.Decimal): string {
   return value.toFixed(2);
 }
 
+function stableJsonStringify(value: unknown): string {
+  if (value === undefined) {
+    return "null";
+  }
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value) ?? "null";
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJsonStringify(record[key])}`)
+    .join(",")}}`;
+}
+
+function hashIssuedSnapshot(snapshot: IssuedSnapshot): string {
+  return createHash("sha256")
+    .update(stableJsonStringify(snapshot))
+    .digest("hex");
+}
+
 function buildIssuedSnapshot(args: {
   document: BillingDocument;
   lines: BillingDocumentLine[];
@@ -251,7 +281,7 @@ function buildIssuedSnapshot(args: {
       numberFormatted: documentNumberFormatted,
       currency: document.currency,
       allocationNumber: null,
-      referenceDocumentId: null,
+      referenceDocumentId: document.referenceDocumentId,
     },
     issuer: issuerSnapshot,
     customer: customerSnapshot,
@@ -366,6 +396,25 @@ export async function issueBillingDocument(
       );
     }
 
+    if (doc.documentType === BillingDocumentType.CREDIT_NOTE) {
+      if (doc.referenceDocumentId === null) {
+        throw new ValidationError(
+          "Credit note must reference an issued source invoice"
+        );
+      }
+      await assertCanReferenceSourceInvoice(tx, {
+        businessId: input.businessId,
+        sourceBillingDocumentId: doc.referenceDocumentId,
+        creditDocumentId: doc.id,
+      });
+      await assertCreditAmountWithinRemaining(tx, {
+        businessId: input.businessId,
+        sourceBillingDocumentId: doc.referenceDocumentId,
+        creditTotalAmount: recomputed.totals.totalAmount,
+        currency: doc.currency,
+      });
+    }
+
     const business = await tx.business.findUnique({
       where: { id: input.businessId },
       select: {
@@ -452,18 +501,14 @@ export async function issueBillingDocument(
       actorUserId: input.actorUserId,
       totals: recomputed.totals,
     });
+    const legalSnapshotHash = hashIssuedSnapshot(snapshot);
 
-    const updated = await tx.billingDocument.updateMany({
+    const updated = await updateBillingDocuments(tx, {
       where: {
         id: input.billingDocumentId,
         businessId: input.businessId,
-        status: {
-          in: [
-            BillingDocumentStatus.PENDING_REVIEW,
-            BillingDocumentStatus.DRAFT,
-          ],
-        },
       },
+      intent: "issue_to_issued",
       data: {
         status: BillingDocumentStatus.ISSUED,
         documentNumber,
@@ -471,6 +516,8 @@ export async function issueBillingDocument(
         issuedAt,
         issuedByUserId: input.actorUserId,
         issuedSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+        lockedAt: issuedAt,
+        legalSnapshotHash,
         pdfRenderStatus: BillingPdfRenderStatus.PENDING,
       },
     });
@@ -488,6 +535,39 @@ export async function issueBillingDocument(
     });
 
     await ensureBillingInvoicePostedEvent(tx, issued);
+    await createBillingAuditEventTx(tx, {
+      businessId: input.businessId,
+      billingDocumentId: issued.id,
+      actorUserId: input.actorUserId,
+      eventType:
+        issued.documentType === BillingDocumentType.CREDIT_NOTE
+          ? "BILLING_CREDIT_NOTE_ISSUED"
+          : "BILLING_DOC_ISSUED",
+      summary:
+        issued.documentType === BillingDocumentType.CREDIT_NOTE
+          ? "Credit note issued"
+          : "Billing document issued",
+      metadata: {
+        documentId: issued.id,
+        documentType: issued.documentType,
+        documentNumber,
+        documentNumberFormatted,
+        issuedAt: issuedAt.toISOString(),
+        lockedAt: issued.lockedAt?.toISOString() ?? null,
+        legalSnapshotHash: issued.legalSnapshotHash,
+        customerId: issued.customerId,
+        referenceDocumentId: issued.referenceDocumentId,
+        sourceInvoiceId: issued.referenceDocumentId,
+        subtotalAmount: recomputed.totals.subtotalAmount.toString(),
+        vatAmount: recomputed.totals.vatAmount.toString(),
+        totalAmount: recomputed.totals.totalAmount.toString(),
+        currency: issued.currency,
+        lineCount: issued.lines.length,
+        snapshotSchemaVersion: SNAPSHOT_SCHEMA_VERSION,
+        actorUserId: input.actorUserId,
+      },
+      occurredAt: issuedAt,
+    });
 
     return {
       issued,
@@ -509,11 +589,13 @@ export async function issueBillingDocument(
       documentNumberFormatted: result.documentNumberFormatted,
       issuedAt: issuedAt.toISOString(),
       customerId: result.issued.customerId,
+      referenceDocumentId: result.issued.referenceDocumentId,
       subtotalAmount: result.totals.subtotalAmount.toString(),
       vatAmount: result.totals.vatAmount.toString(),
       totalAmount: result.totals.totalAmount.toString(),
       lineCount: result.issued.lines.length,
       snapshotSchemaVersion: SNAPSHOT_SCHEMA_VERSION,
+      legalSnapshotHash: result.issued.legalSnapshotHash,
       actorUserId: input.actorUserId,
     },
   });

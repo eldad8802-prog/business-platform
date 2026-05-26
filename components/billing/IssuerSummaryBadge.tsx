@@ -56,7 +56,23 @@ export function IssuerSummaryBadge() {
       .catch(() => setData(null));
   }, []);
 
-  if (data === "loading") return null;
+  if (data === "loading") {
+    return (
+      <div
+        aria-busy="true"
+        style={{
+          borderRadius: 10,
+          border: "1px solid #e2e8f0",
+          background: "#f8fafc",
+          padding: "10px 14px",
+          fontSize: 13,
+          color: "#94a3b8",
+        }}
+      >
+        בודקים את פרטי העסק למסמך…
+      </div>
+    );
+  }
 
   const isEmpty = !data || (!data.billingLegalName && !data.billingTaxId);
 
@@ -75,7 +91,7 @@ export function IssuerSummaryBadge() {
         }}
       >
         <span style={{ fontSize: 13, color: "#92400e" }}>
-          פרטי העסק לחשבוניות לא הוגדרו
+          פרטי העסק למסמכים עדיין לא הוגדרו
         </span>
         <Link
           href="/business"

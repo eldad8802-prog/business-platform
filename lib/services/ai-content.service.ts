@@ -4,10 +4,23 @@ import {
   type BusinessContentProfile,
 } from "@/lib/services/business-content-profile.service";
 import type { CreativeBlueprint } from "@/lib/features/content/creative-blueprint/types";
+import type { ContentInsightAnswer } from "@/lib/features/content/question-engine/types";
 import {
-  isLLMEnabled,
   tryGenerateWithLLM,
+  getContentLLMRuntimeDiagnostics,
 } from "@/lib/features/content/llm/content-llm.service";
+import { generateHumanInsight } from "@/lib/features/content/human-insight";
+import { buildStoryPremise } from "@/lib/features/content/story-premise";
+import { GENERIC_MAIN_OFFER_PLACEHOLDER } from "@/lib/features/content/llm/llm-output-validator";
+import {
+  normalizeContentGoalPromptForStorage,
+  stripChainedGoalIntroPrefix,
+} from "@/lib/content/content-goal-prompt-normalize";
+import {
+  getArchetypeExplanationTemplateHint,
+  getArchetypeSolutionVoiceAddon,
+  getArchetypeWritingBrief,
+} from "@/lib/content/content-archetype-writing-brief";
 
 type VideoPlan = {
   videoType: "SHORT" | "MID" | "FULL";
@@ -49,11 +62,21 @@ type GenerateScriptInput = {
   contentGoalPrompt?: string;
   selectedDirection?: SelectedDirectionInput;
   blueprint?: CreativeBlueprint;
+  /** From content flow — drives LLM + template tone without changing API contracts for callers that omit it. */
+  contentArchetypeId?: string;
+  /** Optional human insight answers — separate from `contentGoalPrompt`; never merged into brief text. */
+  contentInsightAnswers?: ContentInsightAnswer[];
+  /** Creative routes already used by earlier variants in this run — passed to HumanInsight engine for diversity. */
+  avoidCreativeRoutes?: string[];
 };
 
 type Shot = {
   visual: string;
   voice: string;
+  beatDurationSeconds?: number;
+  emotionalFunction?: string;
+  narrativeRole?: string;
+  retentionDriver?: string;
 };
 
 type GenerateScriptResult = {
@@ -62,6 +85,8 @@ type GenerateScriptResult = {
   caption: string;
   shots: Shot[];
   businessProfile: BusinessContentProfile;
+  /** Set only when the LLM path succeeded and HumanInsight was generated — undefined otherwise. */
+  creativeRoute?: string;
 };
 
 // ─── Label helpers ─────────────────────────────────────────────────────────────
@@ -76,10 +101,19 @@ function getGoalLabel(goal?: string) {
   }
 }
 
+const AUDIENCE_TYPE_LABELS: Record<string, string> = {
+  new_customers: "לקוחות חדשים",
+  interested: "מי שכבר מתעניין",
+  ready_to_buy: "מי שכמעט מוכן לרכוש",
+  existing_customers: "לקוחות קיימים",
+  everyone: "קהל רחב",
+};
+
 function getAudienceLabel(audience?: string[]) {
   if (!audience || audience.length === 0) return "הקהל הנכון";
-  if (audience.length === 1) return audience[0];
-  return audience.join(", ");
+  const labels = audience.map((a) => AUDIENCE_TYPE_LABELS[a] ?? a);
+  if (labels.length === 1) return labels[0];
+  return labels.join(" וגם ");
 }
 
 function getBusinessLabel(input: GenerateScriptInput) {
@@ -90,9 +124,19 @@ function getBusinessLabel(input: GenerateScriptInput) {
 }
 
 function getMainOfferLabel(input: GenerateScriptInput) {
-  if (input.services?.length)  return input.services[0];
-  if (input.products?.length)  return input.products[0];
-  return "השירות או המוצר שלך";
+  const svc = input.services?.[0]?.trim();
+  if (svc) return svc;
+  const prod = input.products?.[0]?.trim();
+  if (prod) return prod;
+  const fromGoal = deriveMainOfferFromContentGoal(input.contentGoalPrompt);
+  if (fromGoal) return fromGoal;
+  const diff = input.differentiators?.[0]?.trim();
+  if (diff) return diff;
+  const cat = input.businessCategory?.trim();
+  if (cat) return `פתרון לתחום ${cat}`;
+  const name = input.businessName?.trim();
+  if (name) return `מה ש-${name} מספקים ללקוחות`;
+  return GENERIC_MAIN_OFFER_PLACEHOLDER;
 }
 
 function getDifferentiatorLabel(input: GenerateScriptInput) {
@@ -105,36 +149,23 @@ function normalizeOptionalTrim(value?: string): string | undefined {
   return t ? t : undefined;
 }
 
-// ─── Explanation cue ──────────────────────────────────────────────────────────
-
-const EXPLANATION_USER_SNIPPET_MAX_CHARS = 100;
-
-function clipExplanationUserSnippet(text: string, maxLen: number): string {
-  const collapsed = text.replace(/\s+/g, " ").trim();
-  if (!collapsed) return "";
-  if (collapsed.length <= maxLen) return collapsed;
-  const slice = collapsed.slice(0, maxLen);
-  const lastSpace = slice.lastIndexOf(" ");
-  if (lastSpace > maxLen * 0.45) return `${slice.slice(0, lastSpace).trim()}…`;
-  return `${slice.trim()}…`;
-}
-
-function explanationVoiceWithOptionalUserCue(
-  base: string,
-  context: { contentGoalPrompt?: string; directionTitle?: string }
-): string {
-  const raw =
-    normalizeOptionalTrim(context.contentGoalPrompt) ??
-    normalizeOptionalTrim(context.directionTitle);
-  if (!raw) return base;
-  const snippet = clipExplanationUserSnippet(raw, EXPLANATION_USER_SNIPPET_MAX_CHARS);
-  if (!snippet) return base;
-  return `${base} זה מתחבר ישירות לנקודה שרציתם להבהיר: ${snippet}.`;
+function deriveMainOfferFromContentGoal(prompt?: string): string | undefined {
+  const base = normalizeContentGoalPromptForStorage(prompt);
+  if (!base || base.length < 6) return undefined;
+  const firstSeg = base.split(/[.\n]/)[0]?.trim() ?? base;
+  if (firstSeg.length < 6) return undefined;
+  const max = 100;
+  return firstSeg.length > max ? `${firstSeg.slice(0, max).trim()}…` : firstSeg;
 }
 
 // ─── Context builder ──────────────────────────────────────────────────────────
 
 function buildContext(input: GenerateScriptInput) {
+  const cleanedGoalPrompt = normalizeContentGoalPromptForStorage(
+    input.contentGoalPrompt
+  );
+  const inputForOffer = { ...input, contentGoalPrompt: cleanedGoalPrompt };
+
   const businessProfile = getBusinessContentProfile({
     businessType: input.businessType,
     businessCategory: input.businessCategory,
@@ -146,19 +177,21 @@ function buildContext(input: GenerateScriptInput) {
     primaryGoal: input.goal as "leads" | "trust" | "exposure" | "sales" | undefined,
     priceLevel: input.priceLevel,
     differentiators: input.differentiators,
+    contentGoalPrompt: cleanedGoalPrompt,
   });
 
   return {
     businessProfile,
     businessLabel: getBusinessLabel(input),
     audienceLabel: getAudienceLabel(input.audience),
-    mainOfferLabel: getMainOfferLabel(input),
+    mainOfferLabel: getMainOfferLabel(inputForOffer),
     differentiatorLabel: getDifferentiatorLabel(input),
     goalLabel: getGoalLabel(input.goal),
-    contentGoalPrompt: normalizeOptionalTrim(input.contentGoalPrompt),
+    contentGoalPrompt: cleanedGoalPrompt,
     directionTitle: normalizeOptionalTrim(input.selectedDirection?.title),
     directionDescription: normalizeOptionalTrim(input.selectedDirection?.description),
     directionWhyItFits: normalizeOptionalTrim(input.selectedDirection?.whyItFits),
+    contentArchetypeId: normalizeOptionalTrim(input.contentArchetypeId),
   };
 }
 
@@ -186,7 +219,7 @@ function tryBlueprintHook(
   // ── Transformation / before-after openers ─────────────────────────────────
   if (storytelling_model === "transformation") {
     if (attention_strategy === "result_first") {
-      return `לפני שמביאים ${goalLabel} — רוב האנשים לא מבינים מה הם מפספסים.`;
+      return `לפני שמביאים ${goalLabel} — הרבה פעמים מפספסים את מה שבאמת משנה.`;
     }
     if (attention_strategy === "pain_mirror") {
       return `יש רגע שבו מבינים שהדרך הישנה פשוט לא עובדת יותר.`;
@@ -199,10 +232,10 @@ function tryBlueprintHook(
     storytelling_model === "expert_dominance"
   ) {
     if (interruption_style === "bold_claim") {
-      return `אחרי ${businessLabel} — ברוב המקרים, אנשים לא חוזרים לשום מקום אחר.`;
+      return `מי שנכנס ל-${businessLabel} — לרוב לא חוזר לחפש "עוד אחד כזה". יש סיבה.`;
     }
     if (attention_strategy === "authority_open") {
-      return `${businessLabel} עובדים על זה כל יום. הנה מה שרוב האנשים לא יודעים.`;
+      return `${businessLabel} עובדים על זה כל יום. הנה משהו שכדאי לדעת לפני שבוחרים.`;
     }
   }
 
@@ -229,7 +262,7 @@ function tryBlueprintHook(
   // ── Problem agitation openers ─────────────────────────────────────────────
   if (storytelling_model === "problem_agitation") {
     if (interruption_style === "verbal_hook") {
-      return `יש בעיה שרוב ${audienceLabel} לא מדברים עליה — אבל היא עולה להם ביוקר.`;
+      return `יש פה משהו שכמעט אף אחד לא מדבר עליו — ובינתיים זה עולה ל-${audienceLabel} יקר.`;
     }
     if (attention_strategy === "pain_mirror") {
       return `אם אתם עדיין לא מקבלים ${goalLabel} — זה לא בגללכם.`;
@@ -239,7 +272,7 @@ function tryBlueprintHook(
   // ── Local trust openers ───────────────────────────────────────────────────
   if (storytelling_model === "local_trust") {
     if (interruption_style === "question") {
-      return `מחפשים ${mainOfferLabel} שמרגיש אמיתי ולא מנותק? תקשיבו לזה.`;
+      return `יש ${mainOfferLabel} שנשמעים כמו כולם — ויש כאלה שנשמעים כמו בני אדם. איפה אתם נכנסים לזה?`;
     }
     return `${businessLabel} — כאן, לא בפרסום, לא בהבטחות. בפועל.`;
   }
@@ -251,7 +284,7 @@ function tryBlueprintHook(
 
   // ── Curiosity gap openers ─────────────────────────────────────────────────
   if (attention_strategy === "curiosity_gap") {
-    return `יש משהו שרוב ${audienceLabel} לא יודעים על ${mainOfferLabel} — וכדאי לכם לדעת.`;
+    return `יש משהו ש-${audienceLabel} לרוב לא שמים לב אליו ב-${mainOfferLabel} — וכדאי לכם לדעת.`;
   }
 
   // ── Pattern break with visual shock ──────────────────────────────────────
@@ -290,37 +323,37 @@ function generateHook(
   // ── Existing hookStyle logic (unchanged) ──────────────────────────────────
   switch (plan.hookStyle) {
     case "pain_first":
-      return `אם גם אתם מרגישים שהדברים לא עובדים כמו שצריך — זה בשבילכם.`;
+      return `משהו בתהליך שלכם סביב ${mainOfferLabel} פשוט שבור — וזה לא אומר שאתם לא מספיק טובים.`;
 
     case "result_first":
-      return `ככה נראה תוכן שיודע להביא ${goalLabel}.`;
+      return `${goalLabel} לא מגיע מעוד סרטון "מסודר". זה מגיע כשמפסיקים לעשות את מה שכולם עושים.`;
 
     case "trust_first":
-      return `אם אתם רוצים להרגיש בטוחים יותר לפני שאתם בוחרים — תקשיבו לזה.`;
+      return `אם ב-${mainOfferLabel} חשוב לכם לא לפספס — תשמעו את זה עד הסוף. בלי רעש.`;
 
     case "offer_first":
-      return `יש דרך להציג את ${mainOfferLabel} בצורה שגורמת לאנשים לפעול.`;
+      return `רוב מה שאתם שומעים על ${mainOfferLabel} — נכון בחלקו, וחסר בחלק הכי חשוב.`;
 
     case "pattern_break":
-      return `יש משהו שרוב העסקים מפספסים כשהם מנסים להביא ${goalLabel}.`;
+      return `עצרו שנייה. זה לא עוד טיפ על ${mainOfferLabel}.`;
 
     default:
       if (businessProfile.hookPriority === "trust_first") {
         if (businessProfile.trustLevel === "high") {
-          return `אם חשוב לכם לבחור נכון ב-${mainOfferLabel} — כדאי שתראו את זה.`;
+          return `בלי הבטחות המטורפות — רק מה שבאמת משנה כשבוחרים ב-${mainOfferLabel}.`;
         }
-        return `יש סיבה שיותר ויותר אנשים בוחרים נכון ב-${mainOfferLabel}.`;
+        return `לא צריך עוד "המלצה חמה". צריך להבין מה קורה כאן בפועל.`;
       }
       if (businessProfile.hookPriority === "result_first") {
-        return `אם אתם רוצים ${goalLabel} — זה בדיוק סוג התוכן שעושה את ההבדל.`;
+        return `אם אתם אחרי ${goalLabel} — זה לא קסם. זה התהליך שאנשים מתעלמים ממנו.`;
       }
       if (businessProfile.hookPriority === "offer_first") {
-        return `אם חיפשתם ${mainOfferLabel} שבאמת נותן ערך — שווה לכם לעצור רגע.`;
+        return `אם ${mainOfferLabel} מחכה לכם בראש — תעצרו רגע לפני שבוחרים על הרגליים.`;
       }
       if (businessProfile.hookPriority === "pattern_break") {
-        return `רגע לפני שאתם ממשיכים לגלול — זה משהו ש-${audienceLabel} חייבים לראות.`;
+        return `ריל קצר. נקודה אחת. אם זה לא בשבילכם — תגללו הלאה.`;
       }
-      return `יש משהו שרוב העסקים מפספסים כשהם מנסים להביא ${goalLabel}.`;
+      return `יש משהו ב-${mainOfferLabel} שכולם עושים — וזה בדיוק מה שעוצר את התוצאה.`;
   }
 }
 
@@ -605,8 +638,7 @@ function getVoice(
     mainOfferLabel: string;
     differentiatorLabel: string;
     goalLabel: string;
-    contentGoalPrompt?: string;
-    directionTitle?: string;
+    contentArchetypeId?: string;
   },
   blueprint?: CreativeBlueprint
 ): string {
@@ -646,8 +678,13 @@ function getVoice(
       break;
 
     case "explanation": {
+      const archetypeHint = getArchetypeExplanationTemplateHint(
+        context.contentArchetypeId
+      );
       let explanationBase: string;
-      if (businessProfile.contentStyle === "authority") {
+      if (archetypeHint) {
+        explanationBase = archetypeHint;
+      } else if (businessProfile.contentStyle === "authority") {
         explanationBase = `מה שעושה את ההבדל הוא לא רק מה מציעים, אלא איך מסבירים את זה בצורה שמרגישה מקצועית ואמינה.`;
       } else if (businessProfile.contentStyle === "transformation") {
         explanationBase = `ברגע שמראים נכון את הדרך ואת התוצאה, התוכן הופך מיפה בלבד למשהו שבאמת מזיז אנשים.`;
@@ -656,26 +693,14 @@ function getVoice(
       } else {
         explanationBase = `רוב העסקים מדברים יותר מדי כללי, במקום להעביר מסר אחד ברור שאנשים יכולים להבין מהר.`;
       }
-      base = explanationVoiceWithOptionalUserCue(explanationBase, context);
+      base = explanationBase;
       break;
     }
 
     case "solution": {
       const solutionBase = `במקום זה, מציגים את ${mainOfferLabel} בצורה ברורה, פשוטה ומדויקת יותר — כזאת שמובילה את הצופה צעד קדימה.`;
-      const raw =
-        normalizeOptionalTrim(context.contentGoalPrompt) ??
-        normalizeOptionalTrim(context.directionTitle);
-      if (!raw) {
-        base = solutionBase;
-      } else {
-        const normalized = raw.replace(/\s+/g, " ").trim();
-        const maxLen = 90;
-        const snippet =
-          normalized.length <= maxLen
-            ? normalized
-            : `${normalized.slice(0, maxLen).trim()}…`;
-        base = `${solutionBase} כדי שזה ישרת את הכיוון שבחרתם: ${snippet}.`;
-      }
+      const addon = getArchetypeSolutionVoiceAddon(context.contentArchetypeId);
+      base = addon ? `${solutionBase} ${addon}` : solutionBase;
       break;
     }
 
@@ -802,22 +827,22 @@ function getCTAByStyle(
   // ── Existing CTA templates (unchanged fallback) ───────────────────────────
   switch (ctaStyle) {
     case "message_now":
-      return `אם זה מדבר אליכם, זה הזמן לשלוח הודעה ולבדוק איך ${mainOfferLabel} יכול להתאים גם לכם.`;
+      return `נשמע כמו אתם? שלחו הודעה — נדבר בלי יומרנות.`;
 
     case "book_now":
-      return `אם אתם רוצים להתקדם, זה הזמן לקבוע ולהפוך את זה לצעד אמיתי.`;
+      return `רוצים להבין אם זה בכלל בשבילכם? קבעו שיחה קצרה.`;
 
     case "buy_now":
-      return `אם זה בדיוק מה שחיפשתם, אפשר לעבור עכשיו לשלב הבא ולפעול.`;
+      return `אם זה בדיוק מה שחיפשתם — אפשר לעבור לשלב הבא בלי סיבוכים.`;
 
     case "follow":
-      return `אם זה נתן לכם ערך, תעקבו — כי יש עוד הרבה תוכן כזה שיכול לעזור לכם.`;
+      return `אם קיבלתם כאן ערך — עקבו, יש עוד כאלה בדרך.`;
 
     case "learn_more":
-      return `אם אתם רוצים להבין איך זה יכול לעבוד גם אצלכם, שווה לבדוק עוד פרטים ולהתקדם.`;
+      return `רוצים את הפרטים שלא נכנסו לריל? לחצו לעוד.`;
 
     default:
-      return `אם זה רלוונטי לכם, דברו איתנו ונמשיך משם.`;
+      return `כתבו לי במשפט מה עוצר אתכם — ונמשיך משם.`;
   }
 }
 
@@ -832,8 +857,7 @@ function generateShots(
     mainOfferLabel: string;
     differentiatorLabel: string;
     goalLabel: string;
-    contentGoalPrompt?: string;
-    directionTitle?: string;
+    contentArchetypeId?: string;
   },
   blueprint?: CreativeBlueprint
 ): Shot[] {
@@ -937,51 +961,105 @@ export async function generateScript(
   const context = buildContext(input);
 
   // ─── LLM execution layer ───────────────────────────────────────────────────
-  // Runs before templates when CONTENT_LLM_ENABLED=true and a blueprint is present.
-  // Any failure or invalid output falls through silently to the template path.
-  if (input.blueprint && isLLMEnabled()) {
-    const llmResult = await tryGenerateWithLLM({
-      blueprint: input.blueprint,
-      context: {
-        businessLabel:      context.businessLabel,
-        audienceLabel:      context.audienceLabel,
-        mainOfferLabel:     context.mainOfferLabel,
-        differentiatorLabel: context.differentiatorLabel,
-        goalLabel:          context.goalLabel,
-        contentGoalPrompt:  context.contentGoalPrompt,
-        directionTitle:     context.directionTitle,
+  // Runs before templates when CONTENT_LLM_ENABLED=true, OPENAI_API_KEY is set, and a blueprint is present.
+  // Any failure or invalid output falls through to the template path.
+  if (!input.blueprint) {
+    console.info("[content-llm] FALLBACK_USED FALLBACK_REASON: NO_BLUEPRINT");
+  } else {
+    const diag = getContentLLMRuntimeDiagnostics();
+    if (!diag.llmEnabled) {
+      console.info(
+        `[content-llm] FALLBACK_USED FALLBACK_REASON: LLM_NOT_CONFIGURED detail=${diag.reasonIfDisabled}`
+      );
+    } else {
+      const humanInsight = await generateHumanInsight({
+        businessLabel:        context.businessLabel,
+        mainOfferLabel:       context.mainOfferLabel,
+        audienceLabel:        context.audienceLabel,
+        goalLabel:            context.goalLabel,
+        businessCategory:     input.businessCategory,
+        directionTitle:       context.directionTitle,
         directionDescription: context.directionDescription,
-        businessCategory:   input.businessCategory,
-      },
-      plan: {
-        platform:  input.videoPlan.platform,
-        videoType: input.videoPlan.videoType,
-        structure: input.videoPlan.structure?.length
-          ? input.videoPlan.structure
-          : ["hook", "value", "cta"],
-      },
-    });
+        contentGoalPrompt:    context.contentGoalPrompt,
+        hookStyle:            input.videoPlan.hookStyle,
+        contentAngle:         input.videoPlan.contentAngle,
+        avoidCreativeRoutes:  input.avoidCreativeRoutes,
+      });
 
-    if (llmResult) {
-      const lastIdx = llmResult.shots.length - 1;
-      const shots: Shot[] = llmResult.shots.map((s, i) => ({
-        visual: s.visual,
-        // Normalize: shots[0].voice = hook for display consistency
-        // shots[last].voice = cta when the LLM provided an explicit CTA
-        voice:
-          i === 0
-            ? llmResult.hook
-            : i === lastIdx && llmResult.cta
-            ? llmResult.cta
-            : s.voice,
-      }));
-      return {
-        hook:            llmResult.hook,
-        scriptText:      buildScriptText(llmResult.hook, shots),
-        caption:         llmResult.caption,
-        shots,
-        businessProfile: context.businessProfile,
-      };
+      const storyPremise = humanInsight
+        ? await buildStoryPremise({
+            businessLabel:        context.businessLabel,
+            mainOfferLabel:       context.mainOfferLabel,
+            audienceLabel:        context.audienceLabel,
+            goalLabel:            context.goalLabel,
+            humanInsight,
+            businessCategory:     input.businessCategory,
+            contentGoalPrompt:    context.contentGoalPrompt,
+            directionTitle:       context.directionTitle,
+            directionDescription: context.directionDescription,
+            platform:             input.videoPlan.platform,
+            structure:            input.videoPlan.structure,
+            durationSeconds:      input.videoPlan.durationSeconds,
+          })
+        : null;
+
+      const llmResult = await tryGenerateWithLLM({
+        blueprint: input.blueprint,
+        context: {
+          businessLabel:      context.businessLabel,
+          audienceLabel:      context.audienceLabel,
+          mainOfferLabel:     context.mainOfferLabel,
+          differentiatorLabel: context.differentiatorLabel,
+          goalLabel:          context.goalLabel,
+          contentGoalPrompt:  context.contentGoalPrompt,
+          directionTitle:     context.directionTitle,
+          directionDescription: context.directionDescription,
+          directionWhyItFits: context.directionWhyItFits,
+          businessCategory:   input.businessCategory,
+          archetypeBehaviorBrief: getArchetypeWritingBrief(context.contentArchetypeId),
+          humanInsight:       humanInsight ?? undefined,
+          storyPremise:       storyPremise ?? undefined,
+        },
+        plan: {
+          platform:  input.videoPlan.platform,
+          videoType: input.videoPlan.videoType,
+          structure: input.videoPlan.structure?.length
+            ? input.videoPlan.structure
+            : ["hook", "value", "cta"],
+        },
+        contentInsightAnswers: input.contentInsightAnswers,
+        contentArchetypeId: context.contentArchetypeId,
+      });
+
+      if (llmResult) {
+        const lastIdx = llmResult.shots.length - 1;
+        const shots: Shot[] = llmResult.shots.map((s, i) => ({
+          visual: s.visual,
+          // Normalize: shots[0].voice = hook for display consistency
+          // shots[last].voice = cta when the LLM provided an explicit CTA
+          voice:
+            i === 0
+              ? llmResult.hook
+              : i === lastIdx && llmResult.cta
+              ? llmResult.cta
+              : s.voice,
+        }));
+        console.info(
+          `[content-generate] SOURCE=llm_result shots=${shots.length} hasHumanInsight=${!!humanInsight} hasStoryPremise=${!!storyPremise}`
+        );
+        return {
+          hook:            llmResult.hook,
+          scriptText:      buildScriptText(llmResult.hook, shots),
+          caption:         llmResult.caption,
+          shots,
+          businessProfile: context.businessProfile,
+          creativeRoute:   humanInsight?.creativeRoute,
+        };
+      }
+
+      console.info(
+        "[content-llm] FALLBACK_USED FALLBACK_REASON: LLM_ATTEMPT_FAILED (see the previous [content-llm] FALLBACK_USED line for PARSE_ERROR | VALIDATION_FAILED | DOMAIN_RELEVANCE_FAILED | EMPTY_LLM_RESPONSE | TIMEOUT_OR_NETWORK | PROVIDER_ERROR)"
+      );
     }
   }
   // ─────────────────────────────────────────────────────────────────────────
@@ -1000,6 +1078,7 @@ export async function generateScript(
     videoPlan: input.videoPlan,
   });
 
+  console.info("[content-generate] SOURCE=template_fallback");
   return {
     hook: optimized.hook,
     scriptText: optimized.scriptText,

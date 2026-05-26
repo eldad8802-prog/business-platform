@@ -24,7 +24,15 @@ export async function GET(
 
     const document = await prisma.document.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        businessId: true,
+        fileUrl: true,
+        source: true,
+        mimeType: true,
+        status: true,
+        createdAt: true,
+        ocrText: true,
         extractedData: true,
       },
     });
@@ -59,13 +67,21 @@ export async function GET(
             confidenceScore: document.extractedData.confidenceScore ?? null,
           }
         : null,
-      allowUnified: true,
+      allowUnified: false,
       debug,
     });
 
     return Response.json({
       success: true,
-      document,
+      document: {
+        id: document.id,
+        businessId: document.businessId,
+        fileUrl: document.fileUrl,
+        source: document.source,
+        mimeType: document.mimeType,
+        status: document.status,
+        createdAt: document.createdAt.toISOString(),
+      },
       extracted: document.extractedData,
       outputProfile: resolved.outputProfile,
       outputProfileSource: resolved.outputProfileSource,

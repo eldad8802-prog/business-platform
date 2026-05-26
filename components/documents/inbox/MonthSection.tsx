@@ -2,14 +2,6 @@
 
 import type { ReactNode } from "react";
 
-const TITLE_STYLE: React.CSSProperties = {
-  fontSize: 14,
-  fontWeight: 950,
-  color: "#374151",
-  marginBottom: 10,
-  marginTop: 8,
-};
-
 export function formatMonthHeading(ym: string): string {
   const [y, m] = ym.split("-").map(Number);
   if (!Number.isFinite(y) || !Number.isFinite(m)) return ym;
@@ -26,8 +18,18 @@ export default function MonthSection({
 }) {
   return (
     <section dir="rtl">
-      <h2 style={TITLE_STYLE}>{formatMonthHeading(monthKey)}</h2>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 950,
+          color: "#64748b",
+          marginBottom: 10,
+          marginTop: 2,
+        }}
+      >
+        {formatMonthHeading(monthKey)}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {children}
       </div>
     </section>

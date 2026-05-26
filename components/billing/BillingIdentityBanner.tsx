@@ -144,7 +144,7 @@ export function BillingIdentityBanner({
       setSavedOk(true);
       window.setTimeout(() => setSavedOk(false), 2200);
     } catch {
-      setError("שגיאת רשת");
+      setError("לא הצלחנו להתחבר כדי לשמור. נסו שוב בעוד רגע.");
     } finally {
       setSaving(false);
     }
@@ -261,7 +261,7 @@ export function BillingIdentityBanner({
             )}
           </div>
           <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
-            זהות המנפיק מנוהלת בהגדרות העסק — לא בעריכת מסמך.
+            פרטי העסק נשמרים כדי שהמסמכים ללקוחות ייראו אמינים ועקביים.
           </div>
         </div>
         <Link
@@ -300,11 +300,11 @@ export function BillingIdentityBanner({
         }}
       >
         <div style={{ fontSize: 15, fontWeight: 800, color: "#0c4a6e" }}>
-          לפני שמתחילים צריך להגדיר את פרטי העסק שיופיעו על המסמכים שלך
+          כדי להתחיל צריך רק את פרטי העסק שיופיעו במסמך
         </div>
         <p style={{ margin: "8px 0 0", fontSize: 13, color: "#0369a1" }}>
-          לאחר השמירה ניתן יהיה ליצור חשבונית מס וטיוטות — הפרטים ניתנים לעדכון
-          בכל עת דרך{" "}
+          מלאו את הפרטים הבסיסיים עכשיו. מראה המסמך והעדפות נוספות אפשר לדייק
+          בהמשך דרך{" "}
           <Link href="/business" style={{ fontWeight: 700, color: "#0c4a6e" }}>
             העסק שלי
           </Link>
@@ -346,7 +346,7 @@ export function BillingIdentityBanner({
               cursor: saving ? "not-allowed" : "pointer",
             }}
           >
-            {saving ? "שומר…" : "שמור פרטי עסק"}
+            {saving ? "שומר…" : "שמור והמשך למסמכים"}
           </button>
         </div>
         {savedOk ? (

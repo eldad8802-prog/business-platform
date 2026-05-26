@@ -125,6 +125,8 @@ export type BusinessProfileInput = {
   primaryGoal?: "leads" | "trust" | "exposure" | "sales";
   priceLevel?: "budget" | "mid" | "premium";
   differentiators?: string[];
+  /** Current user brief — when it implies a vertical, it wins over stale category/type. */
+  contentGoalPrompt?: string;
 };
 
 const BUSINESS_TYPE_MAP: Record<BusinessType, BusinessContentProfile> = {
@@ -774,10 +776,40 @@ const BUSINESS_TYPE_MAP: Record<BusinessType, BusinessContentProfile> = {
   },
 };
 
+/** Strong signals from free-text brief — overrides DB category when present. */
+function inferBusinessTypeFromUserBrief(goal?: string): BusinessType | null {
+  const raw = (goal || "").trim();
+  if (!raw) return null;
+  const t = raw.toLowerCase();
+
+  if (
+    /אפליקציה|אפליקציות|תוכנה|פלטפורמה|סטארטאפ|מוצר דיגיטלי|מערכת ליצירת|עורך וידאו|תוכן לעסק|בעלי עסקים|סרטונים לעסק|בינה מלאכותית|צ׳אטבוט|צ'אטבוט/i.test(
+      raw
+    ) ||
+    /\bapp\b|\bsaas\b|\bsoftware\b|\bplatform\b|\bstartup\b|\bapi\b|\bui\b|\bux\b|video editor|content tool/i.test(
+      t
+    )
+  ) {
+    return "saas";
+  }
+  if (/טכנולוג|tech company|high[\s-]?tech/i.test(raw) || /\btech\b/i.test(t)) {
+    return "technology";
+  }
+
+  return null;
+}
+
 function normalizeBusinessType(value?: string): BusinessType {
   const text = (value || "").trim().toLowerCase();
 
   if (!text) return "other";
+
+  if (text.includes("saas") || text.includes("software")) {
+    return "saas";
+  }
+  if (text.includes("טכנולוג") || text.includes("tech")) {
+    return "technology";
+  }
 
   if (text.includes("ספר") || text.includes("hair") || text.includes("salon")) {
     return "hair_salon";
@@ -834,7 +866,12 @@ function normalizeBusinessType(value?: string): BusinessType {
   if (text.includes("משכנת")) {
     return "mortgage";
   }
-  if (text.includes("עור") || text.includes("law")) {
+  if (
+    text.includes("עורך דין") ||
+    text.includes("משפט") ||
+    /\blaw\b/.test(text) ||
+    text.includes("lawyer")
+  ) {
     return "law_firm";
   }
   if (text.includes("רו\"ח") || text.includes("account") || text.includes("חשבונ")) {
@@ -914,12 +951,6 @@ function normalizeBusinessType(value?: string): BusinessType {
   }
   if (text.includes("נסיע") || text.includes("travel")) {
     return "travel";
-  }
-  if (text.includes("טכנולוג") || text.includes("tech")) {
-    return "technology";
-  }
-  if (text.includes("saas") || text.includes("software")) {
-    return "saas";
   }
   if (text.includes("מפעל") || text.includes("manufact")) {
     return "manufacturing";
@@ -1029,9 +1060,11 @@ function applyOfferAdjustments(
 export function getBusinessContentProfile(
   input: BusinessProfileInput
 ): BusinessContentProfile {
-  const normalizedType = normalizeBusinessType(
+  const fromBrief = inferBusinessTypeFromUserBrief(input.contentGoalPrompt);
+  const fromCategory = normalizeBusinessType(
     input.businessType || input.businessCategory
   );
+  const normalizedType = fromBrief ?? fromCategory;
 
   const baseProfile = BUSINESS_TYPE_MAP[normalizedType] || BUSINESS_TYPE_MAP.other;
 

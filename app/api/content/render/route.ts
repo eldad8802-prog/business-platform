@@ -2,10 +2,12 @@ import { checkUsage, incrementUsage } from "@/lib/services/usage.service";
 import { createCreatomateRender } from "@/lib/services/creatomate.service";
 import type { RenderBlueprint } from "@/lib/features/content/render-blueprint/types";
 import { getCurrentUser } from "@/lib/auth";
+import { isSubstantiveContentGoalBrief } from "@/lib/content/content-goal-prompt-normalize";
 
 type ContentFlow = {
   selectedFormat?: "reel" | "video" | "image" | "post";
   selectedPlatform?: "instagram" | "tiktok" | "facebook";
+  contentGoalPrompt?: string;
 };
 
 type SelectedVariant = {
@@ -87,6 +89,17 @@ export async function POST(req: Request) {
         {
           error: "missing_flow_data",
           message: "selectedFormat or selectedPlatform is missing",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!isSubstantiveContentGoalBrief(flow.contentGoalPrompt)) {
+      return Response.json(
+        {
+          error: "brief_required",
+          message:
+            "חסר בריף יעד מספיק מפורט — לא ניתן להרכיב סרטון מהפרופיל העסקי בלבד.",
         },
         { status: 400 }
       );

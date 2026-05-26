@@ -1,7 +1,6 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { card, emptyState } from "@/app/documents/ui";
 
 const TITLE: CSSProperties = {
   fontWeight: 950,
@@ -18,22 +17,32 @@ export type InboxEmptyVariant =
 const COPY: Record<InboxEmptyVariant, { title: string; body: string }> = {
   no_documents_month: {
     title: "אין מסמכים בחודש הזה",
-    body: "העלה מסמך או ייבא ממייל כדי לראות אותו כאן.",
+    body: "העלה או ייבא מסמך כדי שהמערכת תזהה עסקה, תבקש ממך אישור קצר, ואז תעדכן דוחות וחבילה לרו״ח.",
   },
   no_pending: {
     title: "אין ממתינים לבדיקה",
-    body: "כל המסמכים בחודש זה כבר עברו טיפול או שאושרו.",
+    body: "כל המסמכים בחודש זה כבר טופלו. הדוח מבוסס על העסקאות שאושרו.",
   },
   no_approved: {
     title: "אין מסמכים מאושרים בחודש זה",
-    body: "מסמכים מאושרים יופיעו כאן אחרי אישור מהמסך לבדיקה.",
+    body: "אחרי אישור מסמך כעסקה הוא יופיע בדוחות, בחיפוש ובחבילה לרו״ח.",
   },
 };
 
 export default function InboxEmptyState({ variant }: { variant: InboxEmptyVariant }) {
   const c = COPY[variant];
   return (
-    <div dir="rtl" style={{ ...emptyState, ...card }}>
+    <div
+      dir="rtl"
+      style={{
+        background: "#ffffff",
+        border: "1px solid #dfe7f3",
+        borderRadius: 18,
+        padding: 18,
+        boxShadow: "0 10px 28px rgba(15, 23, 42, 0.06)",
+        textAlign: "center",
+      }}
+    >
       <div style={TITLE}>{c.title}</div>
       <p style={{ margin: 0, color: "#6b7280", fontSize: 14, lineHeight: 1.6 }}>
         {c.body}

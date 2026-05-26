@@ -24,7 +24,6 @@ export default function LoginPage() {
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    console.log("🔥 LOGIN RENDER");
     let isMounted = true;
 
     const boot = () => {
@@ -36,7 +35,7 @@ export default function LoginPage() {
         const token = window.localStorage.getItem("token");
 
         if (token) {
-          router.replace("/");
+          window.location.replace(`${window.location.origin}/`);
           return;
         }
       } catch (error) {
@@ -56,7 +55,6 @@ export default function LoginPage() {
   }, [router]);
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  console.log("🔥 LOGIN RENDER");
 
   function validateField(field: "email" | "password", value: string) {
     if (field === "email") {
@@ -151,7 +149,8 @@ export default function LoginPage() {
         window.localStorage.removeItem("user");
       }
 
-      router.replace("/");
+      /* Full navigation: guarantees home reads the same tab’s localStorage (mobile-safe vs client router transition). */
+      window.location.replace(`${window.location.origin}/`);
     } catch (err) {
       console.error("login error:", err);
       setErrors({

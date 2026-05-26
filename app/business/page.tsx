@@ -130,6 +130,7 @@ export default function BusinessProfilePage() {
   async function handleSave() {
     setSaving(true);
     setError(null);
+    setSavedOk(false);
     try {
       const token = getAuthToken();
       const res = await fetch("/api/billing/invoice-profile", {
@@ -312,29 +313,49 @@ export default function BusinessProfilePage() {
                 {error}
               </div>
             ) : null}
-            {savedOk ? (
-              <div style={{ fontSize: 14, color: "#166534", fontWeight: 600 }}>
-                נשמר בהצלחה
-              </div>
-            ) : null}
 
-            <button
-              type="button"
-              onClick={() => void handleSave()}
-              disabled={saving}
-              style={{
-                padding: "12px 18px",
-                borderRadius: 10,
-                border: "none",
-                background: saving ? "#94a3b8" : "#0f172a",
-                color: "#fff",
-                fontSize: 15,
-                fontWeight: 700,
-                cursor: saving ? "not-allowed" : "pointer",
-              }}
-            >
-              {saving ? "שומר…" : "שמור שינויים"}
-            </button>
+            <div style={{ display: "grid", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => void handleSave()}
+                disabled={saving}
+                style={{
+                  padding: "12px 18px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: saving
+                    ? "#94a3b8"
+                    : savedOk
+                      ? "#166534"
+                      : "#0f172a",
+                  color: "#fff",
+                  fontSize: 15,
+                  fontWeight: 700,
+                  cursor: saving ? "not-allowed" : "pointer",
+                  transition: "background 0.2s ease",
+                }}
+              >
+                {saving ? "שומר…" : savedOk ? "נשמר ✓" : "שמור שינויים"}
+              </button>
+              {savedOk ? (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  style={{
+                    background: "#ecfdf5",
+                    border: "1px solid #bbf7d0",
+                    color: "#166534",
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    textAlign: "center",
+                  }}
+                >
+                  השינויים נשמרו בהצלחה
+                </div>
+              ) : null}
+            </div>
 
             <Link
               href="/billing"

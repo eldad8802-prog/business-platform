@@ -4,7 +4,6 @@ import {
   BillingDocumentStatus,
   BillingDocumentType,
   BillingPdfRenderStatus,
-  Prisma,
 } from "@prisma/client";
 import {
   ForbiddenError,
@@ -14,10 +13,12 @@ import {
 } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
+import { createBillingAuditEventTx } from "@/lib/services/billing/billing-audit.service";
 import { allocateQuoteDocumentNumberIfMissing } from "@/lib/services/billing/quote-document-number";
 import { canEditDraft } from "@/lib/services/billing/domain/billing-status.machine";
 import { recomputeAll } from "@/lib/services/billing/totals/billing-totals.service";
 import { assertBillingIdentityReadyForTaxInvoice } from "@/lib/billing/business-identity";
+import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
 
 export type ConvertQuoteToInvoiceInput = {
   businessId: number;
@@ -141,13 +142,14 @@ export async function convertQuoteToInvoice(
       })),
     });
 
-    const updateQuote = await tx.billingDocument.updateMany({
+    const updateQuote = await updateBillingDocuments(tx, {
       where: {
         id: quoteFresh.id,
         businessId: input.businessId,
         convertedToInvoiceId: null,
         documentType: BillingDocumentType.QUOTE,
       },
+      intent: "quote_mark_converted",
       data: {
         convertedToInvoiceId: invoice.id,
       },
@@ -160,6 +162,26 @@ export async function convertQuoteToInvoice(
     const createdInvoice = await tx.billingDocument.findFirstOrThrow({
       where: { id: invoice.id, businessId: input.businessId },
       include: { lines: { orderBy: { lineIndex: "asc" } } },
+    });
+
+    await createBillingAuditEventTx(tx, {
+      businessId: input.businessId,
+      billingDocumentId: createdInvoice.id,
+      actorUserId: input.actorUserId,
+      eventType: "BILLING_QUOTE_CONVERTED_TO_INVOICE",
+      summary: "Quote converted to invoice",
+      metadata: {
+        quoteId: quoteFresh.id,
+        invoiceId: createdInvoice.id,
+        quoteDocumentNumber: quoteFresh.documentNumber,
+        quoteDocumentNumberFormatted: quoteFresh.documentNumberFormatted,
+        customerId: createdInvoice.customerId,
+        subtotalAmount: totals.subtotalAmount.toString(),
+        vatAmount: totals.vatAmount.toString(),
+        totalAmount: totals.totalAmount.toString(),
+        currency: createdInvoice.currency,
+        actorUserId: input.actorUserId,
+      },
     });
 
     return { invoice: createdInvoice, quoteId: quoteFresh.id };

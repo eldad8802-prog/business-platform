@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
 } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -65,6 +66,8 @@ type PatchSaveStatus = "idle" | "saving" | "saved" | "error";
 
 type LifecycleAction = "submit" | "revert" | "issue";
 
+type PendingNavigation = { href: string } | null;
+
 type StageKey =
   | "draft_missing"
   | "draft_ready"
@@ -77,6 +80,20 @@ function scrollToId(id: string) {
   const el = document.getElementById(id);
   if (!el) return;
   el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+/** Opens a fetched PDF in a new tab without async window.open popup blocking. */
+function openPdfBlobInNewTab(blob: Blob): void {
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
 }
 
 type StickyPrimaryAction =
@@ -284,6 +301,11 @@ export default function BillingDocumentWorkspacePage() {
   const [validUntilError, setValidUntilError] = useState<string | null>(null);
   const [convertBusy, setConvertBusy] = useState(false);
   const [convertError, setConvertError] = useState<string | null>(null);
+  const [pendingNavigation, setPendingNavigation] =
+    useState<PendingNavigation>(null);
+  const [leavingSaveBusy, setLeavingSaveBusy] = useState(false);
+  const [leavingError, setLeavingError] = useState<string | null>(null);
+  const [completionNotice, setCompletionNotice] = useState<string | null>(null);
   // undefined = not yet fetched, null = fetched + missing, string = fetched + present
   const [profileTaxId, setProfileTaxId] = useState<string | null | undefined>(undefined);
 
@@ -326,7 +348,7 @@ export default function BillingDocumentWorkspacePage() {
       const data = await res.json();
       const doc: BillingDocumentDetail | undefined = data?.document;
       if (!doc || typeof doc.id !== "number") {
-        setState({ kind: "error", message: "תגובת השרת לא תקינה" });
+        setState({ kind: "error", message: "התקבלה תגובה לא תקינה" });
         return;
       }
 
@@ -341,8 +363,18 @@ export default function BillingDocumentWorkspacePage() {
   }, [id]);
 
   useEffect(() => {
-    void load();
+    const t = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(t);
   }, [load]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const message = window.sessionStorage.getItem("billing:completion");
+    if (!message) return;
+    window.sessionStorage.removeItem("billing:completion");
+    const t = window.setTimeout(() => setCompletionNotice(message), 0);
+    return () => window.clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     if (state.kind !== "ready" || state.doc.status !== "DRAFT") {
@@ -375,7 +407,6 @@ export default function BillingDocumentWorkspacePage() {
 
     if (trimmed === serverTrimmed) {
       patchScheduleRef.current += 1;
-      setPatchError(null);
       return;
     }
 
@@ -431,7 +462,7 @@ export default function BillingDocumentWorkspacePage() {
         const data = await res.json();
         const nextDoc: BillingDocumentDetail | undefined = data?.document;
         if (!nextDoc || typeof nextDoc.id !== "number") {
-          setPatchError("תגובת השרת לא תקינה");
+          setPatchError("התקבלה תגובה לא תקינה");
           setPatchStatus("error");
           return;
         }
@@ -447,7 +478,7 @@ export default function BillingDocumentWorkspacePage() {
         }, 2000);
       } catch {
         if (scheduleId !== patchScheduleRef.current) return;
-        setPatchError("שגיאת רשת בשמירת שם הלקוח");
+        setPatchError("לא הצלחנו להתחבר כדי לשמור את שם הלקוח. נסו שוב בעוד רגע.");
         setPatchStatus("error");
       }
     }, 800);
@@ -468,7 +499,6 @@ export default function BillingDocumentWorkspacePage() {
 
     if (trimmed === server) {
       validUntilScheduleRef.current += 1;
-      setValidUntilError(null);
       return;
     }
 
@@ -521,7 +551,7 @@ export default function BillingDocumentWorkspacePage() {
         const data = await res.json();
         const nextDoc: BillingDocumentDetail | undefined = data?.document;
         if (!nextDoc || typeof nextDoc.id !== "number") {
-          setValidUntilError("תגובת השרת לא תקינה");
+          setValidUntilError("התקבלה תגובה לא תקינה");
           setValidUntilStatus("error");
           return;
         }
@@ -534,7 +564,7 @@ export default function BillingDocumentWorkspacePage() {
         }, 2000);
       } catch {
         if (scheduleId !== validUntilScheduleRef.current) return;
-        setValidUntilError("שגיאת רשת בשמירת תוקף");
+        setValidUntilError("לא הצלחנו להתחבר כדי לשמור את תוקף ההצעה. נסו שוב בעוד רגע.");
         setValidUntilStatus("error");
       }
     }, 800);
@@ -544,9 +574,9 @@ export default function BillingDocumentWorkspacePage() {
     };
   }, [validUntilInput, id, load, state]);
 
-  async function handleSaveLines() {
-    if (state.kind !== "ready" || state.doc.status !== "DRAFT") return;
-    if (linesSaving) return;
+  async function handleSaveLines(focusNext = true): Promise<boolean> {
+    if (state.kind !== "ready" || state.doc.status !== "DRAFT") return false;
+    if (linesSaving) return false;
 
     setLinesSaving(true);
     setLinesError(null);
@@ -578,11 +608,11 @@ export default function BillingDocumentWorkspacePage() {
         setDraftConflictMessage(
           "המסמך עודכן או הופק ממקום אחר"
         );
-        return;
+        return false;
       }
 
       if (!res.ok) {
-        let message = "שגיאה בשמירת השורות";
+        let message = "שגיאה בשמירת הפריטים";
         try {
           const data = await res.json();
           if (data && typeof data.error === "string") {
@@ -591,14 +621,14 @@ export default function BillingDocumentWorkspacePage() {
         } catch {
         }
         setLinesError(message);
-        return;
+        return false;
       }
 
       const data = await res.json();
       const nextDoc: BillingDocumentDetail | undefined = data?.document;
       if (!nextDoc || typeof nextDoc.id !== "number") {
-        setLinesError("תגובת השרת לא תקינה");
-        return;
+        setLinesError("התקבלה תגובה לא תקינה");
+        return false;
       }
 
       setState({ kind: "ready", doc: nextDoc });
@@ -610,6 +640,7 @@ export default function BillingDocumentWorkspacePage() {
 
       // UX: after successful lines save, move to next dominant context.
       if (
+        focusNext &&
         typeof window !== "undefined" &&
         nextDoc.status === "DRAFT" &&
         nextDoc.lines.length > 0
@@ -631,8 +662,13 @@ export default function BillingDocumentWorkspacePage() {
           window.setTimeout(() => tryScroll(18), 50);
         });
       }
+      if (focusNext) {
+        setLifecycleSuccess("המסמך עודכן.");
+      }
+      return true;
     } catch {
-      setLinesError("שגיאת רשת בשמירת השורות");
+      setLinesError("לא הצלחנו לשמור את הפריטים. נסו שוב בעוד רגע.");
+      return false;
     } finally {
       setLinesSaving(false);
     }
@@ -681,13 +717,19 @@ export default function BillingDocumentWorkspacePage() {
       const data = await res.json();
       const invId: unknown = data?.document?.id;
       if (typeof invId !== "number") {
-        setConvertError("תגובת השרת לא תקינה");
+        setConvertError("התקבלה תגובה לא תקינה");
         return;
       }
 
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(
+          "billing:completion",
+          "החשבונית נוצרה מההצעה. אפשר לבדוק ולהפיק אותה כשמוכנים."
+        );
+      }
       router.push(`/billing/${invId}`);
     } catch {
-      setConvertError("שגיאת רשת בהמרה");
+      setConvertError("לא הצלחנו להתחבר כדי להמיר את ההצעה. נסו שוב בעוד רגע.");
     } finally {
       setConvertBusy(false);
     }
@@ -738,7 +780,7 @@ export default function BillingDocumentWorkspacePage() {
         const data = await res.json();
         const nextDoc: BillingDocumentDetail | undefined = data?.document;
         if (!nextDoc || typeof nextDoc.id !== "number") {
-          setLifecycleError("תגובת השרת לא תקינה");
+          setLifecycleError("התקבלה תגובה לא תקינה");
           return;
         }
 
@@ -760,7 +802,7 @@ export default function BillingDocumentWorkspacePage() {
           setIssueConfirmOpen(false);
         }
       } catch {
-        setLifecycleError("שגיאת רשת");
+        setLifecycleError("לא הצלחנו להתחבר. נסו שוב בעוד רגע.");
       } finally {
         setLifecycleBusy(null);
       }
@@ -798,7 +840,7 @@ export default function BillingDocumentWorkspacePage() {
         (state.doc.documentType === "QUOTE"
           ? "הצעת מחיר"
           : "טיוטה ללא מספר")
-      : "מסמך חיוב";
+      : "מסמך ללקוח";
 
   const status: BillingStatus | null =
     state.kind === "ready" ? state.doc.status : null;
@@ -807,6 +849,132 @@ export default function BillingDocumentWorkspacePage() {
     state.kind === "ready" && state.doc.status === "DRAFT"
       ? linesAreDirty(linesDraft, state.doc.lines)
       : false;
+
+  const customerDirty =
+    state.kind === "ready" && state.doc.status === "DRAFT"
+      ? customerInput.trim() !== (state.doc.customerNameSnapshot ?? "").trim()
+      : false;
+
+  const validUntilDirty =
+    state.kind === "ready" &&
+    state.doc.status === "DRAFT" &&
+    state.doc.documentType === "QUOTE" &&
+    state.doc.convertedToInvoiceId === null
+      ? validUntilInput.trim() !== (state.doc.validUntil?.slice(0, 10) ?? "")
+      : false;
+
+  const hasUnsavedDraftChanges =
+    dirtyLines ||
+    customerDirty ||
+    validUntilDirty ||
+    patchStatus === "saving" ||
+    validUntilStatus === "saving" ||
+    linesSaving;
+
+  useEffect(() => {
+    if (!hasUnsavedDraftChanges) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasUnsavedDraftChanges]);
+
+  async function saveDraftFieldsNow(): Promise<boolean> {
+    if (state.kind !== "ready" || state.doc.status !== "DRAFT") return true;
+
+    const body: Record<string, unknown> = {};
+    if (customerDirty) {
+      const trimmed = customerInput.trim();
+      if (!trimmed) {
+        setPatchError("כדי לשמור לפני יציאה צריך שם לקוח.");
+        return false;
+      }
+      body.customerNameSnapshot = trimmed;
+    }
+    if (validUntilDirty && state.doc.documentType === "QUOTE") {
+      const trimmed = validUntilInput.trim();
+      body.validUntil = trimmed === "" ? null : trimmed;
+    }
+    if (Object.keys(body).length === 0) return true;
+
+    patchScheduleRef.current += 1;
+    validUntilScheduleRef.current += 1;
+    setPatchStatus("saving");
+    setPatchError(null);
+    setValidUntilError(null);
+
+    try {
+      const token = getAuthToken();
+      const res = await fetch(`/api/billing/documents/${id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        setPatchError("לא הצלחנו לשמור את פרטי המסמך. נסו שוב.");
+        setPatchStatus("error");
+        return false;
+      }
+      const data = await res.json();
+      const nextDoc: BillingDocumentDetail | undefined = data?.document;
+      if (!nextDoc || typeof nextDoc.id !== "number") {
+        setPatchError("התקבלה תגובה לא תקינה");
+        setPatchStatus("error");
+        return false;
+      }
+      setState({ kind: "ready", doc: nextDoc });
+      setCustomerInput(nextDoc.customerNameSnapshot ?? "");
+      if (nextDoc.documentType === "QUOTE") {
+        setValidUntilInput(nextDoc.validUntil?.slice(0, 10) ?? "");
+      }
+      setPatchStatus("saved");
+      window.setTimeout(() => {
+        setPatchStatus((prev) => (prev === "saved" ? "idle" : prev));
+      }, 2000);
+      return true;
+    } catch {
+      setPatchError("לא הצלחנו להתחבר כדי לשמור. נסו שוב בעוד רגע.");
+      setPatchStatus("error");
+      return false;
+    }
+  }
+
+  function requestNavigation(href: string) {
+    if (hasUnsavedDraftChanges) {
+      setLeavingError(null);
+      setPendingNavigation({ href });
+      return;
+    }
+    router.push(href);
+  }
+
+  async function handleSaveAndContinueNavigation() {
+    if (!pendingNavigation || leavingSaveBusy) return;
+    setLeavingSaveBusy(true);
+    setLeavingError(null);
+    try {
+      const fieldsSaved = await saveDraftFieldsNow();
+      if (!fieldsSaved) {
+        setLeavingError("לא הצלחנו לשמור את כל השינויים. אפשר להמשיך לערוך ולנסות שוב.");
+        return;
+      }
+      const linesSaved = dirtyLines ? await handleSaveLines(false) : true;
+      if (!linesSaved) {
+        setLeavingError("לא הצלחנו לשמור את הפריטים. אפשר להמשיך לערוך ולנסות שוב.");
+        return;
+      }
+      const href = pendingNavigation.href;
+      setPendingNavigation(null);
+      router.push(href);
+    } finally {
+      setLeavingSaveBusy(false);
+    }
+  }
 
   return (
     <main
@@ -828,6 +996,10 @@ export default function BillingDocumentWorkspacePage() {
         >
           <Link
             href="/billing"
+            onClick={(event) => {
+              event.preventDefault();
+              requestNavigation("/billing");
+            }}
             aria-label="חזרה"
             style={{
               minHeight: 40,
@@ -866,6 +1038,46 @@ export default function BillingDocumentWorkspacePage() {
           </div>
           {status ? <StatusBadge status={status} /> : null}
         </header>
+
+        {completionNotice ? (
+          <div
+            role="status"
+            style={{
+              direction: "rtl",
+              background: "#ecfdf5",
+              border: "1px solid #bbf7d0",
+              color: "#166534",
+              borderRadius: 12,
+              padding: "10px 14px",
+              fontSize: 14,
+              fontWeight: 600,
+              marginBottom: 12,
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 12,
+              alignItems: "center",
+            }}
+          >
+            <span>{completionNotice}</span>
+            <button
+              type="button"
+              onClick={() => setCompletionNotice(null)}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: "#166534",
+                cursor: "pointer",
+                fontWeight: 700,
+                fontSize: 18,
+                lineHeight: 1,
+                padding: 0,
+              }}
+              aria-label="סגור"
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
 
         {state.kind === "loading" ? <WorkspaceSkeleton /> : null}
         {state.kind === "error" ? (
@@ -923,6 +1135,23 @@ export default function BillingDocumentWorkspacePage() {
             setLifecycleError(null);
           }}
           onConfirm={() => void runLifecycle("/issue", "issue")}
+        />
+      ) : null}
+      {pendingNavigation ? (
+        <UnsavedChangesDialog
+          saving={leavingSaveBusy}
+          errorMessage={leavingError}
+          onSaveAndContinue={() => void handleSaveAndContinueNavigation()}
+          onLeaveWithoutSaving={() => {
+            const href = pendingNavigation.href;
+            setPendingNavigation(null);
+            router.push(href);
+          }}
+          onKeepEditing={() => {
+            if (leavingSaveBusy) return;
+            setPendingNavigation(null);
+            setLeavingError(null);
+          }}
         />
       ) : null}
     </main>
@@ -1195,12 +1424,6 @@ function DocumentBody({
   const missing: Array<{ key: string; label: string; actionId?: string }> = [];
   const customerOk = (doc.customerNameSnapshot ?? "").trim().length > 0;
   const linesOk = doc.lines.length > 0;
-  const savedOk =
-    !dirtyLines &&
-    !customerDirty &&
-    patchStatus !== "saving" &&
-    validUntilStatus !== "saving" &&
-    !linesSaving;
 
   if (isDraft && !customerOk) {
     missing.push({
@@ -1219,7 +1442,7 @@ function DocumentBody({
   if (isDraft && dirtyLines) {
     missing.push({
       key: "unsaved-lines",
-      label: "יש שינויים בשורות שלא נשמרו",
+      label: "יש שינויים בפריטים שלא נשמרו",
       actionId: "billing-lines",
     });
   }
@@ -1268,7 +1491,7 @@ function DocumentBody({
           label: "פעולות אישור/הפקה",
         }
       : stage === "issued"
-      ? { kind: "scroll", targetId: "billing-issued-actions", label: "פעולות PDF" }
+      ? { kind: "scroll", targetId: "billing-issued-actions", label: "שיתוף המסמך" }
       : { kind: "none" };
 
   useEffect(() => {
@@ -1331,6 +1554,64 @@ function DocumentBody({
   ]);
 
   const editingDeemphasized = doc.status !== "DRAFT" || editingComplete;
+  const customerFocus = isDraft && !customerOk && !quoteLocked;
+  const itemsFocus = isDraft && customerOk && (!linesOk || dirtyLines) && !quoteLocked;
+  const readyInvoiceFocus =
+    isDraft && doc.documentType !== "QUOTE" && editingComplete && !quoteLocked;
+  const readyQuoteFocus =
+    isQuoteDraft && editingComplete && !quoteLocked;
+  const convertedQuoteFocus = doc.documentType === "QUOTE" && quoteLocked;
+  const pendingReviewFocus = doc.status === "PENDING_REVIEW";
+  const issuedFocus = doc.status === "ISSUED";
+
+  const customerSection = isDraft ? (
+    <DraftEditorSection
+      doc={doc}
+      authToken={authToken}
+      customerInput={customerInput}
+      onCustomerChange={onCustomerChange}
+      patchStatus={patchStatus}
+      patchError={patchError}
+      onCustomerPickSuccess={onReloadDocument}
+      disabled={quoteLocked}
+      showValidUntil={doc.documentType === "QUOTE"}
+      validUntilInput={validUntilInput}
+      onValidUntilChange={onValidUntilChange}
+      validUntilStatus={validUntilStatus}
+      validUntilError={validUntilError}
+      visualTone={editingDeemphasized ? "secondary" : "default"}
+    />
+  ) : null;
+
+  const draftLinesSection = isDraft ? (
+    <DraftLinesSection
+      currency={doc.currency}
+      linesDraft={linesDraft}
+      docLines={doc.lines}
+      onUpdateLine={updateLine}
+      onRemoveLine={removeLine}
+      onAddLine={addLine}
+      onSaveLines={onSaveLines}
+      linesSaving={linesSaving}
+      linesError={linesError}
+      linesSaveAllowed={linesSaveAllowed}
+      customerDirty={customerDirty}
+      patchSaving={
+        patchStatus === "saving" || validUntilStatus === "saving"
+      }
+      draftLocked={quoteLocked}
+      visualTone={editingDeemphasized ? "secondary" : "default"}
+    />
+  ) : null;
+
+  const detailsContext = (
+    <CollapsiblePanel title="פרטים נוספים">
+      <DetailsCard doc={doc} hideCustomer={isDraft} />
+      {isDraft ? null : <LinesSection lines={doc.lines} currency={doc.currency} />}
+      <TotalsCard doc={doc} showUnsavedLinesHint={dirtyLines && isDraft} />
+      {doc.documentType === "TAX_INVOICE" ? <IssuerSummaryBadge /> : null}
+    </CollapsiblePanel>
+  );
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
@@ -1339,11 +1620,6 @@ function DocumentBody({
         doc={doc}
         missing={missing}
         quoteValidUntilEmpty={quoteValidUntilEmpty}
-        issueDisabled={submitForReviewDisabled}
-        onOpenIssue={onOpenIssueDialog}
-        convertDisabled={convertDisabled}
-        convertBusy={convertBusy}
-        onConvert={onConvertQuote}
       />
 
       <StickyActionBar
@@ -1486,80 +1762,222 @@ function DocumentBody({
         </div>
       ) : null}
 
-      {doc.status === "ISSUED" ? <IssuedHero doc={doc} /> : null}
-      {isDraft ? (
-        <DraftEditorSection
-          doc={doc}
-          authToken={authToken}
-          customerInput={customerInput}
-          onCustomerChange={onCustomerChange}
-          patchStatus={patchStatus}
-          patchError={patchError}
-          onCustomerPickSuccess={onReloadDocument}
-          disabled={quoteLocked}
-          showValidUntil={doc.documentType === "QUOTE"}
-          validUntilInput={validUntilInput}
-          onValidUntilChange={onValidUntilChange}
-          validUntilStatus={validUntilStatus}
-          validUntilError={validUntilError}
-          visualTone={editingDeemphasized ? "secondary" : "default"}
-        />
+      {customerFocus ? (
+        <>
+          {customerSection}
+          {detailsContext}
+        </>
       ) : null}
-      {doc.status === "PENDING_REVIEW" ? (
+
+      {itemsFocus ? (
+        <>
+          <CustomerSummaryCard doc={doc} />
+          {draftLinesSection}
+          <TotalsCard doc={doc} showUnsavedLinesHint={dirtyLines && isDraft} />
+          {detailsContext}
+        </>
+      ) : null}
+
+      {readyInvoiceFocus ? (
+        <>
+          <ReviewSummaryCard doc={doc} />
+          <DraftIssuePrimarySection
+            issueDisabled={submitForReviewDisabled}
+            issueLoading={lifecycleBusy === "issue"}
+            onOpenIssue={onOpenIssueDialog}
+            submitDisabled={submitForReviewDisabled}
+            submitLoading={lifecycleBusy === "submit"}
+            onSubmitForReview={onSubmitForReview}
+            customerDirty={customerDirty}
+          />
+          {doc.documentType === "TAX_INVOICE" ? <IssuerSummaryBadge /> : null}
+          <CollapsiblePanel title="עריכה נוספת">
+            {customerSection}
+            {draftLinesSection}
+            <TotalsCard doc={doc} showUnsavedLinesHint={dirtyLines && isDraft} />
+          </CollapsiblePanel>
+          {detailsContext}
+        </>
+      ) : null}
+
+      {readyQuoteFocus ? (
+        <>
+          <ReviewSummaryCard doc={doc} />
+          <QuoteDraftHero
+            doc={doc}
+            locked={quoteLocked}
+            convertDisabled={convertDisabled}
+            convertBusy={convertBusy}
+            onConvert={onConvertQuote}
+          />
+          <CollapsiblePanel title="עריכה נוספת">
+            {customerSection}
+            {draftLinesSection}
+            <TotalsCard doc={doc} showUnsavedLinesHint={dirtyLines && isDraft} />
+          </CollapsiblePanel>
+          {detailsContext}
+        </>
+      ) : null}
+
+      {convertedQuoteFocus ? (
+        <>
+          <QuoteDraftHero
+            doc={doc}
+            locked={quoteLocked}
+            convertDisabled={convertDisabled}
+            convertBusy={convertBusy}
+            onConvert={onConvertQuote}
+          />
+          <ReviewSummaryCard doc={doc} />
+          {detailsContext}
+        </>
+      ) : null}
+
+      {issuedFocus ? (
+        <>
+          <IssuedHero doc={doc} />
+          <ReviewSummaryCard doc={doc} />
+          {detailsContext}
+        </>
+      ) : null}
+
+      {pendingReviewFocus ? (
+        <>
         <PendingReviewLifecycleSection
           doc={doc}
           lifecycleBusy={lifecycleBusy}
           onRevert={onRevert}
           onOpenIssueDialog={onOpenIssueDialog}
         />
+        <ReviewSummaryCard doc={doc} />
+        {detailsContext}
+        </>
       ) : null}
-      <DetailsCard doc={doc} hideCustomer={isDraft} />
-      {isDraft ? (
-        <DraftLinesSection
-          currency={doc.currency}
-          linesDraft={linesDraft}
-          docLines={doc.lines}
-          onUpdateLine={updateLine}
-          onRemoveLine={removeLine}
-          onAddLine={addLine}
-          onSaveLines={onSaveLines}
-          linesSaving={linesSaving}
-          linesError={linesError}
-          linesSaveAllowed={linesSaveAllowed}
-          customerDirty={customerDirty}
-          patchSaving={
-            patchStatus === "saving" || validUntilStatus === "saving"
-          }
-          draftLocked={quoteLocked}
-          visualTone={editingDeemphasized ? "secondary" : "default"}
+    </div>
+  );
+}
+
+function CollapsiblePanel({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <details
+      style={{
+        border: "1px solid #e2e8f0",
+        borderRadius: 14,
+        background: "#ffffff",
+        padding: "10px 14px",
+      }}
+    >
+      <summary
+        style={{
+          cursor: "pointer",
+          fontSize: 13,
+          fontWeight: 800,
+          color: "#475569",
+        }}
+      >
+        {title}
+      </summary>
+      <div style={{ display: "grid", gap: 12, marginTop: 12 }}>{children}</div>
+    </details>
+  );
+}
+
+function CustomerSummaryCard({ doc }: { doc: BillingDocumentDetail }) {
+  return (
+    <section
+      style={{
+        background: "#ffffff",
+        border: "1px solid #e2e8f0",
+        borderRadius: 14,
+        padding: "10px 14px",
+        color: "#334155",
+        fontSize: 13,
+      }}
+      aria-label="לקוח במסמך"
+    >
+      <span style={{ color: "#64748b" }}>לקוח: </span>
+      <span style={{ color: "#0f172a", fontWeight: 800 }}>
+        {doc.customerNameSnapshot ?? "לא הוגדר"}
+      </span>
+    </section>
+  );
+}
+
+function ReviewSummaryCard({ doc }: { doc: BillingDocumentDetail }) {
+  const customer = doc.customerNameSnapshot ?? "לא הוגדר";
+  const total = formatMoney(doc.totalAmount, doc.currency);
+  const itemCount = doc.lines.length;
+  const isQuote = doc.documentType === "QUOTE";
+
+  return (
+    <section
+      style={{
+        background: "#ffffff",
+        border: "1px solid #e2e8f0",
+        borderRadius: 14,
+        padding: 16,
+        display: "grid",
+        gap: 10,
+      }}
+      aria-label="בדיקת המסמך"
+    >
+      <div style={{ fontSize: 15, fontWeight: 900, color: "#0f172a" }}>
+        בדיקה קצרה
+      </div>
+      <div style={{ display: "grid", gap: 8 }}>
+        <ReviewSummaryRow label="לקוח" value={customer} />
+        <ReviewSummaryRow
+          label="פריטים"
+          value={itemCount === 1 ? "פריט אחד" : `${itemCount} פריטים`}
         />
-      ) : (
-        <LinesSection lines={doc.lines} currency={doc.currency} />
-      )}
-      <TotalsCard doc={doc} showUnsavedLinesHint={dirtyLines && isDraft} />
-      {doc.documentType === "TAX_INVOICE" ? (
-        <IssuerSummaryBadge />
-      ) : null}
-      {isQuoteDraft ? (
-        <QuoteDraftHero
-          doc={doc}
-          locked={quoteLocked}
-          convertDisabled={convertDisabled}
-          convertBusy={convertBusy}
-          onConvert={onConvertQuote}
-        />
-      ) : null}
-      {isDraft && doc.documentType !== "QUOTE" ? (
-        <DraftIssuePrimarySection
-          issueDisabled={submitForReviewDisabled}
-          issueLoading={lifecycleBusy === "issue"}
-          onOpenIssue={onOpenIssueDialog}
-          submitDisabled={submitForReviewDisabled}
-          submitLoading={lifecycleBusy === "submit"}
-          onSubmitForReview={onSubmitForReview}
-          customerDirty={customerDirty}
-        />
-      ) : null}
+        <ReviewSummaryRow label="סכום" value={total} emphasized />
+      </div>
+      <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.5 }}>
+        {isQuote
+          ? "זה מה שהלקוח יקבל בהצעה."
+          : doc.status === "ISSUED"
+          ? "זה המסמך הרשמי שמוכן לשיתוף."
+          : "לאחר ההפקה המסמך יקבל מספר רשמי ויינעל לעריכה."}
+      </div>
+    </section>
+  );
+}
+
+function ReviewSummaryRow({
+  label,
+  value,
+  emphasized = false,
+}: {
+  label: string;
+  value: string;
+  emphasized?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 12,
+        alignItems: "baseline",
+      }}
+    >
+      <span style={{ fontSize: 13, color: "#64748b" }}>{label}</span>
+      <span
+        style={{
+          fontSize: emphasized ? 16 : 14,
+          color: "#0f172a",
+          fontWeight: emphasized ? 900 : 700,
+          textAlign: "left",
+        }}
+      >
+        {value}
+      </span>
     </div>
   );
 }
@@ -1569,24 +1987,13 @@ function StageAwarePanel({
   doc,
   missing,
   quoteValidUntilEmpty,
-  issueDisabled,
-  onOpenIssue,
-  convertDisabled,
-  convertBusy,
-  onConvert,
 }: {
   stage: StageKey;
   doc: BillingDocumentDetail;
   missing: Array<{ key: string; label: string; actionId?: string }>;
   quoteValidUntilEmpty: boolean;
-  issueDisabled: boolean;
-  onOpenIssue: () => void;
-  convertDisabled: boolean;
-  convertBusy: boolean;
-  onConvert: () => void;
 }) {
   const isQuote = doc.documentType === "QUOTE";
-  const quoteLocked = isQuote && doc.convertedToInvoiceId !== null;
 
   const title =
     stage === "issued"
@@ -1596,10 +2003,10 @@ function StageAwarePanel({
       : stage === "quote_converted"
       ? "הצעת המחיר הומרה לחשבונית"
       : stage === "quote_ready"
-      ? "הצעת מחיר מוכנה לשיתוף/המרה"
+      ? "ההצעה מוכנה ללקוח"
       : stage === "draft_ready"
       ? "הטיוטה מוכנה להפקה"
-      : "כדי להתקדם חסרים פרטים";
+      : "כדי לאשר את המסמך חסרים פרטים";
 
   const tone =
     stage === "draft_missing"
@@ -1609,10 +2016,6 @@ function StageAwarePanel({
       : isQuote
       ? { bg: "#ecfeff", border: "#99f6e4", fg: "#0f766e" }
       : { bg: "#ffffff", border: "#e2e8f0", fg: "#0f172a" };
-
-  const showPrimaryIssue = stage === "draft_ready";
-  const showPrimaryQuote = stage === "quote_ready";
-  const showConverted = stage === "quote_converted" && doc.convertedToInvoiceId !== null;
 
   return (
     <section
@@ -1633,20 +2036,20 @@ function StageAwarePanel({
           </div>
           <div style={{ fontSize: 13, color: "#475569", marginTop: 4, lineHeight: 1.55 }}>
             {stage === "draft_ready"
-              ? "הכל מוכן. הפעולה הבאה היא הפקה (מספר רשמי + נעילה לעריכה)."
+              ? "הכל מוכן לבדיקה אחרונה. הפעולה הבאה היא הפקה רשמית ללקוח."
               : stage === "quote_ready"
-              ? "שתפו PDF עם הלקוח. כשמוכנים לחיוב — המרה לחשבונית."
+              ? "שתפו את ההצעה עם הלקוח. כשיש הסכמה, אפשר להפוך אותה לחשבונית."
               : stage === "quote_converted"
               ? "ההמרה בוצעה. הפעולה הבאה היא לפתוח את החשבונית."
               : stage === "pending_review"
-              ? "בשלב הזה הפעולה הראשית היא הפקה סופית."
+              ? "המסמך נבדק ומוכן להחלטה: הפקה רשמית או חזרה לעריכה."
               : stage === "issued"
-              ? "כאן נמצאים כפתורי PDF/הורדה/שיתוף."
+              ? "המסמך הרשמי מוכן לשיתוף, הורדה או צפייה."
               : "השלימו את החסר ונוביל אתכם לפעולה הבאה."}
           </div>
         </div>
         <div style={{ fontSize: 12, fontWeight: 900, color: "#64748b", whiteSpace: "nowrap" }}>
-          {isQuote ? "QUOTE" : "INVOICE"} · {doc.status}
+          {isQuote ? "הצעה" : "חשבונית"} · {STATUS_LABEL[doc.status] ?? doc.status}
         </div>
       </div>
 
@@ -1662,7 +2065,7 @@ function StageAwarePanel({
           }}
         >
           <div style={{ fontSize: 13, fontWeight: 900, color: "#0f172a" }}>
-            מה חסר כדי להתקדם
+            מה חסר כדי לאשר את המסמך
           </div>
           <ul style={{ margin: 0, paddingInlineStart: 18 }}>
             {missing.map((m) => (
@@ -1710,102 +2113,6 @@ function StageAwarePanel({
           </ul>
         </div>
       ) : null}
-
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-        {showPrimaryIssue ? (
-          <button
-            type="button"
-            onClick={onOpenIssue}
-            disabled={issueDisabled}
-            style={{
-              padding: "12px 16px",
-              borderRadius: 12,
-              border: "1px solid #0f172a",
-              background: issueDisabled ? "#94a3b8" : "#0f172a",
-              color: "#ffffff",
-              fontSize: 15,
-              fontWeight: 900,
-              cursor: issueDisabled ? "not-allowed" : "pointer",
-              minHeight: 44,
-              flex: "1 1 220px",
-            }}
-          >
-            הפק חשבונית
-          </button>
-        ) : null}
-
-        {showPrimaryQuote ? (
-          <>
-            <button
-              type="button"
-              onClick={() => scrollToId("billing-quote-share")}
-              style={{
-                padding: "12px 16px",
-                borderRadius: 12,
-                border: "1px solid #0f766e",
-                background: "#0f766e",
-                color: "#ffffff",
-                fontSize: 14,
-                fontWeight: 900,
-                cursor: "pointer",
-                minHeight: 44,
-                flex: "1 1 220px",
-              }}
-            >
-              שתף/הורד PDF
-            </button>
-            <button
-              type="button"
-              onClick={onConvert}
-              disabled={convertDisabled || convertBusy}
-              aria-busy={convertBusy}
-              style={{
-                padding: "12px 16px",
-                borderRadius: 12,
-                border: "1px solid #0f172a",
-                background: convertDisabled || convertBusy ? "#94a3b8" : "#0f172a",
-                color: "#ffffff",
-                fontSize: 14,
-                fontWeight: 900,
-                cursor: convertDisabled || convertBusy ? "not-allowed" : "pointer",
-                minHeight: 44,
-                flex: "1 1 220px",
-              }}
-            >
-              {convertBusy ? "יוצר חשבונית…" : "המר לחשבונית"}
-            </button>
-          </>
-        ) : null}
-
-        {showConverted ? (
-          <Link
-            href={`/billing/${doc.convertedToInvoiceId}`}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "12px 16px",
-              borderRadius: 12,
-              border: "1px solid #0e7490",
-              background: "#ffffff",
-              color: "#0e7490",
-              fontSize: 14,
-              fontWeight: 900,
-              textDecoration: "none",
-              minHeight: 44,
-              flex: "1 1 240px",
-            }}
-          >
-            פתח את החשבונית שנוצרה
-          </Link>
-        ) : null}
-
-        {quoteLocked ? (
-          <span style={{ fontSize: 12, fontWeight: 900, color: "#155e75", alignSelf: "center" }}>
-            ההצעה נעולה (הומרה)
-          </span>
-        ) : null}
-      </div>
     </section>
   );
 }
@@ -1903,7 +2210,7 @@ function StickyActionBar({
           flex: "1 1 220px",
         }}
       >
-        {convertBusy ? "יוצר חשבונית…" : "המר לחשבונית"}
+        {convertBusy ? "יוצר חשבונית…" : "הפוך לחשבונית"}
       </button>
     ) : primaryAction.kind === "scroll" ? (
       <button
@@ -2011,15 +2318,15 @@ function DraftIssuePrimarySection({
       }}
     >
       <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>
-        הפקת חשבונית
+        אישור והפקה
       </div>
       <p style={{ fontSize: 13, color: "#64748b", margin: 0, lineHeight: 1.55 }}>
-        לאחר ההפקה יוקצה מספר רשמי והמסמך יינעל לעריכה. ודאו ששמרתם את כל השורות
-        והלקוח עודכן.
+        בדקו שהלקוח, הפריטים והסכום נכונים. לאחר ההפקה יוקצה מספר רשמי והמסמך
+        יינעל לעריכה.
       </p>
       {customerDirty ? (
         <div style={{ fontSize: 12, color: "#b45309", lineHeight: 1.5 }}>
-          יש שינוי בשם הלקוח שעדיין לא נשמר אוטומטית — המתינו ל&quot;נשמר&quot; או בחרו לקוח
+          יש שינוי בשם הלקוח שעדיין נשמר — המתינו ל&quot;נשמר&quot; או בחרו לקוח
           מהרשימה.
         </div>
       ) : null}
@@ -2059,11 +2366,10 @@ function DraftIssuePrimarySection({
             color: "#475569",
           }}
         >
-          מצב מתקדם: שליחה לאישור לפני הפקה
+          צריך אישור פנימי לפני הפקה?
         </summary>
         <p style={{ fontSize: 12, color: "#64748b", margin: "10px 0 8px" }}>
-          מתאים כשיש שני שלבים בארגון. המסמך יעבור ל&quot;ממתין לאישור&quot; לפני הנפקה
-          סופית.
+          מתאים כשמישהו נוסף צריך לבדוק את המסמך לפני שהוא הופך לרשמי.
         </p>
         <button
           type="button"
@@ -2122,7 +2428,7 @@ function PendingReviewLifecycleSection({
         ממתין לאישור
       </div>
       <p style={{ fontSize: 14, color: "#78350f", margin: 0, lineHeight: 1.5 }}>
-        ניתן להפיק את המסמך באופן סופי או להחזירו לטיוטה לעריכה נוספת.
+          אפשר להפוך את המסמך לרשמי, או להחזיר אותו לעריכה אם משהו עוד לא סגור.
       </p>
       <div
         style={{
@@ -2172,7 +2478,7 @@ function PendingReviewLifecycleSection({
       </div>
       {doc.lines.length === 0 ? (
         <div style={{ fontSize: 12, color: "#b45309" }}>
-          לא ניתן להפיק מסמך ללא שורות שנשמרו בשרת.
+          לא ניתן להפיק מסמך לפני שמוסיפים ושומרים לפחות פריט אחד.
         </div>
       ) : null}
     </section>
@@ -2237,7 +2543,8 @@ function IssueConfirmDialog({
           הפק חשבונית
         </h2>
         <p style={{ fontSize: 14, color: "#475569", margin: 0, lineHeight: 1.6 }}>
-          ההפקה סופית. למסמך יוקצה מספר רשמי ולא ניתן יהיה לעדכן אותו. להמשיך?
+          זה רגע האישור הסופי. למסמך יוקצה מספר רשמי ולא ניתן יהיה לערוך אותו
+          לאחר ההפקה.
         </p>
         {missingTaxId ? (
           <div
@@ -2256,7 +2563,7 @@ function IssueConfirmDialog({
               מספר עוסק / ח.פ. לא הוגדר
             </div>
             <div>
-              החשבונית תיראה פחות מקצועית ללא מספר עוסק. ניתן להוסיפו ב
+              החשבונית תהיה אמינה וברורה יותר עם מספר עוסק. ניתן להוסיף אותו ב
               <Link href="/business" style={{ fontWeight: 700, color: "#92400e" }}>
                 {" "}
                 הגדרות העסק
@@ -2296,8 +2603,8 @@ function IssueConfirmDialog({
             style={{
               padding: "12px 16px",
               borderRadius: 10,
-              border: "1px solid #991b1b",
-              background: "#991b1b",
+              border: "1px solid #0f172a",
+              background: "#0f172a",
               color: "#ffffff",
               fontSize: 15,
               fontWeight: 700,
@@ -2324,6 +2631,145 @@ function IssueConfirmDialog({
             }}
           >
             ביטול
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UnsavedChangesDialog({
+  saving,
+  errorMessage,
+  onSaveAndContinue,
+  onLeaveWithoutSaving,
+  onKeepEditing,
+}: {
+  saving: boolean;
+  errorMessage: string | null;
+  onSaveAndContinue: () => void;
+  onLeaveWithoutSaving: () => void;
+  onKeepEditing: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="unsaved-changes-title"
+      onClick={() => {
+        if (!saving) onKeepEditing();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, 0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 220,
+        padding: 16,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%",
+          maxWidth: 430,
+          background: "#ffffff",
+          borderRadius: 16,
+          padding: 20,
+          display: "flex",
+          flexDirection: "column",
+          gap: 14,
+          boxShadow: "0 12px 40px rgba(0,0,0,0.2)",
+          direction: "rtl",
+        }}
+      >
+        <h2
+          id="unsaved-changes-title"
+          style={{
+            fontSize: 18,
+            fontWeight: 800,
+            color: "#0f172a",
+            margin: 0,
+          }}
+        >
+          יש שינויים שלא נשמרו
+        </h2>
+        <p style={{ fontSize: 14, color: "#475569", margin: 0, lineHeight: 1.6 }}>
+          לשמור לפני שיוצאים?
+        </p>
+        {errorMessage ? (
+          <div
+            role="alert"
+            style={{
+              background: "#fef2f2",
+              border: "1px solid #fecaca",
+              color: "#991b1b",
+              borderRadius: 10,
+              padding: "8px 12px",
+              fontSize: 13,
+              lineHeight: 1.5,
+            }}
+          >
+            {errorMessage}
+          </div>
+        ) : null}
+        <div style={{ display: "grid", gap: 8 }}>
+          <button
+            type="button"
+            onClick={onSaveAndContinue}
+            disabled={saving}
+            aria-busy={saving}
+            style={{
+              padding: "12px 16px",
+              borderRadius: 10,
+              border: "1px solid #0f172a",
+              background: saving ? "#94a3b8" : "#0f172a",
+              color: "#ffffff",
+              fontSize: 15,
+              fontWeight: 800,
+              cursor: saving ? "not-allowed" : "pointer",
+              width: "100%",
+            }}
+          >
+            {saving ? "שומר…" : "שמור והמשך"}
+          </button>
+          <button
+            type="button"
+            onClick={onLeaveWithoutSaving}
+            disabled={saving}
+            style={{
+              padding: "10px 16px",
+              borderRadius: 10,
+              border: "1px solid #cbd5e1",
+              background: "#ffffff",
+              color: "#334155",
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: saving ? "not-allowed" : "pointer",
+              width: "100%",
+            }}
+          >
+            צא בלי לשמור
+          </button>
+          <button
+            type="button"
+            onClick={onKeepEditing}
+            disabled={saving}
+            style={{
+              padding: "10px 16px",
+              borderRadius: 10,
+              border: "1px solid #e2e8f0",
+              background: "#f8fafc",
+              color: "#475569",
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: saving ? "not-allowed" : "pointer",
+              width: "100%",
+            }}
+          >
+            המשך עריכה
           </button>
         </div>
       </div>
@@ -2375,12 +2821,10 @@ function DraftEditorSection({
     <section
       id="billing-customer"
       style={{
-        background: isSecondary ? "#ffffff" : showValidUntil ? "#f8fafc" : "#f0fdf4",
+        background: isSecondary ? "#ffffff" : "#ffffff",
         border: isSecondary
           ? "1px solid #e2e8f0"
-          : showValidUntil
-          ? "1px solid #e2e8f0"
-          : "1px solid #bbf7d0",
+          : "1px solid #e2e8f0",
         borderRadius: 14,
         padding: 16,
         display: "flex",
@@ -2393,18 +2837,17 @@ function DraftEditorSection({
         style={{
           fontSize: 15,
           fontWeight: 700,
-          color: isSecondary ? "#334155" : showValidUntil ? "#0f172a" : "#166534",
+          color: "#0f172a",
         }}
       >
-        {isSecondary ? "עריכה (הושלמה)" : "עריכת טיוטה"}
+        {isSecondary ? "פרטי לקוח (נשמרו)" : "למי המסמך מיועד?"}
       </div>
       <div style={{ fontSize: 13, color: "#475569", lineHeight: 1.5 }}>
-        עדכון שם לקוח נשמר אוטומטית לאחר ההקלדה. שורות המסמך נשמרות בכפתור &quot;שמור
-        שורות&quot;.
+        בחרו לקוח או כתבו שם כפי שיופיע במסמך. הפריטים שסוכמו נשמרים בנפרד.
         {showValidUntil ? (
           <>
             {" "}
-            לשורת &quot;בתוקף עד&quot; ב־PDF ניתן לבחור תאריך — נשמר אוטומטית.
+            ניתן להוסיף תאריך תוקף להצעה — הוא יופיע במסמך ללקוח.
           </>
         ) : null}
       </div>
@@ -2463,7 +2906,7 @@ function DraftEditorSection({
           </span>
         ) : null}
         <span style={{ fontSize: 12, color: "#94a3b8" }}>
-          מטבע: {doc.currency}
+          סכומים ב־{doc.currency}
         </span>
       </div>
       {patchError ? (
@@ -2560,7 +3003,7 @@ function DraftLinesSection({
           letterSpacing: "0.02em",
         }}
       >
-        {isSecondary ? "שורות (נשמרו)" : "שורות מסמך"} ({linesDraft.length})
+        {isSecondary ? "פריטים שסוכמו (נשמרו)" : "מה סוכם עם הלקוח?"} ({linesDraft.length})
       </h2>
 
       {draftLocked ? (
@@ -2575,7 +3018,7 @@ function DraftLinesSection({
             lineHeight: 1.5,
           }}
         >
-          ההצעה הומרה לחשבונית — השורות נעולות לעריכה.
+          ההצעה כבר הפכה לחשבונית — הפריטים נעולים לעריכה.
         </div>
       ) : null}
 
@@ -2590,7 +3033,7 @@ function DraftLinesSection({
             fontSize: 14,
           }}
         >
-          אין שורות — לחץ &quot;הוסף שורה&quot; כדי להתחיל.
+          עדיין אין פריטים. הוסיפו את השירות, המוצר או התוצר שהלקוח יקבל.
         </div>
       ) : (
         <ul
@@ -2647,7 +3090,7 @@ function DraftLinesSection({
             flex: "1 1 140px",
           }}
         >
-          + הוסף שורה
+          + הוסף פריט
         </button>
         <button
           type="button"
@@ -2667,13 +3110,13 @@ function DraftLinesSection({
             flex: "1 1 160px",
           }}
         >
-          {linesSaving ? "שומר שורות..." : "שמור שורות"}
+          {linesSaving ? "שומר פריטים..." : "שמור פריטים"}
         </button>
       </div>
 
       {customerDirty || patchSaving ? (
         <div style={{ fontSize: 12, color: "#b45309", lineHeight: 1.5 }}>
-          שמור קודם את פרטי הלקוח
+          נשמור קודם את פרטי הלקוח
         </div>
       ) : null}
 
@@ -2764,7 +3207,7 @@ function DraftLineEditorCard({
             opacity: readOnly ? 0.45 : 1,
           }}
         >
-          מחק שורה
+          הסר פריט
         </button>
       </div>
 
@@ -2882,7 +3325,7 @@ function DraftLineEditorCard({
             lineHeight: 1.6,
           }}
         >
-          מצב שרת אחרון לשורה זו: סה&quot;כ שורה{" "}
+          סה&quot;כ שמור לפריט זה:{" "}
           <span style={{ fontWeight: 700, color: "#0f172a" }}>
             {formatMoney(serverLine.lineTotal, currency)}
           </span>
@@ -2891,7 +3334,7 @@ function DraftLineEditorCard({
           String(serverLine.unitPrice).trim() !== line.unitPrice.trim() ||
           String(serverLine.vatRatePercent).trim() !==
             line.vatRatePercent.trim() ? (
-            <span> — יתעדכן אחרי &quot;שמור שורות&quot;</span>
+            <span> — יתעדכן אחרי שמירת הפריטים</span>
           ) : null}
         </div>
       ) : (
@@ -2903,7 +3346,7 @@ function DraftLineEditorCard({
             color: "#94a3b8",
           }}
         >
-          שורה חדשה — הסכומים יחושבו בשרת אחרי השמירה.
+          פריט חדש — הסכום יחושב אחרי השמירה.
         </div>
       )}
     </li>
@@ -2911,6 +3354,38 @@ function DraftLineEditorCard({
 }
 
 type PdfAction = "view" | "download" | "share";
+
+function ShareOptionButton({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        padding: "10px 12px",
+        borderRadius: 10,
+        border: "1px solid #e2e8f0",
+        background: "#f8fafc",
+        color: "#334155",
+        fontSize: 14,
+        fontWeight: 700,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.6 : 1,
+        textAlign: "right",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
 
 function QuoteDraftHero({
   doc,
@@ -2931,6 +3406,8 @@ function QuoteDraftHero({
 
   const [loadingAction, setLoadingAction] = useState<PdfAction | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
 
   async function fetchPdfBlob(): Promise<Blob> {
     const token = getAuthToken();
@@ -2952,27 +3429,38 @@ function QuoteDraftHero({
         ? (err as { status?: number }).status
         : undefined;
     if (status === 401) {
-      return "נדרש להתחבר מחדש כדי לפתוח את ה־PDF.";
+      return "נדרש להתחבר מחדש כדי לפתוח את המסמך.";
     }
     if (status === 403) {
-      return "אין הרשאה לפתוח את ה־PDF הזה.";
+      return "אין הרשאה לפתוח את המסמך הזה.";
     }
     if (status === 500) {
-      return "יצירת ה־PDF נכשלה. נסה שוב.";
+      return "הכנת המסמך לשיתוף נכשלה. נסו שוב.";
     }
     return action === "view"
-      ? "לא הצלחנו לפתוח את ה־PDF. נסה שוב."
+      ? "לא הצלחנו לפתוח את המסמך. נסו שוב."
       : action === "share"
-      ? "לא הצלחנו להכין את הקובץ לשיתוף. נסה הורדה."
-      : "לא הצלחנו להוריד את ה־PDF. נסה שוב.";
+      ? "לא הצלחנו להכין את המסמך לשיתוף. נסו הורדה."
+      : "לא הצלחנו להוריד את המסמך. נסו שוב.";
   }
 
   function handleWhatsAppQuote() {
     const body = `שלום,
 מצורפת הצעת מחיר מספר ${numberLabel}.
-ניתן לצרף את קובץ ה-PDF לאחר הורדה או שיתוף מהנייד.`;
+ניתן לצרף את המסמך לאחר הורדה או שיתוף מהנייד.`;
     const url = `https://wa.me/?text=${encodeURIComponent(body)}`;
     window.open(url, "_blank", "noopener,noreferrer");
+    setShareNotice("פתחנו הודעה מוכנה ללקוח.");
+  }
+
+  async function handleCopyLink() {
+    try {
+      const url = new URL(pdfUrl, window.location.origin).toString();
+      await navigator.clipboard.writeText(url);
+      setShareNotice("הקישור למסמך הועתק.");
+    } catch {
+      setPdfError("לא הצלחנו להעתיק קישור. אפשר להוריד את המסמך ולשתף ידנית.");
+    }
   }
 
   async function handleShare() {
@@ -2986,9 +3474,10 @@ function QuoteDraftHero({
       const shareData: ShareData = { files: [file] };
       if (navigator.share && navigator.canShare?.(shareData)) {
         await navigator.share(shareData);
+        setShareNotice("המסמך מוכן לשיתוף.");
       } else {
         setPdfError(
-          "שיתוף קבצים לא נתמך בדפדפן הזה. נסו \"הורד\" או שלחו הודעה בווטסאפ והעבירו את הקובץ ידנית."
+          "שיתוף קבצים לא נתמך בדפדפן הזה. נסו הורדה או שלחו הודעה בווטסאפ והעבירו את המסמך ידנית."
         );
       }
     } catch (err) {
@@ -3005,24 +3494,14 @@ function QuoteDraftHero({
     if (loadingAction) return;
     setPdfError(null);
     setLoadingAction("view");
-    let blobUrl: string | null = null;
     try {
       const blob = await fetchPdfBlob();
-      blobUrl = URL.createObjectURL(blob);
-      const opened = window.open(blobUrl, "_blank", "noopener,noreferrer");
-      if (!opened) {
-        setPdfError(
-          "הדפדפן חסם את פתיחת חלון ה־PDF. בדוק את חוסמי הפופ־אפ ונסה שוב."
-        );
-      }
+      openPdfBlobInNewTab(blob);
+      setShareNotice("המסמך נפתח בלשונית חדשה.");
     } catch (err) {
       setPdfError(describePdfError(err, "view"));
     } finally {
       setLoadingAction(null);
-      if (blobUrl) {
-        const urlToRevoke = blobUrl;
-        window.setTimeout(() => URL.revokeObjectURL(urlToRevoke), 60_000);
-      }
     }
   }
 
@@ -3042,6 +3521,7 @@ function QuoteDraftHero({
       document.body.appendChild(a);
       a.click();
       a.remove();
+      setShareNotice("המסמך ירד למחשב.");
     } catch (err) {
       setPdfError(describePdfError(err, "download"));
     } finally {
@@ -3092,8 +3572,8 @@ function QuoteDraftHero({
         </span>
         <p style={{ margin: 0, fontSize: 13, color: "#475569", lineHeight: 1.55 }}>
           {locked
-            ? "ההצעה הומרה לחשבונית. ניתן עדיין להוריד עותק PDF של ההצעה."
-            : "שתפו PDF עם הלקוח. כשמוכנים לחיוב — הפיקו חשבונית מס מהנתונים הנוכחיים."}
+            ? "ההצעה כבר הפכה לחשבונית. ניתן עדיין לשמור עותק של ההצעה המקורית."
+            : "שתפו את ההצעה עם הלקוח. כשיש הסכמה, אפשר להפוך אותה לחשבונית."}
         </p>
       </div>
 
@@ -3114,109 +3594,71 @@ function QuoteDraftHero({
         </div>
       ) : null}
 
-      <div
+      {shareNotice ? (
+        <div
+          role="status"
+          style={{
+            background: "#ecfdf5",
+            border: "1px solid #bbf7d0",
+            color: "#166534",
+            borderRadius: 10,
+            padding: "8px 12px",
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}
+        >
+          {shareNotice}
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => setShareOpen((v) => !v)}
+        disabled={isBusy}
         style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 8,
+          padding: "12px 16px",
+          borderRadius: 12,
+          border: "1px solid #0f766e",
+          background: "#0f766e",
+          color: "#ffffff",
+          fontSize: 15,
+          fontWeight: 800,
+          cursor: isBusy ? "not-allowed" : "pointer",
+          opacity: isBusy ? 0.65 : 1,
+          width: "100%",
         }}
       >
-        <button
-          type="button"
-          onClick={() => void handleView()}
-          disabled={isBusy}
-          aria-busy={loadingAction === "view"}
+        {loadingAction ? "מכין מסמך..." : "שתף"}
+      </button>
+
+      {shareOpen ? (
+        <div
           style={{
-            padding: "10px 16px",
-            borderRadius: 10,
-            border: "1px solid #0f766e",
-            background: "#0f766e",
-            color: "#ffffff",
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: isBusy ? "not-allowed" : "pointer",
-            opacity: isBusy && loadingAction !== "view" ? 0.55 : 1,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            minWidth: 140,
-          }}
-        >
-          {loadingAction === "view" ? "מכין PDF..." : "צפה ב־PDF"}
-        </button>
-        <button
-          type="button"
-          onClick={() => void handleDownload()}
-          disabled={isBusy}
-          aria-busy={loadingAction === "download"}
-          style={{
-            padding: "10px 16px",
-            borderRadius: 10,
-            border: "1px solid #0f766e",
+            border: "1px solid #ccfbf1",
             background: "#ffffff",
-            color: "#0f766e",
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: isBusy ? "not-allowed" : "pointer",
-            opacity: isBusy && loadingAction !== "download" ? 0.55 : 1,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            minWidth: 140,
+            borderRadius: 12,
+            padding: 10,
+            display: "grid",
+            gap: 8,
           }}
         >
-          {loadingAction === "download" ? "מכין PDF..." : "הורד PDF"}
-        </button>
-        <button
-          type="button"
-          onClick={() => void handleShare()}
-          disabled={isBusy}
-          aria-busy={loadingAction === "share"}
-          style={{
-            padding: "10px 16px",
-            borderRadius: 10,
-            border: "1px solid #14b8a6",
-            background: "#ffffff",
-            color: "#0f766e",
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: isBusy ? "not-allowed" : "pointer",
-            opacity: isBusy && loadingAction !== "share" ? 0.55 : 1,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            minWidth: 140,
-          }}
-        >
-          {loadingAction === "share" ? "מכין PDF..." : "שתף…"}
-        </button>
-        <button
-          type="button"
-          onClick={handleWhatsAppQuote}
-          disabled={isBusy}
-          style={{
-            padding: "10px 16px",
-            borderRadius: 10,
-            border: "1px solid #22c55e",
-            background: "#ecfdf5",
-            color: "#15803d",
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: isBusy ? "not-allowed" : "pointer",
-            opacity: isBusy ? 0.55 : 1,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            minWidth: 140,
-          }}
-        >
-          WhatsApp
-        </button>
-      </div>
-      <p style={{ margin: 0, fontSize: 12, color: "#64748b", lineHeight: 1.45 }}>
-        בווטסאפ נפתחת הודעה מותאמת להצעת מחיר — צרפו את קובץ ה־PDF אחרי הורדה או
-        שיתוף מהנייד.
-      </p>
+          <ShareOptionButton onClick={() => void handleShare()} disabled={isBusy}>
+            שיתוף מהנייד
+          </ShareOptionButton>
+          <ShareOptionButton onClick={handleWhatsAppQuote} disabled={isBusy}>
+            WhatsApp
+          </ShareOptionButton>
+          <ShareOptionButton onClick={() => void handleView()} disabled={isBusy}>
+            צפייה במסמך
+          </ShareOptionButton>
+          <ShareOptionButton onClick={() => void handleDownload()} disabled={isBusy}>
+            הורדה
+          </ShareOptionButton>
+          <ShareOptionButton onClick={() => void handleCopyLink()} disabled={isBusy}>
+            העתק קישור
+          </ShareOptionButton>
+        </div>
+      ) : null}
 
       {!locked ? (
         <button
@@ -3227,17 +3669,16 @@ function QuoteDraftHero({
           style={{
             padding: "14px 16px",
             borderRadius: 12,
-            border: "1px solid #0f172a",
-            background:
-              convertDisabled || convertBusy ? "#94a3b8" : "#0f172a",
-            color: "#ffffff",
+            border: "1px solid #cbd5e1",
+            background: "#ffffff",
+            color: convertDisabled || convertBusy ? "#94a3b8" : "#334155",
             fontSize: 16,
-            fontWeight: 800,
+            fontWeight: 700,
             cursor: convertDisabled || convertBusy ? "not-allowed" : "pointer",
             width: "100%",
           }}
         >
-          {convertBusy ? "יוצר חשבונית…" : "הפוך לחשבונית"}
+          {convertBusy ? "יוצר חשבונית…" : "הפוך לחשבונית כשיש הסכמה"}
         </button>
       ) : doc.convertedToInvoiceId !== null ? (
         <Link
@@ -3270,6 +3711,8 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
 
   const [loadingAction, setLoadingAction] = useState<PdfAction | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
 
   async function fetchPdfBlob(): Promise<Blob> {
     const token = getAuthToken();
@@ -3291,27 +3734,38 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
         ? (err as { status?: number }).status
         : undefined;
     if (status === 401) {
-      return "נדרש להתחבר מחדש כדי לפתוח את ה־PDF.";
+      return "נדרש להתחבר מחדש כדי לפתוח את המסמך.";
     }
     if (status === 403) {
-      return "אין הרשאה לפתוח את ה־PDF הזה.";
+      return "אין הרשאה לפתוח את המסמך הזה.";
     }
     if (status === 500) {
-      return "המסמך הופק, אבל יצירת ה־PDF נכשלה. נסה שוב.";
+      return "המסמך הופק, אבל ההכנה לשיתוף נכשלה. נסו שוב.";
     }
     return action === "view"
-      ? "לא הצלחנו לפתוח את ה־PDF. נסה שוב."
+      ? "לא הצלחנו לפתוח את המסמך. נסו שוב."
       : action === "share"
-      ? "לא הצלחנו להכין את הקובץ לשיתוף. נסה הורדה."
-      : "לא הצלחנו להוריד את ה־PDF. נסה שוב.";
+      ? "לא הצלחנו להכין את המסמך לשיתוף. נסו הורדה."
+      : "לא הצלחנו להוריד את המסמך. נסו שוב.";
   }
 
   function handleWhatsAppDraft() {
     const body = `שלום,
 מצורפת חשבונית מס מספר ${numberLabel}.
-נשמח לשלוח את קובץ ה־PDF — נא להשתמש בכפתור "הורד" או "שתף" באפליקציה.`;
+נשמח לשלוח את המסמך — נא להשתמש בכפתור "הורד" או "שתף" באפליקציה.`;
     const url = `https://wa.me/?text=${encodeURIComponent(body)}`;
     window.open(url, "_blank", "noopener,noreferrer");
+    setShareNotice("פתחנו הודעה מוכנה ללקוח.");
+  }
+
+  async function handleCopyLink() {
+    try {
+      const url = new URL(pdfUrl, window.location.origin).toString();
+      await navigator.clipboard.writeText(url);
+      setShareNotice("הקישור למסמך הועתק.");
+    } catch {
+      setPdfError("לא הצלחנו להעתיק קישור. אפשר להוריד את המסמך ולשתף ידנית.");
+    }
   }
 
   async function handleShare() {
@@ -3325,9 +3779,10 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
       const shareData: ShareData = { files: [file] };
       if (navigator.share && navigator.canShare?.(shareData)) {
         await navigator.share(shareData);
+        setShareNotice("המסמך מוכן לשיתוף.");
       } else {
         setPdfError(
-          "שיתוף קבצים לא נתמך בדפדפן הזה. נסו \"הורד\" או שלחו הודעה בווטסאפ והעבירו את הקובץ ידנית."
+          "שיתוף קבצים לא נתמך בדפדפן הזה. נסו הורדה או שלחו הודעה בווטסאפ והעבירו את המסמך ידנית."
         );
       }
     } catch (err) {
@@ -3344,24 +3799,14 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
     if (loadingAction) return;
     setPdfError(null);
     setLoadingAction("view");
-    let blobUrl: string | null = null;
     try {
       const blob = await fetchPdfBlob();
-      blobUrl = URL.createObjectURL(blob);
-      const opened = window.open(blobUrl, "_blank", "noopener,noreferrer");
-      if (!opened) {
-        setPdfError(
-          "הדפדפן חסם את פתיחת חלון ה־PDF. בדוק את חוסמי הפופ־אפ ונסה שוב."
-        );
-      }
+      openPdfBlobInNewTab(blob);
+      setShareNotice("המסמך נפתח בלשונית חדשה.");
     } catch (err) {
       setPdfError(describePdfError(err, "view"));
     } finally {
       setLoadingAction(null);
-      if (blobUrl) {
-        const urlToRevoke = blobUrl;
-        window.setTimeout(() => URL.revokeObjectURL(urlToRevoke), 60_000);
-      }
     }
   }
 
@@ -3381,6 +3826,7 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
       document.body.appendChild(a);
       a.click();
       a.remove();
+      setShareNotice("המסמך ירד למחשב.");
     } catch (err) {
       setPdfError(describePdfError(err, "download"));
     } finally {
@@ -3453,108 +3899,71 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
         </div>
       ) : null}
 
-      <div
+      {shareNotice ? (
+        <div
+          role="status"
+          style={{
+            background: "#ecfdf5",
+            border: "1px solid #bbf7d0",
+            color: "#166534",
+            borderRadius: 10,
+            padding: "8px 12px",
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}
+        >
+          {shareNotice}
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => setShareOpen((v) => !v)}
+        disabled={isBusy}
         style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 8,
+          padding: "12px 16px",
+          borderRadius: 12,
+          border: "1px solid #0f172a",
+          background: "#0f172a",
+          color: "#ffffff",
+          fontSize: 15,
+          fontWeight: 800,
+          cursor: isBusy ? "not-allowed" : "pointer",
+          opacity: isBusy ? 0.65 : 1,
+          width: "100%",
         }}
       >
-        <button
-          type="button"
-          onClick={() => void handleView()}
-          disabled={isBusy}
-          aria-busy={loadingAction === "view"}
+        {loadingAction ? "מכין מסמך..." : "שתף"}
+      </button>
+
+      {shareOpen ? (
+        <div
           style={{
-            padding: "10px 16px",
-            borderRadius: 10,
-            border: "1px solid #0f172a",
-            background: "#0f172a",
-            color: "#ffffff",
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: isBusy ? "not-allowed" : "pointer",
-            opacity: isBusy && loadingAction !== "view" ? 0.55 : 1,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            minWidth: 140,
-          }}
-        >
-          {loadingAction === "view" ? "מכין PDF..." : "צפה ב־PDF"}
-        </button>
-        <button
-          type="button"
-          onClick={() => void handleDownload()}
-          disabled={isBusy}
-          aria-busy={loadingAction === "download"}
-          style={{
-            padding: "10px 16px",
-            borderRadius: 10,
-            border: "1px solid #0f172a",
+            border: "1px solid #e2e8f0",
             background: "#ffffff",
-            color: "#0f172a",
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: isBusy ? "not-allowed" : "pointer",
-            opacity: isBusy && loadingAction !== "download" ? 0.55 : 1,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            minWidth: 140,
+            borderRadius: 12,
+            padding: 10,
+            display: "grid",
+            gap: 8,
           }}
         >
-          {loadingAction === "download" ? "מכין PDF..." : "הורד PDF"}
-        </button>
-        <button
-          type="button"
-          onClick={() => void handleShare()}
-          disabled={isBusy}
-          aria-busy={loadingAction === "share"}
-          style={{
-            padding: "10px 16px",
-            borderRadius: 10,
-            border: "1px solid #0d9488",
-            background: "#ffffff",
-            color: "#0f766e",
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: isBusy ? "not-allowed" : "pointer",
-            opacity: isBusy && loadingAction !== "share" ? 0.55 : 1,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            minWidth: 140,
-          }}
-        >
-          {loadingAction === "share" ? "מכין PDF..." : "שתף…"}
-        </button>
-        <button
-          type="button"
-          onClick={handleWhatsAppDraft}
-          disabled={isBusy}
-          style={{
-            padding: "10px 16px",
-            borderRadius: 10,
-            border: "1px solid #22c55e",
-            background: "#ecfdf5",
-            color: "#15803d",
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: isBusy ? "not-allowed" : "pointer",
-            opacity: isBusy ? 0.55 : 1,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            minWidth: 140,
-          }}
-        >
-          WhatsApp
-        </button>
-      </div>
-      <p style={{ margin: 0, fontSize: 12, color: "#64748b", lineHeight: 1.45 }}>
-        בווטסאפ נפתחת הודעה מוכנה — הוסיפו את קובץ ה־PDF אחרי הורדה או שיתוף מהנייד.
-      </p>
+          <ShareOptionButton onClick={() => void handleShare()} disabled={isBusy}>
+            שיתוף מהנייד
+          </ShareOptionButton>
+          <ShareOptionButton onClick={handleWhatsAppDraft} disabled={isBusy}>
+            WhatsApp
+          </ShareOptionButton>
+          <ShareOptionButton onClick={() => void handleView()} disabled={isBusy}>
+            צפייה במסמך
+          </ShareOptionButton>
+          <ShareOptionButton onClick={() => void handleDownload()} disabled={isBusy}>
+            הורדה
+          </ShareOptionButton>
+          <ShareOptionButton onClick={() => void handleCopyLink()} disabled={isBusy}>
+            העתק קישור
+          </ShareOptionButton>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -3592,7 +4001,7 @@ function DetailsCard({
           letterSpacing: "0.02em",
         }}
       >
-        פרטי מסמך
+        פרטי המסמך ללקוח
       </h2>
       <dl style={{ display: "grid", gap: 10, margin: 0 }}>
         {hideCustomer ? null : <DetailRow label="לקוח" value={customer} />}
@@ -3676,7 +4085,7 @@ function TotalsCard({
           letterSpacing: "0.02em",
         }}
       >
-        סיכום
+        סיכום לתשלום
       </h2>
       {showUnsavedLinesHint ? (
         <div
@@ -3691,7 +4100,7 @@ function TotalsCard({
             border: "1px solid #e2e8f0",
           }}
         >
-          יש שינויים שלא נשמרו — הסכומים משקפים את גרסת השרת האחרונה
+          יש שינויים שלא נשמרו — הסכומים משקפים את הגרסה האחרונה שנשמרה
         </div>
       ) : null}
       <div style={{ display: "grid", gap: 8 }}>
@@ -3713,7 +4122,7 @@ function TotalsCard({
             textAlign: "left",
           }}
         >
-          מטבע: {doc.currency}
+          סכומים ב־{doc.currency}
         </div>
       </div>
     </section>
@@ -3785,7 +4194,7 @@ function LinesSection({
           letterSpacing: "0.02em",
         }}
       >
-        שורות מסמך ({lines.length})
+        פריטים במסמך ({lines.length})
       </h2>
       {lines.length === 0 ? (
         <div
@@ -3798,7 +4207,7 @@ function LinesSection({
             fontSize: 14,
           }}
         >
-          אין שורות במסמך
+          אין פריטים במסמך
         </div>
       ) : (
         <ul
@@ -3929,7 +4338,7 @@ function LineCard({
         }}
       >
         <span style={{ fontSize: 13, color: "#475569", fontWeight: 500 }}>
-          סה&quot;כ שורה
+          סה&quot;כ פריט
         </span>
         <span style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>
           {total}

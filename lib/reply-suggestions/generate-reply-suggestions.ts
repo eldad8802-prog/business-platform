@@ -1,5 +1,17 @@
 import { prisma } from "@/lib/prisma";
 
+/**
+ * Reply Suggestions Rewrite v1 — template-only (no LLM / embeddings).
+ *
+ * Future tone learning (lightweight, no heavy ML):
+ * - Median length of messages the owner actually sends
+ * - Emoji rate in sent vs dismissed suggestions
+ * - Phrases the owner deletes before send (suggestion text → sent text diff)
+ * - DIRECT vs WARM vs CLOSE selection counts per intent
+ * - Whether the owner uses the customer name
+ * Store later as optional JSON on business settings; adjust templates, not a new agent.
+ */
+
 type MessageInput = {
   id: number;
   businessId: number;
@@ -16,47 +28,120 @@ type ContextMessage = {
   contentText: string | null;
 };
 
+/** קצר וישיר | חם ואישי | מקדם סגירה */
+type IntentStyle = "DIRECT" | "WARM" | "CLOSE";
+
 type SuggestionDraft = {
   text: string;
   strategyType: string;
-  variantType: string;
+  variantType: IntentStyle;
   toneLabel: string;
 };
+
+const MAX_SUGGESTION_CHARS = 80;
+
+const CORPORATE_PATTERNS = [
+  "תודה שפנית",
+  "תודה על פנייתך",
+  "בשמחה",
+  "כדי שאוכל לעזור",
+  "כדי להמשיך נכון",
+  "אכוון אותך",
+  "אשמח לעזור",
+  "מעולה,",
+  "מעולה ",
+  "כמו שדיברנו",
+];
 
 function normalizeText(text: string) {
   return text.toLowerCase().trim();
 }
 
 function includesAny(text: string, keywords: string[]) {
-  return keywords.some((keyword) => text.includes(keyword));
+  const n = normalizeText(text);
+  return keywords.some((keyword) => n.includes(keyword));
+}
+
+function clampReply(text: string, max = MAX_SUGGESTION_CHARS): string {
+  let t = text.replace(/\s+/g, " ").trim();
+  for (const banned of CORPORATE_PATTERNS) {
+    t = t.replace(new RegExp(banned, "gi"), "").replace(/\s+/g, " ").trim();
+  }
+  t = t.replace(/^[,.\s]+|[,.\s]+$/g, "").trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const lastSpace = cut.lastIndexOf(" ");
+  if (lastSpace >= 18) return cut.slice(0, lastSpace).trim();
+  return cut.trim();
+}
+
+function toneFromStyle(style: IntentStyle): string {
+  if (style === "DIRECT") return "direct";
+  if (style === "WARM") return "warm";
+  return "close";
+}
+
+function draft(
+  text: string,
+  strategyType: string,
+  style: IntentStyle
+): SuggestionDraft {
+  return {
+    text: clampReply(text),
+    strategyType,
+    variantType: style,
+    toneLabel: toneFromStyle(style),
+  };
 }
 
 function getPreviousMessages(
   message: MessageInput,
   contextMessages: ContextMessage[]
 ) {
-  return contextMessages.filter(
-    (contextMessage) => contextMessage.id !== message.id
-  );
+  return contextMessages.filter((m) => m.id !== message.id);
+}
+
+function getTriggerText(
+  message: MessageInput,
+  contextMessages: ContextMessage[]
+): string {
+  const row =
+    contextMessages.find((m) => m.id === message.id) ?? null;
+  return (row?.contentText ?? "").trim();
 }
 
 function buildContextText(previousMessages: ContextMessage[]) {
   return previousMessages
-    .map((message) => normalizeText(message.contentText || ""))
+    .map((m) => normalizeText(m.contentText || ""))
     .filter(Boolean)
     .join(" ");
 }
 
-function hasPriceContext(contextText: string) {
-  return includesAny(contextText, ["כמה", "מחיר", "עולה", "עלות"]);
+function hasPriceContext(contextText: string, trigger: string) {
+  return includesAny(`${contextText} ${trigger}`, [
+    "כמה",
+    "מחיר",
+    "עולה",
+    "עלות",
+    "₪",
+    "שקל",
+  ]);
 }
 
-function hasAvailabilityContext(contextText: string) {
-  return includesAny(contextText, ["מקום", "זמינות", "פנוי", "פנויה", "מתי"]);
+function hasAvailabilityContext(contextText: string, trigger: string) {
+  return includesAny(`${contextText} ${trigger}`, [
+    "מקום",
+    "זמינות",
+    "פנוי",
+    "פנויה",
+    "מתי",
+    "פנים",
+    "יש מקום",
+  ]);
 }
 
-function hasBookingContext(contextText: string) {
-  return includesAny(contextText, [
+function hasBookingContext(contextText: string, trigger: string) {
+  return includesAny(`${contextText} ${trigger}`, [
     "לקבוע",
     "תור",
     "להזמין",
@@ -65,456 +150,320 @@ function hasBookingContext(contextText: string) {
     "מתאים לי",
     "יאללה",
     "סגור",
+    "לשריין",
   ]);
 }
 
-function chooseVariantType(stage: string) {
-  if (stage === "closing") {
-    return "DIRECT";
-  }
-
-  if (stage === "middle") {
-    return "SAFE";
-  }
-
-  return "SOFT";
+function extractDayHint(text: string): string | null {
+  const n = normalizeText(text);
+  if (n.includes("מחר")) return "מחר";
+  if (n.includes("היום")) return "היום";
+  if (n.includes("ראשון")) return "יום ראשון";
+  if (n.includes("שני")) return "יום שני";
+  if (n.includes("שלישי")) return "יום שלישי";
+  if (n.includes("רביעי")) return "יום רביעי";
+  if (n.includes("חמישי")) return "יום חמישי";
+  if (n.includes("שישי")) return "יום שישי";
+  return null;
 }
 
-function toneFromVariant(variantType: string) {
-  if (variantType === "DIRECT") {
-    return "professional";
-  }
-
-  if (variantType === "SAFE") {
-    return "professional";
-  }
-
-  return "friendly";
+function extractTimeHint(text: string): string | null {
+  const n = normalizeText(text);
+  const hourMatch = n.match(/\b([01]?\d|2[0-3])(?::[0-5]\d)?\b/);
+  if (hourMatch) return hourMatch[0];
+  if (n.includes("בוקר")) return "בוקר";
+  if (n.includes("צהריים") || n.includes("צהר")) return "צהריים";
+  if (n.includes("ערב")) return "ערב";
+  return null;
 }
 
-function buildPriceSuggestion(
+function rankStylesForStage(stage: string): IntentStyle[] {
+  if (stage === "closing") return ["CLOSE", "DIRECT", "WARM"];
+  if (stage === "middle") return ["WARM", "DIRECT", "CLOSE"];
+  return ["DIRECT", "WARM", "CLOSE"];
+}
+
+function orderDraftsByStage(
+  drafts: SuggestionDraft[],
+  stage: string
+): SuggestionDraft[] {
+  const order = rankStylesForStage(stage);
+  return [...drafts].sort(
+    (a, b) => order.indexOf(a.variantType) - order.indexOf(b.variantType)
+  );
+}
+
+function buildPriceDrafts(
   analysis: AnalysisInput,
-  contextText: string
-): SuggestionDraft {
-  const variantType = chooseVariantType(analysis.stage);
+  contextText: string,
+  trigger: string
+): SuggestionDraft[] {
+  const combined = `${contextText} ${normalizeText(trigger)}`;
+  const continuing = hasPriceContext(contextText, trigger);
+  const booking = hasBookingContext(contextText, trigger);
 
-  if (hasBookingContext(contextText)) {
-    return {
-      text:
-        variantType === "SAFE"
-          ? "כמו שדיברנו, המחיר משתנה לפי סוג השירות. רוצה שאדייק לך לפי מה שאתה צריך?"
-          : "לפני שממשיכים, אעשה לך סדר ברור במחיר לפי מה שאתה צריך.",
-      strategyType: "PRICE_CONTINUE",
-      variantType,
-      toneLabel: toneFromVariant(variantType),
-    };
+  if (booking && continuing) {
+    return [
+      draft("המחיר לפי מה שבחרת — לדייק לפני קביעה?", "PRICE_BOOKING", "DIRECT"),
+      draft("יש כמה אפשרויות במחיר — מה הכי מתאים?", "PRICE_BOOKING", "WARM"),
+      draft("רוצה הצעה מדויקת ואז נקבע תור?", "PRICE_BOOKING", "CLOSE"),
+    ];
   }
 
-  if (hasPriceContext(contextText)) {
-    return {
-      text:
-        variantType === "SAFE"
-          ? "כמו שדיברנו, המחיר משתנה לפי סוג השירות. רוצה שאדייק לך לפי מה שאתה צריך?"
-          : "מעולה, בוא נדייק את המחיר לפי מה שאתה צריך כדי שתהיה תמונה ברורה.",
-      strategyType: "PRICE_CONTINUE",
-      variantType,
-      toneLabel: toneFromVariant(variantType),
-    };
+  if (continuing) {
+    return [
+      draft("המחיר תלוי בסוג — מה בדיוק אתה צריך?", "PRICE_CONTINUE", "DIRECT"),
+      draft("יש כמה דירוגים — מה הכי קרוב לך?", "PRICE_CONTINUE", "WARM"),
+      draft("רוצה שאשלח טווח מחיר עכשיו?", "PRICE_CONTINUE", "CLOSE"),
+    ];
   }
 
-  return {
-    text:
-      variantType === "SOFT"
-        ? "בשמחה 😊 המחיר משתנה לפי סוג השירות, רוצה שאדייק לך?"
-        : "בשמחה, כדי לדייק לך מחיר צריך להבין בדיוק מה אתה צריך.",
-    strategyType: "PRICE_QUALIFY",
-    variantType,
-    toneLabel: toneFromVariant(variantType),
-  };
+  if (includesAny(combined, ["דגם", "סוג", "גודל", "מידה"])) {
+    return [
+      draft("איזה סוג בדיוק? אגיד מחיר.", "PRICE_QUALIFY", "DIRECT"),
+      draft("יש כמה וריאציות — מה מחפש?", "PRICE_QUALIFY", "WARM"),
+      draft("רוצה מחיר מדויק? כתוב מה צריך.", "PRICE_QUALIFY", "CLOSE"),
+    ];
+  }
+
+  return [
+    draft("מה השירות? אגיד מחיר.", "PRICE_QUALIFY", "DIRECT"),
+    draft("יש כמה אפשרויות — מה הכי מתאים?", "PRICE_QUALIFY", "WARM"),
+    draft("רוצה הצעת מחיר עכשיו?", "PRICE_QUALIFY", "CLOSE"),
+  ];
 }
 
-function buildAvailabilitySuggestion(
+function buildAvailabilityDrafts(
   analysis: AnalysisInput,
-  contextText: string
-): SuggestionDraft {
-  const variantType = chooseVariantType(analysis.stage);
+  contextText: string,
+  trigger: string
+): SuggestionDraft[] {
+  const day =
+    extractDayHint(trigger) ||
+    extractDayHint(contextText) ||
+    (includesAny(trigger, ["מחר"]) ? "מחר" : null);
+  const time = extractTimeHint(trigger);
+  const askingSlot = hasAvailabilityContext(contextText, trigger);
 
-  if (hasAvailabilityContext(contextText) || hasBookingContext(contextText)) {
-    return {
-      text:
-        variantType === "SAFE"
-          ? "כמו שדיברנו, בוא נדייק את הזמינות. איזה יום הכי מתאים לך?"
-          : "מעולה, כדי להתקדם צריך לדייק את הזמינות. איזה יום ושעה נוחים לך?",
-      strategyType: "AVAILABILITY_CONTINUE",
-      variantType,
-      toneLabel: toneFromVariant(variantType),
-    };
+  if (day === "מחר" && askingSlot) {
+    return [
+      draft("כן, מחר — ב-17 או ב-19?", "AVAILABILITY_DAY", "DIRECT"),
+      draft("יש כמה חלונות מחר — מה נוח?", "AVAILABILITY_DAY", "WARM"),
+      draft("לשריין לך מקום למחר?", "AVAILABILITY_DAY", "CLOSE"),
+    ];
   }
 
-  return {
-    text:
-      variantType === "SOFT"
-        ? "אשמח לבדוק לך זמינות 😊 איזה יום מעניין אותך?"
-        : "בשמחה, איזה יום ושעה רלוונטיים לך כדי שאכוון אותך נכון?",
-    strategyType: "CHECK_AVAILABILITY",
-    variantType,
-    toneLabel: toneFromVariant(variantType),
-  };
+  if (day && time) {
+    return [
+      draft(`ב${day} ב${time} — לבדוק ולחזור?`, "AVAILABILITY_SLOT", "DIRECT"),
+      draft(`ל${day} ב${time} יש אפשרות — מאשר?`, "AVAILABILITY_SLOT", "WARM"),
+      draft(`לקבוע ${day} ${time}?`, "AVAILABILITY_SLOT", "CLOSE"),
+    ];
+  }
+
+  if (day) {
+    return [
+      draft(`${day} — איזו שעה נוחה?`, "AVAILABILITY_DAY", "DIRECT"),
+      draft(`ל${day} יש כמה זמנים — מה מתאים?`, "AVAILABILITY_DAY", "WARM"),
+      draft(`לשריין ל${day}?`, "AVAILABILITY_DAY", "CLOSE"),
+    ];
+  }
+
+  if (askingSlot || hasBookingContext(contextText, trigger)) {
+    return [
+      draft("איזה יום מעניין?", "CHECK_AVAILABILITY", "DIRECT"),
+      draft("יש כמה ימים פנויים — מה נוח?", "CHECK_AVAILABILITY", "WARM"),
+      draft("רוצה שאבדוק ואשריין?", "CHECK_AVAILABILITY", "CLOSE"),
+    ];
+  }
+
+  return [
+    draft("לאיזה יום?", "CHECK_AVAILABILITY", "DIRECT"),
+    draft("תכתוב יום — אבדוק", "CHECK_AVAILABILITY", "WARM"),
+    draft("אחזור עם שעות?", "CHECK_AVAILABILITY", "CLOSE"),
+  ];
 }
 
-function buildBookingSuggestion(
+function buildBookingDrafts(
   analysis: AnalysisInput,
-  contextText: string
-): SuggestionDraft {
-  const variantType = chooseVariantType(analysis.stage);
+  contextText: string,
+  trigger: string
+): SuggestionDraft[] {
+  const day = extractDayHint(trigger) || extractDayHint(contextText);
+  const time = extractTimeHint(trigger);
+  const hasAvail = hasAvailabilityContext(contextText, trigger);
+  const hasPrice = hasPriceContext(contextText, trigger);
 
-  if (analysis.stage === "closing" && hasAvailabilityContext(contextText)) {
-    return {
-      text: "מעולה, אז נתקדם לפי הזמינות שכבר בדקנו. איזה שעה נוחה לך?",
-      strategyType: "ADVANCE_BOOKING",
-      variantType: "DIRECT",
-      toneLabel: toneFromVariant("DIRECT"),
-    };
+  if (analysis.stage === "closing" && day && time) {
+    return [
+      draft(`${day} ${time} — מאשר?`, "BOOKING_CONFIRM", "DIRECT"),
+      draft(`${day} ב${time} מתאים — לסגור?`, "BOOKING_CONFIRM", "WARM"),
+      draft(`לשריין ${day} ${time}?`, "BOOKING_CONFIRM", "CLOSE"),
+    ];
   }
 
-  if (analysis.stage === "closing" && hasPriceContext(contextText)) {
-    return {
-      text: "מעולה, בוא נתקדם לקביעת תור. איזה יום נוח לך?",
-      strategyType: "ADVANCE_BOOKING",
-      variantType: "DIRECT",
-      toneLabel: toneFromVariant("DIRECT"),
-    };
+  if (analysis.stage === "closing" && day) {
+    return [
+      draft(`${day} — איזו שעה?`, "BOOKING_CLOSE", "DIRECT"),
+      draft(`ל${day} יש כמה שעות — מה נוח?`, "BOOKING_CLOSE", "WARM"),
+      draft(`לקבוע ל${day}?`, "BOOKING_CLOSE", "CLOSE"),
+    ];
   }
 
   if (analysis.stage === "closing") {
-    return {
-      text: "מעולה, בוא נתקדם. איזה יום ושעה נוחים לך?",
-      strategyType: "ADVANCE_BOOKING",
-      variantType: "DIRECT",
-      toneLabel: toneFromVariant("DIRECT"),
-    };
+    return [
+      draft("איזה יום ושעה?", "BOOKING_CLOSE", "DIRECT"),
+      draft("יש כמה זמנים — מה הכי נוח?", "BOOKING_CLOSE", "WARM"),
+      draft("לקבוע עכשיו?", "BOOKING_CLOSE", "CLOSE"),
+    ];
   }
 
-  if (hasAvailabilityContext(contextText)) {
-    return {
-      text:
-        variantType === "SAFE"
-          ? "מעולה, נמשיך מהזמינות שדיברנו עליה. איזה שעה נוחה לך?"
-          : "מעולה, בוא נסגור את זה לפי הזמינות שדיברנו עליה. איזה שעה מתאימה לך?",
-      strategyType: "BOOKING_CONTINUE",
-      variantType,
-      toneLabel: toneFromVariant(variantType),
-    };
+  if (hasAvail && day) {
+    return [
+      draft(`${day} — איזו שעה לקביעה?`, "BOOKING_CONTINUE", "DIRECT"),
+      draft(`ל${day} מה הכי נוח לך?`, "BOOKING_CONTINUE", "WARM"),
+      draft(`לסגור תור ל${day}?`, "BOOKING_CONTINUE", "CLOSE"),
+    ];
   }
 
-  if (hasPriceContext(contextText)) {
-    return {
-      text:
-        variantType === "SAFE"
-          ? "מעולה, נמשיך מכאן לקביעת תור. איזה יום נוח לך?"
-          : "מעולה, אחרי שסגרנו את הכיוון, בוא נתקדם לקביעה. איזה יום מתאים לך?",
-      strategyType: "BOOKING_CONTINUE",
-      variantType,
-      toneLabel: toneFromVariant(variantType),
-    };
+  if (hasPrice) {
+    return [
+      draft("קודם מחיר ואז תור — מה אתה צריך?", "BOOKING_PRICE", "DIRECT"),
+      draft("אחרי מחיר נקבע זמן — מה מתאים?", "BOOKING_PRICE", "WARM"),
+      draft("רוצה הצעה ואז קביעה?", "BOOKING_PRICE", "CLOSE"),
+    ];
   }
 
-  if (hasBookingContext(contextText)) {
-    return {
-      text:
-        variantType === "SAFE"
-          ? "מעולה, נמשיך לקדם את הקביעה. איזה יום ושעה נוחים לך?"
-          : "בוא נתקדם עם הקביעה. איזה יום ושעה מתאימים לך?",
-      strategyType: "BOOKING_CONTINUE",
-      variantType,
-      toneLabel: toneFromVariant(variantType),
-    };
+  if (hasBookingContext(contextText, trigger)) {
+    return [
+      draft("איזה יום ושעה?", "BOOKING_CONTINUE", "DIRECT"),
+      draft("מה הכי נוח — יום ושעה?", "BOOKING_CONTINUE", "WARM"),
+      draft("לקבוע תור עכשיו?", "BOOKING_CONTINUE", "CLOSE"),
+    ];
   }
 
-  return {
-    text:
-      variantType === "SOFT"
-        ? "בשמחה 😊 איזה יום ושעה נוחים לך?"
-        : "בשמחה, בוא נקדם את זה. איזה יום ושעה הכי מתאימים לך?",
-    strategyType: "BOOKING_START",
-    variantType,
-    toneLabel: toneFromVariant(variantType),
-  };
+  return [
+    draft("מתי נוח לך?", "BOOKING_START", "DIRECT"),
+    draft("יש כמה זמנים — מה מתאים?", "BOOKING_START", "WARM"),
+    draft("רוצה לקבוע תור?", "BOOKING_START", "CLOSE"),
+  ];
 }
 
-function buildFallbackSuggestion(analysis: AnalysisInput): SuggestionDraft {
-  const variantType = chooseVariantType(analysis.stage);
+function buildFallbackDrafts(
+  analysis: AnalysisInput,
+  trigger: string
+): SuggestionDraft[] {
+  const n = normalizeText(trigger);
+
+  if (!n || n.length < 3) {
+    return [
+      draft("מה אתה צריך?", "CLARIFY_EMPTY", "DIRECT"),
+      draft("תכתוב במשפט אחד", "CLARIFY_EMPTY", "WARM"),
+      draft("נקבע שיחה?", "CLARIFY_EMPTY", "CLOSE"),
+    ];
+  }
 
   if (analysis.stage === "closing") {
-    return {
-      text: "מעולה, כדי להתקדם נכון אני צריך רק עוד חידוד קטן על מה שאתה מחפש.",
-      strategyType: "CLARIFY_CONTINUE",
-      variantType: "DIRECT",
-      toneLabel: toneFromVariant("DIRECT"),
-    };
+    return [
+      draft("מה הכי חשוב לך?", "CLARIFY_CLOSE", "DIRECT"),
+      draft("מה דחוף לסגור?", "CLARIFY_CLOSE", "WARM"),
+      draft("להתקשר?", "CLARIFY_CLOSE", "CLOSE"),
+    ];
   }
 
-  if (analysis.stage === "middle") {
-    return {
-      text: "כדי להמשיך נכון, תוכל לכתוב לי קצת יותר מה אתה צריך בדיוק?",
-      strategyType: "CLARIFY_CONTINUE",
-      variantType: "SAFE",
-      toneLabel: toneFromVariant("SAFE"),
-    };
+  if (includesAny(n, ["?", "איך", "מה", "למה", "האם"])) {
+    return [
+      draft("מה בדיוק אתה מחפש?", "CLARIFY_TOPIC", "DIRECT"),
+      draft("יש כמה אפשרויות — מה מתאים?", "CLARIFY_TOPIC", "WARM"),
+      draft("לסגור את זה עכשיו?", "CLARIFY_TOPIC", "CLOSE"),
+    ];
   }
 
-  return {
-    text: "בשמחה 😊 תוכל לכתוב לי קצת יותר מה אתה מחפש כדי שאכוון אותך נכון?",
-    strategyType: "CLARIFY_NEED",
-    variantType: "SOFT",
-    toneLabel: toneFromVariant("SOFT"),
-  };
+  return [
+    draft("מה בדיוק אתה צריך?", "CLARIFY_NEED", "DIRECT"),
+    draft("תכתוב במשפט אחד", "CLARIFY_NEED", "WARM"),
+    draft("להתקשר?", "CLARIFY_NEED", "CLOSE"),
+  ];
 }
 
 function dedupeDrafts(drafts: SuggestionDraft[]) {
   const seen = new Set<string>();
-
-  return drafts.filter((draft) => {
-    const key = `${draft.strategyType}__${draft.text}`;
-    if (seen.has(key)) {
-      return false;
-    }
+  return drafts.filter((d) => {
+    const key = d.text;
+    if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
 
-function buildPriceSuggestionDrafts(
-  analysis: AnalysisInput,
-  contextText: string
-): SuggestionDraft[] {
-  const primary = buildPriceSuggestion(analysis, contextText);
-
-  const drafts: SuggestionDraft[] = [primary];
-
-  if (primary.strategyType === "PRICE_CONTINUE") {
-    drafts.push({
-      text: "אם נוח לך, אני יכול לעשות לך סדר מהיר לפי מה שאתה צריך.",
-      strategyType: "PRICE_CLARIFY",
-      variantType: "SAFE",
-      toneLabel: "professional",
-    });
-
-    drafts.push({
-      text: "אפשר גם להתקדם צעד־צעד ולדייק את המחיר לפי השירות שמתאים לך.",
-      strategyType: "PRICE_ADVANCE",
-      variantType: "SOFT",
-      toneLabel: "friendly",
-    });
-  } else {
-    drafts.push({
-      text: "אני יכול לתת לך כיוון מהיר למחיר, רק צריך להבין מה בדיוק רלוונטי לך.",
-      strategyType: "PRICE_ANCHOR",
-      variantType: "DIRECT",
-      toneLabel: "professional",
-    });
-
-    drafts.push({
-      text: "אם תרצה, נתקדם בכמה שאלות קצרות ואדייק לך את המחיר.",
-      strategyType: "PRICE_ADVANCE",
-      variantType: "SOFT",
-      toneLabel: "friendly",
-    });
-  }
-
-  return dedupeDrafts(drafts);
-}
-
-function buildAvailabilitySuggestionDrafts(
-  analysis: AnalysisInput,
-  contextText: string
-): SuggestionDraft[] {
-  const primary = buildAvailabilitySuggestion(analysis, contextText);
-
-  const drafts: SuggestionDraft[] = [primary];
-
-  if (primary.strategyType === "AVAILABILITY_CONTINUE") {
-    drafts.push({
-      text: "אם אתה רוצה, נוכל לצמצם את זה ליום שהכי נוח לך.",
-      strategyType: "AVAILABILITY_NARROW",
-      variantType: "SAFE",
-      toneLabel: "professional",
-    });
-
-    drafts.push({
-      text: "אפשר גם כבר להתקדם לפי היום שמתאים לך ולסגור את זה.",
-      strategyType: "AVAILABILITY_ADVANCE",
-      variantType: "SOFT",
-      toneLabel: "friendly",
-    });
-  } else {
-    drafts.push({
-      text: "יש לי אפשרות לבדוק לך מהר לפי יום או שעה שמעניינים אותך.",
-      strategyType: "AVAILABILITY_OFFER",
-      variantType: "SAFE",
-      toneLabel: "professional",
-    });
-
-    drafts.push({
-      text: "אם יש לך כיוון ליום מסוים, אפשר כבר להתקדם ממנו הלאה.",
-      strategyType: "AVAILABILITY_ADVANCE",
-      variantType: "SOFT",
-      toneLabel: "friendly",
-    });
-  }
-
-  return dedupeDrafts(drafts);
-}
-
-function buildBookingSuggestionDrafts(
-  analysis: AnalysisInput,
-  contextText: string
-): SuggestionDraft[] {
-  const primary = buildBookingSuggestion(analysis, contextText);
-
-  const drafts: SuggestionDraft[] = [primary];
-
-  if (
-    primary.strategyType === "ADVANCE_BOOKING" ||
-    primary.strategyType === "BOOKING_CONTINUE"
-  ) {
-    drafts.push({
-      text: "מעולה, בוא נסגור את זה מסודר. איזה יום הכי נוח לך?",
-      strategyType: "BOOKING_CLOSE",
-      variantType: "DIRECT",
-      toneLabel: "professional",
-    });
-
-    drafts.push({
-      text: "אפשר להתקדם בקצב שלך 😊 איזה יום מתאים לך יותר?",
-      strategyType: "BOOKING_SOFT",
-      variantType: "SOFT",
-      toneLabel: "friendly",
-    });
-  } else {
-    drafts.push({
-      text: "אם נוח לך, נתחיל מיום שמתאים לך ומשם נתקדם.",
-      strategyType: "BOOKING_GUIDE",
-      variantType: "SAFE",
-      toneLabel: "professional",
-    });
-
-    drafts.push({
-      text: "אפשר גם להתחיל בקטן — איזה יום הכי נוח לך כרגע?",
-      strategyType: "BOOKING_SOFT",
-      variantType: "SOFT",
-      toneLabel: "friendly",
-    });
-  }
-
-  return dedupeDrafts(drafts);
-}
-
-function buildFallbackSuggestionDrafts(
-  analysis: AnalysisInput
-): SuggestionDraft[] {
-  const primary = buildFallbackSuggestion(analysis);
-
-  const drafts: SuggestionDraft[] = [
-    primary,
-    {
-      text: "רק כדי לדייק אותך נכון, מה הכי חשוב לך כרגע?",
-      strategyType: "CLARIFY_FOCUS",
-      variantType: "SAFE",
-      toneLabel: "professional",
-    },
-  ];
-
-  if (analysis.stage !== "closing") {
-    drafts.push({
-      text: "אפשר לכתוב לי במשפט קצר מה אתה מחפש ואני אכוון אותך משם.",
-      strategyType: "CLARIFY_SOFT",
-      variantType: "SOFT",
-      toneLabel: "friendly",
-    });
-  }
-
-  return dedupeDrafts(drafts);
-}
-
 function buildSuggestionDrafts(
   analysis: AnalysisInput,
-  contextText: string
+  contextText: string,
+  trigger: string
 ): SuggestionDraft[] {
+  let drafts: SuggestionDraft[];
+
   if (analysis.intent === "price") {
-    return buildPriceSuggestionDrafts(analysis, contextText);
+    drafts = buildPriceDrafts(analysis, contextText, trigger);
+  } else if (analysis.intent === "availability") {
+    drafts = buildAvailabilityDrafts(analysis, contextText, trigger);
+  } else if (analysis.intent === "booking") {
+    drafts = buildBookingDrafts(analysis, contextText, trigger);
+  } else {
+    drafts = buildFallbackDrafts(analysis, trigger);
   }
 
-  if (analysis.intent === "availability") {
-    return buildAvailabilitySuggestionDrafts(analysis, contextText);
-  }
-
-  if (analysis.intent === "booking") {
-    return buildBookingSuggestionDrafts(analysis, contextText);
-  }
-
-  return buildFallbackSuggestionDrafts(analysis);
+  return dedupeDrafts(orderDraftsByStage(drafts, analysis.stage)).slice(0, 3);
 }
 
 function getStrategyPriority(
   strategyType: string,
   analysis: AnalysisInput
 ): number {
-  if (analysis.intent === "booking" && analysis.stage === "closing") {
-    if (strategyType === "ADVANCE_BOOKING") return 1;
-    if (strategyType === "BOOKING_CLOSE") return 2;
-    if (strategyType === "BOOKING_SOFT") return 3;
-    if (strategyType === "BOOKING_CONTINUE") return 4;
-    if (strategyType === "BOOKING_GUIDE") return 5;
-    if (strategyType === "BOOKING_START") return 6;
-  }
+  const bookingOrder = [
+    "BOOKING_CONFIRM",
+    "BOOKING_CLOSE",
+    "BOOKING_CONTINUE",
+    "BOOKING_PRICE",
+    "BOOKING_START",
+  ];
+  const priceOrder = ["PRICE_BOOKING", "PRICE_CONTINUE", "PRICE_QUALIFY"];
+  const availOrder = [
+    "AVAILABILITY_SLOT",
+    "AVAILABILITY_DAY",
+    "CHECK_AVAILABILITY",
+  ];
+  const clarifyOrder = [
+    "CLARIFY_TOPIC",
+    "CLARIFY_CLOSE",
+    "CLARIFY_NEED",
+    "CLARIFY_EMPTY",
+  ];
 
-  if (analysis.intent === "booking") {
-    if (strategyType === "BOOKING_CONTINUE") return 1;
-    if (strategyType === "ADVANCE_BOOKING") return 2;
-    if (strategyType === "BOOKING_CLOSE") return 3;
-    if (strategyType === "BOOKING_SOFT") return 4;
-    if (strategyType === "BOOKING_GUIDE") return 5;
-    if (strategyType === "BOOKING_START") return 6;
-  }
+  const lists: Record<string, string[]> = {
+    booking: bookingOrder,
+    price: priceOrder,
+    availability: availOrder,
+  };
 
-  if (analysis.intent === "price") {
-    if (strategyType === "PRICE_CONTINUE") return 1;
-    if (strategyType === "PRICE_QUALIFY") return 2;
-    if (strategyType === "PRICE_CLARIFY") return 3;
-    if (strategyType === "PRICE_ANCHOR") return 4;
-    if (strategyType === "PRICE_ADVANCE") return 5;
-  }
-
-  if (analysis.intent === "availability") {
-    if (strategyType === "AVAILABILITY_CONTINUE") return 1;
-    if (strategyType === "CHECK_AVAILABILITY") return 2;
-    if (strategyType === "AVAILABILITY_NARROW") return 3;
-    if (strategyType === "AVAILABILITY_OFFER") return 4;
-    if (strategyType === "AVAILABILITY_ADVANCE") return 5;
-  }
-
-  if (strategyType === "CLARIFY_CONTINUE") return 1;
-  if (strategyType === "CLARIFY_FOCUS") return 2;
-  if (strategyType === "CLARIFY_NEED") return 3;
-  if (strategyType === "CLARIFY_SOFT") return 4;
-
-  return 999;
+  const list = lists[analysis.intent] ?? clarifyOrder;
+  const idx = list.indexOf(strategyType);
+  return idx === -1 ? 50 : idx;
 }
 
 function rankSuggestionDrafts(
   drafts: SuggestionDraft[],
   analysis: AnalysisInput
 ): SuggestionDraft[] {
+  const styleOrder = rankStylesForStage(analysis.stage);
   return [...drafts].sort((a, b) => {
-    const priorityA = getStrategyPriority(a.strategyType, analysis);
-    const priorityB = getStrategyPriority(b.strategyType, analysis);
-
-    if (priorityA !== priorityB) {
-      return priorityA - priorityB;
-    }
-
-    return 0;
+    const styleDiff =
+      styleOrder.indexOf(a.variantType) - styleOrder.indexOf(b.variantType);
+    if (styleDiff !== 0) return styleDiff;
+    return (
+      getStrategyPriority(a.strategyType, analysis) -
+      getStrategyPriority(b.strategyType, analysis)
+    );
   });
 }
 
@@ -525,14 +474,15 @@ export async function generateReplySuggestions(
 ) {
   const previousMessages = getPreviousMessages(message, contextMessages);
   const contextText = buildContextText(previousMessages);
+  const trigger = getTriggerText(message, contextMessages);
 
-  const drafts = buildSuggestionDrafts(analysis, contextText);
+  const drafts = buildSuggestionDrafts(analysis, contextText, trigger);
   const rankedDrafts = rankSuggestionDrafts(drafts, analysis);
 
   const created = [];
 
   for (let i = 0; i < rankedDrafts.length; i++) {
-    const draft = rankedDrafts[i];
+    const draftRow = rankedDrafts[i];
 
     const item = await prisma.replySuggestion.create({
       data: {
@@ -540,12 +490,12 @@ export async function generateReplySuggestions(
         conversationId: message.conversationId,
         messageId: message.id,
         suggestionType: "AUTO",
-        strategyType: draft.strategyType,
-        variantType: draft.variantType,
+        strategyType: draftRow.strategyType,
+        variantType: draftRow.variantType,
         variantIndex: i,
-        text: draft.text,
-        toneLabel: draft.toneLabel,
-        strategyLabel: draft.strategyType,
+        text: draftRow.text,
+        toneLabel: draftRow.toneLabel,
+        strategyLabel: draftRow.strategyType,
         status: "GENERATED",
       },
     });

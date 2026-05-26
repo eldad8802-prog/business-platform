@@ -6,56 +6,74 @@ const DOT_COLOR: Record<
   InboxConfidenceDots[keyof InboxConfidenceDots],
   string
 > = {
-  high: "#047857",
+  high: "#16a34a",
   medium: "#d97706",
-  low: "#b91c1c",
+  low: "#dc2626",
 };
 
-const ROW_STYLE = {
-  display: "flex" as const,
-  alignItems: "center" as const,
-  gap: 8,
-  marginTop: 8,
+const DOT_LABEL: Record<
+  InboxConfidenceDots[keyof InboxConfidenceDots],
+  string
+> = {
+  high: "גבוהה",
+  medium: "בינונית",
+  low: "נמוכה",
 };
 
-const LABEL_STYLE = {
-  fontSize: 11,
-  fontWeight: 800,
-  color: "#6b7280",
-  width: 52,
-  flexShrink: 0,
-};
-
-function Dot({ level }: { level: InboxConfidenceDots[keyof InboxConfidenceDots] }) {
+function Dot({
+  label,
+  level,
+}: {
+  label: string;
+  level: InboxConfidenceDots[keyof InboxConfidenceDots];
+}) {
   return (
     <span
-      aria-hidden
       style={{
-        width: 10,
-        height: 10,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "2px 7px",
         borderRadius: 999,
-        background: DOT_COLOR[level],
-        flexShrink: 0,
+        background: `${DOT_COLOR[level]}14`,
+        border: `1px solid ${DOT_COLOR[level]}33`,
+        fontSize: 11,
+        fontWeight: 700,
+        color: DOT_COLOR[level],
+        whiteSpace: "nowrap",
       }}
-    />
+      title={`${label}: מהימנות ${DOT_LABEL[level]}`}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: 999,
+          background: DOT_COLOR[level],
+          display: "inline-block",
+          flexShrink: 0,
+        }}
+      />
+      {label}
+    </span>
   );
 }
 
 export default function ConfidenceDots({ dots }: { dots: InboxConfidenceDots }) {
   return (
-    <div dir="rtl" style={{ marginTop: 6 }}>
-      <div style={ROW_STYLE}>
-        <span style={LABEL_STYLE}>סכום</span>
-        <Dot level={dots.amount} />
-      </div>
-      <div style={ROW_STYLE}>
-        <span style={LABEL_STYLE}>ספק</span>
-        <Dot level={dots.vendor} />
-      </div>
-      <div style={ROW_STYLE}>
-        <span style={LABEL_STYLE}>תאריך</span>
-        <Dot level={dots.dateProxy} />
-      </div>
+    <div
+      dir="rtl"
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 5,
+        marginTop: 8,
+      }}
+    >
+      <Dot label="סכום" level={dots.amount} />
+      <Dot label="ספק" level={dots.vendor} />
+      <Dot label="תאריך" level={dots.dateProxy} />
     </div>
   );
 }

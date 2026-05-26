@@ -111,7 +111,7 @@ export function BusinessIdentitySetupForm({
     >
       <div style={{ gridColumn: "1 / -1" }}>
         <Field
-          label="שם עסק (כפי שיופיע במסמך)"
+          label="שם העסק במסמך"
           value={form.billingLegalName}
           onChange={(v) => patch("billingLegalName", v)}
         />
@@ -177,12 +177,33 @@ export function BusinessIdentitySetupForm({
       />
 
       <div style={{ gridColumn: "1 / -1" }}>
-        <BillingDocumentStylePicker
-          value={form.billingPdfTemplateStyle}
-          onChange={(billingPdfTemplateStyle) =>
-            onChange({ ...form, billingPdfTemplateStyle })
-          }
-        />
+        <details
+          style={{
+            border: "1px solid #e2e8f0",
+            borderRadius: 10,
+            padding: "10px 12px",
+            background: "#f8fafc",
+          }}
+        >
+          <summary
+            style={{
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 700,
+              color: "#334155",
+            }}
+          >
+            מראה המסמך (אפשר לדייק בהמשך)
+          </summary>
+          <div style={{ marginTop: 12 }}>
+            <BillingDocumentStylePicker
+              value={form.billingPdfTemplateStyle}
+              onChange={(billingPdfTemplateStyle) =>
+                onChange({ ...form, billingPdfTemplateStyle })
+              }
+            />
+          </div>
+        </details>
       </div>
     </div>
   );
