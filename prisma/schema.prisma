@@ -143,68 +143,168 @@ model ContentEvent {
 }
 
 model Business {
-  id                      Int                             @id @default(autoincrement())
-  name                    String
-  createdAt               DateTime                        @default(now())
-  updatedAt               DateTime                        @updatedAt
-  billingDocuments        BillingDocument[]
-  billingAuditEvents      BillingAuditEvent[]
-  billingNumberSequences  BillingDocumentNumberSequence[]
-  profile                 BusinessProfile?
-  botSettings             BusinessBotSettings?
-  services                BusinessService[]
-  collaborationDeals      CollaborationDeal[]
-  conversations           Conversation[]
-  issuedCoupons           Coupon[]                        @relation("BusinessIssuedCoupons")
-  customers               Customer[]
-  deals                   Deal[]
-  documentsV2             Document[]
-  emailAttachmentImports  EmailAttachmentImport[]
-  emailConnections        EmailConnection[]
-  documents               FinancialDocument[]
-  financialRecords        FinancialRecord[]
-  financialEvents         FinancialEvent[]
-  inventoryAlerts         InventoryAlert[]
-  inventoryCategories     InventoryCategory[]
-  inventoryDrafts         InventoryDraft[]
-  inventoryExternalSales  InventoryExternalSale[]
-  inventoryItems          InventoryItem[]
-  inventoryMovements      InventoryMovement[]
-  inventoryPendingMatches InventoryPendingMatch[]
-  leads                   Lead[]
-  learningEvents          LearningEvent[]
-  learningSignals         LearningSignal[]
-  messages                Message[]
-  offers                  Offer[]
-  posApiKeys              POSApiKey[]
-  posProductMappings      POSProductMapping[]
-  pricingCalculations     PricingCalculation[]
-  pricingProfiles         PricingProfile[]
-  recommendations         Recommendation[]
-  recommendationOutcomes  RecommendationOutcome[]
-  issuedRedemptions       RedemptionEvent[]               @relation("IssuedCouponRedemptions")
-  redeemedRedemptions     RedemptionEvent[]               @relation("RedeemedCouponRedemptions")
-  replySuggestions        ReplySuggestion[]
-  supplierPurchaseDrafts  SupplierPurchaseDraft[]
-  tasks                   Task[]
-  users                   User[]
-  vendorLearnings         VendorLearning[]
-  contentRuns             ContentRun[]
-  contentEvents           ContentEvent[]
+  id                        Int                             @id @default(autoincrement())
+  name                      String
+  createdAt                 DateTime                        @default(now())
+  updatedAt                 DateTime                        @updatedAt
+  billingDocuments          BillingDocument[]
+  billingAuditEvents        BillingAuditEvent[]
+  billingNumberSequences    BillingDocumentNumberSequence[]
+  profile                   BusinessProfile?
+  botSettings               BusinessBotSettings?
+  services                  BusinessService[]
+  collaborationDeals        CollaborationDeal[]
+  conversations             Conversation[]
+  issuedCoupons             Coupon[]                        @relation("BusinessIssuedCoupons")
+  customers                 Customer[]
+  deals                     Deal[]
+  documentsV2               Document[]
+  emailAttachmentImports    EmailAttachmentImport[]
+  whatsappAttachmentImports WhatsAppAttachmentImport[]
+  emailConnections          EmailConnection[]
+  documents                 FinancialDocument[]
+  financialRecords          FinancialRecord[]
+  financialEvents           FinancialEvent[]
+  inventoryAlerts           InventoryAlert[]
+  inventoryCategories       InventoryCategory[]
+  inventoryDrafts           InventoryDraft[]
+  inventoryExternalSales    InventoryExternalSale[]
+  inventoryItems            InventoryItem[]
+  inventoryMovements        InventoryMovement[]
+  inventoryPendingMatches   InventoryPendingMatch[]
+  leads                     Lead[]
+  learningEvents            LearningEvent[]
+  learningSignals           LearningSignal[]
+  messages                  Message[]
+  offers                    Offer[]
+  posApiKeys                POSApiKey[]
+  posProductMappings        POSProductMapping[]
+  pricingCalculations       PricingCalculation[]
+  pricingProfiles           PricingProfile[]
+  recommendations           Recommendation[]
+  recommendationOutcomes    RecommendationOutcome[]
+  issuedRedemptions         RedemptionEvent[]               @relation("IssuedCouponRedemptions")
+  redeemedRedemptions       RedemptionEvent[]               @relation("RedeemedCouponRedemptions")
+  replySuggestions          ReplySuggestion[]
+  supplierPurchaseDrafts    SupplierPurchaseDraft[]
+  tasks                     Task[]
+  users                     User[]
+  vendorLearnings           VendorLearning[]
+  contentRuns               ContentRun[]
+  contentEvents             ContentEvent[]
+  productUsageEvents        ProductUsageEvent[]
+  businessFeatureAccess     BusinessFeatureAccess[]
+  whatsappConnection        WhatsAppConnection?
+  purchaseOrders            PurchaseOrder[]
+  receivingSessions         ReceivingSession[]
 }
 
 model User {
-  id                 Int            @id @default(autoincrement())
-  email              String         @unique
-  password           String
-  name               String?
-  businessId         Int
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
-  business           Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  contentRunsCreated ContentRun[]
-  contentEvents      ContentEvent[]
-  billingAuditEvents BillingAuditEvent[]
+  id                  Int                  @id @default(autoincrement())
+  email               String               @unique
+  password            String
+  name                String?
+  businessId          Int
+  role                UserRole             @default(USER)
+  lastLoginAt         DateTime?
+  loginCount          Int                  @default(0)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  business            Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contentRunsCreated  ContentRun[]
+  contentEvents       ContentEvent[]
+  billingAuditEvents  BillingAuditEvent[]
+  platformAuditEvents PlatformAuditEvent[]
+  productUsageEvents  ProductUsageEvent[]
+}
+
+/// Append-only product usage analytics (distinct from weekly `Usage` quota counters).
+model ProductUsageEvent {
+  id         String   @id @default(cuid())
+  businessId Int?
+  userId     Int?
+  sessionId  String?
+  featureKey String
+  action     String
+  outcome    String?
+  entityType String?
+  entityId   String?
+  durationMs Int?
+  source     String   @default("api")
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt])
+  @@index([featureKey, createdAt])
+  @@index([userId, createdAt])
+  @@index([sessionId])
+  @@index([createdAt])
+}
+
+/// Append-only audit trail for platform-level admin actions (cross-tenant).
+model PlatformAuditEvent {
+  id          Int      @id @default(autoincrement())
+  actorUserId Int?
+  action      String
+  targetType  String?
+  targetId    String?
+  metadata    Json?
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  actorUser User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
+}
+
+/// Platform feature catalog row — key must match `PLATFORM_FEATURE_KEYS` in code.
+model PlatformFeatureDefinition {
+  key            String   @id
+  displayName    String
+  category       String
+  description    String   @default("")
+  defaultEnabled Boolean  @default(true)
+  mutable        Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  policy            PlatformFeaturePolicy?
+  businessOverrides BusinessFeatureAccess[]
+}
+
+/// Global policy per feature (defaults + emergency kill switch).
+model PlatformFeaturePolicy {
+  featureKey        String   @id
+  globalEnabled     Boolean  @default(true)
+  emergencyDisabled Boolean  @default(false)
+  updatedAt         DateTime @updatedAt
+  updatedByUserId   Int?
+
+  definition PlatformFeatureDefinition @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+}
+
+/// Sparse per-business overrides only (no row = inherit global/catalog).
+model BusinessFeatureAccess {
+  id              Int                        @id @default(autoincrement())
+  businessId      Int
+  featureKey      String
+  state           BusinessFeatureAccessState
+  reason          String?
+  updatedByUserId Int?
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+
+  business   Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  definition PlatformFeatureDefinition @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+
+  @@unique([businessId, featureKey])
+  @@index([businessId])
+  @@index([featureKey])
 }
 
 model BusinessProfile {
@@ -239,24 +339,24 @@ model BusinessProfile {
 
 /// Per-business starter bot configuration (runtime wiring is separate).
 model BusinessBotSettings {
-  id                            Int      @id @default(autoincrement())
-  businessId                    Int      @unique
-  enabled                       Boolean  @default(false)
-  mode                          String   @default("STARTER")
-  channel                       String   @default("WHATSAPP")
-  welcomeMessage                String?
-  questions                     Json?
-  finalAction                   String?
-  finalActionPayload            Json?
-  handoffRules                  Json?
-  showDraftSuggestionsInInbox   Boolean  @default(false)
+  id                          Int      @id @default(autoincrement())
+  businessId                  Int      @unique
+  enabled                     Boolean  @default(false)
+  mode                        String   @default("STARTER")
+  channel                     String   @default("WHATSAPP")
+  welcomeMessage              String?
+  questions                   Json?
+  finalAction                 String?
+  finalActionPayload          Json?
+  handoffRules                Json?
+  showDraftSuggestionsInInbox Boolean  @default(false)
   /// Product Link Mode v1: single catalog/landing URL (no commerce engine).
-  productLinkEnabled            Boolean  @default(false)
-  productLinkUrl                String?
-  productLinkIntro              String?
-  createdAt                     DateTime @default(now())
-  updatedAt                     DateTime @updatedAt
-  business                      Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  productLinkEnabled          Boolean  @default(false)
+  productLinkUrl              String?
+  productLinkIntro            String?
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+  business                    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 }
 
 model BusinessService {
@@ -299,6 +399,10 @@ model Customer {
   id               Int               @id @default(autoincrement())
   businessId       Int
   name             String
+  /// Canonical-form phone (digits-only, IL-aware E.164-ish). Always written
+  /// through `normalizeCustomerPhone()` — never raw input. Null means the
+  /// customer has no phone on record (legitimate state). NULLs do not
+  /// collide under Postgres unique-constraint semantics.
   phone            String?
   email            String?
   city             String?
@@ -309,6 +413,8 @@ model Customer {
   conversations    Conversation[]
   business         Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
   messages         Message[]
+
+  @@unique([businessId, phone])
 }
 
 model Deal {
@@ -420,37 +526,39 @@ model RedemptionEvent {
 }
 
 model Conversation {
-  id                       Int                        @id @default(autoincrement())
-  businessId               Int
-  customerId               Int?
-  leadId                   Int?
-  channel                  ConversationChannel
-  status                   ConversationStatus         @default(OPEN)
-  currentStage             ConversationStage?
-  outcomeStatus            ConversationOutcomeStatus?
-  intentType               String?
-  intentConfidence         Float?
-  sentimentSnapshot        String?
-  temperatureScore         Float?
-  closeProbabilitySnapshot Float?
-  outcomeReason            String?
-  lostReason               String?
-  startedAt                DateTime                   @default(now())
-  lastMessageAt            DateTime?
-  closedAt                 DateTime?
-  firstResponseLatencySec  Int?
-  avgResponseLatencySec    Int?
-  unansweredInboundCount   Int                        @default(0)
-  customerLastInboundAt    DateTime?
-  businessLastOutboundAt   DateTime?
-  lastAnalysisAt           DateTime?
-  createdAt                DateTime                   @default(now())
-  updatedAt                DateTime                   @updatedAt
-  business                 Business                   @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  customer                 Customer?                  @relation(fields: [customerId], references: [id])
-  lead                     Lead?                      @relation(fields: [leadId], references: [id])
-  messages                 Message[]
-  replySuggestions         ReplySuggestion[]
+  id                        Int                        @id @default(autoincrement())
+  businessId                Int
+  customerId                Int?
+  leadId                    Int?
+  channel                   ConversationChannel
+  status                    ConversationStatus         @default(OPEN)
+  currentStage              ConversationStage?
+  outcomeStatus             ConversationOutcomeStatus?
+  intentType                String?
+  intentConfidence          Float?
+  sentimentSnapshot         String?
+  temperatureScore          Float?
+  closeProbabilitySnapshot  Float?
+  outcomeReason             String?
+  lostReason                String?
+  startedAt                 DateTime                   @default(now())
+  lastMessageAt             DateTime?
+  closedAt                  DateTime?
+  firstResponseLatencySec   Int?
+  avgResponseLatencySec     Int?
+  unansweredInboundCount    Int                        @default(0)
+  customerLastInboundAt     DateTime?
+  businessLastOutboundAt    DateTime?
+  lastAnalysisAt            DateTime?
+  pendingFollowUp           Json?
+  pendingAppointmentRequest Json?
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  business                  Business                   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer                  Customer?                  @relation(fields: [customerId], references: [id])
+  lead                      Lead?                      @relation(fields: [leadId], references: [id])
+  messages                  Message[]
+  replySuggestions          ReplySuggestion[]
 }
 
 model Message {
@@ -481,6 +589,16 @@ model Message {
   sentAt                    DateTime            @default(now())
   deliveredAt               DateTime?
   readAt                    DateTime?
+  /// Outbound send lifecycle: PENDING when persisted but provider call
+  /// hasn't returned yet, SENT on provider ack, FAILED on provider error.
+  /// NULL for legacy rows + all inbound rows.
+  sendStatus                MessageSendStatus?
+  /// Provider message id (e.g. WhatsApp wamid) when SENT. Also populated for
+  /// inbound rows by the conversation intake service for traceability.
+  providerMessageId         String?
+  sendErrorCode             String?
+  sendErrorMessage          String?
+  sendAttemptedAt           DateTime?
   createdAt                 DateTime            @default(now())
   business                  Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
   conversation              Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -697,18 +815,74 @@ model LearningSignal {
 }
 
 model Document {
-  id              Int                    @id @default(autoincrement())
+  id              Int                       @id @default(autoincrement())
   businessId      Int
   fileUrl         String
   source          String
   mimeType        String
   ocrText         String?
   status          String
-  createdAt       DateTime               @default(now())
-  business        Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt       DateTime                  @default(now())
+  business        Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
   emailImport     EmailAttachmentImport?
+  whatsappImport  WhatsAppAttachmentImport?
   extractedData   ExtractedData?
   financialRecord FinancialRecord?
+}
+
+model WhatsAppAttachmentImport {
+  id                Int                            @id @default(autoincrement())
+  businessId        Int
+  wamid             String
+  mediaId           String
+  phoneNumberId     String?
+  fromPhone         String?
+  mimeType          String
+  sizeBytes         Int?
+  filename          String?
+  contentHashSha256 String
+  status            WhatsAppAttachmentImportStatus
+  error             String?
+  documentId        Int?                           @unique
+  createdAt         DateTime                       @default(now())
+  updatedAt         DateTime                       @updatedAt
+  business          Business                       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  document          Document?                      @relation(fields: [documentId], references: [id])
+
+  @@unique([businessId, wamid])
+  @@unique([businessId, contentHashSha256])
+  @@index([businessId, createdAt])
+  @@index([documentId])
+}
+
+/// Per-business WhatsApp Business Platform connection.
+///
+/// One row per business (`@@unique` on `businessId`). The
+/// `phoneNumberId` is also globally unique because Meta issues at most one
+/// active WABA-bound phone number per (business, number). DB-backed routing
+/// looks up this table to resolve the inbound `phoneNumberId` → `businessId`.
+///
+/// Access token is stored as AES-256-GCM ciphertext (`encrypted` + `iv` +
+/// `tag`). It is never logged and never returned by any read API.
+model WhatsAppConnection {
+  id                   Int                      @id @default(autoincrement())
+  businessId           Int                      @unique
+  phoneNumberId        String                   @unique
+  displayPhoneNumber   String
+  wabaId               String
+  accessTokenEncrypted String
+  accessTokenIv        String
+  accessTokenTag       String
+  status               WhatsAppConnectionStatus @default(CONNECTED)
+  lastVerifiedAt       DateTime?
+  lastErrorAt          DateTime?
+  lastErrorCode        String?
+  lastErrorMessage     String?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  business             Business                 @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([status])
 }
 
 model EmailConnection {
@@ -857,6 +1031,8 @@ model InventoryItem {
   minimumQuantity            Float                       @default(0)
   reorderPoint               Float?
   costPerUnit                Float?
+  lastPurchaseCost           Float?
+  lastPurchaseCostAt         DateTime?
   sellPricePerUnit           Float?
   imageUrl                   String?
   isActive                   Boolean                     @default(true)
@@ -871,6 +1047,8 @@ model InventoryItem {
   resolvedPendingMatches     InventoryPendingMatch[]     @relation("InventoryPendingMatchResolvedItem")
   posMappings                POSProductMapping[]
   supplierPurchaseDraftLines SupplierPurchaseDraftLine[]
+  purchaseOrderLines         PurchaseOrderLine[]
+  receivingLines             ReceivingLine[]
 
   @@index([businessId])
   @@index([sku])
@@ -1048,6 +1226,101 @@ model SupplierPurchaseDraftLine {
   @@index([matchedItemId])
 }
 
+model PurchaseOrder {
+  id                            Int                 @id @default(autoincrement())
+  businessId                    Int
+  supplierName                  String?
+  externalOrderId               String?
+  source                        String?             @default("MANUAL")
+  orderDate                     DateTime?
+  status                        PurchaseOrderStatus @default(DRAFT)
+  createdByUserId               Int?
+  sourceSupplierPurchaseDraftId Int?
+  createdAt                     DateTime            @default(now())
+  updatedAt                     DateTime            @updatedAt
+  business                      Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lines                         PurchaseOrderLine[]
+  receivingSessions             ReceivingSession[]
+
+  @@index([businessId])
+  @@index([businessId, status])
+  @@index([businessId, createdAt])
+  @@index([businessId, supplierName])
+  @@index([businessId, source, externalOrderId])
+  @@index([sourceSupplierPurchaseDraftId])
+}
+
+model PurchaseOrderLine {
+  id                       Int                                 @id @default(autoincrement())
+  purchaseOrderId          Int
+  itemId                   Int?
+  rawName                  String?
+  sku                      String?
+  barcode                  String?
+  orderedQty               Float
+  unitCost                 Float?
+  unitType                 InventoryUnitType?
+  status                   PurchaseOrderLineStatus             @default(ORDERED)
+  remainingDecision        PurchaseOrderLineRemainingDecision?
+  remainingDecisionQty     Float?
+  expectedAt               DateTime?
+  remainingDecisionNote    String?
+  remainingDecidedAt       DateTime?
+  remainingDecidedByUserId Int?
+  createdAt                DateTime                            @default(now())
+  updatedAt                DateTime                            @updatedAt
+  purchaseOrder            PurchaseOrder                       @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  item                     InventoryItem?                      @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  receivingLines           ReceivingLine[]
+
+  @@index([purchaseOrderId])
+  @@index([itemId])
+  @@index([purchaseOrderId, status])
+  @@index([purchaseOrderId, remainingDecision])
+  @@index([sku])
+  @@index([barcode])
+}
+
+model ReceivingSession {
+  id              Int                    @id @default(autoincrement())
+  businessId      Int
+  purchaseOrderId Int
+  status          ReceivingSessionStatus @default(DRAFT)
+  receivedAt      DateTime?
+  postedAt        DateTime?
+  createdByUserId Int?
+  postedByUserId  Int?
+  note            String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  business        Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  purchaseOrder   PurchaseOrder          @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  lines           ReceivingLine[]
+
+  @@index([businessId])
+  @@index([businessId, status])
+  @@index([businessId, createdAt])
+  @@index([purchaseOrderId])
+}
+
+model ReceivingLine {
+  id                  Int               @id @default(autoincrement())
+  receivingSessionId  Int
+  purchaseOrderLineId Int
+  itemId              Int
+  receivedQty         Float
+  unitCost            Float?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  receivingSession    ReceivingSession  @relation(fields: [receivingSessionId], references: [id], onDelete: Cascade)
+  purchaseOrderLine   PurchaseOrderLine @relation(fields: [purchaseOrderLineId], references: [id], onDelete: Cascade)
+  item                InventoryItem     @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([receivingSessionId])
+  @@index([purchaseOrderLineId])
+  @@index([itemId])
+}
+
 model BillingDocument {
   id                      Int                    @id @default(autoincrement())
   businessId              Int
@@ -1187,6 +1460,27 @@ enum EmailAttachmentImportStatus {
   failed
 }
 
+enum WhatsAppAttachmentImportStatus {
+  processing
+  imported
+  skipped_duplicate
+  failed
+}
+
+enum WhatsAppConnectionStatus {
+  CONNECTED
+  DISCONNECTED
+  REVOKED
+  REVOKED_BY_META
+  ERROR
+}
+
+enum MessageSendStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
 enum BusinessServiceType {
   SERVICE
   PRODUCT
@@ -1214,6 +1508,17 @@ enum ContentRenderStatus {
 
 enum ContentRenderProvider {
   CREATOMATE
+}
+
+enum UserRole {
+  USER
+  PLATFORM_ADMIN
+}
+
+enum BusinessFeatureAccessState {
+  ENABLED
+  DISABLED
+  INHERIT
 }
 
 enum LeadStatus {
@@ -1441,6 +1746,32 @@ enum SupplierLineStatus {
   NEEDS_REVIEW
   APPROVED
   REJECTED
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  CONFIRMED
+  SENT
+  AWAITING_DELIVERY
+  CLOSED
+  CANCELLED
+}
+
+enum PurchaseOrderLineStatus {
+  ORDERED
+  CANCELLED
+}
+
+enum PurchaseOrderLineRemainingDecision {
+  KEEP_OPEN
+  BACKORDER
+  CLOSED_SHORT
+}
+
+enum ReceivingSessionStatus {
+  DRAFT
+  POSTED
+  VOIDED
 }
 
 enum BillingDocumentType {
