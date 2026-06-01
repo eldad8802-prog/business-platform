@@ -1,11 +1,13 @@
 import {
-  InventoryMovementReason,
+  PurchaseOrderStatus,
   SupplierLineDecision,
   SupplierLineStatus,
   SupplierPurchaseDraftStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
+import { purchaseOrderService } from "@/lib/services/inventory/purchase-order.service";
+import { receivingService } from "@/lib/services/inventory/receiving.service";
 
 type ApproveSupplierPurchaseInput = {
   draftId: number;
@@ -29,6 +31,8 @@ type ApproveSupplierPurchaseInput = {
       }
   >;
 };
+
+const APPROVAL_TRANSACTION_OPTIONS = { timeout: 15_000 };
 
 export async function approveSupplierPurchase(
   input: ApproveSupplierPurchaseInput
@@ -73,6 +77,7 @@ export async function approveSupplierPurchase(
 
     const lineMap = new Map(lines.map((l) => [l.lineId, l]));
 
+    // 🔒 ולידציה לכל שורה — כל action שאינו MERGE/CREATE_NEW נכשל ומגלגל אחורה.
     for (const draftLine of draft.lines) {
       const inputLine = lineMap.get(draftLine.id);
 
@@ -80,57 +85,80 @@ export async function approveSupplierPurchase(
         throw new Error(`Missing decision for line ${draftLine.id}`);
       }
 
-      if (
-        inputLine.action === "MERGE" &&
-        (!inputLine.itemId || Number.isNaN(inputLine.itemId))
-      ) {
-        throw new Error(`Invalid itemId for MERGE on line ${draftLine.id}`);
-      }
-
-      if (inputLine.action === "CREATE_NEW") {
+      if (inputLine.action === "MERGE") {
+        if (!inputLine.itemId || Number.isNaN(inputLine.itemId)) {
+          throw new Error(`Invalid itemId for MERGE on line ${draftLine.id}`);
+        }
+      } else if (inputLine.action === "CREATE_NEW") {
         if (!inputLine.itemData?.name || !inputLine.itemData?.unitType) {
           throw new Error(
             `Missing itemData for CREATE_NEW on line ${draftLine.id}`
           );
         }
+      } else {
+        throw new Error(
+          `Unsupported action for line ${draftLine.id}: only MERGE or CREATE_NEW are allowed`
+        );
       }
     }
 
-    // 🔒 עיבוד בפועל (all DB + movements within same transaction)
+    // 🔒 MERGE targets must exist, belong to the business, and be active.
+    const mergeItemIds = Array.from(
+      new Set(
+        lines
+          .filter((l): l is Extract<typeof l, { action: "MERGE" }> =>
+            l.action === "MERGE"
+          )
+          .map((l) => l.itemId)
+      )
+    );
+
+    if (mergeItemIds.length > 0) {
+      const activeItems = await tx.inventoryItem.findMany({
+        where: {
+          businessId,
+          id: { in: mergeItemIds },
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      const activeItemIds = new Set(activeItems.map((item) => item.id));
+
+      for (const itemId of mergeItemIds) {
+        if (!activeItemIds.has(itemId)) {
+          throw new Error(
+            `MERGE item ${itemId} is not available (must exist, belong to the business, and be active)`
+          );
+        }
+      }
+    }
+
+    // 🔒 בניית שורות ה־PO תוך שמירה על סדר השורות של ה־draft.
+    // CREATE_NEW יוצר פריט עם מלאי 0 בלבד — שום תנועת INITIAL_STOCK.
+    const plannedLines: Array<{
+      draftLineId: number;
+      itemId: number;
+      quantity: number;
+      decision: SupplierLineDecision;
+    }> = [];
+
     for (const draftLine of draft.lines) {
       const inputLine = lineMap.get(draftLine.id)!;
 
-      // ===== MERGE =====
       if (inputLine.action === "MERGE") {
-        await inventoryService.addStock(
-          {
-            businessId,
-            itemId: inputLine.itemId,
-            quantityDelta: draftLine.quantity,
-            reason: InventoryMovementReason.SUPPLIER_PURCHASE,
-            createdByUserId: userId,
-          },
-          { tx }
-        );
-
-        await tx.supplierPurchaseDraftLine.update({
-          where: { id: draftLine.id },
-          data: {
-            decision: SupplierLineDecision.MERGE,
-            matchedItemId: inputLine.itemId,
-            status: SupplierLineStatus.APPROVED,
-          },
+        plannedLines.push({
+          draftLineId: draftLine.id,
+          itemId: inputLine.itemId,
+          quantity: draftLine.quantity,
+          decision: SupplierLineDecision.MERGE,
         });
-      }
-
-      // ===== CREATE NEW =====
-      if (inputLine.action === "CREATE_NEW") {
+      } else {
         const createdItem = await inventoryService.createItemWithInitialStock(
           {
             businessId,
             name: inputLine.itemData.name,
             unitType: inputLine.itemData.unitType as any,
-            initialQuantity: draftLine.quantity,
+            initialQuantity: 0,
             minimumQuantity: 0,
             reorderPoint: 0,
             sku: inputLine.itemData.sku ?? undefined,
@@ -140,15 +168,73 @@ export async function approveSupplierPurchase(
           { tx }
         );
 
-        await tx.supplierPurchaseDraftLine.update({
-          where: { id: draftLine.id },
-          data: {
-            decision: SupplierLineDecision.CREATE_NEW,
-            matchedItemId: createdItem.id,
-            status: SupplierLineStatus.APPROVED,
-          },
+        plannedLines.push({
+          draftLineId: draftLine.id,
+          itemId: createdItem.id,
+          quantity: draftLine.quantity,
+          decision: SupplierLineDecision.CREATE_NEW,
         });
       }
+    }
+
+    // 🔒 Intent: PurchaseOrder (עם traceability ל־draft).
+    const purchaseOrder = await purchaseOrderService.createPurchaseOrder(
+      {
+        businessId,
+        createdByUserId: userId,
+        supplierName: draft.supplierName,
+        externalOrderId: draft.externalOrderId,
+        source: draft.source,
+        orderDate: draft.orderDate,
+        status: PurchaseOrderStatus.CONFIRMED,
+        sourceSupplierPurchaseDraftId: draft.id,
+        lines: plannedLines.map((line) => ({
+          itemId: line.itemId,
+          orderedQty: line.quantity,
+        })),
+      },
+      { tx }
+    );
+
+    // createPurchaseOrder מחזיר שורות בסדר id עולה = סדר היצירה = סדר plannedLines.
+    if (purchaseOrder.lines.length !== plannedLines.length) {
+      throw new Error("Purchase order line count mismatch");
+    }
+
+    // 🔒 Reality: ReceivingSession(DRAFT) לכל הכמות שהוזמנה.
+    const receivingSession = await receivingService.createReceivingSession(
+      {
+        businessId,
+        purchaseOrderId: purchaseOrder.id,
+        createdByUserId: userId,
+        lines: plannedLines.map((line, index) => ({
+          purchaseOrderLineId: purchaseOrder.lines[index].id,
+          receivedQty: line.quantity,
+        })),
+      },
+      { tx }
+    );
+
+    // 🔒 Result: POSTED — הכניסה החוקית היחידה למלאי.
+    await receivingService.postReceivingSession(
+      {
+        businessId,
+        receivingSessionId: receivingSession.id,
+        postedByUserId: userId,
+      },
+      { tx }
+    );
+
+    // שמירת ההחלטה על כל שורת draft (תאימות ל־UI/היסטוריה קיימים).
+    for (const line of plannedLines) {
+      await tx.supplierPurchaseDraftLine.update({
+        where: { id: line.draftLineId },
+        data: {
+          decision: line.decision,
+          matchedItemId: line.itemId,
+          status: SupplierLineStatus.APPROVED,
+        },
+      });
     }
 
     await tx.supplierPurchaseDraft.update({
@@ -162,5 +248,5 @@ export async function approveSupplierPurchase(
       success: true,
       draftId: draft.id,
     };
-  });
+  }, APPROVAL_TRANSACTION_OPTIONS);
 }
