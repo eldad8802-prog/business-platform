@@ -223,10 +223,7 @@ export async function POST(req: Request) {
     console.error("pricing calculate error:", error);
 
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Internal server error",
-        rawError: String(error),
-      },
+      { error: "Internal server error" },
       { status: 400 }
     );
   }
