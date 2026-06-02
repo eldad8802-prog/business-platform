@@ -27,14 +27,18 @@ function parsePlatformAdminEmails(): Set<string> {
 function isEmailAllowlisted(email: string): boolean {
   const allowlist = parsePlatformAdminEmails();
   if (allowlist.size === 0) {
-    return true;
+    // Fail closed in production: an unset/empty PLATFORM_ADMIN_EMAILS must
+    // never grant platform-admin access. Outside production we keep the
+    // convenient open behavior so local dev/test do not require the env.
+    return process.env.NODE_ENV !== "production";
   }
   return allowlist.has(email.trim().toLowerCase());
 }
 
 /**
- * Requires a valid Bearer token, PLATFORM_ADMIN role, and (when configured)
- * membership in PLATFORM_ADMIN_EMAILS.
+ * Requires a valid Bearer token, PLATFORM_ADMIN role, and membership in
+ * PLATFORM_ADMIN_EMAILS. In production an unset/empty allowlist denies all
+ * access (fail closed); in dev/test an empty allowlist is permissive.
  */
 export async function requirePlatformAdmin(
   req: Request
