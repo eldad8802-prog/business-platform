@@ -4,8 +4,6 @@ import { getCurrentUser } from "../../../../lib/auth";
 
 export async function GET(req: Request) {
   try {
-    console.log("pricing profiles GET headers:", Object.fromEntries(req.headers.entries()));
-
     const user = await getCurrentUser(req);
 
     if (!user) {
@@ -50,10 +48,7 @@ export async function GET(req: Request) {
     console.error("pricing profiles get error:", error);
 
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Internal server error",
-        rawError: String(error),
-      },
+      { error: "Internal server error" },
       { status: 400 }
     );
   }
@@ -61,8 +56,6 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    console.log("pricing profiles POST headers:", Object.fromEntries(req.headers.entries()));
-
     const user = await getCurrentUser(req);
 
     if (!user) {
@@ -160,10 +153,7 @@ export async function POST(req: Request) {
     console.error("pricing profiles post error:", error);
 
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Internal server error",
-        rawError: String(error),
-      },
+      { error: "Internal server error" },
       { status: 400 }
     );
   }

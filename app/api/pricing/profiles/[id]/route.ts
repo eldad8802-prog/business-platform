@@ -53,10 +53,7 @@ export async function GET(
     console.error("pricing profile get by id error:", error);
 
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Internal server error",
-        rawError: String(error),
-      },
+      { error: "Internal server error" },
       { status: 400 }
     );
   }
@@ -221,10 +218,7 @@ export async function PATCH(
     console.error("pricing profile patch error:", error);
 
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Internal server error",
-        rawError: String(error),
-      },
+      { error: "Internal server error" },
       { status: 400 }
     );
   }
@@ -289,10 +283,7 @@ export async function DELETE(
     console.error("pricing profile delete error:", error);
 
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Internal server error",
-        rawError: String(error),
-      },
+      { error: "Internal server error" },
       { status: 400 }
     );
   }

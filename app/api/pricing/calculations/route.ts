@@ -56,10 +56,7 @@ export async function GET(req: Request) {
     console.error("pricing calculations get error:", error);
 
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Internal server error",
-        rawError: String(error),
-      },
+      { error: "Internal server error" },
       { status: 400 }
     );
   }
