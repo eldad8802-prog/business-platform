@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
 
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await getCurrentUser(request);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const params = await context.params;
     const alertId = Number(params.id);
 
@@ -16,8 +22,8 @@ export async function PATCH(
       );
     }
 
-    const alert = await prisma.inventoryAlert.findUnique({
-      where: { id: alertId },
+    const alert = await prisma.inventoryAlert.findFirst({
+      where: { id: alertId, businessId: user.businessId },
     });
 
     if (!alert) {

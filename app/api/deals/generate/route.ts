@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
 import { runMatchingEngine } from "@/lib/collaboration/matchingEngine";
+import { getCurrentUser } from "@/lib/auth";
 
 export async function POST(req: Request) {
   try {
+    const user = await getCurrentUser(req);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json();
 
-    const { businessId, category, subCategory } = body;
+    const { category, subCategory } = body;
 
     const deals = await runMatchingEngine({
-      businessId,
+      businessId: user.businessId,
       category,
       subCategory,
     });
