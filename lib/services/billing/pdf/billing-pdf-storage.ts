@@ -1,26 +1,93 @@
-// Billing PDF storage adapter — local filesystem.
+// Billing PDF storage adapter — StorageService (R2/local) with legacy FS read fallback.
 //
-// The only layer that knows where PDF bytes live on disk. Swapping to S3 or
-// any other object store should require touching this file alone, preserving
-// the public surface (buildStorageKey / existsByKey / writeAtomic / readByKey).
+// Public surface preserved for billing services:
+//   buildStorageKey / existsByKey / writeAtomic / readByKey / unlinkByKeyQuiet
 //
-// Pure FS concern: must NOT import Prisma, pdfmake, or any Billing service.
+// New keys (v1.1): biz/{businessId}/billing/{documentId}/{hash}.pdf
+// Legacy keys:     billing/{businessId}/{documentId}/{hash}.pdf  (local FS read-only fallback)
 
-import { promises as fs } from "fs";
-import * as path from "path";
-import { randomBytes } from "crypto";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { getStorageService } from "@/lib/storage";
+import { StorageObjectNotFoundError } from "@/lib/storage/storage.errors";
 
 const STORAGE_ROOT_ENV = "BILLING_PDF_STORAGE_ROOT";
 const DEFAULT_STORAGE_ROOT = "./storage/billing-pdf";
 
-function getStorageRootAbsolute(): string {
+const LEGACY_KEY_PATTERN =
+  /^billing\/(\d+)\/(\d+)\/([a-f0-9]{64})\.pdf$/i;
+const V11_KEY_PATTERN =
+  /^biz\/(\d+)\/billing\/(\d+)\/([a-f0-9]{64})\.pdf$/i;
+
+type ParsedBillingStorageKey = {
+  businessId: number;
+  billingDocumentId: number;
+  pdfHash: string;
+  v11Key: string;
+  legacyKey: string;
+  isLegacy: boolean;
+};
+
+function getLegacyStorageRootAbsolute(): string {
   const raw = process.env[STORAGE_ROOT_ENV] ?? DEFAULT_STORAGE_ROOT;
   return path.resolve(raw);
 }
 
-// Storage key is a stable, POSIX-style relative path. The hash makes each
-// rendered version uniquely addressable, so concurrent renders that produce
-// the same bytes (deterministic pdfmake output) collapse onto the same file.
+function parseBillingStorageKey(storageKey: string): ParsedBillingStorageKey | null {
+  const v11Match = V11_KEY_PATTERN.exec(storageKey);
+  if (v11Match) {
+    const businessId = Number(v11Match[1]);
+    const billingDocumentId = Number(v11Match[2]);
+    const pdfHash = v11Match[3].toLowerCase();
+    const legacyKey = `billing/${businessId}/${billingDocumentId}/${pdfHash}.pdf`;
+    return {
+      businessId,
+      billingDocumentId,
+      pdfHash,
+      v11Key: storageKey,
+      legacyKey,
+      isLegacy: false,
+    };
+  }
+
+  const legacyMatch = LEGACY_KEY_PATTERN.exec(storageKey);
+  if (legacyMatch) {
+    const businessId = Number(legacyMatch[1]);
+    const billingDocumentId = Number(legacyMatch[2]);
+    const pdfHash = legacyMatch[3].toLowerCase();
+    return {
+      businessId,
+      billingDocumentId,
+      pdfHash,
+      v11Key: `biz/${businessId}/billing/${billingDocumentId}/${pdfHash}.pdf`,
+      legacyKey: storageKey,
+      isLegacy: true,
+    };
+  }
+
+  return null;
+}
+
+function resolveLegacyStoragePathStrict(storageKey: string): string {
+  if (!storageKey || typeof storageKey !== "string") {
+    throw new Error("resolveStoragePath: storageKey is required");
+  }
+  if (storageKey.includes("\0")) {
+    throw new Error("resolveStoragePath: invalid storageKey");
+  }
+
+  const root = getLegacyStorageRootAbsolute();
+  const normalizedKey = storageKey.split("/").join(path.sep);
+  const absolute = path.resolve(root, normalizedKey);
+  const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
+
+  if (absolute !== root && !absolute.startsWith(rootWithSep)) {
+    throw new Error("resolveStoragePath: storageKey escapes storage root");
+  }
+
+  return absolute;
+}
+
 export function buildStorageKey(
   businessId: number,
   billingDocumentId: number,
@@ -35,32 +102,12 @@ export function buildStorageKey(
   if (!/^[a-f0-9]{64}$/i.test(pdfHash)) {
     throw new Error("buildStorageKey: pdfHash must be a 64-char hex sha256");
   }
-  return `billing/${businessId}/${billingDocumentId}/${pdfHash}.pdf`;
+
+  return `biz/${businessId}/billing/${billingDocumentId}/${pdfHash.toLowerCase()}.pdf`;
 }
 
-// Resolve a storage key to an absolute path under the configured root,
-// rejecting any traversal attempt that would escape the root.
-function resolveStoragePathStrict(storageKey: string): string {
-  if (!storageKey || typeof storageKey !== "string") {
-    throw new Error("resolveStoragePath: storageKey is required");
-  }
-  if (storageKey.includes("\0")) {
-    throw new Error("resolveStoragePath: invalid storageKey");
-  }
-  const root = getStorageRootAbsolute();
-  // Normalize the key to platform separators for path.resolve.
-  const normalizedKey = storageKey.split("/").join(path.sep);
-  const absolute = path.resolve(root, normalizedKey);
-  // Containment check: the absolute path must be exactly inside the root.
-  const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
-  if (absolute !== root && !absolute.startsWith(rootWithSep)) {
-    throw new Error("resolveStoragePath: storageKey escapes storage root");
-  }
-  return absolute;
-}
-
-export async function existsByKey(storageKey: string): Promise<boolean> {
-  const absolute = resolveStoragePathStrict(storageKey);
+async function legacyLocalExists(storageKey: string): Promise<boolean> {
+  const absolute = resolveLegacyStoragePathStrict(storageKey);
   try {
     const stat = await fs.stat(absolute);
     return stat.isFile() && stat.size > 0;
@@ -75,62 +122,101 @@ export async function existsByKey(storageKey: string): Promise<boolean> {
   }
 }
 
-export async function readByKey(storageKey: string): Promise<Buffer> {
-  const absolute = resolveStoragePathStrict(storageKey);
+async function legacyLocalRead(storageKey: string): Promise<Buffer> {
+  const absolute = resolveLegacyStoragePathStrict(storageKey);
   return await fs.readFile(absolute);
 }
 
-// Atomic write: stage to a unique temp file inside the same directory, then
-// rename onto the final path. The temp lives next to the destination so the
-// rename is a same-volume operation (atomic on POSIX, replace-existing on
-// Windows when EEXIST/EPERM is raised).
+async function legacyLocalUnlinkQuiet(storageKey: string): Promise<void> {
+  try {
+    const absolute = resolveLegacyStoragePathStrict(storageKey);
+    await fs.unlink(absolute);
+  } catch {
+    // ignore
+  }
+}
+
+export async function existsByKey(storageKey: string): Promise<boolean> {
+  const parsed = parseBillingStorageKey(storageKey);
+  if (!parsed) {
+    return false;
+  }
+
+  if (!parsed.isLegacy) {
+    const head = await getStorageService().headObject(parsed.v11Key);
+    return head.exists && (head.metadata?.size ?? 0) > 0;
+  }
+
+  // Legacy DB keys: try StorageService v1.1 key first, then local FS fallback.
+  const head = await getStorageService().headObject(parsed.v11Key);
+  if (head.exists && (head.metadata?.size ?? 0) > 0) {
+    return true;
+  }
+
+  return legacyLocalExists(parsed.legacyKey);
+}
+
+export async function readByKey(storageKey: string): Promise<Buffer> {
+  const parsed = parseBillingStorageKey(storageKey);
+  if (!parsed) {
+    throw new Error("readByKey: unsupported billing pdf storage key");
+  }
+
+  if (!parsed.isLegacy) {
+    const result = await getStorageService().getObject(parsed.v11Key);
+    return result.body;
+  }
+
+  try {
+    const result = await getStorageService().getObject(parsed.v11Key);
+    return result.body;
+  } catch (error) {
+    if (!(error instanceof StorageObjectNotFoundError)) {
+      throw error;
+    }
+  }
+
+  return legacyLocalRead(parsed.legacyKey);
+}
+
 export async function writeAtomic(
   storageKey: string,
   buffer: Buffer
 ): Promise<void> {
-  const absolute = resolveStoragePathStrict(storageKey);
-  const dir = path.dirname(absolute);
-  await fs.mkdir(dir, { recursive: true });
-
-  const tmpPath = `${absolute}.tmp.${randomBytes(6).toString("hex")}`;
-  try {
-    await fs.writeFile(tmpPath, buffer);
-    try {
-      await fs.rename(tmpPath, absolute);
-    } catch (err: unknown) {
-      const code = (err as NodeJS.ErrnoException | undefined)?.code;
-      // Windows can refuse rename-over-existing with EEXIST or EPERM; clear
-      // the destination once and retry. Same-volume so still effectively
-      // atomic from any reader's point of view.
-      if (code === "EEXIST" || code === "EPERM") {
-        try {
-          await fs.unlink(absolute);
-        } catch {
-          // ignore: dest may have been removed by a concurrent writer
-        }
-        await fs.rename(tmpPath, absolute);
-      } else {
-        throw err;
-      }
-    }
-  } catch (err) {
-    try {
-      await fs.unlink(tmpPath);
-    } catch {
-      // best-effort tmp cleanup
-    }
-    throw err;
+  const parsed = parseBillingStorageKey(storageKey);
+  if (!parsed) {
+    throw new Error("writeAtomic: unsupported billing pdf storage key");
   }
+
+  await getStorageService().putObject({
+    key: parsed.v11Key,
+    body: buffer,
+    contentType: "application/pdf",
+    metadata: {
+      businessId: parsed.businessId,
+      domain: "billing",
+      visibility: "private",
+      custom: {
+        billingDocumentId: String(parsed.billingDocumentId),
+        pdfHash: parsed.pdfHash,
+      },
+    },
+  });
 }
 
-// Best-effort cleanup; never throws. Used when render succeeds but the DB
-// update fails and we want to avoid leaving orphan files. Safe to call
-// when the file does not exist.
 export async function unlinkByKeyQuiet(storageKey: string): Promise<void> {
+  const parsed = parseBillingStorageKey(storageKey);
+  if (!parsed) {
+    return;
+  }
+
   try {
-    const absolute = resolveStoragePathStrict(storageKey);
-    await fs.unlink(absolute);
+    await getStorageService().deleteObject(parsed.v11Key);
   } catch {
     // ignore
+  }
+
+  if (parsed.isLegacy) {
+    await legacyLocalUnlinkQuiet(parsed.legacyKey);
   }
 }
