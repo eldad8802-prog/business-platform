@@ -67,8 +67,11 @@ tsc_final.txt
 tmp_qa/*.json
 tmp_qa/*.log
 
-# local screenshot artifacts
-/artifacts/screenshots/
+# local artifacts (debug exports, screenshots) - keep out of git
+/artifacts/
+
+# local docs screenshots
+/docs/screenshots/
 
 # prisma local db files (never commit)
 /prisma/*.db
