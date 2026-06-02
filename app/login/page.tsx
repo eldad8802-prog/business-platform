@@ -143,6 +143,10 @@ export default function LoginPage() {
 
       window.localStorage.setItem("token", data.token);
 
+      if (data.sessionId) {
+        window.localStorage.setItem("sessionId", data.sessionId);
+      }
+
       if (data.user) {
         window.localStorage.setItem("user", JSON.stringify(data.user));
       } else {
