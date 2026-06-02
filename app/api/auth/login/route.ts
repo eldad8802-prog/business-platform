@@ -106,7 +106,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      token: String(user.id),
+      token: signAuthToken(user.id),
       sessionId,
       user: {
         id: user.id,
