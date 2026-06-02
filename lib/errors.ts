@@ -1,10 +1,12 @@
 export class AppError extends Error {
   statusCode: number;
+  code?: string;
 
-  constructor(message: string, statusCode: number) {
+  constructor(message: string, statusCode: number, code?: string) {
     super(message);
     this.name = "AppError";
     this.statusCode = statusCode;
+    this.code = code;
   }
 }
 
@@ -16,8 +18,8 @@ export class UnauthorizedError extends AppError {
 }
 
 export class ForbiddenError extends AppError {
-  constructor(message = "Forbidden") {
-    super(message, 403);
+  constructor(message = "Forbidden", code?: string) {
+    super(message, 403, code);
     this.name = "ForbiddenError";
   }
 }
@@ -33,5 +35,19 @@ export class ValidationError extends AppError {
   constructor(message = "Validation Error") {
     super(message, 400);
     this.name = "ValidationError";
+  }
+}
+
+export class ConflictError extends AppError {
+  constructor(code = "NO_CHANGE", message?: string) {
+    super(message ?? code, 409, code);
+    this.name = "ConflictError";
+  }
+}
+
+export class ServiceUnavailableError extends AppError {
+  constructor(message = "Feature access mutations are disabled") {
+    super(message, 503);
+    this.name = "ServiceUnavailableError";
   }
 }
