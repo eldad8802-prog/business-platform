@@ -188,6 +188,7 @@ model Business {
   replySuggestions          ReplySuggestion[]
   supplierPurchaseDrafts    SupplierPurchaseDraft[]
   tasks                     Task[]
+  appointments              Appointment[]
   users                     User[]
   vendorLearnings           VendorLearning[]
   contentRuns               ContentRun[]
@@ -217,6 +218,7 @@ model User {
   billingAuditEvents  BillingAuditEvent[]
   platformAuditEvents PlatformAuditEvent[]
   productUsageEvents  ProductUsageEvent[]
+  appointmentsCreated Appointment[]
 }
 
 /// Append-only product usage analytics (distinct from weekly `Usage` quota counters).
@@ -394,6 +396,7 @@ model Lead {
   conversations Conversation[]
   deals         Deal[]
   business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  appointments  Appointment[]
 }
 
 model Customer {
@@ -414,6 +417,7 @@ model Customer {
   conversations    Conversation[]
   business         Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
   messages         Message[]
+  appointments     Appointment[]
 
   @@unique([businessId, phone])
 }
@@ -560,6 +564,7 @@ model Conversation {
   lead                      Lead?                      @relation(fields: [leadId], references: [id])
   messages                  Message[]
   replySuggestions          ReplySuggestion[]
+  appointments              Appointment[]
 }
 
 model Message {
@@ -609,6 +614,7 @@ model Message {
   analysis                  MessageAnalysis?
   sourceForSuggestions      ReplySuggestion[]   @relation("SuggestionSourceMessage")
   sentSuggestionFor         ReplySuggestion?    @relation("SuggestionSentMessage")
+  appointments              Appointment[]
 }
 
 model MessageAnalysis {
@@ -787,6 +793,40 @@ model Task {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   business    Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+/// Appointment business object (Step 1 — data layer only).
+/// Created from a Pending Appointment in a later step; channel-agnostic so the
+/// owner UI, the bot, and future surfaces all persist through the same shape.
+/// Source links (conversation/message/customer/lead) are nullable to allow
+/// future creation paths that do not originate from a conversation.
+model Appointment {
+  id                   Int               @id @default(autoincrement())
+  businessId           Int
+  status               AppointmentStatus @default(PROPOSED)
+  startsAt             DateTime?
+  durationMinutes      Int?
+  title                String?
+  notes                String?
+  createdByActor       CreatedByActor
+  sourceChannel        SourceChannel
+  createdByUserId      Int
+  sourceConversationId Int?
+  sourceMessageId      Int?
+  customerId           Int?
+  leadId               Int?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  business             Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdByUser        User              @relation(fields: [createdByUserId], references: [id])
+  sourceConversation   Conversation?     @relation(fields: [sourceConversationId], references: [id])
+  sourceMessage        Message?          @relation(fields: [sourceMessageId], references: [id])
+  customer             Customer?         @relation(fields: [customerId], references: [id])
+  lead                 Lead?             @relation(fields: [leadId], references: [id])
+
+  @@index([businessId, startsAt])
+  @@index([businessId, status])
+  @@index([businessId, createdAt])
 }
 
 model FinancialDocument {
@@ -1824,4 +1864,27 @@ enum FinancialEventSourceType {
 
 enum FinancialEventStatus {
   POSTED
+}
+
+enum AppointmentStatus {
+  PROPOSED
+  CONFIRMED
+  COMPLETED
+  NO_SHOW
+  CANCELED
+}
+
+enum CreatedByActor {
+  OWNER
+  BOT
+  SYSTEM
+}
+
+enum SourceChannel {
+  INBOX_WEB
+  MOBILE
+  WHATSAPP_BOT
+  PUBLIC_BOOKING
+  EXTERNAL_API
+  IMPORT
 }
