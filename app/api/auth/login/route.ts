@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { AuthTokenConfigError, signAuthToken } from "@/lib/auth";
 import bcrypt from "bcrypt";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
 import {
@@ -116,6 +117,19 @@ export async function POST(req: Request) {
       },
     });
   } catch (error) {
+    if (error instanceof AuthTokenConfigError) {
+      console.error("LOGIN_ERROR:", error.message);
+      return NextResponse.json(
+        {
+          error:
+            process.env.NODE_ENV === "production"
+              ? "Server configuration error"
+              : error.message,
+        },
+        { status: 503 }
+      );
+    }
+
     console.error("LOGIN_ERROR:", error);
 
     return NextResponse.json({ error: "Server error" }, { status: 500 });
