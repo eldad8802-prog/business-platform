@@ -29,12 +29,6 @@ export async function getInventoryAuthenticatedUser(
     throw new InventoryUnauthorizedError("Missing token");
   }
 
-  const userId = Number(token);
-
-  if (!userId || Number.isNaN(userId)) {
-    throw new InventoryUnauthorizedError("Invalid token");
-  }
-
   const user = await getCurrentUser(request);
 
   if (!user) {
@@ -62,9 +56,7 @@ export async function getInventoryAuthenticatedUserBasic(
   }
 
   const token = authorizationHeader.replace("Bearer ", "").trim();
-  const userId = Number(token);
-
-  if (!userId || Number.isNaN(userId)) {
+  if (!token) {
     throw new InventoryUnauthorizedError("Invalid token");
   }
 

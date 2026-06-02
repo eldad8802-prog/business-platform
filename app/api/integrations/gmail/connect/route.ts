@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import { buildGmailAuthorizeUrl } from "@/lib/services/integrations/gmail/oauth-url.service";
 import { createPkcePair } from "@/lib/services/integrations/gmail/pkce-cookie.service";
 import { createOauthState } from "@/lib/services/integrations/gmail/state-cookie.service";
@@ -33,23 +32,7 @@ function cookieOptions(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-
-    const user = authHeader
-      ? await getCurrentUser(req)
-      : process.env.NODE_ENV !== "production"
-        ? await (async () => {
-            const devUserIdRaw = req.nextUrl.searchParams.get("devUserId");
-            const devUserId = Number(devUserIdRaw);
-
-            if (devUserId !== 1) return null;
-
-            return prisma.user.findUnique({
-              where: { id: devUserId },
-              include: { business: true },
-            });
-          })()
-        : null;
+    const user = await getCurrentUser(req);
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

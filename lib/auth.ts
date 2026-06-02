@@ -1,4 +1,7 @@
 import { prisma } from "./prisma";
+import { verifyAuthToken } from "./auth-token";
+
+export { AuthTokenConfigError, signAuthToken, verifyAuthToken } from "./auth-token";
 
 export async function getCurrentUser(req: Request) {
   try {
@@ -8,10 +11,15 @@ export async function getCurrentUser(req: Request) {
       return null;
     }
 
-    const token = authHeader.split(" ")[1];
+    const token = authHeader.slice("Bearer ".length).trim();
+    if (!token) {
+      return null;
+    }
 
-    const userId = Number(token);
-    if (isNaN(userId)) return null;
+    const userId = verifyAuthToken(token);
+    if (userId === null) {
+      return null;
+    }
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
