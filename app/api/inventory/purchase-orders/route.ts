@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { PurchaseOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { purchaseOrderService } from "@/lib/services/inventory/purchase-order.service";
+import { getInventoryAuthenticatedUser as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
   InventoryError,
   InventoryNotFoundError,
@@ -9,51 +10,6 @@ import {
   InventoryValidationError,
   NegativeInventoryError,
 } from "@/lib/services/inventory/inventory.errors";
-
-type AuthenticatedUser = {
-  id: number;
-  businessId: number;
-  email: string;
-  name: string | null;
-};
-
-async function getAuthenticatedUser(
-  request: NextRequest
-): Promise<AuthenticatedUser> {
-  const authorizationHeader = request.headers.get("authorization");
-
-  if (!authorizationHeader?.startsWith("Bearer ")) {
-    throw new InventoryUnauthorizedError("Missing or invalid authorization header");
-  }
-
-  const token = authorizationHeader.replace("Bearer ", "").trim();
-
-  if (!token) {
-    throw new InventoryUnauthorizedError("Missing token");
-  }
-
-  const userId = Number(token);
-
-  if (!userId || Number.isNaN(userId)) {
-    throw new InventoryUnauthorizedError("Invalid token");
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      businessId: true,
-    },
-  });
-
-  if (!user) {
-    throw new InventoryUnauthorizedError("User not found");
-  }
-
-  return user;
-}
 
 function parseStatus(value: string | null): PurchaseOrderStatus | null {
   if (!value) return null;

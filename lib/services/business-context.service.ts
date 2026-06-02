@@ -1,3 +1,4 @@
+import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export type BusinessContext = {
@@ -8,52 +9,6 @@ export type BusinessContext = {
   city?: string;
   mainService?: string;
 };
-
-type CurrentUserLike = {
-  id: number;
-  businessId?: number | null;
-};
-
-function extractBearerToken(req: Request) {
-  const authHeader = req.headers.get("authorization") || "";
-  const [type, token] = authHeader.split(" ");
-
-  if (type !== "Bearer" || !token) {
-    return "";
-  }
-
-  return token.trim();
-}
-
-async function getCurrentUserFromRequest(
-  req: Request
-): Promise<CurrentUserLike | null> {
-  const token = extractBearerToken(req);
-
-  if (!token) {
-    return null;
-  }
-
-  const userId = Number(token);
-
-  if (!userId || Number.isNaN(userId)) {
-    return null;
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      businessId: true,
-    },
-  });
-
-  if (!user) {
-    return null;
-  }
-
-  return user;
-}
 
 export async function getBusinessContextByBusinessId(
   businessId?: number | null
@@ -93,7 +48,7 @@ export async function getBusinessContextByBusinessId(
 export async function getCurrentBusinessContext(
   req: Request
 ): Promise<BusinessContext> {
-  const currentUser = await getCurrentUserFromRequest(req);
+  const currentUser = await getCurrentUser(req);
 
   if (!currentUser?.businessId) {
     return {};

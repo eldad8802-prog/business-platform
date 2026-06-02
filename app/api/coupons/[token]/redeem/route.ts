@@ -1,34 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { redeemCoupon } from "@/lib/services/redeem.service";
 import { handleError } from "@/lib/handle-error";
-import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
 import { ValidationError } from "@/lib/errors";
 
 async function getAuthenticatedBusinessId(req: NextRequest) {
-  const authHeader = req.headers.get("authorization");
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    throw new ValidationError("Unauthorized");
-  }
-
-  const token = authHeader.replace("Bearer ", "").trim();
-
-  if (!token) {
-    throw new ValidationError("Unauthorized");
-  }
-
-  const userId = Number(token);
-
-  if (!userId || Number.isNaN(userId)) {
-    throw new ValidationError("Unauthorized");
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      businessId: true,
-    },
-  });
+  const user = await getCurrentUser(req);
 
   if (!user?.businessId) {
     throw new ValidationError("Unauthorized");

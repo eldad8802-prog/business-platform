@@ -1,27 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
 import { saveInventoryImage } from "@/lib/services/inventory/inventory-image.service";
-
-async function getUser(request: NextRequest) {
-  const auth = request.headers.get("authorization");
-
-  if (!auth?.startsWith("Bearer ")) {
-    throw new Error("UNAUTHORIZED");
-  }
-
-  const token = auth.replace("Bearer ", "");
-  const userId = Number(token);
-
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-  });
-
-  if (!user) {
-    throw new Error("UNAUTHORIZED");
-  }
-
-  return user;
-}
 
 function getItemId(request: NextRequest) {
   const parts = request.nextUrl.pathname.split("/");
@@ -36,7 +16,10 @@ function getItemId(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getUser(request);
+    const user = await getCurrentUser(request);
+    if (!user) {
+      throw new Error("UNAUTHORIZED");
+    }
     const itemId = getItemId(request);
 
     const item = await prisma.inventoryItem.findFirst({
