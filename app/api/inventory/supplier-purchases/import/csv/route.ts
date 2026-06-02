@@ -12,53 +12,9 @@ import { CsvSupplierConnector } from "@/lib/services/supplier-connectors/csv/csv
 import { mapNormalizedSupplierOrderToDraftInput } from "@/lib/services/supplier-connectors/supplier-order-to-draft.adapter";
 import { SupplierPurchaseDraftStatus } from "@prisma/client";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
+import { getInventoryAuthenticatedUser as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 
 export const runtime = "nodejs";
-
-type AuthenticatedUser = {
-  id: number;
-  businessId: number;
-  email: string;
-  name: string | null;
-};
-
-async function getAuthenticatedUser(
-  request: NextRequest
-): Promise<AuthenticatedUser> {
-  const authorizationHeader = request.headers.get("authorization");
-
-  if (!authorizationHeader?.startsWith("Bearer ")) {
-    throw new InventoryUnauthorizedError("Missing or invalid authorization header");
-  }
-
-  const token = authorizationHeader.replace("Bearer ", "").trim();
-
-  if (!token) {
-    throw new InventoryUnauthorizedError("Missing token");
-  }
-
-  const userId = Number(token);
-
-  if (!userId || Number.isNaN(userId)) {
-    throw new InventoryUnauthorizedError("Invalid token");
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      businessId: true,
-    },
-  });
-
-  if (!user) {
-    throw new InventoryUnauthorizedError("User not found");
-  }
-
-  return user;
-}
 
 function handleInventoryError(error: unknown) {
   if (error instanceof InventoryUnauthorizedError) {

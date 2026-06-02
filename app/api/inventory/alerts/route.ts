@@ -1,33 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { InventoryAlertType } from "@prisma/client";
-
-async function getAuthenticatedUser(request: NextRequest) {
-  const authorizationHeader = request.headers.get("authorization");
-
-  if (!authorizationHeader?.startsWith("Bearer ")) {
-    return null;
-  }
-
-  const token = authorizationHeader.replace("Bearer ", "").trim();
-  const userId = Number(token);
-
-  if (!userId || Number.isNaN(userId)) {
-    return null;
-  }
-
-  return prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      businessId: true,
-    },
-  });
-}
+import { getCurrentUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser(request);
+    const user = await getCurrentUser(request);
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

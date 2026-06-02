@@ -1,39 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-
-type AuthenticatedUser = {
-  id: number;
-  businessId: number;
-};
-
-async function getAuthenticatedUser(request: NextRequest): Promise<AuthenticatedUser> {
-  const auth = request.headers.get("authorization");
-
-  if (!auth?.startsWith("Bearer ")) {
-    return Promise.reject(new Error("UNAUTHORIZED"));
-  }
-
-  const userId = Number(auth.replace("Bearer ", "").trim());
-
-  if (!userId || Number.isNaN(userId)) {
-    return Promise.reject(new Error("UNAUTHORIZED"));
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, businessId: true },
-  });
-
-  if (!user) {
-    return Promise.reject(new Error("UNAUTHORIZED"));
-  }
-
-  return user;
-}
+import { getCurrentUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser(request);
+    const user = await getCurrentUser(request);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const categories = await prisma.inventoryCategory.findMany({
       where: { businessId: user.businessId },
@@ -56,7 +30,10 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getAuthenticatedUser(request);
+    const user = await getCurrentUser(request);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const body = await request.json();
 
     const name =
