@@ -1,0 +1,26 @@
+/** Internal business row for platform admins (User.businessId is required). */
+export const PLATFORM_SYSTEM_BUSINESS_NAME = "__PLATFORM_SYSTEM__";
+
+export const PLATFORM_AUDIT_ACTIONS = {
+  OVERVIEW_VIEWED: "PLATFORM_ADMIN_OVERVIEW_VIEWED",
+  BUSINESSES_LIST_VIEWED: "PLATFORM_ADMIN_BUSINESSES_LIST_VIEWED",
+  ATTENTION_VIEWED: "PLATFORM_ADMIN_ATTENTION_VIEWED",
+  USAGE_OVERVIEW_VIEWED: "PLATFORM_ADMIN_USAGE_OVERVIEW_VIEWED",
+  BUSINESS_DETAIL_VIEWED: "PLATFORM_ADMIN_BUSINESS_DETAIL_VIEWED",
+  AUDIT_VIEWED: "PLATFORM_ADMIN_AUDIT_VIEWED",
+  /** @deprecated No longer written; kept for audit viewer labels on legacy rows. */
+  SESSION_VIEWED: "PLATFORM_ADMIN_SESSION_VIEWED",
+  AREA_ENTERED: "PLATFORM_ADMIN_AREA_ENTERED",
+  FEATURE_ACCESS_UPDATED: "PLATFORM_FEATURE_ACCESS_UPDATED",
+} as const;
+
+/** Throttle window for AREA_ENTERED per admin (minutes). */
+export const PLATFORM_ADMIN_AREA_ENTERED_THROTTLE_MINUTES = 15;
+
+/** Platform-wide document backlog before surfacing in attention feed. */
+export const PLATFORM_DOC_BACKLOG_THRESHOLD = 10;
+
+/** Per-business document backlog threshold. */
+export const BUSINESS_DOC_BACKLOG_THRESHOLD = 3;
+
+export const MAX_ATTENTION_ITEMS = 12;
