@@ -3,11 +3,17 @@ import {
   PrismaClient,
   CollaborationDealStatus,
 } from "@prisma/client";
+import { getCurrentUser } from "@/lib/auth";
 
 const prisma = new PrismaClient();
 
 export async function PATCH(request: Request) {
   try {
+    const user = await getCurrentUser(request);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const url = new URL(request.url);
     const pathnameParts = url.pathname.split("/");
     const dealId = pathnameParts[pathnameParts.length - 1];
@@ -38,8 +44,8 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const existingDeal = await prisma.collaborationDeal.findUnique({
-      where: { id: dealId },
+    const existingDeal = await prisma.collaborationDeal.findFirst({
+      where: { id: dealId, businessId: user.businessId },
     });
 
     if (!existingDeal) {

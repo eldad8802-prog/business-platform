@@ -1,12 +1,19 @@
 import { NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
+import { getCurrentUser } from "@/lib/auth";
 
 const prisma = new PrismaClient();
 
 // 📌 GET deals
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const user = await getCurrentUser(req);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const deals = await prisma.collaborationDeal.findMany({
+      where: { businessId: user.businessId },
       orderBy: { createdAt: "desc" },
     });
 
