@@ -13,7 +13,12 @@ import type { ConversationStage } from "@prisma/client";
  * as input. It returns the next stage, or null if no transition should occur.
  */
 
-export type AnalysisIntent = "price" | "availability" | "booking" | "unclear";
+export type AnalysisIntent =
+  | "price"
+  | "availability"
+  | "booking"
+  | "follow_up_request"
+  | "unclear";
 export type AnalysisStage = "early" | "middle" | "closing";
 
 export type AnalysisInput = {

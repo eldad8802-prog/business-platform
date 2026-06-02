@@ -3,14 +3,57 @@ type ContextMessage = {
   contentText: string | null;
 };
 
-type IntentLabel = "price" | "availability" | "booking" | "unclear";
+type IntentLabel =
+  | "price"
+  | "availability"
+  | "booking"
+  | "follow_up_request"
+  | "unclear";
+
+/**
+ * Conservative Follow-Up keyword set. We deliberately exclude vague phrases
+ * like "עוד מעט", "מאוחר יותר", "בהמשך" because they produce false positives
+ * in normal conversation (e.g. "אני אבדוק בהמשך אם זה מתאים"). MVP rule:
+ * prefer missing a real follow-up over manufacturing a fake one.
+ */
+const FOLLOW_UP_KEYWORDS: readonly string[] = [
+  "תחזור אליי",
+  "תחזרו אליי",
+  "תחזור אלי",
+  "תחזרו אלי",
+  "תחזור",
+  "תחזיר",
+  "תזכיר לי",
+  "תזכיר",
+  "אני אחזור",
+  "אני אבדוק",
+  "נדבר",
+  "תתקשר אליי",
+  "תתקשרו אליי",
+  "תתקשר",
+  "תתקשרי",
+  "תתקשרו",
+];
+
+/**
+ * Disambiguation: "מתי" alone routes to availability, but when paired with
+ * a clear booking word ("להגיע" / "לקבוע" / "תור" / "פגישה") the customer
+ * is asking when to come / book — that's a booking intent, not a stock
+ * availability question. Narrow rule by request; no broader engine change.
+ */
+const BOOKING_TIME_DISAMBIGUATION_WORDS: readonly string[] = [
+  "להגיע",
+  "לקבוע",
+  "תור",
+  "פגישה",
+];
 type StageLabel = "early" | "middle" | "closing";
 
 function normalizeText(text: string) {
   return text.toLowerCase().trim();
 }
 
-function includesAny(text: string, keywords: string[]) {
+function includesAny(text: string, keywords: readonly string[]) {
   return keywords.some((keyword) => text.includes(keyword));
 }
 
@@ -24,6 +67,14 @@ function buildContextText(contextMessages: ContextMessage[]) {
 function detectDirectIntent(text: string): IntentLabel | null {
   if (includesAny(text, ["כמה", "מחיר", "עולה", "עלות"])) {
     return "price";
+  }
+
+  // Narrow precedence: "מתי" + clear booking word → booking, not availability.
+  if (
+    text.includes("מתי") &&
+    includesAny(text, BOOKING_TIME_DISAMBIGUATION_WORDS)
+  ) {
+    return "booking";
   }
 
   if (includesAny(text, ["מקום", "זמינות", "פנוי", "פנויה", "מתי"])) {
@@ -53,6 +104,10 @@ function detectDirectIntent(text: string): IntentLabel | null {
     ])
   ) {
     return "booking";
+  }
+
+  if (includesAny(text, FOLLOW_UP_KEYWORDS)) {
+    return "follow_up_request";
   }
 
   return null;
