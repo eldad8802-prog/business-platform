@@ -4,7 +4,10 @@ import { AppError } from "@/lib/errors";
 export function handleError(error: unknown) {
   if (error instanceof AppError) {
     return NextResponse.json(
-      { error: error.message },
+      {
+        error: error.message,
+        ...(error.code ? { code: error.code } : {}),
+      },
       { status: error.statusCode }
     );
   }
