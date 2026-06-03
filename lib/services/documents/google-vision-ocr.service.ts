@@ -1,9 +1,68 @@
-import vision from "@google-cloud/vision";
+import vision, { ImageAnnotatorClient } from "@google-cloud/vision";
 import fs from "fs";
 import path from "path";
 
-function resolveCredentialsPath() {
+const CREDENTIALS_ENV = "GOOGLE_VISION_CREDENTIALS_JSON";
+
+export class GoogleVisionConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GoogleVisionConfigError";
+  }
+}
+
+function legacyCredentialsPath(): string {
   return path.join(process.cwd(), "secrets/google-vision-key.json");
+}
+
+function parseCredentialsFromEnv(): Record<string, unknown> | null {
+  const raw = process.env[CREDENTIALS_ENV]?.trim();
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new GoogleVisionConfigError(
+        `${CREDENTIALS_ENV} must be a JSON object`
+      );
+    }
+    return parsed as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof GoogleVisionConfigError) {
+      throw error;
+    }
+    throw new GoogleVisionConfigError(`${CREDENTIALS_ENV} is invalid JSON`);
+  }
+}
+
+function createVisionClient(): ImageAnnotatorClient {
+  const fromEnv = parseCredentialsFromEnv();
+  if (fromEnv) {
+    return new vision.ImageAnnotatorClient({
+      credentials: fromEnv,
+      fallback: true,
+    });
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new GoogleVisionConfigError(
+      "Google Vision credentials not configured. Set GOOGLE_VISION_CREDENTIALS_JSON in production."
+    );
+  }
+
+  const credentialsPath = legacyCredentialsPath();
+  if (fs.existsSync(credentialsPath)) {
+    return new vision.ImageAnnotatorClient({
+      keyFilename: credentialsPath,
+      fallback: true,
+    });
+  }
+
+  throw new GoogleVisionConfigError(
+    "Google Vision credentials not configured. Set GOOGLE_VISION_CREDENTIALS_JSON or provide secrets/google-vision-key.json"
+  );
 }
 
 export async function runGoogleVisionOCR(
@@ -12,39 +71,15 @@ export async function runGoogleVisionOCR(
 ): Promise<string> {
   try {
     console.log("========== GOOGLE VISION OCR START ==========");
-
-    const credentialsPath = resolveCredentialsPath();
-
-    console.log("credentialsPath:", credentialsPath);
     console.log("filePath:", filePath);
     console.log("mimeType:", mimeType);
+    console.log("credentials source:", parseCredentialsFromEnv() ? "env" : "file");
 
-    console.log("file exists:", fs.existsSync(filePath));
-    console.log("credentials exists:", fs.existsSync(credentialsPath));
-
-    if (!credentialsPath || !fs.existsSync(credentialsPath)) {
-      throw new Error("Google Vision credentials file not found");
-    }
+    const client = createVisionClient();
 
     if (!fs.existsSync(filePath)) {
       throw new Error("File not found for OCR");
     }
-
-    // קריאת הקובץ כדי לבדוק שהוא תקין
-    try {
-      const raw = fs.readFileSync(credentialsPath, "utf-8");
-      const parsed = JSON.parse(raw);
-
-      console.log("credentials project_id:", parsed.project_id);
-      console.log("credentials client_email:", parsed.client_email);
-    } catch (e) {
-      console.error("FAILED TO PARSE CREDENTIALS:", e);
-    }
-
-    const client = new vision.ImageAnnotatorClient({
-  keyFilename: credentialsPath,
-  fallback: true,
-});
     const isPdf =
       mimeType === "application/pdf" ||
       filePath.toLowerCase().endsWith(".pdf");
@@ -68,7 +103,9 @@ export async function runGoogleVisionOCR(
 
       const pages = batchResult.responses?.[0]?.responses ?? [];
       const text = pages
-        .map((p) => p.fullTextAnnotation?.text || "")
+        .map((p: { fullTextAnnotation?: { text?: string | null } | null }) =>
+          p.fullTextAnnotation?.text || ""
+        )
         .join("\n")
         .trim();
 
@@ -89,20 +126,10 @@ export async function runGoogleVisionOCR(
     console.log("IMAGE preview:", text.slice(0, 300));
 
     return text.trim();
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("========== GOOGLE VISION OCR ERROR ==========");
-    console.error("FULL:", error);
-    console.error("message:", error?.message);
-    console.error("code:", error?.code);
-    console.error("details:", error?.details);
-    console.error("stack:", error?.stack);
-
-    try {
-      console.error("json:", JSON.stringify(error, null, 2));
-    } catch {}
-
+    console.error(error);
     console.error("============================================");
-
     throw error;
   }
 }
