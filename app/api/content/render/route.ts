@@ -3,6 +3,7 @@ import { createCreatomateRender } from "@/lib/services/creatomate.service";
 import type { RenderBlueprint } from "@/lib/features/content/render-blueprint/types";
 import { getCurrentUser } from "@/lib/auth";
 import { isSubstantiveContentGoalBrief } from "@/lib/content/content-goal-prompt-normalize";
+import { normalizeAssetUrlsForCreatomate } from "@/lib/services/storage/public-asset-storage.service";
 
 type ContentFlow = {
   selectedFormat?: "reel" | "video" | "image" | "post";
@@ -71,7 +72,9 @@ export async function POST(req: Request) {
     const selectedVariant = result?.selectedVariant;
     const script = selectedVariant?.script;
     const shots = script?.shots || [];
-    const assetUrls = Object.values(assetsMap).filter(Boolean);
+    const assetUrls = normalizeAssetUrlsForCreatomate(
+      Object.values(assetsMap).filter(Boolean)
+    );
 
     console.log("RENDER INPUT FLOW:", flow);
     console.log("RENDER INPUT VARIANT:", {

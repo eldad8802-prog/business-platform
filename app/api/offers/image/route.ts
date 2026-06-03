@@ -2,26 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
-import { randomUUID } from "crypto";
-import path from "path";
-import fs from "fs/promises";
+import {
+  extensionFromMime,
+  putPublicAsset,
+} from "@/lib/services/storage/public-asset-storage.service";
+import { StorageConfigError } from "@/lib/storage/storage.errors";
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5MB
-
-function getExtensionFromMime(mime: string) {
-  switch (mime) {
-    case "image/jpeg":
-      return "jpg";
-    case "image/png":
-      return "png";
-    case "image/webp":
-      return "webp";
-    case "image/gif":
-      return "gif";
-    default:
-      return null;
-  }
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,31 +33,25 @@ export async function POST(req: NextRequest) {
     }
 
     const mime = file.type;
-    const ext = getExtensionFromMime(mime);
-
-    if (!ext) {
+    if (!extensionFromMime(mime)) {
       throw new ValidationError("Unsupported file type");
     }
 
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const filename = `${randomUUID()}.${ext}`;
+    const bytes = Buffer.from(await file.arrayBuffer());
 
-    const uploadsDir = path.join(
-      process.cwd(),
-      "public",
-      "uploads",
-      "offers"
-    );
-    await fs.mkdir(uploadsDir, { recursive: true });
+    const stored = await putPublicAsset({
+      businessId: user.businessId,
+      domain: "offers",
+      body: bytes,
+      contentType: mime,
+      custom: { source: "offer_image_upload" },
+    });
 
-    const fullPath = path.join(uploadsDir, filename);
-    await fs.writeFile(fullPath, bytes);
-
-    const url = `/uploads/offers/${filename}`;
-
-    return NextResponse.json({ url }, { status: 201 });
+    return NextResponse.json({ url: stored.publicUrl }, { status: 201 });
   } catch (error) {
+    if (error instanceof StorageConfigError) {
+      return NextResponse.json({ error: error.message }, { status: 503 });
+    }
     return handleError(error);
   }
 }
-

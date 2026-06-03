@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { saveInventoryImage } from "@/lib/services/inventory/inventory-image.service";
+import { StorageConfigError } from "@/lib/storage/storage.errors";
 
 function getItemId(request: NextRequest) {
   const parts = request.nextUrl.pathname.split("/");
@@ -46,7 +47,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const imageUrl = await saveInventoryImage(file);
+    const imageUrl = await saveInventoryImage({
+      businessId: user.businessId,
+      file,
+    });
 
     const updated = await prisma.inventoryItem.update({
       where: { id: itemId },
@@ -58,6 +62,10 @@ export async function POST(request: NextRequest) {
       item: updated,
     });
   } catch (err: any) {
+    if (err instanceof StorageConfigError) {
+      return NextResponse.json({ error: err.message }, { status: 503 });
+    }
+
     if (err.message === "UNAUTHORIZED") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
