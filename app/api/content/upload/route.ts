@@ -1,7 +1,10 @@
-import { writeFile } from "fs/promises";
-import path from "path";
 import { getCurrentUser } from "@/lib/auth";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
+import {
+  extensionFromMime,
+  putPublicAsset,
+} from "@/lib/services/storage/public-asset-storage.service";
+import { StorageConfigError } from "@/lib/storage/storage.errors";
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10MB
 
@@ -59,18 +62,25 @@ export async function POST(req: Request) {
       );
     }
 
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    if (!extensionFromMime(file.type)) {
+      return Response.json({ error: "Unsupported file type" }, { status: 400 });
+    }
 
-    const fileName = `${Date.now()}-${file.name}`;
-    const filePath = path.join(process.cwd(), "public/uploads", fileName);
+    const buffer = Buffer.from(await file.arrayBuffer());
 
-    await writeFile(filePath, buffer);
+    const stored = await putPublicAsset({
+      businessId: user.businessId,
+      domain: "content",
+      body: buffer,
+      contentType: file.type,
+      custom: { source: "content_upload" },
+    });
 
-    const url = `/uploads/${fileName}`;
-
-    return Response.json({ url });
+    return Response.json({ url: stored.publicUrl });
   } catch (err) {
+    if (err instanceof StorageConfigError) {
+      return Response.json({ error: err.message }, { status: 503 });
+    }
     console.error(err);
     return Response.json({ error: "Upload failed" }, { status: 500 });
   }

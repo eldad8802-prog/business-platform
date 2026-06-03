@@ -311,7 +311,11 @@ export class R2StorageService implements StorageService {
       return null;
     }
 
-    if (parsed.domain !== "inventory" && parsed.domain !== "offers") {
+    if (
+      parsed.domain !== "content" &&
+      parsed.domain !== "inventory" &&
+      parsed.domain !== "offers"
+    ) {
       return null;
     }
 

@@ -1,9 +1,14 @@
-import fs from "fs/promises";
-import path from "path";
+import {
+  extensionFromMime,
+  putPublicAsset,
+} from "@/lib/services/storage/public-asset-storage.service";
 
-const UPLOAD_DIR = path.join(process.cwd(), "public/uploads/inventory");
+export async function saveInventoryImage(input: {
+  businessId: number;
+  file: File;
+}): Promise<string> {
+  const { businessId, file } = input;
 
-export async function saveInventoryImage(file: File) {
   if (!file) {
     throw new Error("No file provided");
   }
@@ -18,18 +23,19 @@ export async function saveInventoryImage(file: File) {
     throw new Error("File too large (max 5MB)");
   }
 
-  await fs.mkdir(UPLOAD_DIR, { recursive: true });
-
-  const ext = file.type.split("/")[1] || "jpg";
-  const fileName = `item-${Date.now()}-${Math.random()
-    .toString(36)
-    .substring(2)}.${ext}`;
-
-  const filePath = path.join(UPLOAD_DIR, fileName);
+  if (!extensionFromMime(file.type)) {
+    throw new Error("Unsupported image type");
+  }
 
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  await fs.writeFile(filePath, buffer);
+  const stored = await putPublicAsset({
+    businessId,
+    domain: "inventory",
+    body: buffer,
+    contentType: file.type,
+    custom: { source: "inventory_item_image" },
+  });
 
-  return `/uploads/inventory/${fileName}`;
+  return stored.publicUrl;
 }

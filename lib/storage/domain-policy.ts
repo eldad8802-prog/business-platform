@@ -4,7 +4,7 @@ import { StorageKeyError } from "./storage.errors";
 const DOMAIN_DEFAULT_VISIBILITY: Record<StorageDomain, StorageVisibility> = {
   documents: "private",
   billing: "private",
-  content: "private",
+  content: "public",
   inventory: "public",
   offers: "public",
 };
@@ -12,7 +12,7 @@ const DOMAIN_DEFAULT_VISIBILITY: Record<StorageDomain, StorageVisibility> = {
 const DOMAIN_REQUIRED_VISIBILITY: Record<StorageDomain, StorageVisibility> = {
   documents: "private",
   billing: "private",
-  content: "private",
+  content: "public",
   inventory: "public",
   offers: "public",
 };
