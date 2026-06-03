@@ -8,8 +8,19 @@ import { runUnifiedDocumentIntelligence } from "@/lib/services/documents/unified
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import {
   buildStoredDocumentFileName,
+  deleteDocumentObjectQuiet,
+  putDocumentObject,
   safeExtFromMime,
-} from "@/lib/services/documents/document-storage-paths";
+} from "@/lib/services/documents/document-storage.service";
+import {
+  PRODUCT_USAGE_ACTIONS,
+  PRODUCT_USAGE_FEATURES,
+  PRODUCT_USAGE_OUTCOMES,
+} from "@/lib/services/product-usage/product-usage-catalog";
+import {
+  readSessionIdFromRequest,
+  recordProductUsageEvent,
+} from "@/lib/services/product-usage/record-product-usage-event";
 
 export const runtime = "nodejs";
 
@@ -22,10 +33,8 @@ function isAllowedMime(mimeType: string): boolean {
 
 export async function POST(req: Request) {
   let tempFilePath: string | null = null;
-  // Tracks a permanent file we wrote to disk that must be removed on error
-  // before we managed to associate it with a Document row, otherwise the
-  // file would become an orphan with no DB pointer.
-  let permanentFilePath: string | null = null;
+  let storedFileName: string | null = null;
+  let businessId: number | null = null;
   let permanentFilePersisted = false;
 
   try {
@@ -79,7 +88,18 @@ export async function POST(req: Request) {
       );
     }
 
-    const businessId = user.businessId;
+    const sessionId = readSessionIdFromRequest(req);
+
+    await recordProductUsageEvent({
+      businessId: user.businessId,
+      userId: user.id,
+      sessionId,
+      featureKey: PRODUCT_USAGE_FEATURES.DOCUMENTS_UPLOAD,
+      action: PRODUCT_USAGE_ACTIONS.OPENED,
+      outcome: PRODUCT_USAGE_OUTCOMES.SUCCESS,
+    });
+
+    businessId = user.businessId;
 
     const tmpDir = path.join(process.cwd(), "tmp", "ocr");
     await mkdir(tmpDir, { recursive: true });
@@ -138,23 +158,16 @@ export async function POST(req: Request) {
       evidenceReasons: extracted.evidenceReasons,
     });
 
-    // Persist the original source file under a per-business storage tree so
-    // the protected file route can stream it back later. Storage lives
-    // outside `public/` so the bytes are never directly addressable; access
-    // is gated by `GET /api/documents/[id]/file`.
-    const storageDir = path.join(
-      process.cwd(),
-      "storage",
-      "documents",
-      String(businessId)
-    );
-    await mkdir(storageDir, { recursive: true });
-
-    const storedFileName = buildStoredDocumentFileName(mimeType);
-    const storedFilePath = path.join(storageDir, storedFileName);
-
-    permanentFilePath = storedFilePath;
-    await writeFile(storedFilePath, buffer);
+    // Persist the original source file via StorageService. Access remains
+    // gated by GET /api/documents/[id]/file (auth proxy).
+    storedFileName = buildStoredDocumentFileName(mimeType);
+    await putDocumentObject({
+      businessId,
+      basename: storedFileName,
+      body: buffer,
+      contentType: file.type || "image/jpeg",
+      source: "file",
+    });
 
     const document = await prisma.document.create({
       data: {
@@ -192,6 +205,17 @@ export async function POST(req: Request) {
       },
     });
 
+    await recordProductUsageEvent({
+      businessId: user.businessId,
+      userId: user.id,
+      sessionId,
+      featureKey: PRODUCT_USAGE_FEATURES.DOCUMENTS_UPLOAD,
+      action: PRODUCT_USAGE_ACTIONS.COMPLETED,
+      outcome: PRODUCT_USAGE_OUTCOMES.SUCCESS,
+      entityType: "document",
+      entityId: String(document.id),
+    });
+
     return NextResponse.json({
       success: true,
       documentId: document.id,
@@ -217,11 +241,23 @@ export async function POST(req: Request) {
     });
   } catch (e) {
     console.error(e);
+    const user = await getCurrentUser(req).catch(() => null);
+    if (user) {
+      await recordProductUsageEvent({
+        businessId: user.businessId,
+        userId: user.id,
+        sessionId: readSessionIdFromRequest(req),
+        featureKey: PRODUCT_USAGE_FEATURES.DOCUMENTS_UPLOAD,
+        action: PRODUCT_USAGE_ACTIONS.FAILED,
+        outcome: PRODUCT_USAGE_OUTCOMES.FAILURE,
+        metadata: { reason: "server_error" },
+      });
+    }
     // If we wrote a permanent copy but failed before persisting the Document
     // row, remove the orphan from disk so it does not accumulate.
-    if (permanentFilePath && !permanentFilePersisted) {
+    if (storedFileName && businessId && !permanentFilePersisted) {
       try {
-        await unlink(permanentFilePath);
+        await deleteDocumentObjectQuiet(businessId, storedFileName);
       } catch {
         // ignore cleanup errors
       }

@@ -3,7 +3,7 @@ import { runUnifiedDocumentIntelligence } from "@/lib/services/documents/unified
 
 export async function createDocumentFromOcrText(params: {
   businessId: number;
-  source: "email" | "file";
+  source: "email" | "file" | "whatsapp";
   mimeType: string;
   ocrText: string;
   fileUrl: string;

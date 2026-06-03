@@ -173,13 +173,10 @@ function createMockDeps(options: {
       if (options.ocrThrow) throw new Error("ocr down");
       return options.ocrText ?? "invoice total 100";
     },
-    mkdir: async () => {
+    putDocument: async () => {
       if (options.storageFail) throw new Error("disk full");
     },
-    writeFile: async () => {
-      if (options.storageFail) throw new Error("disk full");
-    },
-    unlink: async () => {},
+    deleteDocument: async () => {},
     createDocument: async (p) => {
       if (options.createDocumentThrow) throw new Error("db down");
       documents.push({ source: p.source, status: "needs_review" });

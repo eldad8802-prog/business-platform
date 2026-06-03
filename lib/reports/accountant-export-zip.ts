@@ -1,8 +1,11 @@
-import { readFile } from "fs/promises";
 import type archiver from "archiver";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
-import { resolveStoredDocumentFilePath } from "@/lib/services/documents/document-storage-paths";
+import {
+  readDocumentObject,
+  STORED_DOCUMENT_FILENAME_REGEX,
+} from "@/lib/services/documents/document-storage.service";
+import { StorageObjectNotFoundError } from "@/lib/storage/storage.errors";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
 
 export type AccountantPackBody = {
@@ -355,24 +358,28 @@ export async function appendAccountantPackToArchive(
       continue;
     }
 
-    const resolved = resolveStoredDocumentFilePath(businessId, doc.fileUrl);
-    if (!resolved.ok) {
+    const basename = String(doc.fileUrl ?? "").trim();
+    if (!STORED_DOCUMENT_FILENAME_REGEX.test(basename)) {
       missingLines.push(`document ${doc.id}: נתיב לא תקין (${doc.fileUrl})`);
       missingCount += 1;
       continue;
     }
 
     try {
-      const buffer = await readFile(resolved.absolutePath);
-      const ext = doc.fileUrl.split(".").pop() || "file";
+      const buffer = await readDocumentObject(businessId, basename);
+      const ext = basename.split(".").pop() || "file";
       const entryName = `${folder}/doc-${doc.id}.${ext}`;
       archive.append(buffer, { name: entryName });
       manifestFiles.push(entryName);
       if (folder === "approved") approvedFiles += 1;
       else pendingFiles += 1;
     } catch (e) {
-      console.error("File read failed for export:", doc.id, doc.fileUrl, e);
-      missingLines.push(`document ${doc.id}: כשל בקריאה (${doc.fileUrl})`);
+      if (e instanceof StorageObjectNotFoundError) {
+        missingLines.push(`document ${doc.id}: קובץ לא נמצא (${doc.fileUrl})`);
+      } else {
+        console.error("File read failed for export:", doc.id, doc.fileUrl, e);
+        missingLines.push(`document ${doc.id}: כשל בקריאה (${doc.fileUrl})`);
+      }
       missingCount += 1;
     }
   }

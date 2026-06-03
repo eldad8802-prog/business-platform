@@ -1,7 +1,10 @@
-import { readFile } from "fs/promises";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import { resolveStoredDocumentFilePath } from "@/lib/services/documents/document-storage-paths";
+import {
+  readDocumentObject,
+  STORED_DOCUMENT_FILENAME_REGEX,
+} from "@/lib/services/documents/document-storage.service";
+import { StorageObjectNotFoundError } from "@/lib/storage/storage.errors";
 
 export const runtime = "nodejs";
 
@@ -56,20 +59,19 @@ export async function GET(
       return new Response("Forbidden", { status: 403 });
     }
 
-    const resolved = resolveStoredDocumentFilePath(
-      user.businessId,
-      document.fileUrl ?? ""
-    );
-
-    if (!resolved.ok) {
+    const basename = String(document.fileUrl ?? "").trim();
+    if (!STORED_DOCUMENT_FILENAME_REGEX.test(basename)) {
       return new Response("Source file not available", { status: 404 });
     }
 
     let bytes: Buffer;
     try {
-      bytes = await readFile(resolved.absolutePath);
-    } catch {
-      return new Response("Source file not available", { status: 404 });
+      bytes = await readDocumentObject(user.businessId, basename);
+    } catch (error) {
+      if (error instanceof StorageObjectNotFoundError) {
+        return new Response("Source file not available", { status: 404 });
+      }
+      throw error;
     }
 
     const mimeType = String(document.mimeType || "").toLowerCase();

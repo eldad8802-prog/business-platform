@@ -1,7 +1,9 @@
-import path from "path";
-import { mkdir, unlink, writeFile } from "fs/promises";
 import { createDocumentFromOcrText } from "@/lib/services/documents/create-document-from-ocr.service";
-import { buildStoredDocumentFileName } from "@/lib/services/documents/document-storage-paths";
+import {
+  buildStoredDocumentFileName,
+  deleteDocumentObjectQuiet,
+  putDocumentObject,
+} from "@/lib/services/documents/document-storage.service";
 import { runGoogleVisionOCR } from "@/lib/services/documents/google-vision-ocr.service";
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
 import { writeTempOcrFile } from "@/lib/services/integrations/gmail/temp-ocr-file.service";
@@ -48,9 +50,8 @@ export type WhatsAppIntakeDeps = {
   writeTempOcrFile: typeof writeTempOcrFile;
   runOcr: typeof runGoogleVisionOCR;
   createDocument: typeof createDocumentFromOcrText;
-  mkdir: typeof mkdir;
-  writeFile: typeof writeFile;
-  unlink: typeof unlink;
+  putDocument: typeof putDocumentObject;
+  deleteDocument: typeof deleteDocumentObjectQuiet;
   buildStoredFileName: typeof buildStoredDocumentFileName;
   mediaFetchDeps?: MediaFetchDeps;
 };
@@ -67,9 +68,8 @@ export const defaultWhatsAppIntakeDeps: WhatsAppIntakeDeps = {
   writeTempOcrFile,
   runOcr: runGoogleVisionOCR,
   createDocument: createDocumentFromOcrText,
-  mkdir,
-  writeFile,
-  unlink,
+  putDocument: putDocumentObject,
+  deleteDocument: deleteDocumentObjectQuiet,
   buildStoredFileName: buildStoredDocumentFileName,
 };
 
@@ -159,14 +159,14 @@ export async function processWhatsAppDocumentsIntake(
 
   const importId = claim.importId;
   let tempCleanup: (() => Promise<void>) | null = null;
-  let permanentFilePath: string | null = null;
+  let storedFileName: string | null = null;
   let documentCreated = false;
 
   const fail = async (reason: string): Promise<WhatsAppIntakeOutcome> => {
     await deps.markFailed({ importId, error: reason });
-    if (permanentFilePath && !documentCreated) {
+    if (storedFileName && !documentCreated) {
       try {
-        await deps.unlink(permanentFilePath);
+        await deps.deleteDocument(input.businessId, storedFileName);
       } catch {
         // ignore cleanup errors
       }
@@ -175,17 +175,15 @@ export async function processWhatsAppDocumentsIntake(
   };
 
   try {
-    const storageDir = path.join(
-      process.cwd(),
-      "storage",
-      "documents",
-      String(input.businessId)
-    );
+    storedFileName = deps.buildStoredFileName(mediaResult.mimeType);
     try {
-      await deps.mkdir(storageDir, { recursive: true });
-      const storedFileName = deps.buildStoredFileName(mediaResult.mimeType);
-      permanentFilePath = path.join(storageDir, storedFileName);
-      await deps.writeFile(permanentFilePath, mediaResult.buffer);
+      await deps.putDocument({
+        businessId: input.businessId,
+        basename: storedFileName,
+        body: mediaResult.buffer,
+        contentType: mediaResult.mimeType,
+        source: "whatsapp",
+      });
     } catch {
       return fail("storage_failed");
     }
@@ -215,7 +213,7 @@ export async function processWhatsAppDocumentsIntake(
         source: "whatsapp",
         mimeType: mediaResult.mimeType,
         ocrText: rawText,
-        fileUrl: path.basename(permanentFilePath),
+        fileUrl: storedFileName,
       });
     } catch {
       return fail("create_document_failed");
