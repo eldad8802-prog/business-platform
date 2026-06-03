@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import path from "path";
-import { mkdir, unlink, writeFile } from "fs/promises";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getGmailAccessTokenForBusiness } from "@/lib/services/integrations/gmail/gmail-auth.service";
@@ -10,7 +8,11 @@ import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
 import { writeTempOcrFile } from "@/lib/services/integrations/gmail/temp-ocr-file.service";
 import { runGoogleVisionOCR } from "@/lib/services/documents/google-vision-ocr.service";
 import { createDocumentFromOcrText } from "@/lib/services/documents/create-document-from-ocr.service";
-import { buildStoredDocumentFileName } from "@/lib/services/documents/document-storage-paths";
+import {
+  buildStoredDocumentFileName,
+  deleteDocumentObjectQuiet,
+  putDocumentObject,
+} from "@/lib/services/documents/document-storage.service";
 
 export const runtime = "nodejs";
 
@@ -47,7 +49,8 @@ function safeNullableNumber(v: unknown): number | null {
 
 export async function POST(req: NextRequest) {
   let cleanup: (() => Promise<void>) | null = null;
-  let permanentFilePath: string | null = null;
+  let storedFileName: string | null = null;
+  let businessId: number | null = null;
   let permanentFilePersisted = false;
 
   try {
@@ -55,6 +58,7 @@ export async function POST(req: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    businessId = user.businessId;
 
     const json = (await req.json().catch(() => null)) as Partial<ImportRequestBody> | null;
     if (!json) {
@@ -171,19 +175,15 @@ export async function POST(req: NextRequest) {
     }
 
     // Same storage contract as POST /api/documents/upload: basename only on
-    // Document.fileUrl, bytes under storage/documents/<businessId>/.
-    const storageDir = path.join(
-      process.cwd(),
-      "storage",
-      "documents",
-      String(user.businessId)
-    );
-    await mkdir(storageDir, { recursive: true });
-
-    const storedFileName = buildStoredDocumentFileName(body.mimeType);
-    const storedFilePath = path.join(storageDir, storedFileName);
-    permanentFilePath = storedFilePath;
-    await writeFile(storedFilePath, Buffer.from(bytes));
+    // Document.fileUrl, bytes via StorageService (legacy FS read fallback).
+    storedFileName = buildStoredDocumentFileName(body.mimeType);
+    await putDocumentObject({
+      businessId: user.businessId,
+      basename: storedFileName,
+      body: Buffer.from(bytes),
+      contentType: body.mimeType,
+      source: "email",
+    });
 
     const created = await createDocumentFromOcrText({
       businessId: user.businessId,
@@ -225,9 +225,9 @@ export async function POST(req: NextRequest) {
       analysis: created.analysis,
     });
   } catch (error) {
-    if (permanentFilePath && !permanentFilePersisted) {
+    if (storedFileName && businessId && !permanentFilePersisted) {
       try {
-        await unlink(permanentFilePath);
+        await deleteDocumentObjectQuiet(businessId, storedFileName);
       } catch {
         // ignore cleanup errors
       }
