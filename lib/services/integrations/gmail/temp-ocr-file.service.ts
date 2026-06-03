@@ -1,3 +1,4 @@
+import os from "os";
 import path from "path";
 import { mkdir, unlink, writeFile } from "fs/promises";
 
@@ -17,7 +18,7 @@ export async function writeTempOcrFile(params: {
   mimeType: string;
   filenameHint?: string | null;
 }): Promise<{ tempPath: string; cleanup: () => Promise<void> }> {
-  const tmpDir = path.join(process.cwd(), "tmp", "ocr");
+  const tmpDir = path.join(os.tmpdir(), "ocr");
   await mkdir(tmpDir, { recursive: true });
 
   const ext = safeExtFromMime(params.mimeType);

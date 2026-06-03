@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
+import os from "os";
 import path from "path";
 import { mkdir, unlink, writeFile } from "fs/promises";
 import { getCurrentUser } from "@/lib/auth";
@@ -101,7 +102,7 @@ export async function POST(req: Request) {
 
     businessId = user.businessId;
 
-    const tmpDir = path.join(process.cwd(), "tmp", "ocr");
+    const tmpDir = path.join(os.tmpdir(), "ocr");
     await mkdir(tmpDir, { recursive: true });
 
     const originalName = String(file.name ?? "");
