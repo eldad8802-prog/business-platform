@@ -36,7 +36,7 @@ export default function CorporateContactPage() {
 
           <div>
             <dt className="font-bold text-gray-900">טלפון עסקי</dt>
-            <dd className="mt-1 text-gray-600">[להשלמה]</dd>
+            <dd className="mt-1 text-gray-600">+972-50-566-8802</dd>
           </div>
 
           <div>
