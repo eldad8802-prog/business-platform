@@ -1,0 +1,21 @@
+name: cherry-pick-corporate
+on:
+  workflow_dispatch:
+jobs:
+  cp:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - run: |
+          git config user.email "eldad8802@gmail.com"
+          git config user.name "eldad8802-prog"
+          git fetch origin ux/documents-hub-quick-actions
+          git cherry-pick 97cc5aef33f014c7a2c5d57eb8050e26d82df4a7
+          git cherry-pick 040d550e5e9ef4c700c845011ba4c9e25a62ba1f
+          git cherry-pick 0e005142b3c5bef01baa4c56ae340b1a04fa6d44
+          git push origin main
