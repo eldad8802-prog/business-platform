@@ -1416,7 +1416,7 @@ model BillingDocument {
   pdfRenderError          String?
   createdAt               DateTime               @default(now())
   updatedAt               DateTime               @updatedAt
-  business                Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business                Business               @relation(fields: [businessId], references: [id], onDelete: Restrict)
   customer                Customer?              @relation(fields: [customerId], references: [id])
   lines                   BillingDocumentLine[]
   auditEvents             BillingAuditEvent[]
@@ -1482,7 +1482,7 @@ model BillingDocumentNumberSequence {
   nextNumber   Int                 @default(1)
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
-  business     Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business     Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
 
   @@unique([businessId, documentType])
 }
@@ -1502,8 +1502,8 @@ model FinancialEvent {
   billingDocumentId Int?                     @unique
   createdAt         DateTime                 @default(now())
   updatedAt         DateTime                 @updatedAt
-  business          Business                 @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  billingDocument   BillingDocument?         @relation(fields: [billingDocumentId], references: [id], onDelete: Cascade)
+  business          Business                 @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  billingDocument   BillingDocument?         @relation(fields: [billingDocumentId], references: [id], onDelete: Restrict)
 
   @@unique([businessId, sourceType, sourceKey])
   @@index([businessId, occurredAt])
