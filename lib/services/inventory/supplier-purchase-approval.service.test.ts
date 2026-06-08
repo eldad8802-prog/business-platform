@@ -7,6 +7,7 @@ import {
   SupplierPurchaseDraftStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { deleteTestBusinesses } from "@/lib/testing/cleanup-test-businesses";
 import { approveSupplierPurchase } from "@/lib/services/inventory/supplier-purchase-approval.service";
 
 const runId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -339,10 +340,7 @@ async function main() {
 
     console.log("supplier-purchase-approval.service.test.ts: ok");
   } finally {
-    await prisma.receivingLine.deleteMany({
-      where: { receivingSession: { businessId } },
-    });
-    await prisma.business.deleteMany({ where: { id: businessId } });
+    await deleteTestBusinesses([businessId]);
     await prisma.$disconnect();
   }
 }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { prisma } from "@/lib/prisma";
+import { deleteTestBusinesses } from "@/lib/testing/cleanup-test-businesses";
 import { supplierService } from "@/lib/services/inventory/supplier.service";
 import {
   InventoryNotFoundError,
@@ -202,12 +203,7 @@ async function main() {
 
     console.log("supplier.service.test.ts: ok");
   } finally {
-    await prisma.supplier.deleteMany({
-      where: { businessId: { in: [businessA, businessB] } },
-    });
-    await prisma.business.deleteMany({
-      where: { id: { in: [businessA, businessB] } },
-    });
+    await deleteTestBusinesses([businessA, businessB]);
     await prisma.$disconnect();
   }
 }

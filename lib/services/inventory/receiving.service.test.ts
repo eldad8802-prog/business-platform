@@ -7,6 +7,7 @@ import {
   ReceivingSessionStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { deleteTestBusinesses } from "@/lib/testing/cleanup-test-businesses";
 import { purchaseOrderService } from "@/lib/services/inventory/purchase-order.service";
 import { receivingService } from "@/lib/services/inventory/receiving.service";
 import { approveSupplierPurchase } from "@/lib/services/inventory/supplier-purchase-approval.service";
@@ -484,18 +485,7 @@ async function main() {
 
     console.log("receiving.service.test.ts: ok");
   } finally {
-    await prisma.receivingLine.deleteMany({
-      where: {
-        receivingSession: {
-          businessId: { in: [business.id, otherBusiness.id] },
-        },
-      },
-    });
-    await prisma.business.deleteMany({
-      where: {
-        id: { in: [business.id, otherBusiness.id] },
-      },
-    });
+    await deleteTestBusinesses([business.id, otherBusiness.id]);
     await prisma.$disconnect();
   }
 }

@@ -14,6 +14,7 @@
 
 import assert from "node:assert/strict";
 import { prisma } from "@/lib/prisma";
+import { deleteTestBusinesses } from "@/lib/testing/cleanup-test-businesses";
 import * as appt from "./appointment.service";
 import {
   ALLOWED_TRANSITIONS,
@@ -477,14 +478,7 @@ async function main() {
       assert.ok(!r.ok && r.reason === "invalid_input", JSON.stringify(r));
     });
   } finally {
-    // ── Teardown (FK-safe order) ──────────────────────────────────────────
-    await prisma.appointment.deleteMany({ where: { businessId: business.id } });
-    await prisma.message.deleteMany({ where: { businessId: business.id } });
-    await prisma.conversation.deleteMany({ where: { businessId: business.id } });
-    await prisma.user.deleteMany({ where: { businessId: business.id } });
-    await prisma.business.deleteMany({
-      where: { id: { in: [business.id, otherBusiness.id] } },
-    });
+    await deleteTestBusinesses([business.id, otherBusiness.id]);
     await prisma.$disconnect();
   }
 }
