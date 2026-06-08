@@ -1,5 +1,5 @@
 import { getCreatomateRenderStatus } from "@/lib/services/creatomate.service";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 
 export async function GET(
   req: Request,
@@ -7,8 +7,8 @@ export async function GET(
 ) {
   const user = await getCurrentUser(req);
   if (!user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
+      return authRequiredResponse(req);
+    }
 
   try {
     const { id } = await context.params;

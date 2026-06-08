@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import {
   isValidProductLinkUrl,
   MAX_PRODUCT_LINK_INTRO_CHARS,
@@ -104,7 +104,7 @@ export async function GET(req: Request) {
     const user = await getCurrentUser(req);
 
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return authRequiredResponse(req);
     }
 
     const row = await prisma.businessBotSettings.findUnique({
@@ -141,7 +141,7 @@ export async function PATCH(req: Request) {
     const user = await getCurrentUser(req);
 
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return authRequiredResponse(req);
     }
 
     let body: Record<string, unknown>;

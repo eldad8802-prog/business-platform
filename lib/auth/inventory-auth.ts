@@ -1,5 +1,27 @@
-import { getCurrentUser } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import {
+  BusinessArchivedError,
+  businessArchivedResponse,
+  getCurrentUser,
+  wasArchiveGateBlocked,
+} from "@/lib/auth";
 import { InventoryUnauthorizedError } from "@/lib/services/inventory/inventory.errors";
+
+export function mapInventoryAuthGateError(error: unknown): NextResponse | null {
+  if (error instanceof BusinessArchivedError) {
+    return businessArchivedResponse();
+  }
+
+  return null;
+}
+
+function rejectInventoryAuth(request: Request): never {
+  if (wasArchiveGateBlocked(request)) {
+    throw new BusinessArchivedError();
+  }
+
+  throw new InventoryUnauthorizedError("User not found");
+}
 
 export type InventoryAuthenticatedUser = {
   id: number;
@@ -32,7 +54,7 @@ export async function getInventoryAuthenticatedUser(
   const user = await getCurrentUser(request);
 
   if (!user) {
-    throw new InventoryUnauthorizedError("User not found");
+    rejectInventoryAuth(request);
   }
 
   return {
@@ -63,7 +85,7 @@ export async function getInventoryAuthenticatedUserBasic(
   const user = await getCurrentUser(request);
 
   if (!user) {
-    throw new InventoryUnauthorizedError("User not found");
+    rejectInventoryAuth(request);
   }
 
   return { id: user.id, businessId: user.businessId };

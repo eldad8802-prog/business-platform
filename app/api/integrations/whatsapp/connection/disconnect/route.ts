@@ -12,7 +12,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { disconnectByBusinessId } from "@/lib/services/integrations/whatsapp/connection.service";
 
 export const runtime = "nodejs";
@@ -20,8 +20,8 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   const user = await getCurrentUser(req);
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+      return authRequiredResponse(req);
+    }
 
   try {
     const connection = await disconnectByBusinessId(user.businessId);

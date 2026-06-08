@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 
 const prisma = new PrismaClient();
 
@@ -9,7 +9,7 @@ export async function GET(req: Request) {
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return authRequiredResponse(req);
     }
 
     const deals = await prisma.collaborationDeal.findMany({

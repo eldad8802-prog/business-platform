@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -11,10 +11,7 @@ export async function POST(req: Request, context: RouteContext) {
     const user = await getCurrentUser(req);
 
     if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+      return authRequiredResponse(req);
     }
 
     const { id } = await context.params;

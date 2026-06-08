@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { HUMAN_TAKEOVER_OUTCOME_REASON } from "@/lib/features/conversation/bot-control";
 
 const PENDING_BOT_DRAFT_STATUSES = ["GENERATED", "SHOWN", "SELECTED"] as const;
@@ -9,7 +9,7 @@ export async function POST(req: Request) {
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return authRequiredResponse(req);
     }
 
     let body: Record<string, unknown>;

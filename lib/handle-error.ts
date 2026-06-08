@@ -1,8 +1,21 @@
 import { NextResponse } from "next/server";
-import { AppError } from "@/lib/errors";
+import { businessArchivedResponse } from "@/lib/auth";
+import {
+  AppError,
+  BUSINESS_ARCHIVED_ERROR_CODE,
+  BusinessArchivedError,
+} from "@/lib/errors";
 
 export function handleError(error: unknown) {
+  if (error instanceof BusinessArchivedError) {
+    return businessArchivedResponse();
+  }
+
   if (error instanceof AppError) {
+    if (error.code === BUSINESS_ARCHIVED_ERROR_CODE) {
+      return businessArchivedResponse();
+    }
+
     return NextResponse.json(
       {
         error: error.message,

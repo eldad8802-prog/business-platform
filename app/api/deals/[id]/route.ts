@@ -3,7 +3,7 @@ import {
   PrismaClient,
   CollaborationDealStatus,
 } from "@prisma/client";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 
 const prisma = new PrismaClient();
 
@@ -11,7 +11,7 @@ export async function PATCH(request: Request) {
   try {
     const user = await getCurrentUser(request);
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return authRequiredResponse(request);
     }
 
     const url = new URL(request.url);

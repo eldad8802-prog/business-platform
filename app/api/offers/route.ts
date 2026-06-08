@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { createOffer, getOffersByBusiness } from "@/lib/services/offer.service";
 import { handleError } from "@/lib/handle-error";
 
@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
     const user = await getCurrentUser(req);
 
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return authRequiredResponse(req);
     }
 
     const offers = await getOffersByBusiness(user.businessId);
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     const user = await getCurrentUser(req);
 
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return authRequiredResponse(req);
     }
 
     let body: any = {};

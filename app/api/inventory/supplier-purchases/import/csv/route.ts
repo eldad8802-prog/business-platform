@@ -12,11 +12,14 @@ import { CsvSupplierConnector } from "@/lib/services/supplier-connectors/csv/csv
 import { mapNormalizedSupplierOrderToDraftInput } from "@/lib/services/supplier-connectors/supplier-order-to-draft.adapter";
 import { SupplierPurchaseDraftStatus } from "@prisma/client";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
-import { getInventoryAuthenticatedUser as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
+import { getInventoryAuthenticatedUser as getAuthenticatedUser, mapInventoryAuthGateError } from '@/lib/auth/inventory-auth';
 
 export const runtime = "nodejs";
 
 function handleInventoryError(error: unknown) {
+  const archiveGateResponse = mapInventoryAuthGateError(error);
+  if (archiveGateResponse) return archiveGateResponse;
+
   if (error instanceof InventoryUnauthorizedError) {
     return NextResponse.json({ error: error.message }, { status: 401 });
   }

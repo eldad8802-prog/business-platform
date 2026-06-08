@@ -1,4 +1,4 @@
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import {
   extensionFromMime,
@@ -17,7 +17,7 @@ export async function POST(req: Request) {
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return authRequiredResponse(req);
     }
 
     const userLimit = consumeRateLimit({

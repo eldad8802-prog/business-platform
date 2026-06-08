@@ -8,7 +8,7 @@ import {
   ReplySuggestionStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 50;
@@ -148,7 +148,7 @@ export async function GET(req: Request) {
     const user = await getCurrentUser(req);
 
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return authRequiredResponse(req);
     }
 
     const businessId = user.businessId;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { inventoryIntelligenceService } from "@/lib/services/inventory/inventory-intelligence.service";
 
 export async function GET(req: NextRequest) {
@@ -7,10 +7,7 @@ export async function GET(req: NextRequest) {
     const user = await getCurrentUser(req);
 
     if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+      return authRequiredResponse(req);
     }
 
     const insights =

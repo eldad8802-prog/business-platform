@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { InventoryUnitType } from "@prisma/client";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
-import { getInventoryAuthenticatedUser as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
+import { getInventoryAuthenticatedUser as getAuthenticatedUser, mapInventoryAuthGateError } from '@/lib/auth/inventory-auth';
 import {
   InventoryError,
   InventoryNotFoundError,
@@ -40,6 +40,9 @@ function parseOptionalNumber(value: unknown, fieldName: string): number | undefi
 }
 
 function handleInventoryError(error: unknown) {
+  const archiveGateResponse = mapInventoryAuthGateError(error);
+  if (archiveGateResponse) return archiveGateResponse;
+
   if (error instanceof InventoryUnauthorizedError) {
     return NextResponse.json({ error: error.message }, { status: 401 });
   }

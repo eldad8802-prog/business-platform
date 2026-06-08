@@ -1,11 +1,11 @@
 import { generateVideo } from "@/lib/services/video.service";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 
 export async function POST(req: Request) {
   const user = await getCurrentUser(req);
   if (!user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
+      return authRequiredResponse(req);
+    }
 
   try {
     const body = await req.json();

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import {
   readDocumentObject,
   STORED_DOCUMENT_FILENAME_REGEX,
@@ -31,7 +31,7 @@ export async function GET(
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return new Response("Unauthorized", { status: 401 });
+      return authRequiredResponse(req);
     }
 
     const params = await context.params;

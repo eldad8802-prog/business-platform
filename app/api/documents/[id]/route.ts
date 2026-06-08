@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { resolveDocumentOutputProfile } from "@/lib/services/documents/output-profile-resolver.service";
 
 export async function GET(
@@ -9,7 +9,7 @@ export async function GET(
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return authRequiredResponse(req);
     }
 
     const params = await context.params; // 🔥 חשוב

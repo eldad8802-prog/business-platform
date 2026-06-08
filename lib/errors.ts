@@ -24,6 +24,18 @@ export class ForbiddenError extends AppError {
   }
 }
 
+export const BUSINESS_ARCHIVED_ERROR_CODE = "BUSINESS_ARCHIVED" as const;
+
+export const BUSINESS_ARCHIVED_MESSAGE =
+  "העסק נמצא בארכיון. יש לפנות לתמיכה.";
+
+export class BusinessArchivedError extends AppError {
+  constructor(message = BUSINESS_ARCHIVED_MESSAGE) {
+    super(message, 403, BUSINESS_ARCHIVED_ERROR_CODE);
+    this.name = "BusinessArchivedError";
+  }
+}
+
 export class NotFoundError extends AppError {
   constructor(message = "Not Found") {
     super(message, 404);

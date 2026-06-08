@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { serializeInboxItem } from "@/lib/inbox-view/inbox-item.serializer";
 import { computeProductCatalogEnabled } from "@/lib/inbox-view/product-link-capability";
 import { findStarterBotTerminalConversationFlags } from "@/lib/features/conversation/starter-bot";
@@ -12,10 +12,7 @@ export async function GET(req: Request) {
     const user = await getCurrentUser(req);
 
     if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+      return authRequiredResponse(req);
     }
 
     const conversations = await prisma.conversation.findMany({
@@ -130,10 +127,7 @@ export async function POST(req: Request) {
     const user = await getCurrentUser(req);
 
     if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+      return authRequiredResponse(req);
     }
 
     const body = await req.json().catch(() => ({}));

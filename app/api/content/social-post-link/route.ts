@@ -1,4 +1,4 @@
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 type Platform = "instagram" | "tiktok" | "facebook" | "other";
@@ -108,8 +108,8 @@ function normalizeShots(
 export async function POST(req: Request) {
   const user = await getCurrentUser(req);
   if (!user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
+      return authRequiredResponse(req);
+    }
 
   let body: SocialPostLinkRequest | null = null;
   try {

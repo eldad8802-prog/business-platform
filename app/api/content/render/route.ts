@@ -1,7 +1,7 @@
 import { checkUsage, incrementUsage } from "@/lib/services/usage.service";
 import { createCreatomateRender } from "@/lib/services/creatomate.service";
 import type { RenderBlueprint } from "@/lib/features/content/render-blueprint/types";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { isSubstantiveContentGoalBrief } from "@/lib/content/content-goal-prompt-normalize";
 import { normalizeAssetUrlsForCreatomate } from "@/lib/services/storage/public-asset-storage.service";
 
@@ -49,8 +49,8 @@ type ContentResult = {
 export async function POST(req: Request) {
   const user = await getCurrentUser(req);
   if (!user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
+      return authRequiredResponse(req);
+    }
 
   try {
     const businessId = user.businessId;

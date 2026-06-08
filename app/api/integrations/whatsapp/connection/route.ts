@@ -26,7 +26,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import {
   findPublicByBusinessId,
   manualSeedConnection,
@@ -37,8 +37,8 @@ export const runtime = "nodejs";
 export async function GET(req: Request) {
   const user = await getCurrentUser(req);
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+      return authRequiredResponse(req);
+    }
 
   const connection = await findPublicByBusinessId(user.businessId);
   return NextResponse.json({ connection }, { status: 200 });
@@ -56,8 +56,8 @@ export async function POST(req: Request) {
   // ── Gate 2: auth + role ─────────────────────────────────────────────
   const user = await getCurrentUser(req);
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+      return authRequiredResponse(req);
+    }
   if (user.role !== "PLATFORM_ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

@@ -3,7 +3,11 @@ export const dynamic = "force-dynamic";
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { AuthTokenConfigError, signAuthToken } from "@/lib/auth";
+import {
+  AuthTokenConfigError,
+  businessArchivedResponse,
+  signAuthToken,
+} from "@/lib/auth";
 import bcrypt from "bcrypt";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
 import {
@@ -82,6 +86,15 @@ export async function POST(req: Request) {
         { error: "Invalid email or password" },
         { status: 401 }
       );
+    }
+
+    if (user.business.archivedAt) {
+      await recordLoginFailure({
+        businessId: user.businessId,
+        userId: user.id,
+        reason: "business_archived",
+      });
+      return businessArchivedResponse();
     }
 
     const sessionId = randomUUID();

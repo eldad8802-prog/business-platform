@@ -1,11 +1,11 @@
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 
 export async function GET(req: Request) {
   const user = await getCurrentUser(req);
   if (!user) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+      return authRequiredResponse(req);
+    }
 
   try {
     const { searchParams } = new URL(req.url);

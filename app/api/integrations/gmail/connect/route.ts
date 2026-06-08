@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { buildGmailAuthorizeUrl } from "@/lib/services/integrations/gmail/oauth-url.service";
 import { createPkcePair } from "@/lib/services/integrations/gmail/pkce-cookie.service";
 import { createOauthState } from "@/lib/services/integrations/gmail/state-cookie.service";
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     const user = await getCurrentUser(req);
 
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return authRequiredResponse(req);
     }
 
     const clientId = requireEnv("GOOGLE_OAUTH_CLIENT_ID");

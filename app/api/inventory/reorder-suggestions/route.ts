@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { getVelocityMap } from "@/lib/services/inventory/inventory-velocity.service";
 
 export async function GET(req: NextRequest) {

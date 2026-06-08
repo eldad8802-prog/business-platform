@@ -11,7 +11,7 @@ import {
 } from "@/lib/features/content/decision";
 import { buildCreativeBlueprint } from "@/lib/features/content/creative-blueprint/creative-blueprint.engine";
 import { buildRenderBlueprint } from "@/lib/features/content/render-blueprint/render-blueprint.engine";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { persistContentPlanV1 } from "@/lib/services/content-plan-persistence-v1.service";
 import {
@@ -65,8 +65,8 @@ function validateBody(body: VideoPlanRequestBody) {
 export async function POST(req: Request) {
   const user = await getCurrentUser(req);
   if (!user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
+      return authRequiredResponse(req);
+    }
 
   try {
     const body = (await req.json()) as VideoPlanRequestBody;

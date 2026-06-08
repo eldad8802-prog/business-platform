@@ -43,7 +43,7 @@ function isEmailAllowlisted(email: string): boolean {
 export async function requirePlatformAdmin(
   req: Request
 ): Promise<PlatformAdminUser> {
-  const user = await getCurrentUser(req);
+  const user = await getCurrentUser(req, { skipArchiveGate: true });
 
   if (!user) {
     throw new UnauthorizedError();

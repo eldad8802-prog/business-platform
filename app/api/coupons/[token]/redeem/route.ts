@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { redeemCoupon } from "@/lib/services/redeem.service";
 import { handleError } from "@/lib/handle-error";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, requireTenantUser } from "@/lib/auth";
 import { ValidationError } from "@/lib/errors";
 
 async function getAuthenticatedBusinessId(req: NextRequest) {
   const user = await getCurrentUser(req);
+  const tenantUser = requireTenantUser(req, user);
 
-  if (!user?.businessId) {
+  if (!tenantUser.businessId) {
     throw new ValidationError("Unauthorized");
   }
 
-  return user.businessId;
+  return tenantUser.businessId;
 }
 
 export async function POST(

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { saveInventoryImage } from "@/lib/services/inventory/inventory-image.service";
 import { StorageConfigError } from "@/lib/storage/storage.errors";
 
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser(request);
     if (!user) {
-      throw new Error("UNAUTHORIZED");
+      return authRequiredResponse(request);
     }
     const itemId = getItemId(request);
 

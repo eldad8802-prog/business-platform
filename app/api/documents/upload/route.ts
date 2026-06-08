@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import os from "os";
 import path from "path";
 import { mkdir, unlink, writeFile } from "fs/promises";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { runGoogleVisionOCR } from "@/lib/services/documents/google-vision-ocr.service";
 import { runUnifiedDocumentIntelligence } from "@/lib/services/documents/unified-extraction-engine.service";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
@@ -41,7 +41,7 @@ export async function POST(req: Request) {
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return authRequiredResponse(req);
     }
 
     const userLimit = consumeRateLimit({

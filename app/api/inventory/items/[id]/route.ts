@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { InventoryUnitType } from "@prisma/client";
-import { getInventoryAuthenticatedUserBasic as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
+import { getInventoryAuthenticatedUserBasic as getAuthenticatedUser, mapInventoryAuthGateError } from '@/lib/auth/inventory-auth';
 import {
   InventoryError,
   InventoryNotFoundError,
@@ -10,6 +10,9 @@ import {
 } from "@/lib/services/inventory/inventory.errors";
 
 function handleError(error: unknown) {
+  const archiveGateResponse = mapInventoryAuthGateError(error);
+  if (archiveGateResponse) return archiveGateResponse;
+
   if (error instanceof InventoryUnauthorizedError) {
     return NextResponse.json({ error: error.message }, { status: 401 });
   }

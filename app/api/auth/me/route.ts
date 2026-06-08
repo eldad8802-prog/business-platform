@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 
 export async function GET(req: Request) {
   try {
-    const currentUser = await getCurrentUser(req);
+    const currentUser = await getCurrentUser(req, { skipArchiveGate: true });
 
     if (!currentUser) {
       return NextResponse.json(
@@ -27,6 +27,8 @@ export async function GET(req: Request) {
       );
     }
 
+    const businessArchived = Boolean(user.business?.archivedAt);
+
     return NextResponse.json({
       success: true,
       user: {
@@ -35,6 +37,8 @@ export async function GET(req: Request) {
         name: user.name,
         businessId: user.businessId,
         businessName: user.business?.name ?? null,
+        businessArchived,
+        businessArchivedAt: user.business?.archivedAt?.toISOString() ?? null,
       },
     });
   } catch (error) {

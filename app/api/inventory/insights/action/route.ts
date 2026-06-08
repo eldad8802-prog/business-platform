@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { inventoryInsightActionService } from "@/lib/services/inventory/inventory-insight-action.service";
 
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
 
-    if (!user?.businessId) {
+    if (!user) {
+      return authRequiredResponse(req);
+    }
+
+    if (!user.businessId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

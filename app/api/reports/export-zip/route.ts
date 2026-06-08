@@ -1,13 +1,13 @@
 import archiver from "archiver";
 import { PassThrough } from "stream";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { appendAccountantPackToArchive } from "@/lib/reports/accountant-export-zip";
 
 export async function POST(req: Request) {
   const user = await getCurrentUser(req);
   if (!user) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+      return authRequiredResponse(req);
+    }
 
   try {
     const body = await req.json();

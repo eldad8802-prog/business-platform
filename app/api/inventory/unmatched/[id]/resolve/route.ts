@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import {
   rejectPendingMatch,
   resolvePendingMatchWithExistingItem,
@@ -13,7 +13,11 @@ export async function POST(
   try {
     const user = await getCurrentUser(request);
 
-    if (!user?.businessId) {
+    if (!user) {
+      return authRequiredResponse(request);
+    }
+
+    if (!user.businessId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
