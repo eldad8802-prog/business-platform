@@ -23,7 +23,7 @@ export default function CorporateLayout({
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen flex-col bg-[#f8f6f1] text-[#1f2937]">
+    <div className="flex min-h-screen flex-col bg-[#F4F7FB] text-[#0C2138]">
       <CorporateHeader />
       <main className="flex-1">{children}</main>
       <CorporateFooter />
