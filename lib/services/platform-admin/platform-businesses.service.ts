@@ -76,6 +76,8 @@ export async function listPlatformBusinesses(
         id: true,
         name: true,
         createdAt: true,
+        archivedAt: true,
+        archivedByUserId: true,
         _count: {
           select: {
             users: true,
@@ -96,6 +98,8 @@ export async function listPlatformBusinesses(
     id: row.id,
     name: row.name,
     createdAt: row.createdAt.toISOString(),
+    archivedAt: row.archivedAt?.toISOString() ?? null,
+    archivedByUserId: row.archivedByUserId,
     usersCount: row._count.users,
     counts: {
       billingDocuments: row._count.billingDocuments,

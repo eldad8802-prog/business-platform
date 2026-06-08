@@ -35,6 +35,8 @@ export type PlatformAdminBusinessListItem = {
   id: number;
   name: string;
   createdAt: string;
+  archivedAt: string | null;
+  archivedByUserId: number | null;
   usersCount: number;
   counts: {
     billingDocuments: number;

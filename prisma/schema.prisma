@@ -145,6 +145,8 @@ model ContentEvent {
 model Business {
   id                        Int                             @id @default(autoincrement())
   name                      String
+  archivedAt                DateTime?
+  archivedByUserId          Int?
   createdAt                 DateTime                        @default(now())
   updatedAt                 DateTime                        @updatedAt
   billingDocuments          BillingDocument[]
@@ -199,6 +201,9 @@ model Business {
   purchaseOrders            PurchaseOrder[]
   receivingSessions         ReceivingSession[]
   suppliers                 Supplier[]
+  archivedByUser            User?                           @relation("BusinessArchivedBy", fields: [archivedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([archivedAt])
 }
 
 model User {
@@ -219,6 +224,7 @@ model User {
   platformAuditEvents PlatformAuditEvent[]
   productUsageEvents  ProductUsageEvent[]
   appointmentsCreated Appointment[]
+  archivedBusinesses  Business[]           @relation("BusinessArchivedBy")
 }
 
 /// Append-only product usage analytics (distinct from weekly `Usage` quota counters).

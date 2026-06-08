@@ -18,6 +18,8 @@ export type PlatformAdminBusinessDetailResponse = {
     id: number;
     name: string;
     createdAt: string;
+    archivedAt: string | null;
+    archivedByUserId: number | null;
     usersCount: number;
     lastActivityAt: string | null;
     operationalStatus: BusinessOperationalStatus;

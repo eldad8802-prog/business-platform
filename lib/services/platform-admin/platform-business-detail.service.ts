@@ -179,6 +179,8 @@ export async function getPlatformAdminBusinessDetail(
       id: true,
       name: true,
       createdAt: true,
+      archivedAt: true,
+      archivedByUserId: true,
       profile: { select: { id: true } },
       users: {
         select: {
@@ -403,6 +405,8 @@ export async function getPlatformAdminBusinessDetail(
       id: business.id,
       name: business.name,
       createdAt: business.createdAt.toISOString(),
+      archivedAt: business.archivedAt?.toISOString() ?? null,
+      archivedByUserId: business.archivedByUserId,
       usersCount: business._count.users,
       lastActivityAt: lastActivityAt?.toISOString() ?? null,
       operationalStatus,

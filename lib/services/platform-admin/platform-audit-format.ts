@@ -10,13 +10,19 @@ const ACTION_LABELS: Record<string, string> = {
   [PLATFORM_AUDIT_ACTIONS.AUDIT_VIEWED]: "צפייה ביומן ביקורת",
   [PLATFORM_AUDIT_ACTIONS.AREA_ENTERED]: "כניסה לאזור Platform Admin",
   [PLATFORM_AUDIT_ACTIONS.SESSION_VIEWED]: "גישה ל-Platform Admin",
+  [PLATFORM_AUDIT_ACTIONS.FEATURE_ACCESS_UPDATED]: "עדכון גישת פיצ'ר לעסק",
+  [PLATFORM_AUDIT_ACTIONS.BUSINESS_ARCHIVED]: "ארכוב עסק",
+  [PLATFORM_AUDIT_ACTIONS.BUSINESS_UNARCHIVED]: "ביטול ארכוב עסק",
 };
 
 const SENSITIVE_ACTIONS = new Set<string>([
   PLATFORM_AUDIT_ACTIONS.BUSINESS_DETAIL_VIEWED,
 ]);
 
-const WARNING_ACTIONS = new Set<string>([]);
+const WARNING_ACTIONS = new Set<string>([
+  PLATFORM_AUDIT_ACTIONS.BUSINESS_ARCHIVED,
+  PLATFORM_AUDIT_ACTIONS.BUSINESS_UNARCHIVED,
+]);
 
 export function formatAuditActionLabel(action: string): string {
   return ACTION_LABELS[action] ?? action;
