@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { CorporateContainer } from "./CorporateContainer";
 import { CorporateNav } from "./CorporateNav";
@@ -23,10 +24,14 @@ export function CorporateHeader() {
           onClick={() => setOpen(false)}
           className="flex items-center gap-2 text-lg font-extrabold text-gray-900"
         >
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-[#eef7f2] text-[#1f7a5a]">
-            D
-          </span>
-          Dubiz
+          <Image
+            src="/dubiz-logo.png"
+            alt="Dubiz"
+            width={124}
+            height={40}
+            priority
+            className="h-9 w-auto"
+          />
         </Link>
 
         <div className="hidden items-center gap-2 sm:flex">

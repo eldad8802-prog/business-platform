@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { CorporateContainer } from "./CorporateContainer";
 
@@ -12,10 +13,13 @@ export function CorporateFooter() {
         <div className="flex flex-col gap-8 sm:flex-row sm:justify-between">
           <div>
             <div className="flex items-center gap-2 text-lg font-extrabold text-gray-900">
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-[#eef7f2] text-[#1f7a5a]">
-                D
-              </span>
-              Dubiz
+              <Image
+                src="/dubiz-logo.png"
+                alt="Dubiz"
+                width={124}
+                height={40}
+                className="h-9 w-auto"
+              />
             </div>
             <p className="mt-3 max-w-xs text-sm leading-6 text-gray-500">
               מערכת ההפעלה לעסק שלך — שיחות, מסמכים, חשבוניות, מלאי ותובנות במקום
