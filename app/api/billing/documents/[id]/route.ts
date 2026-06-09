@@ -7,6 +7,7 @@ import {
   updateBillingDraftHeader,
   UpdateBillingDraftHeaderInput,
 } from "@/lib/services/billing/billing-draft.service";
+import { serializeBillingDocumentForApi } from "@/lib/services/billing/billing-document-api.serializer";
 
 function parseBillingDocumentId(value: string): number {
   const num = Number(value);
@@ -48,7 +49,10 @@ export async function GET(
       throw new NotFoundError("Billing document not found");
     }
 
-    return NextResponse.json({ document }, { status: 200 });
+    return NextResponse.json(
+      { document: serializeBillingDocumentForApi(document) },
+      { status: 200 }
+    );
   } catch (error) {
     return handleError(error);
   }
@@ -100,7 +104,10 @@ export async function PATCH(
 
     const document = await updateBillingDraftHeader(input);
 
-    return NextResponse.json({ document }, { status: 200 });
+    return NextResponse.json(
+      { document: serializeBillingDocumentForApi(document) },
+      { status: 200 }
+    );
   } catch (error) {
     return handleError(error);
   }

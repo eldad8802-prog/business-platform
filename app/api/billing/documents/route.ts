@@ -13,6 +13,19 @@ import {
   CreateBillingDraftInput,
 } from "@/lib/services/billing/billing-draft.service";
 import { assertBillingIdentityReadyForTaxInvoice } from "@/lib/billing/business-identity";
+import {
+  PRODUCT_USAGE_ACTIONS,
+  PRODUCT_USAGE_FEATURES,
+  PRODUCT_USAGE_OUTCOMES,
+} from "@/lib/services/product-usage/product-usage-catalog";
+import {
+  readSessionIdFromRequest,
+  recordProductUsageEvent,
+} from "@/lib/services/product-usage/record-product-usage-event";
+import {
+  serializeBillingDocumentForApi,
+  serializeBillingDocumentsForApi,
+} from "@/lib/services/billing/billing-document-api.serializer";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -35,11 +48,6 @@ const LIST_SELECT = {
   createdByUserId: true,
   convertedToInvoiceId: true,
   pdfRenderStatus: true,
-  pdfTemplateVersion: true,
-  pdfStorageKey: true,
-  pdfHash: true,
-  pdfRenderedAt: true,
-  pdfRenderError: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.BillingDocumentSelect;
@@ -115,8 +123,35 @@ export async function POST(req: NextRequest) {
 
     const document = await createBillingDraft(input);
 
-    return NextResponse.json({ document }, { status: 201 });
+    await recordProductUsageEvent({
+      businessId: user.businessId,
+      userId: user.id,
+      sessionId: readSessionIdFromRequest(req),
+      featureKey: PRODUCT_USAGE_FEATURES.BILLING_DOCUMENT_CREATE,
+      action: PRODUCT_USAGE_ACTIONS.COMPLETED,
+      outcome: PRODUCT_USAGE_OUTCOMES.SUCCESS,
+      entityType: "billing_document",
+      entityId: String(document.id),
+      metadata: { documentType: document.documentType },
+    });
+
+    return NextResponse.json(
+      { document: serializeBillingDocumentForApi(document) },
+      { status: 201 }
+    );
   } catch (error) {
+    const user = await getCurrentUser(req).catch(() => null);
+    if (user) {
+      await recordProductUsageEvent({
+        businessId: user.businessId,
+        userId: user.id,
+        sessionId: readSessionIdFromRequest(req),
+        featureKey: PRODUCT_USAGE_FEATURES.BILLING_DOCUMENT_CREATE,
+        action: PRODUCT_USAGE_ACTIONS.FAILED,
+        outcome: PRODUCT_USAGE_OUTCOMES.FAILURE,
+        metadata: { reason: "request_error" },
+      });
+    }
     return handleError(error);
   }
 }
@@ -234,7 +269,11 @@ export async function GET(req: NextRequest) {
         : null;
 
     return NextResponse.json(
-      { documents, totals, nextCursor },
+      {
+        documents: serializeBillingDocumentsForApi(documents),
+        totals,
+        nextCursor,
+      },
       { status: 200 }
     );
   } catch (error) {

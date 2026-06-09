@@ -3,6 +3,7 @@ import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
 import { submitBillingDraftForReview } from "@/lib/services/billing/billing-transition.service";
+import { serializeBillingDocumentForApi } from "@/lib/services/billing/billing-document-api.serializer";
 
 function parseBillingDocumentId(value: string): number {
   const num = Number(value);
@@ -36,7 +37,10 @@ export async function POST(
       billingDocumentId,
     });
 
-    return NextResponse.json({ document }, { status: 200 });
+    return NextResponse.json(
+      { document: serializeBillingDocumentForApi(document) },
+      { status: 200 }
+    );
   } catch (error) {
     return handleError(error);
   }

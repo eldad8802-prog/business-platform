@@ -3,6 +3,7 @@ import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
 import { convertQuoteToInvoice } from "@/lib/services/billing/convert-quote-to-invoice.service";
+import { serializeBillingDocumentForApi } from "@/lib/services/billing/billing-document-api.serializer";
 
 function parseBillingDocumentId(value: string): number {
   const num = Number(value);
@@ -36,7 +37,10 @@ export async function POST(
       quoteBillingDocumentId,
     });
 
-    return NextResponse.json({ document: invoice }, { status: 201 });
+    return NextResponse.json(
+      { document: serializeBillingDocumentForApi(invoice) },
+      { status: 201 }
+    );
   } catch (error) {
     return handleError(error);
   }
