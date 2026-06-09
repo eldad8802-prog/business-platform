@@ -12,6 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
 import { createBillingAuditEventBestEffort } from "@/lib/services/billing/billing-audit.service";
 import { allocateQuoteDocumentNumberIfMissing } from "@/lib/services/billing/quote-document-number";
+import { type CustomerBillingIdentityRow } from "@/lib/billing/customer-tax-identity";
 import { buildQuotePdfSnapshot } from "@/lib/services/billing/quote-pdf-snapshot";
 import { renderBillingPdfHtmlFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-html-renderer";
 import { renderBillingPdfFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-renderer";
@@ -20,6 +21,11 @@ import {
   BILLING_PDF_TEMPLATE_VERSION,
   type BillingIssuedSnapshotV1,
 } from "@/lib/services/billing/pdf/billing-pdf-template";
+import {
+  assertBillingPdfRendererPolicy,
+  billingPdfRendererName,
+  shouldUseHtmlBillingPdfRenderer,
+} from "@/lib/services/billing/pdf/billing-pdf-renderer-policy";
 import {
   buildStorageKey,
   existsByKey,
@@ -30,14 +36,6 @@ import {
 import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
 
 const RENDER_ERROR_MESSAGE_MAX = 500;
-
-function shouldUseHtmlBillingPdfRenderer(): boolean {
-  return process.env.BILLING_PDF_RENDERER !== "pdfmake";
-}
-
-function billingPdfRendererName(): "html" | "pdfmake" {
-  return shouldUseHtmlBillingPdfRenderer() ? "html" : "pdfmake";
-}
 
 function billingPdfTemplateVersionForRenderer(): string {
   // Used to prevent serving old cached PDFs produced by a different renderer.
@@ -95,6 +93,7 @@ export async function getOrRenderQuotePdf(
   input: GetOrRenderQuotePdfInput
 ): Promise<GetOrRenderQuotePdfResult> {
   validateInput(input);
+  assertBillingPdfRendererPolicy();
 
   const allocated = await prisma.$transaction(async (tx) => {
     const docCheck = await tx.billingDocument.findFirst({
@@ -165,15 +164,7 @@ export async function getOrRenderQuotePdf(
     throw new NotFoundError("Business not found");
   }
 
-  let customerData:
-    | {
-        id: number;
-        name: string;
-        phone: string | null;
-        email: string | null;
-        city: string | null;
-      }
-    | null = null;
+  let customerData: CustomerBillingIdentityRow | null = null;
 
   if (doc.customerId !== null) {
     const customer = await prisma.customer.findFirst({
@@ -184,6 +175,9 @@ export async function getOrRenderQuotePdf(
         phone: true,
         email: true,
         city: true,
+        legalName: true,
+        taxId: true,
+        taxIdType: true,
       },
     });
     if (customer) {

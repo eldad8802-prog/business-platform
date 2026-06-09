@@ -24,6 +24,7 @@ import {
 import {
   ForbiddenError,
   NotFoundError,
+  PdfIntegrityCheckFailedError,
   UnauthorizedError,
   ValidationError,
 } from "@/lib/errors";
@@ -38,6 +39,11 @@ import {
   type BillingIssuedSnapshotV1,
 } from "@/lib/services/billing/pdf/billing-pdf-template";
 import {
+  assertBillingPdfRendererPolicy,
+  billingPdfRendererName,
+  shouldUseHtmlBillingPdfRenderer,
+} from "@/lib/services/billing/pdf/billing-pdf-renderer-policy";
+import {
   buildStorageKey,
   existsByKey,
   readByKey,
@@ -47,20 +53,6 @@ import {
 import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
 
 const RENDER_ERROR_MESSAGE_MAX = 500;
-
-/**
- * Billing PDF renderer selection.
- *
- * Default: HTML (Playwright Chromium) — better for Hebrew/RTL.
- * Override: set `BILLING_PDF_RENDERER=pdfmake` to force the legacy pdfmake path.
- */
-function shouldUseHtmlBillingPdfRenderer(): boolean {
-  return process.env.BILLING_PDF_RENDERER !== "pdfmake";
-}
-
-function billingPdfRendererName(): "html" | "pdfmake" {
-  return shouldUseHtmlBillingPdfRenderer() ? "html" : "pdfmake";
-}
 
 function billingPdfTemplateVersionForRenderer(): string {
   // Used to prevent serving old cached PDFs produced by a different renderer.
@@ -118,6 +110,24 @@ function sha256Hex(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
+/** H2a: verify stored PDF bytes match the persisted pdfHash before cache serve. */
+export function verifyCachedPdfBytes(
+  buffer: Buffer,
+  expectedPdfHash: string
+): boolean {
+  return sha256Hex(buffer) === expectedPdfHash.toLowerCase();
+}
+
+export function rethrowRenderFailure(
+  integrityMismatchDetected: boolean,
+  renderError: unknown
+): never {
+  if (integrityMismatchDetected) {
+    throw new PdfIntegrityCheckFailedError();
+  }
+  throw renderError;
+}
+
 function truncateError(message: string): string {
   if (message.length <= RENDER_ERROR_MESSAGE_MAX) return message;
   return message.slice(0, RENDER_ERROR_MESSAGE_MAX);
@@ -127,6 +137,7 @@ export async function getOrRenderBillingPdf(
   input: GetOrRenderBillingPdfInput
 ): Promise<GetOrRenderBillingPdfResult> {
   validateInput(input);
+  assertBillingPdfRendererPolicy();
 
   const doc = await prisma.billingDocument.findFirst({
     where: {
@@ -213,6 +224,9 @@ export async function getOrRenderBillingPdf(
     }
   }
 
+  let integrityMismatchDetected = false;
+  let integrityMismatchActualHash: string | null = null;
+
   if (cacheCandidate) {
     const storageKey = doc.pdfStorageKey as string;
     const pdfHash = doc.pdfHash as string;
@@ -225,29 +239,43 @@ export async function getOrRenderBillingPdf(
     if (fileExists) {
       try {
         const buffer = await readByKey(storageKey);
+        if (verifyCachedPdfBytes(buffer, pdfHash)) {
+          if (billingPdfDebugEnabled()) {
+            console.log(
+              "[billing-pdf-debug] CACHE_HIT — verified bytes from storage (no renderer)",
+              {
+                billingDocumentId: doc.id,
+                pdfStorageKey: storageKey,
+                pdfHashPrefix: pdfHash.slice(0, 16),
+                byteLength: buffer.length,
+              }
+            );
+          }
+          return {
+            buffer,
+            pdfHash,
+            pdfTemplateVersion: effectivePdfTemplateVersion,
+            documentNumberFormatted,
+            renderedNow: false,
+          };
+        }
+
+        integrityMismatchDetected = true;
+        integrityMismatchActualHash = sha256Hex(buffer);
         if (billingPdfDebugEnabled()) {
-          console.log("[billing-pdf-debug] CACHE_HIT — returning bytes from storage (no renderer)", {
+          console.log("[billing-pdf-debug] CACHE_INTEGRITY_MISMATCH — re-rendering", {
             billingDocumentId: doc.id,
             pdfStorageKey: storageKey,
-            pdfHashPrefix: pdfHash.slice(0, 16),
-            byteLength: buffer.length,
-            note:
-              "bytes may be from pdfmake or html depending on what rendered last; use SKIP_CACHE+DEBUG to force re-render",
+            storedPdfHashPrefix: pdfHash.slice(0, 16),
+            actualPdfHashPrefix: integrityMismatchActualHash.slice(0, 16),
           });
         }
-        return {
-          buffer,
-          pdfHash,
-          pdfTemplateVersion: effectivePdfTemplateVersion,
-          documentNumberFormatted,
-          renderedNow: false,
-        };
       } catch {
         // Fall through to a fresh render if the cached file became
         // unreadable between the existence check and the actual read.
       }
     }
-    // file missing or unreadable → fall through to render
+    // file missing, unreadable, or hash mismatch → fall through to render
   }
 
   // ---------------------------------------------------------------------
@@ -305,13 +333,22 @@ export async function getOrRenderBillingPdf(
         billingDocumentId: doc.id,
         actorUserId: input.actorUserId,
         eventType: "BILLING_PDF_RENDER_FAILED",
-        summary: "Billing PDF render failed",
+        summary: integrityMismatchDetected
+          ? "Billing PDF integrity check failed"
+          : "Billing PDF render failed",
         metadata: {
           documentId: doc.id,
           documentType: snapshot.document.type,
           actorUserId: input.actorUserId,
           errorMessage: message,
           pdfTemplateVersion: effectivePdfTemplateVersion,
+          ...(integrityMismatchDetected
+            ? {
+                integrityCheckFailed: true,
+                storedPdfHash: doc.pdfHash,
+                actualPdfHash: integrityMismatchActualHash,
+              }
+            : {}),
         },
       });
       await logAuditEvent({
@@ -324,12 +361,19 @@ export async function getOrRenderBillingPdf(
           actorUserId: input.actorUserId,
           errorMessage: message,
           templateVersion: BILLING_PDF_TEMPLATE_VERSION,
+          ...(integrityMismatchDetected
+            ? {
+                integrityCheckFailed: true,
+                storedPdfHash: doc.pdfHash,
+                actualPdfHash: integrityMismatchActualHash,
+              }
+            : {}),
         },
       });
     } catch (auditErr) {
       console.error("billing-pdf: audit log (FAILED) error", auditErr);
     }
-    throw renderError;
+    rethrowRenderFailure(integrityMismatchDetected, renderError);
   }
 
   // ---------------------------------------------------------------------
@@ -342,10 +386,14 @@ export async function getOrRenderBillingPdf(
       where: {
         id: doc.id,
         businessId: input.businessId,
-        OR: [
-          { pdfRenderStatus: { not: BillingPdfRenderStatus.RENDERED } },
-          { pdfTemplateVersion: { not: effectivePdfTemplateVersion } },
-        ],
+        ...(integrityMismatchDetected
+          ? {}
+          : {
+              OR: [
+                { pdfRenderStatus: { not: BillingPdfRenderStatus.RENDERED } },
+                { pdfTemplateVersion: { not: effectivePdfTemplateVersion } },
+              ],
+            }),
       },
       intent: "issued_operational",
       data: {

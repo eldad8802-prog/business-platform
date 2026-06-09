@@ -29,8 +29,6 @@ Set the following in your deployment environment (e.g. Vercel Project → Settin
 BILLING_PDF_RENDERER=html
 ```
 
-If your deployment target cannot run a local Playwright Chromium browser, force the legacy path:
+Production **must** use the HTML renderer. `BILLING_PDF_RENDERER=pdfmake` is blocked when `NODE_ENV=production`.
 
-```env
-BILLING_PDF_RENDERER=pdfmake
-```
+For local troubleshooting only, you may set `BILLING_PDF_RENDERER=pdfmake` in development.
