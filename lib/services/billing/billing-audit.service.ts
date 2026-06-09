@@ -3,6 +3,38 @@ import { BillingAuditEvent, Prisma } from "@prisma/client";
 import { UnauthorizedError, ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 
+/** Document-scoped authority events — require billingDocumentId. */
+export const BILLING_AUTHORITY_DOCUMENT_AUDIT_EVENT_TYPES = [
+  "BILLING_AUTHORITY_READINESS_CREATED",
+  "BILLING_AUTHORITY_MARKED_NOT_REQUIRED",
+  "BILLING_AUTHORITY_SUBMISSION_ATTEMPTED",
+  "BILLING_AUTHORITY_APPROVED",
+  "BILLING_AUTHORITY_REJECTED",
+  "BILLING_AUTHORITY_FAILED",
+  "BILLING_AUTHORITY_RETRY_SCHEDULED",
+  "BILLING_AUTHORITY_HELD_DECISION_REPORTED",
+  "BILLING_AUTHORITY_EMERGENCY_ALLOCATED",
+  "BILLING_AUTHORITY_EMERGENCY_SYNCED",
+] as const;
+
+/** Business/connection-scoped authority events — billingDocumentId optional. */
+export const BILLING_AUTHORITY_CONNECTION_AUDIT_EVENT_TYPES = [
+  "BILLING_AUTHORITY_OAUTH_STARTED",
+  "BILLING_AUTHORITY_OAUTH_COMPLETED",
+  "BILLING_AUTHORITY_OAUTH_FAILED",
+  "BILLING_AUTHORITY_CONNECTION_VALIDATED",
+  "BILLING_AUTHORITY_TOKEN_REFRESHED",
+  "BILLING_AUTHORITY_TOKEN_REFRESH_FAILED",
+  "BILLING_AUTHORITY_AUTH_FAILURE",
+  "BILLING_AUTHORITY_CONNECTION_REVOKED",
+  "BILLING_AUTHORITY_MULTI_BATCH_SUBMITTED",
+] as const;
+
+export const BILLING_AUTHORITY_AUDIT_EVENT_TYPES = [
+  ...BILLING_AUTHORITY_DOCUMENT_AUDIT_EVENT_TYPES,
+  ...BILLING_AUTHORITY_CONNECTION_AUDIT_EVENT_TYPES,
+] as const;
+
 export const BILLING_AUDIT_EVENT_TYPES = [
   "BILLING_DRAFT_CREATED",
   "BILLING_DRAFT_HEADER_UPDATED",
@@ -16,9 +48,40 @@ export const BILLING_AUDIT_EVENT_TYPES = [
   "BILLING_PDF_RENDERED",
   "BILLING_PDF_RENDER_FAILED",
   "BILLING_QUOTE_PDF_RENDERED",
+  ...BILLING_AUTHORITY_AUDIT_EVENT_TYPES,
 ] as const;
 
+export type BillingAuthorityDocumentAuditEventType =
+  (typeof BILLING_AUTHORITY_DOCUMENT_AUDIT_EVENT_TYPES)[number];
+
+export type BillingAuthorityConnectionAuditEventType =
+  (typeof BILLING_AUTHORITY_CONNECTION_AUDIT_EVENT_TYPES)[number];
+
+export type BillingAuthorityAuditEventType =
+  (typeof BILLING_AUTHORITY_AUDIT_EVENT_TYPES)[number];
+
 export type BillingAuditEventType = (typeof BILLING_AUDIT_EVENT_TYPES)[number];
+
+const BILLING_AUTHORITY_CONNECTION_EVENT_SET = new Set<string>(
+  BILLING_AUTHORITY_CONNECTION_AUDIT_EVENT_TYPES
+);
+
+export function isBillingAuthorityAuditEventType(
+  eventType: string
+): eventType is BillingAuthorityAuditEventType {
+  return (BILLING_AUTHORITY_AUDIT_EVENT_TYPES as readonly string[]).includes(
+    eventType
+  );
+}
+
+export function billingAuthorityAuditEventRequiresDocument(
+  eventType: BillingAuditEventType
+): boolean {
+  return (
+    isBillingAuthorityAuditEventType(eventType) &&
+    !BILLING_AUTHORITY_CONNECTION_EVENT_SET.has(eventType)
+  );
+}
 
 export const BILLING_AUDIT_SOURCES = [
   "USER",
@@ -144,7 +207,11 @@ function normalizeAuditEventInput(input: CreateBillingAuditEventInput): {
     throw new ValidationError("actorUserId is required for user audit events");
   }
 
-  if (input.eventType.startsWith("BILLING_") && billingDocumentId === null) {
+  const documentScopedBillingEvent =
+    input.eventType.startsWith("BILLING_") &&
+    !BILLING_AUTHORITY_CONNECTION_EVENT_SET.has(input.eventType);
+
+  if (documentScopedBillingEvent && billingDocumentId === null) {
     throw new ValidationError(
       "billingDocumentId is required for billing document audit events"
     );
@@ -211,6 +278,13 @@ export async function createBillingAuditEventBestEffort(
   } catch (error) {
     console.error("createBillingAuditEventBestEffort error:", error);
   }
+}
+
+/** Validates audit input without persisting — for tests and preflight checks. */
+export function validateBillingAuditEventInput(
+  input: CreateBillingAuditEventInput
+): ReturnType<typeof normalizeAuditEventInput> {
+  return normalizeAuditEventInput(input);
 }
 
 export async function getBillingDocumentAuditTimeline(
