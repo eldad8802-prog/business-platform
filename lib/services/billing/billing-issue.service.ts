@@ -16,6 +16,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
 import { createBillingAuditEventTx } from "@/lib/services/billing/billing-audit.service";
+import { createAuthoritySubmissionForIssuedDocumentTx } from "@/lib/services/billing/authority/billing-authority-issue.service";
 import {
   assertCanReferenceSourceInvoice,
   assertCreditAmountWithinRemaining,
@@ -23,6 +24,10 @@ import {
 import { recomputeAll } from "@/lib/services/billing/totals/billing-totals.service";
 import { ensureBillingInvoicePostedEvent } from "@/lib/services/financial-events/financial-event.service";
 import { assertBillingIdentityReadyForTaxInvoice } from "@/lib/billing/business-identity";
+import {
+  buildBillingCustomerSnapshot,
+  type CustomerBillingIdentityRow,
+} from "@/lib/billing/customer-tax-identity";
 import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
 import {
   parseBillingPdfTemplateStyle,
@@ -62,6 +67,7 @@ type CustomerSnapshot = {
   name: string;
   legalName: string | null;
   taxId: string | null;
+  taxIdType: string | null;
   phone: string | null;
   email: string | null;
   city: string | null;
@@ -180,13 +186,7 @@ function buildIssuedSnapshot(args: {
   document: BillingDocument;
   lines: BillingDocumentLine[];
   business: { id: number; name: string; profile: BusinessProfileForInvoice };
-  customer: {
-    id: number;
-    name: string;
-    phone: string | null;
-    email: string | null;
-    city: string | null;
-  } | null;
+  customer: CustomerBillingIdentityRow | null;
   documentNumber: number;
   documentNumberFormatted: string;
   issuedAt: Date;
@@ -235,16 +235,10 @@ function buildIssuedSnapshot(args: {
     );
   }
 
-  const customerSnapshot: CustomerSnapshot = {
-    id: customer?.id ?? null,
-    name: customerNameSnapshot,
-    legalName: null,
-    taxId: null,
-    phone: customer?.phone ?? null,
-    email: customer?.email ?? null,
-    city: customer?.city ?? null,
-    address: null,
-  };
+  const customerSnapshot: CustomerSnapshot = buildBillingCustomerSnapshot({
+    customerNameSnapshot,
+    customer,
+  });
 
   const issuerSnapshot: IssuerSnapshot = {
     id: business.id,
@@ -444,15 +438,7 @@ export async function issueBillingDocument(
 
     assertBillingIdentityReadyForTaxInvoice(business.profile);
 
-    let customerData:
-      | {
-          id: number;
-          name: string;
-          phone: string | null;
-          email: string | null;
-          city: string | null;
-        }
-      | null = null;
+    let customerData: CustomerBillingIdentityRow | null = null;
 
     if (doc.customerId !== null) {
       const customer = await tx.customer.findFirst({
@@ -463,6 +449,9 @@ export async function issueBillingDocument(
           phone: true,
           email: true,
           city: true,
+          legalName: true,
+          taxId: true,
+          taxIdType: true,
         },
       });
       if (customer) {
@@ -567,6 +556,20 @@ export async function issueBillingDocument(
         actorUserId: input.actorUserId,
       },
       occurredAt: issuedAt,
+    });
+
+    await createAuthoritySubmissionForIssuedDocumentTx(tx, {
+      businessId: input.businessId,
+      billingDocumentId: issued.id,
+      actorUserId: input.actorUserId,
+      documentType: issued.documentType,
+      legalSnapshotHash: issued.legalSnapshotHash ?? legalSnapshotHash,
+      vatAmount: recomputed.totals.vatAmount,
+      subtotalAmount: recomputed.totals.subtotalAmount,
+      currency: issued.currency,
+      customerTaxIdType: customerData?.taxIdType ?? null,
+      customerTaxId: customerData?.taxId ?? null,
+      issuedAt,
     });
 
     return {
