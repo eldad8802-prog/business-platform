@@ -201,7 +201,9 @@ model Business {
   purchaseOrders            PurchaseOrder[]
   receivingSessions         ReceivingSession[]
   suppliers                 Supplier[]
-  archivedByUser            User?                           @relation("BusinessArchivedBy", fields: [archivedByUserId], references: [id], onDelete: SetNull)
+  archivedByUser              User?                           @relation("BusinessArchivedBy", fields: [archivedByUserId], references: [id], onDelete: SetNull)
+  billingAuthorityConnections BillingAuthorityConnection[]
+  billingAuthoritySubmissions BillingAuthoritySubmission[]
 
   @@index([archivedAt])
 }
@@ -224,7 +226,8 @@ model User {
   platformAuditEvents PlatformAuditEvent[]
   productUsageEvents  ProductUsageEvent[]
   appointmentsCreated Appointment[]
-  archivedBusinesses  Business[]           @relation("BusinessArchivedBy")
+  archivedBusinesses                       Business[]                   @relation("BusinessArchivedBy")
+  billingAuthorityConnectionsOauthAuthorized BillingAuthorityConnection[] @relation("BillingAuthorityOauthAuthorizedBy")
 }
 
 /// Append-only product usage analytics (distinct from weekly `Usage` quota counters).
@@ -1408,6 +1411,9 @@ model BillingDocument {
   lockedAt                DateTime?
   legalSnapshotHash       String?
   referenceDocumentId     Int?
+  allocationNumber        String?
+  allocationApprovedAt    DateTime?
+  isEmergencyAllocation   Boolean                @default(false)
   pdfRenderStatus         BillingPdfRenderStatus @default(PENDING)
   pdfTemplateVersion      String?
   pdfStorageKey           String?
@@ -1425,12 +1431,14 @@ model BillingDocument {
   quotesConvertedToHere   BillingDocument[]      @relation("QuoteConvertedToInvoice")
   referencedDocument      BillingDocument?       @relation("BillingDocumentReversalReference", fields: [referenceDocumentId], references: [id], onDelete: Restrict)
   creditNotes             BillingDocument[]      @relation("BillingDocumentReversalReference")
+  authoritySubmission     BillingAuthoritySubmission?
 
   @@unique([businessId, documentType, documentNumber])
   @@index([businessId, status, issuedAt])
   @@index([businessId, createdAt])
   @@index([businessId, customerId])
   @@index([businessId, referenceDocumentId])
+  @@index([businessId, allocationNumber])
   @@index([pdfRenderStatus])
 }
 
@@ -1507,6 +1515,100 @@ model FinancialEvent {
 
   @@unique([businessId, sourceType, sourceKey])
   @@index([businessId, occurredAt])
+}
+
+model BillingAuthorityApp {
+  id                       Int                         @id @default(autoincrement())
+  environment              BillingAuthorityEnvironment
+  status                   BillingAuthorityAppStatus   @default(ACTIVE)
+  accountingSoftwareNumber String
+  itaClientId              String?
+  clientSecretEncrypted    String?
+  clientSecretIv           String?
+  clientSecretTag          String?
+  encryptionKeyId          String?
+  portalOrganizationId     String?
+  portalApplicationId      String?
+  registeredAt             DateTime?
+  lastValidatedAt          DateTime?
+  lastErrorCode            String?
+  lastErrorMessage         String?
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
+
+  @@unique([environment])
+  @@index([status])
+}
+
+model BillingAuthorityConnection {
+  id                      Int                              @id @default(autoincrement())
+  businessId              Int
+  environment             BillingAuthorityEnvironment
+  status                  BillingAuthorityConnectionStatus @default(DISCONNECTED)
+  clientSoftwareKey       String?
+  accessTokenEncrypted    String?
+  accessTokenIv           String?
+  accessTokenTag          String?
+  refreshTokenEncrypted   String?
+  refreshTokenIv          String?
+  refreshTokenTag         String?
+  encryptionKeyId         String?
+  accessTokenExpiresAt    DateTime?
+  refreshTokenExpiresAt   DateTime?
+  oauthAuthorizedAt       DateTime?
+  oauthAuthorizedByUserId Int?
+  lastTokenRefreshAt      DateTime?
+  lastValidatedAt         DateTime?
+  revokedAt               DateTime?
+  lastErrorCode           String?
+  lastErrorMessage        String?
+  createdAt               DateTime                         @default(now())
+  updatedAt               DateTime                         @updatedAt
+
+  business              Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  oauthAuthorizedByUser User?    @relation("BillingAuthorityOauthAuthorizedBy", fields: [oauthAuthorizedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, environment])
+  @@index([businessId, status])
+  @@index([environment, status])
+  @@index([status, refreshTokenExpiresAt])
+  @@index([businessId, oauthAuthorizedAt])
+}
+
+model BillingAuthoritySubmission {
+  id                     Int                               @id @default(autoincrement())
+  businessId             Int
+  billingDocumentId      Int                               @unique
+  status                 BillingAuthoritySubmissionStatus  @default(READY)
+  submissionChannel      BillingAuthoritySubmissionChannel @default(STANDARD)
+  legalSnapshotHash      String?
+  authorityPayloadHash   String?
+  authorityResponseHash  String?
+  authoritySubmissionId  String?
+  allocationNumber       String?
+  isEmergencyAllocation  Boolean                           @default(false)
+  batchId                String?
+  batchItemIndex         Int?
+  heldDecisionType       BillingAuthorityDecisionType?
+  heldDecisionReportedAt DateTime?
+  submittedAt            DateTime?
+  approvedAt             DateTime?
+  rejectedAt             DateTime?
+  lastAttemptAt          DateTime?
+  errorCode              String?
+  errorMessage           String?
+  retryCount             Int                               @default(0)
+  createdAt              DateTime                          @default(now())
+  updatedAt              DateTime                          @updatedAt
+
+  business        Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  billingDocument BillingDocument @relation(fields: [billingDocumentId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, status])
+  @@index([businessId, lastAttemptAt])
+  @@index([businessId, approvedAt])
+  @@index([status, lastAttemptAt])
+  @@index([batchId])
 }
 
 enum EmailProvider {
@@ -1855,6 +1957,48 @@ enum BillingPdfRenderStatus {
   PENDING
   RENDERED
   FAILED
+}
+
+enum BillingAuthorityEnvironment {
+  SANDBOX
+  PRODUCTION
+}
+
+enum BillingAuthorityAppStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum BillingAuthorityConnectionStatus {
+  DISCONNECTED
+  AUTHORIZATION_REQUIRED
+  CONNECTED
+  VALIDATED
+  ERROR
+  REVOKED
+}
+
+enum BillingAuthoritySubmissionStatus {
+  NOT_REQUIRED
+  READY
+  PENDING
+  SUBMITTED
+  APPROVED
+  REJECTED
+  FAILED
+}
+
+enum BillingAuthoritySubmissionChannel {
+  STANDARD
+  MULTI_BATCH
+  EMERGENCY
+}
+
+enum BillingAuthorityDecisionType {
+  ABANDONED
+  PROCEED_WITHOUT_ALLOCATION
+  REVERSE_CHARGE
+  HEARING_REQUESTED
 }
 
 enum FinancialEventDirection {
