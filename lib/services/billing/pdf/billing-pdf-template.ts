@@ -96,6 +96,8 @@ export type BillingIssuedSnapshotV1Customer = {
   name: string;
   legalName: string | null;
   taxId: string | null;
+  /** Present on snapshots issued after customer tax identity (P1+). */
+  taxIdType?: string | null;
   phone: string | null;
   email: string | null;
   city: string | null;

@@ -6,6 +6,10 @@ import type {
 import { BillingDocumentType, Prisma } from "@prisma/client";
 import type { BillingIssuedSnapshotV1 } from "@/lib/services/billing/pdf/billing-pdf-template";
 import { parseBillingPdfTemplateStyle } from "@/lib/billing/billing-pdf-template-style";
+import {
+  buildBillingCustomerSnapshot,
+  type CustomerBillingIdentityRow,
+} from "@/lib/billing/customer-tax-identity";
 
 type BusinessProfileForQuote = {
   billingLegalName: string | null;
@@ -49,13 +53,7 @@ export function buildQuotePdfSnapshot(args: {
   document: BillingDocument;
   lines: BillingDocumentLine[];
   business: { id: number; name: string; profile: BusinessProfileForQuote };
-  customer: {
-    id: number;
-    name: string;
-    phone: string | null;
-    email: string | null;
-    city: string | null;
-  } | null;
+  customer: CustomerBillingIdentityRow | null;
   documentNumber: number;
   documentNumberFormatted: string;
   snapshotDate: Date;
@@ -102,16 +100,10 @@ export function buildQuotePdfSnapshot(args: {
 
   const customerNameSnapshot = (document.customerNameSnapshot ?? "").trim();
 
-  const customerSnapshot = {
-    id: customer?.id ?? null,
-    name: customerNameSnapshot,
-    legalName: null,
-    taxId: null,
-    phone: customer?.phone ?? null,
-    email: customer?.email ?? null,
-    city: customer?.city ?? null,
-    address: null,
-  };
+  const customerSnapshot = buildBillingCustomerSnapshot({
+    customerNameSnapshot,
+    customer,
+  });
 
   const issuerSnapshot = {
     id: business.id,

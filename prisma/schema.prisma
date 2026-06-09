@@ -419,6 +419,11 @@ model Customer {
   phone            String?
   email            String?
   city             String?
+  /// Registered legal name when different from display `name` (billing snapshots).
+  legalName        String?
+  /// Counterparty tax identifier (ע.מ. / ח.פ. / ת.ז. etc.).
+  taxId            String?
+  taxIdType        CustomerTaxIdType?
   notes            String?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -1609,6 +1614,14 @@ model BillingAuthoritySubmission {
   @@index([businessId, approvedAt])
   @@index([status, lastAttemptAt])
   @@index([batchId])
+}
+
+enum CustomerTaxIdType {
+  AUTHORIZED_DEALER
+  EXEMPT_DEALER
+  LTD_COMPANY
+  PRIVATE_ID
+  OTHER
 }
 
 enum EmailProvider {
