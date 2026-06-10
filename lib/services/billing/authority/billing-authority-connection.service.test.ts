@@ -13,6 +13,8 @@ import {
   markAuthorityAuthFailureTx,
   markAuthorityConnectedTx,
   markAuthorityOAuthFailedTx,
+  markAuthorityTokenRefreshedTx,
+  markAuthorityTokenRefreshFailedTx,
   markAuthorityValidatedTx,
   revokeAuthorityConnectionTx,
   startAuthorityAuthorizationTx,
@@ -386,6 +388,63 @@ const authFailureValidated = await markAuthorityAuthFailureTx(
 ok(
   "mark auth failure from VALIDATED",
   authFailureValidated.toStatus === "ERROR"
+);
+
+const refreshSuccessDb = makeFakeConnectionDb(
+  makeConnection({
+    businessId: 62,
+    environment: BillingAuthorityEnvironment.SANDBOX,
+    status: BillingAuthorityConnectionStatus.CONNECTED,
+    accessTokenEncrypted: TOKENS.accessTokenEncrypted,
+    refreshTokenEncrypted: TOKENS.refreshTokenEncrypted,
+  })
+);
+const refreshed = await markAuthorityTokenRefreshedTx(refreshSuccessDb.tx, {
+  businessId: 62,
+  environment: BillingAuthorityEnvironment.SANDBOX,
+  actorUserId: 7,
+  tokens: TOKENS,
+  refreshedAt: NOW,
+  accessTokenExpiresAt: new Date("2026-06-11T12:00:00.000Z"),
+  refreshTokenRotated: false,
+});
+ok(
+  "mark token refreshed keeps CONNECTED",
+  refreshed.fromStatus === "CONNECTED" &&
+    refreshed.toStatus === "CONNECTED" &&
+    refreshed.auditWritten
+);
+ok(
+  "mark token refreshed updates lastTokenRefreshAt",
+  refreshSuccessDb.getRow(62, BillingAuthorityEnvironment.SANDBOX)!
+    .lastTokenRefreshAt?.toISOString() === NOW.toISOString()
+);
+
+const refreshFailDb = makeFakeConnectionDb(
+  makeConnection({
+    businessId: 63,
+    environment: BillingAuthorityEnvironment.SANDBOX,
+    status: BillingAuthorityConnectionStatus.VALIDATED,
+    accessTokenEncrypted: TOKENS.accessTokenEncrypted,
+    refreshTokenEncrypted: TOKENS.refreshTokenEncrypted,
+  })
+);
+const refreshFailed = await markAuthorityTokenRefreshFailedTx(refreshFailDb.tx, {
+  businessId: 63,
+  environment: BillingAuthorityEnvironment.SANDBOX,
+  errorCode: "ITA_REFRESH_REJECTED",
+  errorMessage: "invalid_grant",
+  refreshAttemptAt: NOW,
+});
+ok(
+  "mark token refresh failed from VALIDATED",
+  refreshFailed.fromStatus === "VALIDATED" &&
+    refreshFailed.toStatus === "AUTHORIZATION_REQUIRED"
+);
+ok(
+  "mark token refresh failed keeps encrypted tokens",
+  refreshFailDb.getRow(63, BillingAuthorityEnvironment.SANDBOX)!
+    .accessTokenEncrypted === TOKENS.accessTokenEncrypted
 );
 
 const revoked = await revokeAuthorityConnectionTx(db.tx, {

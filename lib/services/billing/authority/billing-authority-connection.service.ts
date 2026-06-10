@@ -598,6 +598,138 @@ export async function markAuthorityAuthFailureTx(
   });
 }
 
+export async function markAuthorityTokenRefreshedTx(
+  tx: Prisma.TransactionClient,
+  input: {
+    businessId: number;
+    environment: BillingAuthorityEnvironment;
+    actorUserId?: number | null;
+    tokens: AuthorityConnectionEncryptedTokenFields;
+    refreshedAt?: Date;
+    accessTokenExpiresAt?: Date | null;
+    refreshTokenExpiresAt?: Date | null;
+    refreshTokenRotated: boolean;
+    occurredAt?: Date;
+  }
+): Promise<AuthorityConnectionTransitionResult> {
+  assertPositiveInteger(input.businessId, "businessId");
+  assertEncryptedTokenFields(input.tokens);
+
+  const refreshedAt = input.refreshedAt ?? new Date();
+  if (Number.isNaN(refreshedAt.getTime())) {
+    throw new ValidationError("refreshedAt must be a valid Date");
+  }
+
+  const row = await loadConnectionRowTx(tx, input.businessId, input.environment);
+  if (!row) {
+    throw new NotFoundError("Authority connection not found");
+  }
+
+  if (
+    row.status !== BillingAuthorityConnectionStatus.CONNECTED &&
+    row.status !== BillingAuthorityConnectionStatus.VALIDATED
+  ) {
+    throw new ForbiddenError(
+      `markAuthorityTokenRefreshed is not allowed from status ${row.status}`
+    );
+  }
+
+  return executeConnectionTransitionTx(tx, {
+    businessId: input.businessId,
+    environment: input.environment,
+    requireCurrentStatus: row.status,
+    toStatus: row.status,
+    operation: "markAuthorityTokenRefreshed",
+    auditEventType: "BILLING_AUTHORITY_TOKEN_REFRESHED",
+    auditSummary: "אסימון רשות המסים רוענן",
+    actorUserId: input.actorUserId ?? null,
+    occurredAt: input.occurredAt,
+    metadata: {
+      lastTokenRefreshAt: refreshedAt.toISOString(),
+      accessTokenExpiresAt: input.accessTokenExpiresAt?.toISOString() ?? null,
+      refreshTokenExpiresAt: input.refreshTokenExpiresAt?.toISOString() ?? null,
+      refreshTokenRotated: input.refreshTokenRotated,
+    },
+    connectionUpdate: {
+      accessTokenEncrypted: input.tokens.accessTokenEncrypted,
+      accessTokenIv: input.tokens.accessTokenIv,
+      accessTokenTag: input.tokens.accessTokenTag,
+      refreshTokenEncrypted: input.tokens.refreshTokenEncrypted,
+      refreshTokenIv: input.tokens.refreshTokenIv,
+      refreshTokenTag: input.tokens.refreshTokenTag,
+      encryptionKeyId: input.tokens.encryptionKeyId,
+      accessTokenExpiresAt: input.accessTokenExpiresAt ?? null,
+      refreshTokenExpiresAt: input.refreshTokenExpiresAt ?? null,
+      lastTokenRefreshAt: refreshedAt,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+    },
+  });
+}
+
+export async function markAuthorityTokenRefreshFailedTx(
+  tx: Prisma.TransactionClient,
+  input: {
+    businessId: number;
+    environment: BillingAuthorityEnvironment;
+    actorUserId?: number | null;
+    errorCode: string;
+    errorMessage: string;
+    refreshAttemptAt?: Date;
+    occurredAt?: Date;
+  }
+): Promise<AuthorityConnectionTransitionResult> {
+  assertPositiveInteger(input.businessId, "businessId");
+  const errorCode = input.errorCode.trim();
+  const errorMessage = sanitizeAuthorityConnectionErrorMessage(input.errorMessage);
+  if (!errorCode) {
+    throw new ValidationError("errorCode is required");
+  }
+  if (!errorMessage) {
+    throw new ValidationError("errorMessage is required");
+  }
+
+  const refreshAttemptAt = input.refreshAttemptAt ?? new Date();
+  if (Number.isNaN(refreshAttemptAt.getTime())) {
+    throw new ValidationError("refreshAttemptAt must be a valid Date");
+  }
+
+  const row = await loadConnectionRowTx(tx, input.businessId, input.environment);
+  if (!row) {
+    throw new NotFoundError("Authority connection not found");
+  }
+
+  if (
+    row.status !== BillingAuthorityConnectionStatus.CONNECTED &&
+    row.status !== BillingAuthorityConnectionStatus.VALIDATED
+  ) {
+    throw new ForbiddenError(
+      `markAuthorityTokenRefreshFailed is not allowed from status ${row.status}`
+    );
+  }
+
+  return executeConnectionTransitionTx(tx, {
+    businessId: input.businessId,
+    environment: input.environment,
+    requireCurrentStatus: row.status,
+    toStatus: BillingAuthorityConnectionStatus.AUTHORIZATION_REQUIRED,
+    operation: "markAuthorityTokenRefreshFailed",
+    auditEventType: "BILLING_AUTHORITY_TOKEN_REFRESH_FAILED",
+    auditSummary: "רענון אסימון נכשל",
+    actorUserId: input.actorUserId ?? null,
+    occurredAt: input.occurredAt,
+    metadata: {
+      errorCode,
+      errorMessage,
+      refreshAttemptAt: refreshAttemptAt.toISOString(),
+    },
+    connectionUpdate: {
+      lastErrorCode: errorCode.slice(0, 64),
+      lastErrorMessage: errorMessage,
+    },
+  });
+}
+
 export async function revokeAuthorityConnectionTx(
   tx: Prisma.TransactionClient,
   input: {
@@ -703,6 +835,20 @@ export async function markAuthorityAuthFailure(
   input: Parameters<typeof markAuthorityAuthFailureTx>[1]
 ): Promise<AuthorityConnectionTransitionResult> {
   return prisma.$transaction((tx) => markAuthorityAuthFailureTx(tx, input));
+}
+
+export async function markAuthorityTokenRefreshed(
+  input: Parameters<typeof markAuthorityTokenRefreshedTx>[1]
+): Promise<AuthorityConnectionTransitionResult> {
+  return prisma.$transaction((tx) => markAuthorityTokenRefreshedTx(tx, input));
+}
+
+export async function markAuthorityTokenRefreshFailed(
+  input: Parameters<typeof markAuthorityTokenRefreshFailedTx>[1]
+): Promise<AuthorityConnectionTransitionResult> {
+  return prisma.$transaction((tx) =>
+    markAuthorityTokenRefreshFailedTx(tx, input)
+  );
 }
 
 export async function revokeAuthorityConnection(
