@@ -1,5 +1,5 @@
 /**
- * Authority transition runtime C.4.1–C.4.4 (run manually):
+ * Authority transition runtime C.4.1–C.4.5 (run manually):
  *   npx tsx lib/services/billing/authority/billing-authority-transition.service.test.ts
  */
 import {
@@ -15,6 +15,7 @@ import {
   recordAuthorityApprovedTx,
   recordAuthorityFailedTx,
   recordAuthorityRejectedTx,
+  recordAuthorityScheduleRetryTx,
   recordAuthoritySubmissionAttemptTx,
   type AuthoritySubmissionRow,
 } from "@/lib/services/billing/authority/billing-authority-transition.service";
@@ -53,6 +54,9 @@ async function expectConflict(name: string, fn: () => Promise<unknown>) {
 const APPROVED_AT = new Date("2026-06-05T14:30:00.000Z");
 const REJECTED_AT = new Date("2026-06-06T09:15:00.000Z");
 const FAILED_AT = new Date("2026-06-06T11:20:00.000Z");
+const SCHEDULED_AT = new Date("2026-06-06T12:00:00.000Z");
+const NEXT_RETRY_AT = new Date("2026-06-06T18:00:00.000Z");
+const NEW_FAILED_AT = new Date("2026-06-07T09:30:00.000Z");
 
 function rejectionInput(overrides: {
   billingDocumentId: number;
@@ -85,6 +89,19 @@ function failureInput(overrides: {
     errorCode: overrides.errorCode ?? "FL-001",
     errorMessage: overrides.errorMessage ?? "Operational failure from authority",
     authorityResponseHash: overrides.authorityResponseHash,
+  };
+}
+
+function scheduleRetryInput(overrides: {
+  billingDocumentId: number;
+  scheduledAt?: Date;
+  nextRetryAt?: Date | null;
+}) {
+  return {
+    businessId: 1,
+    billingDocumentId: overrides.billingDocumentId,
+    scheduledAt: overrides.scheduledAt ?? SCHEDULED_AT,
+    nextRetryAt: overrides.nextRetryAt,
   };
 }
 
@@ -381,6 +398,34 @@ function makeFakeAuthorityDb(options: {
           metadata: args.data.metadata as Record<string, unknown>,
         });
         return { id: auditEvents.length };
+      },
+      async findMany(args: {
+        where: {
+          businessId?: number;
+          billingDocumentId?: number | null;
+          eventType?: string;
+        };
+        select?: { metadata?: boolean };
+      }) {
+        return auditEvents
+          .filter((event) => {
+            if (
+              args.where.eventType !== undefined &&
+              event.eventType !== args.where.eventType
+            ) {
+              return false;
+            }
+            if (
+              args.where.billingDocumentId !== undefined &&
+              event.billingDocumentId !== args.where.billingDocumentId
+            ) {
+              return false;
+            }
+            return true;
+          })
+          .map((event) => ({
+            metadata: event.metadata,
+          }));
       },
     },
   };
@@ -1104,6 +1149,228 @@ async function runTests() {
       );
     }
   }
+
+  {
+    const submission = makeSubmission({
+      businessId: 1,
+      billingDocumentId: 45,
+      status: BillingAuthoritySubmissionStatus.FAILED,
+      lastAttemptAt: FAILED_AT,
+      errorCode: "FL-001",
+      errorMessage: "Stored failure message",
+      retryCount: 2,
+    });
+    const fake = makeFakeAuthorityDb({ submission });
+    const before = fake.getSubmission();
+
+    const result = await recordAuthorityScheduleRetryTx(
+      fake.tx,
+      scheduleRetryInput({
+        billingDocumentId: 45,
+        nextRetryAt: NEXT_RETRY_AT,
+      })
+    );
+
+    ok("FAILED → FAILED schedule retry is APPLIED", result.outcome === "APPLIED");
+    ok(
+      "schedule retry keeps FAILED status",
+      fake.getSubmission().status === BillingAuthoritySubmissionStatus.FAILED
+    );
+    ok(
+      "schedule retry does not mutate retryCount",
+      fake.getSubmission().retryCount === before.retryCount
+    );
+    ok(
+      "schedule retry does not mutate lastAttemptAt",
+      fake.getSubmission().lastAttemptAt?.toISOString() === FAILED_AT.toISOString()
+    );
+    ok(
+      "schedule retry does not mutate error fields",
+      fake.getSubmission().errorCode === before.errorCode &&
+        fake.getSubmission().errorMessage === before.errorMessage
+    );
+    ok(
+      "schedule retry writes one BILLING_AUTHORITY_RETRY_SCHEDULED audit",
+      fake.auditEvents.length === 1 &&
+        fake.auditEvents[0]?.eventType === "BILLING_AUTHORITY_RETRY_SCHEDULED"
+    );
+    ok(
+      "schedule retry audit captures episode and schedule facts",
+      fake.auditEvents[0]?.metadata?.failureEpisodeAt === FAILED_AT.toISOString() &&
+        fake.auditEvents[0]?.metadata?.scheduledAt === SCHEDULED_AT.toISOString() &&
+        fake.auditEvents[0]?.metadata?.nextRetryAt === NEXT_RETRY_AT.toISOString() &&
+        fake.auditEvents[0]?.metadata?.submissionId === before.id
+    );
+    ok(
+      "schedule retry does not update BillingDocument",
+      fake.documentUpdateCalled() === false
+    );
+  }
+
+  {
+    const submission = makeSubmission({
+      businessId: 1,
+      billingDocumentId: 46,
+      status: BillingAuthoritySubmissionStatus.FAILED,
+      lastAttemptAt: FAILED_AT,
+      errorCode: "FL-001",
+    });
+    const fake = makeFakeAuthorityDb({ submission });
+
+    const first = await recordAuthorityScheduleRetryTx(
+      fake.tx,
+      scheduleRetryInput({ billingDocumentId: 46, nextRetryAt: NEXT_RETRY_AT })
+    );
+    const second = await recordAuthorityScheduleRetryTx(
+      fake.tx,
+      scheduleRetryInput({ billingDocumentId: 46, nextRetryAt: NEXT_RETRY_AT })
+    );
+
+    ok("schedule retry first call is APPLIED", first.outcome === "APPLIED");
+    ok("schedule retry identical replay is NOOP", second.outcome === "NOOP");
+    ok(
+      "schedule retry idempotent replay keeps single audit",
+      fake.auditEvents.length === 1
+    );
+  }
+
+  {
+    const submission = makeSubmission({
+      businessId: 1,
+      billingDocumentId: 47,
+      status: BillingAuthoritySubmissionStatus.FAILED,
+      lastAttemptAt: FAILED_AT,
+      errorCode: "FL-001",
+    });
+    const fake = makeFakeAuthorityDb({ submission });
+
+    await recordAuthorityScheduleRetryTx(
+      fake.tx,
+      scheduleRetryInput({ billingDocumentId: 47 })
+    );
+
+    await expectConflict("schedule retry different scheduledAt returns CONFLICT", () =>
+      recordAuthorityScheduleRetryTx(
+        fake.tx,
+        scheduleRetryInput({
+          billingDocumentId: 47,
+          scheduledAt: new Date("2026-06-06T13:00:00.000Z"),
+        })
+      )
+    );
+    ok(
+      "schedule retry conflict keeps single audit",
+      fake.auditEvents.length === 1
+    );
+  }
+
+  {
+    const submission = makeSubmission({
+      businessId: 1,
+      billingDocumentId: 48,
+      status: BillingAuthoritySubmissionStatus.FAILED,
+      lastAttemptAt: FAILED_AT,
+      errorCode: "FL-001",
+    });
+    const fake = makeFakeAuthorityDb({ submission });
+
+    await recordAuthorityScheduleRetryTx(
+      fake.tx,
+      scheduleRetryInput({ billingDocumentId: 48 })
+    );
+
+    await expectConflict("schedule retry different nextRetryAt returns CONFLICT", () =>
+      recordAuthorityScheduleRetryTx(
+        fake.tx,
+        scheduleRetryInput({
+          billingDocumentId: 48,
+          nextRetryAt: NEXT_RETRY_AT,
+        })
+      )
+    );
+  }
+
+  {
+    const submission = makeSubmission({
+      businessId: 1,
+      billingDocumentId: 49,
+      status: BillingAuthoritySubmissionStatus.FAILED,
+      lastAttemptAt: FAILED_AT,
+      errorCode: "FL-001",
+      submittedAt: new Date("2026-06-06T10:00:00.000Z"),
+    });
+    const fake = makeFakeAuthorityDb({ submission });
+
+    const first = await recordAuthorityScheduleRetryTx(
+      fake.tx,
+      scheduleRetryInput({ billingDocumentId: 49 })
+    );
+    ok("new episode setup schedule is APPLIED", first.outcome === "APPLIED");
+
+    await recordAuthoritySubmissionAttemptTx(fake.tx, {
+      businessId: 1,
+      billingDocumentId: 49,
+      occurredAt: new Date("2026-06-07T08:00:00.000Z"),
+    });
+
+    await recordAuthorityFailedTx(
+      fake.tx,
+      failureInput({
+        billingDocumentId: 49,
+        lastAttemptAt: NEW_FAILED_AT,
+        errorCode: "FL-002",
+      })
+    );
+
+    const second = await recordAuthorityScheduleRetryTx(
+      fake.tx,
+      scheduleRetryInput({
+        billingDocumentId: 49,
+        scheduledAt: new Date("2026-06-07T10:00:00.000Z"),
+      })
+    );
+
+    ok("new failure episode schedule is APPLIED", second.outcome === "APPLIED");
+    ok(
+      "new failure episode writes second schedule audit",
+      fake.auditEvents.filter(
+        (event) => event.eventType === "BILLING_AUTHORITY_RETRY_SCHEDULED"
+      ).length === 2
+    );
+    const retryScheduleAudits = fake.auditEvents.filter(
+      (event) => event.eventType === "BILLING_AUTHORITY_RETRY_SCHEDULED"
+    );
+    ok(
+      "new failure episode audit anchors to new lastAttemptAt",
+      retryScheduleAudits[1]?.metadata?.failureEpisodeAt === NEW_FAILED_AT.toISOString()
+    );
+  }
+
+  {
+    const blockedStatuses = [
+      BillingAuthoritySubmissionStatus.READY,
+      BillingAuthoritySubmissionStatus.PENDING,
+      BillingAuthoritySubmissionStatus.SUBMITTED,
+      BillingAuthoritySubmissionStatus.APPROVED,
+      BillingAuthoritySubmissionStatus.REJECTED,
+    ] as const;
+
+    for (const [index, status] of blockedStatuses.entries()) {
+      const billingDocumentId = 50 + index;
+      const submission = makeSubmission({
+        businessId: 1,
+        billingDocumentId,
+        status,
+      });
+      const fake = makeFakeAuthorityDb({ submission });
+      await expectForbidden(`${status} schedule retry fails`, () =>
+        recordAuthorityScheduleRetryTx(
+          fake.tx,
+          scheduleRetryInput({ billingDocumentId })
+        )
+      );
+    }
+  }
 }
 
 runTests()
@@ -1112,7 +1379,7 @@ runTests()
       console.error(`\n${failed} test(s) failed`);
       process.exit(1);
     }
-    console.log("\nAll billing authority transition C.4.1–C.4.4 checks passed.");
+    console.log("\nAll billing authority transition C.4.1–C.4.5 checks passed.");
   })
   .catch((error) => {
     console.error(error);

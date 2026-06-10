@@ -63,6 +63,8 @@ export type AuthorityApprovalOutcome = "APPLIED" | "NOOP" | "REPAIRED";
 
 export type AuthorityRejectFailOutcome = "APPLIED" | "NOOP";
 
+export type AuthorityScheduleRetryOutcome = "APPLIED" | "NOOP";
+
 export type ExecuteAuthorityTransitionTxInput = {
   businessId: number;
   billingDocumentId: number;
@@ -80,6 +82,8 @@ export type ExecuteAuthorityTransitionTxInput = {
   /** Submission update only succeeds when the row is still in this status. */
   requireCurrentStatus?: BillingAuthoritySubmissionStatus;
   skipAudit?: boolean;
+  /** Audit-only transitions (e.g. FAILED → FAILED) — no submission or projection writes. */
+  skipSubmissionUpdate?: boolean;
 };
 
 export type ExecuteAuthorityTransitionTxResult = {
@@ -164,6 +168,24 @@ export type RecordAuthorityFailedTxResult = {
   auditWritten: boolean;
 };
 
+export type RecordAuthorityScheduleRetryTxInput = {
+  businessId: number;
+  billingDocumentId: number;
+  scheduledAt: Date;
+  nextRetryAt?: Date | null;
+  actorUserId?: number | null;
+  occurredAt?: Date;
+};
+
+export type RecordAuthorityScheduleRetryTxResult = {
+  outcome: AuthorityScheduleRetryOutcome;
+  submission: AuthoritySubmissionRow;
+  fromStatus: BillingAuthoritySubmissionStatus;
+  toStatus: BillingAuthoritySubmissionStatus;
+  transitionKind: AuthorityTransitionKind | null;
+  auditWritten: boolean;
+};
+
 export class AuthorityConditionalUpdateMissedError extends Error {
   readonly code = "AUTHORITY_CONDITIONAL_UPDATE_MISSED";
 
@@ -191,6 +213,11 @@ type CanonicalFailureFacts = {
   lastAttemptAt: Date;
   errorCode: string;
   authorityResponseHash: string | null;
+};
+
+type CanonicalScheduleRetryFacts = {
+  scheduledAt: Date;
+  nextRetryAt: Date | null;
 };
 
 function toSubmissionContext(
@@ -286,6 +313,19 @@ function normalizeCanonicalApprovalFacts(
     authorityResponseHash: input.authorityResponseHash ?? null,
     authoritySubmissionId: input.authoritySubmissionId ?? null,
   };
+}
+
+function optionalTimestampMatches(
+  stored: Date | null,
+  incoming: Date | null
+): boolean {
+  if (stored === null && incoming === null) {
+    return true;
+  }
+  if (stored === null || incoming === null) {
+    return false;
+  }
+  return stored.getTime() === incoming.getTime();
 }
 
 function optionalStringMatches(
@@ -415,6 +455,72 @@ export function failureFactsMatch(
       incoming.authorityResponseHash
     )
   );
+}
+
+function normalizeCanonicalScheduleRetryFacts(
+  input: RecordAuthorityScheduleRetryTxInput
+): CanonicalScheduleRetryFacts {
+  const scheduledAt = normalizeAuthorityTimestamp(input.scheduledAt, "scheduledAt");
+  let nextRetryAt: Date | null = null;
+  if (input.nextRetryAt !== undefined && input.nextRetryAt !== null) {
+    nextRetryAt = normalizeAuthorityTimestamp(input.nextRetryAt, "nextRetryAt");
+  }
+  return { scheduledAt, nextRetryAt };
+}
+
+export function scheduleRetryFactsMatch(
+  stored: CanonicalScheduleRetryFacts,
+  incoming: CanonicalScheduleRetryFacts
+): boolean {
+  return (
+    stored.scheduledAt.getTime() === incoming.scheduledAt.getTime() &&
+    optionalTimestampMatches(stored.nextRetryAt, incoming.nextRetryAt)
+  );
+}
+
+export function scheduleRetryFactsFromAuditMetadata(
+  metadata: Record<string, unknown>
+): CanonicalScheduleRetryFacts | null {
+  const scheduledAtRaw = metadata.scheduledAt;
+  if (typeof scheduledAtRaw !== "string") {
+    return null;
+  }
+  const scheduledAt = new Date(scheduledAtRaw);
+  if (Number.isNaN(scheduledAt.getTime())) {
+    return null;
+  }
+
+  const nextRetryAtRaw = metadata.nextRetryAt;
+  if (nextRetryAtRaw === null || nextRetryAtRaw === undefined) {
+    return { scheduledAt, nextRetryAt: null };
+  }
+  if (typeof nextRetryAtRaw !== "string") {
+    return null;
+  }
+  const nextRetryAt = new Date(nextRetryAtRaw);
+  if (Number.isNaN(nextRetryAt.getTime())) {
+    return null;
+  }
+  return { scheduledAt, nextRetryAt };
+}
+
+function auditBelongsToFailureEpisode(
+  metadata: Record<string, unknown>,
+  submissionId: number,
+  failureEpisodeAt: Date
+): boolean {
+  if (metadata.submissionId !== submissionId) {
+    return false;
+  }
+  const episodeRaw = metadata.failureEpisodeAt;
+  if (typeof episodeRaw !== "string") {
+    return false;
+  }
+  const episode = new Date(episodeRaw);
+  if (Number.isNaN(episode.getTime())) {
+    return false;
+  }
+  return episode.getTime() === failureEpisodeAt.getTime();
 }
 
 export function isDocumentProjectionComplete(
@@ -611,6 +717,79 @@ function handleFailedIdempotencyGate(
   };
 }
 
+function assertScheduleRetryFactsConflict(
+  stored: CanonicalScheduleRetryFacts,
+  incoming: CanonicalScheduleRetryFacts
+): void {
+  if (!scheduleRetryFactsMatch(stored, incoming)) {
+    throw new ConflictError(
+      "AUTHORITY_RETRY_SCHEDULE_CONFLICT",
+      "Authority retry schedule facts conflict with the stored schedule for this failure episode"
+    );
+  }
+}
+
+function handleScheduleRetryIdempotencyGate(
+  submission: AuthoritySubmissionRow,
+  stored: CanonicalScheduleRetryFacts,
+  incoming: CanonicalScheduleRetryFacts
+): RecordAuthorityScheduleRetryTxResult {
+  assertScheduleRetryFactsConflict(stored, incoming);
+
+  return {
+    outcome: "NOOP",
+    submission,
+    fromStatus: submission.status,
+    toStatus: submission.status,
+    transitionKind: null,
+    auditWritten: false,
+  };
+}
+
+async function findRetryScheduleAuditForEpisode(
+  tx: Prisma.TransactionClient,
+  input: {
+    businessId: number;
+    billingDocumentId: number;
+    submissionId: number;
+    failureEpisodeAt: Date;
+  }
+): Promise<CanonicalScheduleRetryFacts | null> {
+  const events = await tx.billingAuditEvent.findMany({
+    where: {
+      businessId: input.businessId,
+      billingDocumentId: input.billingDocumentId,
+      eventType: "BILLING_AUTHORITY_RETRY_SCHEDULED",
+    },
+    orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+    select: {
+      metadata: true,
+    },
+  });
+
+  for (const event of events) {
+    if (event.metadata === null || typeof event.metadata !== "object") {
+      continue;
+    }
+    const metadata = event.metadata as Record<string, unknown>;
+    if (
+      !auditBelongsToFailureEpisode(
+        metadata,
+        input.submissionId,
+        input.failureEpisodeAt
+      )
+    ) {
+      continue;
+    }
+    const facts = scheduleRetryFactsFromAuditMetadata(metadata);
+    if (facts !== null) {
+      return facts;
+    }
+  }
+
+  return null;
+}
+
 async function handleApprovedIdempotencyGate(
   tx: Prisma.TransactionClient,
   input: RecordAuthorityApprovedTxInput,
@@ -690,7 +869,15 @@ export async function executeAuthorityTransitionTx(
 
   let updated: AuthoritySubmissionRow;
 
-  if (input.requireCurrentStatus) {
+  if (input.skipSubmissionUpdate) {
+    if (
+      input.requireCurrentStatus !== undefined &&
+      submission.status !== input.requireCurrentStatus
+    ) {
+      throw new AuthorityConditionalUpdateMissedError();
+    }
+    updated = submission;
+  } else if (input.requireCurrentStatus) {
     const updateResult = await tx.billingAuthoritySubmission.updateMany({
       where: {
         id: submission.id,
@@ -1121,6 +1308,142 @@ export async function recordAuthorityFailedTx(
     throw new ForbiddenError(
       "Authority failure conditional update missed and submission is not failed",
       "AUTHORITY_FAIL_FORBIDDEN"
+    );
+  }
+}
+
+/**
+ * Records retry scheduling intent for a failed submission (FAILED → FAILED, audit-only).
+ */
+export async function recordAuthorityScheduleRetryTx(
+  tx: Prisma.TransactionClient,
+  input: RecordAuthorityScheduleRetryTxInput
+): Promise<RecordAuthorityScheduleRetryTxResult> {
+  const incoming = normalizeCanonicalScheduleRetryFacts(input);
+  let context = await loadAuthorityApprovalContext(
+    tx,
+    input.businessId,
+    input.billingDocumentId
+  );
+
+  if (context.submission.status !== BillingAuthoritySubmissionStatus.FAILED) {
+    throw new ForbiddenError(
+      "Authority retry scheduling is only allowed from FAILED",
+      "AUTHORITY_RETRY_FORBIDDEN"
+    );
+  }
+
+  if (
+    context.submission.lastAttemptAt === null ||
+    Number.isNaN(context.submission.lastAttemptAt.getTime())
+  ) {
+    throw new ValidationError(
+      "Failed submission is missing lastAttemptAt for retry scheduling"
+    );
+  }
+
+  const failureEpisodeAt = context.submission.lastAttemptAt;
+  const storedSchedule = await findRetryScheduleAuditForEpisode(tx, {
+    businessId: input.businessId,
+    billingDocumentId: input.billingDocumentId,
+    submissionId: context.submission.id,
+    failureEpisodeAt,
+  });
+
+  if (storedSchedule !== null) {
+    return handleScheduleRetryIdempotencyGate(
+      context.submission,
+      storedSchedule,
+      incoming
+    );
+  }
+
+  const submissionBefore = { ...context.submission };
+
+  try {
+    const applied = await executeAuthorityTransitionTx(tx, {
+      businessId: input.businessId,
+      billingDocumentId: input.billingDocumentId,
+      kind: "SCHEDULE_RETRY",
+      to: BillingAuthoritySubmissionStatus.FAILED,
+      actorUserId: input.actorUserId,
+      occurredAt: input.occurredAt,
+      summary: "Authority retry scheduled",
+      metadata: {
+        scheduledAt: incoming.scheduledAt.toISOString(),
+        nextRetryAt: incoming.nextRetryAt?.toISOString() ?? null,
+        failureEpisodeAt: failureEpisodeAt.toISOString(),
+        outcome: "APPLIED",
+      },
+      submissionUpdate: {},
+      skipSubmissionUpdate: true,
+      requireCurrentStatus: BillingAuthoritySubmissionStatus.FAILED,
+    });
+
+    return {
+      outcome: "APPLIED",
+      submission: applied.submission,
+      fromStatus: applied.fromStatus,
+      toStatus: applied.toStatus,
+      transitionKind: applied.transitionKind,
+      auditWritten: applied.auditWritten,
+    };
+  } catch (error) {
+    if (!(error instanceof AuthorityConditionalUpdateMissedError)) {
+      throw error;
+    }
+
+    context = await loadAuthorityApprovalContext(
+      tx,
+      input.businessId,
+      input.billingDocumentId
+    );
+
+    if (context.submission.status !== BillingAuthoritySubmissionStatus.FAILED) {
+      throw new ForbiddenError(
+        "Authority retry scheduling conditional check missed and submission is not failed",
+        "AUTHORITY_RETRY_FORBIDDEN"
+      );
+    }
+
+    if (
+      context.submission.lastAttemptAt === null ||
+      Number.isNaN(context.submission.lastAttemptAt.getTime())
+    ) {
+      throw new ValidationError(
+        "Failed submission is missing lastAttemptAt for retry scheduling"
+      );
+    }
+
+    const refreshedEpisodeAt = context.submission.lastAttemptAt;
+    const refreshedSchedule = await findRetryScheduleAuditForEpisode(tx, {
+      businessId: input.businessId,
+      billingDocumentId: input.billingDocumentId,
+      submissionId: context.submission.id,
+      failureEpisodeAt: refreshedEpisodeAt,
+    });
+
+    if (refreshedSchedule !== null) {
+      return handleScheduleRetryIdempotencyGate(
+        context.submission,
+        refreshedSchedule,
+        incoming
+      );
+    }
+
+    if (
+      submissionBefore.lastAttemptAt?.getTime() !==
+      refreshedEpisodeAt.getTime()
+    ) {
+      throw new ForbiddenError(
+        "Authority retry scheduling missed because the failure episode changed",
+        "AUTHORITY_RETRY_FORBIDDEN"
+      );
+    }
+
+    throw new ForbiddenError(
+      "Authority retry scheduling conditional check missed",
+      "AUTHORITY_RETRY_FORBIDDEN"
     );
   }
 }
