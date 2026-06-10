@@ -307,8 +307,28 @@ async function runTests() {
     });
 
     ok("name-only lead gets singleton Party", result.outcome === "SINGLETON");
-    ok("name-only lead creates no claims", result.claims.length === 0);
+    ok("name-only lead gets one anchor claim", result.claims.length === 1);
+    const anchor = result.claims[0];
+    ok(
+      "anchor claim has null signal",
+      anchor?.signalType === null && anchor?.signalValue === null
+    );
+    ok(
+      "anchor method is SELF_ANCHOR",
+      anchor?.method === PartyResolutionMethod.SELF_ANCHOR
+    );
+    ok(
+      "anchor confidence is UNKNOWN",
+      anchor?.confidence === PartyClaimConfidence.UNKNOWN
+    );
     ok("singleton party exists", fake.state.parties.length === 1);
+
+    const lookedUp = await lookupPartyForRoleRow(fake.tx, {
+      businessId: 1,
+      subjectType: PartyRoleType.LEAD,
+      subjectId: 30,
+    });
+    ok("KL-1: name-only subject is lookup-able", lookedUp?.id === result.party.id);
   }
 
   {
@@ -398,9 +418,23 @@ async function runTests() {
       "conflict does not merge taxId Party",
       conflicted.party.id !== taxIdParty.party.id
     );
+    ok("conflict creates one anchor claim", conflicted.claims.length === 1);
+    const conflictAnchor = conflicted.claims[0];
     ok(
-      "conflict creates no polluting claims",
-      conflicted.claims.length === 0
+      "conflict anchor has null signal (no pollution)",
+      conflictAnchor?.signalType === null && conflictAnchor?.signalValue === null
+    );
+    ok(
+      "conflict anchor method is SELF_ANCHOR",
+      conflictAnchor?.method === PartyResolutionMethod.SELF_ANCHOR
+    );
+    ok(
+      "conflict anchor confidence is UNKNOWN",
+      conflictAnchor?.confidence === PartyClaimConfidence.UNKNOWN
+    );
+    ok(
+      "conflict anchor source marks conflict",
+      conflictAnchor?.source.endsWith(":SIGNAL_CONFLICT") === true
     );
 
     const afterConflict = await resolvePartyForRoleRowTx(fake.tx, {
@@ -413,6 +447,16 @@ async function runTests() {
     ok(
       "phone signal still resolves to original Party after conflict",
       afterConflict.party.id === phoneParty.party.id
+    );
+
+    const lookedUpConflict = await lookupPartyForRoleRow(fake.tx, {
+      businessId: 1,
+      subjectType: PartyRoleType.LEAD,
+      subjectId: 52,
+    });
+    ok(
+      "KL-2: conflict subject is lookup-able",
+      lookedUpConflict?.id === conflicted.party.id
     );
   }
 

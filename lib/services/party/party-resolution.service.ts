@@ -251,6 +251,46 @@ export async function createClaimTx(
   return { claim, outcome: "APPLIED" };
 }
 
+/**
+ * Anchor claim — a corrigible subject↔Party link with **no signal basis**.
+ *
+ * Used for subjects that cannot be resolved by a strong signal (no signal, or a
+ * signal conflict). It makes the subject lookup-able in the graph (totality)
+ * WITHOUT writing a phone/taxId value that would pollute candidate resolution.
+ *
+ * `confidence = UNKNOWN`: the subject is anchored to its own singleton for
+ * read-through only — its broader identity is *not* established (which is
+ * exactly what the absence of a signal encodes). Never KNOWN.
+ */
+export async function createAnchorClaimTx(
+  tx: Prisma.TransactionClient,
+  input: {
+    businessId: number;
+    partyId: number;
+    subjectType: PartyRoleType;
+    subjectId: number;
+    source: string;
+    resolvedByUserId?: number | null;
+  }
+): Promise<PartyResolutionClaimRow> {
+  return tx.partyResolutionClaim.create({
+    data: {
+      businessId: input.businessId,
+      partyId: input.partyId,
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+      signalType: null,
+      signalValue: null,
+      confidence: PartyClaimConfidence.UNKNOWN,
+      method: PartyResolutionMethod.SELF_ANCHOR,
+      source: input.source,
+      resolvedByUserId: input.resolvedByUserId ?? null,
+      status: PartyClaimStatus.ACTIVE,
+    },
+    select: CLAIM_SELECT,
+  });
+}
+
 function buildClaimSpecs(
   strong: StrongSignals,
   source: string
@@ -329,9 +369,17 @@ export async function resolvePartyForRoleRowTx(
     }
 
     const party = await createPartyTx(tx, input.businessId);
+    const anchor = await createAnchorClaimTx(tx, {
+      businessId: input.businessId,
+      partyId: party.id,
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+      source: input.source,
+      resolvedByUserId: input.resolvedByUserId,
+    });
     return {
       party,
-      claims: [],
+      claims: [anchor],
       outcome: "SINGLETON",
       signalConflict: false,
     };
@@ -413,6 +461,18 @@ export async function resolvePartyForRoleRowTx(
     if (allClaimsNoop(claimResults)) {
       outcome = "NOOP";
     }
+  } else {
+    // Signal conflict: anchor the subject to its isolated Party (read-through
+    // totality) without writing signal claims that would pollute resolution.
+    const anchor = await createAnchorClaimTx(tx, {
+      businessId: input.businessId,
+      partyId: targetParty.id,
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+      source: `${input.source}:SIGNAL_CONFLICT`,
+      resolvedByUserId: input.resolvedByUserId,
+    });
+    claims = [anchor];
   }
 
   return {

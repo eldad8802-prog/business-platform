@@ -1636,8 +1636,8 @@ model PartyResolutionClaim {
   partyId          Int
   subjectType      PartyRoleType
   subjectId        Int
-  signalType       PartySignalType
-  signalValue      String
+  signalType       PartySignalType?
+  signalValue      String?
   confidence       PartyClaimConfidence
   method           PartyResolutionMethod  @default(DETERMINISTIC_EXACT)
   source           String
@@ -2110,6 +2110,7 @@ enum PartyClaimConfidence {
 
 enum PartyResolutionMethod {
   DETERMINISTIC_EXACT
+  SELF_ANCHOR
 }
 
 enum PartyClaimStatus {
