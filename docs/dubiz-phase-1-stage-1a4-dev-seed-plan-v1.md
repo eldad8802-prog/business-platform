@@ -21,6 +21,26 @@ not validate Party Resolution. This seed fills that gap with representative data
 - Cleanup is by **deleting the seed businesses only**, dev-only, after printing the IDs for approval.
 - The post-seed dry-run stays **dry-run only** — no execute without separate approval.
 
+## Revision — conflict scenario removed (schema-constraint correction)
+
+> Original v1 included scenario #6 (a controlled phone-vs-taxId **conflict** via
+> customers C5/C6/C7). On execution preflight this was found **infeasible** against
+> the real schema:
+>
+> - `Customer` has `@@unique([businessId, phone])` → two customers in one business
+>   cannot share a phone, so the conflict subject (C7, phone P6 = C5's phone) cannot
+>   be inserted.
+> - The backfill processes **Customers before Leads**, so a Lead cannot pre-create
+>   the phone-party that the conflict subject would clash with; and only a Customer
+>   carries both phone+taxId, so a Lead cannot be the conflict subject.
+>
+> **Therefore the conflict path is not reproducible with real seeded Customer/Lead
+> rows.** It remains fully covered by unit tests (`party-resolution` /
+> `party-backfill` fake-tx harness). **Decision: option 2** — drop the impossible
+> C7, keep C5 (phone) and C6 (taxId) as independent customers. This seed exercises
+> **only schema-legal scenarios** (#1–#5); the conflict (#6) is intentionally out of
+> the seed and covered elsewhere.
+
 ---
 
 ## 1. Rows to create + tables
@@ -44,9 +64,11 @@ not validate Party Resolution. This seed fills that gap with representative data
 | C2 | A | Seed Cust Tax | – | T1 | #2 |
 | C3 | A | Seed Tenant A | P5 | – | #5 (with C4) |
 | C4 | B | Seed Tenant B | P5 | – | #5 |
-| C5 | B | Seed Conf Phone | P6 | – | #6 (setup) |
-| C6 | B | Seed Conf Tax | – | T2 | #6 (setup) |
-| C7 | B | Seed Conf Both | P6 | T2 | #6 (conflict) |
+| C5 | B | Seed Cust Phone B | P6 | – | independent (phone) |
+| C6 | B | Seed Cust Tax B | – | T2 | independent (taxId KNOWN) |
+
+> _(Original C7 — the phone+taxId conflict subject — removed; infeasible under
+> `@@unique([businessId, phone])` + customers-before-leads ordering. See Revision note.)_
 
 **Leads** (`customerName` → name; `phone`):
 
@@ -66,7 +88,8 @@ not validate Party Resolution. This seed fills that gap with representative data
   `Lead.phone` may be the same number (the service re-normalizes). For #1, the
   canonical form of C1 and L1 must be identical.
 - **Ordering:** the backfill processes Customers by ascending `id`, then Leads.
-  For #6 to work (C7 meets two existing parties), require `C5.id < C6.id < C7.id`.
+  With the conflict scenario removed, exact id ordering is no longer load-bearing
+  (all #1–#5 outcomes are order-independent for exact-match).
 
 ---
 
@@ -77,9 +100,10 @@ not validate Party Resolution. This seed fills that gap with representative data
 3. **L2 no signal** → SINGLETON: party + `SELF_ANCHOR`, confidence **UNKNOWN**, signalType=null.
 4. **L3/L4 same name, different phone** → name is not a signal → **two Parties** (no merge).
 5. **C3(A)/C4(B) same phone P5** → resolution is businessId-scoped → **two Parties** (tenant isolation).
-6. **C5(phone P6)→PartyP, C6(taxId T2)→PartyT, C7(P6+T2)** → CONFLICT → isolated
-   Party + `SELF_ANCHOR`, source `BACKFILL:SIGNAL_CONFLICT`, **no signal claims**
-   (no index pollution).
+6. **CONFLICT — excluded from the seed (infeasible).** See the Revision note. C5
+   (phone P6) and C6 (taxId T2) remain as **independent** BIZ_B customers → two
+   separate parties (PHONE / TAX_ID·KNOWN); they do **not** conflict. The
+   phone-vs-taxId conflict path stays covered by unit tests only.
 
 ---
 
@@ -143,17 +167,17 @@ Same as Stage-1A.3: `npx tsx scripts/party-backfill.ts` (default dry-run), with
 | metric | expected |
 |---|---|
 | businesses processed | **6** (4 existing empty + 2 seed) |
-| customers / leads read | **7 / 4** |
-| projected parties | **10** |
-| applied / noop / singleton / conflict | **9 / 0 / 1 / 1** |
+| customers / leads read | **6 / 4** |
+| projected parties | **9** |
+| applied / noop / singleton / conflict | **9 / 0 / 1 / 0** |
 | signal claims | **9** |
-| anchor claims | **2** (L2 no-signal + C7 conflict) |
-| conflicts | **1** (C7 — intentional) |
+| anchor claims | **1** (L2 no-signal only) |
+| conflicts | **0** |
 | failed businesses / batches | **0 / 0** |
 | health: multiPartySignals | **0** |
 | health: oversized | **0** |
-| health: conflictAnchors | **1** |
-| health: anomalyCount | **1** (= the intentional conflict anchor) |
+| health: conflictAnchors | **0** |
+| health: anomalyCount | **0** |
 | invariant violations | **none** |
 | PERSISTENCE | **none (rollback)** |
 
@@ -167,15 +191,16 @@ Same as Stage-1A.3: `npx tsx scripts/party-backfill.ts` (default dry-run), with
 - the dry-run fails (connection/exception).
 - material deviation from the expected signature (e.g. parties ≠ 10, conflict ≠ 1, anchors ≠ 2).
 
-> **Not** a hard stop: `conflict = 1` + `anomalyCount = 1` — these are **intentional**
-> (scenario #6, fail-safe). A conflict is correct behavior here, not an error.
+> With the conflict scenario excluded, the expected `conflict = 0` and
+> `anomalyCount = 0`. **Any** `conflict > 0`, `anomalyCount > 0`, or
+> `multiPartySignals > 0` is now **unexpected** → investigate / hard stop.
 
 ---
 
 ## 10. After a successful dry-run — execute?
 
 If the report matches §8 exactly and there is no hard stop → execute **may be
-considered** (writing 10 parties + 11 claims to the dev branch), followed by
+considered** (writing 9 parties + 10 claims to the dev branch), followed by
 post-run verification (`verifyBackfill`: totality / tenant / no-invariant) + an
 idempotency rerun. **Execute requires separate approval** after the dry-run review.
 
