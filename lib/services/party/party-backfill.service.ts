@@ -21,7 +21,10 @@ import {
 
 export const BACKFILL_SOURCE = "BACKFILL";
 
-export type BackfillMode = "dry-run";
+export type BackfillMode = "dry-run" | "execute";
+
+/** Default rows per committed batch in execute mode. */
+export const DEFAULT_BATCH_SIZE = 200;
 
 /** Read-only role-row signal carrier (Customer or Lead). */
 export type RoleRowInput = {
@@ -57,6 +60,9 @@ export type BusinessReport = {
   signalClaims: number;
   anchorClaims: number;
   partiesTouched: number;
+  batches: number;
+  batchesFailed: number;
+  batchErrors: string[];
   failed: boolean;
   error?: string;
 };
@@ -76,6 +82,8 @@ export type BackfillReport = {
     conflict: number;
     signalClaims: number;
     anchorClaims: number;
+    batches: number;
+    batchesFailed: number;
   };
   perBusiness: BusinessReport[];
 };
@@ -97,6 +105,9 @@ function emptyBusinessReport(businessId: number): BusinessReport {
     signalClaims: 0,
     anchorClaims: 0,
     partiesTouched: 0,
+    batches: 0,
+    batchesFailed: 0,
+    batchErrors: [],
     failed: false,
   };
 }
@@ -132,44 +143,119 @@ function signalsForRow(
     : { phone: row.phone };
 }
 
-function tally(
-  report: BusinessReport,
-  partyIds: Set<number>,
+type BatchTally = {
+  applied: number;
+  noop: number;
+  singleton: number;
+  conflict: number;
+  signalClaims: number;
+  anchorClaims: number;
+  partyIds: number[];
+};
+
+function emptyBatchTally(): BatchTally {
+  return {
+    applied: 0,
+    noop: 0,
+    singleton: 0,
+    conflict: 0,
+    signalClaims: 0,
+    anchorClaims: 0,
+    partyIds: [],
+  };
+}
+
+function tallyResult(
+  t: BatchTally,
   result: ResolvePartyForRoleRowTxResult
 ): void {
   switch (result.outcome) {
     case "APPLIED":
-      report.applied += 1;
+      t.applied += 1;
       break;
     case "NOOP":
-      report.noop += 1;
+      t.noop += 1;
       break;
     case "SINGLETON":
-      report.singleton += 1;
+      t.singleton += 1;
       break;
     case "CONFLICT":
-      report.conflict += 1;
+      t.conflict += 1;
       break;
   }
   for (const claim of result.claims) {
     if (claim.signalType === null) {
-      report.anchorClaims += 1;
+      t.anchorClaims += 1;
     } else {
-      report.signalClaims += 1;
+      t.signalClaims += 1;
     }
   }
-  partyIds.add(result.party.id);
+  t.partyIds.push(result.party.id);
+}
+
+function mergeBatchTally(
+  report: BusinessReport,
+  partyIds: Set<number>,
+  t: BatchTally
+): void {
+  report.applied += t.applied;
+  report.noop += t.noop;
+  report.singleton += t.singleton;
+  report.conflict += t.conflict;
+  report.signalClaims += t.signalClaims;
+  report.anchorClaims += t.anchorClaims;
+  for (const id of t.partyIds) partyIds.add(id);
+}
+
+function chunkRows(
+  rows: RoleRowToProcess[],
+  size: number
+): RoleRowToProcess[][] {
+  if (size <= 0) return [rows];
+  const out: RoleRowToProcess[][] = [];
+  for (let i = 0; i < rows.length; i += size) {
+    out.push(rows.slice(i, i + size));
+  }
+  return out;
+}
+
+/** Resolve one batch of role-rows; returns the batch tally (merged on success only). */
+async function resolveBatch(
+  tx: Prisma.TransactionClient,
+  businessId: number,
+  batch: RoleRowToProcess[]
+): Promise<BatchTally> {
+  const t = emptyBatchTally();
+  for (const { subjectType, row } of batch) {
+    const result = await resolvePartyForRoleRowTx(tx, {
+      businessId,
+      subjectType,
+      subjectId: row.id,
+      signals: signalsForRow(subjectType, row),
+      source: BACKFILL_SOURCE,
+    });
+    tallyResult(t, result);
+  }
+  return t;
 }
 
 /**
- * Resolve all role-rows of one business inside a single transaction.
- * In dry-run, the transaction is rolled back (zero persistence); the report is
- * accumulated in memory and survives the rollback.
+ * Resolve all role-rows of one business.
+ *
+ *  - dry-run: a single rolled-back transaction over the whole business (accurate
+ *    cross-row unification, zero persistence).
+ *  - execute: one committed transaction PER BATCH (size = batchSize). A failed
+ *    batch rolls back atomically and is recorded; previously committed batches are
+ *    never lost, and the next batch sees committed data (cross-batch unification).
+ *
+ * Idempotency, conflict fail-safe, and anchors are delegated to
+ * `resolvePartyForRoleRowTx` (unchanged). A failed batch's tally is NOT merged.
  */
 export async function backfillBusiness(
   deps: BackfillDeps,
   businessId: number,
-  mode: BackfillMode
+  mode: BackfillMode,
+  batchSize: number = DEFAULT_BATCH_SIZE
 ): Promise<BusinessReport> {
   const report = emptyBusinessReport(businessId);
   const partyIds = new Set<number>();
@@ -182,21 +268,26 @@ export async function backfillBusiness(
     (r) => r.subjectType === PartyRoleType.LEAD
   ).length;
 
-  await deps.runInTx(
-    async (tx) => {
-      for (const { subjectType, row } of rows) {
-        const result = await resolvePartyForRoleRowTx(tx, {
-          businessId,
-          subjectType,
-          subjectId: row.id,
-          signals: signalsForRow(subjectType, row),
-          source: BACKFILL_SOURCE,
-        });
-        tally(report, partyIds, result);
-      }
-    },
-    { dryRun: mode === "dry-run" }
-  );
+  const dryRun = mode === "dry-run";
+  // dry-run = single batch (whole business) so unification within the rolled-back
+  // transaction is accurate; execute = per-batch committed transactions.
+  const batches = dryRun ? [rows] : chunkRows(rows, batchSize);
+  report.batches = batches.length;
+
+  for (const batch of batches) {
+    try {
+      const batchTally = await deps.runInTx(
+        (tx) => resolveBatch(tx, businessId, batch),
+        { dryRun }
+      );
+      mergeBatchTally(report, partyIds, batchTally);
+    } catch (error) {
+      report.batchesFailed += 1;
+      report.batchErrors.push(
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  }
 
   report.partiesTouched = partyIds.size;
   return report;
@@ -208,15 +299,18 @@ export async function backfillBusiness(
  */
 export async function runBackfill(
   deps: BackfillDeps,
-  opts: { mode: BackfillMode }
+  opts: { mode: BackfillMode; batchSize?: number }
 ): Promise<BackfillReport> {
   const startedAt = new Date().toISOString();
+  const batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
   const businessIds = await deps.listBusinessIds();
   const perBusiness: BusinessReport[] = [];
 
   for (const businessId of businessIds) {
     try {
-      perBusiness.push(await backfillBusiness(deps, businessId, opts.mode));
+      perBusiness.push(
+        await backfillBusiness(deps, businessId, opts.mode, batchSize)
+      );
     } catch (error) {
       const failed = emptyBusinessReport(businessId);
       failed.failed = true;
@@ -235,6 +329,8 @@ export async function runBackfill(
       acc.conflict += b.conflict;
       acc.signalClaims += b.signalClaims;
       acc.anchorClaims += b.anchorClaims;
+      acc.batches += b.batches;
+      acc.batchesFailed += b.batchesFailed;
       if (b.failed) acc.failedBusinesses += 1;
       return acc;
     },
@@ -249,6 +345,8 @@ export async function runBackfill(
       conflict: 0,
       signalClaims: 0,
       anchorClaims: 0,
+      batches: 0,
+      batchesFailed: 0,
     }
   );
 

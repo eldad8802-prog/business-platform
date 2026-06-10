@@ -147,6 +147,8 @@ type Seed = {
   customers: Record<number, RoleRowInput[]>;
   leads: Record<number, RoleRowInput[]>;
   failCustomersFor?: number;
+  /** 1-indexed runInTx call number that should throw (simulated batch failure). */
+  failTxCall?: number;
 };
 
 function makeFakeBackfillDb(seed: Seed) {
@@ -156,6 +158,8 @@ function makeFakeBackfillDb(seed: Seed) {
     nextPartyId: 1,
     nextClaimId: 1,
   };
+  const txCalls: { dryRun: boolean }[] = [];
+  let txCallCount = 0;
 
   const deps: BackfillDeps = {
     listBusinessIds: async () => seed.businessIds,
@@ -167,6 +171,12 @@ function makeFakeBackfillDb(seed: Seed) {
     },
     loadLeads: async (businessId) => seed.leads[businessId] ?? [],
     runInTx: async (fn, { dryRun }) => {
+      txCallCount += 1;
+      txCalls.push({ dryRun });
+      // Simulate a transaction (batch) failure: roll back, propagate to caller.
+      if (seed.failTxCall === txCallCount) {
+        throw new Error(`simulated tx failure on call ${txCallCount}`);
+      }
       const scratch: TxState = {
         parties: [...persistent.parties],
         claims: [...persistent.claims],
@@ -184,7 +194,7 @@ function makeFakeBackfillDb(seed: Seed) {
     },
   };
 
-  return { deps, persistent };
+  return { deps, persistent, txCalls };
 }
 
 async function runTests() {
@@ -279,6 +289,99 @@ async function runTests() {
       report.perBusiness.find((b) => b.businessId === 1)!.applied === 1 &&
         report.perBusiness.find((b) => b.businessId === 3)!.applied === 1
     );
+  }
+
+  // 6. Mode → runInTx dryRun flag (dry-run:true, execute:false).
+  {
+    const seed: Seed = {
+      businessIds: [1],
+      customers: { 1: [{ id: 10, phone: "0501111111" }] },
+      leads: {},
+    };
+    const dry = makeFakeBackfillDb(seed);
+    await runBackfill(dry.deps, { mode: "dry-run" });
+    ok("dry-run uses runInTx dryRun:true", dry.txCalls.every((c) => c.dryRun === true) && dry.txCalls.length > 0);
+
+    const exe = makeFakeBackfillDb(seed);
+    await runBackfill(exe.deps, { mode: "execute" });
+    ok("execute uses runInTx dryRun:false", exe.txCalls.every((c) => c.dryRun === false) && exe.txCalls.length > 0);
+  }
+
+  // 7. Execute mode persists; dry-run did not.
+  {
+    const seed: Seed = {
+      businessIds: [1],
+      customers: { 1: [{ id: 10, phone: "0501111111" }, { id: 11, phone: "0502222222" }] },
+      leads: {},
+    };
+    const { deps, persistent } = makeFakeBackfillDb(seed);
+    const report = await runBackfill(deps, { mode: "execute" });
+    ok("execute persists parties", persistent.parties.length === 2);
+    ok("execute persists claims", persistent.claims.length === 2);
+    ok("execute counts applied", report.totals.applied === 2);
+  }
+
+  // 8. Batch size divides rows correctly (5 rows, batchSize 2 → 3 batches).
+  {
+    const seed: Seed = {
+      businessIds: [1],
+      customers: {
+        1: [
+          { id: 1, phone: "0500000001" },
+          { id: 2, phone: "0500000002" },
+          { id: 3, phone: "0500000003" },
+          { id: 4, phone: "0500000004" },
+          { id: 5, phone: "0500000005" },
+        ],
+      },
+      leads: {},
+    };
+    const { deps, persistent } = makeFakeBackfillDb(seed);
+    const report = await runBackfill(deps, { mode: "execute", batchSize: 2 });
+    const b1 = report.perBusiness[0];
+    ok("execute splits into ceil(5/2)=3 batches", b1.batches === 3);
+    ok("all 5 rows persisted across batches", persistent.claims.length === 5);
+    ok("totals.batches aggregated", report.totals.batches === 3);
+  }
+
+  // 9. Failed batch is isolated: prior committed batches survive, run continues.
+  {
+    const seed: Seed = {
+      businessIds: [1],
+      customers: {
+        1: [
+          { id: 1, phone: "0500000001" },
+          { id: 2, phone: "0500000002" },
+          { id: 3, phone: "0500000003" },
+        ],
+      },
+      leads: {},
+      failTxCall: 2, // batchSize 1 → 3 batches; batch 2 (row id 2) fails
+    };
+    const { deps, persistent } = makeFakeBackfillDb(seed);
+    const report = await runBackfill(deps, { mode: "execute", batchSize: 1 });
+    const b1 = report.perBusiness[0];
+    ok("failed batch recorded", b1.batchesFailed === 1 && b1.batchErrors.length === 1);
+    ok("committed batches survive (rows 1 & 3 persisted)", persistent.claims.length === 2);
+    ok("failed batch's row not persisted", !persistent.claims.some((c) => c.subjectId === 2));
+    ok("successful batches still counted", b1.applied === 2);
+  }
+
+  // 10. Execute rerun is idempotent (second run all-NOOP, no new rows).
+  {
+    const seed: Seed = {
+      businessIds: [1],
+      customers: { 1: [{ id: 10, phone: "0501111111" }, { id: 11, phone: "0502222222" }] },
+      leads: {},
+    };
+    const { deps, persistent } = makeFakeBackfillDb(seed);
+    await runBackfill(deps, { mode: "execute" });
+    const claimsAfterFirst = persistent.claims.length;
+    const partiesAfterFirst = persistent.parties.length;
+    const second = await runBackfill(deps, { mode: "execute" });
+    ok("rerun: all NOOP", second.totals.applied === 0 && second.totals.noop === 2);
+    ok("rerun: no new claims", persistent.claims.length === claimsAfterFirst);
+    ok("rerun: no new parties", persistent.parties.length === partiesAfterFirst);
   }
 
   if (failed > 0) {
