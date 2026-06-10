@@ -11,7 +11,19 @@ import type {
 
 const DEFAULT_GRAPH_VERSION = "v20.0";
 
+/**
+ * DEV-ONLY fallback token source.
+ *
+ * In a real Tech Provider model each business holds its own WABA/token, so
+ * production media fetches MUST use the per-business token injected by the
+ * caller (`documents-intake` → `getAccessTokenForBusiness(businessId)`).
+ * This global `WHATSAPP_ACCESS_TOKEN` env is therefore guarded against
+ * `NODE_ENV === "production"`: we never silently use a single global token
+ * for a tenant's media in production. It remains available for local/dev and
+ * tests where no per-business token is wired.
+ */
 function getAccessTokenFromEnv(): string | null {
+  if (process.env.NODE_ENV === "production") return null;
   const v = process.env.WHATSAPP_ACCESS_TOKEN;
   if (typeof v !== "string") return null;
   const trimmed = v.trim();

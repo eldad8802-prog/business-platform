@@ -7,6 +7,7 @@ import {
 import { runGoogleVisionOCR } from "@/lib/services/documents/google-vision-ocr.service";
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
 import { writeTempOcrFile } from "@/lib/services/integrations/gmail/temp-ocr-file.service";
+import { getAccessTokenForBusiness } from "./connection.service";
 import { fetchAndValidateWhatsAppMedia } from "./media-fetch.service";
 import type { MediaFetchDeps, MediaFetchResult } from "./media-fetch.types";
 import type { DocumentsIntakeMediaType } from "./routing.types";
@@ -44,7 +45,7 @@ export type WhatsAppIntakeDeps = {
   markFailed: typeof markWhatsAppImportFailed;
   fetchMedia: (
     params: { mediaId: string; routingMediaType: DocumentsIntakeMediaType },
-    deps?: MediaFetchDeps
+    deps?: Partial<MediaFetchDeps>
   ) => Promise<MediaFetchResult>;
   sha256Hex: (bytes: Buffer) => string;
   writeTempOcrFile: typeof writeTempOcrFile;
@@ -53,7 +54,14 @@ export type WhatsAppIntakeDeps = {
   putDocument: typeof putDocumentObject;
   deleteDocument: typeof deleteDocumentObjectQuiet;
   buildStoredFileName: typeof buildStoredDocumentFileName;
-  mediaFetchDeps?: MediaFetchDeps;
+  mediaFetchDeps?: Partial<MediaFetchDeps>;
+  /**
+   * Resolves the per-business WhatsApp access token used to fetch inbound
+   * media for this tenant. Defaults to the encrypted-token lookup keyed by
+   * `businessId`. When omitted (e.g. in unit tests that fully stub
+   * `fetchMedia`), the per-business token gate is skipped.
+   */
+  getBusinessAccessToken?: (businessId: number) => Promise<string | null>;
 };
 
 export const defaultWhatsAppIntakeDeps: WhatsAppIntakeDeps = {
@@ -71,6 +79,8 @@ export const defaultWhatsAppIntakeDeps: WhatsAppIntakeDeps = {
   putDocument: putDocumentObject,
   deleteDocument: deleteDocumentObjectQuiet,
   buildStoredFileName: buildStoredDocumentFileName,
+  getBusinessAccessToken: async (businessId: number) =>
+    (await getAccessTokenForBusiness(businessId))?.token ?? null,
 };
 
 export function intakeOutcomeLogFields(
@@ -111,9 +121,37 @@ export async function processWhatsAppDocumentsIntake(
     return { status: "skipped_duplicate", reason: "wamid" };
   }
 
+  // Resolve the per-business access token and use it for the media fetch.
+  // In a Tech Provider model each business owns its WABA/token, so inbound
+  // media MUST be fetched with that tenant's token — never a global one.
+  let mediaFetchDeps: Partial<MediaFetchDeps> | undefined = deps.mediaFetchDeps;
+  if (deps.getBusinessAccessToken) {
+    const businessToken = await deps.getBusinessAccessToken(input.businessId);
+    if (!businessToken) {
+      // No usable token for this business (not connected / revoked). Fail in a
+      // controlled way — do NOT fall back to any global token. The token value
+      // itself is never logged or surfaced.
+      const failed = await deps.createFailedImport({
+        businessId: input.businessId,
+        wamid: input.wamid,
+        mediaId: input.mediaId,
+        phoneNumberId: input.phoneNumberId,
+        fromPhone: input.sender,
+        mediaType: input.mediaType,
+        error: "media_fetch:missing_access_token",
+      });
+      return {
+        status: "failed",
+        reason: "missing_access_token",
+        importId: failed.id,
+      };
+    }
+    mediaFetchDeps = { ...deps.mediaFetchDeps, getAccessToken: () => businessToken };
+  }
+
   const mediaResult = await deps.fetchMedia(
     { mediaId: input.mediaId, routingMediaType: input.mediaType },
-    deps.mediaFetchDeps
+    mediaFetchDeps
   );
   if (!mediaResult.ok) {
     const failed = await deps.createFailedImport({
