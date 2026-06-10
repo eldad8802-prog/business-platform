@@ -6,6 +6,7 @@
  */
 import { PartyRoleType, PartySignalType, Prisma } from "@prisma/client";
 import {
+  BACKFILL_TX_OPTIONS,
   REQUIRED_PARTY_MIGRATIONS,
   assertMigrationsApplied,
   buildPrismaBackfillDeps,
@@ -44,7 +45,11 @@ type MockSeed = {
   businessIds?: number[];
 };
 
-type TxObservation = { calls: number; lastThrew: boolean };
+type TxObservation = {
+  calls: number;
+  lastThrew: boolean;
+  lastOpts?: { maxWait?: number; timeout?: number };
+};
 
 function makeMockClient(seed: MockSeed) {
   const tx: TxObservation = { calls: 0, lastThrew: false };
@@ -56,9 +61,13 @@ function makeMockClient(seed: MockSeed) {
       const applied = seed.migrations ?? [...REQUIRED_PARTY_MIGRATIONS];
       return applied.map((m) => ({ migration_name: m }));
     }) as BackfillPrismaClient["$queryRawUnsafe"],
-    $transaction: (async (fn: (t: Prisma.TransactionClient) => Promise<unknown>) => {
+    $transaction: (async (
+      fn: (t: Prisma.TransactionClient) => Promise<unknown>,
+      opts?: { maxWait?: number; timeout?: number }
+    ) => {
       tx.calls += 1;
       tx.lastThrew = false;
+      tx.lastOpts = opts;
       try {
         return await fn({} as Prisma.TransactionClient);
       } catch (err) {
@@ -147,6 +156,11 @@ async function runTests() {
     ok("dry-run returns work result", result === "WORK_DONE");
     ok("dry-run forced a rollback (tx threw)", tx.lastThrew === true);
     ok("dry-run used a transaction", tx.calls === 1);
+    ok(
+      "dry-run passes extended tx timeout",
+      tx.lastOpts?.timeout === BACKFILL_TX_OPTIONS.timeout &&
+        tx.lastOpts?.maxWait === BACKFILL_TX_OPTIONS.maxWait
+    );
   }
 
   // 5. runInTx execute commits (no rollback throw).
@@ -157,6 +171,11 @@ async function runTests() {
     ok("execute returns work result", result === 42);
     ok("execute did NOT roll back", tx.lastThrew === false);
     ok("execute used a transaction", tx.calls === 1);
+    ok(
+      "execute passes extended tx timeout",
+      tx.lastOpts?.timeout === BACKFILL_TX_OPTIONS.timeout &&
+        tx.lastOpts?.maxWait === BACKFILL_TX_OPTIONS.maxWait
+    );
   }
 
   // 6. Backfill loaders filter by businessId.

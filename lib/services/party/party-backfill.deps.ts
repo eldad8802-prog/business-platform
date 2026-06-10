@@ -25,6 +25,14 @@ export const REQUIRED_PARTY_MIGRATIONS = [
   "20260610150000_party_anchor_claim_t2_readiness",
 ] as const;
 
+/**
+ * Interactive-transaction options for the backfill. Prisma's default interactive
+ * tx timeout is 5s — too short for a per-business dry-run batch over a REMOTE DB
+ * (many round-trips × network latency). These raise the ceiling without changing
+ * resolution logic, batching, or dry-run semantics.
+ */
+export const BACKFILL_TX_OPTIONS = { maxWait: 20000, timeout: 120000 } as const;
+
 type FindManyArgs = {
   where?: Record<string, unknown>;
   select?: Record<string, boolean>;
@@ -36,7 +44,10 @@ type FindManyArgs = {
  */
 export interface BackfillPrismaClient {
   $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): Promise<T>;
-  $transaction<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T>;
+  $transaction<T>(
+    fn: (tx: Prisma.TransactionClient) => Promise<T>,
+    options?: { maxWait?: number; timeout?: number }
+  ): Promise<T>;
   business: { findMany(args: FindManyArgs): Promise<Array<{ id: number }>> };
   customer: {
     findMany(args: FindManyArgs): Promise<
@@ -137,7 +148,7 @@ export function buildPrismaBackfillDeps(
 
     runInTx: async (fn, { dryRun }) => {
       if (!dryRun) {
-        return client.$transaction((tx) => fn(tx));
+        return client.$transaction((tx) => fn(tx), BACKFILL_TX_OPTIONS);
       }
       let result: Awaited<ReturnType<typeof fn>> | undefined;
       let captured = false;
@@ -146,7 +157,7 @@ export function buildPrismaBackfillDeps(
           result = await fn(tx);
           captured = true;
           throw new DryRunRollback();
-        });
+        }, BACKFILL_TX_OPTIONS);
       } catch (err) {
         if (!(err instanceof DryRunRollback)) throw err;
       }
