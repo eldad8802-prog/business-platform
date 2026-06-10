@@ -735,12 +735,11 @@ export async function revokeAuthorityConnectionTx(
   input: {
     businessId: number;
     environment: BillingAuthorityEnvironment;
-    actorUserId: number;
+    actorUserId?: number | null;
     reason?: string | null;
     occurredAt?: Date;
   }
 ): Promise<AuthorityConnectionTransitionResult> {
-  const actorUserId = assertActorUserId(input.actorUserId);
   assertPositiveInteger(input.businessId, "businessId");
 
   const row = await loadConnectionRowTx(tx, input.businessId, input.environment);
@@ -780,7 +779,7 @@ export async function revokeAuthorityConnectionTx(
     operation: "revokeAuthorityConnection",
     auditEventType: "BILLING_AUTHORITY_CONNECTION_REVOKED",
     auditSummary: "חיבור רשות המסים בוטל",
-    actorUserId,
+    actorUserId: input.actorUserId ?? null,
     occurredAt: revokedAt,
     metadata: {
       revokedAt: revokedAt.toISOString(),
