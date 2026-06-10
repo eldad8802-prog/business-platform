@@ -80,6 +80,9 @@ function createMockDeps(options: {
 
   const deps: WhatsAppIntakeDeps = {
     ...defaultWhatsAppIntakeDeps,
+    // Per-business token gate: stub a connected business so the pipeline uses
+    // a tenant token (never a global one) before fetching media.
+    getBusinessAccessToken: async () => "token",
     sha256Hex:
       options.sha256Hex ??
       ((b) => {
