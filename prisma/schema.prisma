@@ -204,6 +204,8 @@ model Business {
   archivedByUser              User?                           @relation("BusinessArchivedBy", fields: [archivedByUserId], references: [id], onDelete: SetNull)
   billingAuthorityConnections BillingAuthorityConnection[]
   billingAuthoritySubmissions BillingAuthoritySubmission[]
+  parties                     Party[]
+  partyResolutionClaims       PartyResolutionClaim[]
 
   @@index([archivedAt])
 }
@@ -1616,6 +1618,43 @@ model BillingAuthoritySubmission {
   @@index([batchId])
 }
 
+model Party {
+  id        Int      @id @default(autoincrement())
+  businessId Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  claims   PartyResolutionClaim[]
+
+  @@index([businessId])
+}
+
+model PartyResolutionClaim {
+  id               Int                    @id @default(autoincrement())
+  businessId       Int
+  partyId          Int
+  subjectType      PartyRoleType
+  subjectId        Int
+  signalType       PartySignalType
+  signalValue      String
+  confidence       PartyClaimConfidence
+  method           PartyResolutionMethod  @default(DETERMINISTIC_EXACT)
+  source           String
+  resolvedByUserId Int?
+  status           PartyClaimStatus       @default(ACTIVE)
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  party    Party    @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, subjectType, subjectId])
+  @@index([businessId, signalType, signalValue])
+  @@index([businessId, partyId])
+  @@index([businessId, status])
+}
+
 enum CustomerTaxIdType {
   AUTHORIZED_DEALER
   EXEMPT_DEALER
@@ -2050,4 +2089,31 @@ enum SourceChannel {
   PUBLIC_BOOKING
   EXTERNAL_API
   IMPORT
+}
+
+enum PartyRoleType {
+  CUSTOMER
+  LEAD
+}
+
+enum PartySignalType {
+  PHONE
+  TAX_ID
+}
+
+enum PartyClaimConfidence {
+  KNOWN
+  BELIEVED
+  SUSPECTED
+  UNKNOWN
+}
+
+enum PartyResolutionMethod {
+  DETERMINISTIC_EXACT
+}
+
+enum PartyClaimStatus {
+  ACTIVE
+  CHALLENGED
+  RETRACTED
 }
