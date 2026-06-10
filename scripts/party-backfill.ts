@@ -29,6 +29,11 @@ import {
   type BackfillDeps,
   type BackfillReport,
 } from "@/lib/services/party/party-backfill.service";
+import {
+  assertMigrationsApplied,
+  buildPrismaBackfillDeps,
+  type BackfillPrismaClient,
+} from "@/lib/services/party/party-backfill.deps";
 
 export const EXECUTE_CONFIRM_PHRASE = "PARTY_BACKFILL_EXECUTE";
 
@@ -196,17 +201,25 @@ export function evaluateGate(parsed: ParsedArgs, env: NodeEnvLike): GateDecision
 }
 
 /**
- * DB-backed deps factory — NOT wired in T2c. Throws so a direct invocation fails
- * closed instead of silently doing nothing or touching the DB. Wiring real
- * `BackfillDeps` (prisma reads) AND the Party migrations-applied guard is a later
- * ticket; do that before enabling real runs.
+ * DB-backed deps factory (T2d). Builds real Prisma-backed `BackfillDeps`, but
+ * ONLY after the migrations-applied guard passes (fail-closed). The client is
+ * injectable for tests; in production the real `prisma` is imported lazily so
+ * importing this module never instantiates a client or touches the DB.
+ *
+ * NOTE: wiring only — calling this does not run a backfill; it just prepares the
+ * deps. Building deps requires the Party migrations to be applied in the target
+ * DB. No run happens here.
  */
-export async function loadBackfillDeps(): Promise<BackfillDeps> {
-  throw new Error(
-    "[party-backfill] DB-backed deps are NOT wired in T2c. " +
-      "Real backfill execution and the Party migrations-applied check are a later ticket. " +
-      "Wire BackfillDeps to prisma + add the migrations-applied guard before enabling real runs."
-  );
+export async function loadBackfillDeps(
+  client?: BackfillPrismaClient
+): Promise<BackfillDeps> {
+  let db = client;
+  if (!db) {
+    const { prisma } = await import("@/lib/prisma");
+    db = prisma as unknown as BackfillPrismaClient;
+  }
+  await assertMigrationsApplied(db); // fail closed if migrations missing
+  return buildPrismaBackfillDeps(db);
 }
 
 /** Human-readable run report (also surfaces whether persistence happened). */

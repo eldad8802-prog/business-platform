@@ -5,10 +5,15 @@
  * No DB, no real deps: exercises the pure arg parser, the gate, report rendering,
  * and the orchestrator with INJECTED fakes (the real deps factory must never run).
  */
+import { Prisma } from "@prisma/client";
 import type {
   BackfillDeps,
   BackfillReport,
 } from "@/lib/services/party/party-backfill.service";
+import {
+  REQUIRED_PARTY_MIGRATIONS,
+  type BackfillPrismaClient,
+} from "@/lib/services/party/party-backfill.deps";
 import {
   EXECUTE_CONFIRM_PHRASE,
   evaluateGate,
@@ -18,6 +23,21 @@ import {
   renderReport,
   type BackfillRunner,
 } from "@/scripts/party-backfill";
+
+/** A minimal mock Prisma client whose recorded migrations are configurable. */
+function mockClient(migrations: string[]): BackfillPrismaClient {
+  return {
+    $queryRawUnsafe: (async () =>
+      migrations.map((m) => ({ migration_name: m }))) as BackfillPrismaClient["$queryRawUnsafe"],
+    $transaction: (async (fn: (t: Prisma.TransactionClient) => Promise<unknown>) =>
+      fn({} as Prisma.TransactionClient)) as BackfillPrismaClient["$transaction"],
+    business: { findMany: async () => [] },
+    customer: { findMany: async () => [] },
+    lead: { findMany: async () => [] },
+    party: { findMany: async () => [] },
+    partyResolutionClaim: { findMany: async () => [] },
+  };
+}
 
 let failed = 0;
 function ok(name: string, condition: boolean) {
@@ -202,22 +222,57 @@ async function runTests() {
     ok("main dry-run logs a report", logs.some((l) => l.includes("party backfill report")));
   }
 
-  // 13. The real deps factory fails closed (no DB wiring in T2c).
+  // 13. T2d: loadBackfillDeps builds deps when migrations are applied (mock client).
   {
+    let deps: BackfillDeps | null = null;
     let threw = false;
     try {
-      await loadBackfillDeps();
+      deps = await loadBackfillDeps(mockClient([...REQUIRED_PARTY_MIGRATIONS]));
     } catch {
       threw = true;
     }
-    ok("loadBackfillDeps throws (no DB in T2c)", threw === true);
+    ok("loadBackfillDeps OK with valid migrations", threw === false && deps !== null);
+    ok(
+      "loadBackfillDeps returns wired deps",
+      deps !== null && typeof deps.listBusinessIds === "function" && typeof deps.runInTx === "function"
+    );
+  }
+
+  // 14. T2d: loadBackfillDeps fails closed when a Party migration is missing.
+  {
+    let threw = false;
+    try {
+      await loadBackfillDeps(mockClient([REQUIRED_PARTY_MIGRATIONS[0]])); // second missing
+    } catch {
+      threw = true;
+    }
+    ok("loadBackfillDeps blocked on missing migration", threw === true);
+  }
+
+  // 15. T2d: production execute is STILL blocked before any deps are built.
+  {
+    let depsBuilt = false;
+    const code = await main(
+      ["--mode", "execute", "--confirm-execute", EXECUTE_CONFIRM_PHRASE],
+      { NODE_ENV: "production" },
+      {
+        depsFactory: async () => {
+          depsBuilt = true;
+          return {} as BackfillDeps;
+        },
+        runner: (async () => fakeReport()) as unknown as BackfillRunner,
+        log: () => {},
+      }
+    );
+    ok("prod execute blocked returns 1", code === 1);
+    ok("prod execute builds no deps", depsBuilt === false);
   }
 
   if (failed > 0) {
-    console.error(`\n${failed} party backfill entrypoint T2c check(s) failed.`);
+    console.error(`\n${failed} party backfill entrypoint check(s) failed.`);
     process.exit(1);
   }
-  console.log("\nAll party backfill entrypoint T2c checks passed.");
+  console.log("\nAll party backfill entrypoint checks passed.");
 }
 
 runTests().catch((error) => {
