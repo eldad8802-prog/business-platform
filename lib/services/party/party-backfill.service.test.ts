@@ -12,9 +12,11 @@ import {
 } from "@prisma/client";
 import {
   backfillBusiness,
+  buildHealth,
   iterateRoleRows,
   runBackfill,
   type BackfillDeps,
+  type HealthClaim,
   type RoleRowInput,
 } from "@/lib/services/party/party-backfill.service";
 
@@ -382,6 +384,154 @@ async function runTests() {
     ok("rerun: all NOOP", second.totals.applied === 0 && second.totals.noop === 2);
     ok("rerun: no new claims", persistent.claims.length === claimsAfterFirst);
     ok("rerun: no new parties", persistent.parties.length === partiesAfterFirst);
+  }
+
+  // ── T2b-2 Health metrics ────────────────────────────────────────────────
+
+  function claim(
+    partyId: number,
+    subjectId: number,
+    signalType: HealthClaim["signalType"],
+    signalValue: string | null,
+    subjectType: PartyRoleType = PartyRoleType.CUSTOMER
+  ): HealthClaim {
+    return { partyId, subjectType, subjectId, signalType, signalValue };
+  }
+
+  // 11. buildHealth: multi-party signal is flagged as an invariant violation.
+  {
+    // Same PHONE value mapped to two different parties (1 and 2).
+    const h = buildHealth(
+      [
+        claim(1, 10, PartySignalType.PHONE, "+972500000000"),
+        claim(2, 11, PartySignalType.PHONE, "+972500000000"),
+      ],
+      0
+    );
+    ok("multi-party signal counted", h.multiPartySignals === 1);
+    ok("multi-party signal → invariantViolation true", h.invariantViolation === true);
+    ok("multi-party signal sampled", h.multiPartySignalSamples.length === 1);
+    ok("multi-party signal in anomalyCount", h.anomalyCount === 1);
+  }
+
+  // 12. buildHealth: clean exact-match data → no invariant violation.
+  {
+    // Same phone → one party (legitimate unification); distinct phones → distinct.
+    const h = buildHealth(
+      [
+        claim(1, 10, PartySignalType.PHONE, "+972500000000"),
+        claim(1, 11, PartySignalType.PHONE, "+972500000000"),
+        claim(2, 12, PartySignalType.PHONE, "+972511111111"),
+      ],
+      0
+    );
+    ok("clean data: no multi-party signal", h.multiPartySignals === 0);
+    ok("clean data: invariantViolation false", h.invariantViolation === false);
+  }
+
+  // 13. buildHealth: histogram buckets computed correctly.
+  {
+    // party 1: 1 member · party 2: 2 · party 3: 4 (3-5) · party 4: 8 (6-10) · party 5: 12 (>10)
+    const claims: HealthClaim[] = [];
+    const sizes: Record<number, number> = { 1: 1, 2: 2, 3: 4, 4: 8, 5: 12 };
+    let subjectId = 1;
+    for (const [pid, n] of Object.entries(sizes)) {
+      for (let i = 0; i < n; i++) {
+        claims.push(claim(Number(pid), subjectId++, null, null));
+      }
+    }
+    const h = buildHealth(claims, 0);
+    ok("histogram bucket 1", h.memberHistogram["1"] === 1);
+    ok("histogram bucket 2", h.memberHistogram["2"] === 1);
+    ok("histogram bucket 3-5", h.memberHistogram["3-5"] === 1);
+    ok("histogram bucket 6-10", h.memberHistogram["6-10"] === 1);
+    ok("histogram bucket >10", h.memberHistogram[">10"] === 1);
+  }
+
+  // 14. buildHealth: top outliers sorted by member count, threshold honored.
+  {
+    const claims: HealthClaim[] = [];
+    let subjectId = 1;
+    const sizes: Record<number, number> = { 1: 2, 2: 9, 3: 5 };
+    for (const [pid, n] of Object.entries(sizes)) {
+      for (let i = 0; i < n; i++) {
+        claims.push(claim(Number(pid), subjectId++, null, null));
+      }
+    }
+    const h = buildHealth(claims, 0, 4); // threshold 4 → parties with >4 members
+    ok("top outlier is largest party", h.topOutliers[0].partyId === 2 && h.topOutliers[0].memberCount === 9);
+    ok("outliers sorted desc", h.topOutliers[1].memberCount === 5);
+    ok("oversized counted (>threshold)", h.oversizedParties === 2); // 9 and 5
+    ok("oversizedThreshold reported", h.oversizedThreshold === 4);
+  }
+
+  // 15. buildHealth: conflict anchors flow into anomaly count.
+  {
+    const h = buildHealth([claim(1, 10, null, null)], 3);
+    ok("conflict anchors reported", h.conflictAnchors === 3);
+    ok("conflict anchors in anomaly count", h.anomalyCount === 3);
+    ok("conflict anchors alone → no invariant violation", h.invariantViolation === false);
+  }
+
+  // 16. Runner: dry-run and execute both produce a health report.
+  {
+    const seed: Seed = {
+      businessIds: [1],
+      customers: { 1: [{ id: 10, phone: "0501111111" }] },
+      leads: {},
+    };
+    const dry = makeFakeBackfillDb(seed);
+    const dryReport = await runBackfill(dry.deps, { mode: "dry-run" });
+    ok("dry-run report has health", dryReport.health !== undefined && dryReport.perBusiness[0].health !== undefined);
+
+    const exe = makeFakeBackfillDb(seed);
+    const exeReport = await runBackfill(exe.deps, { mode: "execute" });
+    ok("execute report has health", exeReport.health !== undefined && exeReport.perBusiness[0].health !== undefined);
+  }
+
+  // 17. Runner: oversized party is an observational anomaly, NOT a failed business.
+  {
+    // 3 customers share one phone → one party with 3 members; threshold 2 → oversized.
+    const seed: Seed = {
+      businessIds: [1],
+      customers: {
+        1: [
+          { id: 1, phone: "0509999999" },
+          { id: 2, phone: "0509999999" },
+          { id: 3, phone: "0509999999" },
+        ],
+      },
+      leads: {},
+    };
+    const { deps } = makeFakeBackfillDb(seed);
+    const report = await runBackfill(deps, { mode: "execute", oversizedThreshold: 2 });
+    const b = report.perBusiness[0];
+    ok("oversized party detected", b.health.oversizedParties === 1);
+    ok("oversized business NOT failed", b.failed === false && report.totals.failedBusinesses === 0);
+    ok("oversized counted in run-level health", report.health.oversizedParties === 1);
+  }
+
+  // 18. Runner: conflict outcome counted as conflict anchor in health.
+  {
+    // c1 phone P → party A; c2 taxId T → party B; c3 phone P + taxId T → CONFLICT.
+    const seed: Seed = {
+      businessIds: [1],
+      customers: {
+        1: [
+          { id: 1, phone: "0508888888" },
+          { id: 2, taxId: "514000000" },
+          { id: 3, phone: "0508888888", taxId: "514000000" },
+        ],
+      },
+      leads: {},
+    };
+    const { deps } = makeFakeBackfillDb(seed);
+    const report = await runBackfill(deps, { mode: "execute" });
+    const b = report.perBusiness[0];
+    ok("conflict outcome recorded", b.conflict === 1);
+    ok("conflict anchor in business health", b.health.conflictAnchors === 1);
+    ok("conflict anchor in run-level health", report.health.conflictAnchors === 1);
+    ok("conflict business NOT failed", b.failed === false);
   }
 
   if (failed > 0) {
