@@ -261,12 +261,14 @@ export default function EmailDocumentsPage() {
     try {
       setStatusError("");
       const res = await fetch("/api/integrations/gmail/connect", {
-        redirect: "manual",
         headers: { authorization: authHeader },
       });
-      const location = res.headers.get("location");
-      if (!location) throw new Error("Missing redirect location");
-      window.location.href = location;
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || "שגיאה בחיבור Gmail");
+      }
+      if (!data?.url) throw new Error("Missing authorize URL");
+      window.location.href = data.url;
     } catch (e: unknown) {
       setStatusError(errorMessage(e, "שגיאה בחיבור Gmail"));
     }

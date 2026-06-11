@@ -56,7 +56,12 @@ export async function GET(req: NextRequest) {
       codeChallenge,
     });
 
-    const res = NextResponse.redirect(authorizeUrl);
+    // Return the authorize URL in the body (not an HTTP redirect): the client
+    // calls this with a Bearer token via fetch and cannot read the Location
+    // header of a redirect (a `redirect:"manual"` fetch yields an opaque
+    // response with no headers). The PKCE/state cookies below are still set on
+    // this 200 response and stored by the same-origin fetch.
+    const res = NextResponse.json({ url: authorizeUrl });
     const opts = cookieOptions(req);
 
     res.cookies.set(COOKIE_STATE, state, opts);
