@@ -26,7 +26,7 @@ export default function LoginPage() {
   useEffect(() => {
     let isMounted = true;
 
-    const boot = () => {
+    const boot = async () => {
       try {
         if (typeof window === "undefined") {
           return;
@@ -34,20 +34,46 @@ export default function LoginPage() {
 
         const token = window.localStorage.getItem("token");
 
-        if (token) {
-          window.location.replace(`${window.location.origin}/`);
+        if (!token) {
+          if (isMounted) setBootLoading(false);
           return;
         }
+
+        // Token presence is not proof of an authenticated session. Validate it
+        // before redirecting, otherwise a stale/expired token traps the user
+        // away from the login form (it bounces to "/" → rewritten to /home).
+        let status = 0;
+        try {
+          const res = await fetch("/api/auth/me", {
+            headers: { authorization: `Bearer ${token}` },
+          });
+          status = res.status;
+        } catch {
+          status = 0;
+        }
+
+        if (status === 200) {
+          window.location.replace(`${window.location.origin}/`);
+          return; // keep the boot loader visible while navigating away
+        }
+
+        // Definitively unauthorized → clear the stale credentials.
+        if (status === 401 || status === 403) {
+          window.localStorage.removeItem("token");
+          window.localStorage.removeItem("sessionId");
+          window.localStorage.removeItem("user");
+        }
+
+        // Any non-200 (incl. transient network/5xx): show the form so the user
+        // is never trapped away from logging in.
+        if (isMounted) setBootLoading(false);
       } catch (error) {
         console.error("login boot error:", error);
-      } finally {
-        if (isMounted) {
-          setBootLoading(false);
-        }
+        if (isMounted) setBootLoading(false);
       }
     };
 
-    boot();
+    void boot();
 
     return () => {
       isMounted = false;
