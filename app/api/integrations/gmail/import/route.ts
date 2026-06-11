@@ -166,16 +166,22 @@ export async function POST(req: NextRequest) {
     });
     cleanup = tmp.cleanup;
 
-    const rawText = (await runGoogleVisionOCR(tmp.tempPath, body.mimeType)).trim();
-    if (!rawText) {
-      return NextResponse.json(
-        { error: "OCR produced no text", needsReview: true },
-        { status: 400 }
-      );
+    // OCR is best-effort: a valid downloaded file must never be lost because
+    // OCR failed or returned empty text. On failure we still store the file and
+    // create a needs_review Document (without ExtractedData) for manual handling.
+    let rawText = "";
+    try {
+      rawText = (await runGoogleVisionOCR(tmp.tempPath, body.mimeType)).trim();
+    } catch (ocrError) {
+      console.error("GMAIL_IMPORT_OCR_FAILED:", ocrError);
+      rawText = "";
     }
+    const ocrSucceeded = rawText.length > 0;
 
     // Same storage contract as POST /api/documents/upload: basename only on
     // Document.fileUrl, bytes via StorageService (legacy FS read fallback).
+    // Stored unconditionally — OCR outcome does not gate it. A real storage
+    // failure is still fatal (no stored file = no valid Document).
     storedFileName = buildStoredDocumentFileName(body.mimeType);
     await putDocumentObject({
       businessId: user.businessId,
@@ -185,13 +191,45 @@ export async function POST(req: NextRequest) {
       source: "email",
     });
 
-    const created = await createDocumentFromOcrText({
-      businessId: user.businessId,
-      source: "email",
-      mimeType: body.mimeType,
-      ocrText: rawText,
-      fileUrl: storedFileName,
-    });
+    let documentId: number;
+    let extractedDataId: number | null = null;
+    let analysis:
+      | {
+          documentType: string;
+          isFinancial: boolean;
+          guardrailRoute: string;
+          needsReview: boolean;
+          direction: string;
+          confidence: number;
+        }
+      | null = null;
+
+    if (ocrSucceeded) {
+      const created = await createDocumentFromOcrText({
+        businessId: user.businessId,
+        source: "email",
+        mimeType: body.mimeType,
+        ocrText: rawText,
+        fileUrl: storedFileName,
+      });
+      documentId = created.documentId;
+      extractedDataId = created.extractedDataId;
+      analysis = created.analysis;
+    } else {
+      // No OCR text → create a bare Document (no ExtractedData). It surfaces in
+      // the Review Station as needs_review with empty fields for manual entry.
+      const bareDocument = await prisma.document.create({
+        data: {
+          businessId: user.businessId,
+          fileUrl: storedFileName,
+          source: "email",
+          mimeType: body.mimeType,
+          status: "needs_review",
+          ocrText: null,
+        },
+      });
+      documentId = bareDocument.id;
+    }
     permanentFilePersisted = true;
 
     const emailImport = await prisma.emailAttachmentImport.create({
@@ -209,20 +247,22 @@ export async function POST(req: NextRequest) {
         sentAt: body.sentAt ? new Date(body.sentAt) : null,
         contentHashSha256,
         status: "imported",
-        documentId: created.documentId,
+        documentId,
       },
     });
 
     return NextResponse.json({
       success: true,
       imported: true,
+      ocr: ocrSucceeded ? "ok" : "empty",
+      needsManualReview: !ocrSucceeded,
       messageId: body.messageId,
       attachmentId: body.attachmentId,
       contentHashSha256,
-      documentId: created.documentId,
-      extractedDataId: created.extractedDataId,
+      documentId,
+      extractedDataId,
       emailAttachmentImportId: emailImport.id,
-      analysis: created.analysis,
+      analysis,
     });
   } catch (error) {
     if (storedFileName && businessId && !permanentFilePersisted) {
