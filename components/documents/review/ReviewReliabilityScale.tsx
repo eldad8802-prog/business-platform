@@ -11,23 +11,23 @@ export default function ReviewReliabilityScale({ level }: { level: TrustLevel })
     },
     {
       key: "ambiguous",
-      label: "לא חד-משמעית",
-      color: "#f97316",
-      bg: "#fff7ed",
+      label: "לא חד משמעית",
+      color: "#f0782b",
+      bg: "#fff1e7",
       text: "צריך החלטה",
     },
     {
       key: "medium",
       label: "בינונית",
-      color: "#eab308",
-      bg: "#fefce8",
+      color: "#f59e0b",
+      bg: "#fffbeb",
       text: "בדיקה קצרה",
     },
     {
       key: "high",
       label: "גבוהה",
-      color: "#22c55e",
-      bg: "#f0fdf4",
+      color: "#16945a",
+      bg: "#e9f9ef",
       text: "מוכן לאישור",
     },
   ] as const;
@@ -37,10 +37,10 @@ export default function ReviewReliabilityScale({ level }: { level: TrustLevel })
   return (
     <div
       style={{
-        border: "1px solid #dfe7f3",
+        border: "1px solid #e1e8f4",
         background: "#ffffff",
-        borderRadius: 14,
-        padding: 14,
+        borderRadius: 18,
+        padding: 16,
       }}
     >
       <div
@@ -49,18 +49,18 @@ export default function ReviewReliabilityScale({ level }: { level: TrustLevel })
           alignItems: "center",
           justifyContent: "space-between",
           gap: 10,
-          marginBottom: 10,
+          marginBottom: 12,
         }}
       >
-        <div style={{ color: "#0f172a", fontSize: 13, fontWeight: 950 }}>
-          מדרג אמינות המערכת
+        <div style={{ color: "#0d1b3d", fontSize: 14, fontWeight: 950 }}>
+          רמת ביטחון
         </div>
         <div
           style={{
             borderRadius: 999,
             background: active.bg,
             color: active.color,
-            padding: "5px 10px",
+            padding: "6px 11px",
             fontSize: 12,
             fontWeight: 950,
           }}
@@ -72,7 +72,7 @@ export default function ReviewReliabilityScale({ level }: { level: TrustLevel })
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-          gap: 6,
+          gap: 7,
         }}
       >
         {steps.map((step) => {
@@ -81,10 +81,10 @@ export default function ReviewReliabilityScale({ level }: { level: TrustLevel })
             <div
               key={step.key}
               style={{
-                borderRadius: 10,
-                padding: "9px 6px",
-                background: isActive ? step.bg : "#f8fafc",
-                border: isActive ? `1px solid ${step.color}` : "1px solid #e5e7eb",
+                borderRadius: 12,
+                padding: "10px 6px",
+                background: isActive ? step.bg : "#f8fbff",
+                border: isActive ? `1px solid ${step.color}` : "1px solid #edf1f8",
                 textAlign: "center",
               }}
             >
@@ -94,13 +94,13 @@ export default function ReviewReliabilityScale({ level }: { level: TrustLevel })
                   height: 10,
                   borderRadius: 999,
                   background: step.color,
-                  margin: "0 auto 5px",
-                  opacity: isActive ? 1 : 0.45,
+                  margin: "0 auto 6px",
+                  opacity: isActive ? 1 : 0.42,
                 }}
               />
               <div
                 style={{
-                  color: isActive ? step.color : "#64748b",
+                  color: isActive ? step.color : "#6b7899",
                   fontSize: 11,
                   fontWeight: 950,
                   lineHeight: 1.3,

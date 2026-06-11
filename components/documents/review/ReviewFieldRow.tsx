@@ -17,13 +17,14 @@ export default function ReviewFieldRow({
 }) {
   const cfg = TRAFFIC_CONFIG[level];
   const primaryLabel = missing ? "הוסף" : "ערוך";
+
   return (
     <div
       style={{
-        border: "1px solid #e5e7eb",
-        borderRadius: 16,
-        padding: "12px 14px",
-        background: "#fafafa",
+        border: "1px solid #e1e8f4",
+        borderRadius: 18,
+        padding: "14px 16px",
+        background: "#ffffff",
       }}
     >
       <div
@@ -41,10 +42,10 @@ export default function ReviewFieldRow({
               alignItems: "center",
               gap: 8,
               flexWrap: "wrap",
-              marginBottom: 6,
+              marginBottom: 7,
             }}
           >
-            <span style={{ fontSize: 13, color: "#6b7280", fontWeight: 800 }}>{label}</span>
+            <span style={{ fontSize: 13, color: "#6b7899", fontWeight: 850 }}>{label}</span>
             <span
               aria-hidden
               style={{
@@ -63,7 +64,7 @@ export default function ReviewFieldRow({
             style={{
               fontSize: 17,
               fontWeight: 950,
-              color: missing ? "#9ca3af" : "#111827",
+              color: missing ? "#9aa6bd" : "#0d1b3d",
               overflowWrap: "anywhere",
               lineHeight: 1.35,
             }}
@@ -71,7 +72,17 @@ export default function ReviewFieldRow({
             {missing ? "לא זוהה" : displayValue}
           </div>
         </div>
-        <button type="button" style={editPillBtn} onClick={onPrimary}>
+        <button
+          type="button"
+          style={{
+            ...editPillBtn,
+            border: "1px solid #d8e2f2",
+            background: "#f8fbff",
+            color: "#075bff",
+            borderRadius: 999,
+          }}
+          onClick={onPrimary}
+        >
           {primaryLabel}
         </button>
       </div>

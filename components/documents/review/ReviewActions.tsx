@@ -22,9 +22,9 @@ export default function ReviewActions({
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "1fr 1fr",
+        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
         gap: 12,
-        marginTop: 16,
+        marginTop: 20,
       }}
     >
       <button
@@ -44,9 +44,9 @@ export default function ReviewActions({
         {loading
           ? "שומר..."
           : reviewMode === "financial"
-            ? "אשר ושמור כעסקה"
+            ? "אשר ושמור"
             : isUnknown
-              ? "זו קבלה / עסקה"
+              ? "זה מסמך פיננסי"
               : "אשר ושמור"}
       </button>
     </div>

@@ -13,24 +13,26 @@ export default function ReviewTrustSummary({
   trustSummary: string;
   trustReasons: string[];
 }) {
+  const highTrust = trustLevel === "high";
+
   return (
     <>
       <div
         style={{
-          border: "1px solid #dfe7f3",
+          border: "1px solid #e1e8f4",
           background: "#ffffff",
-          borderRadius: 14,
-          padding: 14,
-          marginTop: 14,
+          borderRadius: 18,
+          padding: 16,
+          marginTop: 18,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
           <span
             style={{
               borderRadius: 999,
-              background: trustLevel === "high" ? "#dcfce7" : "#fef3c7",
-              color: trustLevel === "high" ? "#166534" : "#92400e",
-              padding: "5px 9px",
+              background: highTrust ? "#e9f9ef" : "#fff1e7",
+              color: highTrust ? "#16945a" : "#f0782b",
+              padding: "6px 11px",
               fontSize: 12,
               fontWeight: 950,
             }}
@@ -41,16 +43,16 @@ export default function ReviewTrustSummary({
         <p
           style={{
             margin: 0,
-            color: trustLevel === "high" ? "#166534" : "#92400e",
-            fontSize: 13,
-            fontWeight: 850,
-            lineHeight: 1.55,
+            color: highTrust ? "#16945a" : "#9a4a11",
+            fontSize: 14,
+            fontWeight: 800,
+            lineHeight: 1.6,
           }}
         >
           {trustSummary}
         </p>
         {trustReasons.length > 1 ? (
-          <div style={{ marginTop: 8, display: "grid", gap: 5 }}>
+          <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
             {trustReasons.slice(1, 4).map((reason) => (
               <ReviewTrustChecklistItem key={reason}>{reason}</ReviewTrustChecklistItem>
             ))}
@@ -58,7 +60,7 @@ export default function ReviewTrustSummary({
         ) : null}
       </div>
 
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 14 }}>
         <ReviewReliabilityScale level={trustLevel} />
       </div>
     </>

@@ -11,16 +11,24 @@ export default function ReviewExtractedDetailRow({
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "28px 1fr auto",
+        gridTemplateColumns: "18px 86px minmax(0, 1fr)",
         gap: 10,
         alignItems: "center",
-        padding: "10px 0",
-        borderBottom: "1px solid #eef2f7",
+        padding: "11px 0",
+        borderBottom: "1px solid #edf1f8",
       }}
     >
-      <div style={{ color: "#002b6b", fontSize: 17 }}>{icon}</div>
-      <div style={{ color: "#64748b", fontSize: 12, fontWeight: 850 }}>{label}</div>
-      <div style={{ color: "#0f172a", fontSize: 13, fontWeight: 950, textAlign: "left" }}>
+      <div style={{ color: "#075bff", fontSize: 18, lineHeight: 1 }}>{icon}</div>
+      <div style={{ color: "#6b7899", fontSize: 13, fontWeight: 850 }}>{label}</div>
+      <div
+        style={{
+          color: "#0d1b3d",
+          fontSize: 14,
+          fontWeight: 950,
+          textAlign: "left",
+          overflowWrap: "anywhere",
+        }}
+      >
         {value}
       </div>
     </div>

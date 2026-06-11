@@ -42,19 +42,19 @@ export default function ReviewFieldList({
 }: ReviewFieldListProps) {
   return (
     <>
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 16 }}>
         <button
           type="button"
           style={secondaryButton(loading)}
           disabled={loading}
           onClick={onToggleFieldDetails}
         >
-          {showFieldDetails ? "הסתר פרטים ועריכה" : "הצג פרטים ועריכה"}
+          {showFieldDetails ? "הסתר פרטים ועריכה" : "בדוק או ערוך פרטים"}
         </button>
       </div>
 
       {showFieldDetails ? (
-        <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+        <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
           <ReviewFieldRow
             label="סכום"
             missing={!isValidPositiveAmount(draft.amount)}

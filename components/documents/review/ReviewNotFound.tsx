@@ -1,20 +1,17 @@
-import { card } from "@/app/(shell)/documents/ui";
-import DocumentsHeader from "@/components/documents/DocumentsHeader";
-import { basePageStyle, mainStyle, primaryDarkButton } from "./review-ui";
+import { basePageStyle, mainStyle, primaryDarkButton, reviewCard } from "./review-ui";
 
 export default function ReviewNotFound({ onBack }: { onBack: () => void }) {
   return (
     <div dir="rtl" style={basePageStyle()}>
-      <DocumentsHeader title="בדיקת מסמך" />
       <main style={mainStyle()}>
-        <div style={card}>
+        <div style={{ ...reviewCard, maxWidth: 560, width: "100%", margin: "40px auto 0" }}>
           <div
             style={{
-              fontSize: 22,
-              color: "#111827",
+              fontSize: 24,
+              color: "#0d1b3d",
               margin: 0,
               textAlign: "center",
-              fontWeight: 900,
+              fontWeight: 950,
             }}
           >
             לא מצאנו את המסמך
@@ -22,14 +19,15 @@ export default function ReviewNotFound({ onBack }: { onBack: () => void }) {
           <div
             style={{
               fontSize: 15,
-              color: "#6b7280",
+              color: "#6b7899",
               textAlign: "center",
               marginTop: 12,
+              lineHeight: 1.6,
             }}
           >
-            נסה לחזור לרשימת המסמכים ולפתוח שוב.
+            נסה לחזור למסמכים ולפתוח את המסמך שוב.
           </div>
-          <div style={{ marginTop: 18 }}>
+          <div style={{ marginTop: 20 }}>
             <button type="button" style={primaryDarkButton(false)} onClick={onBack}>
               חזרה למסמכים
             </button>

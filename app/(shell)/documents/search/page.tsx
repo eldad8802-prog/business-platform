@@ -108,15 +108,15 @@ const chipBase = {
 
 const chipActive = {
   ...chipBase,
-  background: "#002b6b",
+  background: "linear-gradient(180deg, #176bff 0%, #0050e6 100%)",
   color: "#ffffff",
   // Override the full `border` shorthand instead of just `borderColor`.
   // Mixing `border` (shorthand from chipBase) with `borderColor` (longhand)
   // makes React 19 emit "Updating a style property during rerender ...
   // when a conflicting property is set" on every chip toggle, surfacing as
   // console errors when a user clicks the direction or category filters.
-  border: "1px solid #002b6b",
-  boxShadow: "0 6px 14px rgba(0, 43, 107, 0.16)",
+  border: "1px solid #0050e6",
+  boxShadow: "0 6px 14px rgba(7, 91, 255, 0.18)",
 };
 
 // ── Layout polish tokens ───────────────────────────────────────────────────
@@ -148,7 +148,7 @@ const searchPrimaryBtnInline = (loading: boolean) => ({
   minWidth: 96,
   minHeight: 48,
   borderRadius: 9,
-  background: "#002b6b",
+  background: "linear-gradient(180deg, #176bff 0%, #0050e6 100%)",
   whiteSpace: "nowrap" as const,
   opacity: loading ? 0.7 : 1,
   cursor: loading ? "not-allowed" : "pointer",
@@ -781,9 +781,9 @@ export default function SearchPage() {
                     <span
                       style={{
                         ...badgeBase,
-                        background: "#002b6b",
+                        background: "linear-gradient(180deg, #176bff 0%, #0050e6 100%)",
                         color: "#ffffff",
-                        borderColor: "#002b6b",
+                        borderColor: "#0050e6",
                       }}
                     >
                       פתח →

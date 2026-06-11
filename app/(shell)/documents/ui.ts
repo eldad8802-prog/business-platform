@@ -69,13 +69,14 @@ export const primaryBtn = {
   width: "100%",
   minHeight: 54,
   padding: 14,
-  background: "#111827",
+  background: "linear-gradient(180deg, #176bff 0%, #0050e6 100%)",
   color: "#ffffff",
   border: "none",
   borderRadius: 18,
   fontSize: 15,
   fontWeight: 950,
   marginTop: 16,
+  boxShadow: "0 14px 26px rgba(7, 91, 255, 0.24)",
 };
 
 export const secondaryBtn = {

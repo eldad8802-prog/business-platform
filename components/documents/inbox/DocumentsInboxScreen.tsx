@@ -67,15 +67,14 @@ export default function DocumentsInboxScreen({
   const [tab, setTab] = useState<TabKey>("pending");
 
   const {
-    scope,
     financialPulse,
     items,
     pagination,
     loading,
     loadingMore,
     error,
-    refetch,
     loadMore,
+    refetch,
   } = useDocumentsInbox(authToken);
 
   const pendingCount = useMemo(
@@ -110,61 +109,6 @@ export default function DocumentsInboxScreen({
 
   return (
     <div dir="rtl" style={{ minHeight: "100vh", background: "#f3f7ff" }}>
-      {/* Header */}
-      <div
-        style={{
-          maxWidth: 760,
-          margin: "0 auto",
-          padding: "18px 14px 0",
-          boxSizing: "border-box",
-        }}
-      >
-        <div
-          style={{
-            background: "#ffffff",
-            border: "1px solid #dfe7f3",
-            borderRadius: 18,
-            padding: "14px 16px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 12,
-            boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
-          }}
-        >
-          <div>
-            <div style={{ color: "#0f172a", fontSize: 20, fontWeight: 950 }}>
-              תור בדיקת מסמכים
-            </div>
-            <div style={{ color: "#64748b", fontSize: 12, fontWeight: 800, marginTop: 3 }}>
-              {scope ? `${scope.month} · מסמכים שמחכים להחלטה` : "מסמכים שמחכים להחלטה"}
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => refetch()}
-            disabled={loading}
-            style={{
-              background: "#eff6ff",
-              border: "1px solid #dbeafe",
-              borderRadius: 999,
-              width: 38,
-              height: 38,
-              fontSize: 16,
-              fontWeight: 950,
-              color: "#002b6b",
-              cursor: loading ? "not-allowed" : "pointer",
-              opacity: loading ? 0.5 : 1,
-              flexShrink: 0,
-            }}
-            aria-label="רענון"
-          >
-            ↻
-          </button>
-        </div>
-      </div>
-
       {/* Main content */}
       <div
         style={{
@@ -270,7 +214,7 @@ export default function DocumentsInboxScreen({
                     minHeight: 48,
                     border: "none",
                     borderRadius: 9,
-                    background: "#002b6b",
+                    background: "linear-gradient(180deg, #176bff 0%, #0050e6 100%)",
                     color: "#ffffff",
                     fontSize: 15,
                     fontWeight: 950,
@@ -315,13 +259,15 @@ export default function DocumentsInboxScreen({
                       gap: 7,
                       padding: "10px 12px",
                       borderRadius: 10,
-                      border: active ? "1px solid #002b6b" : "1px solid transparent",
-                      background: active ? "#002b6b" : "#ffffff",
+                      border: active ? "1px solid #0050e6" : "1px solid transparent",
+                      background: active
+                        ? "linear-gradient(180deg, #176bff 0%, #0050e6 100%)"
+                        : "#ffffff",
                       color: active ? "#ffffff" : "#475569",
                       fontSize: 14,
                       fontWeight: 950,
                       cursor: "pointer",
-                      boxShadow: active ? "0 6px 14px rgba(0, 43, 107, 0.16)" : "none",
+                      boxShadow: active ? "0 6px 14px rgba(7, 91, 255, 0.18)" : "none",
                     }}
                   >
                     {label}

@@ -1,15 +1,15 @@
 "use client";
 
-import { card } from "@/app/(shell)/documents/ui";
 import type { TrustLevel } from "@/lib/documents/review/types";
 import type { ReviewFieldListProps } from "./ReviewFieldList";
+import ReviewActions from "./ReviewActions";
+import type { ReviewActionsProps } from "./ReviewActions";
 import ReviewAiExtractedCard from "./ReviewAiExtractedCard";
+import ReviewFieldList from "./ReviewFieldList";
 import ReviewImpactBox from "./ReviewImpactBox";
 import ReviewPreviewFallback from "./ReviewPreviewFallback";
 import ReviewTrustSummary from "./ReviewTrustSummary";
-import ReviewFieldList from "./ReviewFieldList";
-import ReviewActions from "./ReviewActions";
-import type { ReviewActionsProps } from "./ReviewActions";
+import { orangePill, reviewCard, reviewSoftPanel } from "./review-ui";
 
 export type ReviewDecisionPanelProps = {
   reviewMode: "financial" | "document";
@@ -53,14 +53,15 @@ export default function ReviewDecisionPanel({
   actions,
 }: ReviewDecisionPanelProps) {
   return (
-    <section style={{ ...card, borderRadius: 18, borderColor: "#dfe7f3" }}>
+    <section style={reviewCard}>
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
           gap: 12,
-          marginBottom: 14,
+          marginBottom: 20,
+          flexWrap: "wrap",
         }}
       >
         <button
@@ -68,55 +69,46 @@ export default function ReviewDecisionPanel({
           style={{
             border: "none",
             background: "transparent",
-            color: "#002b6b",
-            fontSize: 13,
+            color: "#075bff",
+            fontSize: 15,
             fontWeight: 900,
             cursor: "pointer",
           }}
           onClick={onBack}
         >
-          חזרה →
+          חזרה למסמכים
         </button>
-        <div style={{ color: "#0f172a", fontSize: 15, fontWeight: 950 }}>
-          {reviewMode === "financial" ? "הוצאה עסקית" : "מסמך מידע"}
+        <div style={{ color: "#0d1b3d", fontSize: 18, fontWeight: 950 }}>
+          {reviewMode === "financial" ? "מסמך פיננסי" : "מסמך מידע"}
         </div>
         <div
           style={{
-            borderRadius: 999,
-            background: trustLevel === "high" ? "#dcfce7" : "#fef3c7",
-            color: trustLevel === "high" ? "#166534" : "#92400e",
-            padding: "6px 10px",
-            fontSize: 11,
-            fontWeight: 950,
+            ...orangePill,
+            background: trustLevel === "high" ? "#e9f9ef" : "#fff1e7",
+            color: trustLevel === "high" ? "#16945a" : "#f0782b",
           }}
         >
-          {trustLevel === "high" ? "המערכת בטוחה" : "דורש בדיקה"}
+          {trustLevel === "high" ? "בטוח לאישור" : "דורש בדיקה"}
         </div>
       </div>
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(260px, 1fr) minmax(260px, 1fr)",
-          gap: 16,
+          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+          gap: 22,
+          alignItems: "start",
         }}
       >
-        <div
-          style={{
-            border: "1px solid #dfe7f3",
-            background: "#f8fbff",
-            borderRadius: 14,
-            padding: 14,
-          }}
-        >
+        <div style={reviewSoftPanel}>
           <div
             style={{
-              minHeight: 300,
+              minHeight: 330,
               background: "#ffffff",
-              border: "1px solid #e5e7eb",
-              borderRadius: 10,
+              border: "1px solid #e1e8f4",
+              borderRadius: 18,
               padding: 18,
-              boxShadow: "0 10px 24px rgba(15, 23, 42, 0.08)",
+              boxShadow: "0 14px 30px rgba(13, 27, 61, 0.08)",
             }}
           >
             {showPreviewFallback ? (
@@ -134,29 +126,30 @@ export default function ReviewDecisionPanel({
                 onError={onPreviewFailed}
                 style={{
                   width: "100%",
-                  height: 300,
+                  height: 330,
                   border: "none",
-                  borderRadius: 8,
+                  borderRadius: 14,
                   background: "#ffffff",
                 }}
               />
             ) : (
+              // eslint-disable-next-line @next/next/no-img-element -- Secure object URL preview, not a static/image-optimization asset.
               <img
                 src={fileBlobUrl as string}
                 alt="תצוגת מסמך"
                 onError={onPreviewFailed}
                 style={{
                   width: "100%",
-                  maxHeight: 300,
+                  maxHeight: 330,
                   objectFit: "contain",
-                  borderRadius: 8,
+                  borderRadius: 14,
                 }}
               />
             )}
           </div>
         </div>
 
-        <div style={{ display: "grid", gap: 12 }}>
+        <div style={{ display: "grid", gap: 14 }}>
           <ReviewAiExtractedCard
             vendorDisplay={vendorDisplay}
             amountDisplay={amountDisplay}

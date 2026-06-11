@@ -1,8 +1,7 @@
 "use client";
 
-import { card } from "@/app/(shell)/documents/ui";
 import ReviewOutcomeRow from "./ReviewOutcomeRow";
-import { primaryDarkButton, secondaryButton } from "./review-ui";
+import { primaryDarkButton, reviewCard, secondaryButton } from "./review-ui";
 
 export type ReviewDoneStateProps = {
   approvedAs: "financial" | "document" | null;
@@ -26,10 +25,8 @@ export default function ReviewDoneState({
   return (
     <section
       style={{
-        ...card,
-        borderRadius: 18,
-        borderColor: "#dfe7f3",
-        maxWidth: 620,
+        ...reviewCard,
+        maxWidth: 660,
         width: "100%",
         margin: "0 auto",
         textAlign: "center",
@@ -37,17 +34,18 @@ export default function ReviewDoneState({
     >
       <div
         style={{
-          width: 96,
-          height: 96,
+          width: 92,
+          height: 92,
           borderRadius: 999,
-          background: "#22c55e",
+          background: "#ff8a2a",
           color: "#ffffff",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 54,
+          fontSize: 48,
           fontWeight: 950,
           margin: "4px auto 18px",
+          boxShadow: "0 12px 26px rgba(255, 138, 42, 0.24)",
         }}
       >
         ✓
@@ -55,99 +53,78 @@ export default function ReviewDoneState({
       <h2
         style={{
           margin: 0,
-          color: "#0f172a",
-          fontSize: 22,
+          color: "#0d1b3d",
+          fontSize: 26,
           lineHeight: 1.3,
           fontWeight: 950,
         }}
       >
-        המסמך אושר בהצלחה!
+        המסמך אושר בהצלחה
       </h2>
       <p
         style={{
-          margin: "8px 0 18px",
-          color: "#64748b",
-          fontSize: 14,
-          fontWeight: 850,
+          margin: "10px 0 20px",
+          color: "#6b7899",
+          fontSize: 15,
+          fontWeight: 750,
           lineHeight: 1.6,
         }}
       >
         {approvedAs === "financial"
-          ? `${directionDisplay} בסך ${amountDisplay} נוספה לדוחות ${new Date().getFullYear()}.`
-          : "המסמך נשמר כמידע עסקי ולא השפיע על הדוחות."}
+          ? `${directionDisplay} בסך ${amountDisplay} נשמרה כרשומה פיננסית מאושרת.`
+          : "המסמך נשמר כמידע עסקי ולא יצר רשומה פיננסית."}
       </p>
 
       <div
         style={{
-          border: "1px solid #bbf7d0",
-          background: "#f0fdf4",
-          borderRadius: 12,
+          border: "1px solid #e1e8f4",
+          background: "#f8fbff",
+          borderRadius: 18,
           textAlign: "right",
           overflow: "hidden",
         }}
       >
         <ReviewOutcomeRow
-          icon="▤"
-          title="נוסף לדוח החודשי"
+          icon="✓"
+          title="נשמר ב-Documents"
           body={
             approvedAs === "financial"
-              ? "התנועה מופיעה בדוח החודש"
-              : "המסמך נשמר בארכיון המסמכים"
+              ? "הרשומה זמינה ברשומות המאושרות"
+              : "המסמך נשמר לתיעוד פנימי"
           }
         />
         <ReviewOutcomeRow
-          icon="₪"
-          title="עודכן בהוצאות העסק"
+          icon="✓"
+          title="זמין להמשך עבודה"
           body={
             approvedAs === "financial"
-              ? "הנתונים הפיננסיים עודכנו"
-              : "לא נוצרה תנועה פיננסית"
-          }
-        />
-        <ReviewOutcomeRow
-          icon="⌕"
-          title="זמין בחיפוש"
-          body="ניתן לחפש לפי ספק, תאריך, סכום וסטטוס"
-        />
-        <ReviewOutcomeRow
-          icon="□"
-          title="ייכלל בחבילה לרו״ח"
-          body={
-            approvedAs === "financial"
-              ? "ייצא בקובצי הייצוא הבאים"
-              : "יישמר לעיון פנימי"
+              ? "אפשר למצוא אותו בחיפוש ולהכליל בחומר לרו״ח"
+              : "אפשר לחזור אליו מתוך מסמכי העסק"
           }
         />
       </div>
 
       <div
         style={{
-          marginTop: 18,
-          border: "1px solid #dfe7f3",
-          borderRadius: 14,
-          padding: 14,
+          marginTop: 20,
+          border: "1px solid #e1e8f4",
+          borderRadius: 18,
+          padding: 16,
           background: "#ffffff",
         }}
       >
-        <div style={{ color: "#0f172a", fontSize: 14, fontWeight: 950, marginBottom: 10 }}>
+        <div style={{ color: "#0d1b3d", fontSize: 15, fontWeight: 950, marginBottom: 12 }}>
           מה תרצה לעשות עכשיו?
         </div>
-        <button
-          type="button"
-          style={{ ...primaryDarkButton(false), background: "#002b6b" }}
-          onClick={onNext}
-        >
-          {nextPendingDocumentId
-            ? "בדוק את המסמך הבא"
-            : "חזור למסמכים שמחכים לבדיקה"}
-          <span style={{ marginInlineStart: 10 }}>←</span>
+        <button type="button" style={primaryDarkButton(false)} onClick={onNext}>
+          {nextPendingDocumentId ? "אמת את המסמך הבא" : "חזור לתור האימות"}
         </button>
         <button
           type="button"
           style={{ ...secondaryButton(false), marginTop: 10 }}
           onClick={onHub}
         >
-          חזור למרכז הפיננסי
+          חזור למסמכים
         </button>
       </div>
 
@@ -157,15 +134,15 @@ export default function ReviewDoneState({
           style={{
             border: "none",
             background: "transparent",
-            color: "#002b6b",
+            color: "#075bff",
             marginTop: 14,
-            fontSize: 12,
+            fontSize: 13,
             fontWeight: 900,
             cursor: "pointer",
           }}
           onClick={onSearch}
         >
-          צפה בפרטי המסמך
+          עבור לחיפוש
         </button>
       ) : null}
     </section>

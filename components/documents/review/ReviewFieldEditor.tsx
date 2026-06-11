@@ -1,9 +1,8 @@
 "use client";
 
 import { CATEGORIES } from "@/lib/constants/categories";
-import { card } from "@/app/(shell)/documents/ui";
 import type { Direction, EditableField, ReviewDraft } from "@/lib/documents/review/types";
-import { primaryDarkButton, secondaryButton } from "./review-ui";
+import { primaryDarkButton, reviewCard, reviewInput, secondaryButton } from "./review-ui";
 
 export type ReviewFieldEditorProps = {
   editFieldTitle: string;
@@ -25,8 +24,8 @@ export default function ReviewFieldEditor({
   onCancel,
 }: ReviewFieldEditorProps) {
   return (
-    <section style={card}>
-      <div style={{ fontWeight: 950, color: "#111827", fontSize: 18, marginBottom: 10 }}>
+    <section style={{ ...reviewCard, maxWidth: 620, width: "100%", margin: "0 auto" }}>
+      <div style={{ fontWeight: 950, color: "#0d1b3d", fontSize: 22, marginBottom: 14 }}>
         {editFieldTitle}
       </div>
 
@@ -40,14 +39,7 @@ export default function ReviewFieldEditor({
               amount: e.target.value === "" ? null : Number(e.target.value),
             }))
           }
-          style={{
-            width: "100%",
-            padding: 12,
-            borderRadius: 14,
-            border: "1px solid #d1d5db",
-            fontSize: 16,
-            boxSizing: "border-box",
-          }}
+          style={reviewInput}
         />
       ) : null}
 
@@ -55,14 +47,7 @@ export default function ReviewFieldEditor({
         <input
           value={draft.vendorName}
           onChange={(e) => onDraftChange((d) => ({ ...d, vendorName: e.target.value }))}
-          style={{
-            width: "100%",
-            padding: 12,
-            borderRadius: 14,
-            border: "1px solid #d1d5db",
-            fontSize: 16,
-            boxSizing: "border-box",
-          }}
+          style={reviewInput}
         />
       ) : null}
 
@@ -76,14 +61,7 @@ export default function ReviewFieldEditor({
               date: e.target.value ? new Date(e.target.value).toISOString() : null,
             }))
           }
-          style={{
-            width: "100%",
-            padding: 12,
-            borderRadius: 14,
-            border: "1px solid #d1d5db",
-            fontSize: 16,
-            boxSizing: "border-box",
-          }}
+          style={reviewInput}
         />
       ) : null}
 
@@ -91,32 +69,14 @@ export default function ReviewFieldEditor({
         <div style={{ display: "flex", gap: 10 }}>
           <button
             type="button"
-            style={{
-              flex: 1,
-              padding: "12px 14px",
-              borderRadius: 16,
-              border: "1px solid #e5e7eb",
-              background: draft.direction === "expense" ? "#111827" : "#ffffff",
-              color: draft.direction === "expense" ? "#ffffff" : "#111827",
-              fontWeight: 950,
-              cursor: "pointer",
-            }}
+            style={directionButtonStyle(draft.direction === "expense")}
             onClick={() => onDraftChange((d) => ({ ...d, direction: "expense" as Direction }))}
           >
             הוצאה
           </button>
           <button
             type="button"
-            style={{
-              flex: 1,
-              padding: "12px 14px",
-              borderRadius: 16,
-              border: "1px solid #e5e7eb",
-              background: draft.direction === "income" ? "#111827" : "#ffffff",
-              color: draft.direction === "income" ? "#ffffff" : "#111827",
-              fontWeight: 950,
-              cursor: "pointer",
-            }}
+            style={directionButtonStyle(draft.direction === "income")}
             onClick={() => onDraftChange((d) => ({ ...d, direction: "income" as Direction }))}
           >
             הכנסה
@@ -128,15 +88,7 @@ export default function ReviewFieldEditor({
         <select
           value={draft.category}
           onChange={(e) => onDraftChange((d) => ({ ...d, category: e.target.value }))}
-          style={{
-            width: "100%",
-            padding: 12,
-            borderRadius: 14,
-            border: "1px solid #d1d5db",
-            fontSize: 16,
-            boxSizing: "border-box",
-            background: "#ffffff",
-          }}
+          style={reviewInput}
         >
           {CATEGORIES.map((c) => (
             <option key={c.value} value={c.value}>
@@ -146,27 +98,31 @@ export default function ReviewFieldEditor({
         </select>
       ) : null}
 
-      <div style={{ marginTop: 16 }}>
-        <button
-          type="button"
-          disabled={loading}
-          style={primaryDarkButton(loading)}
-          onClick={onConfirm}
-        >
+      <div style={{ marginTop: 18 }}>
+        <button type="button" disabled={loading} style={primaryDarkButton(loading)} onClick={onConfirm}>
           אישור
         </button>
       </div>
 
       <div style={{ marginTop: 10 }}>
-        <button
-          type="button"
-          disabled={loading}
-          style={secondaryButton(loading)}
-          onClick={onCancel}
-        >
+        <button type="button" disabled={loading} style={secondaryButton(loading)} onClick={onCancel}>
           ביטול
         </button>
       </div>
     </section>
   );
+}
+
+function directionButtonStyle(active: boolean) {
+  return {
+    flex: 1,
+    minHeight: 54,
+    padding: "12px 14px",
+    borderRadius: 16,
+    border: active ? "1px solid #075bff" : "1px solid #d8e2f2",
+    background: active ? "#eff6ff" : "#ffffff",
+    color: active ? "#075bff" : "#0d1b3d",
+    fontWeight: 950,
+    cursor: "pointer",
+  } as const;
 }
