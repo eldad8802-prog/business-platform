@@ -135,7 +135,7 @@ export default function OnboardingPage() {
         throw new Error(data?.error || "שגיאה בשמירה");
       }
 
-      router.replace("/");
+      router.replace("/app");
     } catch (err) {
       console.error(err);
       alert("שגיאה בשמירה");

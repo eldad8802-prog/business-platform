@@ -171,7 +171,7 @@ export default function ToolsPage() {
   const router = useRouter();
 
   const handleBack = () => {
-    router.push("/");
+    router.push("/app");
   };
 
   const handleToolClick = (item: ToolItem) => {

@@ -442,7 +442,7 @@ export default function ResultPage() {
   }
 
   function handleBackHome() {
-    router.push("/");
+    router.push("/app");
   }
 
   function handleCreateAgain() {

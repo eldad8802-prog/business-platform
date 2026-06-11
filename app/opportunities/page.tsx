@@ -517,7 +517,7 @@ export default function OpportunitiesPage() {
 
             <button
               type="button"
-              onClick={() => router.push("/")}
+              onClick={() => router.push("/app")}
               style={mutedButtonStyle}
             >
               חזרה לבית

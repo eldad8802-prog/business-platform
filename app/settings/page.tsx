@@ -8,7 +8,7 @@ export default function SettingsHubPage() {
       <header className="mb-5 rounded-3xl bg-white px-4 py-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <Link
-            href="/"
+            href="/app"
             className="flex h-11 min-w-[44px] items-center justify-center rounded-2xl border border-gray-200 px-3 text-sm font-medium text-gray-700"
             aria-label="חזרה לדף הבית"
           >

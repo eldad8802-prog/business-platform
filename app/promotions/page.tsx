@@ -69,7 +69,7 @@ export default function PromotionsPage() {
         <div style={styles.actionsRow}>
           <button
             type="button"
-            onClick={() => router.push("/")}
+            onClick={() => router.push("/app")}
             style={styles.secondaryButton}
           >
             חזרה לדף הראשי

@@ -69,7 +69,7 @@ export default function RevenuePage() {
   const [error, setError] = useState("");
 
   const handleBack = () => {
-    router.push("/");
+    router.push("/app");
   };
 
   const handleCreateCoupon = () => {

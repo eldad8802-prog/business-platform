@@ -33,7 +33,7 @@ export default function RegisterPage() {
     const token = localStorage.getItem("token");
 
     if (token) {
-      router.replace("/");
+      router.replace("/app");
       return;
     }
 
@@ -247,7 +247,7 @@ export default function RegisterPage() {
         localStorage.setItem("user", JSON.stringify(loginData.user));
       }
 
-      router.replace("/");
+      router.replace("/app");
     } catch (err) {
       console.error("register error:", err);
       setErrors({

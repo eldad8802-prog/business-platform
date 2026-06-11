@@ -43,7 +43,7 @@ export function BottomBar() {
   const [fabPressed, setFabPressed] = useState(false);
 
   const tabs: TabDef[] = [
-    { key: "home", label: "בית", href: "/", icon: IconHome },
+    { key: "home", label: "בית", href: "/app", icon: IconHome },
     { key: "chats", label: "שיחות", href: "/inbox", icon: IconChat },
     { key: "docs", label: "מסמכים", href: "/documents", icon: IconDocs },
     { key: "more", label: "עוד", href: "/settings", icon: IconMore },

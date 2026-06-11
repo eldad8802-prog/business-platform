@@ -53,7 +53,7 @@ export default function LoginPage() {
         }
 
         if (status === 200) {
-          window.location.replace(`${window.location.origin}/`);
+          window.location.replace(`${window.location.origin}/app`);
           return; // keep the boot loader visible while navigating away
         }
 
@@ -180,7 +180,7 @@ export default function LoginPage() {
       }
 
       /* Full navigation: guarantees home reads the same tab’s localStorage (mobile-safe vs client router transition). */
-      window.location.replace(`${window.location.origin}/`);
+      window.location.replace(`${window.location.origin}/app`);
     } catch (err) {
       console.error("login error:", err);
       setErrors({
