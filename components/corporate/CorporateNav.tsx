@@ -40,8 +40,8 @@ export function CorporateNav({
             aria-current={active ? "page" : undefined}
             className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
               active
-                ? "bg-[#eef7f2] text-[#1f7a5a]"
-                : "text-gray-600 hover:text-gray-900"
+                ? "bg-[#EEF4FF] text-[#1E6BFF]"
+                : "text-gray-600 hover:text-[#0C2138]"
             }`}
           >
             {link.label}
