@@ -209,6 +209,34 @@ export async function manualSeedConnection(
 }
 
 /**
+ * Embedded Signup persist (Ticket 4). Called by the
+ * `/api/integrations/whatsapp/embedded-signup` route after the server-side
+ * token exchange + phone-number fetch have already succeeded.
+ *
+ * Same write semantics as `manualSeedConnection` — encrypts the token,
+ * upserts on `(businessId)`, sets `status = CONNECTED`, stamps
+ * `lastVerifiedAt`, clears the last-error columns — and returns the
+ * sanitized `PublicConnection` (never the token or ciphertext columns).
+ *
+ * It is a distinct public entry point (not the admin manual-seed path) so
+ * the connect lifecycle stays explicit at the call site. The shared write
+ * is delegated so the two paths can never drift apart.
+ */
+export type EmbeddedSignupPersistInput = {
+  businessId: number;
+  phoneNumberId: string;
+  displayPhoneNumber: string;
+  wabaId: string;
+  accessToken: string;
+};
+
+export async function persistFromEmbeddedSignup(
+  input: EmbeddedSignupPersistInput
+): Promise<PublicConnection> {
+  return manualSeedConnection(input);
+}
+
+/**
  * Owner-initiated disconnect. Wipes the encrypted token blob so the row
  * cannot be used for sends even if status is flipped back by accident.
  *
