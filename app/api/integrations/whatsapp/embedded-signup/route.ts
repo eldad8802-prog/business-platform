@@ -24,7 +24,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 import {
   exchangeCodeForToken,
   fetchPhoneNumberDisplay,
@@ -41,8 +41,8 @@ function isUniqueConflict(err: unknown): boolean {
 export async function POST(req: Request) {
   const user = await getCurrentUser(req);
   if (!user) {
-      return authRequiredResponse(req);
-    }
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   let body: Record<string, unknown>;
   try {
