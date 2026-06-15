@@ -381,7 +381,7 @@ export default function InventoryUnmatchedPage() {
                         type="button"
                         onClick={() => handleResolve(pending)}
                         disabled={Boolean(resolvingId)}
-                        style={styles.primaryButton(resolvingId)}
+                        style={styles.primaryButton(Boolean(resolvingId))}
                       >
                         {isResolving
                           ? "מטפל באירוע..."
@@ -394,7 +394,10 @@ export default function InventoryUnmatchedPage() {
                         type="button"
                         onClick={() => handleReject(pending)}
                         disabled={Boolean(resolvingId)}
-                        style={styles.secondaryButton(resolvingId, isRejectConfirming)}
+                        style={styles.secondaryButton(
+                          Boolean(resolvingId),
+                          isRejectConfirming
+                        )}
                       >
                         {isResolving
                           ? "סוגר..."
@@ -799,7 +802,7 @@ const styles = {
     opacity: disabled ? 0.65 : 1,
     fontWeight: 900,
   }),
-  secondaryButton: (disabled: boolean, confirming: boolean) => ({
+  secondaryButton: (disabled: boolean, confirming = false) => ({
     flex: "1 1 160px",
     minHeight: "44px",
     padding: "10px 14px",

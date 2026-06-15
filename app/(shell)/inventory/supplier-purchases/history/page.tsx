@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import PageHeader from "@/components/ui/page-header";
+import Link from "next/link";
+import { InventorySubPage } from "@/components/inventory/inventory-shell";
 
 type DraftLine = {
   id: number;
@@ -14,6 +15,7 @@ type Draft = {
   id: number;
   supplierName: string | null;
   status: "APPROVED" | "REJECTED" | string;
+  createdAt?: string;
   lines: DraftLine[];
 };
 
@@ -27,34 +29,64 @@ function buildHeaders() {
   };
 }
 
+function statusLabel(status: string) {
+  if (status === "APPROVED") return "נקלט למלאי";
+  if (status === "REJECTED") return "בוטל";
+  return status;
+}
+
+function formatDate(value?: string) {
+  if (!value) return "ללא תאריך";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "ללא תאריך";
+  return date.toLocaleDateString("he-IL", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 export default function SupplierHistoryPage() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [openId, setOpenId] = useState<number | null>(null);
-
   const [statusFilter, setStatusFilter] = useState<
     "ALL" | "APPROVED" | "REJECTED"
   >("ALL");
-
   const [visibleCount, setVisibleCount] = useState(5);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   async function load() {
-    const res = await fetch("/api/inventory/supplier-purchases", {
-      headers: buildHeaders(),
-    });
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await fetch("/api/inventory/supplier-purchases", {
+        headers: buildHeaders(),
+        cache: "no-store",
+      });
 
-    const data = await res.json();
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || "לא הצלחנו לטעון היסטוריה");
+      }
 
-    const history = (data?.drafts || []).filter(
-      (d: Draft) => d.status === "APPROVED" || d.status === "REJECTED"
-    );
+      const history = (data?.drafts || []).filter(
+        (d: Draft) => d.status === "APPROVED" || d.status === "REJECTED"
+      );
 
-    setDrafts(history);
-    setLoading(false);
+      setDrafts(history);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "שגיאה בטעינת היסטוריה");
+      setDrafts([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    load();
+    queueMicrotask(() => {
+      void load();
+    });
   }, []);
 
   const filtered = useMemo(() => {
@@ -72,272 +104,136 @@ export default function SupplierHistoryPage() {
     };
   }, [drafts]);
 
-  function toggle(id: number) {
-    setOpenId((p) => (p === id ? null : id));
-  }
-
-  function getStatusLabel(status: string) {
-    if (status === "APPROVED") return "נקלט למלאי";
-    if (status === "REJECTED") return "נדחה";
-    return status;
-  }
-
-  function getStatusStyle(status: string) {
-    if (status === "APPROVED")
-      return { background: "#ecfdf5", color: "#065f46" };
-    if (status === "REJECTED")
-      return { background: "#fef2f2", color: "#7f1d1d" };
-    return { background: "#f3f4f6", color: "#374151" };
-  }
-
-  if (loading) {
-    return (
-      <div dir="rtl" style={{ minHeight: "100vh", background: "#f8fafc" }}>
-        <PageHeader title="הזמנות קודמות" />
-        <main style={{ maxWidth: 980, margin: "0 auto", padding: 16 }}>
-          טוען היסטוריה...
-        </main>
-      </div>
-    );
-  }
-
   return (
-    <div dir="rtl" style={{ minHeight: "100vh", background: "#f8fafc" }}>
-      <PageHeader title="הזמנות קודמות" />
+    <InventorySubPage
+      title="היסטוריית הזמנות"
+      backHref="/inventory/supplier-purchases"
+      backLabel="מרכז הזמנות ספק"
+      bottomNav="orders"
+    >
+      <div className="inv-screen-stack">
+        <section className="inv-hero-card inv-hero-card--green">
+          <span className="inv-kicker">היסטוריה</span>
+          <h1>
+            {summary.total > 0
+              ? `${summary.total} הזמנות מתועדות`
+              : "אין עדיין הזמנות קודמות"}
+          </h1>
+          <p>כל הזמנה שנקלטה או בוטלה נשמרת כאן לבדיקת רצף ההזמנות.</p>
+        </section>
 
-      <main
-        style={{
-          maxWidth: 980,
-          margin: "0 auto",
-          padding: 16,
-          display: "flex",
-          flexDirection: "column",
-          gap: 18,
-        }}
-      >
-        {/* HERO */}
-        <section
-          style={{
-            borderRadius: 30,
-            padding: 24,
-            background:
-              "linear-gradient(135deg, #111827 0%, #1f2937 50%, #0f766e 100%)",
-            color: "#ffffff",
-            boxShadow: "0 18px 44px rgba(15, 23, 42, 0.22)",
-          }}
-        >
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 800 }}>
-              היסטוריית הזמנות
+        <section className="inv-surface-card">
+          <div className="inv-data-pairs">
+            <div>
+              <span>נקלטו</span>
+              <strong>{summary.approved}</strong>
             </div>
-
-            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 950 }}>
-              {summary.total > 0
-                ? `יש לך ${summary.total} הזמנות מתועדות`
-                : "עדיין אין הזמנות קודמות"}
-            </h1>
-
-            <p style={{ marginTop: 6, fontSize: 14, opacity: 0.85 }}>
-              כל הזמנה נשמרת — מה נקלט ומה בוטל, כדי לשמור שליטה מלאה.
-            </p>
+            <div>
+              <span>בוטלו</span>
+              <strong>{summary.rejected}</strong>
+            </div>
           </div>
-
-          <div style={{ display: "flex", gap: 20 }}>
-            <div>
-              <div style={{ fontSize: 12 }}>נקלטו</div>
-              <div style={{ fontSize: 24, fontWeight: 900 }}>
-                {summary.approved}
-              </div>
-            </div>
-
-            <div>
-              <div style={{ fontSize: 12 }}>נדחו</div>
-              <div style={{ fontSize: 24, fontWeight: 900 }}>
-                {summary.rejected}
-              </div>
-            </div>
+          <div className="inv-tabs-soft" role="tablist" aria-label="סינון היסטוריה">
+            {[
+              { key: "ALL", label: "הכול" },
+              { key: "APPROVED", label: "נקלטו" },
+              { key: "REJECTED", label: "בוטלו" },
+            ].map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => {
+                  setStatusFilter(f.key as typeof statusFilter);
+                  setVisibleCount(5);
+                }}
+                className={statusFilter === f.key ? "is-active" : ""}
+              >
+                {f.label}
+              </button>
+            ))}
           </div>
         </section>
 
-        {/* FILTER CARD */}
-        <section
-          style={{
-            background: "#fff",
-            padding: 12,
-            borderRadius: 18,
-            display: "flex",
-            gap: 8,
-          }}
-        >
-          {[
-            { key: "ALL", label: "הכול" },
-            { key: "APPROVED", label: "נקלטו" },
-            { key: "REJECTED", label: "נדחו" },
-          ].map((f) => (
-            <button
-              key={f.key}
-              onClick={() => {
-                setStatusFilter(f.key as any);
-                setVisibleCount(5);
-              }}
-              style={{
-                flex: 1,
-                padding: "10px",
-                borderRadius: 12,
-                border: "none",
-                background:
-                  statusFilter === f.key ? "#111827" : "#f3f4f6",
-                color:
-                  statusFilter === f.key ? "#fff" : "#111827",
-                fontWeight: 900,
-                cursor: "pointer",
-              }}
-            >
-              {f.label}
+        {loading ? (
+          <section className="inv-surface-card inv-center-state" aria-busy="true">
+            טוען היסטוריה...
+          </section>
+        ) : error ? (
+          <section className="inv-surface-card inv-center-state">
+            <strong>שגיאת שרת</strong>
+            <p>{error}</p>
+            <button type="button" className="inv-primary-button" onClick={() => void load()}>
+              נסה שוב
             </button>
-          ))}
-        </section>
+          </section>
+        ) : visible.length === 0 ? (
+          <section className="inv-surface-card inv-center-state">
+            <strong>אין הזמנות להצגה</strong>
+            <p>אפשר לשנות סינון או ליצור הזמנה חדשה לספק.</p>
+            <Link
+              href="/inventory/supplier-purchases/new"
+              className="inv-primary-button"
+            >
+              יצירת הזמנה
+            </Link>
+          </section>
+        ) : (
+          <section className="inv-screen-stack" aria-label="רשימת הזמנות">
+            {visible.map((draft) => {
+              const isOpen = openId === draft.id;
+              const totalUnits = draft.lines.reduce(
+                (s, l) => s + l.quantity,
+                0
+              );
 
-        {/* EMPTY */}
-        {visible.length === 0 && (
-          <section
-            style={{
-              background: "#fff",
-              borderRadius: 22,
-              padding: 30,
-              textAlign: "center",
-            }}
-          >
-            <div style={{ fontSize: 40 }}>📦</div>
-            <div style={{ fontWeight: 900, marginTop: 10 }}>
-              אין הזמנות להצגה
-            </div>
-            <div style={{ fontSize: 14, color: "#6b7280" }}>
-              נסה לשנות פילטר או ליצור הזמנה חדשה
-            </div>
+              return (
+                <article key={draft.id} className="inv-surface-card">
+                  <div className="inv-row-card-head">
+                    <div>
+                      <span className="inv-status-pill">
+                        {statusLabel(draft.status)}
+                      </span>
+                      <h2>{draft.supplierName || "הזמנה ללא ספק"}</h2>
+                      <p>
+                        #{draft.id} · {formatDate(draft.createdAt)} ·{" "}
+                        {draft.lines.length} מוצרים · {totalUnits} יחידות
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="inv-secondary-button"
+                      onClick={() => setOpenId(isOpen ? null : draft.id)}
+                    >
+                      {isOpen ? "הסתר" : "פרטים"}
+                    </button>
+                  </div>
+
+                  {isOpen ? (
+                    <ul className="inv-simple-list" role="list">
+                      {draft.lines.map((line) => (
+                        <li key={line.id}>
+                          <span>{line.rawName || "מוצר ללא שם"}</span>
+                          <strong>{line.quantity} יחידות</strong>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </article>
+              );
+            })}
           </section>
         )}
 
-        {/* LIST */}
-        {visible.map((draft) => {
-          const isOpen = openId === draft.id;
-          const totalUnits = draft.lines.reduce(
-            (s, l) => s + l.quantity,
-            0
-          );
-
-          return (
-            <article
-              key={draft.id}
-              style={{
-                background: "#fff",
-                borderRadius: 22,
-                padding: 18,
-                boxShadow: "0 6px 18px rgba(15,23,42,0.05)",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <div>
-                  <div style={{ fontWeight: 900, fontSize: 16 }}>
-                    {draft.supplierName || "ללא ספק"}
-                  </div>
-
-                  <div style={{ fontSize: 13, color: "#6b7280" }}>
-                    {draft.lines.length} מוצרים · {totalUnits} יחידות
-                  </div>
-                </div>
-
-                <span
-                  style={{
-                    borderRadius: 999,
-                    padding: "6px 10px",
-                    fontSize: 12,
-                    fontWeight: 900,
-                    ...getStatusStyle(draft.status),
-                  }}
-                >
-                  {getStatusLabel(draft.status)}
-                </span>
-              </div>
-
-              <button
-                onClick={() => toggle(draft.id)}
-                style={{
-                  marginTop: 12,
-                  border: "none",
-                  background: "#f3f4f6",
-                  borderRadius: 12,
-                  padding: "8px 12px",
-                  fontWeight: 900,
-                  cursor: "pointer",
-                }}
-              >
-                {isOpen ? "הסתר פרטים" : "צפה בפרטים"}
-              </button>
-
-              {isOpen && (
-                <div style={{ marginTop: 12 }}>
-                  {draft.lines.map((l) => (
-                    <div
-                      key={l.id}
-                      style={{
-                        border: "1px solid #e5e7eb",
-                        borderRadius: 14,
-                        padding: 10,
-                        marginBottom: 8,
-                      }}
-                    >
-                      <div style={{ fontWeight: 900 }}>
-                        {l.rawName}
-                      </div>
-
-                      <div style={{ fontSize: 13 }}>
-                        כמות: {l.quantity}
-                      </div>
-
-                      {l.decision && (
-                        <div
-                          style={{
-                            marginTop: 4,
-                            fontSize: 12,
-                            color: "#6b7280",
-                          }}
-                        >
-                          {l.decision}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </article>
-          );
-        })}
-
-        {/* LOAD MORE */}
-        {filtered.length > visibleCount && (
+        {filtered.length > visibleCount ? (
           <button
+            type="button"
             onClick={() => setVisibleCount((p) => p + 5)}
-            style={{
-              border: "none",
-              background: "#111827",
-              color: "#fff",
-              borderRadius: 16,
-              padding: 14,
-              fontWeight: 900,
-              cursor: "pointer",
-            }}
+            className="inv-secondary-button"
           >
             הצג עוד הזמנות
           </button>
-        )}
-      </main>
-    </div>
+        ) : null}
+      </div>
+    </InventorySubPage>
   );
 }

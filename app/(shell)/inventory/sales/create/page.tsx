@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import PageHeader from "@/components/ui/page-header";
+import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import {
   createInventorySale,
   getInventoryItems,
@@ -21,6 +22,15 @@ function createEmptyLine(): SaleLine {
     itemId: "",
     quantity: "1",
   };
+}
+
+function getStockLabel(item: InventoryItemDTO | null) {
+  if (!item) return "בחרו מוצר כדי לראות זמינות";
+  if (item.currentQuantity <= 0) return "אין מלאי זמין";
+  if (item.reorderPoint != null && item.currentQuantity <= item.reorderPoint) {
+    return `מלאי נמוך: ${item.currentQuantity}`;
+  }
+  return `זמין במלאי: ${item.currentQuantity}`;
 }
 
 export default function CreateInventorySalePage() {
@@ -44,29 +54,37 @@ export default function CreateInventorySalePage() {
     return map;
   }, [items]);
 
-  useEffect(() => {
-    loadItems();
-  }, []);
+  const selectedCount = lines.filter((line) => line.itemId).length;
 
-  async function loadItems() {
+  const loadItems = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
       const data = await getInventoryItems();
       setItems(Array.isArray(data) ? data : []);
-    } catch (err: any) {
-      if (err?.message === "UNAUTHORIZED") {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === "UNAUTHORIZED") {
         setError("אין הרשאה לטעון מוצרים. צריך להתחבר מחדש.");
       } else {
-        setError(err?.message || "שגיאה בטעינת המוצרים");
+        setError(err instanceof Error ? err.message : "שגיאה בטעינת מוצרים");
       }
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  function updateLine(localId: string, field: "itemId" | "quantity", value: string) {
+  useEffect(() => {
+    queueMicrotask(() => {
+      void loadItems();
+    });
+  }, [loadItems]);
+
+  function updateLine(
+    localId: string,
+    field: "itemId" | "quantity",
+    value: string
+  ) {
     setError(null);
     setSuccessText(null);
 
@@ -166,368 +184,160 @@ export default function CreateInventorySalePage() {
 
       setSuccessText("המכירה נשמרה והמלאי עודכן");
       router.push("/inventory");
-    } catch (err: any) {
-      setError(err?.message || "שגיאה בשמירת המכירה");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "שגיאה בשמירת המכירה");
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div dir="rtl" style={{ minHeight: "100vh", background: "#f8fafc" }}>
-      <PageHeader title="רישום מכירה" />
-
-      <main
-        style={{
-          maxWidth: "720px",
-          margin: "0 auto",
-          padding: "16px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "16px",
-        }}
-      >
-        <section
-          style={{
-            border: "1px solid #e5e7eb",
-            borderRadius: "22px",
-            background: "#ffffff",
-            padding: "18px",
-            boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
-          }}
-        >
-          <h1
-            style={{
-              fontSize: "20px",
-              fontWeight: 800,
-              color: "#111827",
-              margin: 0,
-              marginBottom: "6px",
-            }}
-          >
-            רישום מכירה
-          </h1>
-
-          <p
-            style={{
-              fontSize: "14px",
-              lineHeight: 1.6,
-              color: "#6b7280",
-              margin: 0,
-            }}
-          >
-            כאן אפשר לרשום פריטים שנמכרו ולעדכן את המלאי אוטומטית דרך תנועת
-            מלאי מסודרת.
+    <InventorySubPage
+      title="רישום מכירה"
+      backHref="/inventory"
+      backLabel="טיפול עכשיו"
+      bottomNav="sales"
+    >
+      <div className="inv-screen-stack">
+        <section className="inv-hero-card inv-hero-card--purple">
+          <span className="inv-kicker">מכירות</span>
+          <h1>מה נמכר עכשיו?</h1>
+          <p>
+            בחרו פריטים וכמויות. השמירה תעדכן את המלאי לפי המכירה שנרשמה.
           </p>
         </section>
 
         {loading ? (
-          <section
-            style={{
-              border: "1px solid #e5e7eb",
-              borderRadius: "18px",
-              background: "#ffffff",
-              padding: "28px",
-              textAlign: "center",
-              color: "#6b7280",
-              boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
-            }}
-          >
+          <section className="inv-surface-card inv-center-state" aria-busy="true">
             טוען מוצרים...
           </section>
         ) : items.length === 0 ? (
-          <section
-            style={{
-              border: "1px solid #e5e7eb",
-              borderRadius: "18px",
-              background: "#ffffff",
-              padding: "28px",
-              textAlign: "center",
-              color: "#6b7280",
-              boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
-            }}
-          >
-            אין עדיין מוצרים במלאי. צריך ליצור פריט לפני רישום מכירה.
+          <section className="inv-surface-card inv-center-state">
+            <strong>אין עדיין מוצרים במלאי</strong>
+            <p>צריך ליצור פריט לפני רישום מכירה.</p>
+            <Link href="/inventory/items/create" className="inv-primary-button">
+              הוספת פריט
+            </Link>
           </section>
         ) : (
-          <section
-            style={{
-              border: "1px solid #e5e7eb",
-              borderRadius: "18px",
-              background: "#ffffff",
-              padding: "18px",
-              boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
-              display: "flex",
-              flexDirection: "column",
-              gap: "14px",
-            }}
-          >
-            <div
-              style={{
-                fontSize: "16px",
-                fontWeight: 800,
-                color: "#111827",
-              }}
-            >
-              פריטים שנמכרו
-            </div>
+          <>
+            <section className="inv-surface-card">
+              <div className="inv-section-heading">
+                <h2>פריטים שנמכרו</h2>
+                <span>
+                  {selectedCount > 0
+                    ? `${selectedCount} פריטים נבחרו`
+                    : "בחרו מוצר ראשון"}
+                </span>
+              </div>
 
-            {lines.map((line, index) => {
-              const selectedItem = line.itemId ? itemById.get(Number(line.itemId)) : null;
+              <div className="inv-screen-stack">
+                {lines.map((line, index) => {
+                  const selectedItem = line.itemId
+                    ? itemById.get(Number(line.itemId)) ?? null
+                    : null;
 
-              return (
-                <div
-                  key={line.localId}
-                  style={{
-                    border: "1px solid #e5e7eb",
-                    borderRadius: "14px",
-                    padding: "12px",
-                    background: "#f8fafc",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "10px",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: "10px",
-                      alignItems: "center",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: "14px",
-                        fontWeight: 800,
-                        color: "#111827",
-                      }}
-                    >
-                      שורה {index + 1}
-                    </div>
-
-                    {lines.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeLine(line.localId)}
-                        disabled={saving}
-                        style={{
-                          border: "1px solid #fecaca",
-                          background: "#fef2f2",
-                          color: "#991b1b",
-                          borderRadius: "10px",
-                          padding: "7px 10px",
-                          cursor: saving ? "not-allowed" : "pointer",
-                          fontSize: "12px",
-                          fontWeight: 700,
-                        }}
-                      >
-                        הסרה
-                      </button>
-                    )}
-                  </div>
-
-                  <div>
-                    <label
-                      style={{
-                        display: "block",
-                        marginBottom: "6px",
-                        fontSize: "13px",
-                        fontWeight: 700,
-                        color: "#111827",
-                      }}
-                    >
-                      מוצר
-                    </label>
-
-                    <select
-                      value={line.itemId}
-                      disabled={saving}
-                      onChange={(e) =>
-                        updateLine(line.localId, "itemId", e.target.value)
-                      }
-                      style={{
-                        width: "100%",
-                        minHeight: "46px",
-                        padding: "10px 12px",
-                        borderRadius: "12px",
-                        border: "1px solid #d1d5db",
-                        fontSize: "14px",
-                        background: saving ? "#f9fafb" : "#ffffff",
-                        boxSizing: "border-box",
-                      }}
-                    >
-                      <option value="">בחירת מוצר</option>
-                      {items.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} — במלאי: {item.currentQuantity}
-                        </option>
-                      ))}
-                    </select>
-
-                    {selectedItem && (
-                      <div
-                        style={{
-                          marginTop: "6px",
-                          fontSize: "12px",
-                          color: "#6b7280",
-                        }}
-                      >
-                        כמות זמינה: {selectedItem.currentQuantity}
+                  return (
+                    <div key={line.localId} className="inv-sale-line">
+                      <div className="inv-sale-line__head">
+                        <strong>פריט {index + 1}</strong>
+                        {lines.length > 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => removeLine(line.localId)}
+                            disabled={saving}
+                          >
+                            הסרה
+                          </button>
+                        ) : null}
                       </div>
-                    )}
-                  </div>
 
-                  <div>
-                    <label
-                      style={{
-                        display: "block",
-                        marginBottom: "6px",
-                        fontSize: "13px",
-                        fontWeight: 700,
-                        color: "#111827",
-                      }}
-                    >
-                      כמות שנמכרה
-                    </label>
+                      <label>
+                        <span className="inv-field-label">מוצר</span>
+                        <select
+                          value={line.itemId}
+                          disabled={saving}
+                          onChange={(e) =>
+                            updateLine(line.localId, "itemId", e.target.value)
+                          }
+                          className="inv-field-select"
+                        >
+                          <option value="">בחירת מוצר</option>
+                          {items.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name} · במלאי {item.currentQuantity}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
 
-                    <input
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={line.quantity}
-                      disabled={saving}
-                      onChange={(e) =>
-                        updateLine(line.localId, "quantity", e.target.value)
-                      }
-                      style={{
-                        width: "100%",
-                        minHeight: "46px",
-                        padding: "10px 12px",
-                        borderRadius: "12px",
-                        border: "1px solid #d1d5db",
-                        fontSize: "14px",
-                        background: saving ? "#f9fafb" : "#ffffff",
-                        boxSizing: "border-box",
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
+                      <div className="inv-sale-line__stock">
+                        {getStockLabel(selectedItem)}
+                      </div>
 
-            <button
-              type="button"
-              onClick={addLine}
-              disabled={saving}
-              style={{
-                width: "100%",
-                minHeight: "44px",
-                padding: "10px 14px",
-                borderRadius: "12px",
-                background: "#ffffff",
-                color: "#111827",
-                border: "1px solid #d1d5db",
-                cursor: saving ? "not-allowed" : "pointer",
-                fontSize: "14px",
-                fontWeight: 800,
-              }}
-            >
-              + הוספת מוצר נוסף למכירה
-            </button>
+                      <label>
+                        <span className="inv-field-label">כמות שנמכרה</span>
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={line.quantity}
+                          disabled={saving}
+                          onChange={(e) =>
+                            updateLine(line.localId, "quantity", e.target.value)
+                          }
+                          className="inv-field-input"
+                        />
+                      </label>
+                    </div>
+                  );
+                })}
+              </div>
 
-            <div>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  fontSize: "13px",
-                  fontWeight: 700,
-                  color: "#111827",
-                }}
-              >
-                הערה
-              </label>
-
-              <input
-                type="text"
-                value={note}
+              <button
+                type="button"
+                onClick={addLine}
                 disabled={saving}
-                onChange={(e) => {
-                  setNote(e.target.value);
-                  setError(null);
-                  setSuccessText(null);
-                }}
-                placeholder="לא חובה"
-                style={{
-                  width: "100%",
-                  minHeight: "46px",
-                  padding: "10px 12px",
-                  borderRadius: "12px",
-                  border: "1px solid #d1d5db",
-                  fontSize: "14px",
-                  background: saving ? "#f9fafb" : "#ffffff",
-                  boxSizing: "border-box",
-                }}
-              />
-            </div>
-
-            {error && (
-              <div
-                style={{
-                  color: "#b91c1c",
-                  background: "#fef2f2",
-                  border: "1px solid #fecaca",
-                  borderRadius: "12px",
-                  padding: "10px 12px",
-                  fontSize: "13px",
-                  lineHeight: 1.5,
-                }}
+                className="inv-secondary-button"
               >
-                {error}
-              </div>
-            )}
+                הוספת מוצר נוסף
+              </button>
+            </section>
 
-            {successText && (
-              <div
-                style={{
-                  color: "#166534",
-                  background: "#f0fdf4",
-                  border: "1px solid #bbf7d0",
-                  borderRadius: "12px",
-                  padding: "10px 12px",
-                  fontSize: "13px",
-                  lineHeight: 1.5,
-                }}
-              >
-                {successText}
-              </div>
-            )}
+            <section className="inv-surface-card">
+              <label>
+                <span className="inv-field-label">הערה</span>
+                <input
+                  type="text"
+                  value={note}
+                  disabled={saving}
+                  onChange={(e) => {
+                    setNote(e.target.value);
+                    setError(null);
+                    setSuccessText(null);
+                  }}
+                  placeholder="לא חובה"
+                  className="inv-field-input"
+                />
+              </label>
+            </section>
+
+            {error ? <div className="inv-alert inv-alert--error">{error}</div> : null}
+            {successText ? (
+              <div className="inv-alert inv-alert--success">{successText}</div>
+            ) : null}
 
             <button
               type="button"
               onClick={handleSubmit}
               disabled={saving}
-              style={{
-                width: "100%",
-                minHeight: "50px",
-                padding: "12px 16px",
-                borderRadius: "15px",
-                background: "#059669",
-                color: "#ffffff",
-                border: "none",
-                cursor: saving ? "not-allowed" : "pointer",
-                opacity: saving ? 0.75 : 1,
-                fontSize: "15px",
-                fontWeight: 800,
-                boxShadow: "0 8px 20px rgba(5, 150, 105, 0.12)",
-              }}
+              className="inv-primary-button"
             >
-              {saving ? "שומר/ת מכירה..." : "שמירת מכירה ועדכון מלאי"}
+              {saving ? "שומר מכירה..." : "שמירת מכירה ועדכון מלאי"}
             </button>
-          </section>
+          </>
         )}
-      </main>
-    </div>
+      </div>
+    </InventorySubPage>
   );
 }
