@@ -1,14 +1,8 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
-import {
-  InventorySubheader,
-  NoticeBanner,
-  PageIntro,
-  inventoryMainStyle,
-  inventoryPageStyle,
-  inventoryTheme,
-} from "@/components/inventory/inventory-design";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { PageIntro } from "@/components/inventory/inventory-design";
+import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import {
   getInventoryItems,
   getPendingMatches,
@@ -18,6 +12,14 @@ import {
 } from "@/lib/api/inventory";
 
 type ResolveMode = "LINK_EXISTING" | "CREATE_NEW";
+
+type InventoryItemWithSku = InventoryItemDTO & {
+  sku?: string | null;
+};
+
+function getErrorMessage(err: unknown, fallback: string) {
+  return err instanceof Error ? err.message : fallback;
+}
 
 function findBestMatch(
   pending: InventoryPendingMatchDTO,
@@ -35,7 +37,7 @@ function findBestMatch(
       currentScore += 100;
     }
 
-    if (meta.sku && (item as any).sku === meta.sku) {
+    if (meta.sku && (item as InventoryItemWithSku).sku === meta.sku) {
       currentScore += 80;
     }
 
@@ -82,11 +84,13 @@ export default function InventoryUnmatchedPage() {
 
       setPendingMatches(Array.isArray(pendingData) ? pendingData : []);
       setItems(Array.isArray(itemsData) ? itemsData : []);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = getErrorMessage(err, "שגיאה בטעינת המוצרים שלא זוהו");
+
       setError(
-        err?.message === "UNAUTHORIZED"
+        message === "UNAUTHORIZED"
           ? "אין הרשאה לצפות במוצרים שלא זוהו. צריך להתחבר מחדש."
-          : err?.message || "שגיאה בטעינת המוצרים שלא זוהו"
+          : message
       );
     } finally {
       setLoading(false);
@@ -94,7 +98,11 @@ export default function InventoryUnmatchedPage() {
   }
 
   useEffect(() => {
-    loadData();
+    const timer = window.setTimeout(() => {
+      void loadData();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
   const activeItems = useMemo(() => {
@@ -153,8 +161,8 @@ export default function InventoryUnmatchedPage() {
       }
 
       await loadData();
-    } catch (err: any) {
-      setError(err?.message || "שגיאה בטיפול במוצר שלא זוהה");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "שגיאה בטיפול במוצר שלא זוהה"));
     } finally {
       setResolvingId(null);
     }
@@ -180,23 +188,26 @@ export default function InventoryUnmatchedPage() {
       setConfirmRejectId(null);
       setSuccessMessage("האירוע נסגר ללא שינוי במלאי.");
       await loadData();
-    } catch (err: any) {
-      setError(err?.message || "שגיאה בסגירת האירוע");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "שגיאה בסגירת האירוע"));
     } finally {
       setResolvingId(null);
     }
   }
 
   return (
-    <div style={inventoryPageStyle()}>
-      <InventorySubheader title="מוצרים שלא זוהו" backHref="/inventory" />
-
-      <main style={inventoryMainStyle(980)}>
+    <InventorySubPage
+      title="מוצרים שלא זוהו"
+      backHref="/inventory"
+      backLabel="טיפול עכשיו"
+      bottomNav="home"
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <PageIntro
-          stage="Inbox · התאמות"
-          title="טיפול במוצרים שלא זוהו מהקופה"
-          description="כאן מופיעות מכירות שהגיעו מהקופה אך לא נמצאה להן התאמה מלאה במלאי. אפשר לשייך למוצר קיים, ליצור מוצר חדש, או להתעלם מאירוע שלא צריך להשפיע על המלאי."
-          tone="info"
+          stage="צריך החלטה"
+          title="מוצרים שלא זוהו"
+          description="מכירות שהגיעו מהקופה ולא נמצאה להן התאמה מלאה במלאי. בחר מוצר קיים, צור מוצר חדש, או סגור אירוע שלא צריך להשפיע על המלאי."
+          tone="warning"
           stats={[{ label: "ממתינים לטיפול", value: pendingMatches.length }]}
         />
         {successMessage && <SuccessCard text={successMessage} />}
@@ -398,8 +409,8 @@ export default function InventoryUnmatchedPage() {
             })}
           </section>
         )}
-      </main>
-    </div>
+      </div>
+    </InventorySubPage>
   );
 }
 
@@ -476,7 +487,7 @@ function StateCard({ text }: { text: string }) {
   return <section style={styles.stateCard}>{text}</section>;
 }
 
-function modeButtonStyle(active: boolean): React.CSSProperties {
+function modeButtonStyle(active: boolean): CSSProperties {
   return {
     minHeight: "40px",
     padding: "9px 13px",
@@ -489,7 +500,7 @@ function modeButtonStyle(active: boolean): React.CSSProperties {
   };
 }
 
-const styles: Record<string, any> = {
+const styles = {
   main: {
     maxWidth: "980px",
     margin: "0 auto",
@@ -800,4 +811,7 @@ const styles: Record<string, any> = {
     opacity: disabled ? 0.65 : 1,
     fontWeight: 800,
   }),
-};
+} satisfies Record<
+  string,
+  CSSProperties | ((disabled: boolean, confirming?: boolean) => CSSProperties)
+>;

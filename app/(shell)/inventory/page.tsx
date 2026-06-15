@@ -1,580 +1,551 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import MovementModal from "@/components/inventory/movement-modal";
-import {
-  AttentionCard,
-  IconAlert,
-  IconArrows,
-  IconBox,
-  IconCart,
-  IconClipboard,
-  IconPlusBox,
-  IconQuestion,
-  IconSale,
-  IconTruck,
-  InventoryBottomNav,
-  QuickActionTile,
-  SectionHeader,
-  StatusPill,
-  StockBar,
-  getStockRatio,
-  getStockStatusLabel,
-  getStockTone,
-  inventoryCardStyle,
-  inventoryMainStyle,
-  inventoryPageStyle,
-  inventoryResponsiveCss,
-  inventoryTheme,
-} from "@/components/inventory/inventory-design";
-import {
-  getInventoryItems,
-  getPendingMatches,
-  type InventoryItemDTO,
-} from "@/lib/api/inventory";
-import {
-  buildClientAuthHeaders,
-  getClientAuthToken,
-  isUnauthorizedError,
-  redirectToLogin,
-} from "@/lib/client-session";
+import { InventoryBottomNav } from "@/components/inventory/inventory-design";
+import { useInventoryInboxCounts } from "@/components/inventory/use-inventory-inbox-counts";
+import { getClientAuthToken, redirectToLogin } from "@/lib/client-session";
 
-type DashboardCounts = {
-  unmatched: number;
-  drafts: number;
-  pendingOrders: number;
-  criticalStock: number;
-  reorderAlerts: number;
+type AttentionTask = {
+  title: string;
+  description: string;
+  href: string;
+  tone: "red" | "orange" | "blue" | "green";
+  icon: ReactNode;
+  count: number;
 };
 
-type MovementPick = {
-  itemId: number;
-  itemName: string;
-  mode: "ADD" | "REMOVE";
-} | null;
+type QuickLink = {
+  title: string;
+  description: string;
+  href: string;
+  tone: "blue" | "green" | "purple";
+  icon: ReactNode;
+};
 
-function isValidImageUrl(imageUrl?: string | null) {
-  if (!imageUrl) return false;
-  if (imageUrl.includes("example.com")) return false;
-  return true;
+const inventoryAttentionCss = `
+[data-inventory-attention] {
+  min-height: 100vh;
+  background: #f8fafc;
+  color: #0f172a;
+  direction: rtl;
+  padding: 22px 16px calc(112px + env(safe-area-inset-bottom));
 }
 
-const STOCK_ROW_COLUMNS = "minmax(0, 1.5fr) 100px auto 28px 44px";
+.inv-attention-page {
+  width: min(100%, 520px);
+  margin: 0 auto;
+}
+
+.inv-attention-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.inv-attention-header h1 {
+  margin: 0;
+  font-size: 1.45rem;
+  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: 0;
+  color: #0f172a;
+}
+
+.inv-attention-header p {
+  margin: 7px 0 0;
+  color: #64748b;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.inv-attention-icon-button {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 16px;
+  background: #ffffff;
+  color: #0f172a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.inv-attention-list {
+  display: grid;
+  gap: 12px;
+}
+
+.inv-attention-card {
+  width: 100%;
+  min-height: 84px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 18px;
+  background: #ffffff;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 12px;
+  text-align: right;
+  color: inherit;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
+  cursor: pointer;
+}
+
+.inv-attention-card:focus-visible,
+.inv-quick-card:focus-visible,
+.inv-attention-icon-button:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.25);
+  outline-offset: 2px;
+}
+
+.inv-attention-card__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.inv-attention-card__icon--red {
+  background: #fff1f2;
+  color: #ef4444;
+}
+
+.inv-attention-card__icon--orange {
+  background: #fff7ed;
+  color: #f97316;
+}
+
+.inv-attention-card__icon--blue {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.inv-attention-card__icon--green {
+  background: #ecfdf5;
+  color: #16a34a;
+}
+
+.inv-attention-card__copy {
+  min-width: 0;
+}
+
+.inv-attention-card__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.inv-attention-card__title {
+  font-size: 0.98rem;
+  line-height: 1.35;
+  font-weight: 800;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inv-attention-card__badge {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #dc2626;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  font-weight: 800;
+  flex: 0 0 auto;
+}
+
+.inv-attention-card__badge--orange {
+  background: #ffedd5;
+  color: #ea580c;
+}
+
+.inv-attention-card__badge--blue {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.inv-attention-card__badge--green {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.inv-attention-card__badge.is-loading {
+  width: 26px;
+  color: transparent;
+  background: linear-gradient(90deg, #e2e8f0 25%, #f8fafc 37%, #e2e8f0 63%);
+  background-size: 400% 100%;
+  animation: inv-attention-loading 1.2s ease-in-out infinite;
+}
+
+.inv-attention-card__description {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inv-attention-card__chevron {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #334155;
+}
+
+.inv-quick-section {
+  margin-top: 30px;
+}
+
+.inv-quick-section h2 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  line-height: 1.3;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.inv-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.inv-quick-card {
+  min-height: 104px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 18px;
+  background: #ffffff;
+  padding: 12px 8px;
+  color: inherit;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
+  cursor: pointer;
+}
+
+.inv-quick-card__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.inv-quick-card__icon--blue {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.inv-quick-card__icon--green {
+  background: #ecfdf5;
+  color: #16a34a;
+}
+
+.inv-quick-card__icon--purple {
+  background: #f5f3ff;
+  color: #7c3aed;
+}
+
+.inv-quick-card strong {
+  color: #0f172a;
+  font-size: 0.9rem;
+  line-height: 1.25;
+}
+
+.inv-quick-card span:last-child {
+  color: #64748b;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+@keyframes inv-attention-loading {
+  0% { background-position: 100% 0; }
+  100% { background-position: 0 0; }
+}
+
+@media (min-width: 768px) {
+  [data-inventory-attention] {
+    padding-top: 34px;
+  }
+
+  .inv-attention-page {
+    width: min(100%, 620px);
+  }
+
+  .inv-attention-card {
+    min-height: 92px;
+    padding: 16px;
+  }
+}
+
+@media (max-width: 360px) {
+  .inv-quick-grid {
+    grid-template-columns: 1fr;
+  }
+}
+`;
 
 export default function InventoryPage() {
   const router = useRouter();
-  const [items, setItems] = useState<InventoryItemDTO[]>([]);
-  const [counts, setCounts] = useState<DashboardCounts>({
-    unmatched: 0,
-    drafts: 0,
-    pendingOrders: 0,
-    criticalStock: 0,
-    reorderAlerts: 0,
-  });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [sessionReady, setSessionReady] = useState(false);
-  const [showAllItems, setShowAllItems] = useState(false);
-  const [movementPick, setMovementPick] = useState<MovementPick>(null);
-
-  const attentionTotal = useMemo(() => {
-    return (
-      counts.unmatched +
-      counts.drafts +
-      counts.pendingOrders +
-      counts.criticalStock
-    );
-  }, [counts]);
-
-  const sortedItems = useMemo(() => {
-    return [...items].sort((a, b) => {
-      const toneOrder = { critical: 0, low: 1, ok: 2 };
-      const ta = toneOrder[getStockTone(a)];
-      const tb = toneOrder[getStockTone(b)];
-      if (ta !== tb) return ta - tb;
-      return a.name.localeCompare(b.name, "he");
-    });
-  }, [items]);
-
-  const visibleItems = showAllItems ? sortedItems : sortedItems.slice(0, 4);
-
-  async function load() {
-    const token = getClientAuthToken();
-    if (!token) {
-      redirectToLogin();
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const [itemsData, pendingMatches, draftsRes, purchasesRes, reorderRes] =
-        await Promise.all([
-          getInventoryItems(),
-          getPendingMatches().catch(() => []),
-          fetch("/api/inventory/drafts", {
-            headers: buildClientAuthHeaders(),
-            cache: "no-store",
-          }),
-          fetch("/api/inventory/supplier-purchases", {
-            headers: buildClientAuthHeaders(),
-            cache: "no-store",
-          }),
-          fetch("/api/inventory/reorder-suggestions", {
-            headers: buildClientAuthHeaders(),
-            cache: "no-store",
-          }),
-        ]);
-
-      if (
-        draftsRes.status === 401 ||
-        purchasesRes.status === 401 ||
-        reorderRes.status === 401
-      ) {
-        redirectToLogin();
-        return;
-      }
-
-      const normalizedItems = Array.isArray(itemsData) ? itemsData : [];
-      setItems(normalizedItems);
-
-      let draftsCount = 0;
-      if (draftsRes.ok) {
-        const draftsData = await draftsRes.json();
-        draftsCount = Array.isArray(draftsData?.drafts)
-          ? draftsData.drafts.length
-          : 0;
-      }
-
-      let pendingOrders = 0;
-      if (purchasesRes.ok) {
-        const purchasesData = await purchasesRes.json();
-        pendingOrders = Array.isArray(purchasesData?.drafts)
-          ? purchasesData.drafts.filter(
-              (d: { status?: string }) => d.status === "PENDING_REVIEW"
-            ).length
-          : 0;
-      }
-
-      let reorderAlerts = 0;
-      if (reorderRes.ok) {
-        const reorderData = await reorderRes.json();
-        reorderAlerts = Array.isArray(reorderData?.suggestions)
-          ? reorderData.suggestions.length
-          : 0;
-      }
-
-      const criticalStock = normalizedItems.filter(
-        (item) => getStockTone(item) === "critical"
-      ).length;
-
-      setCounts({
-        unmatched: Array.isArray(pendingMatches) ? pendingMatches.length : 0,
-        drafts: draftsCount,
-        pendingOrders,
-        criticalStock,
-        reorderAlerts,
-      });
-    } catch (err: unknown) {
-      if (isUnauthorizedError(err)) {
-        redirectToLogin();
-        return;
-      }
-
-      setError(
-        err instanceof Error ? err.message : "לא הצלחנו לטעון את המלאי"
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
+  const { counts } = useInventoryInboxCounts();
 
   useEffect(() => {
-    setSessionReady(true);
+    const timer = window.setTimeout(() => {
+      if (!getClientAuthToken()) {
+        redirectToLogin();
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    if (!sessionReady) return;
+  const stockAttentionCount = counts.criticalStock + counts.reorderAlerts;
+  const attentionTasks: AttentionTask[] = [
+    {
+      title: "פריטים לאישור",
+      description: "מוצרים שזוהו וממתינים לבדיקה",
+      href: "/inventory/drafts",
+      tone: "red",
+      icon: <BoxIcon />,
+      count: counts.drafts,
+    },
+    {
+      title: "מכירות שלא זוהו",
+      description: "פריטים ממכירה שצריך לשייך",
+      href: "/inventory/unmatched",
+      tone: "orange",
+      icon: <WarningIcon />,
+      count: counts.unmatched,
+    },
+    {
+      title: "הזמנות שמחכות לקליטה",
+      description: "ספקים וסחורה שממתינים לאישור",
+      href: "/inventory/supplier-purchases/pending",
+      tone: "blue",
+      icon: <TruckIcon />,
+      count: counts.pendingOrders,
+    },
+    {
+      title: "מוצרים שעומדים להיגמר",
+      description: "פריטים שכדאי לבדוק לפני שנגמרים",
+      href: "/inventory/items",
+      tone: "green",
+      icon: <TagIcon />,
+      count: stockAttentionCount,
+    },
+  ];
 
-    if (!getClientAuthToken()) {
-      setLoading(false);
-      redirectToLogin();
-      return;
-    }
-
-    void load();
-  }, [sessionReady]);
-
-  function openMovementForFirstCritical() {
-    const target =
-      sortedItems.find((item) => getStockTone(item) !== "ok") ?? sortedItems[0];
-    if (!target) {
-      router.push("/inventory/items/create");
-      return;
-    }
-    setMovementPick({
-      itemId: target.id,
-      itemName: target.name,
-      mode: "ADD",
-    });
-  }
+  const quickLinks: QuickLink[] = [
+    {
+      title: "מלאי",
+      description: "מה יש לי",
+      href: "/inventory/items",
+      tone: "blue",
+      icon: <BoxIcon />,
+    },
+    {
+      title: "רכש",
+      description: "מחזור הרכש",
+      href: "/inventory/supplier-purchases",
+      tone: "green",
+      icon: <CartIcon />,
+    },
+    {
+      title: "מכירות",
+      description: "דיווח והתאמות",
+      href: "/inventory/sales/create",
+      tone: "purple",
+      icon: <ChartIcon />,
+    },
+  ];
 
   return (
-    <div style={inventoryPageStyle()}>
-      <style>{inventoryResponsiveCss}</style>
+    <div data-inventory-attention>
+      <style>{inventoryAttentionCss}</style>
 
-      <main className="inv-main-shell" style={inventoryMainStyle()}>
-        {error ? (
-          <section
-            style={{
-              ...inventoryCardStyle(),
-              borderColor: "#fecaca",
-              background: "#fef2f2",
-              color: "#991b1b",
-            }}
-          >
-            {error}
+      <main className="inv-attention-page" aria-label="טיפול עכשיו במלאי">
+        <header className="inv-attention-header">
+          <button type="button" className="inv-attention-icon-button" aria-label="התראות">
+            <BellIcon />
+          </button>
+          <div>
+            <h1>טיפול עכשיו</h1>
+            <p>מה דורש את תשומת הלב שלך</p>
+          </div>
+        </header>
+
+        <section className="inv-attention-list" aria-label="משימות לטיפול">
+          {attentionTasks.map((task) => (
             <button
+              key={task.href}
               type="button"
-              onClick={() => void load()}
-              style={{
-                marginTop: 10,
-                border: "none",
-                background: "#991b1b",
-                color: "#fff",
-                borderRadius: 10,
-                padding: "8px 12px",
-                fontWeight: 800,
-                cursor: "pointer",
-              }}
+              className="inv-attention-card"
+              onClick={() => router.push(task.href)}
             >
-              נסה שוב
-            </button>
-          </section>
-        ) : null}
-
-        <section style={inventoryCardStyle()}>
-          <SectionHeader
-            title="מה צריך את תשומת הלב שלי"
-            badge={attentionTotal}
-            badgeTone="danger"
-          />
-          <div className="inv-attention-grid" style={{ marginTop: 14 }}>
-            <AttentionCard
-              label="מלאי קריטי"
-              count={counts.criticalStock}
-              tone="danger"
-              icon={<IconAlert />}
-              onClick={() => setShowAllItems(true)}
-            />
-            <AttentionCard
-              label="הזמנות לקליטה"
-              count={counts.pendingOrders}
-              tone="warning"
-              icon={<IconBox />}
-              unitLabel="הזמנות"
-              onClick={() => router.push("/inventory/supplier-purchases/pending")}
-            />
-            <AttentionCard
-              label="פריטים לבדיקה"
-              count={counts.drafts}
-              tone="purple"
-              icon={<IconClipboard />}
-              onClick={() => router.push("/inventory/drafts")}
-            />
-            <AttentionCard
-              label="מוצרים שלא זוהו"
-              count={counts.unmatched}
-              tone="info"
-              icon={<IconQuestion />}
-              onClick={() => router.push("/inventory/unmatched")}
-            />
-          </div>
-          {counts.reorderAlerts > 0 ? (
-            <div
-              style={{
-                marginTop: 12,
-                padding: "10px 12px",
-                borderRadius: 12,
-                background: "#ecfdf5",
-                border: "1px solid #bbf7d0",
-                fontSize: 13,
-                fontWeight: 800,
-                color: "#047857",
-              }}
-            >
-              {counts.reorderAlerts} פריטים מומלצים להזמנה —{" "}
-              <button
-                type="button"
-                onClick={() => router.push("/inventory/supplier-purchases/new")}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  color: "#047857",
-                  fontWeight: 900,
-                  cursor: "pointer",
-                  textDecoration: "underline",
-                }}
-              >
-                צור הזמנה
-              </button>
-            </div>
-          ) : null}
-        </section>
-
-        <section style={inventoryCardStyle()}>
-          <SectionHeader title="פעולות מהירות" />
-          <div className="inv-actions-grid" style={{ marginTop: 14 }}>
-            <QuickActionTile
-              label="רישום מכירה"
-              tone="success"
-              icon={<IconSale />}
-              onClick={() => router.push("/inventory/sales/create")}
-            />
-            <QuickActionTile
-              label="הוספת פריט"
-              tone="purple"
-              icon={<IconPlusBox />}
-              onClick={() => router.push("/inventory/items/create")}
-            />
-            <QuickActionTile
-              label="הזמנה מספק"
-              tone="warning"
-              icon={<IconCart />}
-              onClick={() => router.push("/inventory/supplier-purchases/new")}
-            />
-            <QuickActionTile
-              label="קליטת סחורה"
-              tone="info"
-              icon={<IconTruck />}
-              onClick={() => router.push("/inventory/supplier-purchases/pending")}
-            />
-            <QuickActionTile
-              label="תנועת מלאי"
-              tone="success"
-              icon={<IconArrows />}
-              onClick={openMovementForFirstCritical}
-              outline
-              className="inv-action-span-full"
-            />
-          </div>
-        </section>
-
-        <section style={inventoryCardStyle()}>
-          <SectionHeader
-            title="מבט מהיר"
-            icon={
-              <span
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 10,
-                  background: "#ecfdf5",
-                  color: inventoryTheme.accent,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <IconBox />
+              <span className={`inv-attention-card__icon inv-attention-card__icon--${task.tone}`}>
+                {task.icon}
               </span>
-            }
-            action={
-              sortedItems.length > 4 ? (
-                <button
-                  type="button"
-                  onClick={() => setShowAllItems((v) => !v)}
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    color: inventoryTheme.accent,
-                    fontSize: 13,
-                    fontWeight: 900,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
-                  }}
-                >
-                  {showAllItems ? "הצג פחות" : "הצג עוד"} ←
-                </button>
-              ) : null
-            }
-          />
+              <span className="inv-attention-card__copy">
+                <span className="inv-attention-card__title-row">
+                  <span className="inv-attention-card__title">{task.title}</span>
+                  <span
+                    className={`inv-attention-card__badge inv-attention-card__badge--${task.tone}${
+                      counts.loading ? " is-loading" : ""
+                    }`}
+                    aria-label={counts.loading ? "טוען כמות" : `${task.count} פריטים`}
+                  >
+                    {counts.loading ? "" : task.count}
+                  </span>
+                </span>
+                <span className="inv-attention-card__description">{task.description}</span>
+              </span>
+              <span className="inv-attention-card__chevron" aria-hidden>
+                <ChevronLeftIcon />
+              </span>
+            </button>
+          ))}
+        </section>
 
-          {loading ? (
-            <div
-              style={{
-                marginTop: 16,
-                textAlign: "center",
-                color: inventoryTheme.textMuted,
-                padding: 24,
-              }}
-            >
-              טוען מלאי...
-            </div>
-          ) : visibleItems.length === 0 ? (
-            <div style={{ marginTop: 16, textAlign: "center", padding: 24 }}>
-              <div style={{ fontSize: 15, fontWeight: 900, marginBottom: 8 }}>
-                עדיין אין פריטים במלאי
-              </div>
+        <section className="inv-quick-section" aria-label="מעבר מהיר">
+          <h2>מעבר מהיר</h2>
+          <div className="inv-quick-grid">
+            {quickLinks.map((link) => (
               <button
+                key={link.href}
                 type="button"
-                onClick={() => router.push("/inventory/items/create")}
-                style={{
-                  marginTop: 8,
-                  border: "none",
-                  background: inventoryTheme.primaryBtn,
-                  color: "#fff",
-                  borderRadius: 12,
-                  padding: "10px 16px",
-                  fontWeight: 900,
-                  cursor: "pointer",
-                }}
+                className="inv-quick-card"
+                onClick={() => router.push(link.href)}
               >
-                הוספת פריט ראשון
+                <span className={`inv-quick-card__icon inv-quick-card__icon--${link.tone}`}>
+                  {link.icon}
+                </span>
+                <strong>{link.title}</strong>
+                <span>{link.description}</span>
               </button>
-            </div>
-          ) : (
-            <div style={{ marginTop: 12 }}>
-              <div
-                className="inv-table-head"
-                style={{
-                  gridTemplateColumns: STOCK_ROW_COLUMNS,
-                  gap: 10,
-                  padding: "0 12px 8px",
-                  fontSize: 11,
-                  fontWeight: 800,
-                  color: inventoryTheme.textMuted,
-                }}
-              >
-                <span>פריט</span>
-                <span className="inv-stock-bar-col">מלאי</span>
-                <span>סטטוס</span>
-                <span>מגמה</span>
-                <span style={{ textAlign: "center" }}>כמות</span>
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {visibleItems.map((item) => {
-                  const tone = getStockTone(item);
-                  const imageOk = isValidImageUrl(item.imageUrl);
-                  const trendUp = tone === "ok";
-
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => router.push(`/inventory/items/${item.id}`)}
-                      style={{
-                        border: `1px solid ${inventoryTheme.cardBorder}`,
-                        borderRadius: 16,
-                        background: inventoryTheme.cardBg,
-                        padding: "10px 12px",
-                        cursor: "pointer",
-                        display: "grid",
-                        gridTemplateColumns: STOCK_ROW_COLUMNS,
-                        gap: 10,
-                        alignItems: "center",
-                        textAlign: "right",
-                        boxShadow: "0 2px 8px rgba(15,23,42,0.03)",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                        {imageOk ? (
-                          <img
-                            src={item.imageUrl || ""}
-                            alt=""
-                            style={{
-                              width: 44,
-                              height: 44,
-                              borderRadius: 12,
-                              objectFit: "cover",
-                              flexShrink: 0,
-                            }}
-                          />
-                        ) : (
-                          <div
-                            style={{
-                              width: 44,
-                              height: 44,
-                              borderRadius: 12,
-                              background: "#f1f5f9",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              color: inventoryTheme.textMuted,
-                              flexShrink: 0,
-                            }}
-                          >
-                            <IconBox />
-                          </div>
-                        )}
-                        <span
-                          style={{
-                            fontSize: 14,
-                            fontWeight: 900,
-                            color: inventoryTheme.text,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {item.name}
-                        </span>
-                      </div>
-
-                      <div className="inv-stock-bar-col">
-                        <StockBar ratio={getStockRatio(item)} tone={tone} />
-                      </div>
-
-                      <StatusPill label={getStockStatusLabel(tone)} tone={tone} />
-
-                      <span
-                        style={{
-                          fontSize: 16,
-                          fontWeight: 900,
-                          color: trendUp ? inventoryTheme.successBtn : inventoryTheme.danger,
-                          textAlign: "center",
-                        }}
-                      >
-                        {trendUp ? "↑" : "↓"}
-                      </span>
-
-                      <span
-                        style={{
-                          fontSize: 16,
-                          fontWeight: 950,
-                          color: inventoryTheme.text,
-                          textAlign: "center",
-                        }}
-                      >
-                        {item.currentQuantity}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+            ))}
+          </div>
         </section>
       </main>
 
       <InventoryBottomNav active="home" />
-
-      <MovementModal
-        open={movementPick !== null}
-        itemId={movementPick?.itemId ?? null}
-        itemName={movementPick?.itemName ?? ""}
-        mode={movementPick?.mode ?? "ADD"}
-        onClose={() => setMovementPick(null)}
-        onSuccess={() => {
-          setMovementPick(null);
-          void load();
-        }}
-      />
     </div>
+  );
+}
+
+function Svg({ children, size = 22 }: { children: ReactNode; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      {children}
+    </svg>
+  );
+}
+
+function BellIcon() {
+  return (
+    <Svg size={20}>
+      <path
+        d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path d="M14 21a2.3 2.3 0 01-4 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+function BoxIcon() {
+  return (
+    <Svg size={24}>
+      <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <path d="M4 7.5l8 4.5 8-4.5M12 12v9" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+function WarningIcon() {
+  return (
+    <Svg size={24}>
+      <path d="M12 4l9 16H3L12 4z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <path d="M12 10v5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="12" cy="17.5" r="1.1" fill="currentColor" />
+    </Svg>
+  );
+}
+
+function TruckIcon() {
+  return (
+    <Svg size={24}>
+      <path d="M3 7h11v9H3z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <path d="M14 10h4l3 3v3h-7" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <circle cx="7" cy="18" r="1.8" fill="currentColor" />
+      <circle cx="18" cy="18" r="1.8" fill="currentColor" />
+    </Svg>
+  );
+}
+
+function TagIcon() {
+  return (
+    <Svg size={24}>
+      <path d="M20 12l-8 8-8-8V4h8l8 8z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <circle cx="8.5" cy="8.5" r="1.2" fill="currentColor" />
+    </Svg>
+  );
+}
+
+function CartIcon() {
+  return (
+    <Svg size={24}>
+      <path
+        d="M4 5h2l2.3 10.5a2 2 0 002 1.5h6.7a2 2 0 002-1.5L21 9H7"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="10" cy="20" r="1.5" fill="currentColor" />
+      <circle cx="18" cy="20" r="1.5" fill="currentColor" />
+    </Svg>
+  );
+}
+
+function ChartIcon() {
+  return (
+    <Svg size={24}>
+      <path d="M5 20V10M12 20V5M19 20v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M4 20h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+function ChevronLeftIcon() {
+  return (
+    <Svg size={18}>
+      <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
   );
 }

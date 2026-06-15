@@ -3,9 +3,6 @@
 import { useEffect, useState } from "react";
 import {
   InventorySubheader,
-  PageIntro,
-  inventoryCardStyle,
-  inventoryMainStyle,
   inventoryPageStyle,
 } from "@/components/inventory/inventory-design";
 
@@ -332,37 +329,37 @@ export default function InventoryDraftsPage() {
     return "המערכת ממליצה לבצע בדיקה ידנית לפני החלטה";
   }
 
-function getDecisionColor(decision?: DraftDecision) {
-  if (!decision) {
+  function getDecisionColor(decision?: DraftDecision) {
+    if (!decision) {
+      return {
+        background: "#f8fafc",
+        border: "#e5e7eb",
+        color: "#374151",
+      };
+    }
+
+    if (decision.recommendedAction === "MERGE") {
+      return {
+        background: "#eff6ff",
+        border: "#bfdbfe",
+        color: "#1d4ed8",
+      };
+    }
+
+    if (decision.recommendedAction === "CREATE_NEW") {
+      return {
+        background: "#f0fdf4",
+        border: "#bbf7d0",
+        color: "#166534",
+      };
+    }
+
     return {
-      background: "#f8fafc",
-      border: "#e5e7eb",
-      color: "#374151",
+      background: "#fffbeb",
+      border: "#fde68a",
+      color: "#92400e",
     };
   }
-
-  if (decision.recommendedAction === "MERGE") {
-    return {
-      background: "#eff6ff",
-      border: "#bfdbfe",
-      color: "#1d4ed8",
-    };
-  }
-
-  if (decision.recommendedAction === "CREATE_NEW") {
-    return {
-      background: "#f0fdf4",
-      border: "#bbf7d0",
-      color: "#166534",
-    };
-  }
-
-  return {
-    background: "#fffbeb",
-    border: "#fde68a",
-    color: "#92400e",
-  };
-}
   function getStatusLabel(status: string) {
     if (status === "PENDING_REVIEW") return "ממתין לבדיקה";
     if (status === "APPROVED") return "אושר";
@@ -430,7 +427,7 @@ function getDecisionColor(decision?: DraftDecision) {
   if (loading) {
     return (
       <div style={inventoryPageStyle()}>
-        <InventorySubheader title="טיוטות מלאי" backHref="/inventory" />
+        <InventorySubheader title="פריטים לאישור" backHref="/inventory" />
 
         <main
           style={{
@@ -450,7 +447,7 @@ function getDecisionColor(decision?: DraftDecision) {
               boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
             }}
           >
-            טוען טיוטות מלאי...
+            טוען פריטים לאישור...
           </section>
         </main>
       </div>
@@ -459,7 +456,7 @@ function getDecisionColor(decision?: DraftDecision) {
 
   return (
     <div style={inventoryPageStyle()}>
-      <InventorySubheader title="טיוטות מלאי" backHref="/inventory" />
+      <InventorySubheader title="פריטים לאישור" backHref="/inventory" />
 
       <main
         style={{
@@ -486,10 +483,10 @@ function getDecisionColor(decision?: DraftDecision) {
               marginBottom: "6px",
               fontSize: "20px",
               fontWeight: 800,
-              color: "#111827",
+            color: "#111827",
             }}
           >
-            בדיקת טיוטות מלאי
+            פריטים לאישור
           </h1>
 
           <p
@@ -500,8 +497,8 @@ function getDecisionColor(decision?: DraftDecision) {
               lineHeight: 1.6,
             }}
           >
-            כאן אפשר לעבור על מוצרים שזוהו, לבדוק התאמות אפשריות, ולהחליט אם
-            ליצור מוצר חדש, למזג למוצר קיים או לדחות את הטיוטה.
+            כל פריט מתחיל במצב שלו: האם הוא מוכן לאישור, כדאי למזג אותו, או
+            צריך בדיקה קצרה לפני כניסה למלאי.
           </p>
         </section>
 
@@ -513,7 +510,7 @@ function getDecisionColor(decision?: DraftDecision) {
               textAlign: "center",
             }}
           >
-            מעדכן טיוטות...
+            מעדכן פריטים...
           </div>
         )}
 
@@ -545,7 +542,7 @@ function getDecisionColor(decision?: DraftDecision) {
               boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
             }}
           >
-            <div style={{ fontSize: "30px", marginBottom: "8px" }}>🧾</div>
+            <div style={{ fontSize: "30px", marginBottom: "8px" }}>✓</div>
 
             <div
               style={{
@@ -582,6 +579,43 @@ function getDecisionColor(decision?: DraftDecision) {
                     boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
                   }}
                 >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "10px",
+                      flexWrap: "wrap",
+                      marginBottom: "14px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        padding: "6px 11px",
+                        borderRadius: "999px",
+                        background: statusStyle.background,
+                        color: statusStyle.color,
+                        fontSize: "12px",
+                        fontWeight: 900,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      מצב: {getStatusLabel(draft.status)}
+                    </span>
+
+                    {draft.decision ? (
+                      <span
+                        style={{
+                          color: decisionStyle.color,
+                          fontSize: "12px",
+                          fontWeight: 800,
+                        }}
+                      >
+                        קיימת המלצה להמשך טיפול
+                      </span>
+                    ) : null}
+                  </div>
+
                   <div
                     style={{
                       display: "flex",
@@ -644,20 +678,6 @@ function getDecisionColor(decision?: DraftDecision) {
                         >
                           {draft.detectedName || "טיוטה ללא שם"}
                         </h2>
-
-                        <span
-                          style={{
-                            padding: "5px 10px",
-                            borderRadius: "999px",
-                            background: statusStyle.background,
-                            color: statusStyle.color,
-                            fontSize: "12px",
-                            fontWeight: 800,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {getStatusLabel(draft.status)}
-                        </span>
                       </div>
 
                       <div
