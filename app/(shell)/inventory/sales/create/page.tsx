@@ -199,7 +199,7 @@ export default function CreateInventorySalePage() {
       bottomNav="sales"
     >
       <div className="inv-screen-stack">
-        <section className="inv-hero-card inv-hero-card--purple">
+        <section className="inv-hero-card inv-hero-card--blue">
           <span className="inv-kicker">מכירות</span>
           <h1>מה נמכר עכשיו?</h1>
           <p>

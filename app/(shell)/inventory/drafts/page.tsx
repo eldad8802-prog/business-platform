@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
+import {
+  getConfidenceBandLabel,
+  getDecisionReasonLabel,
+} from "@/lib/inventory/inventory-labels";
 
 type DraftMatch = {
   itemId: number;
@@ -658,7 +662,7 @@ export default function InventoryDraftsPage() {
                             color: "#111827",
                           }}
                         >
-                          {draft.detectedName || "טיוטה ללא שם"}
+                          {draft.detectedName || "פריט לא מזוהה"}
                         </h2>
                       </div>
 
@@ -672,10 +676,6 @@ export default function InventoryDraftsPage() {
                           color: "#374151",
                         }}
                       >
-                        <div>
-                          <strong>רמת ביטחון:</strong>{" "}
-                          {draft.confidenceScore ?? "—"}
-                        </div>
                         <div>
                           <strong>קטגוריה:</strong>{" "}
                           {draft.detectedCategory || "—"}
@@ -714,12 +714,15 @@ export default function InventoryDraftsPage() {
                       </div>
 
                       <div style={{ fontSize: "13px", lineHeight: 1.6 }}>
-                        סיבה: {draft.decision.reason}
+                        סיבה: {getDecisionReasonLabel(draft.decision.reason)}
                       </div>
 
-                      <div style={{ fontSize: "13px", lineHeight: 1.6 }}>
-                        רמת ביטחון: {draft.decision.confidence}
-                      </div>
+                      {getConfidenceBandLabel(draft.decision.confidence) ? (
+                        <div style={{ fontSize: "13px", lineHeight: 1.6 }}>
+                          רמת ביטחון:{" "}
+                          {getConfidenceBandLabel(draft.decision.confidence)}
+                        </div>
+                      ) : null}
                     </div>
                   )}
 

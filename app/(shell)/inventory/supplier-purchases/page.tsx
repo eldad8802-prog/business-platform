@@ -131,11 +131,11 @@ const purchasingHubCss = `
   min-height: 52px;
   border: 0;
   border-radius: 16px;
-  background: #16a34a;
+  background: #2563eb;
   color: #ffffff;
   font: inherit;
   font-weight: 900;
-  box-shadow: 0 12px 24px rgba(22, 163, 74, 0.18);
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.18);
   cursor: pointer;
 }
 `;

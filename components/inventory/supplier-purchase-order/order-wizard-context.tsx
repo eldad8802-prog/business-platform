@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -159,7 +160,7 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
   const [success, setSuccess] = useState<string | null>(null);
   const [hasLocalDraft, setHasLocalDraft] = useState(false);
   const [showExitGuard, setShowExitGuard] = useState(false);
-  const [initialized, setInitialized] = useState(false);
+  const initializedRef = useRef(false);
   const [recommendationsBanner, setRecommendationsBanner] = useState<
     string | null
   >(null);
@@ -244,7 +245,7 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
       setSuggestions(normalizedSuggestions);
       setDefaultRecommendations(defaults);
 
-      if (!initialized) {
+      if (!initializedRef.current) {
         const existing = readSupplierPurchaseOrderDraft();
         if (existing?.order && Object.keys(existing.order).length > 0) {
           setOrder(existing.order);
@@ -267,16 +268,20 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
         } else {
           setOrder({});
         }
-        setInitialized(true);
+        initializedRef.current = true;
       }
     } catch (err: unknown) {
-      setError(
-        err instanceof Error ? err.message : "שגיאה בטעינת יצירת ההזמנה"
-      );
+      const message =
+        err instanceof Error && err.message === "UNAUTHORIZED"
+          ? "אין הרשאה. התחברו מחדש ונסו שוב."
+          : err instanceof Error
+            ? err.message
+            : "שגיאה בטעינת יצירת ההזמנה";
+      setError(message);
     } finally {
       setLoading(false);
     }
-  }, [initialized]);
+  }, []);
 
   useEffect(() => {
     queueMicrotask(() => {

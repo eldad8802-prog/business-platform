@@ -80,6 +80,10 @@ export const inventoryFoundationCss = `
     background: linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%);
   }
 
+  [data-inventory-module] .inv-hero-card--blue {
+    background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+  }
+
   [data-inventory-module] .inv-hero-card h1 {
     margin: 6px 0 8px;
     font-size: clamp(24px, 6vw, 34px);
@@ -218,9 +222,9 @@ export const inventoryFoundationCss = `
 
   [data-inventory-module] .inv-primary-button {
     border: 0;
-    background: var(--inv-primary);
+    background: #2563eb;
     color: #fff;
-    box-shadow: 0 8px 20px rgba(91, 91, 214, 0.16);
+    box-shadow: 0 8px 20px rgba(37, 99, 235, 0.18);
   }
 
   [data-inventory-module] .inv-secondary-button {

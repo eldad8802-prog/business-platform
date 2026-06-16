@@ -11,6 +11,7 @@ import {
 import InventoryItemImageUploader from "@/components/inventory/inventory-item-image-uploader";
 import InventoryMovementForm from "@/components/inventory/inventory-movement-form";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
+import { getMovementReasonLabel } from "@/lib/inventory/inventory-labels";
 
 type InventoryItemDetails = {
   id: number;
@@ -535,7 +536,7 @@ export default function InventoryItemPage() {
         ) : null}
 
         <section className="item-truth-card">
-          <h2 className="item-section-title">תנועות</h2>
+          <h2 className="item-section-title">היסטוריה</h2>
           <MovementsList movements={movements} />
         </section>
       </div>
@@ -575,7 +576,7 @@ function MovementsList({ movements }: { movements: InventoryMovementDTO[] }) {
         return (
           <article key={movement.id} className="item-movement-row">
             <div className="item-movement-top">
-              <strong>{movement.reason}</strong>
+              <strong>{getMovementReasonLabel(movement.reason)}</strong>
               <span className={`item-movement-delta ${deltaClass}`}>
                 {isIn ? "+" : ""}
                 {movement.quantityDelta}

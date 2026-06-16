@@ -93,8 +93,8 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
       setSuccessText("התנועה נשמרה והמלאי עודכן");
 
       await onSuccess();
-    } catch (err: any) {
-      setError(err?.message || "שגיאה בעדכון מלאי");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "שגיאה בעדכון מלאי");
       setSuccessText(null);
     } finally {
       setLoading(false);
@@ -275,7 +275,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
             minHeight: "46px",
             padding: "10px 14px",
             borderRadius: "12px",
-            background: "#111827",
+            background: "#2563eb",
             color: "#ffffff",
             border: "none",
             cursor: loading ? "not-allowed" : "pointer",
@@ -284,7 +284,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
             fontWeight: 800,
           }}
         >
-          {loading ? "שומר/ת..." : "שמירת תנועה"}
+          {loading ? "שומר/ת..." : "עדכן מלאי"}
         </button>
       </div>
     </section>
