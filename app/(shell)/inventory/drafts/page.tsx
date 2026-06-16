@@ -1,10 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
-import {
-  InventorySubheader,
-  inventoryPageStyle,
-} from "@/components/inventory/inventory-design";
+import { InventorySubPage } from "@/components/inventory/inventory-shell";
 
 type DraftMatch = {
   itemId: number;
@@ -63,6 +60,16 @@ function getSafeImageUrl(imageUrl?: string | null) {
   return imageUrl;
 }
 
+function buildHeaders() {
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 export default function InventoryDraftsPage() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,9 +98,7 @@ export default function InventoryDraftsPage() {
       setError(null);
 
       const response = await fetch("/api/inventory/drafts", {
-        headers: {
-          Authorization: "Bearer 1",
-        },
+        headers: buildHeaders(),
       });
 
       const data = await response.json();
@@ -180,10 +185,7 @@ export default function InventoryDraftsPage() {
 
       const response = await fetch(`/api/inventory/drafts/${draftId}/approve`, {
         method: "POST",
-        headers: {
-          Authorization: "Bearer 1",
-          "Content-Type": "application/json",
-        },
+        headers: buildHeaders(),
         body: JSON.stringify({
           name: form.name.trim(),
           unitType: form.unitType.trim(),
@@ -218,9 +220,7 @@ export default function InventoryDraftsPage() {
 
       const response = await fetch(`/api/inventory/drafts/${draftId}/reject`, {
         method: "POST",
-        headers: {
-          Authorization: "Bearer 1",
-        },
+        headers: buildHeaders(),
       });
 
       const data = await response.json();
@@ -250,10 +250,7 @@ export default function InventoryDraftsPage() {
 
       const response = await fetch(`/api/inventory/drafts/${draftId}/merge`, {
         method: "POST",
-        headers: {
-          Authorization: "Bearer 1",
-          "Content-Type": "application/json",
-        },
+        headers: buildHeaders(),
         body: JSON.stringify({
           targetItemId,
         }),
@@ -426,43 +423,28 @@ export default function InventoryDraftsPage() {
 
   if (loading) {
     return (
-      <div style={inventoryPageStyle()}>
-        <InventorySubheader title="פריטים לאישור" backHref="/inventory" />
-
-        <main
+      <InventorySubPage title="פריטים לאישור" backHref="/inventory" bottomNav="home">
+        <section
           style={{
-            maxWidth: "900px",
-            margin: "0 auto",
-            padding: "16px",
+            border: "1px solid #e5e7eb",
+            borderRadius: "18px",
+            background: "#ffffff",
+            padding: "28px",
+            textAlign: "center",
+            color: "#6b7280",
+            boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
           }}
         >
-          <section
-            style={{
-              border: "1px solid #e5e7eb",
-              borderRadius: "18px",
-              background: "#ffffff",
-              padding: "28px",
-              textAlign: "center",
-              color: "#6b7280",
-              boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
-            }}
-          >
-            טוען פריטים לאישור...
-          </section>
-        </main>
-      </div>
+          טוען פריטים לאישור...
+        </section>
+      </InventorySubPage>
     );
   }
 
   return (
-    <div style={inventoryPageStyle()}>
-      <InventorySubheader title="פריטים לאישור" backHref="/inventory" />
-
-      <main
+    <InventorySubPage title="פריטים לאישור" backHref="/inventory" bottomNav="home">
+      <div
         style={{
-          padding: "16px",
-          maxWidth: "900px",
-          margin: "0 auto",
           display: "flex",
           flexDirection: "column",
           gap: "16px",
@@ -1165,7 +1147,7 @@ export default function InventoryDraftsPage() {
             })}
           </div>
         )}
-      </main>
-    </div>
+      </div>
+    </InventorySubPage>
   );
 }
