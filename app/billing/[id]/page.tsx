@@ -2014,7 +2014,7 @@ function StageAwarePanel({
       : stage === "issued"
       ? { bg: "#ecfdf5", border: "#bbf7d0", fg: "#166534" }
       : isQuote
-      ? { bg: "#ecfeff", border: "#99f6e4", fg: "#0f766e" }
+      ? { bg: "#EEF3F9", border: "#C7D6E9", fg: "#3F619C" }
       : { bg: "#ffffff", border: "#e2e8f0", fg: "#0f172a" };
 
   return (
@@ -2219,8 +2219,8 @@ function StickyActionBar({
         style={{
           padding: "12px 14px",
           borderRadius: 12,
-          border: "1px solid #0f766e",
-          background: "#0f766e",
+          border: "1px solid #243B57",
+          background: "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)",
           color: "#ffffff",
           fontSize: 14,
           fontWeight: 900,
@@ -3554,7 +3554,7 @@ function QuoteDraftHero({
           style={{
             fontSize: 12,
             fontWeight: 600,
-            color: "#0f766e",
+            color: "#3F619C",
             letterSpacing: "0.04em",
           }}
         >
@@ -3618,8 +3618,8 @@ function QuoteDraftHero({
         style={{
           padding: "12px 16px",
           borderRadius: 12,
-          border: "1px solid #0f766e",
-          background: "#0f766e",
+          border: "1px solid #243B57",
+          background: "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)",
           color: "#ffffff",
           fontSize: 15,
           fontWeight: 800,

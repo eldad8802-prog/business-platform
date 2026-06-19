@@ -93,7 +93,7 @@ function normalizeBaseUrl(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
-function buildRedirectUri(redirectBaseUrl: string): string {
+export function buildRedirectUri(redirectBaseUrl: string): string {
   const base = normalizeBaseUrl(redirectBaseUrl);
   return `${base}${BILLING_AUTHORITY_OAUTH_CALLBACK_PATH}`;
 }

@@ -224,7 +224,7 @@ async function executeConnectionTransitionTx(
     actorUserId?: number | null;
     metadata?: Record<string, unknown>;
     occurredAt?: Date;
-    connectionUpdate: Prisma.BillingAuthorityConnectionUpdateInput;
+    connectionUpdate: Prisma.BillingAuthorityConnectionUncheckedUpdateInput;
     skipAudit?: boolean;
   }
 ): Promise<AuthorityConnectionTransitionResult> {

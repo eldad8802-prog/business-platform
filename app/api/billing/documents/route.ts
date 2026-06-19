@@ -12,6 +12,8 @@ import {
   createBillingDraft,
   CreateBillingDraftInput,
 } from "@/lib/services/billing/billing-draft.service";
+import { createReceiptDraft } from "@/lib/services/billing/receipt/billing-receipt-draft.service";
+import { setReceiptAllocations } from "@/lib/services/billing/receipt/billing-payment-allocation.service";
 import { assertBillingIdentityReadyForTaxInvoice } from "@/lib/billing/business-identity";
 import {
   PRODUCT_USAGE_ACTIONS,
@@ -87,6 +89,72 @@ export async function POST(req: NextRequest) {
     ) {
       throw new ValidationError(
         "documentType is required and must be a valid BillingDocumentType"
+      );
+    }
+
+    // RECEIPT / TAX_INVOICE_RECEIPT use the dedicated receipt draft service
+    // (payments + allocations); the generic draft path is for the other types.
+    if (
+      documentTypeRaw === BillingDocumentType.RECEIPT ||
+      documentTypeRaw === BillingDocumentType.TAX_INVOICE_RECEIPT
+    ) {
+      const issuerProfile = await prisma.businessProfile.findUnique({
+        where: { businessId: user.businessId },
+        select: {
+          billingLegalName: true,
+          billingBusinessKind: true,
+          billingTaxId: true,
+          billingPhone: true,
+          billingEmail: true,
+          billingAddress: true,
+        },
+      });
+      assertBillingIdentityReadyForTaxInvoice(issuerProfile);
+
+      const receipt = await createReceiptDraft({
+        businessId: user.businessId,
+        actorUserId: user.id,
+        documentType: documentTypeRaw as
+          | typeof BillingDocumentType.RECEIPT
+          | typeof BillingDocumentType.TAX_INVOICE_RECEIPT,
+        customerId: "customerId" in body ? body.customerId : undefined,
+        customerNameSnapshot:
+          "customerNameSnapshot" in body ? body.customerNameSnapshot : undefined,
+        currency: typeof body.currency === "string" ? body.currency : undefined,
+        goodsLines: Array.isArray(body.initialLines)
+          ? body.initialLines
+          : undefined,
+        paymentLines: Array.isArray(body.paymentLines) ? body.paymentLines : [],
+      });
+
+      // Optional: set allocations for a pure RECEIPT in the same request.
+      if (
+        documentTypeRaw === BillingDocumentType.RECEIPT &&
+        Array.isArray(body.allocations) &&
+        body.allocations.length > 0
+      ) {
+        await setReceiptAllocations({
+          businessId: user.businessId,
+          receiptDocumentId: receipt.id,
+          allocations: body.allocations,
+        });
+      }
+
+      await recordProductUsageEvent({
+        businessId: user.businessId,
+        userId: user.id,
+        sessionId: readSessionIdFromRequest(req),
+        featureKey: PRODUCT_USAGE_FEATURES.BILLING_DOCUMENT_CREATE,
+        action: PRODUCT_USAGE_ACTIONS.COMPLETED,
+        outcome: PRODUCT_USAGE_OUTCOMES.SUCCESS,
+        entityType: "billing_document",
+        entityId: String(receipt.id),
+        metadata: { documentType: receipt.documentType },
+      });
+
+      return NextResponse.json(
+        { document: serializeBillingDocumentForApi(receipt) },
+        { status: 201 }
       );
     }
 

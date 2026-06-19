@@ -3,7 +3,9 @@ import {
   BillingDocumentLine,
   BillingDocumentStatus,
   BillingDocumentType,
+  BillingPaymentAllocation,
   BillingPdfRenderStatus,
+  BillingReceiptPayment,
   Prisma,
 } from "@prisma/client";
 import { createHash } from "crypto";
@@ -22,8 +24,15 @@ import {
   assertCreditAmountWithinRemaining,
 } from "@/lib/services/billing/billing-credit-reversal.service";
 import { recomputeAll } from "@/lib/services/billing/totals/billing-totals.service";
-import { ensureBillingInvoicePostedEvent } from "@/lib/services/financial-events/financial-event.service";
+import {
+  ensureBillingInvoicePostedEvent,
+  ensureBillingPaymentPostedEvent,
+} from "@/lib/services/financial-events/financial-event.service";
 import { assertBillingIdentityReadyForTaxInvoice } from "@/lib/billing/business-identity";
+import {
+  assertReceiptTotalsReconcile,
+  sumPaymentLineAmounts,
+} from "@/lib/services/billing/receipt/billing-receipt-allocation.rules";
 import {
   buildBillingCustomerSnapshot,
   type CustomerBillingIdentityRow,
@@ -85,6 +94,28 @@ type LineSnapshot = {
   lineTotal: string;
 };
 
+type PaymentLineSnapshot = {
+  lineIndex: number;
+  method: string;
+  amount: string;
+  currency: string;
+  paymentDate: string;
+  bankName: string | null;
+  bankBranch: string | null;
+  bankAccountNumber: string | null;
+  checkNumber: string | null;
+  checkDueDate: string | null;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  reference: string | null;
+};
+
+type AllocationSnapshot = {
+  invoiceDocumentId: number;
+  allocatedAmount: string;
+  currency: string;
+};
+
 type IssuedSnapshot = {
   schemaVersion: number;
   issuedAt: string;
@@ -101,6 +132,10 @@ type IssuedSnapshot = {
   issuer: IssuerSnapshot;
   customer: CustomerSnapshot;
   lines: LineSnapshot[];
+  /** Present only for RECEIPT / TAX_INVOICE_RECEIPT (frozen D120 source). */
+  payments?: PaymentLineSnapshot[];
+  /** Present only for a pure RECEIPT — which invoices this receipt settles. */
+  allocations?: AllocationSnapshot[];
   totals: {
     subtotal: string;
     vat: string;
@@ -191,6 +226,8 @@ function buildIssuedSnapshot(args: {
   documentNumberFormatted: string;
   issuedAt: Date;
   actorUserId: number;
+  receiptPayments: BillingReceiptPayment[];
+  allocations: BillingPaymentAllocation[];
   totals: {
     subtotalAmount: Prisma.Decimal;
     vatAmount: Prisma.Decimal;
@@ -206,6 +243,8 @@ function buildIssuedSnapshot(args: {
     documentNumberFormatted,
     issuedAt,
     actorUserId,
+    receiptPayments,
+    allocations,
     totals,
   } = args;
 
@@ -264,6 +303,28 @@ function buildIssuedSnapshot(args: {
     lineTotal: formatMoney(line.lineTotal),
   }));
 
+  const paymentSnapshots: PaymentLineSnapshot[] = receiptPayments.map((p) => ({
+    lineIndex: p.lineIndex,
+    method: p.method,
+    amount: formatMoney(p.amount),
+    currency: p.currency,
+    paymentDate: p.paymentDate.toISOString(),
+    bankName: p.bankName,
+    bankBranch: p.bankBranch,
+    bankAccountNumber: p.bankAccountNumber,
+    checkNumber: p.checkNumber,
+    checkDueDate: p.checkDueDate ? p.checkDueDate.toISOString() : null,
+    cardBrand: p.cardBrand,
+    cardLast4: p.cardLast4,
+    reference: p.reference,
+  }));
+
+  const allocationSnapshots: AllocationSnapshot[] = allocations.map((a) => ({
+    invoiceDocumentId: a.invoiceDocumentId,
+    allocatedAmount: formatMoney(a.allocatedAmount),
+    currency: a.currency,
+  }));
+
   return {
     schemaVersion: SNAPSHOT_SCHEMA_VERSION,
     issuedAt: issuedAt.toISOString(),
@@ -280,6 +341,10 @@ function buildIssuedSnapshot(args: {
     issuer: issuerSnapshot,
     customer: customerSnapshot,
     lines: lineSnapshots,
+    ...(paymentSnapshots.length > 0 ? { payments: paymentSnapshots } : {}),
+    ...(allocationSnapshots.length > 0
+      ? { allocations: allocationSnapshots }
+      : {}),
     totals: {
       subtotal: formatMoney(totals.subtotalAmount),
       vat: formatMoney(totals.vatAmount),
@@ -337,7 +402,10 @@ export async function issueBillingDocument(
         id: input.billingDocumentId,
         businessId: input.businessId,
       },
-      include: { lines: { orderBy: { lineIndex: "asc" } } },
+      include: {
+        lines: { orderBy: { lineIndex: "asc" } },
+        receiptPayments: { orderBy: { lineIndex: "asc" } },
+      },
     });
 
     if (!doc) {
@@ -364,30 +432,80 @@ export async function issueBillingDocument(
       );
     }
 
-    if (doc.lines.length === 0) {
-      throw new ValidationError(
-        "Cannot issue a document with no lines"
-      );
+    const isReceiptType =
+      doc.documentType === BillingDocumentType.RECEIPT ||
+      doc.documentType === BillingDocumentType.TAX_INVOICE_RECEIPT;
+    const hasGoodsLines = doc.documentType !== BillingDocumentType.RECEIPT;
+
+    if (hasGoodsLines && doc.lines.length === 0) {
+      throw new ValidationError("Cannot issue a document with no lines");
+    }
+    if (isReceiptType && doc.receiptPayments.length === 0) {
+      throw new ValidationError("Cannot issue a receipt with no payment lines");
     }
 
-    const recomputed = recomputeAll(
-      doc.lines.map((line) => ({
-        description: line.description,
-        quantity: line.quantity,
-        unitPrice: line.unitPrice,
-        vatRatePercent: line.vatRatePercent,
-        lineIndex: line.lineIndex,
-      }))
-    );
+    let totals: {
+      subtotalAmount: Prisma.Decimal;
+      vatAmount: Prisma.Decimal;
+      totalAmount: Prisma.Decimal;
+    };
 
-    if (
-      !recomputed.totals.subtotalAmount.equals(doc.subtotalAmount) ||
-      !recomputed.totals.vatAmount.equals(doc.vatAmount) ||
-      !recomputed.totals.totalAmount.equals(doc.totalAmount)
-    ) {
-      throw new ValidationError(
-        "Document totals are inconsistent with line items"
+    if (hasGoodsLines) {
+      const recomputed = recomputeAll(
+        doc.lines.map((line) => ({
+          description: line.description,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          vatRatePercent: line.vatRatePercent,
+          lineIndex: line.lineIndex,
+        }))
       );
+
+      if (
+        !recomputed.totals.subtotalAmount.equals(doc.subtotalAmount) ||
+        !recomputed.totals.vatAmount.equals(doc.vatAmount) ||
+        !recomputed.totals.totalAmount.equals(doc.totalAmount)
+      ) {
+        throw new ValidationError(
+          "Document totals are inconsistent with line items"
+        );
+      }
+      totals = recomputed.totals;
+    } else {
+      // Pure RECEIPT carries no goods lines: subtotal/VAT are zero and the
+      // total is the sum of payment lines (reconciled below).
+      if (!doc.subtotalAmount.isZero() || !doc.vatAmount.isZero()) {
+        throw new ValidationError("A RECEIPT must have zero subtotal and VAT");
+      }
+      totals = {
+        subtotalAmount: doc.subtotalAmount,
+        vatAmount: doc.vatAmount,
+        totalAmount: doc.totalAmount,
+      };
+    }
+
+    // Freeze payment lines / allocations for receipt-type documents and verify
+    // the regulation-critical reconciliation (payments sum == document total).
+    let receiptPayments: BillingReceiptPayment[] = [];
+    let paymentAllocations: BillingPaymentAllocation[] = [];
+    if (isReceiptType) {
+      receiptPayments = doc.receiptPayments;
+      assertReceiptTotalsReconcile({
+        documentType: doc.documentType,
+        documentTotal: totals.totalAmount,
+        paymentsTotal: sumPaymentLineAmounts(receiptPayments),
+      });
+      if (doc.documentType === BillingDocumentType.RECEIPT) {
+        paymentAllocations = await tx.billingPaymentAllocation.findMany({
+          where: { businessId: input.businessId, receiptDocumentId: doc.id },
+          orderBy: { invoiceDocumentId: "asc" },
+        });
+        if (paymentAllocations.length === 0) {
+          throw new ValidationError(
+            "Cannot issue a RECEIPT with no payment allocations"
+          );
+        }
+      }
     }
 
     if (doc.documentType === BillingDocumentType.CREDIT_NOTE) {
@@ -404,7 +522,7 @@ export async function issueBillingDocument(
       await assertCreditAmountWithinRemaining(tx, {
         businessId: input.businessId,
         sourceBillingDocumentId: doc.referenceDocumentId,
-        creditTotalAmount: recomputed.totals.totalAmount,
+        creditTotalAmount: totals.totalAmount,
         currency: doc.currency,
       });
     }
@@ -488,7 +606,9 @@ export async function issueBillingDocument(
       documentNumberFormatted,
       issuedAt,
       actorUserId: input.actorUserId,
-      totals: recomputed.totals,
+      receiptPayments,
+      allocations: paymentAllocations,
+      totals,
     });
     const legalSnapshotHash = hashIssuedSnapshot(snapshot);
 
@@ -523,19 +643,26 @@ export async function issueBillingDocument(
       include: { lines: { orderBy: { lineIndex: "asc" } } },
     });
 
+    // Revenue recognition: TAX_INVOICE + TAX_INVOICE_RECEIPT only (self-guarded).
     await ensureBillingInvoicePostedEvent(tx, issued);
+    // Cash received: RECEIPT + TAX_INVOICE_RECEIPT only (self-guarded).
+    await ensureBillingPaymentPostedEvent(tx, issued);
+
+    const issuedEventType =
+      issued.documentType === BillingDocumentType.CREDIT_NOTE
+        ? "BILLING_CREDIT_NOTE_ISSUED"
+        : issued.documentType === BillingDocumentType.RECEIPT
+          ? "BILLING_RECEIPT_ISSUED"
+          : issued.documentType === BillingDocumentType.TAX_INVOICE_RECEIPT
+            ? "BILLING_TAX_INVOICE_RECEIPT_ISSUED"
+            : "BILLING_DOC_ISSUED";
+
     await createBillingAuditEventTx(tx, {
       businessId: input.businessId,
       billingDocumentId: issued.id,
       actorUserId: input.actorUserId,
-      eventType:
-        issued.documentType === BillingDocumentType.CREDIT_NOTE
-          ? "BILLING_CREDIT_NOTE_ISSUED"
-          : "BILLING_DOC_ISSUED",
-      summary:
-        issued.documentType === BillingDocumentType.CREDIT_NOTE
-          ? "Credit note issued"
-          : "Billing document issued",
+      eventType: issuedEventType,
+      summary: "Billing document issued",
       metadata: {
         documentId: issued.id,
         documentType: issued.documentType,
@@ -547,16 +674,39 @@ export async function issueBillingDocument(
         customerId: issued.customerId,
         referenceDocumentId: issued.referenceDocumentId,
         sourceInvoiceId: issued.referenceDocumentId,
-        subtotalAmount: recomputed.totals.subtotalAmount.toString(),
-        vatAmount: recomputed.totals.vatAmount.toString(),
-        totalAmount: recomputed.totals.totalAmount.toString(),
+        subtotalAmount: totals.subtotalAmount.toString(),
+        vatAmount: totals.vatAmount.toString(),
+        totalAmount: totals.totalAmount.toString(),
         currency: issued.currency,
         lineCount: issued.lines.length,
+        paymentLineCount: receiptPayments.length,
+        allocationCount: paymentAllocations.length,
         snapshotSchemaVersion: SNAPSHOT_SCHEMA_VERSION,
         actorUserId: input.actorUserId,
       },
       occurredAt: issuedAt,
     });
+
+    // Cash-received audit entry for receipt-type documents.
+    if (isReceiptType) {
+      await createBillingAuditEventTx(tx, {
+        businessId: input.businessId,
+        billingDocumentId: issued.id,
+        actorUserId: input.actorUserId,
+        eventType: "BILLING_PAYMENT_RECORDED",
+        summary: "Payment recorded on issued receipt",
+        metadata: {
+          documentId: issued.id,
+          documentType: issued.documentType,
+          totalAmount: totals.totalAmount.toString(),
+          currency: issued.currency,
+          paymentLineCount: receiptPayments.length,
+          allocationCount: paymentAllocations.length,
+          actorUserId: input.actorUserId,
+        },
+        occurredAt: issuedAt,
+      });
+    }
 
     await createAuthoritySubmissionForIssuedDocumentTx(tx, {
       businessId: input.businessId,
@@ -564,8 +714,8 @@ export async function issueBillingDocument(
       actorUserId: input.actorUserId,
       documentType: issued.documentType,
       legalSnapshotHash: issued.legalSnapshotHash ?? legalSnapshotHash,
-      vatAmount: recomputed.totals.vatAmount,
-      subtotalAmount: recomputed.totals.subtotalAmount,
+      vatAmount: totals.vatAmount,
+      subtotalAmount: totals.subtotalAmount,
       currency: issued.currency,
       customerTaxIdType: customerData?.taxIdType ?? null,
       customerTaxId: customerData?.taxId ?? null,
@@ -576,7 +726,7 @@ export async function issueBillingDocument(
       issued,
       documentNumber,
       documentNumberFormatted,
-      totals: recomputed.totals,
+      totals,
     };
   });
 

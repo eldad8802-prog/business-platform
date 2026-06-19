@@ -21,7 +21,60 @@ const BG_PARTY_CARD = "#f8fafc";
 const DOCUMENT_TYPE_LABELS_HE: Record<string, string> = {
   TAX_INVOICE: "חשבונית מס",
   QUOTE: "הצעת מחיר",
+  RECEIPT: "קבלה",
+  TAX_INVOICE_RECEIPT: "חשבונית מס / קבלה",
 };
+
+const PAYMENT_METHOD_LABELS_HE: Record<string, string> = {
+  CASH: "מזומן",
+  BANK_TRANSFER: "העברה בנקאית",
+  CHECK: "שיק",
+  CREDIT_CARD: "כרטיס אשראי",
+  BIT: "ביט",
+  PAYBOX: "פייבוקס",
+  OTHER: "אחר",
+};
+
+function paymentMethodLabel(method: string): string {
+  return PAYMENT_METHOD_LABELS_HE[method] ?? method;
+}
+
+function isReceiptDocumentType(type: string): boolean {
+  return type === "RECEIPT" || type === "TAX_INVOICE_RECEIPT";
+}
+
+/** Human-readable instrument detail per payment method (from snapshot only). */
+function paymentDetailText(
+  p: NonNullable<BillingIssuedSnapshotV1["payments"]>[number]
+): string {
+  switch (p.method) {
+    case "BANK_TRANSFER":
+      return [
+        p.bankName,
+        p.bankBranch ? `סניף ${p.bankBranch}` : null,
+        p.bankAccountNumber ? `חשבון ${p.bankAccountNumber}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    case "CHECK":
+      return [
+        p.bankName,
+        p.bankBranch ? `סניף ${p.bankBranch}` : null,
+        p.bankAccountNumber ? `חשבון ${p.bankAccountNumber}` : null,
+        p.checkNumber ? `שיק ${p.checkNumber}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    case "CREDIT_CARD":
+      return [p.cardBrand, p.cardLast4 ? `****${p.cardLast4}` : null]
+        .filter(Boolean)
+        .join(" · ");
+    case "CASH":
+      return "";
+    default:
+      return p.reference ?? "";
+  }
+}
 
 function parseNumber(value: string): number {
   const n = Number(value);
@@ -257,6 +310,94 @@ export function buildBillingInvoiceHtml(
       </tr>`;
     })
     .join("");
+
+  // Receipt-aware composition (all data from the frozen snapshot).
+  const isReceipt = document.type === "RECEIPT";
+  const isReceiptTypeDoc = isReceiptDocumentType(document.type);
+  const payments = snapshot.payments ?? [];
+
+  // Goods + VAT totals: every type EXCEPT a pure RECEIPT.
+  const goodsSectionHtml = isReceipt
+    ? ""
+    : `
+  <div class="section-title">${dyn("פירוט פריטים", "label")}</div>
+
+  <table class="lines" aria-label="פירוט פריטים">
+    <thead>
+      <tr>
+        <th>${dyn("מס׳", "label")}</th>
+        <th>${dyn("תיאור", "label")}</th>
+        <th>${dyn("כמות", "label")}</th>
+        <th>${dyn("מחיר יחידה", "label")}</th>
+        <th>${dyn('מע"מ', "label")}</th>
+        <th>${dyn('סה"כ', "label")}</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${tableRows}
+    </tbody>
+  </table>
+
+  <div class="totals-wrap">
+    <table class="totals">
+      <tr>
+        <td class="lbl">${dyn('סה"כ לפני מע"מ', "label")}</td>
+        <td class="amt">${dyn(formatMoney(totals.subtotal, currency), "numeric")}</td>
+      </tr>
+      <tr>
+        <td class="lbl vat-label-cell">${vatRowLabelHtml}</td>
+        <td class="amt">${dyn(formatMoney(totals.vat, currency), "numeric")}</td>
+      </tr>
+      <tr class="total-row">
+        <td class="lbl">${dyn('סה"כ לתשלום', "label")}</td>
+        <td class="amt">${dyn(formatMoney(totals.total, currency), "numeric")}</td>
+      </tr>
+    </table>
+  </div>`;
+
+  const paymentRowsHtml = payments
+    .map(
+      (p) => `
+      <tr class="lines-row">
+        <td class="cell-desc">${dyn(paymentMethodLabel(p.method), "label")}</td>
+        <td class="cell-desc">${dyn(paymentDetailText(p) || "—", "freeText")}</td>
+        <td class="cell-num">${dyn(formatMoney(p.amount, currency), "numeric")}</td>
+      </tr>`
+    )
+    .join("");
+
+  // Pure RECEIPT shows a single "סה״כ שולם"; TAX_INVOICE_RECEIPT relies on the
+  // goods totals above (its invoice total == its payments total).
+  const receiptTotalHtml = isReceipt
+    ? `
+  <div class="totals-wrap">
+    <table class="totals">
+      <tr class="total-row">
+        <td class="lbl">${dyn('סה"כ שולם', "label")}</td>
+        <td class="amt">${dyn(formatMoney(totals.total, currency), "numeric")}</td>
+      </tr>
+    </table>
+  </div>`
+    : "";
+
+  const paymentsSectionHtml = isReceiptTypeDoc
+    ? `
+  <div class="section-title">${dyn("פירוט תקבול", "label")}</div>
+
+  <table class="lines" aria-label="פירוט תקבול">
+    <thead>
+      <tr>
+        <th>${dyn("אמצעי תשלום", "label")}</th>
+        <th>${dyn("פרטים", "label")}</th>
+        <th>${dyn("סכום", "label")}</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${paymentRowsHtml}
+    </tbody>
+  </table>
+  ${receiptTotalHtml}`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="he" dir="rtl">
@@ -767,40 +908,8 @@ export function buildBillingInvoiceHtml(
     </div>
   </div>
 
-  <div class="section-title">${dyn("פירוט פריטים", "label")}</div>
-
-  <table class="lines" aria-label="פירוט פריטים">
-    <thead>
-      <tr>
-        <th>${dyn("מס׳", "label")}</th>
-        <th>${dyn("תיאור", "label")}</th>
-        <th>${dyn("כמות", "label")}</th>
-        <th>${dyn("מחיר יחידה", "label")}</th>
-        <th>${dyn('מע"מ', "label")}</th>
-        <th>${dyn('סה"כ', "label")}</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${tableRows}
-    </tbody>
-  </table>
-
-  <div class="totals-wrap">
-    <table class="totals">
-      <tr>
-        <td class="lbl">${dyn('סה"כ לפני מע"מ', "label")}</td>
-        <td class="amt">${dyn(formatMoney(totals.subtotal, currency), "numeric")}</td>
-      </tr>
-      <tr>
-        <td class="lbl vat-label-cell">${vatRowLabelHtml}</td>
-        <td class="amt">${dyn(formatMoney(totals.vat, currency), "numeric")}</td>
-      </tr>
-      <tr class="total-row">
-        <td class="lbl">${dyn('סה"כ לתשלום', "label")}</td>
-        <td class="amt">${dyn(formatMoney(totals.total, currency), "numeric")}</td>
-      </tr>
-    </table>
-  </div>
+  ${goodsSectionHtml}
+  ${paymentsSectionHtml}
 
   <div class="payment-block" style="margin-top:18px;text-align:right;direction:rtl;">
     <div style="font-size:12px;font-weight:700;color:${BRAND_DARK};margin-bottom:8px;">${dyn("פרטי תשלום", "label")}</div>

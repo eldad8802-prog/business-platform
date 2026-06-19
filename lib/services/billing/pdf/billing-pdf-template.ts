@@ -71,7 +71,54 @@ function rtlLabel(value: string): string {
 const DOCUMENT_TYPE_LABELS_HE: Record<string, string> = {
   TAX_INVOICE: "חשבונית מס",
   QUOTE: "הצעת מחיר",
+  RECEIPT: "קבלה",
+  TAX_INVOICE_RECEIPT: "חשבונית מס / קבלה",
 };
+
+const PAYMENT_METHOD_LABELS_HE: Record<string, string> = {
+  CASH: "מזומן",
+  BANK_TRANSFER: "העברה בנקאית",
+  CHECK: "שיק",
+  CREDIT_CARD: "כרטיס אשראי",
+  BIT: "ביט",
+  PAYBOX: "פייבוקס",
+  OTHER: "אחר",
+};
+
+function paymentMethodLabel(method: string): string {
+  return PAYMENT_METHOD_LABELS_HE[method] ?? method;
+}
+
+/** Human-readable instrument detail per payment method (no live data). */
+function paymentDetailText(p: BillingIssuedSnapshotV1Payment): string {
+  switch (p.method) {
+    case "BANK_TRANSFER":
+      return [p.bankName, p.bankBranch ? `סניף ${p.bankBranch}` : null, p.bankAccountNumber ? `חשבון ${p.bankAccountNumber}` : null]
+        .filter(Boolean)
+        .join(" · ");
+    case "CHECK":
+      return [
+        p.bankName,
+        p.bankBranch ? `סניף ${p.bankBranch}` : null,
+        p.bankAccountNumber ? `חשבון ${p.bankAccountNumber}` : null,
+        p.checkNumber ? `שיק ${p.checkNumber}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    case "CREDIT_CARD":
+      return [p.cardBrand, p.cardLast4 ? `****${p.cardLast4}` : null]
+        .filter(Boolean)
+        .join(" · ");
+    case "CASH":
+      return "";
+    default:
+      return p.reference ?? "";
+  }
+}
+
+function isReceiptDocumentType(type: string): boolean {
+  return type === "RECEIPT" || type === "TAX_INVOICE_RECEIPT";
+}
 
 // Structural type that mirrors the v1 issuedSnapshot produced by
 // lib/services/billing/billing-issue.service.ts. Defined locally on purpose
@@ -115,6 +162,28 @@ export type BillingIssuedSnapshotV1Line = {
   lineTotal: string;
 };
 
+export type BillingIssuedSnapshotV1Payment = {
+  lineIndex: number;
+  method: string;
+  amount: string;
+  currency: string;
+  paymentDate: string;
+  bankName: string | null;
+  bankBranch: string | null;
+  bankAccountNumber: string | null;
+  checkNumber: string | null;
+  checkDueDate: string | null;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  reference: string | null;
+};
+
+export type BillingIssuedSnapshotV1Allocation = {
+  invoiceDocumentId: number;
+  allocatedAmount: string;
+  currency: string;
+};
+
 export type BillingIssuedSnapshotV1 = {
   schemaVersion: number;
   issuedAt: string;
@@ -131,6 +200,10 @@ export type BillingIssuedSnapshotV1 = {
   issuer: BillingIssuedSnapshotV1Issuer;
   customer: BillingIssuedSnapshotV1Customer;
   lines: BillingIssuedSnapshotV1Line[];
+  /** Present only for RECEIPT / TAX_INVOICE_RECEIPT. */
+  payments?: BillingIssuedSnapshotV1Payment[];
+  /** Present only for a pure RECEIPT. */
+  allocations?: BillingIssuedSnapshotV1Allocation[];
   totals: {
     subtotal: string;
     vat: string;
@@ -610,6 +683,126 @@ function buildTotalsBlock(
   };
 }
 
+function buildPaymentRow(
+  p: BillingIssuedSnapshotV1Payment,
+  currency: string
+): AnyNode[] {
+  return [
+    {
+      text: ltrText(formatMoney(p.amount, currency)),
+      alignment: "left",
+      bold: true,
+      color: BRAND_DARK,
+    },
+    { text: rtlText(paymentDetailText(p)), alignment: "right" },
+    { text: rtlText(paymentMethodLabel(p.method)), alignment: "right" },
+  ];
+}
+
+function buildPaymentsBlock(
+  payments: BillingIssuedSnapshotV1Payment[],
+  currency: string
+): AnyNode {
+  const headerCellStyle = { bold: true, fillColor: BG_SOFT, color: BRAND_DARK };
+  const body: AnyNode[][] = [
+    [
+      { text: rtlLabel("סכום"), alignment: "center", ...headerCellStyle },
+      { text: rtlLabel("פרטים"), alignment: "right", ...headerCellStyle },
+      { text: rtlLabel("אמצעי תשלום"), alignment: "right", ...headerCellStyle },
+    ],
+    ...payments.map((p) => buildPaymentRow(p, currency)),
+  ];
+  return {
+    stack: [
+      {
+        text: rtlLabel("פירוט תקבול"),
+        fontSize: 14,
+        bold: true,
+        color: BRAND_DARK,
+        margin: [0, 0, 0, 10],
+      },
+      {
+        table: { headerRows: 1, widths: ["auto", "*", "auto"], body },
+        layout: {
+          fillColor: (rowIndex: number) =>
+            rowIndex === 0 ? BG_SOFT : rowIndex % 2 === 0 ? "#fbfdff" : null,
+          hLineColor: () => BORDER_SOFT,
+          vLineColor: () => BORDER_SOFT,
+          hLineWidth: () => 0.4,
+          vLineWidth: () => 0,
+          paddingLeft: () => 8,
+          paddingRight: () => 8,
+          paddingTop: () => 8,
+          paddingBottom: () => 8,
+        },
+        margin: [0, 0, 0, 16],
+      },
+    ],
+    margin: [0, 8, 0, 0],
+  };
+}
+
+function buildReceiptTotalBlock(total: string, currency: string): AnyNode {
+  return {
+    margin: [0, 4, 0, 0],
+    columns: [
+      { text: "", width: "*" },
+      {
+        width: 280,
+        table: {
+          widths: ["*"],
+          body: [
+            [
+              {
+                fillColor: "#f1f5f9",
+                table: {
+                  widths: ["auto", "*"],
+                  body: [
+                    [
+                      {
+                        text: ltrText(formatMoney(total, currency)),
+                        alignment: "left",
+                        bold: true,
+                        fontSize: 14,
+                        fillColor: BG_TOTAL,
+                        color: BRAND_DARK,
+                      },
+                      {
+                        text: rtlLabel('סה"כ שולם'),
+                        alignment: "right",
+                        bold: true,
+                        fontSize: 14,
+                        fillColor: BG_TOTAL,
+                        color: BRAND_DARK,
+                      },
+                    ],
+                  ],
+                },
+                layout: {
+                  hLineWidth: () => 0,
+                  vLineWidth: () => 0,
+                  paddingLeft: () => 12,
+                  paddingRight: () => 12,
+                  paddingTop: () => 10,
+                  paddingBottom: () => 10,
+                },
+              },
+            ],
+          ],
+        },
+        layout: {
+          hLineWidth: () => 0,
+          vLineWidth: () => 0,
+          paddingLeft: () => 0,
+          paddingRight: () => 0,
+          paddingTop: () => 0,
+          paddingBottom: () => 0,
+        },
+      },
+    ],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Public: build pdfmake docDefinition from a v1 snapshot
 // ---------------------------------------------------------------------------
@@ -685,6 +878,9 @@ export function buildDocDefinition(
   const vatLabelSuffix = deriveCommonVatRateLabel(lines);
   const hasLogo = isDataImageUrl(issuer.logoUrl);
   const docNumber = document.numberFormatted;
+  const isReceipt = document.type === "RECEIPT";
+  const isReceiptType = isReceiptDocumentType(document.type);
+  const paymentsList = snapshot.payments ?? [];
 
   return {
     pageSize: "A4",
@@ -832,15 +1028,23 @@ export function buildDocDefinition(
         columnGap: 14,
         margin: [0, 6, 0, 20],
       },
-      {
-        text: rtlLabel("פירוט פריטים"),
-        fontSize: 14,
-        bold: true,
-        color: BRAND_DARK,
-        margin: [0, 0, 0, 10],
-      },
-      buildLinesTable(lines, currency),
-      buildTotalsBlock(totals, vatLabelSuffix, currency),
+      ...(isReceipt
+        ? []
+        : [
+            {
+              text: rtlLabel("פירוט פריטים"),
+              fontSize: 14,
+              bold: true,
+              color: BRAND_DARK,
+              margin: [0, 0, 0, 10],
+            },
+            buildLinesTable(lines, currency),
+            buildTotalsBlock(totals, vatLabelSuffix, currency),
+          ]),
+      ...(isReceiptType && paymentsList.length > 0
+        ? [buildPaymentsBlock(paymentsList, currency)]
+        : []),
+      ...(isReceipt ? [buildReceiptTotalBlock(totals.total, currency)] : []),
       ...(typeof issuer.bankDetails === "string" &&
       issuer.bankDetails.trim().length > 0
         ? [buildPaymentDetailsBlock(issuer.bankDetails)]
@@ -879,8 +1083,20 @@ export function assertSnapshotV1(
   if (!s.customer || typeof s.customer.name !== "string") {
     throw new Error("Invalid issued snapshot: customer.name missing");
   }
-  if (!Array.isArray(s.lines) || s.lines.length === 0) {
+  const docType = s.document.type;
+  const receiptType = typeof docType === "string" && isReceiptDocumentType(docType);
+  if (!Array.isArray(s.lines)) {
+    throw new Error("Invalid issued snapshot: lines must be an array");
+  }
+  // A pure RECEIPT carries no goods lines; every other type requires them.
+  if (docType !== "RECEIPT" && s.lines.length === 0) {
     throw new Error("Invalid issued snapshot: lines must be a non-empty array");
+  }
+  // RECEIPT and TAX_INVOICE_RECEIPT must carry frozen payment lines.
+  if (receiptType && (!Array.isArray(s.payments) || s.payments.length === 0)) {
+    throw new Error(
+      "Invalid issued snapshot: receipt payments must be a non-empty array"
+    );
   }
   if (
     !s.totals ||
