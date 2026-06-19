@@ -39,8 +39,10 @@ export type PartyResolutionClaimRow = {
   partyId: number;
   subjectType: PartyRoleType;
   subjectId: number;
-  signalType: PartySignalType;
-  signalValue: string;
+  // Nullable: anchor claims (signal-conflict isolation) carry no signal; both
+  // columns are nullable in the schema. Mirrors the actual model.
+  signalType: PartySignalType | null;
+  signalValue: string | null;
   confidence: PartyClaimConfidence;
   method: PartyResolutionMethod;
   source: string;
