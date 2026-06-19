@@ -153,6 +153,7 @@ model Business {
   billingDocuments          BillingDocument[]
   billingAuditEvents        BillingAuditEvent[]
   billingNumberSequences    BillingDocumentNumberSequence[]
+  billingPaymentAllocations BillingPaymentAllocation[]
   profile                   BusinessProfile?
   botSettings               BusinessBotSettings?
   services                  BusinessService[]
@@ -1054,6 +1055,89 @@ model VendorLearning {
   @@index([vendorName])
 }
 
+// =============================================================================
+// Document Memory & Learning — Phase 1A: Correction Ledger Foundation.
+//
+// Write-only, APPEND-ONLY historical fact store. NOT a learning system.
+// No reads back into the engine, no priors, no re-ranking, no candidate
+// landscape. Scalar-only (no Prisma relations) so existing models are NOT
+// touched; document/business links are plain ids resolved at analysis time.
+// Captured 100% additively and never allowed to fail upload/approve.
+// =============================================================================
+
+/// Engine belief at extraction time (the moment runUnifiedDocumentIntelligence
+/// returns), captured before the chosen-value subset is persisted to
+/// ExtractedData. One row per extraction event (append-only; never updated).
+model ExtractionSnapshot {
+  id            Int      @id @default(autoincrement())
+  documentId    Int
+  businessId    Int
+  occurredAt    DateTime @default(now())
+  sourceChannel String
+
+  // Provenance
+  liveEngineVersion String
+  ocrEngine         String
+  ocrVersion        String
+  ocrTextHash       String?
+
+  // Memory Scope (raw — NO entity resolution, NO normalization)
+  vendorName   String?
+  documentType String?
+  direction    String?
+
+  // Engine belief (denormalized first-class for the key fields)
+  amount             Float?
+  date               DateTime?
+  category           String?
+  confidenceScore    Float?
+  amountConfidence   String?
+  vendorConfidence   String?
+  dateConfidence     String?
+  categoryConfidence String?
+  isFinancial        Boolean?
+  amountEligible     Boolean?
+  financialEvidenceLevel String?
+  guardrailRoute     String?
+
+  // Full, lossless engine result (forward-compatible provenance)
+  rawResult Json
+
+  @@index([documentId])
+  @@index([businessId, occurredAt])
+}
+
+/// Human verdict at approve time, captured before ExtractedData is overwritten.
+/// Stores both the original engine belief and the human-confirmed final value,
+/// plus the raw business context. One row per approve event (append-only).
+model ReviewEvent {
+  id             Int      @id @default(autoincrement())
+  documentId     Int
+  businessId     Int
+  occurredAt     DateTime @default(now())
+  reviewerUserId Int
+
+  // Outcome / document-type context
+  approvedAs        String // "financial" | "document"
+  explicitFinancial Boolean
+  profileId         String?
+
+  // Memory Scope (raw — belief vs human-confirmed)
+  vendorBelief    String?
+  vendorFinal     String?
+  directionBelief String?
+  directionFinal  String?
+
+  // Per-field verdict + delta: { field: { belief, final, verdict, delta? } }
+  verdicts  Json
+  // Lossless provenance
+  rawBelief Json
+  rawFinal  Json
+
+  @@index([documentId])
+  @@index([businessId, occurredAt])
+}
+
 model Usage {
   id         String   @id @default(cuid())
   createdAt  DateTime @default(now())
@@ -1272,6 +1356,7 @@ model SupplierPurchaseDraftLine {
   barcode       String?
   quantity      Float
   unitType      InventoryUnitType?
+  unitCost      Float?
   matchedItemId Int?
   matchScore    Float?
   decision      SupplierLineDecision?
@@ -1440,6 +1525,9 @@ model BillingDocument {
   referencedDocument      BillingDocument?       @relation("BillingDocumentReversalReference", fields: [referenceDocumentId], references: [id], onDelete: Restrict)
   creditNotes             BillingDocument[]      @relation("BillingDocumentReversalReference")
   authoritySubmission     BillingAuthoritySubmission?
+  receiptPayments             BillingReceiptPayment[]
+  paymentAllocationsAsReceipt BillingPaymentAllocation[] @relation("ReceiptAllocations")
+  paymentAllocationsAsInvoice BillingPaymentAllocation[] @relation("InvoiceAllocations")
 
   @@unique([businessId, documentType, documentNumber])
   @@index([businessId, status, issuedAt])
@@ -1501,6 +1589,47 @@ model BillingDocumentNumberSequence {
   business     Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
 
   @@unique([businessId, documentType])
+}
+
+model BillingReceiptPayment {
+  id                Int             @id @default(autoincrement())
+  billingDocumentId Int
+  lineIndex         Int
+  method            PaymentMethod
+  amount            Decimal         @db.Decimal(18, 2)
+  currency          String          @default("ILS")
+  paymentDate       DateTime
+  bankName          String?
+  bankBranch        String?
+  bankAccountNumber String?
+  checkNumber       String?
+  checkDueDate      DateTime?
+  cardBrand         String?
+  cardLast4         String?
+  reference         String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  document          BillingDocument @relation(fields: [billingDocumentId], references: [id], onDelete: Cascade)
+
+  @@unique([billingDocumentId, lineIndex])
+  @@index([billingDocumentId])
+}
+
+model BillingPaymentAllocation {
+  id                Int             @id @default(autoincrement())
+  businessId        Int
+  receiptDocumentId Int
+  invoiceDocumentId Int
+  allocatedAmount   Decimal         @db.Decimal(18, 2)
+  currency          String          @default("ILS")
+  createdAt         DateTime        @default(now())
+  business          Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  receiptDocument   BillingDocument @relation("ReceiptAllocations", fields: [receiptDocumentId], references: [id], onDelete: Restrict)
+  invoiceDocument   BillingDocument @relation("InvoiceAllocations", fields: [invoiceDocumentId], references: [id], onDelete: Restrict)
+
+  @@unique([receiptDocumentId, invoiceDocumentId])
+  @@index([businessId, invoiceDocumentId])
+  @@index([businessId, receiptDocumentId])
 }
 
 model FinancialEvent {
@@ -1998,6 +2127,18 @@ enum BillingDocumentType {
   TAX_INVOICE
   QUOTE
   CREDIT_NOTE
+  RECEIPT
+  TAX_INVOICE_RECEIPT
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CHECK
+  CREDIT_CARD
+  BIT
+  PAYBOX
+  OTHER
 }
 
 enum BillingDocumentStatus {
