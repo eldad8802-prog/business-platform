@@ -4,6 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import {
+  DecisionCard,
+  KeyValueGrid,
+  BottomSheet,
+  InventoryStatePanel,
+  InventorySkeletonBlock,
+} from "@/components/inventory/inventory-design";
+import {
   buildSupplierOrderText,
   downloadSupplierPurchaseOrderPdf,
   formatSupplierDraftDisplayDate,
@@ -213,157 +220,131 @@ export default function SupplierPurchaseSendPage() {
       title="שליחת הזמנה לספק"
       backHref="/inventory/supplier-purchases"
       backLabel="מרכז הזמנות ספק"
+      sub={
+        draft
+          ? draft.supplierName?.trim()
+            ? `הזמנה ל${draft.supplierName.trim()} · מוכנה לשליחה`
+            : "הזמנה מוכנה לשליחה לספק"
+          : undefined
+      }
       bottomNav="orders"
     >
       {loading ? (
-        <section className="inv-surface-card inv-center-state" aria-busy="true">
-          טוען הזמנה...
-        </section>
+        <div className="inv-rows">
+          <InventorySkeletonBlock height={92} rows={3} />
+        </div>
       ) : error && !draft ? (
-        <section className="inv-surface-card inv-center-state">
-          <strong>לא הצלחנו לפתוח את ההזמנה</strong>
-          <p>{error}</p>
-          <button
-            type="button"
-            className="inv-primary-button"
-            onClick={() => router.push("/inventory/supplier-purchases")}
+        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
+          <InventoryStatePanel
+            tone="error"
+            title="לא הצלחנו לפתוח את ההזמנה"
+            action={
+              <button
+                type="button"
+                className="inv-btn-primary inv-btn-primary--full"
+                onClick={() => router.push("/inventory/supplier-purchases")}
+              >
+                חזרה למרכז ההזמנות
+              </button>
+            }
           >
-            חזרה למרכז ההזמנות
-          </button>
-        </section>
+            {error}
+          </InventoryStatePanel>
+        </div>
       ) : draft ? (
-        <div className="inv-screen-stack">
-          {error ? <div className="inv-alert inv-alert--error">{error}</div> : null}
+        <>
+          {error ? (
+            <div className="inv-fwrap"><div className="inv-alert inv-alert--error">{error}</div></div>
+          ) : null}
           {copyOk ? (
-            <div className="inv-alert inv-alert--success">{copyOk}</div>
+            <div className="inv-fwrap"><div className="inv-alert inv-alert--success">{copyOk}</div></div>
           ) : null}
 
-          <section className="inv-hero-card inv-hero-card--green">
-            <span className="inv-kicker">שלב: שליחה לספק</span>
-            <h1>
-              {draft.supplierName?.trim()
-                ? `הזמנה ל${draft.supplierName.trim()}`
-                : "הזמנה מוכנה לשליחה"}
-            </h1>
-            <p>
-              ההזמנה נוצרה. עכשיו שולחים אותה לספק, ולאחר הגעת הסחורה חוזרים
-              לקליטה כדי לעדכן מלאי.
-            </p>
-          </section>
-
-          <section className="inv-surface-card">
-            <div className="inv-mini-stepper" aria-label="רצף הזמנה">
-              {["יצירה", "שליחה", "קליטה", "היסטוריה"].map((label, index) => (
+          <div className="inv-rows">
+            <DecisionCard>
+              <div className="inv-dcard__top">
                 <span
-                  key={label}
-                  className={`inv-mini-step${
-                    index === 1 ? " is-current" : index < 1 ? " is-done" : ""
-                  }`}
+                  className="inv-row__thumb"
+                  style={{ background: "var(--inv-surface, #f5f7f9)", width: 46, height: 46, fontSize: 22 }}
+                  aria-hidden
                 >
-                  {label}
+                  🚚
                 </span>
-              ))}
-            </div>
-          </section>
+                <div className="inv-row__mid">
+                  <div className="inv-row__nm" dir="auto">
+                    {draft.supplierName?.trim() || "הזמנה ללא ספק"}
+                  </div>
+                  <div className="inv-row__meta">
+                    <bdi>#{draft.id}</bdi>
+                    {displayDateLabel ? <> · <bdi>{displayDateLabel}</bdi></> : null}
+                  </div>
+                </div>
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <KeyValueGrid
+                  pairs={[
+                    { k: "פריטים", v: <bdi>{draft.lines.length}</bdi> },
+                    { k: "יחידות", v: <bdi>{totalUnits}</bdi> },
+                    { k: "מצב", v: draft.status === "PENDING_REVIEW" ? "ממתינה לקליטה" : draft.status },
+                  ]}
+                />
+              </div>
+            </DecisionCard>
+          </div>
 
-          <section className="inv-surface-card">
-            <div className="inv-section-heading">
-              <h2>מה כלול בהזמנה</h2>
-              <span>
-                {draft.lines.length} פריטים · {totalUnits} יחידות
-              </span>
-            </div>
-            <div className="inv-data-pairs">
-              <div>
-                <span>מספר פנימי</span>
-                <strong>#{draft.id}</strong>
+          <div className="inv-seclabel">פריטים בהזמנה</div>
+          <div className="inv-olines">
+            {draft.lines.map((line) => (
+              <div key={line.id} className="inv-oline">
+                <div className="inv-oline__mid">
+                  <div className="inv-oline__nm" dir="auto">{line.rawName || "מוצר ללא שם"}</div>
+                </div>
+                <span className="inv-oline__price">
+                  <bdi>{line.quantity}</bdi> {line.unitType || "יחידות"}
+                </span>
               </div>
-              <div>
-                <span>תאריך הזמנה</span>
-                <strong>{displayDateLabel}</strong>
-              </div>
-              <div>
-                <span>מצב</span>
-                <strong>
-                  {draft.status === "PENDING_REVIEW"
-                    ? "ממתינה לקליטה"
-                    : draft.status}
-                </strong>
-              </div>
-            </div>
-            <ul className="inv-simple-list" role="list">
-              {draft.lines.map((line) => (
-                <li key={line.id}>
-                  <span>{line.rawName || "מוצר ללא שם"}</span>
-                  <strong>
-                    {line.quantity} {line.unitType || "יחידות"}
-                  </strong>
-                </li>
-              ))}
-            </ul>
-          </section>
+            ))}
+          </div>
 
-          <section className="inv-surface-card">
-            <div className="inv-section-heading">
-              <h2>פעולה הבאה</h2>
-              <span>בחרו איך לשלוח לספק</span>
-            </div>
-            <div className="inv-action-grid">
-              <button
-                type="button"
-                disabled={!canDispatch}
-                onClick={() => void handleShareClick()}
-                className="inv-primary-button"
-              >
-                שתף הזמנה
-              </button>
-              <button
-                type="button"
-                disabled={!canDispatch}
-                onClick={handlePdf}
-                className="inv-secondary-button"
-              >
+          <div className="inv-fwrap" style={{ marginTop: 14 }}>
+            <button
+              type="button"
+              className="inv-btn-primary inv-btn-primary--full"
+              disabled={!canDispatch}
+              onClick={() => void handleShareClick()}
+            >
+              שתף הזמנה לספק
+            </button>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+              <button type="button" className="inv-btn-secondary" disabled={!canDispatch} onClick={handlePdf}>
                 הורדת PDF
               </button>
               <button
                 type="button"
+                className="inv-btn-secondary"
                 onClick={() => router.push("/inventory/supplier-purchases/pending")}
-                className="inv-secondary-button"
               >
-                מעבר לקליטת הזמנות
+                מעבר לקליטה
               </button>
             </div>
-          </section>
+          </div>
 
           {shareMenuOpen ? (
-            <div
-              className="inv-modal-backdrop"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="share-menu-title"
-              onClick={() => setShareMenuOpen(false)}
-            >
-              <section
-                className="inv-modal-panel"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <h2 id="share-menu-title">איך לשלוח לספק?</h2>
-                <button type="button" onClick={handleWhatsApp}>
+            <BottomSheet title="איך לשלוח לספק?" onClose={() => setShareMenuOpen(false)}>
+              <div style={{ display: "grid", gap: 8 }}>
+                <button type="button" className="inv-btn-primary inv-btn-primary--full" onClick={handleWhatsApp}>
                   WhatsApp
                 </button>
-                <button type="button" onClick={handleMailto}>
+                <button type="button" className="inv-btn-secondary" onClick={handleMailto}>
                   פתיחה במייל
                 </button>
-                <button type="button" onClick={() => void copyOrderText()}>
+                <button type="button" className="inv-btn-secondary" onClick={() => void copyOrderText()}>
                   העתקת נוסח
                 </button>
-                <button type="button" onClick={() => setShareMenuOpen(false)}>
-                  סגירה
-                </button>
-              </section>
-            </div>
+              </div>
+            </BottomSheet>
           ) : null}
-        </div>
+        </>
       ) : null}
     </InventorySubPage>
   );

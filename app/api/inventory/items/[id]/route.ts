@@ -60,7 +60,7 @@ function parseRequiredNonNegativeNumber(
 ): number {
   const parsedValue = Number(value);
 
-  if (Number.isNaN(parsedValue)) {
+  if (!Number.isFinite(parsedValue)) {
     throw new InventoryValidationError(`${fieldName} must be a valid number`);
   }
 
@@ -85,7 +85,7 @@ function parseOptionalNullableNumber(
 
   const parsedValue = Number(value);
 
-  if (Number.isNaN(parsedValue)) {
+  if (!Number.isFinite(parsedValue)) {
     throw new InventoryValidationError(`${fieldName} must be a valid number`);
   }
 
@@ -129,6 +129,7 @@ export async function GET(request: NextRequest) {
         businessId: user.businessId,
       },
       include: {
+        category: true,
         alerts: {
           where: {
             isResolved: false,

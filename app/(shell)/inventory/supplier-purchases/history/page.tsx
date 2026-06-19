@@ -3,6 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
+import {
+  FilterChipRow,
+  DecisionCard,
+  InventoryBadge,
+  InventoryStatePanel,
+  InventorySkeletonBlock,
+} from "@/components/inventory/inventory-design";
 
 type DraftLine = {
   id: number;
@@ -18,6 +25,8 @@ type Draft = {
   createdAt?: string;
   lines: DraftLine[];
 };
+
+type StatusFilter = "ALL" | "APPROVED" | "REJECTED";
 
 function buildHeaders() {
   const token =
@@ -49,9 +58,7 @@ function formatDate(value?: string) {
 export default function SupplierHistoryPage() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [openId, setOpenId] = useState<number | null>(null);
-  const [statusFilter, setStatusFilter] = useState<
-    "ALL" | "APPROVED" | "REJECTED"
-  >("ALL");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [visibleCount, setVisibleCount] = useState(5);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -109,131 +116,117 @@ export default function SupplierHistoryPage() {
       title="היסטוריית הזמנות"
       backHref="/inventory/supplier-purchases"
       backLabel="מרכז הזמנות ספק"
+      sub={
+        !loading && !error
+          ? summary.total > 0
+            ? `${summary.approved} נקלטו · ${summary.rejected} בוטלו`
+            : "אין עדיין הזמנות קודמות"
+          : undefined
+      }
       bottomNav="orders"
     >
-      <div className="inv-screen-stack">
-        <section className="inv-hero-card inv-hero-card--green">
-          <span className="inv-kicker">היסטוריה</span>
-          <h1>
-            {summary.total > 0
-              ? `${summary.total} הזמנות מתועדות`
-              : "אין עדיין הזמנות קודמות"}
-          </h1>
-          <p>כל הזמנה שנקלטה או בוטלה נשמרת כאן לבדיקת רצף ההזמנות.</p>
-        </section>
+      <FilterChipRow<StatusFilter>
+        value={statusFilter}
+        onChange={(value) => {
+          setStatusFilter(value);
+          setVisibleCount(5);
+        }}
+        options={[
+          { value: "ALL", label: "הכול" },
+          { value: "APPROVED", label: "נקלטו" },
+          { value: "REJECTED", label: "בוטלו" },
+        ]}
+      />
 
-        <section className="inv-surface-card">
-          <div className="inv-data-pairs">
-            <div>
-              <span>נקלטו</span>
-              <strong>{summary.approved}</strong>
-            </div>
-            <div>
-              <span>בוטלו</span>
-              <strong>{summary.rejected}</strong>
-            </div>
-          </div>
-          <div className="inv-tabs-soft" role="tablist" aria-label="סינון היסטוריה">
-            {[
-              { key: "ALL", label: "הכול" },
-              { key: "APPROVED", label: "נקלטו" },
-              { key: "REJECTED", label: "בוטלו" },
-            ].map((f) => (
-              <button
-                key={f.key}
-                type="button"
-                onClick={() => {
-                  setStatusFilter(f.key as typeof statusFilter);
-                  setVisibleCount(5);
-                }}
-                className={statusFilter === f.key ? "is-active" : ""}
-              >
-                {f.label}
+      {error ? (
+        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
+          <InventoryStatePanel
+            tone="error"
+            title="שגיאת שרת"
+            action={
+              <button type="button" className="inv-btn-primary inv-btn-primary--full" onClick={() => void load()}>
+                נסה שוב
               </button>
-            ))}
-          </div>
-        </section>
-
-        {loading ? (
-          <section className="inv-surface-card inv-center-state" aria-busy="true">
-            טוען היסטוריה...
-          </section>
-        ) : error ? (
-          <section className="inv-surface-card inv-center-state">
-            <strong>שגיאת שרת</strong>
-            <p>{error}</p>
-            <button type="button" className="inv-primary-button" onClick={() => void load()}>
-              נסה שוב
-            </button>
-          </section>
-        ) : visible.length === 0 ? (
-          <section className="inv-surface-card inv-center-state">
-            <strong>אין הזמנות להצגה</strong>
-            <p>אפשר לשנות סינון או ליצור הזמנה חדשה לספק.</p>
-            <Link
-              href="/inventory/supplier-purchases/new"
-              className="inv-primary-button"
-            >
-              יצירת הזמנה
-            </Link>
-          </section>
-        ) : (
-          <section className="inv-screen-stack" aria-label="רשימת הזמנות">
-            {visible.map((draft) => {
-              const isOpen = openId === draft.id;
-              const totalUnits = draft.lines.reduce(
-                (s, l) => s + l.quantity,
-                0
-              );
-
-              return (
-                <article key={draft.id} className="inv-surface-card">
-                  <div className="inv-row-card-head">
-                    <div>
-                      <span className="inv-status-pill">
-                        {statusLabel(draft.status)}
-                      </span>
-                      <h2>{draft.supplierName || "הזמנה ללא ספק"}</h2>
-                      <p>
-                        #{draft.id} · {formatDate(draft.createdAt)} ·{" "}
-                        {draft.lines.length} מוצרים · {totalUnits} יחידות
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="inv-secondary-button"
-                      onClick={() => setOpenId(isOpen ? null : draft.id)}
-                    >
-                      {isOpen ? "הסתר" : "פרטים"}
-                    </button>
-                  </div>
-
-                  {isOpen ? (
-                    <ul className="inv-simple-list" role="list">
-                      {draft.lines.map((line) => (
-                        <li key={line.id}>
-                          <span>{line.rawName || "מוצר ללא שם"}</span>
-                          <strong>{line.quantity} יחידות</strong>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </article>
-              );
-            })}
-          </section>
-        )}
-
-        {filtered.length > visibleCount ? (
-          <button
-            type="button"
-            onClick={() => setVisibleCount((p) => p + 5)}
-            className="inv-secondary-button"
+            }
           >
-            הצג עוד הזמנות
-          </button>
-        ) : null}
-      </div>
+            {error}
+          </InventoryStatePanel>
+        </div>
+      ) : loading ? (
+        <div className="inv-rows">
+          <InventorySkeletonBlock height={84} rows={4} />
+        </div>
+      ) : visible.length === 0 ? (
+        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
+          <InventoryStatePanel
+            title="אין הזמנות להצגה"
+            action={
+              <Link href="/inventory/supplier-purchases/new" className="inv-btn-primary inv-btn-primary--full">
+                יצירת הזמנה
+              </Link>
+            }
+          >
+            אפשר לשנות סינון או ליצור הזמנה חדשה לספק. כל הזמנה שנקלטה או בוטלה נשמרת כאן.
+          </InventoryStatePanel>
+        </div>
+      ) : (
+        <div className="inv-rows">
+          {visible.map((draft) => {
+            const isOpen = openId === draft.id;
+            const totalUnits = draft.lines.reduce((s, l) => s + l.quantity, 0);
+            const approved = draft.status === "APPROVED";
+            return (
+              <DecisionCard key={draft.id}>
+                <div className="inv-dcard__top">
+                  <span
+                    className="inv-row__thumb"
+                    style={{ background: "var(--inv-surface, #f5f7f9)", width: 46, height: 46, fontSize: 22 }}
+                    aria-hidden
+                  >
+                    🚚
+                  </span>
+                  <div className="inv-row__mid">
+                    <div className="inv-row__nm" dir="auto">{draft.supplierName || "הזמנה ללא ספק"}</div>
+                    <div className="inv-row__meta">
+                      <bdi>#{draft.id}</bdi> · <bdi>{formatDate(draft.createdAt)}</bdi> · <bdi>{draft.lines.length}</bdi> מוצרים · <bdi>{totalUnits}</bdi> יחידות
+                    </div>
+                  </div>
+                  <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 7 }}>
+                    <InventoryBadge tone={approved ? "ok" : "neutral"}>{statusLabel(draft.status)}</InventoryBadge>
+                    <button type="button" className="inv-row__action" onClick={() => setOpenId(isOpen ? null : draft.id)}>
+                      {isOpen ? "הסתר" : "פרטים ›"}
+                    </button>
+                  </span>
+                </div>
+
+                {isOpen ? (
+                  <div className="inv-olines" style={{ marginTop: 12 }}>
+                    {draft.lines.map((line) => (
+                      <div key={line.id} className="inv-oline">
+                        <div className="inv-oline__mid">
+                          <div className="inv-oline__nm" dir="auto">{line.rawName || "מוצר ללא שם"}</div>
+                        </div>
+                        <span className="inv-oline__price"><bdi>{line.quantity}</bdi> יחידות</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </DecisionCard>
+            );
+          })}
+
+          {filtered.length > visibleCount ? (
+            <button
+              type="button"
+              onClick={() => setVisibleCount((p) => p + 5)}
+              className="inv-btn-secondary"
+              style={{ width: "100%", marginTop: 4 }}
+            >
+              הצג עוד הזמנות
+            </button>
+          ) : null}
+        </div>
+      )}
     </InventorySubPage>
   );
 }

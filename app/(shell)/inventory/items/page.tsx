@@ -1,253 +1,87 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
-import { getStockTone } from "@/components/inventory/inventory-design";
-import { getInventoryItems, type InventoryItemDTO } from "@/lib/api/inventory";
+import { useInventoryInboxCounts } from "@/components/inventory/use-inventory-inbox-counts";
+import {
+  getStockTone,
+  getStockRatio,
+  getStockStatusLabel,
+  InventorySearch,
+  FilterChipRow,
+  InventoryProductRow,
+  InventoryStatePanel,
+  InventorySkeletonBlock,
+  IconPlus,
+} from "@/components/inventory/inventory-design";
+import {
+  getInventoryItems,
+  type InventoryItemDTO,
+} from "@/lib/api/inventory";
 import {
   getClientAuthToken,
   isUnauthorizedError,
   redirectToLogin,
 } from "@/lib/client-session";
+import { getProductEmoji } from "@/lib/inventory/product-emoji";
 
 type StockTone = ReturnType<typeof getStockTone>;
+type ToneFilter = "all" | StockTone;
 
-const itemsCss = `
-[data-inventory-truth-list] {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+const UNIT_SHORT: Record<string, string> = {
+  UNIT: "יח׳",
+  BOX: "מארז",
+  KG: "ק״ג",
+  GRAM: "גרם",
+  LITER: "ליטר",
+  ML: "מ״ל",
+};
+
+const TONE_DOTS: Record<StockTone, string> = {
+  critical: "#ef4444",
+  low: "#f59e0b",
+  ok: "#22c55e",
+};
+
+function safeImage(imageUrl?: string | null) {
+  return imageUrl && !imageUrl.includes("example.com") ? imageUrl : null;
 }
 
-.truth-list-hero,
-.truth-list-empty,
-.truth-item-card {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 20px;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
+function itemMeta(item: InventoryItemDTO) {
+  return [item.category?.name, item.supplierName, item.sku]
+    .filter((v): v is string => Boolean(v && String(v).trim()))
+    .join(" · ");
 }
 
-.truth-list-hero {
-  padding: 18px;
-}
-
-.truth-list-kicker {
-  margin-bottom: 8px;
-  color: #2563eb;
-  font-size: 0.78rem;
-  font-weight: 900;
-}
-
-.truth-list-hero h1 {
-  margin: 0;
-  color: #0f172a;
-  font-size: 1.35rem;
-  line-height: 1.2;
-  font-weight: 900;
-}
-
-.truth-list-hero p {
-  margin: 8px 0 0;
-  color: #64748b;
-  font-size: 0.92rem;
-  line-height: 1.55;
-}
-
-.truth-search {
-  margin-top: 16px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 46px;
-  border: 1px solid #dbe3ef;
-  border-radius: 15px;
-  background: #f8fafc;
-  padding: 0 12px;
-}
-
-.truth-search input {
-  border: 0;
-  outline: 0;
-  background: transparent;
-  width: 100%;
-  min-width: 0;
-  font: inherit;
-  color: #0f172a;
-}
-
-.truth-list-stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.truth-stat-card {
-  min-height: 78px;
-  padding: 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 18px;
-  background: #ffffff;
-}
-
-.truth-stat-card strong {
-  display: block;
-  color: #0f172a;
-  font-size: 1.25rem;
-  line-height: 1;
-}
-
-.truth-stat-card span {
-  display: block;
-  margin-top: 7px;
-  color: #64748b;
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
-.truth-items-list {
-  display: grid;
-  gap: 12px;
-}
-
-.truth-item-card {
-  width: 100%;
-  border-color: #e5e7eb;
-  padding: 14px;
-  text-align: right;
-  color: inherit;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
-  gap: 12px;
-  cursor: pointer;
-}
-
-.truth-item-card:focus-visible,
-.truth-add-button:focus-visible {
-  outline: 3px solid rgba(37, 99, 235, 0.25);
-  outline-offset: 2px;
-}
-
-.truth-item-status {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 900;
-}
-
-.truth-item-status--critical {
-  background: #fee2e2;
-  color: #dc2626;
-}
-
-.truth-item-status--low {
-  background: #fef3c7;
-  color: #b45309;
-}
-
-.truth-item-status--ok {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.truth-item-name {
-  display: block;
-  margin-top: 10px;
-  color: #0f172a;
-  font-size: 1rem;
-  line-height: 1.35;
-  font-weight: 900;
-}
-
-.truth-item-stock {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.truth-item-stock span {
-  border-radius: 14px;
-  background: #f8fafc;
-  padding: 9px;
-  color: #475569;
-  font-size: 0.76rem;
-  line-height: 1.35;
-}
-
-.truth-item-stock strong {
-  display: block;
-  margin-top: 3px;
-  color: #0f172a;
-  font-size: 0.95rem;
-}
-
-.truth-item-meta {
-  margin-top: 10px;
-  color: #64748b;
-  font-size: 0.8rem;
-  line-height: 1.45;
-}
-
-.truth-item-chevron {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  color: #334155;
-}
-
-.truth-list-empty {
-  padding: 28px 18px;
-  text-align: center;
-  color: #64748b;
-}
-
-.truth-list-empty strong {
-  display: block;
-  margin-bottom: 8px;
-  color: #0f172a;
-  font-size: 1rem;
-}
-
-.truth-add-button {
-  width: 100%;
-  min-height: 52px;
-  border: 0;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #2563eb, #0f766e);
-  color: #ffffff;
-  font: inherit;
-  font-size: 0.95rem;
-  font-weight: 900;
-  cursor: pointer;
-  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.18);
-}
-
-@media (max-width: 380px) {
-  .truth-list-stats,
-  .truth-item-stock {
-    grid-template-columns: 1fr;
+/** Caption under the stock bar, mirroring the mockup's `.barcap` copy. */
+function itemCaption(item: InventoryItemDTO): string | undefined {
+  if (item.reorderPoint != null) {
+    return `${item.currentQuantity} מתוך סף הזמנה ${item.reorderPoint}`;
   }
+  if (item.minimumQuantity > 0) {
+    return `${item.currentQuantity} · סף מינימום ${item.minimumQuantity}`;
+  }
+  return undefined;
 }
-`;
 
-export default function InventoryItemsListPage() {
-  const router = useRouter();
+function InventoryItemsListPageContent() {
+  const searchParams = useSearchParams();
+  const { counts: inboxCounts } = useInventoryInboxCounts();
   const [items, setItems] = useState<InventoryItemDTO[]>([]);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => searchParams.get("q") || "");
+  const statusParam = searchParams.get("status") || "";
+  const missingDataMode = statusParam === "missing-data";
+  const [toneFilter, setToneFilter] = useState<ToneFilter>(
+    statusParam === "low" ? "low" : "all"
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const sortedItems = useMemo(() => {
+    const toneOrder: Record<StockTone, number> = { critical: 0, low: 1, ok: 2 };
     return [...items].sort((a, b) => {
-      const toneOrder: Record<StockTone, number> = { critical: 0, low: 1, ok: 2 };
       const ta = toneOrder[getStockTone(a)];
       const tb = toneOrder[getStockTone(b)];
       if (ta !== tb) return ta - tb;
@@ -255,26 +89,35 @@ export default function InventoryItemsListPage() {
     });
   }, [items]);
 
+  const counts = useMemo(
+    () =>
+      sortedItems.reduce(
+        (acc, item) => {
+          acc[getStockTone(item)] += 1;
+          return acc;
+        },
+        { critical: 0, low: 0, ok: 0 } as Record<StockTone, number>
+      ),
+    [sortedItems]
+  );
+
   const filteredItems = useMemo(() => {
     const value = query.trim().toLowerCase();
-    if (!value) return sortedItems;
-
     return sortedItems.filter((item) => {
+      if (missingDataMode) {
+        const hasCost = item.costPerUnit != null || item.lastPurchaseCost != null;
+        if (hasCost && item.sellPricePerUnit != null) return false;
+      } else if (toneFilter !== "all" && getStockTone(item) !== toneFilter) {
+        return false;
+      }
+      if (!value) return true;
       return [item.name, item.barcode, item.sku, item.supplierName, item.category?.name]
         .filter(Boolean)
         .some((field) => String(field).toLowerCase().includes(value));
     });
-  }, [query, sortedItems]);
+  }, [missingDataMode, query, sortedItems, toneFilter]);
 
-  const counts = useMemo(() => {
-    return sortedItems.reduce(
-      (acc, item) => {
-        acc[getStockTone(item)] += 1;
-        return acc;
-      },
-      { critical: 0, low: 0, ok: 0 } as Record<StockTone, number>
-    );
-  }, [sortedItems]);
+  const attention = counts.critical + counts.low;
 
   async function loadItems() {
     const token = getClientAuthToken();
@@ -283,7 +126,6 @@ export default function InventoryItemsListPage() {
       redirectToLogin();
       return;
     }
-
     try {
       setLoading(true);
       setError(null);
@@ -294,172 +136,160 @@ export default function InventoryItemsListPage() {
         redirectToLogin();
         return;
       }
-
-      setError(err instanceof Error ? err.message : "לא הצלחנו לטעון את רשימת הפריטים");
+      setError(err instanceof Error ? err.message : "לא הצלחנו לטעון את רשימת המוצרים");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadItems();
-    }, 0);
-
+    const timer = window.setTimeout(() => void loadItems(), 0);
     return () => window.clearTimeout(timer);
   }, []);
 
+  const sub = (
+    <>
+      {items.length} מוצרים
+      {attention > 0 ? <> · <b>{attention} דורשים טיפול</b></> : <> · הכול תקין</>}
+    </>
+  );
+
   return (
     <InventorySubPage
-      title="כל הפריטים"
-      backHref="/inventory"
-      backLabel="טיפול עכשיו"
+      title="מלאי"
+      variant="hub"
+      sub={!loading && !error ? sub : undefined}
+      headerAction={{
+        icon: <IconPlus />,
+        label: "מוצר חדש",
+        href: "/inventory/items/create",
+        accent: true,
+      }}
       bottomNav="products"
     >
-      <style>{itemsCss}</style>
+      <InventorySearch
+        value={query}
+        onChange={setQuery}
+        placeholder="חיפוש לפי שם, מק״ט או ברקוד"
+      />
 
-      <div data-inventory-truth-list>
-        <section className="truth-list-hero">
-          <div className="truth-list-kicker">מלאי · אמת</div>
-          <h1>מה באמת יש במלאי?</h1>
-          <p>הפריטים מסודרים לפי מצב קודם, כדי לראות מיד מה תקין ומה דורש תשומת לב.</p>
+      {missingDataMode ? (
+        <div className="inv-hd__sub" style={{ marginTop: 14 }}>
+          מוצרים עם נתונים חסרים — עלות או מחיר מכירה
+        </div>
+      ) : (
+        <FilterChipRow<ToneFilter>
+          value={toneFilter}
+          onChange={setToneFilter}
+          options={[
+            { value: "all", label: "הכל" },
+            { value: "critical", label: "קריטי", dotColor: TONE_DOTS.critical },
+            { value: "low", label: "נמוך", dotColor: TONE_DOTS.low },
+            { value: "ok", label: "תקין", dotColor: TONE_DOTS.ok },
+          ]}
+        />
+      )}
 
-          <label className="truth-search">
-            <SearchIcon />
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="חיפוש מוצר, ספק או ברקוד"
-            />
-          </label>
-        </section>
+      {!loading && !error && inboxCounts.drafts > 0 ? (
+        <div
+          style={{
+            width: "100%",
+            maxWidth: "var(--inv-content-max, 720px)",
+            margin: "12px auto 0",
+            padding: "0 clamp(16px,3.5vw,28px)",
+            boxSizing: "border-box",
+          }}
+        >
+          <Link
+            href="/inventory/drafts"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              textDecoration: "none",
+              background: "var(--inv-card-bg)",
+              border: "1px solid var(--inv-border)",
+              borderRadius: "var(--inv-radius-md)",
+              boxShadow: "var(--inv-shadow)",
+              padding: "12px 14px",
+              color: "var(--inv-text)",
+              fontWeight: 700,
+              fontSize: 14,
+            }}
+          >
+            <span style={{ fontSize: 20 }} aria-hidden>🗂️</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <bdi>{inboxCounts.drafts}</bdi> מוצרים זוהו אוטומטית · ממתינים לאישור
+            </span>
+            <span style={{ color: "var(--inv-accent)", fontWeight: 800, flexShrink: 0 }}>אישור ›</span>
+          </Link>
+        </div>
+      ) : null}
 
-        <section className="truth-list-stats" aria-label="סיכום מצב מלאי">
-          <StatCard label="קריטי" value={counts.critical} />
-          <StatCard label="נמוך" value={counts.low} />
-          <StatCard label="תקין" value={counts.ok} />
-        </section>
-
-        {error ? (
-          <section className="truth-list-empty" role="alert">
-            <strong>משהו השתבש</strong>
-            <span>{error}</span>
-            <div style={{ marginTop: 14 }}>
-              <button type="button" className="truth-add-button" onClick={() => void loadItems()}>
+      {error ? (
+        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
+          <InventoryStatePanel
+            tone="error"
+            title="משהו השתבש"
+            action={
+              <button type="button" className="inv-btn-primary inv-btn-primary--full" onClick={() => void loadItems()}>
                 נסה שוב
               </button>
-            </div>
-          </section>
-        ) : loading ? (
-          <section className="truth-list-empty">טוען פריטים...</section>
-        ) : filteredItems.length === 0 ? (
-          <section className="truth-list-empty">
-            <strong>{items.length === 0 ? "עדיין אין פריטים במלאי" : "לא נמצאו פריטים"}</strong>
-            <span>
-              {items.length === 0
-                ? "כשתוסיף פריטים הם יופיעו כאן לפי מצב המלאי שלהם."
-                : "נסה חיפוש קצר יותר או חזור לרשימה המלאה."}
-            </span>
-          </section>
-        ) : (
-          <section className="truth-items-list" aria-label="רשימת פריטים">
-            {filteredItems.map((item) => (
-              <ItemCard key={item.id} item={item} onOpen={() => router.push(`/inventory/items/${item.id}`)} />
-            ))}
-          </section>
-        )}
-
-        <button type="button" className="truth-add-button" onClick={() => router.push("/inventory/items/create")}>
-          הוסף מוצר
-        </button>
-      </div>
+            }
+          >
+            {error}
+          </InventoryStatePanel>
+        </div>
+      ) : loading ? (
+        <div className="inv-rows">
+          <InventorySkeletonBlock height={80} rows={5} />
+        </div>
+      ) : filteredItems.length === 0 ? (
+        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
+          <InventoryStatePanel
+            title={items.length === 0 ? "עדיין אין מוצרים במלאי" : "לא נמצאו מוצרים"}
+          >
+            {items.length === 0
+              ? "הוסיפו מוצר ראשון כדי להתחיל לעקוב אחרי הכמויות, הספים וההתראות."
+              : "נסו חיפוש קצר יותר או שנו את הסינון."}
+          </InventoryStatePanel>
+        </div>
+      ) : (
+        <div className="inv-rows">
+          {filteredItems.map((item) => {
+            const tone = getStockTone(item);
+            return (
+              <InventoryProductRow
+                key={item.id}
+                tone={tone}
+                imageUrl={safeImage(item.imageUrl)}
+                thumbGlyph={
+                  <span aria-hidden style={{ fontSize: 26, lineHeight: 1 }}>
+                    {getProductEmoji(item.name, item.category?.name)}
+                  </span>
+                }
+                name={item.name}
+                meta={itemMeta(item) || undefined}
+                ratio={getStockRatio(item)}
+                caption={itemCaption(item)}
+                statusLabel={getStockStatusLabel(tone)}
+                quantity={item.currentQuantity}
+                unitLabel={UNIT_SHORT[item.unitType] ?? undefined}
+                href={`/inventory/items/${item.id}`}
+              />
+            );
+          })}
+        </div>
+      )}
     </InventorySubPage>
   );
 }
 
-function ItemCard({ item, onOpen }: { item: InventoryItemDTO; onOpen: () => void }) {
-  const tone = getStockTone(item);
-  const stockCopy = getStockCopy(tone);
-  const reorderValue = item.reorderPoint ?? "לא הוגדרה";
-
+// useSearchParams() requires a Suspense boundary for static prerender (Next).
+export default function InventoryItemsListPage() {
   return (
-    <button type="button" className="truth-item-card" onClick={onOpen}>
-      <span>
-        <span className={`truth-item-status truth-item-status--${tone}`}>{stockCopy.label}</span>
-        <span className="truth-item-name">{item.name}</span>
-
-        <span className="truth-item-stock">
-          <span>
-            כמות
-            <strong>{item.currentQuantity}</strong>
-          </span>
-          <span>
-            מינימום
-            <strong>{item.minimumQuantity}</strong>
-          </span>
-          <span>
-            הזמנה
-            <strong>{reorderValue}</strong>
-          </span>
-        </span>
-
-        <span className="truth-item-meta">
-          {[item.category?.name, item.supplierName, item.barcode ? `ברקוד ${item.barcode}` : null]
-            .filter(Boolean)
-            .join(" · ") || "אין פרטים משניים"}
-        </span>
-      </span>
-
-      <span className="truth-item-chevron" aria-hidden>
-        <ChevronLeftIcon />
-      </span>
-    </button>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="truth-stat-card">
-      <strong>{value}</strong>
-      <span>{label}</span>
-    </div>
-  );
-}
-
-function getStockCopy(tone: StockTone) {
-  if (tone === "critical") {
-    return { label: "מצב קריטי" };
-  }
-
-  if (tone === "low") {
-    return { label: "דורש תשומת לב" };
-  }
-
-  return { label: "תקין" };
-}
-
-function Svg({ children, size = 20 }: { children: ReactNode; size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
-      {children}
-    </svg>
-  );
-}
-
-function SearchIcon() {
-  return (
-    <Svg size={18}>
-      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
-      <path d="M16.5 16.5L21 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </Svg>
-  );
-}
-
-function ChevronLeftIcon() {
-  return (
-    <Svg size={18}>
-      <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
+    <Suspense fallback={null}>
+      <InventoryItemsListPageContent />
+    </Suspense>
   );
 }

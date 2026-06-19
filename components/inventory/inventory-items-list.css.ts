@@ -34,7 +34,7 @@ export const inventoryItemsListCss = `
     padding: 0 16px;
     border: none;
     border-radius: 12px;
-    background: #059669;
+    background: linear-gradient(90deg, #243B57 0%, #9DB4D4 100%);
     color: #fff;
     font-size: 14px;
     font-weight: 800;
@@ -346,7 +346,7 @@ export const inventoryItemsListCss = `
   [data-inventory-items-list] .inv-items-list__empty-btn {
     border: none;
     border-radius: 10px;
-    background: #059669;
+    background: linear-gradient(90deg, #243B57 0%, #9DB4D4 100%);
     color: #fff;
     font-size: 13px;
     font-weight: 800;

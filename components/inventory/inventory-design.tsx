@@ -1,7 +1,6 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import {
   inventoryRadius,
   inventorySpacing,
@@ -9,8 +8,53 @@ import {
   inventoryToneStyles,
   type InventoryTone,
 } from "@/components/inventory/inventory-tokens";
+import {
+  InventoryHeader,
+  type InventoryHeaderAction as InventoryHeaderActionType,
+} from "@/components/inventory/inventory-primitives";
 
 export const inventoryTheme = inventoryTokenTheme;
+
+// Re-export shared primitives so existing imports from inventory-design keep working.
+export {
+  InventoryHeader,
+  IconChevronStart,
+  IconPlus,
+  IconEdit,
+  SegmentedControl,
+  FilterChipRow,
+  Stepper,
+  MiniStepper,
+  ConfidencePill,
+  DecisionCard,
+  DecisionChips,
+  BottomActionBar,
+  SaveBar,
+  BottomSheet,
+  SheetActions,
+  ConfirmModal,
+  WizardSteps,
+  ProductHero,
+  ProductTags,
+  StockStatusBlock,
+  KeyValueGrid,
+  MovementRow,
+  DetailActions,
+  InventorySearch,
+  InventoryProductRow,
+  InventoryRow,
+  InventoryOrderLine,
+  InventoryBadge,
+  IconSearch,
+  IconScan,
+  stockPalette,
+  type InventoryHeaderAction,
+  type ConfidenceLevel,
+  type DecisionChoice,
+  type StockTone,
+  type DetailAction,
+  type BadgeTone,
+} from "@/components/inventory/inventory-primitives";
 
 export function inventoryPageStyle(): CSSProperties {
   return {
@@ -133,10 +177,10 @@ export function QuickActionTile({
       className={className}
       style={{
         border: outline
-          ? `2px solid ${inventoryTheme.successBtn}`
+          ? `2px solid ${inventoryTheme.accent}`
           : `1px solid ${inventoryTheme.cardBorder}`,
         borderRadius: inventoryRadius.lg,
-        background: outline ? "#f0fdf4" : inventoryTheme.cardBg,
+        background: outline ? "#eff6ff" : inventoryTheme.cardBg,
         padding: `${inventorySpacing.lg}px ${inventorySpacing.sm}px`,
         cursor: "pointer",
         display: "flex",
@@ -300,7 +344,8 @@ export function PrimaryButton({
   variant?: "primary" | "success";
   fullWidth?: boolean;
 }) {
-  const bg = variant === "success" ? inventoryTheme.successBtn : inventoryTheme.primaryBtn;
+  void variant;
+  const bg = inventoryTheme.primaryBtn;
   return (
     <button
       type="button"
@@ -318,7 +363,9 @@ export function PrimaryButton({
         fontWeight: 900,
         cursor: disabled ? "not-allowed" : "pointer",
         fontFamily: "inherit",
-        boxShadow: disabled ? "none" : "0 8px 20px rgba(10, 10, 15, 0.14)",
+        boxShadow: disabled
+          ? "none"
+          : "0 12px 24px rgba(36, 59, 87, 0.22), inset 0 1px 0 rgba(255,255,255,0.22)",
       }}
     >
       {children}
@@ -669,6 +716,9 @@ export function InventoryBottomNav({
 }: {
   active?: "home" | "products" | "sales" | "orders" | "more";
 }) {
+  void active;
+  return null;
+/*
   const router = useRouter();
   const items: Array<{
     id: typeof active;
@@ -716,6 +766,7 @@ export function InventoryBottomNav({
       })}
     </nav>
   );
+*/
 }
 
 export const inventoryResponsiveCss = `
@@ -753,7 +804,6 @@ export const inventoryResponsiveCss = `
     .inv-stock-bar-col { display: none; }
     .inv-table-head { display: none; }
     .inv-hamburger { display: flex; }
-    .inv-bottom-nav { display: flex; }
     .inv-main-shell { padding-bottom: 88px; }
   }
 `;
@@ -820,97 +870,37 @@ const introToneStyles: Record<
   },
 };
 
+/**
+ * Page-variant header. Thin wrapper over the canonical {@link InventoryHeader}
+ * kept for back-compat with existing `InventorySubPage` callers. The back button
+ * is now the unified chevron-start icon button (the `backLabel` text is no longer
+ * rendered). Pass `showBack={false}` for hub screens (no back).
+ */
 export function InventorySubheader({
   title,
   showBack = true,
   backHref,
-  backLabel = "חזרה",
   onBack,
+  action,
 }: {
   title: string;
   showBack?: boolean;
   backHref?: string;
+  /** @deprecated chevron has no text label; kept so callers don't break. */
   backLabel?: string;
   onBack?: () => void;
+  action?: InventoryHeaderActionType | null;
 }) {
-  const router = useRouter();
-
-  function handleBack() {
-    if (!showBack) return;
-    if (onBack) {
-      onBack();
-      return;
-    }
-    if (typeof backHref === "string" && backHref.trim()) {
-      router.push(backHref);
-      return;
-    }
-    router.back();
+  if (!showBack) {
+    return <InventoryHeader title={title} variant="hub" action={action} />;
   }
-
   return (
-    <header
-      style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 40,
-        background: "rgba(240, 244, 248, 0.92)",
-        backdropFilter: "blur(12px)",
-        borderBottom: `1px solid ${inventoryTheme.cardBorder}`,
-        padding: "12px 16px",
-      }}
-    >
-      <div
-        style={{
-          maxWidth: 920,
-          margin: "0 auto",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          minHeight: 40,
-          position: "relative",
-        }}
-      >
-        <div
-          style={{
-            fontWeight: 950,
-            fontSize: 16,
-            color: inventoryTheme.text,
-            textAlign: "center",
-            paddingLeft: 88,
-            paddingRight: 88,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {title}
-        </div>
-        {showBack ? (
-          <button
-            type="button"
-            onClick={handleBack}
-            style={{
-              position: "absolute",
-              right: 0,
-              top: "50%",
-              transform: "translateY(-50%)",
-              height: 40,
-              borderRadius: 12,
-              border: `1px solid ${inventoryTheme.cardBorder}`,
-              background: inventoryTheme.cardBg,
-              cursor: "pointer",
-              padding: "0 12px",
-              fontSize: 14,
-              fontWeight: 900,
-              color: inventoryTheme.text,
-            }}
-          >
-            {backLabel}
-          </button>
-        ) : null}
-      </div>
-    </header>
+    <InventoryHeader
+      title={title}
+      variant="page"
+      back={{ href: backHref, onBack }}
+      action={action}
+    />
   );
 }
 
@@ -1111,8 +1101,8 @@ export function NoticeBanner({
         ? {
             border: "#bfdbfe",
             bg: "#eff6ff",
-            color: "#1d4ed8",
-            btn: "#1d4ed8",
+            color: "#3F619C",
+            btn: "#3F619C",
           }
         : {
             border: "#fecaca",

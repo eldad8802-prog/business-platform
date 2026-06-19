@@ -77,11 +77,11 @@ export const inventoryLayoutCss = `
   }
 
   .inv-wizard-progress-seg.is-done {
-    background: #059669;
+    background: #9DB4D4;
   }
 
   .inv-wizard-progress-seg.is-active {
-    background: #0A0A0F;
+    background: #243B57;
     height: 6px;
   }
 

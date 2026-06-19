@@ -209,29 +209,31 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
       setLoading(true);
       setError(null);
 
-      const [itemsData, categoriesData, suggestionsResponse] =
-        await Promise.all([
-          getInventoryItems(),
-          getInventoryCategories(),
-          fetch("/api/inventory/reorder-suggestions", {
+      // Items are critical. Categories and reorder-suggestions are best-effort:
+      // if either is slow/unavailable the wizard still opens with the products,
+      // instead of failing the whole screen on a secondary call.
+      const itemsData = await getInventoryItems();
+      const categoriesData = await getInventoryCategories().catch(() => []);
+
+      let normalizedSuggestions: ReorderSuggestion[] = [];
+      try {
+        const suggestionsResponse = await fetch(
+          "/api/inventory/reorder-suggestions",
+          {
             method: "GET",
             headers: buildHeaders(),
             cache: "no-store",
-          }),
-        ]);
-
-      const suggestionsData = await suggestionsResponse.json();
-
-      if (!suggestionsResponse.ok) {
-        throw new Error(
-          suggestionsData?.error || "לא הצלחנו לטעון המלצות להזמנה"
+          }
         );
+        const suggestionsData = await suggestionsResponse.json().catch(() => null);
+        if (suggestionsResponse.ok && Array.isArray(suggestionsData?.suggestions)) {
+          normalizedSuggestions = suggestionsData.suggestions;
+        }
+      } catch {
+        // Non-fatal — recommendations are optional context.
       }
 
       const normalizedItems = Array.isArray(itemsData) ? itemsData : [];
-      const normalizedSuggestions = Array.isArray(suggestionsData?.suggestions)
-        ? suggestionsData.suggestions
-        : [];
 
       const defaults: Record<number, number> = {};
       normalizedSuggestions.forEach((suggestion: ReorderSuggestion) => {

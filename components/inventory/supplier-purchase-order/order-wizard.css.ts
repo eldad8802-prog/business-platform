@@ -11,70 +11,6 @@ export const orderWizardCss = `
   max-width: 680px;
 }
 
-.owz-progress {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 18px;
-  padding: 12px;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
-}
-
-.owz-progress__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.owz-progress__step {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  color: #94a3b8;
-}
-
-.owz-progress__node {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: #f1f5f9;
-  color: #64748b;
-  font-size: 0.78rem;
-  font-weight: 900;
-}
-
-.owz-progress__label {
-  font-size: 0.72rem;
-  font-weight: 850;
-  line-height: 1.25;
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-}
-
-.owz-progress__step.is-current .owz-progress__node {
-  background: #0f766e;
-  color: #ffffff;
-}
-
-.owz-progress__step.is-current .owz-progress__label {
-  color: #0f766e;
-}
-
-.owz-progress__step.is-done .owz-progress__node {
-  background: #dcfce7;
-  color: #166534;
-}
-
 .owz-step,
 .owz-order-doc,
 .owz-state-card {
@@ -94,8 +30,8 @@ export const orderWizardCss = `
   width: fit-content;
   margin-bottom: 8px;
   border-radius: 999px;
-  background: #ecfdf5;
-  color: #0f766e;
+  background: #EEF3F9;
+  color: #3F619C;
   padding: 5px 10px;
   font-size: 0.72rem;
   font-weight: 900;
@@ -234,7 +170,7 @@ export const orderWizardCss = `
 .owz-step__next,
 .owz-order-doc__submit {
   border: 0;
-  background: #0f766e;
+  background: linear-gradient(90deg, #243B57 0%, #9DB4D4 100%);
   color: #ffffff;
 }
 
@@ -407,12 +343,6 @@ export const orderWizardCss = `
 
   .owz-order-doc__row {
     grid-template-columns: 42px minmax(0, 1fr) 60px 70px 90px;
-  }
-}
-
-@media (max-width: 390px) {
-  .owz-progress__list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 `;

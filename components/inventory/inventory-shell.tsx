@@ -16,6 +16,8 @@ import {
 } from "@/components/inventory/inventory-design";
 import { inventoryFoundationCss } from "@/components/inventory/inventory-foundation.css";
 import { inventoryLayoutCss } from "@/components/inventory/inventory-layout.css";
+import { inventoryPrimitivesCss } from "@/components/inventory/inventory-primitives.css";
+import type { InventoryHeaderAction } from "@/components/inventory/inventory-primitives";
 import {
   useInventoryInboxCounts,
   type InventoryInboxCounts,
@@ -573,8 +575,10 @@ export type InventoryBottomTab =
 
 export function InventorySubPage({
   title,
+  variant = "page",
   backHref,
-  backLabel = "חזרה",
+  sub,
+  headerAction,
   progressLabel,
   showInbox = false,
   bottomNav = "products",
@@ -582,8 +586,15 @@ export function InventorySubPage({
   children,
 }: {
   title: string;
-  backHref: string;
+  /** "page" → chevron-start back (default). "hub" → big title, no back. */
+  variant?: "hub" | "page";
+  /** Page variant only. */
+  backHref?: string;
   backLabel?: string;
+  /** Hub variant subtitle line under the title. */
+  sub?: ReactNode;
+  /** Trailing header action (e.g. the "+" new-item button). */
+  headerAction?: InventoryHeaderAction | null;
   /** Short line under header, e.g. "שלב 2 מתוך 4 · עגלת הזמנה" */
   progressLabel?: ReactNode;
   showInbox?: boolean;
@@ -603,11 +614,13 @@ export function InventorySubPage({
       <style>{inventoryResponsiveCss}</style>
       <style>{inventoryShellCss}</style>
       <style>{inventoryLayoutCss}</style>
-      <InventorySubheader
-        title={title}
-        backHref={backHref}
-        backLabel={backLabel}
-      />
+      <style>{inventoryPrimitivesCss}</style>
+      {variant === "hub" ? (
+        <InventorySubheader title={title} showBack={false} action={headerAction} />
+      ) : (
+        <InventorySubheader title={title} backHref={backHref} action={headerAction} />
+      )}
+      {variant === "hub" && sub ? <div className="inv-hd__sub">{sub}</div> : null}
       <div className="inv-subpage-body">
         {progressLabel ? (
           <p className="inv-progress-crumb">{progressLabel}</p>

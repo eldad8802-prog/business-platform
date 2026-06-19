@@ -73,7 +73,7 @@ export const inventoryFoundationCss = `
   }
 
   [data-inventory-module] .inv-hero-card--green {
-    background: linear-gradient(135deg, #0f766e 0%, #059669 100%);
+    background: linear-gradient(135deg, #047857 0%, #059669 100%);
   }
 
   [data-inventory-module] .inv-hero-card--purple {
@@ -81,7 +81,7 @@ export const inventoryFoundationCss = `
   }
 
   [data-inventory-module] .inv-hero-card--blue {
-    background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+    background: linear-gradient(135deg, #243B57 0%, #3F619C 100%);
   }
 
   [data-inventory-module] .inv-hero-card h1 {
@@ -222,9 +222,9 @@ export const inventoryFoundationCss = `
 
   [data-inventory-module] .inv-primary-button {
     border: 0;
-    background: #2563eb;
+    background: var(--inv-primary);
     color: #fff;
-    box-shadow: 0 8px 20px rgba(37, 99, 235, 0.18);
+    box-shadow: 0 12px 24px rgba(36, 59, 87, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.22);
   }
 
   [data-inventory-module] .inv-secondary-button {
@@ -281,13 +281,14 @@ export const inventoryFoundationCss = `
   }
 
   [data-inventory-module] .inv-mini-step.is-current {
-    background: var(--inv-text);
+    background: var(--inv-primary);
     color: #fff;
+    box-shadow: 0 8px 18px rgba(36, 59, 87, 0.18);
   }
 
   [data-inventory-module] .inv-mini-step.is-done {
-    background: #dcfce7;
-    color: #166534;
+    background: #eaf2ff;
+    color: #3F619C;
   }
 
   [data-inventory-module] .inv-modal-backdrop {
@@ -336,8 +337,9 @@ export const inventoryFoundationCss = `
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
     border-radius: var(--inv-radius-md);
-    background: #f1f5f9;
+    background: #eef3f8;
     padding: 5px;
+    border: 1px solid var(--inv-border);
   }
 
   [data-inventory-module] .inv-tabs-soft button {
@@ -345,7 +347,7 @@ export const inventoryFoundationCss = `
     border-radius: 11px;
     border: 0;
     background: transparent;
-    color: var(--inv-text-muted);
+    color: #64748b;
     font: inherit;
     font-size: 13px;
     font-weight: 900;
@@ -353,9 +355,9 @@ export const inventoryFoundationCss = `
   }
 
   [data-inventory-module] .inv-tabs-soft button.is-active {
-    background: #fff;
-    color: var(--inv-text);
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    background: var(--inv-primary);
+    color: #fff;
+    box-shadow: 0 10px 20px rgba(36, 59, 87, 0.18), inset 0 1px 0 rgba(255,255,255,0.22);
   }
 
   [data-inventory-module] .inv-row-card-head {
@@ -510,7 +512,7 @@ export const inventoryFoundationCss = `
     font-weight: 900;
     font-family: inherit;
     cursor: pointer;
-    box-shadow: 0 6px 16px rgba(91, 91, 214, 0.22);
+    box-shadow: 0 12px 24px rgba(36, 59, 87, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.22);
     box-sizing: border-box;
   }
 
@@ -769,7 +771,7 @@ export const inventoryFoundationCss = `
   }
 
   [data-inventory-module] .inv-bottom-nav {
-    display: none;
+    display: none !important;
     position: fixed;
     bottom: 0;
     left: 0;
@@ -802,10 +804,10 @@ export const inventoryFoundationCss = `
 
   @media (max-width: 720px) {
     [data-inventory-module] .inv-bottom-nav {
-      display: flex;
+      display: none !important;
     }
     [data-inventory-module] .inv-main-shell {
-      padding-bottom: var(--inv-bottom-safe);
+      padding-bottom: 28px;
     }
   }
 

@@ -130,7 +130,10 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
             padding: "9px 12px",
             borderRadius: "12px",
             border: "1px solid #e5e7eb",
-            background: movementType === "IN" ? "#059669" : "#f9fafb",
+            background:
+              movementType === "IN"
+                ? "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)"
+                : "#f9fafb",
             color: movementType === "IN" ? "#ffffff" : "#111827",
             cursor: loading ? "not-allowed" : "pointer",
             opacity: loading ? 0.7 : 1,
@@ -275,7 +278,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
             minHeight: "46px",
             padding: "10px 14px",
             borderRadius: "12px",
-            background: "#2563eb",
+            background: "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)",
             color: "#ffffff",
             border: "none",
             cursor: loading ? "not-allowed" : "pointer",

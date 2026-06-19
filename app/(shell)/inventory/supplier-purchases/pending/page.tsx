@@ -4,6 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { getInventoryItems } from "@/lib/api/inventory";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
+import {
+  DecisionCard,
+  DecisionChips,
+  InventoryBadge,
+  InventoryStatePanel,
+  InventorySkeletonBlock,
+} from "@/components/inventory/inventory-design";
 
 type Item = {
   id: number;
@@ -46,6 +53,7 @@ export default function PendingSupplierPurchasesPage() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [decisions, setDecisions] = useState<Record<number, LineDecision>>({});
   const [openId, setOpenId] = useState<number | null>(null);
+  const [confirmRejectId, setConfirmRejectId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +122,7 @@ export default function PendingSupplierPurchasesPage() {
 
   function openDraft(draft: Draft) {
     setOpenId((current) => (current === draft.id ? null : draft.id));
+    setConfirmRejectId(null);
 
     const nextDecisions: Record<number, LineDecision> = {};
 
@@ -219,6 +228,7 @@ export default function PendingSupplierPurchasesPage() {
 
       setSuccess("קליטת הסחורה אושרה והמלאי עודכן.");
       setOpenId(null);
+      setConfirmRejectId(null);
       await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "שגיאה באישור קליטה");
@@ -249,6 +259,7 @@ export default function PendingSupplierPurchasesPage() {
 
       setSuccess("ההזמנה בוטלה ללא שינוי במלאי.");
       setOpenId(null);
+      setConfirmRejectId(null);
       await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "שגיאה בביטול ההזמנה");
@@ -257,211 +268,202 @@ export default function PendingSupplierPurchasesPage() {
     }
   }
 
+  function requestRejectDraft(draftId: number) {
+    if (confirmRejectId !== draftId) {
+      setConfirmRejectId(draftId);
+      setError(null);
+      setSuccess(null);
+      return;
+    }
+
+    void rejectDraft(draftId);
+  }
+
   return (
     <InventorySubPage
       title="קליטת הזמנות"
       backHref="/inventory/supplier-purchases"
       backLabel="מרכז הזמנות ספק"
+      sub={
+        !loading && !error
+          ? summary.totalOrders > 0
+            ? `${summary.totalOrders} הזמנות ממתינות · קליטה מעדכנת מלאי`
+            : "אין הזמנות לקליטה · קליטה מעדכנת מלאי בפועל"
+          : undefined
+      }
       bottomNav="orders"
     >
-      <div className="inv-screen-stack">
-        <section className="inv-hero-card inv-hero-card--green">
-          <span className="inv-kicker">קליטה למלאי</span>
-          <h1>
-            {summary.totalOrders > 0
-              ? `${summary.totalOrders} הזמנות ממתינות`
-              : "אין הזמנות לקליטה"}
-          </h1>
-          <p>
-            קליטה מאשרת מה הגיע בפועל. רק אישור קליטה מעדכן את המלאי.
-          </p>
-        </section>
-
-        <section className="inv-surface-card">
-          <div className="inv-mini-stepper" aria-label="רצף הזמנה">
-            {["יצירה", "שליחה", "קליטה", "היסטוריה"].map((label, index) => (
-              <span
-                key={label}
-                className={`inv-mini-step${
-                  index === 2 ? " is-current" : index < 2 ? " is-done" : ""
-                }`}
-              >
-                {label}
-              </span>
-            ))}
-          </div>
-        </section>
-
-        {error ? <div className="inv-alert inv-alert--error">{error}</div> : null}
-        {success ? (
+      {error ? (
+        <div className="inv-fwrap">
+          <div className="inv-alert inv-alert--error">{error}</div>
+        </div>
+      ) : null}
+      {success ? (
+        <div className="inv-fwrap">
           <div className="inv-alert inv-alert--success">{success}</div>
-        ) : null}
+        </div>
+      ) : null}
 
-        {loading ? (
-          <section className="inv-surface-card inv-center-state" aria-busy="true">
-            טוען הזמנות ממתינות...
-          </section>
-        ) : drafts.length === 0 ? (
-          <section className="inv-surface-card inv-center-state">
-            <strong>הכול מטופל</strong>
-            <p>אין כרגע הזמנות שממתינות לקליטת סחורה.</p>
-            <Link
-              href="/inventory/supplier-purchases/new"
-              className="inv-primary-button"
-            >
-              יצירת הזמנה חדשה
-            </Link>
-          </section>
-        ) : (
-          <section className="inv-screen-stack" aria-label="הזמנות לקליטה">
-            {drafts.map((draft) => {
-              const isOpen = openId === draft.id;
-              const totalUnits = draft.lines.reduce(
-                (sum, line) => sum + line.quantity,
-                0
-              );
+      {loading ? (
+        <div className="inv-rows">
+          <InventorySkeletonBlock height={92} rows={3} />
+        </div>
+      ) : drafts.length === 0 ? (
+        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
+          <InventoryStatePanel
+            title="הכול מטופל"
+            action={
+              <Link href="/inventory/supplier-purchases/new" className="inv-btn-primary inv-btn-primary--full">
+                יצירת הזמנה חדשה
+              </Link>
+            }
+          >
+            אין כרגע הזמנות שממתינות לקליטת סחורה.
+          </InventoryStatePanel>
+        </div>
+      ) : (
+        <div className="inv-rows">
+          {drafts.map((draft) => {
+            const isOpen = openId === draft.id;
+            const totalUnits = draft.lines.reduce(
+              (sum, line) => sum + line.quantity,
+              0
+            );
 
-              return (
-                <article key={draft.id} className="inv-surface-card">
-                  <div className="inv-row-card-head">
-                    <div>
-                      <span className="inv-status-pill">ממתינה לקליטה</span>
-                      <h2>{draft.supplierName || "הזמנה ללא ספק"}</h2>
-                      <p>
-                        #{draft.id} · {draft.lines.length} פריטים ·{" "}
-                        {totalUnits} יחידות
-                      </p>
+            return (
+              <DecisionCard key={draft.id}>
+                <div className="inv-dcard__top">
+                  <span
+                    className="inv-row__thumb"
+                    style={{ background: "var(--inv-surface, #f5f7f9)", width: 46, height: 46, fontSize: 22 }}
+                    aria-hidden
+                  >
+                    🚚
+                  </span>
+                  <div className="inv-row__mid">
+                    <div className="inv-row__nm" dir="auto">{draft.supplierName || "הזמנה ללא ספק"}</div>
+                    <div className="inv-row__meta">
+                      <bdi>#{draft.id}</bdi> · <bdi>{draft.lines.length}</bdi> פריטים · <bdi>{totalUnits}</bdi> יחידות
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => openDraft(draft)}
-                      className="inv-secondary-button"
-                    >
-                      {isOpen ? "סגור" : "בדיקה"}
-                    </button>
                   </div>
+                  <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 7 }}>
+                    <InventoryBadge tone="low">ממתינה לקליטה</InventoryBadge>
+                    <button type="button" className="inv-row__action" onClick={() => openDraft(draft)}>
+                      {isOpen ? "סגור" : "בדיקה ›"}
+                    </button>
+                  </span>
+                </div>
 
-                  {isOpen ? (
-                    <div className="inv-receive-panel">
-                      <div className="inv-section-heading">
-                        <h2>מה הגיע?</h2>
-                        <span>התאימו כל שורה למלאי</span>
-                      </div>
-                      <div className="inv-screen-stack">
-                        {draft.lines.map((line) => {
-                          const decision = decisions[line.id];
-                          return (
-                            <div key={line.id} className="inv-receive-line">
-                              <div>
-                                <strong>{line.rawName || "מוצר ללא שם"}</strong>
-                                <span>
-                                  {line.quantity} {line.unitType || "UNIT"}
-                                </span>
-                              </div>
-                              <div className="inv-receive-line__controls">
-                                <select
-                                  className="inv-field-select"
-                                  value={decision?.action || "CREATE_NEW"}
-                                  onChange={(event) => {
-                                    if (event.target.value === "MERGE") {
-                                      updateDecision(line.id, {
-                                        action: "MERGE",
-                                        itemId: line.matchedItemId || "",
-                                      });
-                                    } else {
-                                      updateDecision(line.id, {
-                                        action: "CREATE_NEW",
-                                        name: line.rawName || "",
-                                        unitType: line.unitType || "UNIT",
-                                      });
-                                    }
-                                  }}
-                                >
-                                  <option value="MERGE">שיוך למוצר קיים</option>
-                                  <option value="CREATE_NEW">
-                                    יצירת מוצר חדש
-                                  </option>
-                                </select>
+                {isOpen ? (
+                  <div style={{ marginTop: 14 }}>
+                    <div className="inv-seclabel">מה הגיע? · התאימו כל שורה למלאי</div>
 
-                                {decision?.action === "MERGE" ? (
-                                  <select
-                                    className="inv-field-select"
-                                    value={decision.itemId || ""}
-                                    onChange={(event) =>
-                                      updateDecision(line.id, {
-                                        action: "MERGE",
-                                        itemId: Number(event.target.value),
-                                      })
-                                    }
-                                  >
-                                    <option value="">בחרו מוצר קיים</option>
-                                    {items.map((item) => (
-                                      <option key={item.id} value={item.id}>
-                                        {item.name} · במלאי:{" "}
-                                        {item.currentQuantity}
-                                      </option>
-                                    ))}
-                                  </select>
-                                ) : (
-                                  <input
-                                    className="inv-field-input"
-                                    value={decision?.name || line.rawName || ""}
-                                    onChange={(event) =>
-                                      updateDecision(line.id, {
-                                        action: "CREATE_NEW",
-                                        name: event.target.value,
-                                        unitType:
-                                          decision?.action === "CREATE_NEW"
-                                            ? decision.unitType
-                                            : line.unitType || "UNIT",
-                                      })
-                                    }
-                                    placeholder="שם מוצר חדש"
-                                  />
-                                )}
+                    <div className="inv-olines">
+                      {draft.lines.map((line) => {
+                        const decision = decisions[line.id];
+                        return (
+                          <div key={line.id} className="inv-oline" style={{ flexWrap: "wrap" }}>
+                            <div className="inv-oline__mid">
+                              <div className="inv-oline__nm" dir="auto">{line.rawName || "מוצר ללא שם"}</div>
+                              <div className="inv-oline__sub">
+                                <bdi>{line.quantity}</bdi> {line.unitType || "UNIT"}
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
+                            <div style={{ width: "100%", display: "grid", gap: 8, marginTop: 8 }}>
+                              <select
+                                className="inv-input"
+                                value={decision?.action || "CREATE_NEW"}
+                                onChange={(event) => {
+                                  if (event.target.value === "MERGE") {
+                                    updateDecision(line.id, {
+                                      action: "MERGE",
+                                      itemId: line.matchedItemId || "",
+                                    });
+                                  } else {
+                                    updateDecision(line.id, {
+                                      action: "CREATE_NEW",
+                                      name: line.rawName || "",
+                                      unitType: line.unitType || "UNIT",
+                                    });
+                                  }
+                                }}
+                              >
+                                <option value="MERGE">שיוך למוצר קיים</option>
+                                <option value="CREATE_NEW">יצירת מוצר חדש</option>
+                              </select>
 
-                      <div className="inv-receive-impact">
-                        אישור יעדכן את המלאי ב-{totalUnits} יחידות ויעביר את
-                        ההזמנה להיסטוריה.
-                      </div>
-
-                      <div className="inv-action-grid">
-                        <button
-                          type="button"
-                          onClick={() => approveDraft(draft)}
-                          disabled={actionLoading}
-                          className="inv-primary-button"
-                        >
-                          אשר קליטה
-                        </button>
-                        <Link
-                          href={`/inventory/supplier-purchases/${draft.id}/send`}
-                          className="inv-secondary-button"
-                        >
-                          חזרה לשליחה
-                        </Link>
-                        <button
-                          type="button"
-                          onClick={() => rejectDraft(draft.id)}
-                          disabled={actionLoading}
-                          className="inv-secondary-button"
-                        >
-                          בטל הזמנה
-                        </button>
-                      </div>
+                              {decision?.action === "MERGE" ? (
+                                <select
+                                  className="inv-input"
+                                  value={decision.itemId || ""}
+                                  onChange={(event) =>
+                                    updateDecision(line.id, {
+                                      action: "MERGE",
+                                      itemId: Number(event.target.value),
+                                    })
+                                  }
+                                >
+                                  <option value="">בחרו מוצר קיים</option>
+                                  {items.map((item) => (
+                                    <option key={item.id} value={item.id}>
+                                      {item.name} · במלאי: {item.currentQuantity}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  className="inv-input"
+                                  value={decision?.name || line.rawName || ""}
+                                  onChange={(event) =>
+                                    updateDecision(line.id, {
+                                      action: "CREATE_NEW",
+                                      name: event.target.value,
+                                      unitType:
+                                        decision?.action === "CREATE_NEW"
+                                          ? decision.unitType
+                                          : line.unitType || "UNIT",
+                                    })
+                                  }
+                                  placeholder="שם מוצר חדש"
+                                  dir="auto"
+                                />
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ) : null}
-                </article>
-              );
-            })}
-          </section>
-        )}
-      </div>
+
+                    <p className="inv-field__help" style={{ marginTop: 10 }}>
+                      אישור יעדכן את המלאי ב-<bdi>{totalUnits}</bdi> יחידות ויעביר את ההזמנה להיסטוריה.
+                    </p>
+
+                    {confirmRejectId === draft.id ? (
+                      <div className="inv-alert inv-alert--error" style={{ marginTop: 10 }}>
+                        ביטול הזמנה הוא פעולה בלתי הפיכה. לחץ שוב כדי לאשר.
+                      </div>
+                    ) : null}
+
+                    <DecisionChips
+                      choices={[
+                        { label: actionLoading ? "מאשר…" : "אשר קליטה", primary: true, disabled: actionLoading, onClick: () => void approveDraft(draft) },
+                        { label: confirmRejectId === draft.id ? "אשר ביטול" : "בטל הזמנה", disabled: actionLoading, onClick: () => requestRejectDraft(draft.id) },
+                      ]}
+                    />
+                    <Link
+                      href={`/inventory/supplier-purchases/${draft.id}/send`}
+                      className="inv-btn-link"
+                      style={{ display: "inline-block", marginTop: 10 }}
+                    >
+                      חזרה לשליחה
+                    </Link>
+                  </div>
+                ) : null}
+              </DecisionCard>
+            );
+          })}
+        </div>
+      )}
     </InventorySubPage>
   );
 }

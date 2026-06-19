@@ -1,10 +1,15 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useOrderWizard } from "@/components/inventory/supplier-purchase-order/order-wizard-context";
 import { OrderWizardShell } from "@/components/inventory/supplier-purchase-order/order-wizard-shell";
-import { ItemThumb } from "@/components/inventory/supplier-purchase-order/order-wizard-ui";
+import {
+  InventoryOrderLine,
+  MiniStepper,
+  BottomActionBar,
+  InventoryStatePanel,
+} from "@/components/inventory/inventory-design";
+import { getProductEmoji } from "@/lib/inventory/product-emoji";
 
 export default function NewSupplierPurchaseCartPage() {
   const router = useRouter();
@@ -23,150 +28,83 @@ export default function NewSupplierPurchaseCartPage() {
 
   const hasItems = selectedItems.length > 0;
 
+  const total = selectedItems.reduce((sum, item) => {
+    const qty = order[item.id] ?? 0;
+    const cost = Number(unitCosts[item.id] ?? "");
+    return sum + (Number.isFinite(cost) ? qty * cost : 0);
+  }, 0);
+
   return (
     <OrderWizardShell
-      title="יצירת הזמנה חדשה"
-      backHref="/inventory/supplier-purchases/new/select"
+      title="הזמנת רכש"
+      backHref="/inventory/supplier-purchases/new"
       showProgress={true}
-      footer={null}
+      footer={
+        hasItems ? (
+          <BottomActionBar
+            label={`סה״כ הזמנה (${summary.totalUnits} יחידות)`}
+            value={total > 0 ? <>₪{total.toLocaleString("he-IL")}</> : "—"}
+            cta="המשך לאישור"
+            onCta={() => router.push("/inventory/supplier-purchases/new/confirm")}
+          />
+        ) : null
+      }
     >
-      <article className="owz-step" aria-label="עדכון עגלת הזמנה">
-        <header className="owz-step__head">
-          <span className="owz-step__eyebrow">שלב 3 מתוך 4</span>
-          <h1 className="owz-step__title">בדיקת כמויות</h1>
-          <p className="owz-step__sub">
-            {hasItems
-              ? `${summary.totalItems} מוצרים · ${summary.totalUnits} יחידות. עדכנו כמויות ועלות ליחידה אם ידועה.`
-              : "העגלה ריקה כרגע. חזרו לבחירת מוצרים כדי להתחיל."}
-          </p>
-        </header>
-
-        <section className="owz-step__content">
-          {!hasItems ? (
-            <div className="owz-step__empty">
-              <div className="owz-step__empty-title">אין פריטים בעגלה</div>
-              <Link
-                href="/inventory/supplier-purchases/new/select"
-                className="owz-step__empty-cta"
-              >
+      {!hasItems ? (
+        <div className="inv-page-content" style={{ padding: "8px clamp(16px,3.5vw,28px)" }}>
+          <InventoryStatePanel
+            title="העגלה ריקה"
+            action={
+              <button type="button" className="inv-btn-primary inv-btn-primary--full" onClick={() => router.push("/inventory/supplier-purchases/new")}>
                 בחירת מוצרים
-              </Link>
-            </div>
-          ) : (
-            <>
-              <ul className="owz-cart-detail-list" role="list">
-                {selectedItems.map((item) => (
-                  <li
-                    key={item.id}
-                    className={`owz-cart-detail-row${
-                      isSuggested(item.id) ? " is-suggested" : ""
-                    }`}
-                  >
-                    <span className="owz-cart-detail-row__thumb">
-                      <ItemThumb
-                        name={item.name}
-                        imageUrl={item.imageUrl}
-                        size={52}
-                      />
-                    </span>
-                    <div className="owz-cart-detail-row__info">
-                      <span className="owz-cart-detail-row__name">
-                        {item.name}
-                      </span>
-                      <span className="owz-cart-detail-row__meta">
-                        {isSuggested(item.id) ? "המלצת מערכת" : item.unitType}
-                      </span>
-                    </div>
-                    <span
-                      className="owz-cart-detail-row__qty"
-                      role="group"
-                      aria-label={`כמות ${item.name}`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => decrementItem(item.id)}
-                        className="owz-cart-detail-row__qty-btn"
-                        aria-label="הפחת כמות"
-                      >
-                        -
-                      </button>
-                      <span className="owz-cart-detail-row__qty-val">
-                        {order[item.id]}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => incrementItem(item.id)}
-                        className="owz-cart-detail-row__qty-btn"
-                        aria-label="הוסף כמות"
-                      >
-                        +
-                      </button>
-                    </span>
-                    <label className="owz-cart-detail-row__cost">
-                      <span className="owz-cart-detail-row__cost-label">
-                        עלות ליחידה
-                      </span>
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        inputMode="decimal"
-                        className="owz-cart-detail-row__cost-input"
-                        value={unitCosts[item.id] ?? ""}
-                        onChange={(e) => setUnitCost(item.id, e.target.value)}
-                        placeholder="לא חובה"
-                        aria-label={`עלות ליחידה עבור ${item.name}`}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => removeItem(item.id)}
-                      className="owz-cart-detail-row__remove"
-                      aria-label={`הסר ${item.name}`}
-                    >
-                      הסרה
-                    </button>
-                  </li>
-                ))}
-              </ul>
-
-              <div className="owz-cart-summary">
-                <span className="owz-cart-summary__label">סיכום הזמנה</span>
-                <span className="owz-cart-summary__values">
-                  <strong>{summary.totalItems}</strong> מוצרים ·{" "}
-                  <strong>{summary.totalUnits}</strong> יחידות
-                </span>
-                <button
-                  type="button"
-                  onClick={clearOrder}
-                  className="owz-cart-summary__clear"
-                >
-                  נקה עגלה
-                </button>
-              </div>
-            </>
-          )}
-        </section>
-
-        <footer className="owz-step__actions">
-          <Link
-            href="/inventory/supplier-purchases/new/select"
-            className="owz-step__back"
-          >
-            הוספת מוצרים
-          </Link>
-          <button
-            type="button"
-            disabled={!hasItems}
-            onClick={() =>
-              router.push("/inventory/supplier-purchases/new/confirm")
+              </button>
             }
-            className="owz-step__next"
           >
-            המשך לאישור
+            חזרו לבחירת מוצרים כדי להתחיל הזמנה.
+          </InventoryStatePanel>
+        </div>
+      ) : (
+        <div className="inv-olines">
+          {selectedItems.map((item) => {
+            const qty = order[item.id] ?? 0;
+            return (
+              <InventoryOrderLine
+                key={item.id}
+                thumb={<span style={{ fontSize: 22 }}>{getProductEmoji(item.name)}</span>}
+                name={item.name}
+                sub={isSuggested(item.id) ? "המלצת מערכת" : item.unitType}
+                trailing={
+                  <MiniStepper
+                    value={qty}
+                    min={0}
+                    onDecrement={() => decrementItem(item.id)}
+                    onIncrement={() => incrementItem(item.id)}
+                  />
+                }
+                extra={
+                  <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 10 }}>
+                    <input
+                      className="inv-input"
+                      style={{ minHeight: 40, flex: 1 }}
+                      inputMode="decimal"
+                      placeholder="עלות ליחידה (לא חובה)"
+                      value={unitCosts[item.id] ?? ""}
+                      onChange={(e) => setUnitCost(item.id, e.target.value)}
+                      aria-label={`עלות ליחידה עבור ${item.name}`}
+                    />
+                    <button type="button" className="inv-oline__remove" onClick={() => removeItem(item.id)} aria-label={`הסר ${item.name}`}>
+                      ×
+                    </button>
+                  </div>
+                }
+              />
+            );
+          })}
+          <button type="button" className="inv-btn-link" style={{ marginInlineStart: "auto" }} onClick={clearOrder}>
+            נקה עגלה
           </button>
-        </footer>
-      </article>
+        </div>
+      )}
     </OrderWizardShell>
   );
 }

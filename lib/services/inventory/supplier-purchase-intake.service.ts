@@ -14,6 +14,7 @@ type SupplierPurchaseLineInput = {
   barcode?: string | null;
   quantity: number;
   unitType?: InventoryUnitType | null;
+  unitCost?: number | null;
 };
 
 type CreateSupplierPurchaseDraftInput = {

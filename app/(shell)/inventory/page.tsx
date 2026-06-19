@@ -1,551 +1,256 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { InventoryBottomNav } from "@/components/inventory/inventory-design";
-import { useInventoryInboxCounts } from "@/components/inventory/use-inventory-inbox-counts";
-import { getClientAuthToken, redirectToLogin } from "@/lib/client-session";
+import {
+  getStockTone,
+  getStockRatio,
+  getStockStatusLabel,
+  InventoryProductRow,
+  stockPalette,
+} from "@/components/inventory/inventory-design";
+import { inventoryFoundationCss } from "@/components/inventory/inventory-foundation.css";
+import { inventoryPrimitivesCss } from "@/components/inventory/inventory-primitives.css";
+import { inventoryToneStyles } from "@/components/inventory/inventory-tokens";
+import { getProductEmoji } from "@/lib/inventory/product-emoji";
+import { getInventoryItems, type InventoryItemDTO } from "@/lib/api/inventory";
+import { getClientAuthToken, isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
 
-type AttentionTask = {
-  title: string;
-  description: string;
-  href: string;
-  tone: "red" | "orange" | "blue" | "green";
-  icon: ReactNode;
-  count: number;
-};
+const UNIT_SHORT: Record<string, string> = { UNIT: "יח׳", BOX: "מארז", KG: "ק״ג", GRAM: "גרם", LITER: "ליטר", ML: "מ״ל" };
 
-type QuickLink = {
-  title: string;
-  description: string;
-  href: string;
-  tone: "blue" | "green" | "purple";
-  icon: ReactNode;
-};
+const valueFormatter = new Intl.NumberFormat("he-IL", {
+  notation: "compact",
+  style: "currency",
+  currency: "ILS",
+  maximumFractionDigits: 1,
+});
 
-const inventoryAttentionCss = `
-[data-inventory-attention] {
-  min-height: 100vh;
-  background: #f8fafc;
-  color: #0f172a;
-  direction: rtl;
-  padding: 22px 16px calc(112px + env(safe-area-inset-bottom));
-}
+/* Home — screen s8 (Quick Actions home) per docs/design/inventory/inventory_screens.html.txt.
+   Supersedes the Operations Workspace home (see docs/inventory-home-screen-lock-v3.md → override note).
+   Structure: header + scan · greeting · 3 status tiles · quick-actions grid · "דורש טיפול" list.
+   All numbers come from real data (getInventoryItems / getStockTone); brand color from --inv tokens
+   (navy), status tiles from stockPalette. No hardcoded #0f6fff. UI only — no schema/API/logic change. */
+const homeCss = `
+[data-inventory-home] { background: var(--inv-page-bg); min-height: 100vh; min-height: 100dvh; direction: rtl; color: var(--inv-text); }
+[data-inventory-home] .inv-hm { width: 100%; max-width: 560px; margin: 0 auto; padding: 14px clamp(16px,4vw,20px) 48px; box-sizing: border-box; }
 
-.inv-attention-page {
-  width: min(100%, 520px);
-  margin: 0 auto;
-}
+[data-inventory-home] .inv-hm-head { display: flex; align-items: center; gap: 12px; padding: 8px 0 2px; }
+[data-inventory-home] .inv-hm-head h1 { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.4px; }
+[data-inventory-home] .inv-hm-grow { flex: 1; }
+[data-inventory-home] .inv-hm-scan { width: 42px; height: 42px; border-radius: 50%; border: 0; background: var(--inv-primary); color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 6px 16px rgba(36,59,87,0.20); }
+[data-inventory-home] .inv-hm-greet { font-size: 14px; font-weight: 600; color: var(--inv-text-muted); padding: 0 2px; margin-top: -2px; }
 
-.inv-attention-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 22px;
-}
+[data-inventory-home] .inv-hm-tiles { display: flex; gap: 11px; padding: 16px 0 4px; }
+[data-inventory-home] .inv-hm-tile { flex: 1; min-width: 0; border: 0; border-radius: 14px; padding: 13px 14px; text-align: start; cursor: pointer; font-family: inherit; display: flex; flex-direction: column; align-items: flex-start; }
+[data-inventory-home] .inv-hm-tile__n { font-size: 23px; font-weight: 800; line-height: 1; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
+[data-inventory-home] .inv-hm-tile__l { font-size: 12.5px; font-weight: 700; margin-top: 5px; }
 
-.inv-attention-header h1 {
-  margin: 0;
-  font-size: 1.45rem;
-  line-height: 1.15;
-  font-weight: 800;
-  letter-spacing: 0;
-  color: #0f172a;
-}
+[data-inventory-home] .inv-hm-sechead { display: flex; align-items: center; justify-content: space-between; padding: 22px 2px 11px; }
+[data-inventory-home] .inv-hm-sechead h2 { margin: 0; font-size: 19px; font-weight: 800; }
+[data-inventory-home] .inv-hm-sechead a { font-size: 13.5px; font-weight: 700; color: var(--inv-accent); cursor: pointer; }
 
-.inv-attention-header p {
-  margin: 7px 0 0;
-  color: #64748b;
-  font-size: 0.92rem;
-  line-height: 1.5;
-}
+[data-inventory-home] .inv-hm-qgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+[data-inventory-home] .inv-hm-qtile { border: 0; border-radius: 14px; background: #EBEEF3; padding: 15px; display: flex; align-items: center; justify-content: flex-start; gap: 12px; cursor: pointer; font-family: inherit; transition: background 120ms ease; }
+[data-inventory-home] .inv-hm-qtile:hover { background: #E2E7EE; }
+[data-inventory-home] .inv-hm-qtile__t { font-size: 15.5px; font-weight: 700; color: var(--inv-text); }
+[data-inventory-home] .inv-hm-qtile__i { width: 44px; height: 44px; border-radius: 12px; background: #fff; box-shadow: 0 3px 10px rgba(15,23,41,0.06); display: inline-flex; align-items: center; justify-content: center; color: var(--inv-accent); flex-shrink: 0; }
 
-.inv-attention-icon-button {
-  width: 44px;
-  height: 44px;
-  border: 0;
-  border-radius: 16px;
-  background: #ffffff;
-  color: #0f172a;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
-}
-
-.inv-attention-list {
-  display: grid;
-  gap: 12px;
-}
-
-.inv-attention-card {
-  width: 100%;
-  min-height: 84px;
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  border-radius: 18px;
-  background: #ffffff;
-  padding: 14px;
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 28px;
-  align-items: center;
-  gap: 12px;
-  text-align: right;
-  color: inherit;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
-  cursor: pointer;
-}
-
-.inv-attention-card:focus-visible,
-.inv-quick-card:focus-visible,
-.inv-attention-icon-button:focus-visible {
-  outline: 3px solid rgba(37, 99, 235, 0.25);
-  outline-offset: 2px;
-}
-
-.inv-attention-card__icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.inv-attention-card__icon--red {
-  background: #fff1f2;
-  color: #ef4444;
-}
-
-.inv-attention-card__icon--orange {
-  background: #fff7ed;
-  color: #f97316;
-}
-
-.inv-attention-card__icon--blue {
-  background: #eff6ff;
-  color: #2563eb;
-}
-
-.inv-attention-card__icon--green {
-  background: #ecfdf5;
-  color: #16a34a;
-}
-
-.inv-attention-card__copy {
-  min-width: 0;
-}
-
-.inv-attention-card__title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.inv-attention-card__title {
-  font-size: 0.98rem;
-  line-height: 1.35;
-  font-weight: 800;
-  color: #111827;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.inv-attention-card__badge {
-  min-width: 24px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: #fee2e2;
-  color: #dc2626;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.82rem;
-  font-weight: 800;
-  flex: 0 0 auto;
-}
-
-.inv-attention-card__badge--orange {
-  background: #ffedd5;
-  color: #ea580c;
-}
-
-.inv-attention-card__badge--blue {
-  background: #dbeafe;
-  color: #2563eb;
-}
-
-.inv-attention-card__badge--green {
-  background: #dcfce7;
-  color: #16a34a;
-}
-
-.inv-attention-card__badge.is-loading {
-  width: 26px;
-  color: transparent;
-  background: linear-gradient(90deg, #e2e8f0 25%, #f8fafc 37%, #e2e8f0 63%);
-  background-size: 400% 100%;
-  animation: inv-attention-loading 1.2s ease-in-out infinite;
-}
-
-.inv-attention-card__description {
-  display: block;
-  margin-top: 4px;
-  color: #64748b;
-  font-size: 0.84rem;
-  line-height: 1.45;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.inv-attention-card__chevron {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #334155;
-}
-
-.inv-quick-section {
-  margin-top: 30px;
-}
-
-.inv-quick-section h2 {
-  margin: 0 0 12px;
-  font-size: 1rem;
-  line-height: 1.3;
-  font-weight: 800;
-  color: #0f172a;
-}
-
-.inv-quick-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.inv-quick-card {
-  min-height: 104px;
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  border-radius: 18px;
-  background: #ffffff;
-  padding: 12px 8px;
-  color: inherit;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
-  cursor: pointer;
-}
-
-.inv-quick-card__icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 15px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.inv-quick-card__icon--blue {
-  background: #eff6ff;
-  color: #2563eb;
-}
-
-.inv-quick-card__icon--green {
-  background: #ecfdf5;
-  color: #16a34a;
-}
-
-.inv-quick-card__icon--purple {
-  background: #f5f3ff;
-  color: #7c3aed;
-}
-
-.inv-quick-card strong {
-  color: #0f172a;
-  font-size: 0.9rem;
-  line-height: 1.25;
-}
-
-.inv-quick-card span:last-child {
-  color: #64748b;
-  font-size: 0.76rem;
-  line-height: 1.35;
-}
-
-@keyframes inv-attention-loading {
-  0% { background-position: 100% 0; }
-  100% { background-position: 0 0; }
-}
-
-@media (min-width: 768px) {
-  [data-inventory-attention] {
-    padding-top: 34px;
-  }
-
-  .inv-attention-page {
-    width: min(100%, 620px);
-  }
-
-  .inv-attention-card {
-    min-height: 92px;
-    padding: 16px;
-  }
-}
-
-@media (max-width: 360px) {
-  .inv-quick-grid {
-    grid-template-columns: 1fr;
-  }
-}
+[data-inventory-home] .inv-hm-empty { padding: 20px 12px; text-align: center; color: var(--inv-text-muted); font-size: 14px; font-weight: 700; border: 1px solid var(--inv-border); border-radius: var(--inv-radius-lg); background: var(--inv-card-bg); }
 `;
 
-export default function InventoryPage() {
+export default function InventoryHomePage() {
   const router = useRouter();
-  const { counts } = useInventoryInboxCounts();
+  const [items, setItems] = useState<InventoryItemDTO[]>([]);
+  const [loadingItems, setLoadingItems] = useState(true);
+  const [showAll, setShowAll] = useState(false);
+  async function loadItems() {
+    try {
+      setLoadingItems(true);
+      const data = await getInventoryItems();
+      setItems(Array.isArray(data) ? data : []);
+    } catch (err: unknown) {
+      if (isUnauthorizedError(err)) return redirectToLogin();
+      setItems([]);
+    } finally {
+      setLoadingItems(false);
+    }
+  }
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      if (!getClientAuthToken()) {
-        redirectToLogin();
-      }
+      if (!getClientAuthToken()) redirectToLogin();
     }, 0);
-
     return () => window.clearTimeout(timer);
   }, []);
 
-  const stockAttentionCount = counts.criticalStock + counts.reorderAlerts;
-  const attentionTasks: AttentionTask[] = [
+  useEffect(() => {
+    void loadItems();
+  }, []);
+
+  const sortedItems = useMemo(() => {
+    const order: Record<string, number> = { critical: 0, low: 1, ok: 2 };
+    return [...items].sort((a, b) => {
+      const ta = order[getStockTone(a)];
+      const tb = order[getStockTone(b)];
+      if (ta !== tb) return ta - tb;
+      return a.name.localeCompare(b.name, "he");
+    });
+  }, [items]);
+
+  // Status tiles — derived from real items, never inbox-only fakes.
+  const { criticalCount, lowCount, stockValue } = useMemo(() => {
+    let critical = 0;
+    let low = 0;
+    let value = 0;
+    for (const it of items) {
+      const tone = getStockTone(it);
+      if (tone === "critical") critical += 1;
+      else if (tone === "low") low += 1;
+      const unitCost = it.costPerUnit ?? it.lastPurchaseCost ?? 0;
+      value += it.currentQuantity * unitCost;
+    }
+    return { criticalCount: critical, lowCount: low, stockValue: value };
+  }, [items]);
+
+  const attentionItems = useMemo(
+    () => sortedItems.filter((i) => getStockTone(i) !== "ok"),
+    [sortedItems],
+  );
+  const visibleAttention = showAll ? attentionItems : attentionItems.slice(0, 4);
+
+  const greeting = useMemo(() => {
+    const h = new Date().getHours();
+    if (h < 12) return "בוקר טוב 👋";
+    if (h < 18) return "צהריים טובים 👋";
+    return "ערב טוב 👋";
+  }, []);
+
+  const crit = stockPalette("critical");
+  const lowPal = stockPalette("low");
+  // When a status count is 0 there is nothing wrong — show a calm neutral tile
+  // instead of a red/amber one, so an empty state never reads as a false alert.
+  const neutralBg = "#EBEEF3";
+  const neutralInk = "var(--inv-text-muted)";
+
+  const tiles = [
     {
-      title: "פריטים לאישור",
-      description: "מוצרים שזוהו וממתינים לבדיקה",
-      href: "/inventory/drafts",
-      tone: "red",
-      icon: <BoxIcon />,
-      count: counts.drafts,
+      n: String(criticalCount),
+      l: "מלאי קריטי",
+      bg: criticalCount > 0 ? crit.bg : neutralBg,
+      ink: criticalCount > 0 ? crit.ink : neutralInk,
+      onClick: () => router.push("/inventory/alerts"),
     },
     {
-      title: "מכירות שלא זוהו",
-      description: "פריטים ממכירה שצריך לשייך",
-      href: "/inventory/unmatched",
-      tone: "orange",
-      icon: <WarningIcon />,
-      count: counts.unmatched,
+      n: String(lowCount),
+      l: "מלאי נמוך",
+      bg: lowCount > 0 ? lowPal.bg : neutralBg,
+      ink: lowCount > 0 ? lowPal.ink : neutralInk,
+      onClick: () => router.push("/inventory/alerts"),
     },
-    {
-      title: "הזמנות שמחכות לקליטה",
-      description: "ספקים וסחורה שממתינים לאישור",
-      href: "/inventory/supplier-purchases/pending",
-      tone: "blue",
-      icon: <TruckIcon />,
-      count: counts.pendingOrders,
-    },
-    {
-      title: "מוצרים שעומדים להיגמר",
-      description: "פריטים שכדאי לבדוק לפני שנגמרים",
-      href: "/inventory/items",
-      tone: "green",
-      icon: <TagIcon />,
-      count: stockAttentionCount,
-    },
+    { n: valueFormatter.format(Math.round(stockValue)), l: "שווי מלאי", bg: inventoryToneStyles.info.bg, ink: inventoryToneStyles.info.color, onClick: () => router.push("/inventory/items") },
   ];
 
-  const quickLinks: QuickLink[] = [
-    {
-      title: "מלאי",
-      description: "מה יש לי",
-      href: "/inventory/items",
-      tone: "blue",
-      icon: <BoxIcon />,
-    },
-    {
-      title: "רכש",
-      description: "מחזור הרכש",
-      href: "/inventory/supplier-purchases",
-      tone: "green",
-      icon: <CartIcon />,
-    },
-    {
-      title: "מכירות",
-      description: "דיווח והתאמות",
-      href: "/inventory/sales/create",
-      tone: "purple",
-      icon: <ChartIcon />,
-    },
+  const quickActions: Array<{ t: string; icon: ReactNode; onClick: () => void }> = [
+    { t: "מוצר חדש", icon: <IconPlus />, onClick: () => router.push("/inventory/items/create") },
+    { t: "ספירת מלאי", icon: <IconClipboard />, onClick: () => router.push("/inventory/items") },
+    { t: "הזמנה מספק", icon: <IconTruck />, onClick: () => router.push("/inventory/supplier-purchases/new") },
+    { t: "קבלת סחורה", icon: <IconReceive />, onClick: () => router.push("/inventory/supplier-purchases/pending") },
   ];
 
   return (
-    <div data-inventory-attention>
-      <style>{inventoryAttentionCss}</style>
+    <div data-inventory-home data-inventory-module>
+      <style>{inventoryFoundationCss}</style>
+      <style>{inventoryPrimitivesCss}</style>
+      <style>{homeCss}</style>
 
-      <main className="inv-attention-page" aria-label="טיפול עכשיו במלאי">
-        <header className="inv-attention-header">
-          <button type="button" className="inv-attention-icon-button" aria-label="התראות">
-            <BellIcon />
+      <main className="inv-hm" aria-label="בית המלאי">
+        <header className="inv-hm-head">
+          <h1>מלאי</h1>
+          <span className="inv-hm-grow" />
+          <button type="button" className="inv-hm-scan" aria-label="סריקה / חיפוש מוצר" onClick={() => router.push("/inventory/items")}>
+            <IconScan />
           </button>
-          <div>
-            <h1>טיפול עכשיו</h1>
-            <p>מה דורש את תשומת הלב שלך</p>
-          </div>
         </header>
+        <div className="inv-hm-greet">{greeting}</div>
 
-        <section className="inv-attention-list" aria-label="משימות לטיפול">
-          {attentionTasks.map((task) => (
-            <button
-              key={task.href}
-              type="button"
-              className="inv-attention-card"
-              onClick={() => router.push(task.href)}
-            >
-              <span className={`inv-attention-card__icon inv-attention-card__icon--${task.tone}`}>
-                {task.icon}
-              </span>
-              <span className="inv-attention-card__copy">
-                <span className="inv-attention-card__title-row">
-                  <span className="inv-attention-card__title">{task.title}</span>
-                  <span
-                    className={`inv-attention-card__badge inv-attention-card__badge--${task.tone}${
-                      counts.loading ? " is-loading" : ""
-                    }`}
-                    aria-label={counts.loading ? "טוען כמות" : `${task.count} פריטים`}
-                  >
-                    {counts.loading ? "" : task.count}
-                  </span>
-                </span>
-                <span className="inv-attention-card__description">{task.description}</span>
-              </span>
-              <span className="inv-attention-card__chevron" aria-hidden>
-                <ChevronLeftIcon />
-              </span>
+        <div className="inv-hm-tiles">
+          {tiles.map((tile) => (
+            <button key={tile.l} type="button" className="inv-hm-tile" style={{ background: tile.bg }} onClick={tile.onClick}>
+              <span className="inv-hm-tile__n" style={{ color: tile.ink }}><bdi>{tile.n}</bdi></span>
+              <span className="inv-hm-tile__l" style={{ color: tile.ink }}>{tile.l}</span>
             </button>
           ))}
-        </section>
+        </div>
 
-        <section className="inv-quick-section" aria-label="מעבר מהיר">
-          <h2>מעבר מהיר</h2>
-          <div className="inv-quick-grid">
-            {quickLinks.map((link) => (
-              <button
-                key={link.href}
-                type="button"
-                className="inv-quick-card"
-                onClick={() => router.push(link.href)}
-              >
-                <span className={`inv-quick-card__icon inv-quick-card__icon--${link.tone}`}>
-                  {link.icon}
-                </span>
-                <strong>{link.title}</strong>
-                <span>{link.description}</span>
-              </button>
-            ))}
+        <div className="inv-hm-sechead">
+          <h2>פעולות מהירות</h2>
+        </div>
+        <div className="inv-hm-qgrid">
+          {quickActions.map((qa) => (
+            <button key={qa.t} type="button" className="inv-hm-qtile" onClick={qa.onClick}>
+              <span className="inv-hm-qtile__i" aria-hidden>{qa.icon}</span>
+              <span className="inv-hm-qtile__t">{qa.t}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="inv-hm-sechead">
+          <h2>דורש טיפול</h2>
+          {attentionItems.length > 4 ? (
+            <a role="button" tabIndex={0} onClick={() => setShowAll((v) => !v)} onKeyDown={(e) => { if (e.key === "Enter") setShowAll((v) => !v); }}>
+              {showAll ? "הצג פחות" : "הצג הכל ›"}
+            </a>
+          ) : null}
+        </div>
+
+        {loadingItems ? (
+          <div className="inv-rows" style={{ padding: 0 }}>
+            <InventorySkeleton />
           </div>
-        </section>
+        ) : attentionItems.length === 0 ? (
+          <div className="inv-hm-empty">{items.length === 0 ? "אין עדיין מוצרים במלאי" : "הכול תקין · אין פריטים שדורשים טיפול"}</div>
+        ) : (
+          <div className="inv-rows" style={{ padding: 0 }}>
+            {visibleAttention.map((item) => {
+              const tone = getStockTone(item);
+              return (
+                <InventoryProductRow
+                  key={item.id}
+                  tone={tone}
+                  imageUrl={item.imageUrl && !item.imageUrl.includes("example.com") ? item.imageUrl : null}
+                  thumbGlyph={<span style={{ fontSize: 26 }}>{getProductEmoji(item.name, item.category?.name)}</span>}
+                  name={item.name}
+                  meta={[item.category?.name, item.supplierName].filter(Boolean).join(" · ") || undefined}
+                  ratio={getStockRatio(item)}
+                  statusLabel={getStockStatusLabel(tone)}
+                  quantity={item.currentQuantity}
+                  unitLabel={UNIT_SHORT[item.unitType] ?? undefined}
+                  href={`/inventory/items/${item.id}`}
+                />
+              );
+            })}
+          </div>
+        )}
       </main>
+    </div>
+  );
+}
 
-      <InventoryBottomNav active="home" />
+function InventorySkeleton() {
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="inv-skeleton-block" style={{ height: 72, borderRadius: 14, background: "linear-gradient(90deg, rgba(229,231,235,0.65), rgba(245,246,248,0.92), rgba(229,231,235,0.65))", backgroundSize: "220% 100%" }} />
+      ))}
     </div>
   );
 }
 
 function Svg({ children, size = 22 }: { children: ReactNode; size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
-      {children}
-    </svg>
-  );
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>{children}</svg>;
 }
-
-function BellIcon() {
-  return (
-    <Svg size={20}>
-      <path
-        d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path d="M14 21a2.3 2.3 0 01-4 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </Svg>
-  );
-}
-
-function BoxIcon() {
-  return (
-    <Svg size={24}>
-      <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-      <path d="M4 7.5l8 4.5 8-4.5M12 12v9" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-    </Svg>
-  );
-}
-
-function WarningIcon() {
-  return (
-    <Svg size={24}>
-      <path d="M12 4l9 16H3L12 4z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-      <path d="M12 10v5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <circle cx="12" cy="17.5" r="1.1" fill="currentColor" />
-    </Svg>
-  );
-}
-
-function TruckIcon() {
-  return (
-    <Svg size={24}>
-      <path d="M3 7h11v9H3z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-      <path d="M14 10h4l3 3v3h-7" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-      <circle cx="7" cy="18" r="1.8" fill="currentColor" />
-      <circle cx="18" cy="18" r="1.8" fill="currentColor" />
-    </Svg>
-  );
-}
-
-function TagIcon() {
-  return (
-    <Svg size={24}>
-      <path d="M20 12l-8 8-8-8V4h8l8 8z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-      <circle cx="8.5" cy="8.5" r="1.2" fill="currentColor" />
-    </Svg>
-  );
-}
-
-function CartIcon() {
-  return (
-    <Svg size={24}>
-      <path
-        d="M4 5h2l2.3 10.5a2 2 0 002 1.5h6.7a2 2 0 002-1.5L21 9H7"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="10" cy="20" r="1.5" fill="currentColor" />
-      <circle cx="18" cy="20" r="1.5" fill="currentColor" />
-    </Svg>
-  );
-}
-
-function ChartIcon() {
-  return (
-    <Svg size={24}>
-      <path d="M5 20V10M12 20V5M19 20v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M4 20h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </Svg>
-  );
-}
-
-function ChevronLeftIcon() {
-  return (
-    <Svg size={18}>
-      <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
-}
+function IconScan() { return <Svg size={22}><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" /></Svg>; }
+function IconPlus() { return <Svg><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></Svg>; }
+function IconClipboard() { return <Svg><rect x="5" y="3" width="14" height="18" rx="2.5" stroke="currentColor" strokeWidth="1.9" /><path d="M9 8h6M9 12h6M9 16h3" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" /></Svg>; }
+function IconTruck() { return <Svg><path d="M2 7h11v9H2zM13 10h4l3 3v3h-7" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /><circle cx="6" cy="18.5" r="1.6" stroke="currentColor" strokeWidth="1.8" /><circle cx="17" cy="18.5" r="1.6" stroke="currentColor" strokeWidth="1.8" /></Svg>; }
+function IconReceive() { return <Svg><path d="M3 9h18v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z" stroke="currentColor" strokeWidth="1.8" /><path d="M3 9 5 4h14l2 5M9 14h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></Svg>; }

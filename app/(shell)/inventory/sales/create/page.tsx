@@ -1,189 +1,94 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import {
-  createInventorySale,
-  getInventoryItems,
-  InventoryItemDTO,
-} from "@/lib/api/inventory";
+  InventorySearch,
+  InventoryOrderLine,
+  MiniStepper,
+  BottomActionBar,
+  InventoryStatePanel,
+  getStockTone,
+} from "@/components/inventory/inventory-design";
+import { getProductEmoji } from "@/lib/inventory/product-emoji";
+import { createInventorySale, getInventoryItems, type InventoryItemDTO } from "@/lib/api/inventory";
 
-type SaleLine = {
-  localId: string;
-  itemId: string;
-  quantity: string;
+const STOCK_BG: Record<"ok" | "low" | "critical", string> = {
+  ok: "#dcfce7",
+  low: "#fef3c7",
+  critical: "#fee2e2",
 };
-
-function createEmptyLine(): SaleLine {
-  return {
-    localId: crypto.randomUUID(),
-    itemId: "",
-    quantity: "1",
-  };
-}
-
-function getStockLabel(item: InventoryItemDTO | null) {
-  if (!item) return "בחרו מוצר כדי לראות זמינות";
-  if (item.currentQuantity <= 0) return "אין מלאי זמין";
-  if (item.reorderPoint != null && item.currentQuantity <= item.reorderPoint) {
-    return `מלאי נמוך: ${item.currentQuantity}`;
-  }
-  return `זמין במלאי: ${item.currentQuantity}`;
-}
 
 export default function CreateInventorySalePage() {
   const router = useRouter();
-
   const [items, setItems] = useState<InventoryItemDTO[]>([]);
-  const [lines, setLines] = useState<SaleLine[]>([createEmptyLine()]);
-  const [note, setNote] = useState("");
+  const [cart, setCart] = useState<Record<number, number>>({});
+  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [successText, setSuccessText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const itemById = useMemo(() => {
-    const map = new Map<number, InventoryItemDTO>();
-
-    for (const item of items) {
-      map.set(item.id, item);
-    }
-
-    return map;
-  }, [items]);
-
-  const selectedCount = lines.filter((line) => line.itemId).length;
 
   const loadItems = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-
       const data = await getInventoryItems();
       setItems(Array.isArray(data) ? data : []);
     } catch (err: unknown) {
-      if (err instanceof Error && err.message === "UNAUTHORIZED") {
-        setError("אין הרשאה לטעון מוצרים. צריך להתחבר מחדש.");
-      } else {
-        setError(err instanceof Error ? err.message : "שגיאה בטעינת מוצרים");
-      }
+      setError(err instanceof Error && err.message === "UNAUTHORIZED" ? "אין הרשאה. צריך להתחבר מחדש." : err instanceof Error ? err.message : "שגיאה בטעינת מוצרים");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    queueMicrotask(() => {
-      void loadItems();
-    });
+    queueMicrotask(() => void loadItems());
   }, [loadItems]);
 
-  function updateLine(
-    localId: string,
-    field: "itemId" | "quantity",
-    value: string
-  ) {
-    setError(null);
-    setSuccessText(null);
+  const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
 
-    setLines((current) =>
-      current.map((line) =>
-        line.localId === localId ? { ...line, [field]: value } : line
-      )
-    );
+  const searchResults = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return items
+      .filter((item) => [item.name, item.sku, item.barcode].filter(Boolean).some((f) => String(f).toLowerCase().includes(q)))
+      .slice(0, 8);
+  }, [items, query]);
+
+  const cartEntries = useMemo(
+    () => Object.entries(cart).map(([id, qty]) => ({ item: itemById.get(Number(id)), qty })).filter((e) => e.item),
+    [cart, itemById]
+  );
+
+  const totalUnits = cartEntries.reduce((sum, e) => sum + e.qty, 0);
+  const totalPrice = cartEntries.reduce((sum, e) => sum + e.qty * (e.item!.sellPricePerUnit ?? 0), 0);
+
+  function addToCart(item: InventoryItemDTO) {
+    setCart((c) => ({ ...c, [item.id]: Math.min((c[item.id] ?? 0) + 1, item.currentQuantity || Infinity) }));
+    setQuery("");
   }
 
-  function addLine() {
-    setError(null);
-    setSuccessText(null);
-    setLines((current) => [...current, createEmptyLine()]);
-  }
-
-  function removeLine(localId: string) {
-    setError(null);
-    setSuccessText(null);
-
-    setLines((current) => {
-      if (current.length === 1) {
-        return current;
+  function setQty(itemId: number, qty: number) {
+    setCart((c) => {
+      if (qty <= 0) {
+        const next = { ...c };
+        delete next[itemId];
+        return next;
       }
-
-      return current.filter((line) => line.localId !== localId);
+      return { ...c, [itemId]: qty };
     });
-  }
-
-  function validateSaleLines() {
-    const normalized = lines.map((line) => {
-      const itemId = Number(line.itemId);
-      const quantity = Number(line.quantity);
-
-      if (!itemId || Number.isNaN(itemId)) {
-        throw new Error("יש לבחור מוצר בכל שורה");
-      }
-
-      if (!quantity || Number.isNaN(quantity) || quantity <= 0) {
-        throw new Error("יש להזין כמות תקינה בכל שורה");
-      }
-
-      const item = itemById.get(itemId);
-
-      if (!item) {
-        throw new Error("אחד המוצרים שנבחרו לא נמצא");
-      }
-
-      return {
-        itemId,
-        quantity,
-        item,
-      };
-    });
-
-    const quantityByItemId = new Map<number, number>();
-
-    for (const line of normalized) {
-      quantityByItemId.set(
-        line.itemId,
-        (quantityByItemId.get(line.itemId) || 0) + line.quantity
-      );
-    }
-
-    for (const [itemId, totalQuantity] of quantityByItemId.entries()) {
-      const item = itemById.get(itemId);
-
-      if (!item) {
-        throw new Error("אחד המוצרים שנבחרו לא נמצא");
-      }
-
-      if (item.currentQuantity < totalQuantity) {
-        throw new Error(`אין מספיק מלאי עבור ${item.name}`);
-      }
-    }
-
-    return normalized.map((line) => ({
-      itemId: line.itemId,
-      quantity: line.quantity,
-    }));
   }
 
   async function handleSubmit() {
-    if (saving) return;
-
+    if (saving || cartEntries.length === 0) return;
     try {
       setSaving(true);
       setError(null);
-      setSuccessText(null);
-
-      const saleItems = validateSaleLines();
-
       await createInventorySale({
-        items: saleItems,
-        note: note.trim() ? note.trim() : undefined,
+        items: cartEntries.map((e) => ({ itemId: e.item!.id, quantity: e.qty })),
       });
-
-      setSuccessText("המכירה נשמרה והמלאי עודכן");
-      router.push("/inventory");
+      router.push("/inventory/sales");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "שגיאה בשמירת המכירה");
     } finally {
@@ -192,152 +97,85 @@ export default function CreateInventorySalePage() {
   }
 
   return (
-    <InventorySubPage
-      title="רישום מכירה"
-      backHref="/inventory"
-      backLabel="טיפול עכשיו"
-      bottomNav="sales"
-    >
-      <div className="inv-screen-stack">
-        <section className="inv-hero-card inv-hero-card--blue">
-          <span className="inv-kicker">מכירות</span>
-          <h1>מה נמכר עכשיו?</h1>
-          <p>
-            בחרו פריטים וכמויות. השמירה תעדכן את המלאי לפי המכירה שנרשמה.
-          </p>
-        </section>
-
-        {loading ? (
-          <section className="inv-surface-card inv-center-state" aria-busy="true">
-            טוען מוצרים...
-          </section>
-        ) : items.length === 0 ? (
-          <section className="inv-surface-card inv-center-state">
-            <strong>אין עדיין מוצרים במלאי</strong>
-            <p>צריך ליצור פריט לפני רישום מכירה.</p>
-            <Link href="/inventory/items/create" className="inv-primary-button">
-              הוספת פריט
-            </Link>
-          </section>
-        ) : (
-          <>
-            <section className="inv-surface-card">
-              <div className="inv-section-heading">
-                <h2>פריטים שנמכרו</h2>
-                <span>
-                  {selectedCount > 0
-                    ? `${selectedCount} פריטים נבחרו`
-                    : "בחרו מוצר ראשון"}
-                </span>
-              </div>
-
-              <div className="inv-screen-stack">
-                {lines.map((line, index) => {
-                  const selectedItem = line.itemId
-                    ? itemById.get(Number(line.itemId)) ?? null
-                    : null;
-
-                  return (
-                    <div key={line.localId} className="inv-sale-line">
-                      <div className="inv-sale-line__head">
-                        <strong>פריט {index + 1}</strong>
-                        {lines.length > 1 ? (
-                          <button
-                            type="button"
-                            onClick={() => removeLine(line.localId)}
-                            disabled={saving}
-                          >
-                            הסרה
-                          </button>
-                        ) : null}
-                      </div>
-
-                      <label>
-                        <span className="inv-field-label">מוצר</span>
-                        <select
-                          value={line.itemId}
-                          disabled={saving}
-                          onChange={(e) =>
-                            updateLine(line.localId, "itemId", e.target.value)
-                          }
-                          className="inv-field-select"
-                        >
-                          <option value="">בחירת מוצר</option>
-                          {items.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.name} · במלאי {item.currentQuantity}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <div className="inv-sale-line__stock">
-                        {getStockLabel(selectedItem)}
-                      </div>
-
-                      <label>
-                        <span className="inv-field-label">כמות שנמכרה</span>
-                        <input
-                          type="number"
-                          min="1"
-                          step="1"
-                          value={line.quantity}
-                          disabled={saving}
-                          onChange={(e) =>
-                            updateLine(line.localId, "quantity", e.target.value)
-                          }
-                          className="inv-field-input"
-                        />
-                      </label>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <button
-                type="button"
-                onClick={addLine}
-                disabled={saving}
-                className="inv-secondary-button"
-              >
-                הוספת מוצר נוסף
-              </button>
-            </section>
-
-            <section className="inv-surface-card">
-              <label>
-                <span className="inv-field-label">הערה</span>
-                <input
-                  type="text"
-                  value={note}
-                  disabled={saving}
-                  onChange={(e) => {
-                    setNote(e.target.value);
-                    setError(null);
-                    setSuccessText(null);
-                  }}
-                  placeholder="לא חובה"
-                  className="inv-field-input"
-                />
-              </label>
-            </section>
-
-            {error ? <div className="inv-alert inv-alert--error">{error}</div> : null}
-            {successText ? (
-              <div className="inv-alert inv-alert--success">{successText}</div>
-            ) : null}
-
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={saving}
-              className="inv-primary-button"
-            >
-              {saving ? "שומר מכירה..." : "שמירת מכירה ועדכון מלאי"}
-            </button>
-          </>
-        )}
+    <InventorySubPage title="מכירה חדשה" backHref="/inventory/sales" bottomNav="sales">
+      <div style={{ position: "relative" }}>
+        <InventorySearch value={query} onChange={setQuery} placeholder="הוסף מוצר או סרוק ברקוד" />
+        {searchResults.length > 0 ? (
+          <div className="inv-olines" style={{ paddingTop: 8 }}>
+            {searchResults.map((item) => {
+              const tone = getStockTone(item);
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="inv-row"
+                  style={{ marginBottom: 8 }}
+                  onClick={() => addToCart(item)}
+                >
+                  <span className="inv-row__thumb" style={{ background: STOCK_BG[tone] }} aria-hidden>
+                    {getProductEmoji(item.name, item.category?.name)}
+                  </span>
+                  <span className="inv-row__mid">
+                    <span className="inv-row__nm">{item.name}</span>
+                    <span className="inv-row__meta">מלאי {item.currentQuantity}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
+
+      {error ? (
+        <div className="inv-fwrap">
+          <div className="inv-alert inv-alert--error" style={{ marginTop: 12 }}>{error}</div>
+        </div>
+      ) : null}
+
+      {cartEntries.length === 0 && !loading ? (
+        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
+          <InventoryStatePanel title="העגלה ריקה">חפשו מוצר למעלה כדי להוסיף אותו למכירה.</InventoryStatePanel>
+        </div>
+      ) : (
+        <div className="inv-olines">
+          {cartEntries.map(({ item, qty }) => {
+            const tone = getStockTone(item!);
+            const price = item!.sellPricePerUnit ?? 0;
+            return (
+              <InventoryOrderLine
+                key={item!.id}
+                thumb={getProductEmoji(item!.name, item!.category?.name)}
+                thumbBg={STOCK_BG[tone]}
+                name={item!.name}
+                sub={
+                  <>
+                    מלאי <bdi>{item!.currentQuantity}</bdi>
+                    {price > 0 ? <> · <bdi>₪{price} ליח׳</bdi></> : null}
+                  </>
+                }
+                trailing={
+                  <MiniStepper
+                    value={qty}
+                    min={0}
+                    onDecrement={() => setQty(item!.id, qty - 1)}
+                    onIncrement={() => setQty(item!.id, Math.min(qty + 1, item!.currentQuantity || qty + 1))}
+                  />
+                }
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {cartEntries.length > 0 ? (
+        <BottomActionBar
+          label={`${totalUnits} פריטים · יופחת מהמלאי`}
+          value={<bdi>₪{totalPrice.toLocaleString("he-IL")}</bdi>}
+          cta={saving ? "שומר…" : "רשום מכירה"}
+          ctaDisabled={saving}
+          onCta={() => void handleSubmit()}
+        />
+      ) : null}
     </InventorySubPage>
   );
 }

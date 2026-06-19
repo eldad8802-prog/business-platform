@@ -2,38 +2,22 @@
 
 import { useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
-import PageHeader from "@/components/ui/page-header";
+import { InventorySubPage } from "@/components/inventory/inventory-shell";
+import { InventoryStatePanel, SaveBar } from "@/components/inventory/inventory-design";
 
 type ImportCsvResponse = {
   success?: boolean;
   error?: string;
-  draftsCreated?: Array<{
-    draftId: number;
-    externalOrderId: string | null;
-    supplierName: string | null;
-  }>;
-  skippedOrders?: Array<{
-    externalOrderId: string | null;
-    supplierName: string | null;
-    draftId: number;
-  }>;
-  invalidOrders?: Array<{
-    orderId: string;
-    reason: string;
-  }>;
+  draftsCreated?: Array<{ draftId: number; externalOrderId: string | null; supplierName: string | null }>;
+  skippedOrders?: Array<{ externalOrderId: string | null; supplierName: string | null; draftId: number }>;
+  invalidOrders?: Array<{ orderId: string; reason: string }>;
   warnings?: string[];
-  previewSummary?: {
-    ordersParsed: number;
-    draftsCreated: number;
-    skippedOrders: number;
-    invalidOrders: number;
-  };
+  previewSummary?: { ordersParsed: number; draftsCreated: number; skippedOrders: number; invalidOrders: number };
 };
 
 export default function SupplierCsvImportPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
-
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,11 +28,8 @@ export default function SupplierCsvImportPage() {
   const invalidOrders = result?.invalidOrders ?? [];
   const warnings = result?.warnings ?? [];
   const preview = result?.previewSummary;
-
   const hasSuccessfulImport =
-    result?.success === true &&
-    !error &&
-    (draftsCreated.length > 0 || skippedOrders.length > 0);
+    result?.success === true && !error && (draftsCreated.length > 0 || skippedOrders.length > 0);
 
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
     const next = event.target.files?.[0];
@@ -58,8 +39,7 @@ export default function SupplierCsvImportPage() {
       setFile(null);
       return;
     }
-    const name = next.name.toLowerCase();
-    if (!name.endsWith(".csv")) {
+    if (!next.name.toLowerCase().endsWith(".csv")) {
       setFile(null);
       setError("נא לבחור קובץ בסיומת .csv");
       event.target.value = "";
@@ -68,68 +48,36 @@ export default function SupplierCsvImportPage() {
     setFile(next);
   }
 
-  function openFilePicker() {
-    fileInputRef.current?.click();
-  }
-
-  function clearFile() {
-    setFile(null);
-    setResult(null);
-    setError(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  }
-
   async function submitImport() {
     if (!file || loading) return;
-
-    const token =
-      typeof window !== "undefined" ? localStorage.getItem("token") : null;
-
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token?.trim()) {
       setError("חסר אסימון התחברות — התחברו מחדש ונסו שוב.");
       return;
     }
-
     setLoading(true);
     setError(null);
     setResult(null);
-
     try {
       const formData = new FormData();
       formData.append("file", file);
-
-      const response = await fetch(
-        "/api/inventory/supplier-purchases/import/csv",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token.trim()}`,
-          },
-          body: formData,
-        }
-      );
-
-      const data = (await response.json().catch(() => null)) as
-        | ImportCsvResponse
-        | null;
-
+      const response = await fetch("/api/inventory/supplier-purchases/import/csv", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token.trim()}` },
+        body: formData,
+      });
+      const data = (await response.json().catch(() => null)) as ImportCsvResponse | null;
       if (!response.ok) {
-        const message =
+        setError(
           (data && typeof data.error === "string" && data.error) ||
-          (response.status === 401
-            ? "אין הרשאה לבצע ייבוא (401)"
-            : response.status === 400
-              ? "הבקשה נדחתה (400)"
-              : `שגיאת שרת (${response.status})`);
-        setError(message);
+            (response.status === 401 ? "אין הרשאה לבצע ייבוא (401)" : `שגיאת שרת (${response.status})`)
+        );
         return;
       }
-
       if (!data || data.success !== true) {
         setError("תשובה לא צפויה מהשרת");
         return;
       }
-
       setResult(data);
     } catch {
       setError("שגיאת רשת — בדקו את החיבור ונסו שוב.");
@@ -139,356 +87,119 @@ export default function SupplierCsvImportPage() {
   }
 
   return (
-    <div dir="rtl" style={{ minHeight: "100vh", background: "#f8fafc" }}>
-      <PageHeader title="ייבוא CSV" />
+    <InventorySubPage title="יבוא וזיהוי" backHref="/inventory/supplier-purchases" bottomNav="orders">
+      <div className="inv-fwrap">
+        <p className="inv-field__help" style={{ marginTop: 8, fontSize: 14, lineHeight: 1.7 }}>
+          העלו קובץ CSV מספק כדי ליצור טיוטות הזמנה לבדיקה לפני קליטת מלאי.
+        </p>
 
-      <main
-        style={{
-          maxWidth: 980,
-          margin: "0 auto",
-          padding: 16,
-          display: "flex",
-          flexDirection: "column",
-          gap: 16,
-        }}
-      >
-        {error && (
-          <div
-            style={{
-              border: "1px solid #fecaca",
-              background: "#fef2f2",
-              color: "#991b1b",
-              borderRadius: 18,
-              padding: 14,
-              fontSize: 14,
-              fontWeight: 800,
-              lineHeight: 1.5,
-            }}
-          >
-            {error}
-          </div>
-        )}
-
-        <section
-          style={{
-            borderRadius: 30,
-            padding: 22,
-            background:
-              "linear-gradient(135deg, #111827 0%, #1f2937 50%, #0f766e 100%)",
-            color: "#ffffff",
-            boxShadow: "0 18px 44px rgba(15, 23, 42, 0.22)",
-            display: "flex",
-            flexDirection: "column",
-            gap: 18,
-          }}
-        >
-          <div>
-            <div
-              style={{
-                display: "inline-flex",
-                padding: "7px 11px",
-                borderRadius: 999,
-                background: "rgba(255,255,255,0.12)",
-                border: "1px solid rgba(255,255,255,0.18)",
-                fontSize: 12,
-                fontWeight: 900,
-                marginBottom: 12,
-              }}
-            >
-              קליטת נתונים מספק
-            </div>
-
-            <h1
-              style={{
-                margin: 0,
-                fontSize: 26,
-                lineHeight: 1.25,
-                fontWeight: 950,
-              }}
-            >
-              ייבוא קובץ CSV
-            </h1>
-
-            <p
-              style={{
-                margin: "10px 0 0",
-                color: "rgba(255,255,255,0.78)",
-                fontSize: 14,
-                lineHeight: 1.7,
-              }}
-            >
-              העלה קובץ CSV מספק כדי ליצור טיוטות להזמנות לבדיקה לפני קליטת
-              מלאי.
-            </p>
-          </div>
-        </section>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".csv,text/csv"
-          style={{ display: "none" }}
-          onChange={onFileChange}
-        />
+        <input ref={fileInputRef} type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={onFileChange} />
 
         <button
           type="button"
-          onClick={openFilePicker}
+          onClick={() => fileInputRef.current?.click()}
+          className="inv-imgpick"
           style={{
-            border: "1px dashed #cbd5e1",
-            borderRadius: 22,
-            background: "#ffffff",
-            padding: 22,
-            textAlign: "center",
-            color: "#64748b",
-            fontSize: 14,
-            lineHeight: 1.6,
-            cursor: "pointer",
+            marginTop: 16,
             width: "100%",
+            minHeight: 120,
+            border: "1.5px dashed var(--inv-border)",
+            borderRadius: "var(--inv-radius-md)",
+            background: "var(--inv-surface, #f5f7f9)",
+            color: "var(--inv-text-muted)",
+            fontFamily: "inherit",
+            fontSize: 14,
+            fontWeight: 700,
+            cursor: "pointer",
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
           {file ? (
             <>
-              <div style={{ fontWeight: 950, color: "#111827" }}>
-                {file.name}
-              </div>
-              <div style={{ marginTop: 8, fontSize: 13 }}>
-                לחצו לבחירת קובץ אחר
-              </div>
+              <span style={{ fontWeight: 900, color: "var(--inv-text)" }}>{file.name}</span>
+              <span style={{ fontSize: 13 }}>לחצו לבחירת קובץ אחר</span>
             </>
           ) : (
-            <>לחצו לבחירת קובץ CSV</>
+            <span>לחצו לבחירת קובץ CSV</span>
           )}
         </button>
 
-        {file && (
+        {file ? (
           <button
             type="button"
-            onClick={clearFile}
-            disabled={loading}
-            style={{
-              alignSelf: "flex-start",
-              border: "none",
-              background: "transparent",
-              color: "#6b7280",
-              fontSize: 13,
-              fontWeight: 800,
-              cursor: loading ? "not-allowed" : "pointer",
-              padding: 0,
+            onClick={() => {
+              setFile(null);
+              setResult(null);
+              setError(null);
+              if (fileInputRef.current) fileInputRef.current.value = "";
             }}
+            disabled={loading}
+            className="inv-btn-link"
+            style={{ marginTop: 10 }}
           >
             הסרת קובץ
           </button>
-        )}
+        ) : null}
 
-        <button
-          type="button"
-          onClick={submitImport}
-          disabled={!file || loading}
-          style={{
-            minHeight: 52,
-            borderRadius: 18,
-            border: "none",
-            background:
-              !file || loading ? "rgba(15, 23, 42, 0.12)" : "#059669",
-            color: !file || loading ? "#9ca3af" : "#ffffff",
-            fontSize: 15,
-            fontWeight: 950,
-            cursor: !file || loading ? "not-allowed" : "pointer",
-            boxShadow:
-              !file || loading
-                ? "none"
-                : "0 10px 22px rgba(5, 150, 105, 0.16)",
-          }}
-        >
-          {loading ? "מייבא…" : "ייבוא קובץ"}
-        </button>
+        {error ? (
+          <div className="inv-alert inv-alert--error" style={{ marginTop: 16 }}>
+            {error}
+          </div>
+        ) : null}
 
-        {result?.success === true && !error && (
-          <>
-            <div
-              style={{
-                border: "1px solid #bbf7d0",
-                background: "#f0fdf4",
-                color: "#166534",
-                borderRadius: 18,
-                padding: 14,
-                fontSize: 14,
-                fontWeight: 800,
-                lineHeight: 1.5,
-              }}
-            >
+        {result?.success === true && !error ? (
+          <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
+            <div className="inv-alert inv-alert--success">
               הייבוא הושלם בהצלחה
-              {preview != null ? (
-                <div
-                  style={{
-                    marginTop: 8,
-                    fontWeight: 700,
-                    fontSize: 13,
-                    opacity: 0.95,
-                  }}
-                >
-                  נפרסו {preview.ordersParsed} הזמנות מהקובץ · נוצרו{" "}
-                  {draftsCreated.length} טיוטות · דולגו {skippedOrders.length} ·
-                  לא תקינות {invalidOrders.length}
-                </div>
-              ) : (
-                <div
-                  style={{
-                    marginTop: 8,
-                    fontWeight: 700,
-                    fontSize: 13,
-                    opacity: 0.95,
-                  }}
-                >
-                  נוצרו {draftsCreated.length} טיוטות · דולגו{" "}
-                  {skippedOrders.length} · לא תקינות {invalidOrders.length}
-                </div>
-              )}
+              <div style={{ marginTop: 8, fontWeight: 700, fontSize: 13 }}>
+                {preview != null ? <>נפרסו {preview.ordersParsed} הזמנות · </> : null}
+                נוצרו {draftsCreated.length} טיוטות · דולגו {skippedOrders.length} · לא תקינות {invalidOrders.length}
+              </div>
             </div>
 
-            {warnings.length > 0 && (
-              <div
-                style={{
-                  border: "1px solid #fde68a",
-                  background: "#fffbeb",
-                  color: "#92400e",
-                  borderRadius: 18,
-                  padding: 14,
-                  fontSize: 14,
-                  fontWeight: 800,
-                  lineHeight: 1.5,
-                }}
-              >
-                <div style={{ marginBottom: 8 }}>אזהרות</div>
-                <ul
-                  style={{
-                    margin: 0,
-                    paddingRight: 20,
-                    fontWeight: 700,
-                    fontSize: 13,
-                  }}
-                >
+            {warnings.length > 0 ? (
+              <div className="inv-alert" style={{ border: "1px solid var(--inv-warning)", background: "#fffbeb", color: "#92400e" }}>
+                <div style={{ marginBottom: 8, fontWeight: 900 }}>אזהרות</div>
+                <ul style={{ margin: 0, paddingInlineStart: 20, fontWeight: 700, fontSize: 13 }}>
                   {warnings.map((w, i) => (
-                    <li key={i} style={{ marginBottom: 4 }}>
-                      {w}
-                    </li>
+                    <li key={i}>{w}</li>
                   ))}
                 </ul>
               </div>
-            )}
+            ) : null}
 
-            <section
-              style={{
-                border: "1px solid #e5e7eb",
-                borderRadius: 22,
-                background: "#ffffff",
-                padding: 16,
-                boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 15,
-                  fontWeight: 950,
-                  color: "#111827",
-                  marginBottom: 8,
-                }}
-              >
-                הזמנות שדולגו ({skippedOrders.length})
-              </div>
-              {skippedOrders.length === 0 ? (
-                <div
-                  style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.5 }}
-                >
-                  אין
-                </div>
-              ) : (
-                <ul
-                  style={{
-                    margin: 0,
-                    paddingRight: 20,
-                    fontSize: 13,
-                    color: "#374151",
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {skippedOrders.map((row, i) => (
-                    <li key={i}>
-                      {row.externalOrderId ?? "—"} · טיוטה קיימת #
-                      {row.draftId}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            <section
-              style={{
-                border: "1px solid #e5e7eb",
-                borderRadius: 22,
-                background: "#ffffff",
-                padding: 16,
-                boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 15,
-                  fontWeight: 950,
-                  color: "#111827",
-                  marginBottom: 8,
-                }}
-              >
-                שורות לא תקינות ({invalidOrders.length})
-              </div>
-              {invalidOrders.length === 0 ? (
-                <div
-                  style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.5 }}
-                >
-                  אין
-                </div>
-              ) : (
-                <ul
-                  style={{
-                    margin: 0,
-                    paddingRight: 20,
-                    fontSize: 13,
-                    color: "#374151",
-                    lineHeight: 1.5,
-                  }}
-                >
+            {invalidOrders.length > 0 ? (
+              <div style={{ background: "var(--inv-card-bg)", border: "1px solid var(--inv-border)", borderRadius: 12, padding: 14, boxShadow: "var(--inv-shadow)" }}>
+                <div style={{ fontWeight: 900, marginBottom: 8 }}>שורות לא תקינות ({invalidOrders.length})</div>
+                <ul style={{ margin: 0, paddingInlineStart: 20, fontSize: 13, color: "var(--inv-text-muted)", lineHeight: 1.6 }}>
                   {invalidOrders.map((row, i) => (
                     <li key={i}>
-                      {row.orderId}: {row.reason}
+                      <bdi>{row.orderId}</bdi>: {row.reason}
                     </li>
                   ))}
                 </ul>
-              )}
-            </section>
-          </>
-        )}
+              </div>
+            ) : null}
 
-        <button
-          type="button"
-          onClick={() =>
-            router.push("/inventory/supplier-purchases/pending")
-          }
-          disabled={!hasSuccessfulImport}
-          style={{
-            minHeight: 48,
-            borderRadius: 16,
-            border: "1px solid #d1d5db",
-            background: hasSuccessfulImport ? "#ffffff" : "#f9fafb",
-            color: hasSuccessfulImport ? "#111827" : "#9ca3af",
-            fontSize: 14,
-            fontWeight: 950,
-            cursor: hasSuccessfulImport ? "pointer" : "not-allowed",
-          }}
-        >
-          עבור להזמנות ממתינות
-        </button>
-      </main>
-    </div>
+            <button
+              type="button"
+              className="inv-btn-secondary"
+              disabled={!hasSuccessfulImport}
+              onClick={() => router.push("/inventory/supplier-purchases/pending")}
+            >
+              עבור להזמנות ממתינות
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {!result ? (
+        <SaveBar label={loading ? "מייבא…" : "ייבוא קובץ"} onClick={() => void submitImport()} disabled={!file || loading} />
+      ) : null}
+    </InventorySubPage>
   );
 }

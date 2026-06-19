@@ -53,8 +53,24 @@ class InventoryService {
       throw new InventoryValidationError("Item name is required");
     }
 
-    if (initialQuantity < 0) {
+    if (!Number.isFinite(initialQuantity) || initialQuantity < 0) {
       throw new NegativeInventoryError();
+    }
+
+    if (!Number.isFinite(minimumQuantity) || minimumQuantity < 0) {
+      throw new InventoryValidationError("minimumQuantity must be 0 or greater");
+    }
+
+    if (reorderPoint !== undefined && reorderPoint !== null && (!Number.isFinite(reorderPoint) || reorderPoint < 0)) {
+      throw new InventoryValidationError("reorderPoint must be 0 or greater");
+    }
+
+    if (costPerUnit !== undefined && costPerUnit !== null && (!Number.isFinite(costPerUnit) || costPerUnit < 0)) {
+      throw new InventoryValidationError("costPerUnit must be 0 or greater");
+    }
+
+    if (sellPricePerUnit !== undefined && sellPricePerUnit !== null && (!Number.isFinite(sellPricePerUnit) || sellPricePerUnit < 0)) {
+      throw new InventoryValidationError("sellPricePerUnit must be 0 or greater");
     }
 
     const run = async (tx: Tx) => {

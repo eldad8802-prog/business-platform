@@ -32,7 +32,7 @@ function parseOptionalNumber(value: unknown, fieldName: string): number | undefi
 
   const parsedValue = Number(value);
 
-  if (Number.isNaN(parsedValue)) {
+  if (!Number.isFinite(parsedValue)) {
     throw new InventoryValidationError(`${fieldName} must be a valid number`);
   }
 

@@ -13,17 +13,21 @@ export const inventoryTheme = {
   cardShadow: TOKEN.shadow.elevated,
   text: TOKEN.ink.primary,
   textMuted: TOKEN.ink.muted,
-  /** Brand / link accent — refined success green. */
-  accent: TOKEN.semantic.success.accent,
-  accentDark: "#047857",
-  /** Primary CTA — premium black, not indigo. */
-  primaryBtn: TOKEN.surface.appChrome,
-  primaryBtnHover: "#1F2937",
+  /** Brand / link accent — Dubiz brand mid blue. */
+  accent: TOKEN.brand.mid,
+  accentDark: TOKEN.brand.navy,
+  /** Primary CTA — Dubiz brand gradient (navy → light blue). */
+  primaryBtn: TOKEN.brand.gradient,
+  primaryBtnHover: TOKEN.brand.gradientHover,
   successBtn: TOKEN.semantic.success.accent,
   danger: TOKEN.semantic.urgent.accent,
   warning: TOKEN.semantic.attention.accent,
   info: TOKEN.semantic.info.accent,
   purple: "#7c3aed",
+  /** Inset surface — inputs, segmented/stepper backgrounds. */
+  surface: TOKEN.surface.inset,
+  /** Focus ring color for inputs. */
+  focus: TOKEN.brand.focus,
 } as const;
 
 export const inventorySpacing = {
@@ -105,6 +109,8 @@ export const inventoryToneStyles: Record<
 export const inventoryCssVars = `
   --inv-page-bg: ${inventoryTheme.pageBg};
   --inv-card-bg: ${inventoryTheme.cardBg};
+  --inv-surface: ${inventoryTheme.surface};
+  --inv-focus: ${inventoryTheme.focus};
   --inv-border: ${inventoryTheme.cardBorder};
   --inv-shadow: ${inventoryTheme.cardShadow};
   --inv-text: ${inventoryTheme.text};
@@ -116,6 +122,7 @@ export const inventoryCssVars = `
   --inv-warning: ${inventoryTheme.warning};
   --inv-info: ${inventoryTheme.info};
   --inv-max-width: ${inventoryLayout.maxWidth}px;
+  --inv-content-max: 720px;
   --inv-radius-lg: ${inventoryRadius.xl}px;
   --inv-radius-md: ${inventoryRadius.lg}px;
   --inv-radius-sm: ${inventoryRadius.sm}px;

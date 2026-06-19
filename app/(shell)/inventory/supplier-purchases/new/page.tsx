@@ -1,96 +1,131 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { OrderWizardShell } from "@/components/inventory/supplier-purchase-order/order-wizard-shell";
 import { useOrderWizard } from "@/components/inventory/supplier-purchase-order/order-wizard-context";
+import { OrderWizardShell } from "@/components/inventory/supplier-purchase-order/order-wizard-shell";
+import {
+  InventorySearch,
+  BottomActionBar,
+  InventoryStatePanel,
+} from "@/components/inventory/inventory-design";
+import { getProductEmoji } from "@/lib/inventory/product-emoji";
 
-export default function NewSupplierPurchasePage() {
+export default function NewSupplierPurchaseSelectPage() {
   const router = useRouter();
   const {
     summary,
-    recommendationsBanner,
-    dismissRecommendationsBanner,
-    applyRecommendations,
-    persistDraft,
+    order,
+    supplierName,
+    setSupplierName,
+    categoryId,
+    setCategoryId,
+    productSearch,
+    setProductSearch,
+    supplierOptions,
+    filteredCategories,
+    supplierHasItems,
+    browsableItems,
+    getCategoryName,
+    quickAddItem,
   } = useOrderWizard();
+
+  const canContinue = summary.totalItems > 0;
 
   return (
     <OrderWizardShell
-      title="יצירת הזמנה חדשה"
+      title="הזמנה חדשה"
       backHref="/inventory/supplier-purchases"
-      showProgress
+      showProgress={true}
+      footer={
+        <BottomActionBar
+          label={`${summary.totalItems} מוצרים בעגלה`}
+          value={<>{summary.totalUnits} יחידות</>}
+          cta={`המשך לעגלה (${summary.totalItems})`}
+          ctaDisabled={!canContinue}
+          onCta={() => router.push("/inventory/supplier-purchases/new/cart")}
+        />
+      }
     >
-      <article className="owz-step" aria-label="פתיחת הזמנה חדשה">
-        <header className="owz-step__head">
-          <span className="owz-step__eyebrow">שלב 1 מתוך 4</span>
-          <h1 className="owz-step__title">מה צריך להזמין?</h1>
-          <p className="owz-step__sub">
-            התחילו מהמלצות המערכת או בחרו מוצרים בעצמכם. המלאי יתעדכן רק אחרי
-            קליטה בפועל.
-          </p>
-        </header>
+      <InventorySearch value={productSearch} onChange={setProductSearch} placeholder="חיפוש לפי שם מוצר…" />
 
-        <section className="owz-step__content">
-          {recommendationsBanner ? (
-            <div
-              className="owz-state-card"
-              style={{ borderColor: "#bbf7d0", background: "#f0fdf4", color: "#166534" }}
+      <div className="inv-fwrap" style={{ paddingTop: 12 }}>
+        <div className="inv-two">
+          <div className="inv-field" style={{ marginTop: 0 }}>
+            <select
+              className="inv-input"
+              value={supplierName}
+              onChange={(e) => {
+                setSupplierName(e.target.value);
+                setCategoryId("");
+                setProductSearch("");
+              }}
+              aria-label="ספק"
             >
-              <strong>המלצות נטענו להזמנה</strong>
-              <div style={{ marginTop: 6 }}>{recommendationsBanner}</div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 8,
-                  marginTop: 12,
-                }}
-              >
-                <button
-                  type="button"
-                  className="owz-step__next"
-                  onClick={applyRecommendations}
-                >
-                  השתמש בהמלצות
-                </button>
-                <button
-                  type="button"
-                  className="owz-step__back"
-                  onClick={dismissRecommendationsBanner}
-                >
-                  המשך בלי
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="owz-state-card">
-              <strong>
-                {summary.totalItems > 0
-                  ? "יש פריטים בהזמנה"
-                  : "אין עדיין פריטים בהזמנה"}
-              </strong>
-              <div style={{ marginTop: 6, color: "#64748b" }}>
-                {summary.totalItems > 0
-                  ? `${summary.totalItems} מוצרים · ${summary.totalUnits} יחידות מוכנים לבדיקה.`
-                  : "בשלב הבא בוחרים מוצרים וכמויות."}
-              </div>
-            </div>
-          )}
-        </section>
+              <option value="">כל הספקים</option>
+              {supplierOptions.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+          <div className="inv-field" style={{ marginTop: 0 }}>
+            <select
+              className="inv-input"
+              value={categoryId}
+              onChange={(e) => {
+                setCategoryId(e.target.value);
+                setProductSearch("");
+              }}
+              aria-label="קטגוריה"
+            >
+              <option value="">כל הקטגוריות</option>
+              {filteredCategories.map((c) => (
+                <option key={c.id} value={String(c.id)}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
 
-        <footer className="owz-step__actions">
-          <button
-            type="button"
-            className="owz-step__next"
-            onClick={() => router.push("/inventory/supplier-purchases/new/select")}
-          >
-            בחירת מוצרים
-          </button>
-          <button type="button" className="owz-step__back" onClick={persistDraft}>
-            שמור להמשך
-          </button>
-        </footer>
-      </article>
+      {browsableItems.length === 0 ? (
+        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
+          <InventoryStatePanel title="לא נמצאו מוצרים">
+            {supplierName.trim() && !supplierHasItems
+              ? "אין מוצרים לספק שנבחר. נסו ספק אחר או בטלו את הסינון."
+              : "אין התאמה לחיפוש. נסו שם אחר או שנו סינון."}
+          </InventoryStatePanel>
+        </div>
+      ) : (
+        <div className="inv-rows">
+          {browsableItems.map((item) => {
+            const inCart = order[item.id] ?? 0;
+            return (
+              <div key={item.id} className="inv-row" style={{ cursor: "default" }}>
+                <span className="inv-row__thumb" style={{ background: "var(--inv-surface, #f5f7f9)" }} aria-hidden>
+                  <span style={{ fontSize: 26 }}>{getProductEmoji(item.name, getCategoryName(item))}</span>
+                </span>
+                <span className="inv-row__mid">
+                  <span className="inv-row__nm">{item.name}</span>
+                  <span className="inv-row__meta">
+                    {getCategoryName(item)} · במלאי <bdi>{item.currentQuantity}</bdi>
+                  </span>
+                </span>
+                <span className="inv-row__trail" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  {inCart > 0 ? <span className="inv-row__meta">{inCart} בעגלה</span> : null}
+                  <button
+                    type="button"
+                    className="inv-iconbtn inv-iconbtn--acc"
+                    style={{ width: 38, height: 38 }}
+                    onClick={() => quickAddItem(item)}
+                    aria-label={`הוסף ${item.name}`}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden><path d="M12 5v14M5 12h14" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" /></svg>
+                  </button>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </OrderWizardShell>
   );
 }
