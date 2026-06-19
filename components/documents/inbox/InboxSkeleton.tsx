@@ -5,6 +5,7 @@ import {
   documentsShellCard,
   skeletonBar,
 } from "@/components/documents/skeletons/skeleton-primitives";
+import { TOKEN } from "@/lib/design/tokens";
 
 export default function InboxSkeleton() {
   return (
@@ -24,8 +25,8 @@ export default function InboxSkeleton() {
             <div
               key={i}
               style={{
-                border: "1px solid #dfe7f3",
-                borderRadius: 12,
+                border: `1px solid ${TOKEN.border.DEFAULT}`,
+                borderRadius: TOKEN.radius.input,
                 padding: 12,
                 textAlign: "center",
               }}

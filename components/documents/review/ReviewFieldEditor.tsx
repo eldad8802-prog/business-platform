@@ -1,9 +1,9 @@
 "use client";
 
 import { CATEGORIES } from "@/lib/constants/categories";
-import { card } from "@/app/(shell)/documents/ui";
 import type { Direction, EditableField, ReviewDraft } from "@/lib/documents/review/types";
-import { primaryDarkButton, secondaryButton } from "./review-ui";
+import { TOKEN } from "@/lib/design/tokens";
+import { primaryDarkButton, reviewInput, secondaryButton } from "./review-ui";
 
 export type ReviewFieldEditorProps = {
   editFieldTitle: string;
@@ -16,7 +16,6 @@ export type ReviewFieldEditorProps = {
 };
 
 export default function ReviewFieldEditor({
-  editFieldTitle,
   editField,
   draft,
   loading,
@@ -25,11 +24,7 @@ export default function ReviewFieldEditor({
   onCancel,
 }: ReviewFieldEditorProps) {
   return (
-    <section style={card}>
-      <div style={{ fontWeight: 950, color: "#111827", fontSize: 18, marginBottom: 10 }}>
-        {editFieldTitle}
-      </div>
-
+    <section style={{ width: "100%" }}>
       {editField === "amount" ? (
         <input
           type="number"
@@ -40,14 +35,7 @@ export default function ReviewFieldEditor({
               amount: e.target.value === "" ? null : Number(e.target.value),
             }))
           }
-          style={{
-            width: "100%",
-            padding: 12,
-            borderRadius: 14,
-            border: "1px solid #d1d5db",
-            fontSize: 16,
-            boxSizing: "border-box",
-          }}
+          style={reviewInput}
         />
       ) : null}
 
@@ -55,14 +43,7 @@ export default function ReviewFieldEditor({
         <input
           value={draft.vendorName}
           onChange={(e) => onDraftChange((d) => ({ ...d, vendorName: e.target.value }))}
-          style={{
-            width: "100%",
-            padding: 12,
-            borderRadius: 14,
-            border: "1px solid #d1d5db",
-            fontSize: 16,
-            boxSizing: "border-box",
-          }}
+          style={reviewInput}
         />
       ) : null}
 
@@ -76,14 +57,7 @@ export default function ReviewFieldEditor({
               date: e.target.value ? new Date(e.target.value).toISOString() : null,
             }))
           }
-          style={{
-            width: "100%",
-            padding: 12,
-            borderRadius: 14,
-            border: "1px solid #d1d5db",
-            fontSize: 16,
-            boxSizing: "border-box",
-          }}
+          style={reviewInput}
         />
       ) : null}
 
@@ -91,32 +65,14 @@ export default function ReviewFieldEditor({
         <div style={{ display: "flex", gap: 10 }}>
           <button
             type="button"
-            style={{
-              flex: 1,
-              padding: "12px 14px",
-              borderRadius: 16,
-              border: "1px solid #e5e7eb",
-              background: draft.direction === "expense" ? "#111827" : "#ffffff",
-              color: draft.direction === "expense" ? "#ffffff" : "#111827",
-              fontWeight: 950,
-              cursor: "pointer",
-            }}
+            style={directionButtonStyle(draft.direction === "expense")}
             onClick={() => onDraftChange((d) => ({ ...d, direction: "expense" as Direction }))}
           >
             הוצאה
           </button>
           <button
             type="button"
-            style={{
-              flex: 1,
-              padding: "12px 14px",
-              borderRadius: 16,
-              border: "1px solid #e5e7eb",
-              background: draft.direction === "income" ? "#111827" : "#ffffff",
-              color: draft.direction === "income" ? "#ffffff" : "#111827",
-              fontWeight: 950,
-              cursor: "pointer",
-            }}
+            style={directionButtonStyle(draft.direction === "income")}
             onClick={() => onDraftChange((d) => ({ ...d, direction: "income" as Direction }))}
           >
             הכנסה
@@ -125,48 +81,65 @@ export default function ReviewFieldEditor({
       ) : null}
 
       {editField === "category" ? (
-        <select
-          value={draft.category}
-          onChange={(e) => onDraftChange((d) => ({ ...d, category: e.target.value }))}
-          style={{
-            width: "100%",
-            padding: 12,
-            borderRadius: 14,
-            border: "1px solid #d1d5db",
-            fontSize: 16,
-            boxSizing: "border-box",
-            background: "#ffffff",
-          }}
-        >
+        <div style={{ display: "grid", gap: 8, maxHeight: 320, overflow: "auto" }}>
           {CATEGORIES.map((c) => (
-            <option key={c.value} value={c.value}>
+            <button
+              key={c.value}
+              type="button"
+              style={categoryButtonStyle(draft.category === c.value)}
+              onClick={() => onDraftChange((d) => ({ ...d, category: c.value }))}
+            >
               {c.label}
-            </option>
+            </button>
           ))}
-        </select>
+        </div>
       ) : null}
 
-      <div style={{ marginTop: 16 }}>
-        <button
-          type="button"
-          disabled={loading}
-          style={primaryDarkButton(loading)}
-          onClick={onConfirm}
-        >
+      <div style={{ marginTop: 18 }}>
+        <button type="button" disabled={loading} style={primaryDarkButton(loading)} onClick={onConfirm}>
           אישור
         </button>
       </div>
 
       <div style={{ marginTop: 10 }}>
-        <button
-          type="button"
-          disabled={loading}
-          style={secondaryButton(loading)}
-          onClick={onCancel}
-        >
+        <button type="button" disabled={loading} style={secondaryButton(loading)} onClick={onCancel}>
           ביטול
         </button>
       </div>
     </section>
   );
+}
+
+function categoryButtonStyle(active: boolean) {
+  return {
+    minHeight: 44,
+    borderRadius: TOKEN.radius.button,
+    border: active
+      ? `1px solid ${TOKEN.brand.softBorder}`
+      : `1px solid ${TOKEN.border.DEFAULT}`,
+    background: active ? TOKEN.brand.soft : TOKEN.surface.card,
+    color: active ? TOKEN.brand.mid : TOKEN.ink.primary,
+    fontWeight: TOKEN.weight.bold,
+    cursor: "pointer",
+    textAlign: "right" as const,
+    padding: "0 14px",
+    fontSize: TOKEN.font.body,
+  };
+}
+
+function directionButtonStyle(active: boolean) {
+  return {
+    flex: 1,
+    minHeight: 54,
+    padding: "12px 14px",
+    borderRadius: TOKEN.radius.button,
+    border: active
+      ? `1px solid ${TOKEN.brand.softBorder}`
+      : `1px solid ${TOKEN.border.DEFAULT}`,
+    background: active ? TOKEN.brand.soft : TOKEN.surface.card,
+    color: active ? TOKEN.brand.mid : TOKEN.ink.primary,
+    fontWeight: TOKEN.weight.bold,
+    cursor: "pointer",
+    fontSize: TOKEN.font.body,
+  } as const;
 }

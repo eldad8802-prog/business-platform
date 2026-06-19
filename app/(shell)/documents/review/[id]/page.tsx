@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { fetchDocumentsHubSummary } from "@/lib/documents/fetch-inbox";
 import { alertError } from "../../ui";
 import DocumentsReviewSkeleton from "@/components/documents/skeletons/DocumentsReviewSkeleton";
@@ -15,9 +16,14 @@ import {
 } from "@/components/documents/review/review-lazy";
 import ReviewNotFound from "@/components/documents/review/ReviewNotFound";
 import { basePageStyle, mainStyle } from "@/components/documents/review/review-ui";
+import { TOKEN } from "@/lib/design/tokens";
 import { errorMessage } from "@/lib/documents/review/format";
 import { buildExtractionMeta } from "@/lib/documents/review/meta";
 import { getPreviewKind } from "@/lib/documents/review/preview";
+import {
+  resolvePreviewView,
+  shouldLoadDocumentPreview,
+} from "@/lib/documents/review/preview-visibility";
 import { computeTrustContext, trafficLevelsForDraft } from "@/lib/documents/review/trust";
 import {
   firstMissingFinancialField,
@@ -57,12 +63,13 @@ export default function ReviewPage() {
   const [editField, setEditField] = useState<EditableField>("amount");
   const [approvedAs, setApprovedAs] = useState<"financial" | "document" | null>(null);
   const [showFieldDetails, setShowFieldDetails] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [documentOnlyConfirmOpen, setDocumentOnlyConfirmOpen] = useState(false);
   const [nextPendingDocumentId, setNextPendingDocumentId] = useState<number | null>(null);
 
   const [document, setDocument] = useState<ApiDocument | null>(null);
   const [outputProfile, setOutputProfile] = useState<OutputProfile | null>(null);
   const [extractionMeta, setExtractionMeta] = useState<ExtractionConfidenceMeta | null>(null);
-  const [editReturnTarget, setEditReturnTarget] = useState<"decision" | "summary">("summary");
 
   const [fileBlobUrl, setFileBlobUrl] = useState<string | null>(null);
   const [fileStatus, setFileStatus] = useState<"idle" | "loading" | "ready" | "missing">(
@@ -112,7 +119,6 @@ export default function ReviewPage() {
         setDocument(json.document);
         setOutputProfile(json.outputProfile);
         setExtractionMeta(buildExtractionMeta(json.extracted as ApiExtracted | null));
-        setEditReturnTarget("summary");
         setApprovedAs(null);
         setShowFieldDetails(false);
         setNextPendingDocumentId(null);
@@ -164,8 +170,7 @@ export default function ReviewPage() {
       return;
     }
 
-    const previewVisible = state !== "done" && state !== "decision";
-    if (!previewVisible) {
+    if (!shouldLoadDocumentPreview(state)) {
       return;
     }
 
@@ -359,28 +364,31 @@ export default function ReviewPage() {
   const shouldShowDocumentPreview = state !== "done" && state !== "decision";
   const showPreviewFallback =
     !previewReady || previewKind === "unsupported" || previewFailed;
+  const previewView = resolvePreviewView({
+    fileStatus,
+    previewKind,
+    fileBlobUrl,
+    previewFailed,
+  });
 
   const handleEditField = useCallback(
-    (field: EditableField, returnTarget: "decision" | "summary") => {
-      setEditReturnTarget(returnTarget);
+    (field: EditableField) => {
       setEditField(field);
-      setState("edit-field");
+      setEditModalOpen(true);
     },
     []
   );
 
   const handleSummaryEditField = useCallback((field: EditableField) => {
-    setEditReturnTarget("summary");
     setEditField(field);
-    setState("edit-field");
+    setEditModalOpen(true);
   }, []);
 
   const handleSummaryApproveFinancial = useCallback(() => {
     const missing = firstMissingFinancialField(draft);
     if (missing) {
-      setEditReturnTarget("summary");
       setEditField(missing);
-      setState("edit-field");
+      setEditModalOpen(true);
       return;
     }
     void approveFinancial();
@@ -392,19 +400,18 @@ export default function ReviewPage() {
         setReviewMode("financial");
         return;
       }
-      void approveDocumentOnly();
+      setDocumentOnlyConfirmOpen(true);
       return;
     }
 
     const missing = firstMissingFinancialField(draft);
     if (missing) {
-      setEditReturnTarget("decision");
       setEditField(missing);
-      setState("edit-field");
+      setEditModalOpen(true);
       return;
     }
     void approveFinancial();
-  }, [reviewMode, isUnknown, draft, approveDocumentOnly, approveFinancial]);
+  }, [reviewMode, isUnknown, draft, approveFinancial]);
 
   if (pageLoading) {
     return <DocumentsReviewSkeleton />;
@@ -417,6 +424,23 @@ export default function ReviewPage() {
   return (
     <div dir="rtl" style={basePageStyle()}>
       <main style={mainStyle()}>
+        <section style={reviewTopBarStyle}>
+          <button
+            type="button"
+            onClick={() => router.push("/documents")}
+            style={reviewBackButtonStyle}
+          >
+            <BackChevronIcon />
+            חזרה למסמכים
+          </button>
+          <div style={reviewTopTitleWrapStyle}>
+            <div style={reviewTopTitleStyle}>אימות מסמך</div>
+            <div style={reviewTopMetaStyle}>בדיקה, תיקון ואישור במקום אחד</div>
+          </div>
+          <div style={reviewTopStatusStyle}>
+            {state === "done" ? "הושלם" : "בתהליך"}
+          </div>
+        </section>
         <ReviewHero state={state} />
 
         {error ? <div style={alertError}>{error}</div> : null}
@@ -426,8 +450,7 @@ export default function ReviewPage() {
             reviewMode={reviewMode}
             trustLevel={trustContext.trustLevel}
             onBack={() => router.push("/documents")}
-            showPreviewFallback={showPreviewFallback}
-            previewKind={previewKind}
+            previewView={previewView}
             fileBlobUrl={fileBlobUrl}
             onPreviewFailed={() => setPreviewFailed(true)}
             vendorDisplay={trustContext.vendorDisplay}
@@ -453,7 +476,7 @@ export default function ReviewPage() {
               loading,
               reviewMode,
               isUnknown,
-              onApproveDocumentOnly: () => void approveDocumentOnly(),
+              onApproveDocumentOnly: () => setDocumentOnlyConfirmOpen(true),
               onPrimaryApprove: handleDecisionPrimaryApprove,
             }}
           />
@@ -471,19 +494,7 @@ export default function ReviewPage() {
             onEditField={handleSummaryEditField}
             onSetReviewMode={setReviewMode}
             onApproveFinancial={handleSummaryApproveFinancial}
-            onApproveDocumentOnly={() => void approveDocumentOnly()}
-          />
-        ) : null}
-
-        {state === "edit-field" ? (
-          <ReviewFieldEditorLazy
-            editFieldTitle={editFieldTitle}
-            editField={editField}
-            draft={draft}
-            loading={loading}
-            onDraftChange={setDraft}
-            onConfirm={() => setState(editReturnTarget)}
-            onCancel={() => setState(editReturnTarget)}
+            onApproveDocumentOnly={() => setDocumentOnlyConfirmOpen(true)}
           />
         ) : null}
 
@@ -512,7 +523,246 @@ export default function ReviewPage() {
             onPreviewFailed={() => setPreviewFailed(true)}
           />
         ) : null}
+
+        {editModalOpen ? (
+          <ReviewOverlayShell title={editFieldTitle} onClose={() => setEditModalOpen(false)}>
+            <ReviewFieldEditorLazy
+              editFieldTitle={editFieldTitle}
+              editField={editField}
+              draft={draft}
+              loading={loading}
+              onDraftChange={setDraft}
+              onConfirm={() => setEditModalOpen(false)}
+              onCancel={() => setEditModalOpen(false)}
+            />
+          </ReviewOverlayShell>
+        ) : null}
+
+        {documentOnlyConfirmOpen ? (
+          <ReviewOverlayShell
+            title="שמור כמסמך עזר?"
+            onClose={() => setDocumentOnlyConfirmOpen(false)}
+          >
+            <p style={confirmTextStyle}>
+              המסמך יישמר ללא רישום כספי. אפשר יהיה למצוא אותו ברשומות.
+            </p>
+            <div style={confirmActionGridStyle}>
+              <button
+                type="button"
+                disabled={loading}
+                style={reviewConfirmSecondaryStyle}
+                onClick={() => setDocumentOnlyConfirmOpen(false)}
+              >
+                ביטול
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                style={reviewConfirmPrimaryStyle(loading)}
+                onClick={() => {
+                  setDocumentOnlyConfirmOpen(false);
+                  void approveDocumentOnly();
+                }}
+              >
+                שמור כמסמך עזר
+              </button>
+            </div>
+          </ReviewOverlayShell>
+        ) : null}
       </main>
+      <style jsx global>{`
+        @media (max-width: 640px) {
+          .documents-review-overlay {
+            align-items: flex-end !important;
+            padding: 0 !important;
+          }
+
+          .documents-review-dialog {
+            width: 100% !important;
+            max-width: none !important;
+            border-radius: 22px 22px 0 0 !important;
+            max-height: 86vh !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
+
+function ReviewOverlayShell({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div className="documents-review-overlay" style={reviewOverlayStyle}>
+      <section className="documents-review-dialog" role="dialog" aria-modal="true" style={reviewDialogStyle}>
+        <div style={reviewDialogHeaderStyle}>
+          <div style={reviewDialogTitleStyle}>{title}</div>
+          <button type="button" aria-label="סגור" onClick={onClose} style={reviewDialogCloseStyle}>
+            ×
+          </button>
+        </div>
+        {children}
+      </section>
+    </div>,
+    document.body
+  );
+}
+
+function BackChevronIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="m9 6 6 6-6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+const reviewTopBarStyle = {
+  marginTop: 18,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.card,
+  background: TOKEN.surface.card,
+  boxShadow: TOKEN.shadow.elevated,
+  padding: "14px 16px",
+  display: "grid",
+  gridTemplateColumns: "minmax(120px, auto) minmax(0, 1fr) auto",
+  gap: 14,
+  alignItems: "center",
+} as const;
+
+const reviewBackButtonStyle = {
+  width: 40,
+  height: 40,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.button,
+  background: TOKEN.surface.card,
+  color: TOKEN.brand.mid,
+  fontSize: 0,
+  fontWeight: TOKEN.weight.bold,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 0,
+} as const;
+
+const reviewTopTitleWrapStyle = {
+  minWidth: 0,
+  textAlign: "right",
+} as const;
+
+const reviewTopTitleStyle = {
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.title,
+  fontWeight: TOKEN.weight.bold,
+} as const;
+
+const reviewTopMetaStyle = {
+  marginTop: 4,
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.semibold,
+} as const;
+
+const reviewTopStatusStyle = {
+  borderRadius: TOKEN.radius.pill,
+  background: TOKEN.surface.inset,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  color: TOKEN.ink.secondary,
+  padding: "7px 12px",
+  fontSize: 12,
+  fontWeight: 900,
+} as const;
+
+const reviewOverlayStyle = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 2147483000,
+  background: "rgba(15, 23, 42, 0.28)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 20,
+} as const;
+
+const reviewDialogStyle = {
+  width: "min(560px, 100%)",
+  maxHeight: "82vh",
+  overflow: "auto",
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.modal,
+  background: TOKEN.surface.overlay,
+  padding: 20,
+  boxShadow: TOKEN.shadow.floating,
+} as const;
+
+const reviewDialogHeaderStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  marginBottom: 14,
+} as const;
+
+const reviewDialogTitleStyle = {
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.display,
+  fontWeight: TOKEN.weight.bold,
+} as const;
+
+const reviewDialogCloseStyle = {
+  width: 40,
+  height: 40,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.button,
+  background: TOKEN.surface.card,
+  color: TOKEN.ink.muted,
+  fontSize: 24,
+  lineHeight: 1,
+  cursor: "pointer",
+} as const;
+
+const confirmTextStyle = {
+  margin: 0,
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.semibold,
+  lineHeight: 1.6,
+} as const;
+
+const confirmActionGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 10,
+  marginTop: 18,
+} as const;
+
+const reviewConfirmSecondaryStyle = {
+  minHeight: 50,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.button,
+  background: TOKEN.surface.card,
+  color: TOKEN.brand.mid,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+  cursor: "pointer",
+} as const;
+
+const reviewConfirmPrimaryStyle = (loading: boolean) =>
+  ({
+    minHeight: 50,
+    border: "none",
+    borderRadius: TOKEN.radius.button,
+    background: loading ? TOKEN.ink.disabled : TOKEN.brand.gradient,
+    color: TOKEN.ink.inverse,
+    fontSize: TOKEN.font.body,
+    fontWeight: TOKEN.weight.bold,
+    cursor: loading ? "not-allowed" : "pointer",
+  }) as const;

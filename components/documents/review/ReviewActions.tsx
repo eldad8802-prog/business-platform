@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReviewMode } from "@/lib/documents/review/types";
+import { TOKEN } from "@/lib/design/tokens";
 import { primaryDarkButton, secondaryButton } from "./review-ui";
 
 export type ReviewActionsProps = {
@@ -21,20 +22,12 @@ export default function ReviewActions({
   return (
     <div
       style={{
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gap: 12,
-        marginTop: 16,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        marginTop: 20,
       }}
     >
-      <button
-        type="button"
-        disabled={loading}
-        style={secondaryButton(loading)}
-        onClick={onApproveDocumentOnly}
-      >
-        שמור כמסמך מידע
-      </button>
       <button
         type="button"
         disabled={loading}
@@ -44,11 +37,40 @@ export default function ReviewActions({
         {loading
           ? "שומר..."
           : reviewMode === "financial"
-            ? "אשר ושמור כעסקה"
+            ? "אשר ושמור"
             : isUnknown
-              ? "זו קבלה / עסקה"
+              ? "זה מסמך פיננסי"
               : "אשר ושמור"}
       </button>
+      <div style={secondaryActionBoxStyle}>
+        <div style={secondaryActionTextStyle}>
+          אם זה לא מסמך פיננסי, אפשר לשמור אותו כמידע בלבד.
+        </div>
+        <button
+          type="button"
+          disabled={loading}
+          style={secondaryButton(loading)}
+          onClick={onApproveDocumentOnly}
+        >
+          שמור כמסמך מידע
+        </button>
+      </div>
     </div>
   );
 }
+
+const secondaryActionBoxStyle = {
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  background: TOKEN.surface.inset,
+  borderRadius: TOKEN.radius.card,
+  padding: 12,
+  display: "grid",
+  gap: 10,
+};
+
+const secondaryActionTextStyle = {
+  color: TOKEN.ink.muted,
+  fontSize: 13,
+  fontWeight: 750,
+  lineHeight: 1.5,
+};

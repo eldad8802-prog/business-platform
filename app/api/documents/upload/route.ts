@@ -6,6 +6,7 @@ import { mkdir, unlink, writeFile } from "fs/promises";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { runGoogleVisionOCR } from "@/lib/services/documents/google-vision-ocr.service";
 import { runUnifiedDocumentIntelligence } from "@/lib/services/documents/unified-extraction-engine.service";
+import { recordExtractionSnapshot } from "@/lib/services/documents/ledger/correction-ledger.service";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import {
   buildStoredDocumentFileName,
@@ -204,6 +205,15 @@ export async function POST(req: Request) {
         date: extracted.date,
         confidenceScore: extracted.confidence,
       },
+    });
+
+    // Phase 1A Correction Ledger — additive, write-only, never throws.
+    await recordExtractionSnapshot({
+      documentId: document.id,
+      businessId,
+      sourceChannel: "upload",
+      ocrText: rawText,
+      extracted,
     });
 
     await recordProductUsageEvent({

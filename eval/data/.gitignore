@@ -1,0 +1,4 @@
+# Phase 0 eval data contains real (potentially sensitive) business documents.
+# Never commit it. Keep this directory local-only.
+*
+!.gitignore

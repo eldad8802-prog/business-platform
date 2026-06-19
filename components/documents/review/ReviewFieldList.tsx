@@ -8,9 +8,9 @@ import type {
   TrafficLevel,
 } from "@/lib/documents/review/types";
 import { formatAmountDisplay, formatDateShort } from "@/lib/documents/review/format";
+import { TOKEN } from "@/lib/design/tokens";
 import { hasNonEmptyText, isValidPositiveAmount } from "@/lib/documents/review/validation";
 import ReviewFieldRow from "./ReviewFieldRow";
-import { secondaryButton } from "./review-ui";
 
 export type ReviewFieldListProps = {
   showFieldDetails: boolean;
@@ -42,19 +42,25 @@ export default function ReviewFieldList({
 }: ReviewFieldListProps) {
   return (
     <>
-      <div style={{ marginTop: 12 }}>
+      <div style={fieldDisclosureBoxStyle}>
+        <div>
+          <div style={fieldDisclosureTitleStyle}>פרטים לעריכה</div>
+          <div style={fieldDisclosureTextStyle}>
+            פתח רק אם צריך להשלים או לתקן את הנתונים לפני האישור.
+          </div>
+        </div>
         <button
           type="button"
-          style={secondaryButton(loading)}
+          style={fieldDisclosureButtonStyle}
           disabled={loading}
           onClick={onToggleFieldDetails}
         >
-          {showFieldDetails ? "הסתר פרטים ועריכה" : "הצג פרטים ועריכה"}
+          {showFieldDetails ? "הסתר פרטים ועריכה" : "בדוק או ערוך פרטים"}
         </button>
       </div>
 
       {showFieldDetails ? (
-        <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+        <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
           <ReviewFieldRow
             label="סכום"
             missing={!isValidPositiveAmount(draft.amount)}
@@ -103,3 +109,42 @@ export default function ReviewFieldList({
     </>
   );
 }
+
+const fieldDisclosureBoxStyle = {
+  marginTop: 16,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  background: TOKEN.surface.inset,
+  borderRadius: TOKEN.radius.card,
+  padding: 14,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap" as const,
+};
+
+const fieldDisclosureTitleStyle = {
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+};
+
+const fieldDisclosureTextStyle = {
+  marginTop: 4,
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.semibold,
+  lineHeight: 1.5,
+};
+
+const fieldDisclosureButtonStyle = {
+  minHeight: 44,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.button,
+  background: TOKEN.surface.card,
+  color: TOKEN.brand.mid,
+  padding: "0 14px",
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+  cursor: "pointer",
+};

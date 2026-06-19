@@ -1,22 +1,23 @@
 "use client";
 
-import { card } from "@/app/(shell)/documents/ui";
 import type { TrustLevel } from "@/lib/documents/review/types";
+import type { PreviewView } from "@/lib/documents/review/preview-visibility";
 import type { ReviewFieldListProps } from "./ReviewFieldList";
+import ReviewActions from "./ReviewActions";
+import type { ReviewActionsProps } from "./ReviewActions";
 import ReviewAiExtractedCard from "./ReviewAiExtractedCard";
+import ReviewFieldList from "./ReviewFieldList";
 import ReviewImpactBox from "./ReviewImpactBox";
 import ReviewPreviewFallback from "./ReviewPreviewFallback";
 import ReviewTrustSummary from "./ReviewTrustSummary";
-import ReviewFieldList from "./ReviewFieldList";
-import ReviewActions from "./ReviewActions";
-import type { ReviewActionsProps } from "./ReviewActions";
+import { orangePill, reviewCard, reviewSoftPanel } from "./review-ui";
+import { TOKEN } from "@/lib/design/tokens";
 
 export type ReviewDecisionPanelProps = {
   reviewMode: "financial" | "document";
   trustLevel: TrustLevel;
   onBack: () => void;
-  showPreviewFallback: boolean;
-  previewKind: "pdf" | "image" | "unsupported";
+  previewView: PreviewView;
   fileBlobUrl: string | null;
   onPreviewFailed: () => void;
   vendorDisplay: string;
@@ -35,9 +36,7 @@ export type ReviewDecisionPanelProps = {
 export default function ReviewDecisionPanel({
   reviewMode,
   trustLevel,
-  onBack,
-  showPreviewFallback,
-  previewKind,
+  previewView,
   fileBlobUrl,
   onPreviewFailed,
   vendorDisplay,
@@ -53,73 +52,98 @@ export default function ReviewDecisionPanel({
   actions,
 }: ReviewDecisionPanelProps) {
   return (
-    <section style={{ ...card, borderRadius: 18, borderColor: "#dfe7f3" }}>
+    <section style={reviewCard}>
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
           gap: 12,
-          marginBottom: 14,
+          marginBottom: 20,
+          flexWrap: "wrap",
         }}
       >
-        <button
-          type="button"
-          style={{
-            border: "none",
-            background: "transparent",
-            color: "#002b6b",
-            fontSize: 13,
-            fontWeight: 900,
-            cursor: "pointer",
-          }}
-          onClick={onBack}
-        >
-          חזרה →
-        </button>
-        <div style={{ color: "#0f172a", fontSize: 15, fontWeight: 950 }}>
-          {reviewMode === "financial" ? "הוצאה עסקית" : "מסמך מידע"}
+        <div style={{ color: TOKEN.ink.primary, fontSize: TOKEN.font.title, fontWeight: TOKEN.weight.bold }}>
+          {reviewMode === "financial" ? "מסמך פיננסי" : "מסמך מידע"}
         </div>
         <div
           style={{
-            borderRadius: 999,
-            background: trustLevel === "high" ? "#dcfce7" : "#fef3c7",
-            color: trustLevel === "high" ? "#166534" : "#92400e",
-            padding: "6px 10px",
-            fontSize: 11,
-            fontWeight: 950,
+            ...orangePill,
+            background: trustLevel === "high" ? TOKEN.semantic.success.bgSoft : TOKEN.semantic.attention.bgSoft,
+            color: trustLevel === "high" ? TOKEN.semantic.success.ink : TOKEN.semantic.attention.ink,
           }}
         >
-          {trustLevel === "high" ? "המערכת בטוחה" : "דורש בדיקה"}
+          {trustLevel === "high" ? "בטוח לאישור" : "דורש בדיקה"}
         </div>
       </div>
 
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(260px, 1fr) minmax(260px, 1fr)",
+          display: "flex",
+          flexDirection: "column",
           gap: 16,
         }}
       >
-        <div
-          style={{
-            border: "1px solid #dfe7f3",
-            background: "#f8fbff",
-            borderRadius: 14,
-            padding: 14,
-          }}
-        >
+        <div style={{ ...reviewSoftPanel, order: 2 }}>
           <div
             style={{
-              minHeight: 300,
-              background: "#ffffff",
-              border: "1px solid #e5e7eb",
-              borderRadius: 10,
+              minHeight: 330,
+              background: TOKEN.surface.card,
+              border: `1px solid ${TOKEN.border.DEFAULT}`,
+              borderRadius: TOKEN.radius.card,
               padding: 18,
-              boxShadow: "0 10px 24px rgba(15, 23, 42, 0.08)",
+              boxShadow: TOKEN.shadow.elevated,
             }}
           >
-            {showPreviewFallback ? (
+            {previewView === "pdf" ? (
+              <iframe
+                src={fileBlobUrl as string}
+                title="תצוגת מסמך"
+                onError={onPreviewFailed}
+                style={{
+                  width: "100%",
+                  height: 330,
+                  border: "none",
+                  borderRadius: TOKEN.radius.input,
+                  background: TOKEN.surface.card,
+                }}
+              />
+            ) : previewView === "image" ? (
+              // eslint-disable-next-line @next/next/no-img-element -- Secure object URL preview, not a static/image-optimization asset.
+              <img
+                src={fileBlobUrl as string}
+                alt="תצוגת מסמך"
+                onError={onPreviewFailed}
+                style={{
+                  width: "100%",
+                  maxHeight: 330,
+                  objectFit: "contain",
+                  borderRadius: TOKEN.radius.input,
+                }}
+              />
+            ) : previewView === "loading" ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: 294,
+                  gap: 8,
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: 30 }} aria-hidden>
+                  ⏳
+                </div>
+                <div style={{ fontSize: TOKEN.font.title, fontWeight: TOKEN.weight.bold, color: TOKEN.ink.primary }}>
+                  טוען תצוגת מסמך…
+                </div>
+                <div style={{ fontSize: TOKEN.font.meta, fontWeight: TOKEN.weight.bold, color: TOKEN.ink.muted }}>
+                  מורידים את קובץ המקור בצורה מאובטחת.
+                </div>
+              </div>
+            ) : (
               <ReviewPreviewFallback
                 vendorDisplay={vendorDisplay}
                 amountDisplay={amountDisplay}
@@ -127,36 +151,11 @@ export default function ReviewDecisionPanel({
                 categoryDisplay={categoryDisplay}
                 directionDisplay={directionDisplay}
               />
-            ) : previewKind === "pdf" ? (
-              <iframe
-                src={fileBlobUrl as string}
-                title="תצוגת מסמך"
-                onError={onPreviewFailed}
-                style={{
-                  width: "100%",
-                  height: 300,
-                  border: "none",
-                  borderRadius: 8,
-                  background: "#ffffff",
-                }}
-              />
-            ) : (
-              <img
-                src={fileBlobUrl as string}
-                alt="תצוגת מסמך"
-                onError={onPreviewFailed}
-                style={{
-                  width: "100%",
-                  maxHeight: 300,
-                  objectFit: "contain",
-                  borderRadius: 8,
-                }}
-              />
             )}
           </div>
         </div>
 
-        <div style={{ display: "grid", gap: 12 }}>
+        <div style={{ display: "grid", gap: 14, order: 1 }}>
           <ReviewAiExtractedCard
             vendorDisplay={vendorDisplay}
             amountDisplay={amountDisplay}

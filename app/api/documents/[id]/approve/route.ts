@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { resolveDocumentOutputProfile } from "@/lib/services/documents/output-profile-resolver.service";
+import { recordReviewEvent } from "@/lib/services/documents/ledger/correction-ledger.service";
 
 export async function POST(
   req: Request,
@@ -215,6 +216,28 @@ export async function POST(
     await prisma.document.update({
       where: { id: documentId },
       data: { status: "approved" },
+    });
+
+    // Phase 1A Correction Ledger — additive, write-only, never throws. Reads the
+    // original in-memory engine belief (document.extractedData, loaded before the
+    // upsert overwrite) and the human-submitted final values.
+    await recordReviewEvent({
+      documentId,
+      businessId: user.businessId,
+      reviewerUserId: user.id,
+      approvedAs: allowFinancial ? "financial" : "document",
+      explicitFinancial: body.explicitFinancial === true,
+      profileId,
+      belief: document.extractedData
+        ? {
+            amount: document.extractedData.amount ?? null,
+            vendorName: document.extractedData.vendorName ?? null,
+            date: document.extractedData.date ?? null,
+            category: document.extractedData.category ?? null,
+            direction: document.extractedData.direction ?? null,
+          }
+        : null,
+      final: body.extracted ?? {},
     });
 
     return Response.json({

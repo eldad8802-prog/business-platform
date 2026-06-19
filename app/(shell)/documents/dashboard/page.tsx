@@ -18,7 +18,6 @@ import {
   card,
   cardSubText,
   cardTitle,
-  emptyState,
   iconWrap,
   metricTile,
   pageMain,
@@ -26,6 +25,7 @@ import {
   secondaryBtn,
 } from "../ui";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
+import { TOKEN } from "@/lib/design/tokens";
 import DocumentsDashboardSkeleton from "@/components/documents/skeletons/DocumentsDashboardSkeleton";
 
 type Report = {
@@ -45,25 +45,25 @@ const cardHeaderRow = {
 
 const metricLabel = {
   fontSize: 12,
-  color: "#6b7280",
+  color: TOKEN.ink.muted,
   fontWeight: 800,
 };
 
 const metricValue = {
   fontSize: 22,
   fontWeight: 950,
-  color: "#111827",
+  color: TOKEN.ink.primary,
   lineHeight: 1.2,
 };
 
 const balancePositive = {
   ...metricValue,
-  color: "#047857",
+  color: TOKEN.semantic.success.ink,
 };
 
 const balanceNegative = {
   ...metricValue,
-  color: "#b91c1c",
+  color: TOKEN.semantic.urgent.ink,
 };
 
 const periodChipRow = {
@@ -76,9 +76,9 @@ const periodChipRow = {
 const periodChip = (active: boolean) => ({
   padding: "8px 14px",
   borderRadius: 999,
-  border: active ? "1px solid #111827" : "1px solid #e5e7eb",
-  background: active ? "#111827" : "#ffffff",
-  color: active ? "#ffffff" : "#111827",
+  border: active ? `1px solid ${TOKEN.brand.mid}` : `1px solid ${TOKEN.border.DEFAULT}`,
+  background: active ? TOKEN.brand.gradient : TOKEN.surface.card,
+  color: active ? TOKEN.ink.inverse : TOKEN.ink.primary,
   fontWeight: 900,
   fontSize: 13,
   cursor: "pointer",
@@ -90,13 +90,13 @@ const breakdownRow = {
   alignItems: "center",
   gap: 10,
   padding: "10px 0",
-  borderBottom: "1px solid #f1f5f9",
+  borderBottom: `1px solid ${TOKEN.border.DEFAULT}`,
 };
 
 const breakdownLabel = {
   fontSize: 14,
   fontWeight: 800,
-  color: "#111827",
+  color: TOKEN.ink.primary,
   whiteSpace: "nowrap" as const,
   overflow: "hidden",
   textOverflow: "ellipsis",
@@ -105,14 +105,14 @@ const breakdownLabel = {
 const breakdownValue = {
   fontSize: 14,
   fontWeight: 950,
-  color: "#111827",
+  color: TOKEN.ink.primary,
   whiteSpace: "nowrap" as const,
 };
 
 const breakdownPercent = {
   fontSize: 12,
   fontWeight: 800,
-  color: "#6b7280",
+  color: TOKEN.ink.muted,
   whiteSpace: "nowrap" as const,
 };
 
@@ -227,8 +227,8 @@ export default function Dashboard() {
   // Income vs Expense chart data
   const chartData = data
     ? [
-        { name: "הכנסות", value: data.totalIncome, fill: "#059669" },
-        { name: "הוצאות", value: data.totalExpense, fill: "#dc2626" },
+    { name: "הכנסות", value: data.totalIncome, fill: TOKEN.semantic.success.ink },
+    { name: "הוצאות", value: data.totalExpense, fill: TOKEN.semantic.urgent.ink },
       ]
     : [];
 
@@ -245,16 +245,16 @@ export default function Dashboard() {
   const hasNoRecords = !!data && data.count === 0;
 
   return (
-    <div dir="rtl" style={{ minHeight: "100vh", background: "#f3f7ff" }}>
+    <div dir="rtl" style={{ minHeight: "100vh", background: TOKEN.surface.page }}>
       <main style={{ ...pageMain, maxWidth: 760 }}>
         <section style={{ textAlign: "center", padding: "4px 0 2px" }}>
-          <h1 style={{ margin: 0, color: "#0f172a", fontSize: 28, fontWeight: 950 }}>
+          <h1 style={{ margin: 0, color: TOKEN.ink.primary, fontSize: 28, fontWeight: 950 }}>
             דוחות פיננסיים
           </h1>
           <p
             style={{
               margin: "6px 0 0",
-              color: "#64748b",
+              color: TOKEN.ink.muted,
               fontSize: 14,
               lineHeight: 1.6,
               fontWeight: 800,
@@ -281,7 +281,9 @@ export default function Dashboard() {
               width: "100%",
               padding: 12,
               borderRadius: 14,
-              border: "1px solid #d1d5db",
+              border: `1px solid ${TOKEN.border.DEFAULT}`,
+              background: TOKEN.surface.card,
+              color: TOKEN.ink.primary,
               fontSize: 16,
               boxSizing: "border-box",
             }}
@@ -407,19 +409,19 @@ export default function Dashboard() {
                   data={chartData}
                   margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={TOKEN.border.DEFAULT} />
                   <XAxis
                     dataKey="name"
-                    tick={{ fill: "#374151", fontSize: 13, fontWeight: 700 }}
+                    tick={{ fill: TOKEN.ink.secondary, fontSize: 13, fontWeight: 700 }}
                   />
                   <YAxis
-                    tick={{ fill: "#6b7280", fontSize: 12 }}
+                    tick={{ fill: TOKEN.ink.muted, fontSize: 12 }}
                     tickFormatter={(v) => formatAmount(Number(v))}
                     width={80}
                   />
                   <Tooltip
                     formatter={(v) => formatAmount(Number(v))}
-                    cursor={{ fill: "rgba(15, 23, 42, 0.04)" }}
+                    cursor={{ fill: TOKEN.surface.inset }}
                   />
                   <Bar dataKey="value" radius={[10, 10, 0, 0]}>
                     {chartData.map((entry) => (

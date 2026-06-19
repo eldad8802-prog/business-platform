@@ -1,3 +1,5 @@
+import { TOKEN } from "@/lib/design/tokens";
+
 export default function ReviewOutcomeRow({
   icon,
   title,
@@ -13,14 +15,14 @@ export default function ReviewOutcomeRow({
         display: "grid",
         gridTemplateColumns: "34px 1fr",
         gap: 10,
-        padding: "12px 10px",
-        borderBottom: "1px solid #d7f3e3",
+        padding: "14px 12px",
+        borderBottom: `1px solid ${TOKEN.border.DEFAULT}`,
       }}
     >
-      <div style={{ color: "#22c55e", fontSize: 22 }}>{icon}</div>
+      <div style={{ color: TOKEN.semantic.attention.ink, fontSize: 22, fontWeight: 950 }}>{icon}</div>
       <div>
-        <div style={{ color: "#0f172a", fontSize: 13, fontWeight: 950 }}>{title}</div>
-        <div style={{ color: "#64748b", fontSize: 12, fontWeight: 800, marginTop: 3 }}>
+        <div style={{ color: TOKEN.ink.primary, fontSize: 14, fontWeight: 950 }}>{title}</div>
+        <div style={{ color: TOKEN.ink.muted, fontSize: 13, fontWeight: 750, marginTop: 4 }}>
           {body}
         </div>
       </div>

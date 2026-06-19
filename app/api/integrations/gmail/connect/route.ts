@@ -56,7 +56,12 @@ export async function GET(req: NextRequest) {
       codeChallenge,
     });
 
-    const res = NextResponse.redirect(authorizeUrl);
+    const wantsJson =
+      req.headers.get("accept")?.includes("application/json") ||
+      req.headers.get("x-gmail-connect-mode") === "json";
+    const res = wantsJson
+      ? NextResponse.json({ authorizeUrl })
+      : NextResponse.redirect(authorizeUrl);
     const opts = cookieOptions(req);
 
     res.cookies.set(COOKIE_STATE, state, opts);

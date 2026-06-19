@@ -1,4 +1,5 @@
 import ReviewExtractedDetailRow from "./ReviewExtractedDetailRow";
+import { TOKEN } from "@/lib/design/tokens";
 
 export default function ReviewAiExtractedCard({
   vendorDisplay,
@@ -16,20 +17,28 @@ export default function ReviewAiExtractedCard({
   return (
     <div
       style={{
-        border: "1px solid #bbf7d0",
-        background: "#f0fdf4",
-        borderRadius: 14,
-        padding: 14,
+        border: `1px solid ${TOKEN.border.DEFAULT}`,
+        background: TOKEN.surface.card,
+        borderRadius: TOKEN.radius.card,
+        padding: 16,
+        boxShadow: TOKEN.shadow.elevated,
       }}
     >
-      <div style={{ color: "#166534", fontSize: 12, fontWeight: 950, marginBottom: 8 }}>
-        המערכת זיהתה
+      <div
+        style={{
+          color: TOKEN.ink.primary,
+          fontSize: TOKEN.font.title,
+          fontWeight: TOKEN.weight.bold,
+          marginBottom: 10,
+        }}
+      >
+        פרטים שזוהו
       </div>
-      <ReviewExtractedDetailRow icon="⌂" label="ספק" value={vendorDisplay} />
-      <ReviewExtractedDetailRow icon="₪" label="סכום" value={amountDisplay} />
-      <ReviewExtractedDetailRow icon="◷" label="תאריך" value={dateDisplay} />
-      <ReviewExtractedDetailRow icon="▣" label="קטגוריה" value={categoryDisplay} />
-      <ReviewExtractedDetailRow icon="→" label="כיוון" value={directionDisplay} />
+      <ReviewExtractedDetailRow icon="•" label="ספק" value={vendorDisplay} />
+      <ReviewExtractedDetailRow icon="•" label="סכום" value={amountDisplay} />
+      <ReviewExtractedDetailRow icon="•" label="תאריך" value={dateDisplay} />
+      <ReviewExtractedDetailRow icon="•" label="קטגוריה" value={categoryDisplay} />
+      <ReviewExtractedDetailRow icon="•" label="כיוון" value={directionDisplay} />
     </div>
   );
 }

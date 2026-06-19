@@ -1,239 +1,48 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   fetchDocumentsHubSummary,
   type DocumentsHubSnapshot,
 } from "@/lib/documents/fetch-inbox";
+import { TOKEN } from "@/lib/design/tokens";
 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; snapshot: DocumentsHubSnapshot };
 
-function formatMoney(n: number): string {
-  try {
-    return new Intl.NumberFormat("he-IL", {
-      style: "currency",
-      currency: "ILS",
-      maximumFractionDigits: 0,
-    }).format(n);
-  } catch {
-    return `${Math.round(n).toLocaleString("he-IL")} ₪`;
-  }
-}
-
-function monthLabel(ym: string): string {
-  const [y, m] = ym.split("-").map(Number);
-  if (!y || !m) return ym;
-  try {
-    return new Intl.DateTimeFormat("he-IL", {
-      month: "long",
-      year: "numeric",
-    }).format(new Date(y, m - 1, 1));
-  } catch {
-    return ym;
-  }
-}
-
-function metricLabel(value: number): string {
-  return Number.isFinite(value) ? String(value.toLocaleString("he-IL")) : "0";
-}
-
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-const hubSkeletonBar = (width: string | number, height = 14) => ({
-  borderRadius: 12,
-  background: "#e5e7eb",
-  height,
-  width,
-  animation: "documentsHubSkeletonPulse 1.2s ease-in-out infinite",
-});
-
-function HubLoadingPlaceholder() {
-  const card = {
-    background: "#ffffff",
-    border: "1px solid #dfe7f3",
-    borderRadius: 18,
-    padding: 16,
-    boxShadow: "0 10px 28px rgba(15, 23, 42, 0.06)",
-  };
-  return (
-    <div dir="rtl" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <style>{`
-        @keyframes documentsHubSkeletonPulse {
-          0%, 100% { opacity: 0.55; }
-          50% { opacity: 0.95; }
-        }
-      `}</style>
-      <section style={card}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-          <div style={{ flex: 1 }}>
-            <div style={hubSkeletonBar("55%", 16)} />
-            <div style={{ ...hubSkeletonBar("70%", 12), marginTop: 10 }} />
-          </div>
-          <div
-            style={{
-              width: 74,
-              height: 74,
-              borderRadius: 999,
-              background: "#e5e7eb",
-              flexShrink: 0,
-              animation: "documentsHubSkeletonPulse 1.2s ease-in-out infinite",
-            }}
-          />
-        </div>
-      </section>
-    </div>
-  );
+function formatMoney(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "-";
+  try {
+    return new Intl.NumberFormat("he-IL", {
+      style: "currency",
+      currency: "ILS",
+      maximumFractionDigits: 2,
+    }).format(n);
+  } catch {
+    return `${n.toLocaleString("he-IL", { maximumFractionDigits: 2 })} ש"ח`;
+  }
 }
 
-function mainShellStyle() {
-  return {
-    minHeight: "100vh",
-    background: "#f3f7ff",
-  };
+function monthLabel(raw: string): string {
+  if (!raw) return "ללא חודש";
+  const [year, month] = raw.split("-");
+  if (!year || !month) return raw;
+  const d = new Date(Number(year), Number(month) - 1, 1);
+  if (Number.isNaN(d.getTime())) return raw;
+  return d.toLocaleDateString("he-IL", { month: "long", year: "numeric" });
 }
 
-function contentStyle() {
-  return {
-    maxWidth: 760,
-    margin: "0 auto",
-    padding: "18px 14px 40px",
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: 12,
-    boxSizing: "border-box" as const,
-  };
-}
-
-function cardStyle() {
-  return {
-    background: "#ffffff",
-    border: "1px solid #dfe7f3",
-    borderRadius: 18,
-    padding: 16,
-    boxShadow: "0 10px 28px rgba(15, 23, 42, 0.06)",
-  };
-}
-
-function primaryButtonStyle(disabled = false) {
-  return {
-    width: "100%",
-    minHeight: 48,
-    border: "none",
-    borderRadius: 9,
-    background: "#002b6b",
-    color: "#ffffff",
-    fontSize: 15,
-    fontWeight: 950,
-    cursor: disabled ? "not-allowed" : "pointer",
-    opacity: disabled ? 0.65 : 1,
-  };
-}
-
-function secondaryButtonStyle() {
-  return {
-    width: "100%",
-    minHeight: 44,
-    border: "1px solid #dfe7f3",
-    borderRadius: 10,
-    background: "#ffffff",
-    color: "#002b6b",
-    fontSize: 14,
-    fontWeight: 900,
-    cursor: "pointer",
-  };
-}
-
-function MetricTile({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-}) {
-  return (
-    <div
-      style={{
-        border: "1px solid #dfe7f3",
-        borderRadius: 12,
-        background: "#ffffff",
-        padding: 12,
-        minWidth: 0,
-        textAlign: "center",
-      }}
-    >
-      <div style={{ fontSize: 12, color: "#6b7280", fontWeight: 800 }}>
-        {label}
-      </div>
-      <div
-        style={{
-          marginTop: 4,
-          fontSize: 22,
-          color: "#0f172a",
-          fontWeight: 950,
-          lineHeight: 1.2,
-        }}
-      >
-        {value}
-      </div>
-      <div
-        style={{
-          marginTop: 4,
-          fontSize: 12,
-          color: "#9ca3af",
-          fontWeight: 700,
-          lineHeight: 1.4,
-        }}
-      >
-        {hint}
-      </div>
-    </div>
-  );
-}
-
-function IntakeTile({
-  icon,
-  title,
-  subtitle,
-  href,
-  onClick,
-}: {
-  icon: string;
-  title: string;
-  subtitle: string;
-  href: string;
-  onClick: (href: string) => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onClick(href)}
-      style={{
-        border: "1px solid #dfe7f3",
-        borderRadius: 12,
-        background: "#ffffff",
-        padding: 12,
-        minHeight: 94,
-        cursor: "pointer",
-        textAlign: "center",
-      }}
-    >
-      <div style={{ fontSize: 24, marginBottom: 6 }}>{icon}</div>
-      <div style={{ color: "#0f172a", fontSize: 13, fontWeight: 950 }}>
-        {title}
-      </div>
-      <div style={{ color: "#64748b", fontSize: 11, fontWeight: 750, marginTop: 4 }}>
-        {subtitle}
-      </div>
-    </button>
-  );
+function currentMonthValue(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
 export default function DocumentsHome() {
@@ -243,6 +52,7 @@ export default function DocumentsHome() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
+  const [intakeSheet, setIntakeSheet] = useState<"upload" | "camera" | null>(null);
 
   async function load() {
     const token =
@@ -258,7 +68,7 @@ export default function DocumentsHome() {
       const snapshot = await fetchDocumentsHubSummary(token);
       setState({ status: "ready", snapshot });
     } catch (e) {
-      const message = e instanceof Error ? e.message : "שגיאה בטעינת המסמכים";
+      const message = errorMessage(e, "שגיאה בטעינת המסמכים");
       if (message === "Unauthorized") {
         window.localStorage.removeItem("token");
         window.localStorage.removeItem("user");
@@ -305,7 +115,7 @@ export default function DocumentsHome() {
       }
 
       router.push(`/documents/review/${data.documentId}`);
-    } catch (e: unknown) {
+    } catch (e) {
       setUploadError(errorMessage(e, "אירעה שגיאה בהעלאת המסמך"));
     } finally {
       setUploading(false);
@@ -314,94 +124,17 @@ export default function DocumentsHome() {
     }
   }
 
-  function openUploadPicker() {
-    setUploadError("");
-    uploadInputRef.current?.click();
-  }
-
-  function openCameraPicker() {
-    setUploadError("");
-    cameraInputRef.current?.click();
-  }
-
   const snapshot = state.status === "ready" ? state.snapshot : null;
-  const pulse = snapshot?.financialPulse ?? null;
-  const pendingCount = pulse?.inboxDocumentCounts.pendingReview ?? 0;
-  const approvedCount = pulse?.inboxDocumentCounts.approvedDocuments ?? 0;
-  const monthDocs = pendingCount + approvedCount;
-  const recordCount = pulse?.fromFinancialRecords.recordCount ?? 0;
-  const net = pulse?.fromFinancialRecords.net ?? 0;
-  const pending = snapshot?.nextPending ?? null;
-
-  const primary = useMemo(() => {
-    if (!snapshot) {
-      return {
-        label: "טוען...",
-        description: "בודקים את מצב הניירת הפיננסית.",
-        href: "/documents",
-        disabled: true,
-      };
-    }
-
-    if (pending) {
-      return {
-        label: "בדוק את המסמך הבא",
-        description: "יש מסמכים שמונעים מהדוח החודשי להיות סופי.",
-        href: `/documents/review/${pending.documentId}`,
-        disabled: false,
-      };
-    }
-
-    if (pendingCount > 0) {
-      return {
-        label: "פתח את תור הבדיקה",
-        description: "יש מסמכים שמחכים לבדיקה, אבל הם לא נטענו ברשימה הראשונה.",
-        href: "/documents/inbox",
-        disabled: false,
-      };
-    }
-
-    if (recordCount > 0) {
-      return {
-        label: "צפה בדוח החודשי",
-        description: "המסמכים המאושרים כבר עובדים בשבילך בדוחות.",
-        href: "/documents/dashboard",
-        disabled: false,
-      };
-    }
-
-    return {
-      label: "העלה או ייבא מסמך ראשון",
-      description:
-        "הכנס קבלה, חשבונית או אישור תשלום. המערכת תזהה את העסקה, תכין אותה לבדיקה ותבנה ממנה דוחות וחבילה לרו״ח.",
-      href: "/documents/upload",
-      disabled: false,
-    };
-  }, [pending, pendingCount, recordCount, snapshot]);
-
-  const readiness = useMemo(() => {
-    if (!snapshot) return "טוען את מצב הדוח.";
-    if (monthDocs === 0) {
-      return "ברגע שתעלה מסמך, המערכת תחלץ ממנו פרטים ותראה לך מה צריך לאשר לפני שהוא נכנס לדוחות.";
-    }
-    if (pendingCount > 0) {
-      return `הדוח עדיין לא מלא: ${pendingCount.toLocaleString("he-IL")} מסמכים מחכים לבדיקה.`;
-    }
-    if (recordCount > 0) return "הדוח החודשי מוכן על בסיס המסמכים שאושרו.";
-    return "יש מסמכים מאושרים, אבל עדיין אין עסקאות בדוח.";
-  }, [monthDocs, pendingCount, recordCount, snapshot]);
-
-  const readyPercent =
-    monthDocs === 0 ? 0 : Math.round((approvedCount / Math.max(monthDocs, 1)) * 100);
-
-  const accountantPackSubtitle =
-    pendingCount > 0
-      ? `${pendingCount.toLocaleString("he-IL")} עדיין לבדיקה`
-      : "הורד ושלח";
+  const pendingCount =
+    snapshot?.financialPulse.inboxDocumentCounts.pendingReview ?? 0;
+  const approvedCount =
+    snapshot?.financialPulse.inboxDocumentCounts.approvedDocuments ?? 0;
+  const pulse = snapshot?.financialPulse.fromFinancialRecords;
 
   return (
-    <div dir="rtl" style={mainShellStyle()}>
-      <main style={contentStyle()}>
+    <div dir="rtl" style={pageShellStyle}>
+      <style>{documentsHomeCss}</style>
+      <main className="documents-home" style={hubContentStyle}>
         <input
           ref={uploadInputRef}
           type="file"
@@ -417,233 +150,712 @@ export default function DocumentsHome() {
           style={{ display: "none" }}
           onChange={(e) => void uploadDocument(e.target.files?.[0])}
         />
+
+        <header style={hubHeaderStyle}>
+          <h1 style={hubTitleStyle}>מסמכים</h1>
+          <p style={hubSubtitleStyle}>
+            {monthLabel(currentMonthValue())} ·{" "}
+            {state.status === "loading"
+              ? "טוען תור"
+              : `${pendingCount.toLocaleString("he-IL")} ממתינים לאימות`}
+          </p>
+        </header>
+
         {state.status === "error" ? (
-          <section
-            style={{
-              ...cardStyle(),
-              borderColor: "#fecaca",
-              background: "#fef2f2",
-            }}
-          >
-            <div style={{ color: "#991b1b", fontWeight: 900, fontSize: 15 }}>
-              לא הצלחנו לטעון את מרכז המסמכים.
-            </div>
-            <p
-              style={{
-                margin: "8px 0 0",
-                color: "#7f1d1d",
-                fontSize: 14,
-                lineHeight: 1.6,
-              }}
-            >
-              {state.message}
-            </p>
-            <button
-              type="button"
-              style={{ ...secondaryButtonStyle(), marginTop: 14 }}
-              onClick={() => void load()}
-            >
+          <section style={errorCardStyle}>
+            <div style={errorTitleStyle}>לא הצלחנו לטעון את מרכז המסמכים.</div>
+            <p style={errorTextStyle}>{state.message}</p>
+            <button type="button" onClick={() => void load()} style={secondaryButtonStyle}>
               נסה שוב
             </button>
           </section>
         ) : null}
 
+        {state.status !== "error" ? (
+          <>
         {uploadError ? (
-          <section
-            style={{
-              ...cardStyle(),
-              borderColor: "#fecaca",
-              background: "#fef2f2",
-              color: "#991b1b",
-              fontSize: 14,
-              fontWeight: 850,
-              lineHeight: 1.5,
-            }}
-          >
-            {uploadError}
+          <section style={errorCardStyle}>
+            <div style={errorTitleStyle}>{uploadError}</div>
           </section>
         ) : null}
 
-        {state.status === "loading" ? <HubLoadingPlaceholder /> : null}
+        <section style={financialPulseStyle}>
+          <div style={pulseLabelStyle}>תזרים החודש</div>
+          <div style={pulseNetStyle}>{formatMoney(pulse?.net ?? 0)}</div>
+          <div style={pulseStatsStyle}>
+            <PulseBox label="הכנסות" value={formatMoney(pulse?.income ?? 0)} />
+            <PulseBox label="הוצאות" value={formatMoney(pulse?.expense ?? 0)} />
+            <PulseBox
+              label="רשומות"
+              value={(pulse?.recordCount ?? approvedCount).toLocaleString("he-IL")}
+            />
+          </div>
+        </section>
 
-        {state.status !== "loading" ? (
-        <>
-        <section style={cardStyle()}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-            <div>
-              <div style={{ color: "#0f172a", fontSize: 16, fontWeight: 950 }}>
-                מצב העסק - {snapshot ? monthLabel(snapshot.scope.month) : "טוען..."}
-              </div>
-              <div style={{ color: "#64748b", fontSize: 12, fontWeight: 800, marginTop: 4 }}>
-                מבוסס על מסמכים שאושרו ונמצאים בתור בדיקה
-              </div>
-            </div>
-            <div
-              style={{
-                width: 74,
-                height: 74,
-                borderRadius: 999,
-                background: `conic-gradient(#22c55e ${readyPercent * 3.6}deg, #e5e7eb 0deg)`,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
+        <section>
+          <SectionTitle>קליטת מסמך</SectionTitle>
+          <div className="documents-intake-grid" style={hubIntakeGridStyle}>
+            <HubTile
+              icon="📤"
+              label="העלאת קובץ"
+              onClick={() => {
+                setUploadError("");
+                setIntakeSheet("upload");
               }}
-            >
-              <div
-                style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: 999,
-                  background: "#ffffff",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "#0f172a",
-                  fontWeight: 950,
-                  fontSize: 18,
-                }}
-              >
-                {`${readyPercent}%`}
-              </div>
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-              gap: 10,
-              marginTop: 14,
-            }}
-          >
-            <MetricTile
-              label="מסמכים שטופלו"
-              value={metricLabel(approvedCount)}
-              hint="מאושרים"
             />
-            <MetricTile
-              label="ממתינים לבדיקה"
-              value={metricLabel(pendingCount)}
-              hint="מסמכים"
-            />
-            <MetricTile
-              label="עסקאות בדוחות"
-              value={metricLabel(recordCount)}
-              hint="החודש"
-            />
-            <MetricTile
-              label="נטו חודשי"
-              value={formatMoney(net)}
-              hint="דוחות"
-            />
-          </div>
-        </section>
-
-        <section style={cardStyle()}>
-          <div style={{ color: "#0f172a", fontWeight: 950, fontSize: 16, marginBottom: 12 }}>
-            פעולות מהירות
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-              gap: 10,
-            }}
-          >
-            <IntakeTile
-              icon="⬆"
-              title="העלה מסמך"
-              subtitle="פתח בחירה מהמכשיר"
-              href="direct-upload"
-              onClick={() => openUploadPicker()}
-            />
-            <IntakeTile
-              icon="✉"
-              title="ייבוא מייל"
-              subtitle="Gmail וקבצים"
-              href="/documents/email"
-              onClick={(href) => router.push(href)}
-            />
-            <IntakeTile
-              icon="▣"
-              title="סריקה"
-              subtitle="צילום מהנייד"
-              href="direct-camera"
-              onClick={() => openCameraPicker()}
-            />
-            <IntakeTile
-              icon="⌕"
-              title="חיפוש"
-              subtitle="מסמכים"
-              href="/documents/search"
-              onClick={(href) => router.push(href)}
-            />
-            <IntakeTile
-              icon="□"
-              title="הכן חבילה לרו״ח"
-              subtitle={accountantPackSubtitle}
-              href="/documents/accountant-pack"
-              onClick={(href) => router.push(href)}
-            />
-          </div>
-        </section>
-
-        <section style={cardStyle()}>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ color: "#0f172a", fontWeight: 950, fontSize: 17 }}>
-              יש {pendingCount.toLocaleString("he-IL")} מסמכים שממתינים לבדיקה
-            </div>
-            <p
-              style={{
-                margin: "8px 0 0",
-                color: "#64748b",
-                fontSize: 13,
-                lineHeight: 1.6,
-                fontWeight: 800,
+            <HubTile
+              icon="📷"
+              label="צילום מסמך"
+              onClick={() => {
+                setUploadError("");
+                setIntakeSheet("camera");
               }}
-            >
-              {readiness}
-            </p>
+            />
+            <HubTile
+              icon="📧"
+              label="מ-Gmail"
+              onClick={() => router.push("/documents/email")}
+            />
+            <HubTile
+              icon="💬"
+              label="מ-WhatsApp"
+              onClick={() => router.push("/settings/whatsapp")}
+            />
           </div>
-          <button
-            type="button"
-            disabled={primary.disabled || uploading}
-            style={{ ...primaryButtonStyle(primary.disabled || uploading), marginTop: 16 }}
-            onClick={() => {
-              if (primary.disabled || uploading) return;
-              if (primary.href === "/documents/upload") {
-                openUploadPicker();
-                return;
-              }
-              router.push(primary.href);
-            }}
-          >
-            {uploading && primary.href === "/documents/upload"
-              ? "מעלה מסמך..."
-              : primary.label}{" "}
-            <span style={{ marginInlineStart: 10 }}>←</span>
-          </button>
-          <button
-            type="button"
-            style={{
-              border: "none",
-              background: "transparent",
-              color: "#002b6b",
-              fontSize: 12,
-              fontWeight: 900,
-              cursor: "pointer",
-              marginTop: 10,
-              width: "100%",
-            }}
-            onClick={() => router.push("/documents/inbox")}
-          >
-            ראה את כל התור
-          </button>
         </section>
-        </>
+
+        <section>
+          <SectionTitle>תחנות</SectionTitle>
+          <div style={hubStationsStyle}>
+            <StationRow
+              icon="📥"
+              title="תור אימות"
+              subtitle="מסמכים שממתינים לאישור שלך"
+              count={pendingCount}
+              onClick={() => router.push("/documents/inbox")}
+            />
+            <StationRow
+              icon="🔍"
+              title="חיפוש מסמכים"
+              subtitle="חיפוש ברשומות המאושרות"
+              onClick={() => router.push("/documents/search")}
+            />
+            <StationRow
+              icon="📊"
+              title="חבילת רו״ח"
+              subtitle="ייצוא תקופה לרואה החשבון"
+              onClick={() => router.push("/documents/accountant-pack")}
+            />
+          </div>
+        </section>
+
+          </>
         ) : null}
+
+        {intakeSheet && typeof document !== "undefined"
+          ? createPortal(
+              <div className="documents-intake-overlay" style={intakeOverlayStyle}>
+                <section role="dialog" aria-modal="true" style={intakeDialogStyle}>
+                  <div style={sheetGrabStyle} />
+                  <div style={intakeDialogHeaderStyle}>
+                    <div>
+                      <h2 style={intakeDialogTitleStyle}>
+                        {intakeSheet === "upload" ? "העלאת מסמך" : "צילום מסמך"}
+                      </h2>
+                      <p style={intakeDialogTextStyle}>
+                        {intakeSheet === "upload"
+                          ? "בחר קובץ מהמחשב - נריץ OCR ונעביר לאימות."
+                          : "צלם מסמך או בחר תמונה קיימת - נריץ OCR ונעביר לאימות."}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="סגור"
+                      style={intakeDialogCloseStyle}
+                      onClick={() => setIntakeSheet(null)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div style={sheetTileGridStyle}>
+                    <button
+                      type="button"
+                      style={sheetTileStyle}
+                      onClick={() => {
+                        setIntakeSheet(null);
+                        window.setTimeout(() => uploadInputRef.current?.click(), 0);
+                      }}
+                    >
+                      <span style={sheetTileIconStyle}>
+                        📤
+                      </span>
+                      <span>העלאת קובץ</span>
+                    </button>
+                    <button
+                      type="button"
+                      style={sheetTileStyle}
+                      onClick={() => {
+                        setIntakeSheet(null);
+                        window.setTimeout(() => cameraInputRef.current?.click(), 0);
+                      }}
+                    >
+                      <span style={sheetTileIconStyle}>
+                        📷
+                      </span>
+                      <span>צילום מסמך</span>
+                    </button>
+                    <button
+                      type="button"
+                      style={sheetTileStyle}
+                      onClick={() => router.push("/documents/email")}
+                    >
+                      <span style={sheetTileIconStyle}>
+                        📧
+                      </span>
+                      <span>מ-Gmail</span>
+                    </button>
+                    <button
+                      type="button"
+                      style={sheetTileStyle}
+                      onClick={() => router.push("/settings/whatsapp")}
+                    >
+                      <span style={sheetTileIconStyle}>
+                        💬
+                      </span>
+                      <span>מ-WhatsApp</span>
+                    </button>
+                  </div>
+                  <div style={sheetActionsStyle}>
+                    <button
+                      type="button"
+                      style={intakeSecondaryActionStyle}
+                      onClick={() => setIntakeSheet(null)}
+                    >
+                      ביטול
+                    </button>
+                    <button
+                      type="button"
+                      style={intakePrimaryActionStyle(uploading)}
+                      disabled={uploading}
+                      onClick={() => {
+                        const target = intakeSheet;
+                        setIntakeSheet(null);
+                        window.setTimeout(() => {
+                          if (target === "upload") uploadInputRef.current?.click();
+                          if (target === "camera") cameraInputRef.current?.click();
+                        }, 0);
+                      }}
+                    >
+                      {intakeSheet === "upload" ? "בחר קובץ" : "פתח מצלמה"}
+                    </button>
+                  </div>
+                  <p style={sheetHintStyle}>PDF או תמונה · עד 15MB</p>
+                </section>
+              </div>,
+              document.body
+            )
+          : null}
       </main>
     </div>
   );
 }
+
+function PulseBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={pulseStatBoxStyle}>
+      <span style={pulseStatLabelStyle}>{label}</span>
+      <strong style={pulseStatValueStyle}>{value}</strong>
+    </div>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={hubSectionHeadStyle}>
+      <h2 style={hubSectionTitleStyle}>{children}</h2>
+    </div>
+  );
+}
+
+function HubTile({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" style={hubTileStyle} onClick={onClick}>
+      <span style={hubTileIconStyle}>{icon}</span>
+      <span style={hubTileTextStyle}>{label}</span>
+    </button>
+  );
+}
+
+function StationRow({
+  icon,
+  title,
+  subtitle,
+  count,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  count?: number;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" style={hubStationRowStyle} onClick={onClick}>
+      <span style={hubStationIconStyle}>{icon}</span>
+      <span style={hubStationTextStyle}>
+        <strong style={hubStationTitleStyle}>{title}</strong>
+        <span style={hubStationSubStyle}>{subtitle}</span>
+      </span>
+      {typeof count === "number" ? (
+        <span style={hubCountStyle}>{count.toLocaleString("he-IL")}</span>
+      ) : (
+        <ChevronLeftIcon />
+      )}
+    </button>
+  );
+}
+
+const pageShellStyle = {
+  minHeight: "100vh",
+  background: TOKEN.surface.page,
+  color: TOKEN.ink.primary,
+};
+
+const hubContentStyle = {
+  width: "100%",
+  maxWidth: 760,
+  margin: "0 auto",
+  padding: "18px 18px 118px",
+  boxSizing: "border-box" as const,
+};
+
+const hubHeaderStyle = {
+  padding: "4px 0 10px",
+};
+
+const hubTitleStyle = {
+  margin: 0,
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.hero,
+  fontWeight: TOKEN.weight.bold,
+  lineHeight: 1.25,
+};
+
+const hubSubtitleStyle = {
+  margin: "6px 0 0",
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.semibold,
+};
+
+const financialPulseStyle = {
+  marginTop: TOKEN.space.md,
+  borderRadius: TOKEN.radius.modal,
+  padding: TOKEN.space.xl,
+  background: TOKEN.brand.gradient,
+  color: TOKEN.ink.inverse,
+  boxShadow: TOKEN.shadow.elevated,
+};
+
+const pulseLabelStyle = {
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.bold,
+  opacity: 0.82,
+};
+
+const pulseNetStyle = {
+  marginTop: TOKEN.space.sm,
+  fontSize: TOKEN.font.hero,
+  fontWeight: TOKEN.weight.bold,
+  lineHeight: 1.2,
+};
+
+const pulseStatsStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: TOKEN.space.sm,
+  marginTop: TOKEN.space.lg,
+};
+
+const pulseStatBoxStyle = {
+  borderRadius: TOKEN.radius.card,
+  background: "rgba(255, 255, 255, 0.16)",
+  padding: TOKEN.space.md,
+  minWidth: 0,
+};
+
+const pulseStatLabelStyle = {
+  display: "block",
+  color: "rgba(255, 255, 255, 0.78)",
+  fontSize: TOKEN.font.caption,
+  fontWeight: TOKEN.weight.semibold,
+};
+
+const pulseStatValueStyle = {
+  display: "block",
+  marginTop: TOKEN.space.xs,
+  color: TOKEN.ink.inverse,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+  whiteSpace: "nowrap" as const,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+
+const hubSectionHeadStyle = {
+  margin: `${TOKEN.space.xl}px 0 ${TOKEN.space.md}px`,
+};
+
+const hubSectionTitleStyle = {
+  margin: 0,
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.title,
+  fontWeight: TOKEN.weight.bold,
+};
+
+const hubIntakeGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: TOKEN.space.md,
+};
+
+const hubTileStyle = {
+  minHeight: 94,
+  border: "none",
+  borderRadius: TOKEN.radius.card,
+  background: TOKEN.surface.inset,
+  color: TOKEN.ink.primary,
+  padding: "14px 18px",
+  display: "flex",
+  flexDirection: "column" as const,
+  alignItems: "center",
+  justifyContent: "center",
+  gap: TOKEN.space.sm,
+  cursor: "pointer",
+  font: "inherit",
+  textAlign: "center" as const,
+};
+
+const hubTileIconStyle = {
+  width: 56,
+  height: 56,
+  borderRadius: TOKEN.radius.card,
+  background: TOKEN.surface.card,
+  boxShadow: TOKEN.shadow.elevated,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 23,
+  flexShrink: 0,
+};
+
+const hubTileTextStyle = {
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+  lineHeight: 1.3,
+  textAlign: "center" as const,
+};
+
+const hubStationsStyle = {
+  display: "grid",
+  gap: TOKEN.space.md,
+};
+
+const hubStationRowStyle = {
+  width: "100%",
+  minHeight: 74,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.card,
+  background: TOKEN.surface.card,
+  padding: TOKEN.space.md,
+  display: "flex",
+  alignItems: "center",
+  gap: TOKEN.space.md,
+  color: TOKEN.ink.primary,
+  cursor: "pointer",
+  font: "inherit",
+  textAlign: "right" as const,
+  boxShadow: TOKEN.shadow.elevated,
+};
+
+const hubStationIconStyle = {
+  width: 46,
+  height: 46,
+  borderRadius: TOKEN.radius.input,
+  background: TOKEN.surface.inset,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 24,
+  flexShrink: 0,
+};
+
+const hubStationTextStyle = {
+  minWidth: 0,
+  flex: 1,
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: 2,
+};
+
+const hubStationTitleStyle = {
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.title,
+  fontWeight: TOKEN.weight.bold,
+};
+
+const hubStationSubStyle = {
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.semibold,
+  lineHeight: 1.45,
+};
+
+const hubCountStyle = {
+  minWidth: 28,
+  height: 28,
+  borderRadius: TOKEN.radius.pill,
+  background: TOKEN.semantic.attention.bg,
+  color: TOKEN.semantic.attention.ink,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "0 8px",
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.bold,
+};
+
+const errorCardStyle = {
+  background: TOKEN.semantic.urgent.bgSoft,
+  border: `1px solid ${TOKEN.semantic.urgent.border}`,
+  borderRadius: TOKEN.radius.card,
+  padding: TOKEN.space.lg,
+  boxShadow: TOKEN.shadow.elevated,
+};
+
+const errorTitleStyle = {
+  color: TOKEN.semantic.urgent.ink,
+  fontWeight: TOKEN.weight.bold,
+};
+
+const errorTextStyle = {
+  margin: "8px 0 0",
+  color: TOKEN.semantic.urgent.ink,
+  fontSize: TOKEN.font.body,
+  lineHeight: 1.6,
+};
+
+const secondaryButtonStyle = {
+  width: "100%",
+  minHeight: 44,
+  marginTop: 14,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.button,
+  background: TOKEN.surface.card,
+  color: TOKEN.brand.mid,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+  cursor: "pointer",
+};
+
+const intakeOverlayStyle = {
+  position: "fixed" as const,
+  inset: 0,
+  zIndex: 2147483000,
+  background: "rgba(15, 23, 42, 0.28)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 20,
+};
+
+const intakeDialogStyle = {
+  width: "min(440px, 100%)",
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.modal,
+  background: TOKEN.surface.overlay,
+  padding: TOKEN.space.xl,
+  boxShadow: TOKEN.shadow.floating,
+};
+
+const sheetGrabStyle = {
+  width: 42,
+  height: 4,
+  borderRadius: TOKEN.radius.pill,
+  background: TOKEN.border.hover,
+  margin: "0 auto 14px",
+};
+
+const intakeDialogHeaderStyle = {
+  display: "flex" as const,
+  alignItems: "flex-start" as const,
+  justifyContent: "space-between" as const,
+  gap: 12,
+};
+
+const intakeDialogTitleStyle = {
+  margin: 0,
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.display,
+  fontWeight: TOKEN.weight.bold,
+};
+
+const intakeDialogCloseStyle = {
+  width: 40,
+  height: 40,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.button,
+  background: TOKEN.surface.card,
+  color: TOKEN.ink.muted,
+  fontSize: 24,
+  lineHeight: 1,
+  cursor: "pointer",
+  flexShrink: 0,
+};
+
+const intakeDialogTextStyle = {
+  margin: "6px 0 0",
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.semibold,
+  lineHeight: 1.6,
+};
+
+const sheetActionsStyle = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1.3fr",
+  gap: TOKEN.space.sm,
+  marginTop: TOKEN.space.xl,
+};
+
+const sheetTileGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: TOKEN.space.sm,
+  marginTop: TOKEN.space.lg,
+};
+
+const sheetTileStyle = {
+  minHeight: 82,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.card,
+  background: TOKEN.surface.inset,
+  color: TOKEN.ink.primary,
+  display: "flex",
+  flexDirection: "row" as const,
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: TOKEN.space.md,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+  cursor: "pointer",
+  padding: "12px 14px",
+  textAlign: "right" as const,
+};
+
+const sheetTileIconStyle = {
+  width: 44,
+  height: 44,
+  borderRadius: TOKEN.radius.card,
+  background: TOKEN.surface.card,
+  boxShadow: TOKEN.shadow.elevated,
+  fontSize: 21,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  flexShrink: 0,
+};
+
+const intakeSecondaryActionStyle = {
+  minHeight: 50,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.button,
+  background: TOKEN.surface.card,
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+  cursor: "pointer",
+};
+
+const intakePrimaryActionStyle = (disabled: boolean) =>
+  ({
+    minHeight: 50,
+    border: "none",
+    borderRadius: TOKEN.radius.button,
+    background: disabled ? TOKEN.ink.disabled : TOKEN.brand.gradient,
+    color: TOKEN.ink.inverse,
+    fontSize: TOKEN.font.body,
+    fontWeight: TOKEN.weight.bold,
+    cursor: disabled ? "not-allowed" : "pointer",
+  }) as const;
+
+const sheetHintStyle = {
+  margin: `${TOKEN.space.md}px 0 0`,
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.semibold,
+  textAlign: "center" as const,
+};
+
+function ChevronLeftIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="m9 6 6 6-6 6"
+        stroke="currentColor"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+const documentsHomeCss = `
+  .documents-home input::placeholder {
+    color: ${TOKEN.ink.muted};
+    opacity: 1;
+  }
+
+  @media (max-width: 640px) {
+    .documents-home {
+      padding-inline: 14px !important;
+      padding-bottom: 148px !important;
+    }
+
+    .documents-intake-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+      gap: 12px !important;
+    }
+
+    .documents-intake-grid button {
+      flex-direction: row !important;
+      justify-content: space-between !important;
+      text-align: right !important;
+      padding: 14px 18px !important;
+    }
+
+    .documents-intake-grid button > span:last-child {
+      text-align: right !important;
+      flex: 1 !important;
+    }
+
+    .documents-intake-overlay {
+      align-items: flex-end !important;
+      padding: 0 !important;
+    }
+
+    .documents-intake-overlay section {
+      width: 100% !important;
+      border-radius: 16px 16px 0 0 !important;
+    }
+  }
+`;

@@ -64,7 +64,7 @@ export const TRAFFIC_CONFIG: Record<
   TrafficLevel,
   { dot: string; caption: string; captionColor: string }
 > = {
-  high: { dot: "#22c55e", caption: "גבוהה", captionColor: "#15803d" },
-  medium: { dot: "#eab308", caption: "לבדיקה", captionColor: "#a16207" },
-  low: { dot: "#ef4444", caption: "נמוכה", captionColor: "#b91c1c" },
+  high: { dot: "#22c55e", caption: "זוהה טוב", captionColor: "#15803d" },
+  medium: { dot: "#eab308", caption: "כדאי לבדוק", captionColor: "#a16207" },
+  low: { dot: "#ef4444", caption: "צריך השלמה", captionColor: "#b91c1c" },
 };

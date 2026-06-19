@@ -1,4 +1,5 @@
 import type { TrustLevel } from "@/lib/documents/review/types";
+import { TOKEN } from "@/lib/design/tokens";
 import ReviewReliabilityScale from "./ReviewReliabilityScale";
 import ReviewTrustChecklistItem from "./ReviewTrustChecklistItem";
 
@@ -13,44 +14,26 @@ export default function ReviewTrustSummary({
   trustSummary: string;
   trustReasons: string[];
 }) {
+  const highTrust = trustLevel === "high";
+  const semantic = highTrust ? TOKEN.semantic.success : TOKEN.semantic.attention;
+
   return (
     <>
-      <div
-        style={{
-          border: "1px solid #dfe7f3",
-          background: "#ffffff",
-          borderRadius: 14,
-          padding: 14,
-          marginTop: 14,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      <div style={boxStyle}>
+        <div style={labelRowStyle}>
           <span
             style={{
-              borderRadius: 999,
-              background: trustLevel === "high" ? "#dcfce7" : "#fef3c7",
-              color: trustLevel === "high" ? "#166534" : "#92400e",
-              padding: "5px 9px",
-              fontSize: 12,
-              fontWeight: 950,
+              ...pillStyle,
+              background: semantic.bgSoft,
+              color: semantic.ink,
             }}
           >
             {trustTitle}
           </span>
         </div>
-        <p
-          style={{
-            margin: 0,
-            color: trustLevel === "high" ? "#166534" : "#92400e",
-            fontSize: 13,
-            fontWeight: 850,
-            lineHeight: 1.55,
-          }}
-        >
-          {trustSummary}
-        </p>
+        <p style={{ ...summaryStyle, color: semantic.ink }}>{trustSummary}</p>
         {trustReasons.length > 1 ? (
-          <div style={{ marginTop: 8, display: "grid", gap: 5 }}>
+          <div style={reasonsStyle}>
             {trustReasons.slice(1, 4).map((reason) => (
               <ReviewTrustChecklistItem key={reason}>{reason}</ReviewTrustChecklistItem>
             ))}
@@ -58,9 +41,44 @@ export default function ReviewTrustSummary({
         ) : null}
       </div>
 
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 14 }}>
         <ReviewReliabilityScale level={trustLevel} />
       </div>
     </>
   );
 }
+
+const boxStyle = {
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  background: TOKEN.surface.card,
+  borderRadius: TOKEN.radius.card,
+  padding: TOKEN.space.lg,
+  marginTop: 18,
+} as const;
+
+const labelRowStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  marginBottom: 10,
+} as const;
+
+const pillStyle = {
+  borderRadius: TOKEN.radius.pill,
+  padding: "6px 11px",
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.bold,
+} as const;
+
+const summaryStyle = {
+  margin: 0,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.semibold,
+  lineHeight: 1.6,
+} as const;
+
+const reasonsStyle = {
+  marginTop: 10,
+  display: "grid",
+  gap: 6,
+} as const;

@@ -1,13 +1,14 @@
 "use client";
 
 import type { CSSProperties } from "react";
+import { TOKEN } from "@/lib/design/tokens";
 
 const BAND: CSSProperties = {
-  borderRadius: 18,
+  borderRadius: TOKEN.radius.card,
   padding: "12px 14px",
-  background: "#fffbeb",
-  border: "1px solid #fde68a",
-  color: "#92400e",
+  background: TOKEN.semantic.attention.bgSoft,
+  border: `1px solid ${TOKEN.semantic.attention.border}`,
+  color: TOKEN.semantic.attention.ink,
   fontSize: 13,
   fontWeight: 800,
   lineHeight: 1.5,

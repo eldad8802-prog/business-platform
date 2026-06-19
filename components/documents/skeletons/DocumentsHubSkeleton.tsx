@@ -5,6 +5,7 @@ import {
   documentsShellCard,
   skeletonBar,
 } from "./skeleton-primitives";
+import { TOKEN } from "@/lib/design/tokens";
 
 export default function DocumentsHubSkeleton() {
   return (
@@ -19,8 +20,8 @@ export default function DocumentsHubSkeleton() {
             style={{
               width: 74,
               height: 74,
-              borderRadius: 999,
-              background: "#e5e7eb",
+              borderRadius: TOKEN.radius.pill,
+              background: TOKEN.surface.inset,
               flexShrink: 0,
               animation: "documentsSkeletonPulse 1.2s ease-in-out infinite",
             }}
@@ -38,8 +39,8 @@ export default function DocumentsHubSkeleton() {
             <div
               key={i}
               style={{
-                border: "1px solid #dfe7f3",
-                borderRadius: 12,
+                border: `1px solid ${TOKEN.border.DEFAULT}`,
+                borderRadius: TOKEN.radius.input,
                 padding: 12,
                 textAlign: "center",
               }}
@@ -78,10 +79,10 @@ export default function DocumentsHubSkeleton() {
             <div
               key={i}
               style={{
-                border: "1px solid #dfe7f3",
-                borderRadius: 12,
+                border: `1px solid ${TOKEN.border.DEFAULT}`,
+                borderRadius: TOKEN.radius.input,
                 minHeight: 94,
-                background: "#f8fafc",
+                background: TOKEN.surface.inset,
               }}
             />
           ))}

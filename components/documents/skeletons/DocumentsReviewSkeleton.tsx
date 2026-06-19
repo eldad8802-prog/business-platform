@@ -1,52 +1,28 @@
 "use client";
 
-import DocumentsHeader from "@/components/documents/DocumentsHeader";
-import { card } from "@/app/(shell)/documents/ui";
-import {
-  SkeletonBlock,
-  skeletonBar,
-} from "./skeleton-primitives";
-
-const mainStyle = {
-  maxWidth: 760,
-  margin: "0 auto",
-  padding: "14px 14px 40px",
-  boxSizing: "border-box" as const,
-};
-
-const basePageStyle = {
-  minHeight: "100vh",
-  background: "#f3f7ff",
-};
+import { basePageStyle, mainStyle, reviewCard } from "@/components/documents/review/review-ui";
+import { SkeletonBlock, skeletonBar } from "./skeleton-primitives";
 
 export default function DocumentsReviewSkeleton() {
   return (
-    <div dir="rtl" style={basePageStyle}>
-      <DocumentsHeader title="בדיקת מסמך" />
-      <main style={mainStyle}>
+    <div dir="rtl" style={basePageStyle()}>
+      <main style={mainStyle()}>
         <SkeletonBlock>
-          <div style={card}>
-            <div style={{ ...skeletonBar("50%", 20), margin: "0 auto" }} />
-            <div style={{ ...skeletonBar("75%", 14), margin: "12px auto 0" }} />
+          <div style={{ textAlign: "center", padding: "34px 0 8px" }}>
+            <div style={{ ...skeletonBar(58, 58), margin: "0 auto 18px", borderRadius: 18 }} />
+            <div style={{ ...skeletonBar("42%", 34), margin: "0 auto" }} />
+            <div style={{ ...skeletonBar("58%", 16), margin: "14px auto 0" }} />
           </div>
-          <div style={card}>
-            <div style={skeletonBar("40%", 16)} />
-            <div style={{ ...skeletonBar("100%", 12), marginTop: 14 }} />
-            <div style={{ ...skeletonBar("90%", 12), marginTop: 8 }} />
-            <div
-              style={{
-                ...skeletonBar("100%", 44),
-                marginTop: 16,
-                borderRadius: 14,
-              }}
-            />
-            <div
-              style={{
-                ...skeletonBar("100%", 44),
-                marginTop: 10,
-                borderRadius: 14,
-              }}
-            />
+          <div style={reviewCard}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 22 }}>
+              <div style={{ ...skeletonBar("100%", 360), borderRadius: 20 }} />
+              <div>
+                <div style={skeletonBar("40%", 18)} />
+                <div style={{ ...skeletonBar("100%", 54), marginTop: 16, borderRadius: 16 }} />
+                <div style={{ ...skeletonBar("100%", 54), marginTop: 10, borderRadius: 16 }} />
+                <div style={{ ...skeletonBar("100%", 54), marginTop: 10, borderRadius: 16 }} />
+              </div>
+            </div>
           </div>
         </SkeletonBlock>
       </main>

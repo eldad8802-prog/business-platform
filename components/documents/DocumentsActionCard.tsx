@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
+import { TOKEN } from "@/lib/design/tokens";
 
 type DocumentsActionCardProps = {
   icon: ReactNode;
@@ -67,11 +68,11 @@ export default function DocumentsActionCard({
 const cardStyle: CSSProperties = {
   width: "100%",
   minHeight: 96,
-  background: "#ffffff",
-  border: "1px solid #e5e7eb",
-  borderRadius: 22,
-  padding: 16,
-  boxShadow: "0 10px 30px rgba(15, 23, 42, 0.06)",
+  background: TOKEN.surface.card,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.card,
+  padding: TOKEN.space.lg,
+  boxShadow: TOKEN.shadow.elevated,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -102,8 +103,8 @@ const innerStyle: CSSProperties = {
 const iconWrapStyle: CSSProperties = {
   width: 44,
   height: 44,
-  borderRadius: 14,
-  background: "#f3f4f6",
+  borderRadius: TOKEN.radius.card,
+  background: TOKEN.surface.inset,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -121,17 +122,17 @@ const textBlockStyle: CSSProperties = {
 };
 
 const titleStyle: CSSProperties = {
-  fontWeight: 950,
-  fontSize: 16,
-  color: "#111827",
+  fontWeight: TOKEN.weight.bold,
+  fontSize: TOKEN.font.title,
+  color: TOKEN.ink.primary,
   lineHeight: 1.3,
   textAlign: "center",
 };
 
 const subtitleStyle: CSSProperties = {
-  fontSize: 13,
+  fontSize: TOKEN.font.meta,
   lineHeight: 1.5,
-  color: "#6b7280",
+  color: TOKEN.ink.muted,
   textAlign: "center",
   margin: 0,
 };

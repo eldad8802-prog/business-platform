@@ -48,7 +48,9 @@ export function computeTrustContext(input: {
     typeof draft.amount === "number" && Number.isFinite(draft.amount)
       ? formatAmountDisplay(draft.amount)
       : "סכום לא זוהה";
-  const vendorDisplay = hasNonEmptyText(draft.vendorName) ? draft.vendorName : "ספק לא זוהה";
+  const vendorDisplay = hasNonEmptyText(draft.vendorName)
+    ? draft.vendorName
+    : "ספק לא זוהה";
   const dateDisplay = formatDateShort(draft.date) || "תאריך לא זוהה";
   const categoryDisplay = CATEGORY_MAP[draft.category] || draft.category || "כללי";
 
@@ -62,44 +64,44 @@ export function computeTrustContext(input: {
   const aiSummaryBody =
     reviewMode === "financial"
       ? `${directionDisplay} בסך ${amountDisplay}, בתאריך ${dateDisplay}, בקטגוריית ${categoryDisplay}.`
-      : "המסמך יישמר בארכיון המסמכים, אבל לא ייצור עסקה ולא ישפיע על הדוחות.";
+      : "המסמך יישמר בארכיון המסמכים, בלי ליצור רשומה פיננסית.";
 
   const trustReasons = [
     reviewMode === "financial" && !isValidPositiveAmount(draft.amount)
-      ? "לא זוהה סכום תקין לעסקה. צריך להשלים סכום לפני שהוא נכנס לדוחות."
+      ? "לא זוהה סכום תקין. צריך להשלים סכום לפני שהמסמך נשמר כרשומה פיננסית."
       : reviewMode === "financial" && amountLevel !== "high"
-        ? "הסכום זוהה, אבל כדאי לוודא שהוא הסכום הסופי של העסקה."
+        ? "הסכום זוהה, אבל כדאי לוודא שזה הסכום הסופי במסמך."
         : null,
     reviewMode === "financial" && !hasNonEmptyText(draft.vendorName)
-      ? "לא זוהה ספק או לקוח ברור. זה חשוב כדי שהדוח והחיפוש יהיו שימושיים."
+      ? "לא זוהה ספק או לקוח ברור. זה חשוב לזיהוי הרשומה בהמשך."
       : vendorLevel === "low"
-        ? "שם הספק נראה חלקי או לא חד-משמעי במסמך."
+        ? "שם הספק לא מזוהה בוודאות."
         : vendorLevel === "medium"
-          ? "שם הספק זוהה, אבל כדאי לוודא שהוא הגורם העסקי הנכון."
+          ? "שם הספק זוהה, אבל כדאי לוודא שהוא נכון."
           : null,
     reviewMode === "financial" && (!draft.date || !formatDateShort(draft.date))
-      ? "לא זוהה תאריך עסקה ברור, ולכן אי אפשר לשייך אותה בביטחון לחודש הנכון."
+      ? "לא זוהה תאריך ברור, ולכן אי אפשר לשייך את המסמך לתקופה הנכונה בביטחון."
       : dateLevel === "low"
-        ? "התאריך דורש בדיקה; ייתכן שהמסמך כולל כמה תאריכים או תאריך לא ברור."
+        ? "התאריך דורש בדיקה; ייתכן שמופיעים כמה תאריכים במסמך."
         : dateLevel === "medium"
-          ? "התאריך נראה סביר, אבל כדאי לוודא שזה תאריך העסקה ולא תאריך אחר במסמך."
+          ? "התאריך נראה סביר, אבל כדאי לוודא שזה תאריך העסקה."
           : null,
     reviewMode === "financial" && directionLevel === "low"
-      ? "לא ברור אם זו הכנסה או הוצאה. הבחירה הזו קובעת איך הדוח יתעדכן."
+      ? "לא ברור אם זו הכנסה או הוצאה. הבחירה הזו קובעת איך הרשומה תישמר."
       : null,
     categoryLevel === "low"
-      ? "הקטגוריה לא מספיק ברורה. תיקון שלה יעזור לדוחות ולחבילה לרו״ח."
+      ? "הקטגוריה לא מספיק ברורה. תיקון שלה יעזור לרשומות ולחבילת רו״ח."
       : categoryLevel === "medium"
         ? "הקטגוריה היא הערכה טובה, אבל אפשר לדייק אותה לפני האישור."
         : null,
     pid === "unknown_review"
-      ? "לא זוהתה עסקה פיננסית חד-משמעית, לכן המערכת מבקשת החלטה שלך לפני השפעה על הדוחות."
+      ? "לא זוהתה רשומה פיננסית בוודאות, לכן נדרשת בחירה לפני שמירה."
       : null,
     pid === "non_financial"
       ? "המסמך נראה כמו מידע כללי ולא כמו קבלה או עסקה פיננסית."
       : null,
     pid === "tax_or_pension_document"
-      ? "המסמך נראה כמו אישור/מידע פיננסי, לא בהכרח עסקה שצריכה להיכנס לדוח כהכנסה או הוצאה."
+      ? "המסמך נראה כמו אישור או מסמך מידע פיננסי, לא בהכרח עסקה רגילה."
       : null,
     pid === "quote_or_order"
       ? "המסמך נראה כמו הצעה או הזמנה. לא כל הצעה היא עסקה שבוצעה בפועל."
@@ -117,22 +119,22 @@ export function computeTrustContext(input: {
 
   const trustTitle =
     trustLevel === "high"
-      ? "אפשר לסמוך על ההבנה העסקית"
+      ? "אפשר לאשר במהירות"
       : trustLevel === "medium"
-        ? "צריך בדיקה קצרה לפני אישור"
+        ? "צריך בדיקה קצרה"
         : trustLevel === "low"
-          ? "צריך לתקן לפני שזה נכנס לדוחות"
-          : "צריך החלטה עסקית שלך";
+          ? "צריך לתקן לפני אישור"
+          : "נדרשת בחירה שלך";
 
   const trustSummary =
     trustReasons.length === 0
-      ? "הסכום, הצד השני והתאריך נראים עקביים. אפשר לאשר במהירות."
+      ? "הסכום, הספק והתאריך נראים עקביים. אפשר לאשר בביטחון."
       : trustReasons[0];
 
   const approvalImpact =
     reviewMode === "financial"
-      ? "אישור יוסיף את העסקה לדוח החודשי, לחיפוש המסמכים ולחבילה לרו״ח."
-      : "שמירה כמסמך מידע תשמור את המסמך, בלי להוסיף אותו לדוחות או לחיפוש העסקאות.";
+      ? "אישור ישמור את המסמך כרשומה פיננסית מאושרת."
+      : "שמירה כמסמך מידע תשמור את המסמך בלי ליצור רשומה פיננסית.";
 
   return {
     trustLevel,

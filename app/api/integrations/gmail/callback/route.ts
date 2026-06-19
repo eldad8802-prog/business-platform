@@ -22,6 +22,14 @@ function clearOauthCookies(res: NextResponse) {
   res.cookies.set(COOKIE_BUSINESS_ID, "", { path: "/", maxAge: 0 });
 }
 
+function redirectToEmailPage(req: NextRequest, params: Record<string, string>) {
+  const url = new URL("/documents/email", req.nextUrl.origin);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+  return NextResponse.redirect(url);
+}
+
 export async function GET(req: NextRequest) {
   try {
     const code = req.nextUrl.searchParams.get("code");
@@ -29,19 +37,19 @@ export async function GET(req: NextRequest) {
     const errorParam = req.nextUrl.searchParams.get("error");
 
     if (errorParam) {
-      const out = NextResponse.json(
-        { error: `OAuth error: ${errorParam}` },
-        { status: 400 }
-      );
+      const out = redirectToEmailPage(req, {
+        gmail: "error",
+        reason: errorParam,
+      });
       clearOauthCookies(out);
       return out;
     }
 
     if (!code || !state) {
-      const out = NextResponse.json(
-        { error: "Missing code/state" },
-        { status: 400 }
-      );
+      const out = redirectToEmailPage(req, {
+        gmail: "error",
+        reason: "missing_code_state",
+      });
       clearOauthCookies(out);
       return out;
     }
@@ -52,25 +60,28 @@ export async function GET(req: NextRequest) {
     const businessId = Number(businessIdRaw);
 
     if (!cookieState || cookieState !== state) {
-      const out = NextResponse.json({ error: "Invalid state" }, { status: 400 });
+      const out = redirectToEmailPage(req, {
+        gmail: "error",
+        reason: "invalid_state",
+      });
       clearOauthCookies(out);
       return out;
     }
 
     if (!codeVerifier) {
-      const out = NextResponse.json(
-        { error: "Missing PKCE verifier" },
-        { status: 400 }
-      );
+      const out = redirectToEmailPage(req, {
+        gmail: "error",
+        reason: "missing_pkce",
+      });
       clearOauthCookies(out);
       return out;
     }
 
     if (!Number.isFinite(businessId) || businessId <= 0) {
-      const out = NextResponse.json(
-        { error: "Missing business context" },
-        { status: 400 }
-      );
+      const out = redirectToEmailPage(req, {
+        gmail: "error",
+        reason: "missing_business",
+      });
       clearOauthCookies(out);
       return out;
     }
@@ -97,10 +108,10 @@ export async function GET(req: NextRequest) {
     const accessEnc = encryptToken(tokens.access_token);
     const refreshEnc = encryptToken(tokens.refresh_token);
     if (!accessEnc) {
-      const out = NextResponse.json(
-        { error: "Missing access token" },
-        { status: 500 }
-      );
+      const out = redirectToEmailPage(req, {
+        gmail: "error",
+        reason: "missing_access_token",
+      });
       clearOauthCookies(out);
       return out;
     }
@@ -154,22 +165,17 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    const out = NextResponse.json({
-      success: true,
-      connection: {
-        id: connection.id,
-        provider: connection.provider,
-        emailAddress: connection.emailAddress,
-        providerAccountId: connection.providerAccountId,
-        businessId: connection.businessId,
-        status: connection.status,
-      },
+    const out = redirectToEmailPage(req, {
+      gmail: "connected",
     });
     clearOauthCookies(out);
     return out;
   } catch (error) {
     console.error("GMAIL_CALLBACK_ERROR:", error);
-    const out = NextResponse.json({ error: "Server error" }, { status: 500 });
+    const out = redirectToEmailPage(req, {
+      gmail: "error",
+      reason: "server_error",
+    });
     clearOauthCookies(out);
     return out;
   }
