@@ -90,3 +90,12 @@ Desktop.ini
 /secrets/
 node_modules
 stash-backup-*.patch
+
+# QA artifacts (screenshots + ad-hoc QA scripts) — keep out of git
+/tmp_qa/
+
+# local dump / debug exports (DB deltas, infra notes, inline dumps)
+/prod_delta.sql
+/cloudflare.txt
+/vision-inline.txt
+/קלודפייר.txt

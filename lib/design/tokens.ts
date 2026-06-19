@@ -20,6 +20,31 @@ export const TOKEN = {
     overlay: "#FFFFFF",
   },
 
+  /**
+   * Dubiz brand — the navy→light-blue gradient is the primary brand expression.
+   * Use it for primary actions, active states, selected tabs/stations/filters,
+   * central badges. Links/interactive text use {@link brand.mid}. Text stays ink,
+   * surfaces stay white — the brand lives in actions and active states, not chrome.
+   */
+  brand: {
+    /** Deep, stable navy — gradient start, solid emphasis on dark surfaces. */
+    navy: "#243B57",
+    /** Soft light blue — gradient end (matches the reference button). */
+    light: "#9DB4D4",
+    /** Middle tone — interactive links, active text, icon accents on white (AA on white). */
+    mid: "#3F619C",
+    /** Primary action / active gradient (navy → light, matches reference). */
+    gradient: "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)",
+    /** Hover — darken the navy side, deepen the light side slightly. */
+    gradientHover: "linear-gradient(90deg, #1B2E45 0%, #8AA6CC 100%)",
+    /** Soft tinted fill for active/selected surfaces on white. */
+    soft: "#EEF3F9",
+    /** Border for active/selected surfaces and soft chips. */
+    softBorder: "#C7D6E9",
+    /** Focus ring — bright-but-restrained brand blue at low alpha. */
+    focus: "rgba(63, 97, 156, 0.35)",
+  },
+
   ink: {
     /** Primary content + buttons. */
     primary: "#0A0A0F",
