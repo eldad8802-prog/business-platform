@@ -305,7 +305,9 @@ export const inventoryPrimitivesCss = `
     position: fixed;
     inset: 0;
     background: rgba(15, 23, 41, 0.45);
-    z-index: 60;
+    /* Above the global BottomBar (z-index 100) so the sheet + its confirm
+       footer are not covered/intercepted by the bottom navigation. */
+    z-index: 200;
     animation: invScrimIn 0.18s ease-out;
   }
   [data-inventory-module] .inv-sheet {
@@ -313,7 +315,7 @@ export const inventoryPrimitivesCss = `
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 61;
+    z-index: 201;
     margin: 0 auto;
     max-width: var(--inv-content-max, 720px);
     background: #fff;

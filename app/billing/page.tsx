@@ -885,12 +885,17 @@ export default function BillingHubPage() {
               const data = await res.json();
               const ok = !!data?.identityComplete;
               setBillingIdentityOk(ok);
-              setIdentityGateOpen(false);
               if (ok) {
+                // Identity complete: close the gate and open the create flow.
+                setIdentityGateOpen(false);
                 setCreateDocumentType(pendingCreateType);
                 setCreateOpen(true);
               } else {
-                setGateError("חסרים עדיין שדות חובה לזהות העסק.");
+                // Incomplete: keep the gate OPEN so the error is visible and the
+                // user can finish. Do NOT clear pendingCreateType.
+                setGateError(
+                  'חסרים עדיין שדות חובה לזהות העסק. ודאו שמולאו: שם העסק, סוג עסק, ע.מ./ח.פ., כתובת, טלפון ודוא"ל.'
+                );
               }
             } catch {
               setGateError("לא הצלחנו להתחבר כדי לשמור. נסו שוב בעוד רגע.");
