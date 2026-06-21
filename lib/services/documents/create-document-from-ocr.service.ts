@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { runUnifiedDocumentIntelligence } from "@/lib/services/documents/unified-extraction-engine.service";
+import { recordExtractionSnapshot } from "@/lib/services/documents/ledger/correction-ledger.service";
 
 export async function createDocumentFromOcrText(params: {
   businessId: number;
@@ -48,6 +49,15 @@ export async function createDocumentFromOcrText(params: {
       date: extracted.date,
       confidenceScore: extracted.confidence,
     },
+  });
+
+  // Phase 1A Correction Ledger — additive, write-only, never throws.
+  await recordExtractionSnapshot({
+    documentId: document.id,
+    businessId: params.businessId,
+    sourceChannel: params.source,
+    ocrText: params.ocrText,
+    extracted,
   });
 
   return {
