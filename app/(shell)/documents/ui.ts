@@ -1,4 +1,5 @@
 import { TOKEN } from "@/lib/design/tokens";
+import { glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
 
 export const layout = {
   minHeight: "100vh",
@@ -30,12 +31,11 @@ export const topBar = {
 };
 
 export const backBtn = {
+  ...glassActionStyle({ height: 40 }),
   width: 40,
   height: 40,
-  borderRadius: TOKEN.radius.button,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  background: TOKEN.surface.card,
   fontSize: 18,
+  padding: 0,
 };
 
 export const topTitle = {
@@ -72,29 +72,20 @@ export const input = {
 };
 
 export const primaryBtn = {
+  ...primaryActionStyle({ fullWidth: true, height: 54 }),
   width: "100%",
   minHeight: 54,
   padding: 14,
-  background: TOKEN.brand.gradient,
-  color: TOKEN.ink.inverse,
-  border: "none",
-  borderRadius: TOKEN.radius.button,
   fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
   marginTop: 16,
-  boxShadow: TOKEN.shadow.elevated,
 };
 
 export const secondaryBtn = {
+  ...glassActionStyle({ fullWidth: true, height: 52 }),
   width: "100%",
   minHeight: 52,
   padding: 12,
-  background: TOKEN.surface.card,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.button,
-  color: TOKEN.ink.primary,
   fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
   marginTop: 10,
 };
 
@@ -196,14 +187,9 @@ export const metricTile = {
 };
 
 export const editPillBtn = {
+  ...glassActionStyle({ height: 40 }),
   padding: "10px 12px",
-  borderRadius: TOKEN.radius.button,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  background: TOKEN.surface.inset,
-  color: TOKEN.ink.primary,
   fontSize: TOKEN.font.meta,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
   whiteSpace: "nowrap" as const,
   minHeight: 40,
 };

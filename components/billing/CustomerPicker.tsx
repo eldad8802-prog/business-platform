@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
 
 export type BillingCustomerRow = {
   id: number;
@@ -262,15 +263,11 @@ export function CustomerPicker({
         onClick={() => setQuickOpen((v) => !v)}
         disabled={disabled}
         style={{
+          ...glassActionStyle({ disabled, height: 34 }),
           alignSelf: "flex-start",
           padding: "6px 10px",
-          borderRadius: 8,
-          border: "1px dashed #94a3b8",
-          background: "#f8fafc",
           fontSize: 12,
           fontWeight: 600,
-          color: "#475569",
-          cursor: disabled ? "not-allowed" : "pointer",
         }}
       >
         + הוסף לקוח חדש
@@ -322,14 +319,9 @@ export function CustomerPicker({
             onClick={() => void handleQuickCreate()}
             disabled={quickBusy || !quickName.trim()}
             style={{
+              ...primaryActionStyle({ disabled: quickBusy || !quickName.trim(), height: 38 }),
               padding: "8px 12px",
-              borderRadius: 8,
-              border: "none",
-              background: "#0f172a",
-              color: "#fff",
               fontWeight: 600,
-              cursor:
-                quickBusy || !quickName.trim() ? "not-allowed" : "pointer",
             }}
           >
             {quickBusy ? "יוצר…" : "צור ובחר"}

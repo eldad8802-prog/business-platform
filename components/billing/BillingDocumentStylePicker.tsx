@@ -7,6 +7,7 @@ import {
   BILLING_PDF_TEMPLATE_STYLE_HINTS_HE,
   BILLING_PDF_TEMPLATE_STYLE_LABELS_HE,
 } from "@/lib/billing/billing-pdf-template-style";
+import { TOKEN } from "@/lib/design/tokens";
 
 function MiniPreview({ style }: { style: BillingPdfTemplateStyle }) {
   const commonBox: CSSProperties = {
@@ -142,9 +143,11 @@ export function BillingDocumentStylePicker({
                 textAlign: "right",
                 cursor: "pointer",
                 padding: 10,
-                borderRadius: 12,
-                border: selected ? "2px solid #3F619C" : "1px solid #e2e8f0",
-                background: selected ? "#EEF3F9" : "#fff",
+                borderRadius: TOKEN.radius.button,
+                border: selected ? TOKEN.action.primary.border : TOKEN.action.glass.border,
+                background: selected ? TOKEN.action.primary.background : TOKEN.action.glass.background,
+                color: selected ? TOKEN.action.primary.color : "inherit",
+                boxShadow: selected ? TOKEN.action.primary.shadowSoft : TOKEN.action.glass.shadow,
                 display: "flex",
                 flexDirection: "column",
                 gap: 8,
@@ -152,10 +155,10 @@ export function BillingDocumentStylePicker({
               }}
             >
               <MiniPreview style={style} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: selected ? TOKEN.ink.inverse : "#0f172a" }}>
                 {BILLING_PDF_TEMPLATE_STYLE_LABELS_HE[style]}
               </span>
-              <span style={{ fontSize: 11, color: "#64748b", lineHeight: 1.35 }}>
+              <span style={{ fontSize: 11, color: selected ? "rgba(255,255,255,0.78)" : "#64748b", lineHeight: 1.35 }}>
                 {BILLING_PDF_TEMPLATE_STYLE_HINTS_HE[style]}
               </span>
             </button>

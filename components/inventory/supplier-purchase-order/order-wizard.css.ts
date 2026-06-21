@@ -169,9 +169,10 @@ export const orderWizardCss = `
 .owz-product-detail-row__add,
 .owz-step__next,
 .owz-order-doc__submit {
-  border: 0;
-  background: linear-gradient(90deg, #243B57 0%, #9DB4D4 100%);
+  border: var(--inv-primary-border, 1px solid rgba(255, 255, 255, 0.22));
+  background: var(--inv-primary);
   color: #ffffff;
+  box-shadow: var(--inv-primary-shadow-soft, 0 10px 22px rgba(19, 41, 68, 0.18));
 }
 
 .owz-product-detail-row__add {

@@ -28,21 +28,47 @@ export const TOKEN = {
    */
   brand: {
     /** Deep, stable navy — gradient start, solid emphasis on dark surfaces. */
-    navy: "#243B57",
+    navy: "#132944",
     /** Soft light blue — gradient end (matches the reference button). */
-    light: "#9DB4D4",
+    denim: "#6F91BE",
+    /** @deprecated use denim. */
+    light: "#6F91BE",
     /** Middle tone — interactive links, active text, icon accents on white (AA on white). */
-    mid: "#3F619C",
+    mid: "#2E527F",
     /** Primary action / active gradient (navy → light, matches reference). */
-    gradient: "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)",
+    gradient: "linear-gradient(135deg, #132944 0%, #274A72 48%, #6F91BE 100%)",
     /** Hover — darken the navy side, deepen the light side slightly. */
-    gradientHover: "linear-gradient(90deg, #1B2E45 0%, #8AA6CC 100%)",
+    gradientHover: "linear-gradient(135deg, #0E2037 0%, #203F64 48%, #5E82B2 100%)",
     /** Soft tinted fill for active/selected surfaces on white. */
     soft: "#EEF3F9",
     /** Border for active/selected surfaces and soft chips. */
     softBorder: "#C7D6E9",
     /** Focus ring — bright-but-restrained brand blue at low alpha. */
-    focus: "rgba(63, 97, 156, 0.35)",
+    focus: "rgba(46, 82, 127, 0.35)",
+  },
+
+  action: {
+    primary: {
+      background: "linear-gradient(135deg, #132944 0%, #274A72 48%, #6F91BE 100%)",
+      backgroundHover: "linear-gradient(135deg, #0E2037 0%, #203F64 48%, #5E82B2 100%)",
+      color: "#FFFFFF",
+      border: "1px solid rgba(255, 255, 255, 0.22)",
+      shadow: "0 14px 30px rgba(19, 41, 68, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.28)",
+      shadowSoft: "0 10px 22px rgba(19, 41, 68, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.24)",
+    },
+    glass: {
+      background: "rgba(255, 255, 255, 0.78)",
+      backgroundHover: "rgba(255, 255, 255, 0.92)",
+      color: "#132944",
+      border: "1px solid rgba(111, 145, 190, 0.34)",
+      shadow: "0 8px 20px rgba(19, 41, 68, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.72)",
+    },
+    danger: {
+      background: "#FFFFFF",
+      color: "#991B1B",
+      border: "1px solid #FECACA",
+      shadow: "0 8px 18px rgba(153, 27, 27, 0.08)",
+    },
   },
 
   ink: {
@@ -116,7 +142,7 @@ export const TOKEN = {
   /** Strict radius scale — 5 values only. */
   radius: {
     chip: 6,
-    button: 8,
+    button: 18,
     input: 10,
     card: 14,
     modal: 16,

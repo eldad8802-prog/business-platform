@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { CATEGORIES } from "@/lib/constants/categories";
 import { fetchDocumentsHubSummary } from "@/lib/documents/fetch-inbox";
 import { TOKEN } from "@/lib/design/tokens";
+import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
 
 type PeriodType = "month" | "quarter" | "year";
 
@@ -256,18 +257,10 @@ const headStyle = {
 } as const;
 
 const backButtonStyle = {
+  ...glassActionStyle({ height: 40 }),
   width: 40,
   height: 40,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.surface.card,
-  color: TOKEN.brand.mid,
   fontSize: 0,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
   padding: 0,
 } as const;
 
@@ -299,21 +292,15 @@ const segStyle = {
 } as const;
 
 const segButtonStyle = {
+  ...chipActionStyle(false),
   minHeight: 42,
-  border: "1px solid transparent",
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.surface.card,
-  color: TOKEN.ink.secondary,
   fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
 } as const;
 
 const segButtonActiveStyle = {
-  ...segButtonStyle,
-  border: `1px solid ${TOKEN.brand.softBorder}`,
-  background: TOKEN.brand.gradient,
-  color: TOKEN.ink.inverse,
+  ...chipActionStyle(true),
+  minHeight: 42,
+  fontSize: TOKEN.font.body,
 } as const;
 
 const periodFieldStyle = {
@@ -353,22 +340,17 @@ const filtersStyle = {
 } as const;
 
 const chipStyle = {
+  ...chipActionStyle(false),
   minHeight: 36,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.pill,
-  background: TOKEN.surface.card,
-  color: TOKEN.ink.secondary,
   padding: "0 12px",
   fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
 } as const;
 
 const chipActiveStyle = {
-  ...chipStyle,
-  border: `1px solid ${TOKEN.brand.softBorder}`,
-  background: TOKEN.brand.gradient,
-  color: TOKEN.ink.inverse,
+  ...chipActionStyle(true),
+  minHeight: 36,
+  padding: "0 12px",
+  fontSize: TOKEN.font.body,
 } as const;
 
 const blockerStyle = {
@@ -406,14 +388,10 @@ const bottomBarStyle = {
 } as const;
 
 const downloadButtonStyle = {
+  ...primaryActionStyle({ height: 52 }),
   width: "min(492px, 100%)",
   minHeight: 52,
   margin: "0 auto",
   display: "block",
-  border: "none",
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.brand.gradient,
-  color: TOKEN.ink.inverse,
   fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
 } as const;

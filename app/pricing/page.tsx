@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
+import { chipActionStyle, glassActionStyle, iconActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
 
 type PricingItem = {
   id: number;
@@ -1351,18 +1352,9 @@ const pageSubtitleStyle: CSSProperties = {
 };
 
 const addRoundBtnStyle: CSSProperties = {
+  ...iconActionStyle(true),
   width: 44,
   height: 44,
-  borderRadius: TOKEN.radius.pill,
-  border: "none",
-  background: TOKEN.brand.gradient,
-  color: TOKEN.ink.inverse,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  flexShrink: 0,
-  cursor: "pointer",
-  boxShadow: "0 8px 20px rgba(36, 59, 87, 0.22)",
 };
 
 const mutedNoteStyle: CSSProperties = {
@@ -1490,17 +1482,7 @@ const detailHeadStyle: CSSProperties = {
 };
 
 const iconBtnStyle: CSSProperties = {
-  width: 42,
-  height: 42,
-  borderRadius: TOKEN.radius.pill,
-  background: TOKEN.surface.inset,
-  color: TOKEN.ink.primary,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  flexShrink: 0,
-  border: "none",
-  cursor: "pointer",
+  ...iconActionStyle(false),
 };
 
 const iconBtnSpacerStyle: CSSProperties = {
@@ -1572,16 +1554,10 @@ const segStyle: CSSProperties = {
 
 function segBtnStyle(active: boolean): CSSProperties {
   return {
+    ...chipActionStyle(active),
     flex: 1,
-    padding: `11px ${TOKEN.space.lg}px`,
-    borderRadius: TOKEN.radius.input,
-    border: `1px solid ${active ? "transparent" : TOKEN.border.DEFAULT}`,
-    background: active ? TOKEN.brand.gradient : TOKEN.surface.inset,
-    color: active ? TOKEN.ink.inverse : TOKEN.ink.primary,
-    fontFamily: "inherit",
-    fontWeight: TOKEN.weight.bold,
     fontSize: TOKEN.font.body,
-    cursor: "pointer",
+    minHeight: 42,
   };
 }
 
@@ -1635,32 +1611,17 @@ const bottomBarStyle: CSSProperties = {
 
 function primaryBtnStyle(disabled: boolean): CSSProperties {
   return {
+    ...primaryActionStyle({ disabled, fullWidth: true, height: 54 }),
     width: "100%",
     height: 54,
-    border: "none",
-    borderRadius: TOKEN.radius.card,
-    background: TOKEN.brand.gradient,
-    color: TOKEN.ink.inverse,
-    fontFamily: "inherit",
-    fontWeight: TOKEN.weight.bold,
     fontSize: TOKEN.font.title,
-    cursor: disabled ? "not-allowed" : "pointer",
-    opacity: disabled ? 0.55 : 1,
-    boxShadow: "0 10px 24px rgba(36, 59, 87, 0.24)",
   };
 }
 
 const ghostBtnStyle: CSSProperties = {
+  ...glassActionStyle({ fullWidth: true, height: 50 }),
   width: "100%",
   height: 50,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.card,
-  background: TOKEN.surface.card,
-  fontFamily: "inherit",
-  fontWeight: TOKEN.weight.bold,
-  fontSize: TOKEN.font.body,
-  color: TOKEN.ink.primary,
-  cursor: "pointer",
 };
 
 const errorStyle: CSSProperties = {
@@ -1814,20 +1775,13 @@ const explainStyle: CSSProperties = {
 };
 
 const moreLinkStyle: CSSProperties = {
+  ...glassActionStyle({ height: 50 }),
   width: `calc(100% - ${TOKEN.space.xl * 2}px)`,
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   margin: `${TOKEN.space.lg}px ${TOKEN.space.xl}px 0`,
-  padding: TOKEN.space.lg,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.card,
   fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
-  color: TOKEN.brand.mid,
-  background: TOKEN.surface.card,
-  fontFamily: "inherit",
 };
 
 const sectionLabelStyle: CSSProperties = {
@@ -1934,10 +1888,9 @@ const stepsRowStyle: CSSProperties = {
 
 function stepPillStyle(active: boolean): CSSProperties {
   return {
-    padding: `${TOKEN.space.xs + 2}px 13px`,
-    borderRadius: TOKEN.radius.pill,
-    background: active ? TOKEN.brand.gradient : TOKEN.surface.inset,
-    color: active ? TOKEN.ink.inverse : TOKEN.ink.muted,
+    ...chipActionStyle(active),
+    cursor: "default",
+    boxShadow: active ? TOKEN.action.primary.shadowSoft : TOKEN.shadow.none,
   };
 }
 

@@ -56,22 +56,24 @@ export const inventoryPrimitivesCss = `
     width: 42px;
     height: 42px;
     border-radius: 50%;
-    background: var(--inv-card-bg);
-    border: 1px solid var(--inv-border);
+    background: var(--inv-glass-bg);
+    border: var(--inv-glass-border);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
     cursor: pointer;
-    color: var(--inv-text);
+    color: var(--inv-glass-text);
     font-family: inherit;
     padding: 0;
+    box-shadow: var(--inv-glass-shadow);
+    backdrop-filter: blur(12px);
   }
   [data-inventory-module] .inv-iconbtn--acc {
     background: var(--inv-primary);
-    border: 0;
+    border: var(--inv-primary-border);
     color: #fff;
-    box-shadow: 0 8px 20px rgba(36, 59, 87, 0.28);
+    box-shadow: var(--inv-primary-shadow-soft);
   }
   [data-inventory-module] .inv-iconbtn--ghost {
     background: transparent;
@@ -97,17 +99,19 @@ export const inventoryPrimitivesCss = `
     padding: 9px 14px;
     border-radius: 11px;
     border: 1px solid var(--inv-border);
-    background: var(--inv-surface, #f5f7f9);
+    background: var(--inv-glass-bg);
     font-family: inherit;
     font-weight: 700;
     font-size: 14px;
-    color: var(--inv-text);
+    color: var(--inv-glass-text);
     cursor: pointer;
+    box-shadow: var(--inv-glass-shadow);
   }
   [data-inventory-module] .inv-segbtn.is-on {
-    background: var(--inv-accent);
+    background: var(--inv-primary);
     color: #fff;
-    border-color: var(--inv-accent);
+    border: var(--inv-primary-border);
+    box-shadow: var(--inv-primary-shadow-soft);
   }
 
   /* ===== filter chips ===== */
@@ -129,20 +133,22 @@ export const inventoryPrimitivesCss = `
     padding: 0 15px;
     height: 40px;
     border-radius: 22px;
-    background: var(--inv-card-bg);
-    border: 1px solid var(--inv-border);
+    background: var(--inv-glass-bg);
+    border: var(--inv-glass-border);
     font-family: inherit;
     font-weight: 700;
     font-size: 14.5px;
-    color: var(--inv-text);
+    color: var(--inv-glass-text);
     white-space: nowrap;
     flex-shrink: 0;
     cursor: pointer;
+    box-shadow: var(--inv-glass-shadow);
   }
   [data-inventory-module] .inv-chip.is-on {
-    background: var(--inv-accent);
+    background: var(--inv-primary);
     color: #fff;
-    border-color: var(--inv-accent);
+    border: var(--inv-primary-border);
+    box-shadow: var(--inv-primary-shadow-soft);
   }
   [data-inventory-module] .inv-chip__dot { width: 8px; height: 8px; border-radius: 50%; }
 
@@ -273,15 +279,15 @@ export const inventoryPrimitivesCss = `
   [data-inventory-module] .inv-bottombar__go {
     min-height: 52px;
     padding: 0 26px;
-    border-radius: 14px;
-    border: 0;
+    border-radius: var(--inv-radius-button);
+    border: var(--inv-primary-border);
     background: var(--inv-primary);
     color: #fff;
     font-family: inherit;
     font-weight: 800;
     font-size: 16px;
     cursor: pointer;
-    box-shadow: 0 8px 20px rgba(36, 59, 87, 0.28);
+    box-shadow: var(--inv-primary-shadow);
     flex-shrink: 0;
   }
   [data-inventory-module] .inv-bottombar__go:disabled { background: #cbd5e1; box-shadow: none; cursor: not-allowed; }
@@ -289,14 +295,15 @@ export const inventoryPrimitivesCss = `
     width: 100%;
     min-height: 54px;
     border: 0;
-    border-radius: 15px;
+    border-radius: var(--inv-radius-button);
+    border: var(--inv-primary-border);
     background: var(--inv-primary);
     color: #fff;
     font-family: inherit;
     font-size: 17px;
     font-weight: 800;
     cursor: pointer;
-    box-shadow: 0 6px 16px rgba(36, 59, 87, 0.18);
+    box-shadow: var(--inv-primary-shadow);
   }
   [data-inventory-module] .inv-savebar__btn:disabled { background: #cbd5e1; box-shadow: none; cursor: not-allowed; }
 
@@ -340,27 +347,29 @@ export const inventoryPrimitivesCss = `
   [data-inventory-module] .inv-sheet__ghost {
     flex: 1;
     min-height: 52px;
-    border-radius: 14px;
-    border: 1px solid var(--inv-border);
-    background: #fff;
+    border-radius: var(--inv-radius-button);
+    border: var(--inv-glass-border);
+    background: var(--inv-glass-bg);
     font-family: inherit;
     font-weight: 700;
     font-size: 16px;
-    color: var(--inv-text);
+    color: var(--inv-glass-text);
     cursor: pointer;
+    box-shadow: var(--inv-glass-shadow);
+    backdrop-filter: blur(12px);
   }
   [data-inventory-module] .inv-sheet__fill {
     flex: 1.5;
     min-height: 52px;
-    border-radius: 14px;
-    border: 0;
+    border-radius: var(--inv-radius-button);
+    border: var(--inv-primary-border);
     background: var(--inv-primary);
     color: #fff;
     font-family: inherit;
     font-weight: 800;
     font-size: 16px;
     cursor: pointer;
-    box-shadow: 0 8px 20px rgba(36, 59, 87, 0.28);
+    box-shadow: var(--inv-primary-shadow);
   }
   [data-inventory-module] .inv-sheet__fill:disabled { background: #cbd5e1; box-shadow: none; cursor: not-allowed; }
 
@@ -398,27 +407,28 @@ export const inventoryPrimitivesCss = `
   [data-inventory-module] .inv-modal__ghost {
     flex: 1;
     min-height: 50px;
-    border-radius: 13px;
-    border: 1px solid var(--inv-border);
-    background: #fff;
+    border-radius: var(--inv-radius-button);
+    border: var(--inv-glass-border);
+    background: var(--inv-glass-bg);
     font-family: inherit;
     font-weight: 700;
     font-size: 15px;
-    color: var(--inv-text);
+    color: var(--inv-glass-text);
     cursor: pointer;
+    box-shadow: var(--inv-glass-shadow);
   }
   [data-inventory-module] .inv-modal__confirm {
     flex: 1.4;
     min-height: 50px;
-    border-radius: 13px;
-    border: 0;
+    border-radius: var(--inv-radius-button);
+    border: var(--inv-primary-border);
     background: var(--inv-primary);
     color: #fff;
     font-family: inherit;
     font-weight: 800;
     font-size: 15px;
     cursor: pointer;
-    box-shadow: 0 8px 20px rgba(36, 59, 87, 0.28);
+    box-shadow: var(--inv-primary-shadow);
   }
   [data-inventory-module] .inv-modal__confirm--danger {
     background: var(--inv-danger);
@@ -665,24 +675,26 @@ export const inventoryPrimitivesCss = `
     flex: 1;
     min-height: 50px;
     border-radius: 13px;
-    border: 1px solid var(--inv-border);
-    background: #fff;
+    border: var(--inv-glass-border);
+    background: var(--inv-glass-bg);
     font-family: inherit;
     font-weight: 700;
     font-size: 14.5px;
-    color: var(--inv-text);
+    color: var(--inv-glass-text);
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
     cursor: pointer;
+    box-shadow: var(--inv-glass-shadow);
+    backdrop-filter: blur(12px);
   }
   [data-inventory-module] .inv-act--primary {
-    border: 0;
+    border: var(--inv-primary-border);
     background: var(--inv-primary);
     color: #fff;
     flex: 1.4;
-    box-shadow: 0 8px 20px rgba(36, 59, 87, 0.28);
+    box-shadow: var(--inv-primary-shadow);
   }
 
   /* ===== search bar (mockup .search) ===== */

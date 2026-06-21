@@ -13,6 +13,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { CustomerPicker } from "@/components/billing/CustomerPicker";
 import { IssuerSummaryBadge } from "@/components/billing/IssuerSummaryBadge";
+import { glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
 
 type BillingStatus = "DRAFT" | "PENDING_REVIEW" | "ISSUED";
 
@@ -2177,14 +2178,10 @@ function StickyActionBar({
         onClick={onOpenIssue}
         disabled={issueDisabled}
         style={{
+          ...primaryActionStyle({ disabled: issueDisabled, height: 44 }),
           padding: "12px 14px",
-          borderRadius: 12,
-          border: "1px solid #0f172a",
-          background: issueDisabled ? "#94a3b8" : "#0f172a",
-          color: "#ffffff",
           fontSize: 14,
           fontWeight: 900,
-          cursor: issueDisabled ? "not-allowed" : "pointer",
           minHeight: 44,
           flex: "1 1 220px",
         }}
@@ -2198,14 +2195,10 @@ function StickyActionBar({
         disabled={convertDisabled || convertBusy}
         aria-busy={convertBusy}
         style={{
+          ...primaryActionStyle({ disabled: convertDisabled || convertBusy, height: 44 }),
           padding: "12px 14px",
-          borderRadius: 12,
-          border: "1px solid #0f172a",
-          background: convertDisabled || convertBusy ? "#94a3b8" : "#0f172a",
-          color: "#ffffff",
           fontSize: 14,
           fontWeight: 900,
-          cursor: convertDisabled || convertBusy ? "not-allowed" : "pointer",
           minHeight: 44,
           flex: "1 1 220px",
         }}
@@ -2217,14 +2210,10 @@ function StickyActionBar({
         type="button"
         onClick={() => scrollToId(primaryAction.targetId)}
         style={{
+          ...primaryActionStyle({ height: 44 }),
           padding: "12px 14px",
-          borderRadius: 12,
-          border: "1px solid #243B57",
-          background: "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)",
-          color: "#ffffff",
           fontSize: 14,
           fontWeight: 900,
-          cursor: "pointer",
           minHeight: 44,
           flex: "1 1 220px",
         }}
@@ -2239,14 +2228,10 @@ function StickyActionBar({
         type="button"
         onClick={() => scrollToId(firstMissingTarget)}
         style={{
+          ...glassActionStyle({ height: 44 }),
           padding: "12px 14px",
-          borderRadius: 12,
-          border: "1px solid #cbd5e1",
-          background: "#ffffff",
-          color: "#334155",
           fontSize: 13,
           fontWeight: 900,
-          cursor: "pointer",
           minHeight: 44,
           flex: "1 1 180px",
         }}
@@ -2336,14 +2321,10 @@ function DraftIssuePrimarySection({
         disabled={issueDisabled || issueLoading}
         aria-busy={issueLoading}
         style={{
+          ...primaryActionStyle({ disabled: issueDisabled || issueLoading, fullWidth: true, height: 52 }),
           padding: "14px 16px",
-          borderRadius: 12,
-          border: "1px solid #0f172a",
-          background: issueDisabled || issueLoading ? "#94a3b8" : "#0f172a",
-          color: "#ffffff",
           fontSize: 16,
           fontWeight: 800,
-          cursor: issueDisabled || issueLoading ? "not-allowed" : "pointer",
           width: "100%",
         }}
       >
@@ -2377,14 +2358,10 @@ function DraftIssuePrimarySection({
           disabled={submitDisabled || busy}
           aria-busy={submitLoading}
           style={{
+            ...glassActionStyle({ disabled: submitDisabled || busy, fullWidth: true, height: 44 }),
             padding: "10px 14px",
-            borderRadius: 10,
-            border: "1px solid #94a3b8",
-            background: "#ffffff",
-            color: "#334155",
             fontSize: 14,
             fontWeight: 600,
-            cursor: submitDisabled || busy ? "not-allowed" : "pointer",
             width: "100%",
           }}
         >
@@ -3370,15 +3347,10 @@ function ShareOptionButton({
       onClick={onClick}
       disabled={disabled}
       style={{
+        ...glassActionStyle({ disabled, height: 44 }),
         padding: "10px 12px",
-        borderRadius: 10,
-        border: "1px solid #e2e8f0",
-        background: "#f8fafc",
-        color: "#334155",
         fontSize: 14,
         fontWeight: 700,
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.6 : 1,
         textAlign: "right",
       }}
     >
@@ -3616,15 +3588,10 @@ function QuoteDraftHero({
         onClick={() => setShareOpen((v) => !v)}
         disabled={isBusy}
         style={{
+          ...primaryActionStyle({ disabled: isBusy, fullWidth: true, height: 48 }),
           padding: "12px 16px",
-          borderRadius: 12,
-          border: "1px solid #243B57",
-          background: "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)",
-          color: "#ffffff",
           fontSize: 15,
           fontWeight: 800,
-          cursor: isBusy ? "not-allowed" : "pointer",
-          opacity: isBusy ? 0.65 : 1,
           width: "100%",
         }}
       >
@@ -3667,14 +3634,10 @@ function QuoteDraftHero({
           disabled={convertDisabled || convertBusy}
           aria-busy={convertBusy}
           style={{
+            ...glassActionStyle({ disabled: convertDisabled || convertBusy, fullWidth: true, height: 52 }),
             padding: "14px 16px",
-            borderRadius: 12,
-            border: "1px solid #cbd5e1",
-            background: "#ffffff",
-            color: convertDisabled || convertBusy ? "#94a3b8" : "#334155",
             fontSize: 16,
             fontWeight: 700,
-            cursor: convertDisabled || convertBusy ? "not-allowed" : "pointer",
             width: "100%",
           }}
         >
@@ -3919,19 +3882,14 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
       <button
         type="button"
         onClick={() => setShareOpen((v) => !v)}
-        disabled={isBusy}
-        style={{
-          padding: "12px 16px",
-          borderRadius: 12,
-          border: "1px solid #0f172a",
-          background: "#0f172a",
-          color: "#ffffff",
-          fontSize: 15,
-          fontWeight: 800,
-          cursor: isBusy ? "not-allowed" : "pointer",
-          opacity: isBusy ? 0.65 : 1,
-          width: "100%",
-        }}
+      disabled={isBusy}
+      style={{
+        ...primaryActionStyle({ disabled: isBusy, fullWidth: true, height: 48 }),
+        padding: "12px 16px",
+        fontSize: 15,
+        fontWeight: 800,
+        width: "100%",
+      }}
       >
         {loadingAction ? "מכין מסמך..." : "שתף"}
       </button>

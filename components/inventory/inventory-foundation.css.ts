@@ -81,7 +81,7 @@ export const inventoryFoundationCss = `
   }
 
   [data-inventory-module] .inv-hero-card--blue {
-    background: linear-gradient(135deg, #243B57 0%, #3F619C 100%);
+    background: var(--inv-primary);
   }
 
   [data-inventory-module] .inv-hero-card h1 {

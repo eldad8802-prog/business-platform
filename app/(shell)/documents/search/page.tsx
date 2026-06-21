@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
 import { TOKEN } from "@/lib/design/tokens";
+import { chipActionStyle, glassActionStyle } from "@/lib/design/action-styles";
 
 type SearchResultDocument = {
   status?: string | null;
@@ -291,18 +292,10 @@ const headStyle = {
 } as const;
 
 const backButtonStyle = {
+  ...glassActionStyle({ height: 40 }),
   width: 40,
   height: 40,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.surface.card,
-  color: TOKEN.brand.mid,
   fontSize: 0,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
   padding: 0,
 } as const;
 
@@ -345,22 +338,17 @@ const filtersStyle = {
 } as const;
 
 const chipStyle = {
+  ...chipActionStyle(false),
   minHeight: 36,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.pill,
-  background: TOKEN.surface.card,
-  color: TOKEN.ink.secondary,
   padding: "0 12px",
   fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
 } as const;
 
 const chipActiveStyle = {
-  ...chipStyle,
-  border: `1px solid ${TOKEN.brand.softBorder}`,
-  background: TOKEN.brand.gradient,
-  color: TOKEN.ink.inverse,
+  ...chipActionStyle(true),
+  minHeight: 36,
+  padding: "0 12px",
+  fontSize: TOKEN.font.body,
 } as const;
 
 const countStyle = {

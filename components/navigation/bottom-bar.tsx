@@ -7,11 +7,11 @@ import { usePathname } from "next/navigation";
 
 import { ActionSheet } from "./action-sheet";
 
-/** Below in-app modals (~200); shell content is z-index 1 — bar stays above page for the strip only. */
+/** Below in-app modals (~200); shell content is z-index 1 - bar stays above page for the strip only. */
 export const BOTTOM_BAR_Z_INDEX = 100;
 
 /**
- * Space for fixed bar + FAB lip + safe area — keep aligned with BottomBar layout constants below.
+ * Space for fixed bar + FAB lip + safe area - keep aligned with BottomBar layout constants below.
  */
 export const SHELL_SCROLL_BOTTOM_PADDING =
   "calc(100px + env(safe-area-inset-bottom, 0px))";
@@ -26,9 +26,9 @@ function isActive(pathname: string, href: string) {
 const NAV_TOP_PAD = 8;
 const NAV_BOTTOM_PAD = 12;
 const ROW_MIN_H = 56;
-const FAB_SIZE = 50;
-const FAB_SLOT_SIZE = 62;
-const FAB_LIFT = 14;
+const FAB_SIZE = 54;
+const FAB_SLOT_SIZE = 68;
+const FAB_LIFT = 16;
 
 type TabDef = {
   key: string;
@@ -41,13 +41,29 @@ export function BottomBar() {
   const pathname = usePathname() || "/";
   const [actionSheetOpen, setActionSheetOpen] = useState(false);
   const [fabPressed, setFabPressed] = useState(false);
+  const inDocuments = pathname === "/documents" || pathname.startsWith("/documents/");
 
-  const tabs: TabDef[] = [
-    { key: "home", label: "בית", href: "/", icon: IconHome },
-    { key: "chats", label: "שיחות", href: "/inbox", icon: IconChat },
-    { key: "docs", label: "מסמכים", href: "/documents", icon: IconDocs },
-    { key: "more", label: "עוד", href: "/settings", icon: IconMore },
-  ];
+  const tabs: TabDef[] = inDocuments
+    ? [
+        { key: "accountant", label: "רו״ח", href: "/documents/accountant-pack", icon: IconAccountant },
+        { key: "docs", label: "מסמכים", href: "/documents", icon: IconDocs },
+        { key: "search", label: "חיפוש", href: "/documents/search", icon: IconSearch },
+        { key: "profile", label: "פרופיל", href: "/settings", icon: IconProfile },
+      ]
+    : [
+        { key: "home", label: "בית", href: "/", icon: IconHome },
+        { key: "chats", label: "שיחות", href: "/inbox", icon: IconChat },
+        { key: "docs", label: "מסמכים", href: "/documents", icon: IconDocs },
+        { key: "more", label: "עוד", href: "/settings", icon: IconMore },
+      ];
+
+  // Unified Dubiz brand active state across every section of the app.
+  const activeColor = "#3F619C";
+  const activeBg = "rgba(63, 97, 156, 0.10)";
+  const activeRing = "rgba(63, 97, 156, 0.22)";
+  const fabBackground = "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)";
+  const fabShadow =
+    "0 10px 28px rgba(36, 59, 87, 0.34), 0 2px 8px rgba(15, 23, 42, 0.12)";
 
   return (
     <>
@@ -69,15 +85,16 @@ export function BottomBar() {
           justifyContent: "space-between",
           gap: 6,
           paddingTop: NAV_TOP_PAD,
-          paddingLeft: 8,
-          paddingRight: 8,
+          paddingLeft: inDocuments ? 14 : 8,
+          paddingRight: inDocuments ? 14 : 8,
           paddingBottom: `calc(${NAV_BOTTOM_PAD}px + env(safe-area-inset-bottom, 0px))`,
-          background: "rgba(255, 255, 255, 0.76)",
+          background: inDocuments ? "rgba(255, 255, 255, 0.94)" : "rgba(255, 255, 255, 0.76)",
           backdropFilter: "blur(18px) saturate(160%)",
           WebkitBackdropFilter: "blur(18px) saturate(160%)",
-          borderTop: "1px solid rgba(15, 23, 42, 0.06)",
-          boxShadow:
-            "0 1px 0 rgba(255, 255, 255, 0.65) inset, 0 -6px 28px rgba(15, 23, 42, 0.045)",
+          borderTop: inDocuments ? "1px solid #e1e8f4" : "1px solid rgba(15, 23, 42, 0.06)",
+          boxShadow: inDocuments
+            ? "0 -12px 34px rgba(13, 27, 61, 0.08)"
+            : "0 1px 0 rgba(255, 255, 255, 0.65) inset, 0 -6px 28px rgba(15, 23, 42, 0.045)",
           WebkitTapHighlightColor: "transparent",
           height: "fit-content",
           maxHeight: "132px",
@@ -89,12 +106,24 @@ export function BottomBar() {
           label={tabs[0].label}
           icon={tabs[0].icon}
           active={isActive(pathname, tabs[0].href)}
+          activeColor={activeColor}
+          activeBg={activeBg}
+          activeRing={activeRing}
         />
         <BarLink
           href={tabs[1].href}
           label={tabs[1].label}
           icon={tabs[1].icon}
-          active={isActive(pathname, tabs[1].href)}
+          active={
+            inDocuments
+              ? pathname === "/documents" ||
+                pathname.startsWith("/documents/review") ||
+                pathname.startsWith("/documents/inbox")
+              : isActive(pathname, tabs[1].href)
+          }
+          activeColor={activeColor}
+          activeBg={activeBg}
+          activeRing={activeRing}
         />
         <span
           style={{
@@ -112,7 +141,7 @@ export function BottomBar() {
         >
           <button
             type="button"
-            aria-label="פעולות מהירות"
+            aria-label={inDocuments ? "הוסף מסמך" : "פעולות מהירות"}
             aria-expanded={actionSheetOpen}
             onClick={() => setActionSheetOpen(true)}
             onPointerDown={() => setFabPressed(true)}
@@ -125,16 +154,17 @@ export function BottomBar() {
               minWidth: FAB_SIZE,
               minHeight: FAB_SIZE,
               borderRadius: 999,
-              border: "1px solid rgba(255, 255, 255, 0.28)",
-              background:
-                "linear-gradient(165deg, #2dd4bf 0%, #0f766e 48%, #0d5c54 100%)",
+              border: "1px solid rgba(255, 255, 255, 0.32)",
+              background: fabBackground,
               color: "#ffffff",
-              fontSize: 26,
+              fontSize: 30,
               fontWeight: 300,
               lineHeight: 1,
               boxShadow: fabPressed
-                ? "0 4px 14px rgba(15, 118, 110, 0.35)"
-                : "0 8px 24px rgba(15, 118, 110, 0.42), 0 2px 8px rgba(15, 23, 42, 0.12)",
+                ? inDocuments
+                  ? "0 4px 14px rgba(7, 91, 255, 0.25)"
+                  : "0 4px 14px rgba(15, 118, 110, 0.35)"
+                : fabShadow,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -149,7 +179,7 @@ export function BottomBar() {
                 "transform 0.14s cubic-bezier(0.32, 0.72, 0, 1), box-shadow 0.14s ease",
             }}
           >
-            ＋
+            +
           </button>
         </span>
         <BarLink
@@ -157,12 +187,18 @@ export function BottomBar() {
           label={tabs[2].label}
           icon={tabs[2].icon}
           active={isActive(pathname, tabs[2].href)}
+          activeColor={activeColor}
+          activeBg={activeBg}
+          activeRing={activeRing}
         />
         <BarLink
           href={tabs[3].href}
           label={tabs[3].label}
           icon={tabs[3].icon}
           active={isActive(pathname, tabs[3].href)}
+          activeColor={activeColor}
+          activeBg={activeBg}
+          activeRing={activeRing}
         />
       </nav>
       <ActionSheet
@@ -178,13 +214,19 @@ function BarLink({
   label,
   icon: Icon,
   active,
+  activeColor,
+  activeBg,
+  activeRing,
 }: {
   href: string;
   label: string;
   icon: (props: { active: boolean }) => ReactNode;
   active: boolean;
+  activeColor: string;
+  activeBg: string;
+  activeRing: string;
 }) {
-  const color = active ? "#0f766e" : "#64748b";
+  const color = active ? activeColor : "#64748b";
 
   return (
     <Link
@@ -202,9 +244,9 @@ function BarLink({
         borderRadius: 14,
         textDecoration: "none",
         color,
-        background: active ? "rgba(15, 118, 110, 0.11)" : "transparent",
+        background: active ? activeBg : "transparent",
         boxShadow: active
-          ? "inset 0 0 0 1px rgba(15, 118, 110, 0.2), 0 1px 2px rgba(15, 118, 110, 0.06)"
+          ? `inset 0 0 0 1px ${activeRing}, 0 1px 2px rgba(15, 23, 42, 0.05)`
           : "none",
         touchAction: "manipulation",
         WebkitTapHighlightColor: "transparent",
@@ -241,9 +283,9 @@ function BarLink({
         <span
           style={{
             fontSize: 11,
-            fontWeight: active ? 800 : 600,
+            fontWeight: active ? 850 : 650,
             lineHeight: 1.2,
-            letterSpacing: "-0.01em",
+            letterSpacing: 0,
             textAlign: "center",
             maxWidth: "100%",
             overflow: "hidden",
@@ -313,6 +355,48 @@ function IconMore({ active }: { active: boolean }) {
       <circle cx="6" cy="12" r={r} fill="currentColor" />
       <circle cx="12" cy="12" r={r} fill="currentColor" />
       <circle cx="18" cy="12" r={r} fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconSearch({ active }: { active: boolean }) {
+  const w = active ? 2.25 : 2;
+  return (
+    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z"
+        stroke="currentColor"
+        strokeWidth={w}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function IconProfile({ active }: { active: boolean }) {
+  const w = active ? 2.25 : 2;
+  return (
+    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10z"
+        stroke="currentColor"
+        strokeWidth={w}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function IconAccountant({ active }: { active: boolean }) {
+  const w = active ? 2.25 : 2;
+  return (
+    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M4 19V5M9 19v-7M14 19V9M19 19V4"
+        stroke="currentColor"
+        strokeWidth={w}
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
