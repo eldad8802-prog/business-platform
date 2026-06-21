@@ -10,6 +10,7 @@ import {
   type ScoredAttachment,
 } from "@/lib/services/email-import/scoring";
 import { TOKEN } from "@/lib/design/tokens";
+import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
 
 type GmailStatusResponse =
   | { error: string }
@@ -393,18 +394,10 @@ const headStyle = {
 } as const;
 
 const backButtonStyle = {
+  ...glassActionStyle({ height: 40 }),
   width: 40,
   height: 40,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.surface.card,
-  color: TOKEN.brand.mid,
   fontSize: 0,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
   padding: 0,
 } as const;
 
@@ -428,16 +421,11 @@ const bandStyle = {
 } as const;
 
 const connectButtonStyle = {
+  ...primaryActionStyle({ fullWidth: true, height: 52 }),
   width: "100%",
   minHeight: 52,
   marginTop: 12,
-  border: "none",
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.brand.gradient,
-  color: TOKEN.ink.inverse,
   fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
 } as const;
 
 const subStyle = {
@@ -507,15 +495,10 @@ const trailStyle = {
 } as const;
 
 const smallButtonStyle = {
+  ...glassActionStyle({ height: 38 }),
   minHeight: 38,
   padding: "0 16px",
-  borderRadius: TOKEN.radius.input,
-  border: `1px solid ${TOKEN.brand.mid}`,
-  background: TOKEN.surface.card,
-  color: TOKEN.brand.mid,
   fontSize: TOKEN.font.meta,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
   whiteSpace: "nowrap",
 } as const;
 
@@ -564,16 +547,12 @@ const bottomBarStyle = {
 } as const;
 
 const importButtonStyle = {
+  ...primaryActionStyle({ height: 52 }),
   width: "min(492px, 100%)",
   minHeight: 52,
   margin: "0 auto",
   display: "block",
-  border: "none",
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.brand.gradient,
-  color: TOKEN.ink.inverse,
   fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
 } as const;
 
 const emptyStyle = {
@@ -597,17 +576,12 @@ const errorStyle = {
 } as const;
 
 const scanButtonStyle = {
+  ...chipActionStyle(false),
   display: "block",
   minHeight: 38,
   margin: "12px auto 0",
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.surface.card,
-  color: TOKEN.brand.mid,
   padding: "0 14px",
   fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
 } as const;
 
 const loginLinkStyle = {

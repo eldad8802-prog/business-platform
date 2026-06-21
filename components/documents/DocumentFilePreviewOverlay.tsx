@@ -8,6 +8,7 @@ import {
 } from "@/lib/documents/file-access";
 import { getPreviewKind } from "@/lib/documents/review/preview";
 import { TOKEN } from "@/lib/design/tokens";
+import { glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
 
 type Status = "loading" | "ready" | "error";
 
@@ -208,28 +209,20 @@ const titleStyle = {
 
 const downloadButtonStyle = (disabled: boolean) =>
   ({
+    ...primaryActionStyle({ disabled, height: 40 }),
     minHeight: 40,
     padding: "0 16px",
-    border: "none",
-    borderRadius: TOKEN.radius.button,
-    background: disabled ? TOKEN.ink.disabled : TOKEN.brand.gradient,
-    color: TOKEN.ink.inverse,
     fontSize: TOKEN.font.body,
-    fontWeight: TOKEN.weight.bold,
-    cursor: disabled ? "not-allowed" : "pointer",
     whiteSpace: "nowrap" as const,
   }) as const;
 
 const closeButtonStyle = {
+  ...glassActionStyle({ height: 40 }),
   width: 40,
   height: 40,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.surface.card,
-  color: TOKEN.ink.muted,
   fontSize: 24,
   lineHeight: 1,
-  cursor: "pointer",
+  padding: 0,
 } as const;
 
 const bodyStyle = {

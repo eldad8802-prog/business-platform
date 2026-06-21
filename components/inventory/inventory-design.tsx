@@ -12,6 +12,7 @@ import {
   InventoryHeader,
   type InventoryHeaderAction as InventoryHeaderActionType,
 } from "@/components/inventory/inventory-primitives";
+import { glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
 
 export const inventoryTheme = inventoryTokenTheme;
 
@@ -345,27 +346,16 @@ export function PrimaryButton({
   fullWidth?: boolean;
 }) {
   void variant;
-  const bg = inventoryTheme.primaryBtn;
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
       style={{
+        ...primaryActionStyle({ disabled, fullWidth, height: 52 }),
         width: fullWidth ? "100%" : undefined,
-        minHeight: 52,
-        padding: "12px 18px",
-        borderRadius: inventoryRadius.sm,
-        border: "none",
-        background: disabled ? "#cbd5e1" : bg,
-        color: "#ffffff",
         fontSize: 15,
         fontWeight: 900,
-        cursor: disabled ? "not-allowed" : "pointer",
-        fontFamily: "inherit",
-        boxShadow: disabled
-          ? "none"
-          : "0 12px 24px rgba(36, 59, 87, 0.22), inset 0 1px 0 rgba(255,255,255,0.22)",
       }}
     >
       {children}
@@ -388,16 +378,10 @@ export function SecondaryButton({
       onClick={onClick}
       disabled={disabled}
       style={{
+        ...glassActionStyle({ disabled, height: 44 }),
         minHeight: 44,
-        padding: "10px 14px",
-        borderRadius: inventoryRadius.sm,
-        border: `1px solid ${inventoryTheme.cardBorder}`,
-        background: inventoryTheme.cardBg,
-        color: inventoryTheme.text,
         fontSize: 14,
         fontWeight: 800,
-        cursor: disabled ? "not-allowed" : "pointer",
-        fontFamily: "inherit",
       }}
     >
       {children}

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useDocumentsInbox } from "@/hooks/useDocumentsInbox";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
 import { TOKEN } from "@/lib/design/tokens";
+import { glassActionStyle } from "@/lib/design/action-styles";
 import DocumentCard from "./DocumentCard";
 import InboxEmptyState from "./InboxEmptyState";
 import InboxSkeleton from "./InboxSkeleton";
@@ -163,18 +164,10 @@ const headStyle = {
 } as const;
 
 const backButtonStyle = {
+  ...glassActionStyle({ height: 40 }),
   width: 40,
   height: 40,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.surface.card,
-  color: TOKEN.brand.mid,
   fontSize: 0,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
   padding: 0,
 } as const;
 
@@ -234,26 +227,16 @@ const errorCopyStyle = {
 } as const;
 
 const retryButtonStyle = {
+  ...glassActionStyle({ height: 40 }),
   minHeight: 40,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.surface.card,
-  color: TOKEN.brand.mid,
   padding: "0 18px",
   fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
 } as const;
 
 const loadMoreButtonStyle = {
+  ...glassActionStyle({ fullWidth: true, height: 48 }),
   width: "100%",
   minHeight: 48,
   marginTop: 18,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.surface.card,
-  color: TOKEN.brand.mid,
-  boxShadow: TOKEN.shadow.elevated,
   fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
 } as const;

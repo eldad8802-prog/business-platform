@@ -12,6 +12,7 @@ import {
   type BillingBusinessKind,
 } from "@/lib/billing/business-identity";
 import { parseBillingPdfTemplateStyle } from "@/lib/billing/billing-pdf-template-style";
+import { primaryActionStyle } from "@/lib/design/action-styles";
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
@@ -104,7 +105,10 @@ export function BillingIdentityBanner({
   }, [onIdentityResolved]);
 
   useEffect(() => {
-    void load();
+    const timer = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [load]);
 
   async function handleSave() {
@@ -336,14 +340,10 @@ export function BillingIdentityBanner({
             onClick={() => void handleSave()}
             disabled={saving}
             style={{
+              ...primaryActionStyle({ disabled: saving, height: 40 }),
               padding: "9px 20px",
-              borderRadius: 8,
-              border: "none",
-              background: saving ? "#94a3b8" : "#0f172a",
-              color: "#fff",
               fontSize: 13,
               fontWeight: 700,
-              cursor: saving ? "not-allowed" : "pointer",
             }}
           >
             {saving ? "שומר…" : "שמור והמשך למסמכים"}

@@ -8,6 +8,7 @@ import {
   type DocumentsHubSnapshot,
 } from "@/lib/documents/fetch-inbox";
 import { TOKEN } from "@/lib/design/tokens";
+import { glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
 
 type LoadState =
   | { status: "loading" }
@@ -654,16 +655,11 @@ const errorTextStyle = {
 };
 
 const secondaryButtonStyle = {
+  ...glassActionStyle({ fullWidth: true, height: 44 }),
   width: "100%",
   minHeight: 44,
   marginTop: 14,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.surface.card,
-  color: TOKEN.brand.mid,
   fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
 };
 
 const intakeOverlayStyle = {
@@ -775,26 +771,16 @@ const sheetTileIconStyle = {
 };
 
 const intakeSecondaryActionStyle = {
+  ...glassActionStyle({ height: 50 }),
   minHeight: 50,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.surface.card,
-  color: TOKEN.ink.primary,
   fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
 };
 
 const intakePrimaryActionStyle = (disabled: boolean) =>
   ({
+    ...primaryActionStyle({ disabled, height: 50 }),
     minHeight: 50,
-    border: "none",
-    borderRadius: TOKEN.radius.button,
-    background: disabled ? TOKEN.ink.disabled : TOKEN.brand.gradient,
-    color: TOKEN.ink.inverse,
     fontSize: TOKEN.font.body,
-    fontWeight: TOKEN.weight.bold,
-    cursor: disabled ? "not-allowed" : "pointer",
   }) as const;
 
 const sheetHintStyle = {

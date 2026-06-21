@@ -10,6 +10,8 @@ import {
   emptyInvoiceIdentityForm,
   type InvoiceProfileFormState,
 } from "@/components/billing/BusinessIdentitySetupForm";
+import { TOKEN } from "@/lib/design/tokens";
+import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
 
 type BillingStatus = "DRAFT" | "PENDING_REVIEW" | "ISSUED";
 
@@ -329,15 +331,10 @@ export default function BillingHubPage() {
           onClick={() => router.push("/tools")}
           aria-label="חזרה"
           style={{
-            minHeight: 40,
-            borderRadius: 12,
-            border: "1px solid #e5e7eb",
-            background: "#ffffff",
-            color: "#111827",
+            ...glassActionStyle({ height: 40 }),
             fontSize: 14,
             fontWeight: 900,
             padding: "0 12px",
-            cursor: "pointer",
             lineHeight: 1,
           }}
         >
@@ -394,14 +391,10 @@ export default function BillingHubPage() {
               type="button"
               onClick={() => openCreateFlow("TAX_INVOICE")}
               style={{
+                ...primaryActionStyle({ height: 48 }),
                 padding: "12px 18px",
-                borderRadius: 8,
-                border: "1px solid #1e3a5f",
-                background: "#ffffff",
-                color: "#1e3a5f",
                 fontSize: 14,
                 fontWeight: 800,
-                cursor: "pointer",
                 whiteSpace: "nowrap",
                 minHeight: 48,
                 flex: "0 1 264px",
@@ -414,14 +407,10 @@ export default function BillingHubPage() {
               type="button"
               onClick={() => openCreateFlow("QUOTE")}
               style={{
+                ...glassActionStyle({ height: 48 }),
                 padding: "12px 18px",
-                borderRadius: 8,
-                border: "1px solid #1e3a5f",
-                background: "#ffffff",
-                color: "#1e3a5f",
                 fontSize: 14,
                 fontWeight: 800,
-                cursor: "pointer",
                 whiteSpace: "nowrap",
                 minHeight: 48,
                 flex: "0 1 264px",
@@ -585,15 +574,10 @@ export default function BillingHubPage() {
                     aria-selected={active}
                     onClick={() => setFilter(opt.value)}
                     style={{
+                      ...chipActionStyle(active),
                       padding: "7px 14px",
-                      borderRadius: 999,
-                      border: "1px solid",
-                      borderColor: active ? "#111827" : "#e5e7eb",
-                      background: active ? "#111827" : "#ffffff",
-                      color: active ? "#ffffff" : "#475569",
                       fontSize: 13,
                       fontWeight: active ? 700 : 500,
-                      cursor: "pointer",
                       minHeight: 36,
                       lineHeight: 1,
                       whiteSpace: "nowrap",
@@ -700,14 +684,11 @@ export default function BillingHubPage() {
                   onClick={() => void handleShowMoreDocuments()}
                   disabled={loadingMore}
                   style={{
+                    ...glassActionStyle({ disabled: loadingMore, fullWidth: true, height: 44 }),
                     width: "100%",
                     padding: "11px 16px",
-                    borderRadius: 10,
-                    border: "1px solid #cbd5e1",
-                    background: "#ffffff",
                     fontSize: 14,
                     fontWeight: 700,
-                    color: "#334155",
                     cursor: loadingMore ? "wait" : "pointer",
                   }}
                 >
@@ -726,7 +707,7 @@ export default function BillingHubPage() {
         .billing-hub-header button:focus-visible,
         .billing-doc-row:focus-visible,
         .billing-active-record:focus-visible {
-          outline: 3px solid rgba(37, 99, 235, 0.22);
+          outline: 3px solid ${TOKEN.brand.focus};
           outline-offset: 2px;
         }
 
@@ -1009,14 +990,10 @@ function IdentityGateModal({
             disabled={saving}
             onClick={onClose}
             style={{
+              ...glassActionStyle({ disabled: saving, height: 40 }),
               padding: "9px 14px",
-              borderRadius: 8,
-              border: "1px solid #cbd5e1",
-              background: "#fff",
               fontSize: 13,
               fontWeight: 600,
-              color: "#64748b",
-              cursor: saving ? "not-allowed" : "pointer",
             }}
           >
             ביטול
@@ -1026,14 +1003,10 @@ function IdentityGateModal({
             disabled={saving}
             onClick={() => void onSaved()}
             style={{
+              ...primaryActionStyle({ disabled: saving, height: 42 }),
               padding: "9px 16px",
-              borderRadius: 8,
-              border: "none",
-              background: saving ? "#94a3b8" : "#0f172a",
-              color: "#fff",
               fontSize: 13,
               fontWeight: 700,
-              cursor: saving ? "not-allowed" : "pointer",
             }}
           >
             {saving ? "שומר…" : "שמור והמשך"}
@@ -1362,14 +1335,10 @@ function CreateDraftModal({
             onClick={handleClose}
             disabled={submitting}
             style={{
+              ...glassActionStyle({ disabled: submitting, height: 42 }),
               padding: "10px 16px",
-              borderRadius: 10,
-              border: "1px solid #cbd5e1",
-              background: "#ffffff",
-              color: "#334155",
               fontSize: 14,
               fontWeight: 600,
-              cursor: submitting ? "not-allowed" : "pointer",
               opacity: submitting ? 0.55 : 1,
               minWidth: 110,
             }}
@@ -1382,14 +1351,10 @@ function CreateDraftModal({
             disabled={!canSubmit}
             aria-busy={submitting}
             style={{
+              ...primaryActionStyle({ disabled: !canSubmit, height: 42 }),
               padding: "10px 16px",
-              borderRadius: 10,
-              border: "1px solid #0f172a",
-              background: canSubmit ? "#0f172a" : "#94a3b8",
-              color: "#ffffff",
               fontSize: 14,
               fontWeight: 600,
-              cursor: canSubmit ? "pointer" : "not-allowed",
               minWidth: 130,
             }}
           >
@@ -1489,15 +1454,11 @@ function ErrorBanner({
         type="button"
         onClick={onRetry}
         style={{
+          ...primaryActionStyle({ height: 40 }),
           alignSelf: "flex-start",
           padding: "8px 14px",
-          borderRadius: 10,
-          border: "1px solid #991b1b",
-          background: "#991b1b",
-          color: "#ffffff",
           fontSize: 14,
           fontWeight: 600,
-          cursor: "pointer",
         }}
       >
         נסה שוב
@@ -1550,14 +1511,10 @@ function EmptyState({
             type="button"
             onClick={onCreate}
             style={{
+              ...primaryActionStyle({ height: 42 }),
               padding: "10px 16px",
-              borderRadius: 10,
-              border: "1px solid #0f172a",
-              background: "#0f172a",
-              color: "#ffffff",
               fontSize: 14,
               fontWeight: 700,
-              cursor: "pointer",
             }}
           >
             התחל מסמך ללקוח
@@ -1567,14 +1524,10 @@ function EmptyState({
             type="button"
             onClick={onClearFilter}
             style={{
+              ...glassActionStyle({ height: 42 }),
               padding: "10px 16px",
-              borderRadius: 10,
-              border: "1px solid #cbd5e1",
-              background: "#ffffff",
-              color: "#334155",
               fontSize: 14,
               fontWeight: 700,
-              cursor: "pointer",
             }}
           >
             נקה סינון

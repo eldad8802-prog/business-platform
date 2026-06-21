@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
+import { primaryActionStyle } from "@/lib/design/action-styles";
 import { uploadInventoryItemImage } from "@/lib/api/inventory";
 
 type Props = {
@@ -320,16 +321,9 @@ export default function InventoryItemImageUploader({
           onClick={handleUpload}
           disabled={loading || !file}
           style={{
+            ...primaryActionStyle({ disabled: loading || !file, height: 42 }),
             minHeight: "42px",
             padding: "9px 15px",
-            borderRadius: "12px",
-            background:
-              loading || !file
-                ? "#9ca3af"
-                : "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)",
-            color: "#ffffff",
-            border: "none",
-            cursor: loading || !file ? "not-allowed" : "pointer",
             fontWeight: 800,
           }}
         >
