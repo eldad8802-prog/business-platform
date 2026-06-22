@@ -48,12 +48,14 @@ export type BotFieldOption = {
  * validation layer can constrain `mapsTo` to known-safe targets only.
  */
 export type BotFieldMapTarget =
+  | "Customer.name"
   | "Customer.phone"
   | "Customer.email"
   | "Customer.city"
   | "Appointment.startsAt";
 
 export const BOT_FIELD_MAP_TARGETS: readonly BotFieldMapTarget[] = [
+  "Customer.name",
   "Customer.phone",
   "Customer.email",
   "Customer.city",
@@ -66,6 +68,13 @@ export type BotField = {
   id: string;
   /** Machine key used for mapping / answer correlation (snake/lower). */
   key: string;
+  /**
+   * Optional link to a Field Catalog entry (`field-catalog`). Set only when
+   * this field instance is derived from a known catalog key. Absent for
+   * legacy/custom free-text fields. Stage B introduces the field; no live
+   * flow reads it yet.
+   */
+  catalogKey?: string;
   /** Short human label for the field (UI). */
   label: string;
   /** The question text actually asked to the customer. */

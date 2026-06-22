@@ -26,3 +26,24 @@ export {
   v2ConfigToBotFields,
   botFieldsToLegacyItems,
 } from "./normalize-bot-fields";
+
+export {
+  FIELD_NAMESPACES,
+  FIELD_CLASSES,
+  BUILDER_VISIBILITIES,
+  type CatalogField,
+  type FieldNamespace,
+  type FieldClass,
+  type BuilderVisibility,
+} from "./field-catalog.types";
+
+export { BOT_FIELD_CATALOG } from "./field-catalog";
+
+export {
+  getCatalogField,
+  isCatalogKey,
+  listCatalogFields,
+  getBuilderV1Fields,
+  assertCatalogIntegrity,
+  type ListCatalogFieldsOptions,
+} from "./field-catalog.helpers";

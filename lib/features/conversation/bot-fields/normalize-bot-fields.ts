@@ -27,6 +27,7 @@ import {
   type BotFieldOption,
   type BotFieldType,
 } from "./bot-field.types";
+import { isCatalogKey } from "./field-catalog.helpers";
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v !== null && typeof v === "object" && !Array.isArray(v)
@@ -123,6 +124,12 @@ export function parseBotField(raw: unknown): BotField | null {
     required,
     mapsTo: isMapTarget(rec.mapsTo) ? rec.mapsTo : null,
   };
+
+  // Preserve catalogKey ONLY when it is a real, known catalog key. Unknown /
+  // malformed values are dropped (field stays custom). Never throws.
+  if (isCatalogKey(rec.catalogKey)) {
+    field.catalogKey = rec.catalogKey;
+  }
 
   if (type === "select" || type === "multiselect") {
     const options = parseOptions(rec.options);
