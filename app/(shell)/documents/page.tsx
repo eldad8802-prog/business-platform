@@ -1,4 +1,5 @@
 "use client";
+import { TOKEN } from "@/lib/design/tokens";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -6,7 +7,7 @@ import {
   fetchDocumentsHubSummary,
   fetchDocumentsInbox,
   type DocumentsHubSnapshot,
-} from "@/lib/documents/fetch-inbox";
+} from "@/lib/documents/fetch-inbox";h
 import type { InboxListItem, InboxPagination } from "@/lib/documents/inbox-types";
 import { CATEGORIES, CATEGORY_MAP } from "@/lib/constants/categories";
 
@@ -1291,7 +1292,7 @@ const primaryButtonStyle = (disabled: boolean) => ({
   minHeight: 78,
   border: "none",
   borderRadius: 17,
-  background: "linear-gradient(180deg, #176bff 0%, #0050e6 100%)",
+  background: TOKEN.brand.gradient,
   color: "#ffffff",
   fontSize: 25,
   fontWeight: 800,
@@ -1587,7 +1588,7 @@ const compactPrimaryButtonStyle = (disabled: boolean) => ({
   padding: "0 22px",
   border: "none",
   borderRadius: 12,
-  background: "linear-gradient(180deg, #176bff 0%, #0050e6 100%)",
+  background: TOKEN.brand.gradient,
   color: "#ffffff",
   fontSize: 15,
   fontWeight: 900,
