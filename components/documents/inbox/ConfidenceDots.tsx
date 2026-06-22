@@ -1,14 +1,15 @@
 "use client";
 
 import type { InboxConfidenceDots } from "@/lib/documents/inbox-types";
+import { TOKEN } from "@/lib/design/tokens";
 
 const DOT_COLOR: Record<
   InboxConfidenceDots[keyof InboxConfidenceDots],
   string
 > = {
-  high: "#16a34a",
-  medium: "#d97706",
-  low: "#dc2626",
+  high: TOKEN.semantic.success.accent,
+  medium: TOKEN.semantic.attention.accent,
+  low: TOKEN.semantic.urgent.accent,
 };
 
 const DOT_LABEL: Record<

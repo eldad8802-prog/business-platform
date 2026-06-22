@@ -1,920 +1,257 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
-import {
-  inventoryCardStyle,
-  InventorySubheader,
-  inventoryMainStyle,
-  inventoryPageStyle,
-  inventoryTheme,
-} from "@/components/inventory/inventory-design";
+import { InventorySubPage } from "@/components/inventory/inventory-shell";
+import { SegmentedControl, SaveBar } from "@/components/inventory/inventory-design";
 import {
   createInventoryCategory,
   createInventoryItem,
   getInventoryCategories,
-  InventoryCategoryDTO,
   uploadInventoryItemImage,
+  type InventoryCategoryDTO,
 } from "@/lib/api/inventory";
 
-type UnitOption = {
-  value: string;
-  label: string;
-};
-
-const UNIT_OPTIONS: UnitOption[] = [
+const UNIT_OPTIONS = [
   { value: "UNIT", label: "יחידה" },
-  { value: "ML", label: 'מ"ל' },
+  { value: "KG", label: "ק״ג" },
   { value: "GRAM", label: "גרם" },
-  { value: "KG", label: "קילוגרם" },
   { value: "LITER", label: "ליטר" },
-  { value: "BOX", label: "קופסה" },
+  { value: "ML", label: "מ״ל" },
+  { value: "BOX", label: "מארז" },
 ];
+
+function getErrorMessage(err: unknown, fallback: string) {
+  return err instanceof Error ? err.message : fallback;
+}
 
 export default function CreateInventoryItemPage() {
   const router = useRouter();
-
   const [name, setName] = useState("");
+  const [sku, setSku] = useState("");
   const [barcode, setBarcode] = useState("");
   const [supplierName, setSupplierName] = useState("");
   const [unitType, setUnitType] = useState("UNIT");
   const [initialQuantity, setInitialQuantity] = useState("0");
   const [minimumQuantity, setMinimumQuantity] = useState("0");
   const [reorderPoint, setReorderPoint] = useState("");
-
+  const [costPerUnit, setCostPerUnit] = useState("");
+  const [sellPricePerUnit, setSellPricePerUnit] = useState("");
   const [categories, setCategories] = useState<InventoryCategoryDTO[]>([]);
-  const [selectedCategoryId, setSelectedCategoryId] = useState("");
-  const [newCategoryName, setNewCategoryName] = useState("");
-  const [categoriesLoading, setCategoriesLoading] = useState(false);
-
+  const [categoryName, setCategoryName] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [successText, setSuccessText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const parsedInitialQuantity = useMemo(() => {
-    const parsed = Number(initialQuantity);
-    return Number.isNaN(parsed) ? null : parsed;
+    const n = Number(initialQuantity);
+    return Number.isNaN(n) ? null : n;
   }, [initialQuantity]);
-
   const parsedMinimumQuantity = useMemo(() => {
-    const parsed = Number(minimumQuantity);
-    return Number.isNaN(parsed) ? null : parsed;
+    const n = Number(minimumQuantity);
+    return Number.isNaN(n) ? null : n;
   }, [minimumQuantity]);
-
   const normalizedReorderPoint = useMemo(() => {
     if (!reorderPoint.trim()) return null;
-
-    const parsed = Number(reorderPoint);
-    return Number.isNaN(parsed) ? null : parsed;
+    const n = Number(reorderPoint);
+    return Number.isNaN(n) ? null : n;
   }, [reorderPoint]);
+  const normalizedCostPerUnit = useMemo(() => {
+    if (!costPerUnit.trim()) return null;
+    const n = Number(costPerUnit);
+    return Number.isNaN(n) ? null : n;
+  }, [costPerUnit]);
+  const normalizedSellPricePerUnit = useMemo(() => {
+    if (!sellPricePerUnit.trim()) return null;
+    const n = Number(sellPricePerUnit);
+    return Number.isNaN(n) ? null : n;
+  }, [sellPricePerUnit]);
 
   useEffect(() => {
     let isMounted = true;
-
-    async function loadCategories() {
-      setCategoriesLoading(true);
-
+    const timer = window.setTimeout(async () => {
       try {
         const result = await getInventoryCategories();
-
-        if (isMounted) {
-          setCategories(result);
-        }
-      } catch (err: any) {
-        if (isMounted) {
-          if (err?.message === "UNAUTHORIZED") {
-            setError("אין הרשאה לטעון קטגוריות. צריך להתחבר מחדש.");
-          } else {
-            setError(err?.message || "שגיאה בטעינת קטגוריות");
-          }
-        }
-      } finally {
-        if (isMounted) {
-          setCategoriesLoading(false);
-        }
+        if (isMounted) setCategories(result);
+      } catch (err: unknown) {
+        const message = getErrorMessage(err, "שגיאה בטעינת קטגוריות");
+        if (isMounted) setError(message === "UNAUTHORIZED" ? "אין הרשאה. צריך להתחבר מחדש." : message);
       }
-    }
-
-    loadCategories();
-
+    }, 0);
     return () => {
       isMounted = false;
+      window.clearTimeout(timer);
     };
   }, []);
 
   useEffect(() => {
     return () => {
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] || null;
-
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] || null;
     setError(null);
-    setSuccessText(null);
-
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-    }
-
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
     if (!file) {
       setSelectedFile(null);
       setPreviewUrl(null);
       return;
     }
-
     if (!file.type.startsWith("image/")) {
       setSelectedFile(null);
       setPreviewUrl(null);
       setError("אפשר להעלות קובץ תמונה בלבד");
       return;
     }
-
     setSelectedFile(file);
     setPreviewUrl(URL.createObjectURL(file));
   }
 
-  function clearImage() {
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-    }
-
-    setSelectedFile(null);
-    setPreviewUrl(null);
-    setError(null);
-    setSuccessText(null);
-  }
-
   async function resolveCategoryId(): Promise<number | null> {
-    const trimmedNewCategoryName = newCategoryName.trim();
-
-    if (trimmedNewCategoryName) {
-      const existingCategory = categories.find(
-        (category) =>
-          category.name.trim().toLowerCase() ===
-          trimmedNewCategoryName.toLowerCase()
-      );
-
-      if (existingCategory) {
-        return existingCategory.id;
-      }
-
-      const createdCategory = await createInventoryCategory({
-        name: trimmedNewCategoryName,
-      });
-
-      return createdCategory.id;
-    }
-
-    if (!selectedCategoryId) {
-      return null;
-    }
-
-    const parsedCategoryId = Number(selectedCategoryId);
-    return Number.isFinite(parsedCategoryId) ? parsedCategoryId : null;
+    const trimmed = categoryName.trim();
+    if (!trimmed) return null;
+    const existing = categories.find((c) => c.name.trim().toLowerCase() === trimmed.toLowerCase());
+    if (existing) return existing.id;
+    const created = await createInventoryCategory({ name: trimmed });
+    return created.id;
   }
 
   async function handleSubmit() {
     if (loading) return;
-
-    if (!name.trim()) {
-      setError("צריך להזין שם פריט");
-      return;
-    }
-
-    if (
-      parsedInitialQuantity === null ||
-      parsedInitialQuantity < 0 ||
-      !Number.isFinite(parsedInitialQuantity)
-    ) {
-      setError("כמות התחלתית חייבת להיות 0 או יותר");
-      return;
-    }
-
-    if (
-      parsedMinimumQuantity === null ||
-      parsedMinimumQuantity < 0 ||
-      !Number.isFinite(parsedMinimumQuantity)
-    ) {
-      setError("מינימום רצוי חייב להיות 0 או יותר");
-      return;
-    }
-
-    if (
-      reorderPoint.trim() &&
-      (normalizedReorderPoint === null ||
-        normalizedReorderPoint < 0 ||
-        !Number.isFinite(normalizedReorderPoint))
-    ) {
-      setError("נקודת הזמנה חייבת להיות מספר תקין");
-      return;
-    }
+    if (!name.trim()) return setError("צריך להזין שם מוצר");
+    if (parsedInitialQuantity === null || parsedInitialQuantity < 0) return setError("כמות התחלתית חייבת להיות 0 או יותר");
+    if (parsedMinimumQuantity === null || parsedMinimumQuantity < 0) return setError("סף מינימום חייב להיות 0 או יותר");
 
     setLoading(true);
     setError(null);
-    setSuccessText(null);
-
     try {
       const categoryId = await resolveCategoryId();
-
       const createdItem = await createInventoryItem({
         name: name.trim(),
         barcode: barcode.trim() ? barcode.trim() : null,
         supplierName: supplierName.trim() ? supplierName.trim() : null,
+        sku: sku.trim() ? sku.trim() : null,
         unitType,
         initialQuantity: parsedInitialQuantity,
         minimumQuantity: parsedMinimumQuantity,
         reorderPoint: normalizedReorderPoint,
+        costPerUnit: normalizedCostPerUnit,
+        sellPricePerUnit: normalizedSellPricePerUnit,
         categoryId,
       });
-
-      if (selectedFile) {
-        setSuccessText("הפריט נוצר, מעלה תמונה...");
-        await uploadInventoryItemImage(createdItem.id, selectedFile);
-      }
-
-      setSuccessText("הפריט נשמר בהצלחה");
-      router.push("/inventory");
-    } catch (err: any) {
-      if (err?.message === "UNAUTHORIZED") {
-        setError("אין הרשאה ליצור פריט. צריך להתחבר מחדש.");
-      } else {
-        setError(err?.message || "שגיאה ביצירת הפריט");
-      }
+      if (selectedFile) await uploadInventoryItemImage(createdItem.id, selectedFile);
+      router.push(`/inventory/items?q=${encodeURIComponent(createdItem.name)}`);
+    } catch (err: unknown) {
+      const message = getErrorMessage(err, "שגיאה ביצירת המוצר");
+      setError(message === "UNAUTHORIZED" ? "אין הרשאה ליצור מוצר. צריך להתחבר מחדש." : message);
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div style={inventoryPageStyle()}>
-      <InventorySubheader title="הוספת פריט" backHref="/inventory" />
-
-      <main style={inventoryMainStyle(960)}>
-        <section style={inventoryCardStyle()}>
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 900,
-              color: inventoryTheme.accent,
-              marginBottom: 8,
-            }}
-          >
-            הוספת פריט · בסיס
-          </div>
-          <h1
-            style={{
-              fontSize: 20,
-              fontWeight: 800,
-              color: inventoryTheme.text,
-              margin: 0,
-              marginBottom: 6,
-            }}
-          >
-            יצירת פריט מלאי חדש
-          </h1>
-
-          <p
-            style={{
-              fontSize: 14,
-              lineHeight: 1.6,
-              color: inventoryTheme.textMuted,
-              margin: 0,
-            }}
-          >
-            הפריט ייכנס למלאי עם כמות התחלתית מסודרת, וכל שינוי עתידי יתועד
-            דרך תנועות מלאי.
-          </p>
-        </section>
-
-        <div
+    <InventorySubPage title="מוצר חדש" backHref="/inventory/items" bottomNav="products">
+      <div className="inv-fwrap">
+        <label
+          className="inv-imgpick"
           style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1.2fr) minmax(280px, 0.8fr)",
-            gap: 16,
-          }}
-        >
-        <section
-          style={{
-            ...inventoryCardStyle(),
+            marginTop: 8,
+            minHeight: 120,
+            border: "1.5px dashed var(--inv-border)",
+            borderRadius: "var(--inv-radius-md)",
+            background: previewUrl ? "#000" : "var(--inv-surface, #f5f7f9)",
+            color: "var(--inv-text-muted)",
+            fontWeight: 700,
+            fontSize: 14,
             display: "flex",
             flexDirection: "column",
-            gap: 14,
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            cursor: "pointer",
+            overflow: "hidden",
           }}
         >
-          <div
-            style={{
-              fontSize: "16px",
-              fontWeight: 800,
-              color: "#111827",
-            }}
-          >
-            פרטי הפריט
-          </div>
-
-          <div>
-            <label
-              htmlFor="inventory-item-name"
-              style={{
-                display: "block",
-                marginBottom: "6px",
-                fontSize: "13px",
-                fontWeight: 700,
-                color: "#111827",
-              }}
-            >
-              שם הפריט
-            </label>
-
-            <input
-              id="inventory-item-name"
-              type="text"
-              value={name}
-              disabled={loading}
-              onChange={(e) => {
-                setName(e.target.value);
-                setError(null);
-              }}
-              placeholder="למשל: שמפו קרטין"
-              style={{
-                width: "100%",
-                minHeight: "46px",
-                padding: "10px 12px",
-                borderRadius: "12px",
-                border: "1px solid #d1d5db",
-                fontSize: "14px",
-                background: loading ? "#f9fafb" : "#ffffff",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="inventory-item-barcode"
-              style={{
-                display: "block",
-                marginBottom: "6px",
-                fontSize: "13px",
-                fontWeight: 700,
-                color: "#111827",
-              }}
-            >
-              ברקוד
-            </label>
-
-            <input
-              id="inventory-item-barcode"
-              type="text"
-              value={barcode}
-              disabled={loading}
-              onChange={(e) => {
-                setBarcode(e.target.value);
-                setError(null);
-              }}
-              placeholder="לא חובה"
-              style={{
-                width: "100%",
-                minHeight: "46px",
-                padding: "10px 12px",
-                borderRadius: "12px",
-                border: "1px solid #d1d5db",
-                fontSize: "14px",
-                background: loading ? "#f9fafb" : "#ffffff",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="inventory-item-supplier-name"
-              style={{
-                display: "block",
-                marginBottom: "6px",
-                fontSize: "13px",
-                fontWeight: 700,
-                color: "#111827",
-              }}
-            >
-              שם ספק{" "}
-              <span style={{ color: "#6b7280", fontWeight: 600 }}>(אופציונלי)</span>
-            </label>
-
-            <input
-              id="inventory-item-supplier-name"
-              type="text"
-              value={supplierName}
-              disabled={loading}
-              onChange={(e) => {
-                setSupplierName(e.target.value);
-                setError(null);
-              }}
-              placeholder="למשל: שוורצקופף, לוריאל, ספק מקומי"
-              style={{
-                width: "100%",
-                minHeight: "46px",
-                padding: "10px 12px",
-                borderRadius: "12px",
-                border: "1px solid #d1d5db",
-                fontSize: "14px",
-                background: loading ? "#f9fafb" : "#ffffff",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="inventory-item-category"
-              style={{
-                display: "block",
-                marginBottom: "6px",
-                fontSize: "13px",
-                fontWeight: 700,
-                color: "#111827",
-              }}
-            >
-              קטגוריה קיימת
-            </label>
-
-            <select
-              id="inventory-item-category"
-              value={selectedCategoryId}
-              disabled={loading || categoriesLoading || !!newCategoryName.trim()}
-              onChange={(e) => {
-                setSelectedCategoryId(e.target.value);
-                setError(null);
-              }}
-              style={{
-                width: "100%",
-                minHeight: "46px",
-                padding: "10px 12px",
-                borderRadius: "12px",
-                border: "1px solid #d1d5db",
-                fontSize: "14px",
-                background:
-                  loading || categoriesLoading || !!newCategoryName.trim()
-                    ? "#f9fafb"
-                    : "#ffffff",
-                boxSizing: "border-box",
-              }}
-            >
-              <option value="">
-                {categoriesLoading ? "טוען קטגוריות..." : "ללא קטגוריה"}
-              </option>
-
-              {categories.map((category) => (
-                <option key={category.id} value={String(category.id)}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-
-            <div
-              style={{
-                marginTop: "8px",
-                fontSize: "12px",
-                color: "#6b7280",
-                lineHeight: 1.5,
-              }}
-            >
-              אם ממלאים קטגוריה חדשה למטה, היא תקבל עדיפות על הבחירה הקיימת.
-            </div>
-          </div>
-
-          <div>
-            <label
-              htmlFor="inventory-item-new-category"
-              style={{
-                display: "block",
-                marginBottom: "6px",
-                fontSize: "13px",
-                fontWeight: 700,
-                color: "#111827",
-              }}
-            >
-              יצירת קטגוריה חדשה
-            </label>
-
-            <input
-              id="inventory-item-new-category"
-              type="text"
-              value={newCategoryName}
-              disabled={loading}
-              onChange={(e) => {
-                setNewCategoryName(e.target.value);
-                setError(null);
-              }}
-              placeholder="למשל: מוצרי שיער"
-              style={{
-                width: "100%",
-                minHeight: "46px",
-                padding: "10px 12px",
-                borderRadius: "12px",
-                border: "1px solid #d1d5db",
-                fontSize: "14px",
-                background: loading ? "#f9fafb" : "#ffffff",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="inventory-item-unit-type"
-              style={{
-                display: "block",
-                marginBottom: "6px",
-                fontSize: "13px",
-                fontWeight: 700,
-                color: "#111827",
-              }}
-            >
-              סוג יחידה
-            </label>
-
-            <select
-              id="inventory-item-unit-type"
-              value={unitType}
-              disabled={loading}
-              onChange={(e) => {
-                setUnitType(e.target.value);
-                setError(null);
-              }}
-              style={{
-                width: "100%",
-                minHeight: "46px",
-                padding: "10px 12px",
-                borderRadius: "12px",
-                border: "1px solid #d1d5db",
-                fontSize: "14px",
-                background: loading ? "#f9fafb" : "#ffffff",
-                boxSizing: "border-box",
-              }}
-            >
-              {UNIT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr",
-              gap: "14px",
-            }}
-          >
-            <div>
-              <label
-                htmlFor="inventory-item-initial-quantity"
-                style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  fontSize: "13px",
-                  fontWeight: 700,
-                  color: "#111827",
-                }}
-              >
-                כמות התחלתית
-              </label>
-
-              <input
-                id="inventory-item-initial-quantity"
-                type="number"
-                min="0"
-                step="1"
-                value={initialQuantity}
-                disabled={loading}
-                onChange={(e) => {
-                  setInitialQuantity(e.target.value);
-                  setError(null);
-                }}
-                style={{
-                  width: "100%",
-                  minHeight: "46px",
-                  padding: "10px 12px",
-                  borderRadius: "12px",
-                  border: "1px solid #d1d5db",
-                  fontSize: "14px",
-                  background: loading ? "#f9fafb" : "#ffffff",
-                  boxSizing: "border-box",
-                }}
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="inventory-item-minimum-quantity"
-                style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  fontSize: "13px",
-                  fontWeight: 700,
-                  color: "#111827",
-                }}
-              >
-                מינימום רצוי
-              </label>
-
-              <input
-                id="inventory-item-minimum-quantity"
-                type="number"
-                min="0"
-                step="1"
-                value={minimumQuantity}
-                disabled={loading}
-                onChange={(e) => {
-                  setMinimumQuantity(e.target.value);
-                  setError(null);
-                }}
-                style={{
-                  width: "100%",
-                  minHeight: "46px",
-                  padding: "10px 12px",
-                  borderRadius: "12px",
-                  border: "1px solid #d1d5db",
-                  fontSize: "14px",
-                  background: loading ? "#f9fafb" : "#ffffff",
-                  boxSizing: "border-box",
-                }}
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="inventory-item-reorder-point"
-                style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  fontSize: "13px",
-                  fontWeight: 700,
-                  color: "#111827",
-                }}
-              >
-                נקודת הזמנה
-              </label>
-
-              <input
-                id="inventory-item-reorder-point"
-                type="number"
-                min="0"
-                step="1"
-                value={reorderPoint}
-                disabled={loading}
-                onChange={(e) => {
-                  setReorderPoint(e.target.value);
-                  setError(null);
-                }}
-                placeholder="לא חובה"
-                style={{
-                  width: "100%",
-                  minHeight: "46px",
-                  padding: "10px 12px",
-                  borderRadius: "12px",
-                  border: "1px solid #d1d5db",
-                  fontSize: "14px",
-                  background: loading ? "#f9fafb" : "#ffffff",
-                  boxSizing: "border-box",
-                }}
-              />
-            </div>
-          </div>
-        </section>
-
-        <section
-          style={{
-            ...inventoryCardStyle(),
-            display: "flex",
-            flexDirection: "column",
-            gap: 14,
-          }}
-        >
-          <div>
-            <div
-              style={{
-                fontSize: "16px",
-                fontWeight: 800,
-                color: "#111827",
-                marginBottom: "4px",
-              }}
-            >
-              תמונת פריט
-            </div>
-
-            <div
-              style={{
-                fontSize: "13px",
-                color: "#6b7280",
-                lineHeight: 1.5,
-              }}
-            >
-              לא חובה, אבל תמונה עוזרת לזהות פריטים מהר יותר.
-            </div>
-          </div>
-
-          <div
-            style={{
-              width: "100%",
-              minHeight: "220px",
-              borderRadius: "16px",
-              border: "1px dashed #d1d5db",
-              background: "#f9fafb",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              overflow: "hidden",
-            }}
-          >
-            {previewUrl ? (
-              <img
-                src={previewUrl}
-                alt="תצוגה מקדימה"
-                style={{
-                  width: "100%",
-                  maxHeight: "320px",
-                  objectFit: "cover",
-                  display: "block",
-                }}
-              />
-            ) : (
-              <div
-                style={{
-                  color: "#6b7280",
-                  fontSize: "14px",
-                  textAlign: "center",
-                  padding: "20px",
-                  lineHeight: 1.6,
-                }}
-              >
-                <div style={{ fontSize: 30, marginBottom: 8 }}>☁️</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#64748b" }}>
-                  גרור תמונה לכאן או לחץ להעלאה
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "10px",
-            }}
-          >
-            <label
-              style={{
-                minHeight: "44px",
-                padding: "10px 14px",
-                borderRadius: "12px",
-                border: "1px solid #d1d5db",
-                background: loading ? "#f9fafb" : "#ffffff",
-                cursor: loading ? "not-allowed" : "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "14px",
-                fontWeight: 700,
-                color: "#111827",
-                opacity: loading ? 0.6 : 1,
-              }}
-            >
-              בחירה מהגלריה
-              <input
-                type="file"
-                accept="image/*"
-                disabled={loading}
-                onChange={handleFileChange}
-                style={{ display: "none" }}
-              />
-            </label>
-
-            <label
-              style={{
-                minHeight: "44px",
-                padding: "10px 14px",
-                borderRadius: "12px",
-                border: "1px solid #d1d5db",
-                background: loading ? "#f9fafb" : "#ffffff",
-                cursor: loading ? "not-allowed" : "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "14px",
-                fontWeight: 700,
-                color: "#111827",
-                opacity: loading ? 0.6 : 1,
-              }}
-            >
-              צילום פריט
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                disabled={loading}
-                onChange={handleFileChange}
-                style={{ display: "none" }}
-              />
-            </label>
-
-            {selectedFile && (
-              <button
-                type="button"
-                onClick={clearImage}
-                disabled={loading}
-                style={{
-                  minHeight: "44px",
-                  padding: "10px 14px",
-                  borderRadius: "12px",
-                  border: "1px solid #fecaca",
-                  background: "#fef2f2",
-                  color: "#991b1b",
-                  cursor: loading ? "not-allowed" : "pointer",
-                  fontSize: "14px",
-                  fontWeight: 700,
-                  opacity: loading ? 0.6 : 1,
-                }}
-              >
-                הסרת תמונה
-              </button>
-            )}
-          </div>
-
-          {selectedFile && (
-            <div
-              style={{
-                fontSize: "13px",
-                color: "#374151",
-                lineHeight: 1.5,
-              }}
-            >
-              קובץ נבחר: {selectedFile.name}
-            </div>
+          <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleFileChange} />
+          {previewUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={previewUrl} alt="" style={{ width: "100%", height: 120, objectFit: "cover" }} />
+          ) : (
+            "הוספת תמונת מוצר"
           )}
-        </section>
+        </label>
+
+        <div className="inv-field">
+          <div className="inv-field__lab">שם המוצר <span>*</span></div>
+          <input className="inv-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="לדוגמה: חלב 3% תנובה" />
         </div>
 
-        {error && (
-          <div
-            style={{
-              color: "#b91c1c",
-              background: "#fef2f2",
-              border: "1px solid #fecaca",
-              borderRadius: "14px",
-              padding: "12px 14px",
-              fontSize: "13px",
-              lineHeight: 1.5,
-            }}
-          >
-            {error}
-          </div>
-        )}
+        <div className="inv-field">
+          <div className="inv-field__lab">קטגוריה</div>
+          <input className="inv-input" list="inv-categories" value={categoryName} onChange={(e) => setCategoryName(e.target.value)} placeholder="בחר או צור קטגוריה" />
+          <datalist id="inv-categories">
+            {categories.map((c) => (
+              <option key={c.id} value={c.name} />
+            ))}
+          </datalist>
+        </div>
 
-        {successText && (
-          <div
-            style={{
-              color: "#166534",
-              background: "#f0fdf4",
-              border: "1px solid #bbf7d0",
-              borderRadius: "14px",
-              padding: "12px 14px",
-              fontSize: "13px",
-              lineHeight: 1.5,
-            }}
-          >
-            {successText}
-          </div>
-        )}
+        <div className="inv-field">
+          <div className="inv-field__lab">יחידת מידה</div>
+          <SegmentedControl value={unitType} onChange={setUnitType} options={UNIT_OPTIONS} />
+        </div>
 
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={loading}
-          style={{
-            width: "100%",
-            minHeight: "50px",
-            padding: "12px 16px",
-            borderRadius: "15px",
-            background: loading ? "#cbd5e1" : inventoryTheme.successBtn,
-            color: "#ffffff",
-            border: "none",
-            cursor: loading ? "not-allowed" : "pointer",
-            fontSize: "15px",
-            fontWeight: 900,
-            boxShadow: "0 8px 20px rgba(5, 150, 105, 0.2)",
-          }}
-        >
-          {loading ? "שומר/ת פריט..." : "שמירת פריט → Home"}
-        </button>
-      </main>
-    </div>
+        <div className="inv-field">
+          <div className="inv-field__lab">ספק</div>
+          <input className="inv-input" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} placeholder="שם הספק" />
+        </div>
+
+        <div className="inv-field">
+          <div className="inv-field__lab">כמות התחלתית</div>
+          <input className="inv-input" inputMode="numeric" value={initialQuantity} onChange={(e) => setInitialQuantity(e.target.value)} />
+        </div>
+
+        <div className="inv-two">
+          <div className="inv-field">
+            <div className="inv-field__lab">סף מינימום</div>
+            <input className="inv-input" inputMode="numeric" value={minimumQuantity} onChange={(e) => setMinimumQuantity(e.target.value)} placeholder="0" />
+            <div className="inv-field__help">מתחת לזה — מלאי קריטי (אדום)</div>
+          </div>
+          <div className="inv-field">
+            <div className="inv-field__lab">סף הזמנה מחדש</div>
+            <input className="inv-input" inputMode="numeric" value={reorderPoint} onChange={(e) => setReorderPoint(e.target.value)} placeholder="0" />
+            <div className="inv-field__help">מתחת לזה — מלאי נמוך (כתום)</div>
+          </div>
+        </div>
+
+        <div className="inv-two">
+          <div className="inv-field">
+            <div className="inv-field__lab">עלות ליחידה</div>
+            <input className="inv-input" inputMode="decimal" value={costPerUnit} onChange={(e) => setCostPerUnit(e.target.value)} placeholder="₪0.00" />
+          </div>
+          <div className="inv-field">
+            <div className="inv-field__lab">מחיר מכירה</div>
+            <input className="inv-input" inputMode="decimal" value={sellPricePerUnit} onChange={(e) => setSellPricePerUnit(e.target.value)} placeholder="₪0.00" />
+          </div>
+        </div>
+
+        <div className="inv-field">
+          <div className="inv-field__lab">מק״ט</div>
+          <input className="inv-input" value={sku} onChange={(e) => setSku(e.target.value)} placeholder="אופציונלי" />
+        </div>
+
+        <div className="inv-field">
+          <div className="inv-field__lab">ברקוד</div>
+          <input className="inv-input" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="סרוק או הקלד" />
+        </div>
+
+        {error ? <div className="inv-alert inv-alert--error" style={{ marginTop: 16 }}>{error}</div> : null}
+      </div>
+
+      <SaveBar label={loading ? "שומר…" : "שמירת מוצר"} onClick={() => void handleSubmit()} disabled={loading} />
+    </InventorySubPage>
   );
 }

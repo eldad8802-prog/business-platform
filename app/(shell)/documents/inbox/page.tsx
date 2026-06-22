@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import DocumentsInboxScreen from "@/components/documents/inbox/DocumentsInboxScreen";
 import InboxSkeleton from "@/components/documents/inbox/InboxSkeleton";
 import DocumentsHeader from "@/components/documents/DocumentsHeader";
+import { TOKEN } from "@/lib/design/tokens";
 import { pageMain } from "../ui";
 
 export default function DocumentsInboxPage() {
@@ -25,7 +26,7 @@ export default function DocumentsInboxPage() {
 
   if (!mounted) {
     return (
-      <div dir="rtl" style={{ minHeight: "100vh", background: "#f3f7ff" }}>
+      <div dir="rtl" style={{ minHeight: "100vh", background: TOKEN.surface.page }}>
         <DocumentsHeader title="תיבת מסמכים" />
         <main style={pageMain}>
           <InboxSkeleton />

@@ -1,6 +1,7 @@
 "use client";
 
 import type { InboxFinancialPulse } from "@/lib/documents/inbox-types";
+import { TOKEN } from "@/lib/design/tokens";
 
 function fmtMoney(n: number) {
   return `₪${n.toLocaleString("he-IL", { maximumFractionDigits: 2 })}`;
@@ -38,8 +39,8 @@ function StatCell({
         <span
           style={{
             fontSize: 11,
-            fontWeight: 800,
-            color: "#9ca3af",
+            fontWeight: TOKEN.weight.bold,
+            color: TOKEN.ink.meta,
             whiteSpace: "nowrap",
           }}
         >
@@ -49,7 +50,7 @@ function StatCell({
       <div
         style={{
           fontSize: 15,
-          fontWeight: 900,
+          fontWeight: TOKEN.weight.bold,
           color: valueColor,
           whiteSpace: "nowrap",
           overflow: "hidden",
@@ -75,36 +76,36 @@ export default function FinancialPulse({
   return (
     <div
       style={{
-        background: "#ffffff",
-        border: "1px solid #dfe7f3",
-        borderRadius: 14,
+        background: TOKEN.surface.card,
+        border: `1px solid ${TOKEN.border.DEFAULT}`,
+        borderRadius: TOKEN.radius.card,
         display: "flex",
         overflowX: "auto",
-        boxShadow: "0 8px 24px rgba(15, 23, 42, 0.04)",
+        boxShadow: TOKEN.shadow.elevated,
       }}
     >
       <StatCell
         label="הכנסות"
         value={fmtMoney(fromFinancialRecords.income)}
-        valueColor="#047857"
+        valueColor={TOKEN.semantic.success.ink}
         icon="↑"
       />
       <StatCell
         label="הוצאות"
         value={fmtMoney(fromFinancialRecords.expense)}
-        valueColor="#b91c1c"
+        valueColor={TOKEN.semantic.urgent.ink}
         icon="↓"
       />
       <StatCell
         label="מאזן"
         value={fmtMoney(net)}
-        valueColor={net >= 0 ? "#047857" : "#b91c1c"}
+        valueColor={net >= 0 ? TOKEN.semantic.success.ink : TOKEN.semantic.urgent.ink}
         icon="="
       />
       <StatCell
         label="ממתינים"
         value={inboxDocumentCounts.pendingReview}
-        valueColor="#d97706"
+        valueColor={TOKEN.semantic.attention.ink}
         icon="⏳"
       />
     </div>

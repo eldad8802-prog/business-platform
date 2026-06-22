@@ -1,3 +1,4 @@
+import { TOKEN } from "@/lib/design/tokens";
 import { basePageStyle, mainStyle, primaryDarkButton, reviewCard } from "./review-ui";
 
 export default function ReviewNotFound({ onBack }: { onBack: () => void }) {
@@ -8,7 +9,7 @@ export default function ReviewNotFound({ onBack }: { onBack: () => void }) {
           <div
             style={{
               fontSize: 24,
-              color: "#0d1b3d",
+              color: TOKEN.ink.primary,
               margin: 0,
               textAlign: "center",
               fontWeight: 950,
@@ -19,7 +20,7 @@ export default function ReviewNotFound({ onBack }: { onBack: () => void }) {
           <div
             style={{
               fontSize: 15,
-              color: "#6b7899",
+              color: TOKEN.ink.muted,
               textAlign: "center",
               marginTop: 12,
               lineHeight: 1.6,

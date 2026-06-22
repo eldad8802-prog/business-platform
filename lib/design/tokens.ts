@@ -35,6 +35,18 @@ export const TOKEN = {
     inverse: "#FFFFFF",
   },
 
+  /** Dubiz brand — navy→denim. Action surfaces / active states. */
+  brand: {
+    navy: "#243B57",
+    mid: "#3F619C",
+    light: "#9DB4D4",
+    gradient: "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)",
+    gradientHover: "linear-gradient(90deg, #1B2E45 0%, #8AA6CC 100%)",
+    soft: "#EEF3F9",
+    softBorder: "#C7D6E9",
+    focus: "rgba(63, 97, 156, 0.35)",
+  },
+
   border: {
     /** Single canonical border for cards, inputs, separators. */
     DEFAULT: "#E5E7EB",

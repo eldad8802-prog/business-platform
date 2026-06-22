@@ -1,6 +1,7 @@
 "use client";
 
 import type { TrustLevel } from "@/lib/documents/review/types";
+import type { PreviewView } from "@/lib/documents/review/preview-visibility";
 import type { ReviewFieldListProps } from "./ReviewFieldList";
 import ReviewActions from "./ReviewActions";
 import type { ReviewActionsProps } from "./ReviewActions";
@@ -10,13 +11,13 @@ import ReviewImpactBox from "./ReviewImpactBox";
 import ReviewPreviewFallback from "./ReviewPreviewFallback";
 import ReviewTrustSummary from "./ReviewTrustSummary";
 import { orangePill, reviewCard, reviewSoftPanel } from "./review-ui";
+import { TOKEN } from "@/lib/design/tokens";
 
 export type ReviewDecisionPanelProps = {
   reviewMode: "financial" | "document";
   trustLevel: TrustLevel;
   onBack: () => void;
-  showPreviewFallback: boolean;
-  previewKind: "pdf" | "image" | "unsupported";
+  previewView: PreviewView;
   fileBlobUrl: string | null;
   onPreviewFailed: () => void;
   vendorDisplay: string;
@@ -35,9 +36,7 @@ export type ReviewDecisionPanelProps = {
 export default function ReviewDecisionPanel({
   reviewMode,
   trustLevel,
-  onBack,
-  showPreviewFallback,
-  previewKind,
+  previewView,
   fileBlobUrl,
   onPreviewFailed,
   vendorDisplay,
@@ -64,28 +63,14 @@ export default function ReviewDecisionPanel({
           flexWrap: "wrap",
         }}
       >
-        <button
-          type="button"
-          style={{
-            border: "none",
-            background: "transparent",
-            color: "#075bff",
-            fontSize: 15,
-            fontWeight: 900,
-            cursor: "pointer",
-          }}
-          onClick={onBack}
-        >
-          חזרה למסמכים
-        </button>
-        <div style={{ color: "#0d1b3d", fontSize: 18, fontWeight: 950 }}>
+        <div style={{ color: TOKEN.ink.primary, fontSize: TOKEN.font.title, fontWeight: TOKEN.weight.bold }}>
           {reviewMode === "financial" ? "מסמך פיננסי" : "מסמך מידע"}
         </div>
         <div
           style={{
             ...orangePill,
-            background: trustLevel === "high" ? "#e9f9ef" : "#fff1e7",
-            color: trustLevel === "high" ? "#16945a" : "#f0782b",
+            background: trustLevel === "high" ? TOKEN.semantic.success.bgSoft : TOKEN.semantic.attention.bgSoft,
+            color: trustLevel === "high" ? TOKEN.semantic.success.ink : TOKEN.semantic.attention.ink,
           }}
         >
           {trustLevel === "high" ? "בטוח לאישור" : "דורש בדיקה"}
@@ -94,32 +79,23 @@ export default function ReviewDecisionPanel({
 
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-          gap: 22,
-          alignItems: "start",
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
         }}
       >
-        <div style={reviewSoftPanel}>
+        <div style={{ ...reviewSoftPanel, order: 2 }}>
           <div
             style={{
               minHeight: 330,
-              background: "#ffffff",
-              border: "1px solid #e1e8f4",
-              borderRadius: 18,
+              background: TOKEN.surface.card,
+              border: `1px solid ${TOKEN.border.DEFAULT}`,
+              borderRadius: TOKEN.radius.card,
               padding: 18,
-              boxShadow: "0 14px 30px rgba(13, 27, 61, 0.08)",
+              boxShadow: TOKEN.shadow.elevated,
             }}
           >
-            {showPreviewFallback ? (
-              <ReviewPreviewFallback
-                vendorDisplay={vendorDisplay}
-                amountDisplay={amountDisplay}
-                dateDisplay={dateDisplay}
-                categoryDisplay={categoryDisplay}
-                directionDisplay={directionDisplay}
-              />
-            ) : previewKind === "pdf" ? (
+            {previewView === "pdf" ? (
               <iframe
                 src={fileBlobUrl as string}
                 title="תצוגת מסמך"
@@ -128,11 +104,11 @@ export default function ReviewDecisionPanel({
                   width: "100%",
                   height: 330,
                   border: "none",
-                  borderRadius: 14,
-                  background: "#ffffff",
+                  borderRadius: TOKEN.radius.input,
+                  background: TOKEN.surface.card,
                 }}
               />
-            ) : (
+            ) : previewView === "image" ? (
               // eslint-disable-next-line @next/next/no-img-element -- Secure object URL preview, not a static/image-optimization asset.
               <img
                 src={fileBlobUrl as string}
@@ -142,14 +118,44 @@ export default function ReviewDecisionPanel({
                   width: "100%",
                   maxHeight: 330,
                   objectFit: "contain",
-                  borderRadius: 14,
+                  borderRadius: TOKEN.radius.input,
                 }}
+              />
+            ) : previewView === "loading" ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: 294,
+                  gap: 8,
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: 30 }} aria-hidden>
+                  ⏳
+                </div>
+                <div style={{ fontSize: TOKEN.font.title, fontWeight: TOKEN.weight.bold, color: TOKEN.ink.primary }}>
+                  טוען תצוגת מסמך…
+                </div>
+                <div style={{ fontSize: TOKEN.font.meta, fontWeight: TOKEN.weight.bold, color: TOKEN.ink.muted }}>
+                  מורידים את קובץ המקור בצורה מאובטחת.
+                </div>
+              </div>
+            ) : (
+              <ReviewPreviewFallback
+                vendorDisplay={vendorDisplay}
+                amountDisplay={amountDisplay}
+                dateDisplay={dateDisplay}
+                categoryDisplay={categoryDisplay}
+                directionDisplay={directionDisplay}
               />
             )}
           </div>
         </div>
 
-        <div style={{ display: "grid", gap: 14 }}>
+        <div style={{ display: "grid", gap: 14, order: 1 }}>
           <ReviewAiExtractedCard
             vendorDisplay={vendorDisplay}
             amountDisplay={amountDisplay}

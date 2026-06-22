@@ -2,6 +2,7 @@
 
 import ReviewOutcomeRow from "./ReviewOutcomeRow";
 import { primaryDarkButton, reviewCard, secondaryButton } from "./review-ui";
+import { TOKEN } from "@/lib/design/tokens";
 
 export type ReviewDoneStateProps = {
   approvedAs: "financial" | "document" | null;
@@ -37,15 +38,15 @@ export default function ReviewDoneState({
           width: 92,
           height: 92,
           borderRadius: 999,
-          background: "#ff8a2a",
-          color: "#ffffff",
+          background: TOKEN.semantic.success.bg,
+          color: TOKEN.semantic.success.ink,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           fontSize: 48,
-          fontWeight: 950,
+          fontWeight: TOKEN.weight.bold,
           margin: "4px auto 18px",
-          boxShadow: "0 12px 26px rgba(255, 138, 42, 0.24)",
+          boxShadow: TOKEN.shadow.elevated,
         }}
       >
         ✓
@@ -53,10 +54,10 @@ export default function ReviewDoneState({
       <h2
         style={{
           margin: 0,
-          color: "#0d1b3d",
-          fontSize: 26,
+          color: TOKEN.ink.primary,
+          fontSize: TOKEN.font.hero,
           lineHeight: 1.3,
-          fontWeight: 950,
+          fontWeight: TOKEN.weight.bold,
         }}
       >
         המסמך אושר בהצלחה
@@ -64,9 +65,9 @@ export default function ReviewDoneState({
       <p
         style={{
           margin: "10px 0 20px",
-          color: "#6b7899",
-          fontSize: 15,
-          fontWeight: 750,
+          color: TOKEN.ink.muted,
+          fontSize: TOKEN.font.body,
+          fontWeight: TOKEN.weight.semibold,
           lineHeight: 1.6,
         }}
       >
@@ -77,9 +78,9 @@ export default function ReviewDoneState({
 
       <div
         style={{
-          border: "1px solid #e1e8f4",
-          background: "#f8fbff",
-          borderRadius: 18,
+          border: `1px solid ${TOKEN.border.DEFAULT}`,
+          background: TOKEN.surface.inset,
+          borderRadius: TOKEN.radius.card,
           textAlign: "right",
           overflow: "hidden",
         }}
@@ -107,13 +108,13 @@ export default function ReviewDoneState({
       <div
         style={{
           marginTop: 20,
-          border: "1px solid #e1e8f4",
-          borderRadius: 18,
+          border: `1px solid ${TOKEN.border.DEFAULT}`,
+          borderRadius: TOKEN.radius.card,
           padding: 16,
-          background: "#ffffff",
+          background: TOKEN.surface.card,
         }}
       >
-        <div style={{ color: "#0d1b3d", fontSize: 15, fontWeight: 950, marginBottom: 12 }}>
+        <div style={{ color: TOKEN.ink.primary, fontSize: TOKEN.font.body, fontWeight: TOKEN.weight.bold, marginBottom: 12 }}>
           מה תרצה לעשות עכשיו?
         </div>
         <button type="button" style={primaryDarkButton(false)} onClick={onNext}>
@@ -134,10 +135,10 @@ export default function ReviewDoneState({
           style={{
             border: "none",
             background: "transparent",
-            color: "#075bff",
+            color: TOKEN.brand.mid,
             marginTop: 14,
             fontSize: 13,
-            fontWeight: 900,
+            fontWeight: TOKEN.weight.bold,
             cursor: "pointer",
           }}
           onClick={onSearch}

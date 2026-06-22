@@ -2,7 +2,8 @@
 
 import { CATEGORIES } from "@/lib/constants/categories";
 import type { Direction, EditableField, ReviewDraft } from "@/lib/documents/review/types";
-import { primaryDarkButton, reviewCard, reviewInput, secondaryButton } from "./review-ui";
+import { TOKEN } from "@/lib/design/tokens";
+import { primaryDarkButton, reviewInput, secondaryButton } from "./review-ui";
 
 export type ReviewFieldEditorProps = {
   editFieldTitle: string;
@@ -15,7 +16,6 @@ export type ReviewFieldEditorProps = {
 };
 
 export default function ReviewFieldEditor({
-  editFieldTitle,
   editField,
   draft,
   loading,
@@ -24,11 +24,7 @@ export default function ReviewFieldEditor({
   onCancel,
 }: ReviewFieldEditorProps) {
   return (
-    <section style={{ ...reviewCard, maxWidth: 620, width: "100%", margin: "0 auto" }}>
-      <div style={{ fontWeight: 950, color: "#0d1b3d", fontSize: 22, marginBottom: 14 }}>
-        {editFieldTitle}
-      </div>
-
+    <section style={{ width: "100%" }}>
       {editField === "amount" ? (
         <input
           type="number"
@@ -85,17 +81,18 @@ export default function ReviewFieldEditor({
       ) : null}
 
       {editField === "category" ? (
-        <select
-          value={draft.category}
-          onChange={(e) => onDraftChange((d) => ({ ...d, category: e.target.value }))}
-          style={reviewInput}
-        >
+        <div style={{ display: "grid", gap: 8, maxHeight: 320, overflow: "auto" }}>
           {CATEGORIES.map((c) => (
-            <option key={c.value} value={c.value}>
+            <button
+              key={c.value}
+              type="button"
+              style={categoryButtonStyle(draft.category === c.value)}
+              onClick={() => onDraftChange((d) => ({ ...d, category: c.value }))}
+            >
               {c.label}
-            </option>
+            </button>
           ))}
-        </select>
+        </div>
       ) : null}
 
       <div style={{ marginTop: 18 }}>
@@ -113,16 +110,36 @@ export default function ReviewFieldEditor({
   );
 }
 
+function categoryButtonStyle(active: boolean) {
+  return {
+    minHeight: 44,
+    borderRadius: TOKEN.radius.button,
+    border: active
+      ? `1px solid ${TOKEN.brand.softBorder}`
+      : `1px solid ${TOKEN.border.DEFAULT}`,
+    background: active ? TOKEN.brand.soft : TOKEN.surface.card,
+    color: active ? TOKEN.brand.mid : TOKEN.ink.primary,
+    fontWeight: TOKEN.weight.bold,
+    cursor: "pointer",
+    textAlign: "right" as const,
+    padding: "0 14px",
+    fontSize: TOKEN.font.body,
+  };
+}
+
 function directionButtonStyle(active: boolean) {
   return {
     flex: 1,
     minHeight: 54,
     padding: "12px 14px",
-    borderRadius: 16,
-    border: active ? "1px solid #075bff" : "1px solid #d8e2f2",
-    background: active ? "#eff6ff" : "#ffffff",
-    color: active ? "#075bff" : "#0d1b3d",
-    fontWeight: 950,
+    borderRadius: TOKEN.radius.button,
+    border: active
+      ? `1px solid ${TOKEN.brand.softBorder}`
+      : `1px solid ${TOKEN.border.DEFAULT}`,
+    background: active ? TOKEN.brand.soft : TOKEN.surface.card,
+    color: active ? TOKEN.brand.mid : TOKEN.ink.primary,
+    fontWeight: TOKEN.weight.bold,
     cursor: "pointer",
+    fontSize: TOKEN.font.body,
   } as const;
 }

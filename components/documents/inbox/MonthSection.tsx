@@ -1,12 +1,15 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { TOKEN } from "@/lib/design/tokens";
 
 export function formatMonthHeading(ym: string): string {
-  const [y, m] = ym.split("-").map(Number);
-  if (!Number.isFinite(y) || !Number.isFinite(m)) return ym;
-  const d = new Date(y, m - 1, 1);
-  return d.toLocaleDateString("he-IL", { month: "long", year: "numeric" });
+  const [year, month] = ym.split("-").map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return ym;
+  return new Date(year, month - 1, 1).toLocaleDateString("he-IL", {
+    month: "long",
+    year: "numeric",
+  });
 }
 
 export default function MonthSection({
@@ -18,20 +21,21 @@ export default function MonthSection({
 }) {
   return (
     <section dir="rtl">
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 950,
-          color: "#64748b",
-          marginBottom: 10,
-          marginTop: 2,
-        }}
-      >
-        {formatMonthHeading(monthKey)}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {children}
-      </div>
+      <h2 style={headingStyle}>{formatMonthHeading(monthKey)}</h2>
+      <div style={listStyle}>{children}</div>
     </section>
   );
 }
+
+const headingStyle = {
+  margin: "0 0 10px",
+  color: TOKEN.ink.secondary,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.bold,
+} as const;
+
+const listStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+} as const;

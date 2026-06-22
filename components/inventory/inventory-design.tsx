@@ -1,24 +1,60 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import {
+  inventoryRadius,
+  inventorySpacing,
+  inventoryTheme as inventoryTokenTheme,
+  inventoryToneStyles,
+  type InventoryTone,
+} from "@/components/inventory/inventory-tokens";
+import {
+  InventoryHeader,
+  type InventoryHeaderAction as InventoryHeaderActionType,
+} from "@/components/inventory/inventory-primitives";
 
-export const inventoryTheme = {
-  pageBg: "#f0f4f8",
-  cardBg: "#ffffff",
-  cardBorder: "#e2e8f0",
-  cardShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
-  text: "#0f172a",
-  textMuted: "#64748b",
-  accent: "#0f766e",
-  accentDark: "#0d5c54",
-  primaryBtn: "#5b5bd6",
-  successBtn: "#059669",
-  danger: "#dc2626",
-  warning: "#d97706",
-  info: "#2563eb",
-  purple: "#7c3aed",
-};
+export const inventoryTheme = inventoryTokenTheme;
+
+// Re-export shared primitives so existing imports from inventory-design keep working.
+export {
+  InventoryHeader,
+  IconChevronStart,
+  IconPlus,
+  IconEdit,
+  SegmentedControl,
+  FilterChipRow,
+  Stepper,
+  MiniStepper,
+  ConfidencePill,
+  DecisionCard,
+  DecisionChips,
+  BottomActionBar,
+  SaveBar,
+  BottomSheet,
+  SheetActions,
+  ConfirmModal,
+  WizardSteps,
+  ProductHero,
+  ProductTags,
+  StockStatusBlock,
+  KeyValueGrid,
+  MovementRow,
+  DetailActions,
+  InventorySearch,
+  InventoryProductRow,
+  InventoryRow,
+  InventoryOrderLine,
+  InventoryBadge,
+  IconSearch,
+  IconScan,
+  stockPalette,
+  type InventoryHeaderAction,
+  type ConfidenceLevel,
+  type DecisionChoice,
+  type StockTone,
+  type DetailAction,
+  type BadgeTone,
+} from "@/components/inventory/inventory-primitives";
 
 export function inventoryPageStyle(): CSSProperties {
   return {
@@ -32,10 +68,10 @@ export function inventoryMainStyle(maxWidth = 920): CSSProperties {
   return {
     maxWidth,
     margin: "0 auto",
-    padding: "16px 16px 32px",
+    padding: `${inventorySpacing.lg}px ${inventorySpacing.lg}px ${inventorySpacing.xxxl}px`,
     display: "flex",
     flexDirection: "column",
-    gap: 16,
+    gap: inventorySpacing.lg,
     boxSizing: "border-box",
   };
 }
@@ -44,56 +80,16 @@ export function inventoryCardStyle(extra?: CSSProperties): CSSProperties {
   return {
     background: inventoryTheme.cardBg,
     border: `1px solid ${inventoryTheme.cardBorder}`,
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: inventoryRadius.lg,
+    padding: inventorySpacing.lg,
     boxShadow: inventoryTheme.cardShadow,
     ...extra,
   };
 }
 
-type Tone = "danger" | "warning" | "purple" | "info" | "success" | "neutral";
+type Tone = InventoryTone;
 
-const toneStyles: Record<
-  Tone,
-  { bg: string; border: string; color: string; iconBg: string }
-> = {
-  danger: {
-    bg: "#fef2f2",
-    border: "#fecaca",
-    color: "#991b1b",
-    iconBg: "#fee2e2",
-  },
-  warning: {
-    bg: "#fff7ed",
-    border: "#fed7aa",
-    color: "#9a3412",
-    iconBg: "#ffedd5",
-  },
-  purple: {
-    bg: "#f5f3ff",
-    border: "#ddd6fe",
-    color: "#5b21b6",
-    iconBg: "#ede9fe",
-  },
-  info: {
-    bg: "#eff6ff",
-    border: "#bfdbfe",
-    color: "#1d4ed8",
-    iconBg: "#dbeafe",
-  },
-  success: {
-    bg: "#ecfdf5",
-    border: "#bbf7d0",
-    color: "#047857",
-    iconBg: "#d1fae5",
-  },
-  neutral: {
-    bg: "#f8fafc",
-    border: "#e2e8f0",
-    color: "#334155",
-    iconBg: "#f1f5f9",
-  },
-};
+const toneStyles = inventoryToneStyles;
 
 export function AttentionCard({
   label,
@@ -117,24 +113,25 @@ export function AttentionCard({
       onClick={onClick}
       style={{
         border: `1px solid ${t.border}`,
-        borderRadius: 18,
+        borderRadius: inventoryRadius.lg,
         background: t.bg,
-        padding: "14px 12px",
+        padding: `${inventorySpacing.lg}px ${inventorySpacing.md}px`,
         textAlign: "right",
         cursor: onClick ? "pointer" : "default",
         display: "flex",
         flexDirection: "column",
-        gap: 8,
+        gap: inventorySpacing.sm,
         minHeight: 118,
         width: "100%",
         boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
+        fontFamily: "inherit",
       }}
     >
       <div
         style={{
           width: 40,
           height: 40,
-          borderRadius: 12,
+          borderRadius: inventoryRadius.md,
           background: t.iconBg,
           color: t.color,
           display: "flex",
@@ -180,11 +177,11 @@ export function QuickActionTile({
       className={className}
       style={{
         border: outline
-          ? `2px solid ${inventoryTheme.successBtn}`
+          ? `2px solid ${inventoryTheme.accent}`
           : `1px solid ${inventoryTheme.cardBorder}`,
-        borderRadius: 18,
-        background: outline ? "#f0fdf4" : inventoryTheme.cardBg,
-        padding: "16px 8px",
+        borderRadius: inventoryRadius.lg,
+        background: outline ? "#eff6ff" : inventoryTheme.cardBg,
+        padding: `${inventorySpacing.lg}px ${inventorySpacing.sm}px`,
         cursor: "pointer",
         display: "flex",
         flexDirection: "column",
@@ -192,13 +189,14 @@ export function QuickActionTile({
         gap: 10,
         minHeight: 102,
         boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
+        fontFamily: "inherit",
       }}
     >
       <div
         style={{
           width: 44,
           height: 44,
-          borderRadius: 14,
+          borderRadius: inventoryRadius.lg,
           background: t.iconBg,
           color: t.color,
           display: "flex",
@@ -346,7 +344,8 @@ export function PrimaryButton({
   variant?: "primary" | "success";
   fullWidth?: boolean;
 }) {
-  const bg = variant === "success" ? inventoryTheme.successBtn : inventoryTheme.primaryBtn;
+  void variant;
+  const bg = inventoryTheme.primaryBtn;
   return (
     <button
       type="button"
@@ -354,15 +353,19 @@ export function PrimaryButton({
       disabled={disabled}
       style={{
         width: fullWidth ? "100%" : undefined,
-        minHeight: 50,
+        minHeight: 52,
         padding: "12px 18px",
-        borderRadius: 14,
+        borderRadius: inventoryRadius.sm,
         border: "none",
         background: disabled ? "#cbd5e1" : bg,
         color: "#ffffff",
         fontSize: 15,
         fontWeight: 900,
         cursor: disabled ? "not-allowed" : "pointer",
+        fontFamily: "inherit",
+        boxShadow: disabled
+          ? "none"
+          : "0 12px 24px rgba(36, 59, 87, 0.22), inset 0 1px 0 rgba(255,255,255,0.22)",
       }}
     >
       {children}
@@ -387,18 +390,125 @@ export function SecondaryButton({
       style={{
         minHeight: 44,
         padding: "10px 14px",
-        borderRadius: 12,
+        borderRadius: inventoryRadius.sm,
         border: `1px solid ${inventoryTheme.cardBorder}`,
         background: inventoryTheme.cardBg,
         color: inventoryTheme.text,
         fontSize: 14,
         fontWeight: 800,
         cursor: disabled ? "not-allowed" : "pointer",
+        fontFamily: "inherit",
       }}
     >
       {children}
     </button>
   );
+}
+
+export function InventoryStatePanel({
+  title,
+  children,
+  tone = "neutral",
+  action,
+}: {
+  title: string;
+  children?: ReactNode;
+  tone?: "neutral" | "error" | "success" | "info";
+  action?: ReactNode;
+}) {
+  const palette =
+    tone === "error"
+      ? {
+          border: inventoryToneStyles.danger.border,
+          background: inventoryToneStyles.danger.bg,
+          title: inventoryToneStyles.danger.color,
+        }
+      : tone === "success"
+        ? {
+            border: inventoryToneStyles.success.border,
+            background: inventoryToneStyles.success.bg,
+            title: inventoryToneStyles.success.color,
+          }
+        : tone === "info"
+          ? {
+              border: inventoryToneStyles.info.border,
+              background: inventoryToneStyles.info.bg,
+              title: inventoryToneStyles.info.color,
+            }
+          : {
+              border: inventoryTheme.cardBorder,
+              background: inventoryTheme.cardBg,
+              title: inventoryTheme.text,
+            };
+
+  return (
+    <section
+      style={{
+        ...inventoryCardStyle({
+          borderColor: palette.border,
+          background: palette.background,
+          textAlign: "center",
+          padding: `${inventorySpacing.xxl}px ${inventorySpacing.lg}px`,
+        }),
+      }}
+    >
+      <h2
+        style={{
+          margin: 0,
+          color: palette.title,
+          fontSize: 17,
+          lineHeight: 1.35,
+          fontWeight: 950,
+        }}
+      >
+        {title}
+      </h2>
+      {children ? (
+        <div
+          style={{
+            marginTop: inventorySpacing.sm,
+            color: inventoryTheme.textMuted,
+            fontSize: 14,
+            lineHeight: 1.6,
+            fontWeight: 700,
+          }}
+        >
+          {children}
+        </div>
+      ) : null}
+      {action ? <div style={{ marginTop: inventorySpacing.lg }}>{action}</div> : null}
+    </section>
+  );
+}
+
+export function InventorySkeletonBlock({
+  height = 84,
+  rows = 1,
+}: {
+  height?: number;
+  rows?: number;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: inventorySpacing.sm }}>
+      {Array.from({ length: rows }).map((_, index) => (
+        <div
+          key={index}
+          className="inv-skeleton-block"
+          style={{
+            height,
+            borderRadius: inventoryRadius.lg,
+            background:
+              "linear-gradient(90deg, rgba(229,231,235,0.65), rgba(245,246,248,0.92), rgba(229,231,235,0.65))",
+            backgroundSize: "220% 100%",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+export function InventoryCtaGroup({ children }: { children: ReactNode }) {
+  return <div className="inv-cta-group">{children}</div>;
 }
 
 function RowBetween({ children }: { children: ReactNode }) {
@@ -606,6 +716,9 @@ export function InventoryBottomNav({
 }: {
   active?: "home" | "products" | "sales" | "orders" | "more";
 }) {
+  void active;
+  return null;
+/*
   const router = useRouter();
   const items: Array<{
     id: typeof active;
@@ -614,7 +727,7 @@ export function InventoryBottomNav({
     href: string;
   }> = [
     { id: "home", label: "בית", icon: <IconHome />, href: "/inventory" },
-    { id: "products", label: "מוצרים", icon: <IconBox />, href: "/inventory?tab=products" },
+    { id: "products", label: "מוצרים", icon: <IconBox />, href: "/inventory/items" },
     { id: "sales", label: "מכירות", icon: <IconSale />, href: "/inventory/sales/create" },
     { id: "orders", label: "הזמנות", icon: <IconClipboard />, href: "/inventory/supplier-purchases" },
     { id: "more", label: "עוד", icon: <span style={{ fontSize: 18, lineHeight: 1 }}>⋯</span>, href: "/inventory/supplier-purchases" },
@@ -653,6 +766,7 @@ export function InventoryBottomNav({
       })}
     </nav>
   );
+*/
 }
 
 export const inventoryResponsiveCss = `
@@ -690,7 +804,6 @@ export const inventoryResponsiveCss = `
     .inv-stock-bar-col { display: none; }
     .inv-table-head { display: none; }
     .inv-hamburger { display: flex; }
-    .inv-bottom-nav { display: flex; }
     .inv-main-shell { padding-bottom: 88px; }
   }
 `;
@@ -757,97 +870,37 @@ const introToneStyles: Record<
   },
 };
 
+/**
+ * Page-variant header. Thin wrapper over the canonical {@link InventoryHeader}
+ * kept for back-compat with existing `InventorySubPage` callers. The back button
+ * is now the unified chevron-start icon button (the `backLabel` text is no longer
+ * rendered). Pass `showBack={false}` for hub screens (no back).
+ */
 export function InventorySubheader({
   title,
   showBack = true,
   backHref,
-  backLabel = "חזרה",
   onBack,
+  action,
 }: {
   title: string;
   showBack?: boolean;
   backHref?: string;
+  /** @deprecated chevron has no text label; kept so callers don't break. */
   backLabel?: string;
   onBack?: () => void;
+  action?: InventoryHeaderActionType | null;
 }) {
-  const router = useRouter();
-
-  function handleBack() {
-    if (!showBack) return;
-    if (onBack) {
-      onBack();
-      return;
-    }
-    if (typeof backHref === "string" && backHref.trim()) {
-      router.push(backHref);
-      return;
-    }
-    router.back();
+  if (!showBack) {
+    return <InventoryHeader title={title} variant="hub" action={action} />;
   }
-
   return (
-    <header
-      style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 40,
-        background: "rgba(240, 244, 248, 0.92)",
-        backdropFilter: "blur(12px)",
-        borderBottom: `1px solid ${inventoryTheme.cardBorder}`,
-        padding: "12px 16px",
-      }}
-    >
-      <div
-        style={{
-          maxWidth: 920,
-          margin: "0 auto",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          minHeight: 40,
-          position: "relative",
-        }}
-      >
-        <div
-          style={{
-            fontWeight: 950,
-            fontSize: 16,
-            color: inventoryTheme.text,
-            textAlign: "center",
-            paddingLeft: 88,
-            paddingRight: 88,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {title}
-        </div>
-        {showBack ? (
-          <button
-            type="button"
-            onClick={handleBack}
-            style={{
-              position: "absolute",
-              right: 0,
-              top: "50%",
-              transform: "translateY(-50%)",
-              height: 40,
-              borderRadius: 12,
-              border: `1px solid ${inventoryTheme.cardBorder}`,
-              background: inventoryTheme.cardBg,
-              cursor: "pointer",
-              padding: "0 12px",
-              fontSize: 14,
-              fontWeight: 900,
-              color: inventoryTheme.text,
-            }}
-          >
-            {backLabel}
-          </button>
-        ) : null}
-      </div>
-    </header>
+    <InventoryHeader
+      title={title}
+      variant="page"
+      back={{ href: backHref, onBack }}
+      action={action}
+    />
   );
 }
 
@@ -1048,8 +1101,8 @@ export function NoticeBanner({
         ? {
             border: "#bfdbfe",
             bg: "#eff6ff",
-            color: "#1d4ed8",
-            btn: "#1d4ed8",
+            color: "#3F619C",
+            btn: "#3F619C",
           }
         : {
             border: "#fecaca",

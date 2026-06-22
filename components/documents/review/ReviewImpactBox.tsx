@@ -1,16 +1,17 @@
 import ReviewTrustChecklistItem from "./ReviewTrustChecklistItem";
+import { TOKEN } from "@/lib/design/tokens";
 
 export default function ReviewImpactBox({ approvalImpact }: { approvalImpact: string }) {
   return (
     <div
       style={{
-        border: "1px solid #d8e2f2",
-        background: "#f8fbff",
-        borderRadius: 20,
+        border: `1px solid ${TOKEN.border.DEFAULT}`,
+        background: TOKEN.surface.inset,
+        borderRadius: TOKEN.radius.card,
         padding: 16,
       }}
     >
-      <div style={{ color: "#0d1b3d", fontSize: 16, fontWeight: 950, marginBottom: 10 }}>
+      <div style={{ color: TOKEN.ink.primary, fontSize: 16, fontWeight: 950, marginBottom: 10 }}>
         אחרי האישור
       </div>
       <div style={{ display: "grid", gap: 8 }}>

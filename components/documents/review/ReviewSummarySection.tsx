@@ -8,6 +8,7 @@ import type {
   ReviewMode,
 } from "@/lib/documents/review/types";
 import { formatAmountDisplay, formatDateShort } from "@/lib/documents/review/format";
+import { TOKEN } from "@/lib/design/tokens";
 import {
   firstMissingFinancialField,
   hasNonEmptyText,
@@ -54,10 +55,10 @@ export default function ReviewSummarySection({
 
   return (
     <section style={{ ...reviewCard, maxWidth: 780, width: "100%", margin: "0 auto" }}>
-      <div style={{ fontWeight: 950, color: "#0d1b3d", fontSize: 24, marginBottom: 8 }}>
+      <div style={{ fontWeight: 950, color: TOKEN.ink.primary, fontSize: 24, marginBottom: 8 }}>
         {isFinancial ? "אישור רשומה פיננסית" : "שמירה כמסמך מידע"}
       </div>
-      <p style={{ margin: "0 0 16px", color: "#6b7899", fontSize: 15, lineHeight: 1.65 }}>
+      <p style={{ margin: "0 0 16px", color: TOKEN.ink.muted, fontSize: 15, lineHeight: 1.65 }}>
         {isFinancial
           ? `${aiSummaryBody} ${approvalImpact}`
           : `${aiSummaryBody} האישור ישמור את המסמך לתיעוד, בלי ליצור רשומה פיננסית.`}
@@ -113,9 +114,9 @@ export default function ReviewSummarySection({
         style={{
           ...reviewSoftPanel,
           marginTop: 16,
-          color: isFinancial ? "#16945a" : "#4f5f81",
-          background: isFinancial ? "#f1fbf6" : "#f8fbff",
-          borderColor: isFinancial ? "#bdebd1" : "#e1e8f4",
+          color: isFinancial ? TOKEN.semantic.success.ink : TOKEN.ink.secondary,
+          background: isFinancial ? TOKEN.semantic.success.bgSoft : TOKEN.surface.inset,
+          borderColor: isFinancial ? TOKEN.semantic.success.border : TOKEN.border.DEFAULT,
           fontSize: 14,
           fontWeight: 800,
           lineHeight: 1.6,
