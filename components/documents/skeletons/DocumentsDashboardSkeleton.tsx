@@ -1,6 +1,7 @@
 "use client";
 
 import { card, cardSubText, cardTitle, iconWrap, metricTile } from "@/app/(shell)/documents/ui";
+import { TOKEN } from "@/lib/design/tokens";
 import {
   SkeletonBlock,
   skeletonBar,
@@ -50,8 +51,8 @@ export default function DocumentsDashboardSkeleton() {
           style={{
             width: "100%",
             height: 240,
-            borderRadius: 14,
-            background: "#e5e7eb",
+            borderRadius: TOKEN.radius.card,
+            background: TOKEN.surface.inset,
             animation: "documentsSkeletonPulse 1.2s ease-in-out infinite",
           }}
         />
@@ -75,7 +76,7 @@ export default function DocumentsDashboardSkeleton() {
               gridTemplateColumns: "1fr auto auto",
               gap: 10,
               padding: "10px 0",
-              borderBottom: "1px solid #f1f5f9",
+              borderBottom: `1px solid ${TOKEN.border.DEFAULT}`,
             }}
           >
             <div style={skeletonBar("50%", 14)} />

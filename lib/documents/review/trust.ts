@@ -75,7 +75,7 @@ export function computeTrustContext(input: {
     reviewMode === "financial" && !hasNonEmptyText(draft.vendorName)
       ? "לא זוהה ספק או לקוח ברור. זה חשוב לזיהוי הרשומה בהמשך."
       : vendorLevel === "low"
-        ? "שם הספק נראה חלקי או לא חד משמעי."
+        ? "שם הספק לא מזוהה בוודאות."
         : vendorLevel === "medium"
           ? "שם הספק זוהה, אבל כדאי לוודא שהוא נכון."
           : null,
@@ -95,7 +95,7 @@ export function computeTrustContext(input: {
         ? "הקטגוריה היא הערכה טובה, אבל אפשר לדייק אותה לפני האישור."
         : null,
     pid === "unknown_review"
-      ? "לא זוהתה רשומה פיננסית חד משמעית, לכן נדרשת החלטה לפני שמירה."
+      ? "לא זוהתה רשומה פיננסית בוודאות, לכן נדרשת בחירה לפני שמירה."
       : null,
     pid === "non_financial"
       ? "המסמך נראה כמו מידע כללי ולא כמו קבלה או עסקה פיננסית."
@@ -124,7 +124,7 @@ export function computeTrustContext(input: {
         ? "צריך בדיקה קצרה"
         : trustLevel === "low"
           ? "צריך לתקן לפני אישור"
-          : "צריך החלטה שלך";
+          : "נדרשת בחירה שלך";
 
   const trustSummary =
     trustReasons.length === 0

@@ -1,580 +1,259 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import MovementModal from "@/components/inventory/movement-modal";
 import {
-  AttentionCard,
-  IconAlert,
-  IconArrows,
-  IconBox,
-  IconCart,
-  IconClipboard,
-  IconPlusBox,
-  IconQuestion,
-  IconSale,
-  IconTruck,
-  InventoryBottomNav,
-  QuickActionTile,
-  SectionHeader,
-  StatusPill,
-  StockBar,
+  getStockTone,
   getStockRatio,
   getStockStatusLabel,
-  getStockTone,
-  inventoryCardStyle,
-  inventoryMainStyle,
-  inventoryPageStyle,
-  inventoryResponsiveCss,
-  inventoryTheme,
+  InventoryProductRow,
+  stockPalette,
 } from "@/components/inventory/inventory-design";
-import {
-  getInventoryItems,
-  getPendingMatches,
-  type InventoryItemDTO,
-} from "@/lib/api/inventory";
-import {
-  buildClientAuthHeaders,
-  getClientAuthToken,
-  isUnauthorizedError,
-  redirectToLogin,
-} from "@/lib/client-session";
+import { inventoryFoundationCss } from "@/components/inventory/inventory-foundation.css";
+import { inventoryPrimitivesCss } from "@/components/inventory/inventory-primitives.css";
+import { inventoryToneStyles } from "@/components/inventory/inventory-tokens";
+import { getProductEmoji } from "@/lib/inventory/product-emoji";
+import { getInventoryItems, type InventoryItemDTO } from "@/lib/api/inventory";
+import { getClientAuthToken, isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
 
-type DashboardCounts = {
-  unmatched: number;
-  drafts: number;
-  pendingOrders: number;
-  criticalStock: number;
-  reorderAlerts: number;
-};
+const UNIT_SHORT: Record<string, string> = { UNIT: "יח׳", BOX: "מארז", KG: "ק״ג", GRAM: "גרם", LITER: "ליטר", ML: "מ״ל" };
 
-type MovementPick = {
-  itemId: number;
-  itemName: string;
-  mode: "ADD" | "REMOVE";
-} | null;
+const valueFormatter = new Intl.NumberFormat("he-IL", {
+  notation: "compact",
+  style: "currency",
+  currency: "ILS",
+  maximumFractionDigits: 1,
+});
 
-function isValidImageUrl(imageUrl?: string | null) {
-  if (!imageUrl) return false;
-  if (imageUrl.includes("example.com")) return false;
-  return true;
-}
+/* Home — screen s8 (Quick Actions home) per docs/design/inventory/inventory_screens.html.txt.
+   Supersedes the Operations Workspace home (see docs/inventory-home-screen-lock-v3.md → override note).
+   Structure: header + scan · greeting · 3 status tiles · quick-actions grid · "דורש טיפול" list.
+   All numbers come from real data (getInventoryItems / getStockTone); brand color from --inv tokens
+   (navy), status tiles from stockPalette. No hardcoded #0f6fff. UI only — no schema/API/logic change. */
+const homeCss = `
+[data-inventory-home] { background: var(--inv-page-bg); min-height: 100vh; min-height: 100dvh; direction: rtl; color: var(--inv-text); }
+[data-inventory-home] .inv-hm { width: 100%; max-width: 560px; margin: 0 auto; padding: 14px clamp(16px,4vw,20px) 48px; box-sizing: border-box; }
 
-const STOCK_ROW_COLUMNS = "minmax(0, 1.5fr) 100px auto 28px 44px";
+[data-inventory-home] .inv-hm-head { display: flex; align-items: center; gap: 12px; padding: 8px 0 2px; }
+[data-inventory-home] .inv-hm-head h1 { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.4px; }
+[data-inventory-home] .inv-hm-grow { flex: 1; }
+[data-inventory-home] .inv-hm-scan { width: 42px; height: 42px; border-radius: 50%; border: 0; background: var(--inv-primary); color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 6px 16px rgba(36,59,87,0.20); }
+[data-inventory-home] .inv-hm-greet { font-size: 14px; font-weight: 600; color: var(--inv-text-muted); padding: 0 2px; margin-top: -2px; }
 
-export default function InventoryPage() {
+[data-inventory-home] .inv-hm-tiles { display: flex; gap: 11px; padding: 16px 0 4px; }
+[data-inventory-home] .inv-hm-tile { flex: 1; min-width: 0; border: 0; border-radius: 14px; padding: 13px 14px; text-align: start; cursor: pointer; font-family: inherit; display: flex; flex-direction: column; align-items: flex-start; }
+[data-inventory-home] .inv-hm-tile__n { font-size: 23px; font-weight: 800; line-height: 1; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
+[data-inventory-home] .inv-hm-tile__l { font-size: 12.5px; font-weight: 700; margin-top: 5px; }
+
+[data-inventory-home] .inv-hm-sechead { display: flex; align-items: center; justify-content: space-between; padding: 22px 2px 11px; }
+[data-inventory-home] .inv-hm-sechead h2 { margin: 0; font-size: 19px; font-weight: 800; }
+[data-inventory-home] .inv-hm-sechead a { font-size: 13.5px; font-weight: 700; color: var(--inv-accent); cursor: pointer; }
+
+[data-inventory-home] .inv-hm-qgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+[data-inventory-home] .inv-hm-qtile { border: 0; border-radius: 14px; background: #EBEEF3; padding: 15px; display: flex; align-items: center; justify-content: flex-start; gap: 12px; cursor: pointer; font-family: inherit; transition: background 120ms ease; }
+[data-inventory-home] .inv-hm-qtile:hover { background: #E2E7EE; }
+[data-inventory-home] .inv-hm-qtile__t { font-size: 15.5px; font-weight: 700; color: var(--inv-text); }
+[data-inventory-home] .inv-hm-qtile__i { width: 44px; height: 44px; border-radius: 12px; background: #fff; box-shadow: 0 3px 10px rgba(15,23,41,0.06); display: inline-flex; align-items: center; justify-content: center; color: var(--inv-accent); flex-shrink: 0; }
+
+[data-inventory-home] .inv-hm-empty { padding: 20px 12px; text-align: center; color: var(--inv-text-muted); font-size: 14px; font-weight: 700; border: 1px solid var(--inv-border); border-radius: var(--inv-radius-lg); background: var(--inv-card-bg); }
+`;
+
+export default function InventoryHomePage() {
   const router = useRouter();
   const [items, setItems] = useState<InventoryItemDTO[]>([]);
-  const [counts, setCounts] = useState<DashboardCounts>({
-    unmatched: 0,
-    drafts: 0,
-    pendingOrders: 0,
-    criticalStock: 0,
-    reorderAlerts: 0,
-  });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [sessionReady, setSessionReady] = useState(false);
-  const [showAllItems, setShowAllItems] = useState(false);
-  const [movementPick, setMovementPick] = useState<MovementPick>(null);
+  const [loadingItems, setLoadingItems] = useState(true);
+  const [showAll, setShowAll] = useState(false);
+  async function loadItems() {
+    try {
+      setLoadingItems(true);
+      const data = await getInventoryItems();
+      setItems(Array.isArray(data) ? data : []);
+    } catch (err: unknown) {
+      if (isUnauthorizedError(err)) return redirectToLogin();
+      setItems([]);
+    } finally {
+      setLoadingItems(false);
+    }
+  }
 
-  const attentionTotal = useMemo(() => {
-    return (
-      counts.unmatched +
-      counts.drafts +
-      counts.pendingOrders +
-      counts.criticalStock
-    );
-  }, [counts]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (!getClientAuthToken()) redirectToLogin();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadItems();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const sortedItems = useMemo(() => {
+    const order: Record<string, number> = { critical: 0, low: 1, ok: 2 };
     return [...items].sort((a, b) => {
-      const toneOrder = { critical: 0, low: 1, ok: 2 };
-      const ta = toneOrder[getStockTone(a)];
-      const tb = toneOrder[getStockTone(b)];
+      const ta = order[getStockTone(a)];
+      const tb = order[getStockTone(b)];
       if (ta !== tb) return ta - tb;
       return a.name.localeCompare(b.name, "he");
     });
   }, [items]);
 
-  const visibleItems = showAllItems ? sortedItems : sortedItems.slice(0, 4);
-
-  async function load() {
-    const token = getClientAuthToken();
-    if (!token) {
-      redirectToLogin();
-      return;
+  // Status tiles — derived from real items, never inbox-only fakes.
+  const { criticalCount, lowCount, stockValue } = useMemo(() => {
+    let critical = 0;
+    let low = 0;
+    let value = 0;
+    for (const it of items) {
+      const tone = getStockTone(it);
+      if (tone === "critical") critical += 1;
+      else if (tone === "low") low += 1;
+      const unitCost = it.costPerUnit ?? it.lastPurchaseCost ?? 0;
+      value += it.currentQuantity * unitCost;
     }
+    return { criticalCount: critical, lowCount: low, stockValue: value };
+  }, [items]);
 
-    try {
-      setLoading(true);
-      setError(null);
+  const attentionItems = useMemo(
+    () => sortedItems.filter((i) => getStockTone(i) !== "ok"),
+    [sortedItems],
+  );
+  const visibleAttention = showAll ? attentionItems : attentionItems.slice(0, 4);
 
-      const [itemsData, pendingMatches, draftsRes, purchasesRes, reorderRes] =
-        await Promise.all([
-          getInventoryItems(),
-          getPendingMatches().catch(() => []),
-          fetch("/api/inventory/drafts", {
-            headers: buildClientAuthHeaders(),
-            cache: "no-store",
-          }),
-          fetch("/api/inventory/supplier-purchases", {
-            headers: buildClientAuthHeaders(),
-            cache: "no-store",
-          }),
-          fetch("/api/inventory/reorder-suggestions", {
-            headers: buildClientAuthHeaders(),
-            cache: "no-store",
-          }),
-        ]);
-
-      if (
-        draftsRes.status === 401 ||
-        purchasesRes.status === 401 ||
-        reorderRes.status === 401
-      ) {
-        redirectToLogin();
-        return;
-      }
-
-      const normalizedItems = Array.isArray(itemsData) ? itemsData : [];
-      setItems(normalizedItems);
-
-      let draftsCount = 0;
-      if (draftsRes.ok) {
-        const draftsData = await draftsRes.json();
-        draftsCount = Array.isArray(draftsData?.drafts)
-          ? draftsData.drafts.length
-          : 0;
-      }
-
-      let pendingOrders = 0;
-      if (purchasesRes.ok) {
-        const purchasesData = await purchasesRes.json();
-        pendingOrders = Array.isArray(purchasesData?.drafts)
-          ? purchasesData.drafts.filter(
-              (d: { status?: string }) => d.status === "PENDING_REVIEW"
-            ).length
-          : 0;
-      }
-
-      let reorderAlerts = 0;
-      if (reorderRes.ok) {
-        const reorderData = await reorderRes.json();
-        reorderAlerts = Array.isArray(reorderData?.suggestions)
-          ? reorderData.suggestions.length
-          : 0;
-      }
-
-      const criticalStock = normalizedItems.filter(
-        (item) => getStockTone(item) === "critical"
-      ).length;
-
-      setCounts({
-        unmatched: Array.isArray(pendingMatches) ? pendingMatches.length : 0,
-        drafts: draftsCount,
-        pendingOrders,
-        criticalStock,
-        reorderAlerts,
-      });
-    } catch (err: unknown) {
-      if (isUnauthorizedError(err)) {
-        redirectToLogin();
-        return;
-      }
-
-      setError(
-        err instanceof Error ? err.message : "לא הצלחנו לטעון את המלאי"
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    setSessionReady(true);
+  const greeting = useMemo(() => {
+    const h = new Date().getHours();
+    if (h < 12) return "בוקר טוב 👋";
+    if (h < 18) return "צהריים טובים 👋";
+    return "ערב טוב 👋";
   }, []);
 
-  useEffect(() => {
-    if (!sessionReady) return;
+  const crit = stockPalette("critical");
+  const lowPal = stockPalette("low");
+  // When a status count is 0 there is nothing wrong — show a calm neutral tile
+  // instead of a red/amber one, so an empty state never reads as a false alert.
+  const neutralBg = "#EBEEF3";
+  const neutralInk = "var(--inv-text-muted)";
 
-    if (!getClientAuthToken()) {
-      setLoading(false);
-      redirectToLogin();
-      return;
-    }
+  const tiles = [
+    {
+      n: String(criticalCount),
+      l: "מלאי קריטי",
+      bg: criticalCount > 0 ? crit.bg : neutralBg,
+      ink: criticalCount > 0 ? crit.ink : neutralInk,
+      onClick: () => router.push("/inventory/alerts"),
+    },
+    {
+      n: String(lowCount),
+      l: "מלאי נמוך",
+      bg: lowCount > 0 ? lowPal.bg : neutralBg,
+      ink: lowCount > 0 ? lowPal.ink : neutralInk,
+      onClick: () => router.push("/inventory/alerts"),
+    },
+    { n: valueFormatter.format(Math.round(stockValue)), l: "שווי מלאי", bg: inventoryToneStyles.info.bg, ink: inventoryToneStyles.info.color, onClick: () => router.push("/inventory/items") },
+  ];
 
-    void load();
-  }, [sessionReady]);
-
-  function openMovementForFirstCritical() {
-    const target =
-      sortedItems.find((item) => getStockTone(item) !== "ok") ?? sortedItems[0];
-    if (!target) {
-      router.push("/inventory/items/create");
-      return;
-    }
-    setMovementPick({
-      itemId: target.id,
-      itemName: target.name,
-      mode: "ADD",
-    });
-  }
+  const quickActions: Array<{ t: string; icon: ReactNode; onClick: () => void }> = [
+    { t: "מוצר חדש", icon: <IconPlus />, onClick: () => router.push("/inventory/items/create") },
+    { t: "ספירת מלאי", icon: <IconClipboard />, onClick: () => router.push("/inventory/items") },
+    { t: "הזמנה מספק", icon: <IconTruck />, onClick: () => router.push("/inventory/supplier-purchases/new") },
+    { t: "קבלת סחורה", icon: <IconReceive />, onClick: () => router.push("/inventory/supplier-purchases/pending") },
+  ];
 
   return (
-    <div style={inventoryPageStyle()}>
-      <style>{inventoryResponsiveCss}</style>
+    <div data-inventory-home data-inventory-module>
+      <style>{inventoryFoundationCss}</style>
+      <style>{inventoryPrimitivesCss}</style>
+      <style>{homeCss}</style>
 
-      <main className="inv-main-shell" style={inventoryMainStyle()}>
-        {error ? (
-          <section
-            style={{
-              ...inventoryCardStyle(),
-              borderColor: "#fecaca",
-              background: "#fef2f2",
-              color: "#991b1b",
-            }}
-          >
-            {error}
-            <button
-              type="button"
-              onClick={() => void load()}
-              style={{
-                marginTop: 10,
-                border: "none",
-                background: "#991b1b",
-                color: "#fff",
-                borderRadius: 10,
-                padding: "8px 12px",
-                fontWeight: 800,
-                cursor: "pointer",
-              }}
-            >
-              נסה שוב
+      <main className="inv-hm" aria-label="בית המלאי">
+        <header className="inv-hm-head">
+          <h1>מלאי</h1>
+          <span className="inv-hm-grow" />
+          <button type="button" className="inv-hm-scan" aria-label="סריקה / חיפוש מוצר" onClick={() => router.push("/inventory/items")}>
+            <IconScan />
+          </button>
+        </header>
+        <div className="inv-hm-greet">{greeting}</div>
+
+        <div className="inv-hm-tiles">
+          {tiles.map((tile) => (
+            <button key={tile.l} type="button" className="inv-hm-tile" style={{ background: tile.bg }} onClick={tile.onClick}>
+              <span className="inv-hm-tile__n" style={{ color: tile.ink }}><bdi>{tile.n}</bdi></span>
+              <span className="inv-hm-tile__l" style={{ color: tile.ink }}>{tile.l}</span>
             </button>
-          </section>
-        ) : null}
+          ))}
+        </div>
 
-        <section style={inventoryCardStyle()}>
-          <SectionHeader
-            title="מה צריך את תשומת הלב שלי"
-            badge={attentionTotal}
-            badgeTone="danger"
-          />
-          <div className="inv-attention-grid" style={{ marginTop: 14 }}>
-            <AttentionCard
-              label="מלאי קריטי"
-              count={counts.criticalStock}
-              tone="danger"
-              icon={<IconAlert />}
-              onClick={() => setShowAllItems(true)}
-            />
-            <AttentionCard
-              label="הזמנות לקליטה"
-              count={counts.pendingOrders}
-              tone="warning"
-              icon={<IconBox />}
-              unitLabel="הזמנות"
-              onClick={() => router.push("/inventory/supplier-purchases/pending")}
-            />
-            <AttentionCard
-              label="פריטים לבדיקה"
-              count={counts.drafts}
-              tone="purple"
-              icon={<IconClipboard />}
-              onClick={() => router.push("/inventory/drafts")}
-            />
-            <AttentionCard
-              label="מוצרים שלא זוהו"
-              count={counts.unmatched}
-              tone="info"
-              icon={<IconQuestion />}
-              onClick={() => router.push("/inventory/unmatched")}
-            />
-          </div>
-          {counts.reorderAlerts > 0 ? (
-            <div
-              style={{
-                marginTop: 12,
-                padding: "10px 12px",
-                borderRadius: 12,
-                background: "#ecfdf5",
-                border: "1px solid #bbf7d0",
-                fontSize: 13,
-                fontWeight: 800,
-                color: "#047857",
-              }}
-            >
-              {counts.reorderAlerts} פריטים מומלצים להזמנה —{" "}
-              <button
-                type="button"
-                onClick={() => router.push("/inventory/supplier-purchases/new")}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  color: "#047857",
-                  fontWeight: 900,
-                  cursor: "pointer",
-                  textDecoration: "underline",
-                }}
-              >
-                צור הזמנה
-              </button>
-            </div>
+        <div className="inv-hm-sechead">
+          <h2>פעולות מהירות</h2>
+        </div>
+        <div className="inv-hm-qgrid">
+          {quickActions.map((qa) => (
+            <button key={qa.t} type="button" className="inv-hm-qtile" onClick={qa.onClick}>
+              <span className="inv-hm-qtile__i" aria-hidden>{qa.icon}</span>
+              <span className="inv-hm-qtile__t">{qa.t}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="inv-hm-sechead">
+          <h2>דורש טיפול</h2>
+          {attentionItems.length > 4 ? (
+            <a role="button" tabIndex={0} onClick={() => setShowAll((v) => !v)} onKeyDown={(e) => { if (e.key === "Enter") setShowAll((v) => !v); }}>
+              {showAll ? "הצג פחות" : "הצג הכל ›"}
+            </a>
           ) : null}
-        </section>
+        </div>
 
-        <section style={inventoryCardStyle()}>
-          <SectionHeader title="פעולות מהירות" />
-          <div className="inv-actions-grid" style={{ marginTop: 14 }}>
-            <QuickActionTile
-              label="רישום מכירה"
-              tone="success"
-              icon={<IconSale />}
-              onClick={() => router.push("/inventory/sales/create")}
-            />
-            <QuickActionTile
-              label="הוספת פריט"
-              tone="purple"
-              icon={<IconPlusBox />}
-              onClick={() => router.push("/inventory/items/create")}
-            />
-            <QuickActionTile
-              label="הזמנה מספק"
-              tone="warning"
-              icon={<IconCart />}
-              onClick={() => router.push("/inventory/supplier-purchases/new")}
-            />
-            <QuickActionTile
-              label="קליטת סחורה"
-              tone="info"
-              icon={<IconTruck />}
-              onClick={() => router.push("/inventory/supplier-purchases/pending")}
-            />
-            <QuickActionTile
-              label="תנועת מלאי"
-              tone="success"
-              icon={<IconArrows />}
-              onClick={openMovementForFirstCritical}
-              outline
-              className="inv-action-span-full"
-            />
+        {loadingItems ? (
+          <div className="inv-rows" style={{ padding: 0 }}>
+            <InventorySkeleton />
           </div>
-        </section>
-
-        <section style={inventoryCardStyle()}>
-          <SectionHeader
-            title="מבט מהיר"
-            icon={
-              <span
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 10,
-                  background: "#ecfdf5",
-                  color: inventoryTheme.accent,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <IconBox />
-              </span>
-            }
-            action={
-              sortedItems.length > 4 ? (
-                <button
-                  type="button"
-                  onClick={() => setShowAllItems((v) => !v)}
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    color: inventoryTheme.accent,
-                    fontSize: 13,
-                    fontWeight: 900,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
-                  }}
-                >
-                  {showAllItems ? "הצג פחות" : "הצג עוד"} ←
-                </button>
-              ) : null
-            }
-          />
-
-          {loading ? (
-            <div
-              style={{
-                marginTop: 16,
-                textAlign: "center",
-                color: inventoryTheme.textMuted,
-                padding: 24,
-              }}
-            >
-              טוען מלאי...
-            </div>
-          ) : visibleItems.length === 0 ? (
-            <div style={{ marginTop: 16, textAlign: "center", padding: 24 }}>
-              <div style={{ fontSize: 15, fontWeight: 900, marginBottom: 8 }}>
-                עדיין אין פריטים במלאי
-              </div>
-              <button
-                type="button"
-                onClick={() => router.push("/inventory/items/create")}
-                style={{
-                  marginTop: 8,
-                  border: "none",
-                  background: inventoryTheme.primaryBtn,
-                  color: "#fff",
-                  borderRadius: 12,
-                  padding: "10px 16px",
-                  fontWeight: 900,
-                  cursor: "pointer",
-                }}
-              >
-                הוספת פריט ראשון
-              </button>
-            </div>
-          ) : (
-            <div style={{ marginTop: 12 }}>
-              <div
-                className="inv-table-head"
-                style={{
-                  gridTemplateColumns: STOCK_ROW_COLUMNS,
-                  gap: 10,
-                  padding: "0 12px 8px",
-                  fontSize: 11,
-                  fontWeight: 800,
-                  color: inventoryTheme.textMuted,
-                }}
-              >
-                <span>פריט</span>
-                <span className="inv-stock-bar-col">מלאי</span>
-                <span>סטטוס</span>
-                <span>מגמה</span>
-                <span style={{ textAlign: "center" }}>כמות</span>
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {visibleItems.map((item) => {
-                  const tone = getStockTone(item);
-                  const imageOk = isValidImageUrl(item.imageUrl);
-                  const trendUp = tone === "ok";
-
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => router.push(`/inventory/items/${item.id}`)}
-                      style={{
-                        border: `1px solid ${inventoryTheme.cardBorder}`,
-                        borderRadius: 16,
-                        background: inventoryTheme.cardBg,
-                        padding: "10px 12px",
-                        cursor: "pointer",
-                        display: "grid",
-                        gridTemplateColumns: STOCK_ROW_COLUMNS,
-                        gap: 10,
-                        alignItems: "center",
-                        textAlign: "right",
-                        boxShadow: "0 2px 8px rgba(15,23,42,0.03)",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-                        {imageOk ? (
-                          <img
-                            src={item.imageUrl || ""}
-                            alt=""
-                            style={{
-                              width: 44,
-                              height: 44,
-                              borderRadius: 12,
-                              objectFit: "cover",
-                              flexShrink: 0,
-                            }}
-                          />
-                        ) : (
-                          <div
-                            style={{
-                              width: 44,
-                              height: 44,
-                              borderRadius: 12,
-                              background: "#f1f5f9",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              color: inventoryTheme.textMuted,
-                              flexShrink: 0,
-                            }}
-                          >
-                            <IconBox />
-                          </div>
-                        )}
-                        <span
-                          style={{
-                            fontSize: 14,
-                            fontWeight: 900,
-                            color: inventoryTheme.text,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {item.name}
-                        </span>
-                      </div>
-
-                      <div className="inv-stock-bar-col">
-                        <StockBar ratio={getStockRatio(item)} tone={tone} />
-                      </div>
-
-                      <StatusPill label={getStockStatusLabel(tone)} tone={tone} />
-
-                      <span
-                        style={{
-                          fontSize: 16,
-                          fontWeight: 900,
-                          color: trendUp ? inventoryTheme.successBtn : inventoryTheme.danger,
-                          textAlign: "center",
-                        }}
-                      >
-                        {trendUp ? "↑" : "↓"}
-                      </span>
-
-                      <span
-                        style={{
-                          fontSize: 16,
-                          fontWeight: 950,
-                          color: inventoryTheme.text,
-                          textAlign: "center",
-                        }}
-                      >
-                        {item.currentQuantity}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </section>
+        ) : attentionItems.length === 0 ? (
+          <div className="inv-hm-empty">{items.length === 0 ? "אין עדיין מוצרים במלאי" : "הכול תקין · אין פריטים שדורשים טיפול"}</div>
+        ) : (
+          <div className="inv-rows" style={{ padding: 0 }}>
+            {visibleAttention.map((item) => {
+              const tone = getStockTone(item);
+              return (
+                <InventoryProductRow
+                  key={item.id}
+                  tone={tone}
+                  imageUrl={item.imageUrl && !item.imageUrl.includes("example.com") ? item.imageUrl : null}
+                  thumbGlyph={<span style={{ fontSize: 26 }}>{getProductEmoji(item.name, item.category?.name)}</span>}
+                  name={item.name}
+                  meta={[item.category?.name, item.supplierName].filter(Boolean).join(" · ") || undefined}
+                  ratio={getStockRatio(item)}
+                  statusLabel={getStockStatusLabel(tone)}
+                  quantity={item.currentQuantity}
+                  unitLabel={UNIT_SHORT[item.unitType] ?? undefined}
+                  href={`/inventory/items/${item.id}`}
+                />
+              );
+            })}
+          </div>
+        )}
       </main>
-
-      <InventoryBottomNav active="home" />
-
-      <MovementModal
-        open={movementPick !== null}
-        itemId={movementPick?.itemId ?? null}
-        itemName={movementPick?.itemName ?? ""}
-        mode={movementPick?.mode ?? "ADD"}
-        onClose={() => setMovementPick(null)}
-        onSuccess={() => {
-          setMovementPick(null);
-          void load();
-        }}
-      />
     </div>
   );
 }
+
+function InventorySkeleton() {
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="inv-skeleton-block" style={{ height: 72, borderRadius: 14, background: "linear-gradient(90deg, rgba(229,231,235,0.65), rgba(245,246,248,0.92), rgba(229,231,235,0.65))", backgroundSize: "220% 100%" }} />
+      ))}
+    </div>
+  );
+}
+
+function Svg({ children, size = 22 }: { children: ReactNode; size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>{children}</svg>;
+}
+function IconScan() { return <Svg size={22}><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" /></Svg>; }
+function IconPlus() { return <Svg><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></Svg>; }
+function IconClipboard() { return <Svg><rect x="5" y="3" width="14" height="18" rx="2.5" stroke="currentColor" strokeWidth="1.9" /><path d="M9 8h6M9 12h6M9 16h3" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" /></Svg>; }
+function IconTruck() { return <Svg><path d="M2 7h11v9H2zM13 10h4l3 3v3h-7" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /><circle cx="6" cy="18.5" r="1.6" stroke="currentColor" strokeWidth="1.8" /><circle cx="17" cy="18.5" r="1.6" stroke="currentColor" strokeWidth="1.8" /></Svg>; }
+function IconReceive() { return <Svg><path d="M3 9h18v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z" stroke="currentColor" strokeWidth="1.8" /><path d="M3 9 5 4h14l2 5M9 14h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></Svg>; }

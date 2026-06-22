@@ -1,4 +1,5 @@
 import ReviewExtractedDetailRow from "./ReviewExtractedDetailRow";
+import { TOKEN } from "@/lib/design/tokens";
 
 export default function ReviewAiExtractedCard({
   vendorDisplay,
@@ -16,14 +17,21 @@ export default function ReviewAiExtractedCard({
   return (
     <div
       style={{
-        border: "1px solid #e1e8f4",
-        background: "#ffffff",
-        borderRadius: 20,
+        border: `1px solid ${TOKEN.border.DEFAULT}`,
+        background: TOKEN.surface.card,
+        borderRadius: TOKEN.radius.card,
         padding: 16,
-        boxShadow: "0 10px 24px rgba(13, 27, 61, 0.05)",
+        boxShadow: TOKEN.shadow.elevated,
       }}
     >
-      <div style={{ color: "#0d1b3d", fontSize: 16, fontWeight: 950, marginBottom: 10 }}>
+      <div
+        style={{
+          color: TOKEN.ink.primary,
+          fontSize: TOKEN.font.title,
+          fontWeight: TOKEN.weight.bold,
+          marginBottom: 10,
+        }}
+      >
         פרטים שזוהו
       </div>
       <ReviewExtractedDetailRow icon="•" label="ספק" value={vendorDisplay} />

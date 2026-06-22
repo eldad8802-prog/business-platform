@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
+import { CATEGORY_MAP } from "@/lib/constants/categories";
+import { TOKEN } from "@/lib/design/tokens";
 import ConfidenceDots from "./ConfidenceDots";
 
 function fmtMoney(n: number) {
@@ -19,24 +21,32 @@ function formatShortDate(iso: string | null | undefined) {
   });
 }
 
-function previewEmoji(item: InboxListItem): string {
-  if (!item.preview.fileAvailable) return "📂";
-  if (item.preview.kind === "pdf") return "📄";
-  if (item.preview.kind === "image") return "🖼";
-  return "📎";
+function sourceLabel(source: string): string {
+  if (source === "email") return "מייל";
+  if (source === "whatsapp") return "WhatsApp";
+  return "העלאה";
+}
+
+function docKindLabel(item: InboxListItem): string {
+  if (item.preview.kind === "pdf") return "PDF";
+  if (item.preview.kind === "image") return "תמונה";
+  return "קובץ";
 }
 
 export default function DocumentCard({ item }: { item: InboxListItem }) {
   const router = useRouter();
   const isPending = item.status === "needs_review";
-
   const vendor =
     item.financial?.vendorName ?? item.extracted?.vendorName ?? "לא צוין";
-  const amountRaw =
-    item.financial?.amount ?? item.extracted?.amount ?? null;
+  const amountRaw = item.financial?.amount ?? item.extracted?.amount ?? null;
   const amountLabel =
     amountRaw != null && Number.isFinite(amountRaw) ? fmtMoney(amountRaw) : "—";
-  const dateIso = item.financial?.date ?? item.extracted?.date ?? null;
+  const dateIso = item.financial?.date ?? item.extracted?.date ?? item.createdAt;
+  const categoryRaw = item.financial?.category ?? item.extracted?.category ?? null;
+  const category = categoryRaw ? CATEGORY_MAP[categoryRaw] ?? categoryRaw : "כללי";
+  const meta = [formatShortDate(dateIso), category, sourceLabel(item.source), docKindLabel(item)]
+    .filter(Boolean)
+    .join(" · ");
 
   const goReview = () => router.push(`/documents/review/${item.documentId}`);
 
@@ -46,139 +56,158 @@ export default function DocumentCard({ item }: { item: InboxListItem }) {
       role="button"
       tabIndex={0}
       onClick={goReview}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
           goReview();
         }
       }}
-      style={{
-        background: "#ffffff",
-        border: "1px solid #dfe7f3",
-        borderRadius: 14,
-        padding: "14px 16px",
-        boxShadow: "0 6px 18px rgba(15, 23, 42, 0.04)",
-        cursor: "pointer",
-        display: "flex",
-        alignItems: "flex-start",
-        gap: 12,
-        WebkitTapHighlightColor: "transparent",
-        userSelect: "none",
-      }}
+      style={cardStyle}
     >
-      <div
-        style={{
-          width: 42,
-          height: 42,
-          borderRadius: 12,
-          background: isPending
-            ? "#fff7ed"
-            : "#f0fdf4",
-          border: isPending
-            ? "1px solid #fed7aa"
-            : "1px solid #bbf7d0",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 21,
-          flexShrink: 0,
-        }}
-        aria-hidden
-      >
-        {previewEmoji(item)}
+      <div style={thumbStyle} aria-hidden>
+        {item.preview.kind === "pdf" ? (
+          <FileTextIcon />
+        ) : item.preview.kind === "image" ? (
+          <ImageIcon />
+        ) : (
+          <PaperclipIcon />
+        )}
       </div>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 8,
-            marginBottom: 3,
-          }}
-        >
-          <span
-            style={{
-              fontWeight: 800,
-              color: "#0f172a",
-              fontSize: 15,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              flex: 1,
-            }}
-            title={vendor}
-          >
+        <div style={rowTopStyle}>
+          <span style={vendorStyle} title={vendor}>
             {vendor}
           </span>
-          <span
-            style={{
-              fontWeight: 900,
-              color: "#0f172a",
-              fontSize: 16,
-              flexShrink: 0,
-            }}
-          >
-            {amountLabel}
-          </span>
+          <span style={amountStyle}>{amountLabel}</span>
         </div>
-
-        <div
-          style={{
-            fontSize: 12,
-            color: "#6b7280",
-            fontWeight: 600,
-            marginBottom: 9,
-          }}
-        >
-          {formatShortDate(dateIso || item.createdAt)} ·{" "}
-          {item.source === "email" ? "מייל" : "העלאה"}
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 10,
-            flexWrap: "wrap",
-          }}
-        >
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "4px 10px",
-              borderRadius: 999,
-              background: isPending ? "#fef3c7" : "#dcfce7",
-              border: isPending ? "1px solid #fde68a" : "1px solid #bbf7d0",
-              color: isPending ? "#92400e" : "#166534",
-              fontSize: 12,
-              fontWeight: 850,
-            }}
-          >
-            <span aria-hidden>{isPending ? "⏳" : "✓"}</span>
-            {isPending ? "ממתין לבדיקה" : "מאושר"}
-          </span>
-          <span
-            style={{
-              padding: "4px 10px",
-              borderRadius: 999,
-              background: "#eff6ff",
-              border: "1px solid #dbeafe",
-              color: "#002b6b",
-              fontSize: 12,
-              fontWeight: 900,
-            }}
-          >
-            פתח ←
-          </span>
-        </div>
-
+        <div style={metaStyle}>{meta}</div>
         {isPending ? <ConfidenceDots dots={item.confidenceDots} /> : null}
+      </div>
+
+      <div style={statusWrapStyle}>
+        <span style={statusPillStyle}>{isPending ? "ממתין" : "אושר"}</span>
+        <span style={arrowStyle} aria-hidden>
+          ‹
+        </span>
       </div>
     </article>
   );
 }
+
+function FileTextIcon() {
+  return (
+    <svg width="25" height="25" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M14 3v5h5M8 13h8M8 17h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ImageIcon() {
+  return (
+    <svg width="25" height="25" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="4" y="5" width="16" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
+      <path d="m7 16 3.5-3.5 2.5 2.5 2-2 2 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="9" cy="9" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function PaperclipIcon() {
+  return (
+    <svg width="25" height="25" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="m8.5 12.5 5.7-5.7a3 3 0 0 1 4.2 4.2l-7.1 7.1a4.5 4.5 0 0 1-6.4-6.4l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+const cardStyle = {
+  minHeight: 82,
+  background: TOKEN.surface.card,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.card,
+  padding: "12px",
+  boxShadow: TOKEN.shadow.elevated,
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  WebkitTapHighlightColor: "transparent",
+  userSelect: "none",
+} as const;
+
+const thumbStyle = {
+  width: 48,
+  height: 58,
+  borderRadius: TOKEN.radius.input,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  background: TOKEN.surface.inset,
+  color: TOKEN.ink.secondary,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: TOKEN.font.caption,
+  fontWeight: TOKEN.weight.bold,
+  flexShrink: 0,
+} as const;
+
+const rowTopStyle = {
+  display: "flex",
+  alignItems: "baseline",
+  justifyContent: "space-between",
+  gap: 8,
+  minWidth: 0,
+} as const;
+
+const vendorStyle = {
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+} as const;
+
+const amountStyle = {
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.title,
+  fontWeight: TOKEN.weight.bold,
+  flexShrink: 0,
+} as const;
+
+const metaStyle = {
+  marginTop: 4,
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.semibold,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+} as const;
+
+const statusWrapStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  flexShrink: 0,
+} as const;
+
+const statusPillStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: 26,
+  borderRadius: TOKEN.radius.pill,
+  background: TOKEN.semantic.attention.bgSoft,
+  border: `1px solid ${TOKEN.semantic.attention.border}`,
+  color: TOKEN.semantic.attention.ink,
+  padding: "0 9px",
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.bold,
+} as const;
+
+const arrowStyle = {
+  color: TOKEN.ink.meta,
+  fontSize: TOKEN.font.display,
+  lineHeight: 1,
+} as const;

@@ -1,6 +1,7 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
+import { TOKEN } from "@/lib/design/tokens";
 
 export const skeletonPulseKeyframes = `
   @keyframes documentsSkeletonPulse {
@@ -15,8 +16,8 @@ export function SkeletonPulseStyles() {
 
 export function skeletonBar(width: string | number, height = 14): CSSProperties {
   return {
-    borderRadius: 12,
-    background: "#e5e7eb",
+    borderRadius: TOKEN.radius.pill,
+    background: TOKEN.surface.inset,
     height,
     width,
     animation: "documentsSkeletonPulse 1.2s ease-in-out infinite",
@@ -25,11 +26,11 @@ export function skeletonBar(width: string | number, height = 14): CSSProperties 
 
 export function documentsShellCard(padding = 16): CSSProperties {
   return {
-    background: "#ffffff",
-    border: "1px solid #dfe7f3",
-    borderRadius: 18,
+    background: TOKEN.surface.card,
+    border: `1px solid ${TOKEN.border.DEFAULT}`,
+    borderRadius: TOKEN.radius.card,
     padding,
-    boxShadow: "0 10px 28px rgba(15, 23, 42, 0.06)",
+    boxShadow: TOKEN.shadow.elevated,
   };
 }
 

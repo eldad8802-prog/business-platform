@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { uploadInventoryItemImage } from "@/lib/api/inventory";
@@ -6,7 +6,7 @@ import { uploadInventoryItemImage } from "@/lib/api/inventory";
 type Props = {
   itemId: number;
   imageUrl?: string | null;
-  onUpdated: (item: any) => void;
+  onUpdated: (item: { imageUrl?: string | null }) => void;
 };
 
 function getSafeImageUrl(imageUrl?: string | null) {
@@ -31,12 +31,6 @@ export default function InventoryItemImageUploader({
   const [loading, setLoading] = useState(false);
   const [successText, setSuccessText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!file) {
-      setPreview(getSafeImageUrl(imageUrl));
-    }
-  }, [imageUrl, file]);
 
   useEffect(() => {
     return () => {
@@ -134,11 +128,12 @@ export default function InventoryItemImageUploader({
       }
 
       resetInputs();
-    } catch (err: any) {
-      if (err?.message === "UNAUTHORIZED") {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : null;
+      if (message === "UNAUTHORIZED") {
         setError("אין הרשאה להעלות תמונה. צריך להתחבר מחדש.");
       } else {
-        setError(err?.message || "העלאת התמונה נכשלה");
+        setError(message || "העלאת התמונה נכשלה");
       }
 
       setSuccessText(null);
@@ -193,6 +188,7 @@ export default function InventoryItemImageUploader({
         }}
       >
         {preview ? (
+          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={preview}
             alt="תמונת פריט"
@@ -212,7 +208,22 @@ export default function InventoryItemImageUploader({
               lineHeight: 1.6,
             }}
           >
-            <div style={{ fontSize: "30px", marginBottom: "6px" }}>📦</div>
+            <div
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: 14,
+                border: "1px solid #dbe3ef",
+                background: "#ffffff",
+                color: "#94a3b8",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: "8px",
+              }}
+            >
+              <BoxIcon />
+            </div>
             אין תמונה
           </div>
         )}
@@ -312,7 +323,10 @@ export default function InventoryItemImageUploader({
             minHeight: "42px",
             padding: "9px 15px",
             borderRadius: "12px",
-            background: loading || !file ? "#9ca3af" : "#111827",
+            background:
+              loading || !file
+                ? "#9ca3af"
+                : "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)",
             color: "#ffffff",
             border: "none",
             cursor: loading || !file ? "not-allowed" : "pointer",
@@ -368,5 +382,14 @@ export default function InventoryItemImageUploader({
         </div>
       )}
     </section>
+  );
+}
+
+function BoxIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <path d="M4 7.5l8 4.5 8-4.5M12 12v9" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+    </svg>
   );
 }

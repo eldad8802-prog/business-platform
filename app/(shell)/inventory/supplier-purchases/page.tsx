@@ -1,195 +1,234 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import {
-  HubActionCard,
-  InventorySubheader,
-  PageIntro,
-  SectionHeader,
-  inventoryCardStyle,
-  inventoryMainStyle,
-  inventoryPageStyle,
-  inventoryTheme,
+  FilterChipRow,
+  InventoryRow,
+  InventoryBadge,
+  InventoryStatePanel,
+  InventorySkeletonBlock,
+  IconPlus,
+  type BadgeTone,
 } from "@/components/inventory/inventory-design";
+import { buildClientAuthHeaders } from "@/lib/client-session";
 
-const LOCAL_DRAFT_KEY = "inventory:supplierPurchases:newDraft:v1";
-
-type SuggestionLine = {
-  matchedItemId: number;
-  name: string;
-  medianQty: number;
+type PurchaseOrderLine = {
+  id: number;
+  orderedQty: number;
+  unitCost: number | null;
 };
 
-type SupplierReorderSuggestion = {
-  supplierName: string;
-  lastApprovedAt: string;
-  medianIntervalDays: number;
-  daysSinceLast: number;
-  isTimely: boolean;
-  recurringItemCount: number;
-  lines: SuggestionLine[];
+type PurchaseOrder = {
+  id: number;
+  supplierName: string | null;
+  externalOrderId: string | null;
+  status: string;
+  orderDate: string | null;
+  createdAt: string;
+  lines: PurchaseOrderLine[];
 };
+
+type Tab = "pending" | "transit" | "history";
+
+const STATUS_GROUP: Record<Tab, string[]> = {
+  pending: ["DRAFT", "CONFIRMED"],
+  transit: ["SENT", "AWAITING_DELIVERY"],
+  history: ["CLOSED", "CANCELLED"],
+};
+
+const STATUS_BADGE: Record<string, { label: string; tone: BadgeTone }> = {
+  DRAFT: { label: "טיוטה", tone: "neutral" },
+  CONFIRMED: { label: "מאושרת", tone: "info" },
+  SENT: { label: "נשלחה", tone: "info" },
+  AWAITING_DELIVERY: { label: "בהמתנה לאספקה", tone: "low" },
+  CLOSED: { label: "נסגרה", tone: "ok" },
+  CANCELLED: { label: "בוטלה", tone: "neutral" },
+};
+
+function formatDate(value: string | null): string {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const sameDay = (a: Date, b: Date) =>
+    a.getDate() === b.getDate() && a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
+  if (sameDay(d, today)) return "היום";
+  if (sameDay(d, yesterday)) return "אתמול";
+  return d.toLocaleDateString("he-IL", { day: "numeric", month: "numeric" });
+}
+
+function orderTotal(order: PurchaseOrder): number {
+  return order.lines.reduce((sum, line) => sum + line.orderedQty * (line.unitCost ?? 0), 0);
+}
 
 export default function SupplierPurchasesHubPage() {
   const router = useRouter();
-  const [reorderSuggestions, setReorderSuggestions] = useState<
-    SupplierReorderSuggestion[]
-  >([]);
+  const [orders, setOrders] = useState<PurchaseOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("pending");
 
   useEffect(() => {
-    async function fetchReorderSuggestions() {
+    let isMounted = true;
+    async function load() {
       try {
-        const token =
-          typeof window !== "undefined" ? localStorage.getItem("token") : null;
-        const res = await fetch(
-          "/api/inventory/supplier-purchases/reorder-suggestions",
-          {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-            cache: "no-store",
-          }
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        if (Array.isArray(data?.suggestions)) {
-          setReorderSuggestions(data.suggestions);
-        }
-      } catch {
-        // Silent fail — suggestions are an enhancement, not a core flow.
+        setLoading(true);
+        setError(null);
+        const response = await fetch("/api/inventory/purchase-orders", {
+          headers: buildClientAuthHeaders(),
+          cache: "no-store",
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(data?.error || "Failed to load purchase orders");
+        if (isMounted) setOrders(Array.isArray(data?.purchaseOrders) ? data.purchaseOrders : []);
+      } catch (err) {
+        if (isMounted) setError(err instanceof Error ? err.message : "לא הצלחנו לטעון את ההזמנות");
+      } finally {
+        if (isMounted) setLoading(false);
       }
     }
-    fetchReorderSuggestions();
+    void load();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  function prefillAndNavigate(suggestion: SupplierReorderSuggestion) {
-    const order: Record<number, number> = {};
-    for (const line of suggestion.lines) {
-      order[line.matchedItemId] = line.medianQty;
+  const groupCounts = useMemo(() => {
+    const counts: Record<Tab, number> = { pending: 0, transit: 0, history: 0 };
+    for (const order of orders) {
+      (Object.keys(STATUS_GROUP) as Tab[]).forEach((t) => {
+        if (STATUS_GROUP[t].includes(order.status)) counts[t] += 1;
+      });
     }
-    const draft = {
-      version: 1,
-      savedAt: new Date().toISOString(),
-      supplierName: suggestion.supplierName,
-      order,
-      categoryId: "",
-      itemId: "",
-      quantity: "1",
-    };
-    localStorage.setItem(LOCAL_DRAFT_KEY, JSON.stringify(draft));
-    router.push("/inventory/supplier-purchases/new");
-  }
+    return counts;
+  }, [orders]);
 
-  const timelySuggestions = reorderSuggestions.filter((s) => s.isTimely);
+  const visibleOrders = useMemo(
+    () => orders.filter((order) => STATUS_GROUP[tab].includes(order.status)),
+    [orders, tab]
+  );
+
+  const sub = (
+    <>
+      {groupCounts.pending} ממתינות · {groupCounts.transit} בדרך
+    </>
+  );
 
   return (
-    <div style={inventoryPageStyle()}>
-      <InventorySubheader title="הזמנות ספק" backHref="/inventory" />
+    <InventorySubPage
+      title="רכש מספקים"
+      variant="hub"
+      sub={!loading && !error ? sub : undefined}
+      headerAction={{
+        icon: <IconPlus />,
+        label: "הזמנה חדשה",
+        href: "/inventory/supplier-purchases/new",
+        accent: true,
+      }}
+      bottomNav="orders"
+    >
+      <FilterChipRow<Tab | "import">
+        value={tab}
+        onChange={(value) => {
+          if (value === "import") {
+            router.push("/inventory/supplier-purchases/import");
+            return;
+          }
+          setTab(value);
+        }}
+        options={[
+          { value: "pending", label: "ממתינות" },
+          { value: "transit", label: "בדרך" },
+          { value: "history", label: "היסטוריה" },
+          { value: "import", label: "יבוא" },
+        ]}
+      />
 
-      <main style={inventoryMainStyle(760)}>
-        <PageIntro
-          stage="מרכז הזמנות"
-          title="ניהול הזמנות ספק"
-          description="תכנון הזמנות, קליטת סחורה ועדכון מלאי — הכל במקום אחד."
-          tone="accent"
-        />
-
-        {timelySuggestions.length > 0 ? (
-          <section style={inventoryCardStyle()}>
-            <SectionHeader title="מומלץ להזמין עכשיו" />
-            <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-              {timelySuggestions.slice(0, 3).map((suggestion) => (
-                <article
-                  key={suggestion.supplierName}
-                  style={{
-                    border: "1px solid #bbf7d0",
-                    borderRadius: 16,
-                    background: "#ecfdf5",
-                    padding: 14,
-                    display: "flex",
-                    alignItems: "flex-start",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: 15, fontWeight: 950, color: "#047857" }}>
-                      {suggestion.supplierName}
-                    </div>
-                    <div
-                      style={{
-                        marginTop: 4,
-                        fontSize: 12,
-                        color: inventoryTheme.textMuted,
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      בדרך כלל כל ~{suggestion.medianIntervalDays} ימים · עבר{" "}
-                      {suggestion.daysSinceLast} ימים ·{" "}
-                      {suggestion.recurringItemCount} פריטים שחוזרים
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => prefillAndNavigate(suggestion)}
-                    style={{
-                      minHeight: 40,
-                      padding: "0 16px",
-                      borderRadius: 12,
-                      border: "none",
-                      background: inventoryTheme.successBtn,
-                      color: "#ffffff",
-                      fontSize: 13,
-                      fontWeight: 950,
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    צור טיוטה דומה
-                  </button>
-                </article>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        <section style={inventoryCardStyle()}>
-          <SectionHeader title="מה תרצו לעשות?" />
-          <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-            <HubActionCard
-              accent
-              icon="📦"
-              title="יצירת הזמנה חדשה"
-              description="המערכת תציע מה להזמין לפי מצב המלאי"
-              onClick={() => router.push("/inventory/supplier-purchases/new")}
-            />
-            <HubActionCard
-              icon="⏳"
-              title="הזמנות שממתינות לקליטה"
-              description="אישור קבלת סחורה יעדכן את המלאי בפועל"
-              onClick={() => router.push("/inventory/supplier-purchases/pending")}
-            />
-            <HubActionCard
-              icon="📊"
-              title="הזמנות אחרונות"
-              description="צפייה בהזמנות שאושרו או בוטלו"
-              onClick={() => router.push("/inventory/supplier-purchases/history")}
-            />
-            <HubActionCard
-              icon="📄"
-              title="ייבוא CSV"
-              description="העלאת קובץ מהספק ליצירת טיוטות לבדיקה לפני קליטת מלאי"
-              onClick={() => router.push("/inventory/supplier-purchases/import")}
-            />
-            <HubActionCard
-              icon="🔌"
-              title="חיבורי ספקים"
-              description="תשתית לחיבור ספקים וקטלוגים — בשלבי הרחבה"
-              onClick={() => router.push("/inventory/supplier-purchases/integrations")}
-            />
-          </div>
-        </section>
-      </main>
-    </div>
+      {error ? (
+        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
+          <InventoryStatePanel title="משהו השתבש">{error}</InventoryStatePanel>
+        </div>
+      ) : loading ? (
+        <div className="inv-rows">
+          <InventorySkeletonBlock height={74} rows={4} />
+        </div>
+      ) : visibleOrders.length === 0 ? (
+        <div className="inv-page-content" style={{ padding: "0 clamp(16px,3.5vw,28px)" }}>
+          <InventoryStatePanel
+            title={
+              tab === "pending"
+                ? "אין הזמנות פתוחות"
+                : tab === "transit"
+                  ? "אין הזמנות בדרך"
+                  : "אין היסטוריית הזמנות"
+            }
+            action={
+              <button
+                type="button"
+                className="inv-btn-primary inv-btn-primary--full"
+                onClick={() => router.push("/inventory/supplier-purchases/new")}
+              >
+                יצירת הזמנה חדשה
+              </button>
+            }
+          >
+            יצירת הזמנה לא משנה מלאי — קליטת הסחורה היא הפעולה שמעדכנת אותו.
+          </InventoryStatePanel>
+        </div>
+      ) : (
+        <div className="inv-rows">
+          {visibleOrders.map((order) => {
+            const badge = STATUS_BADGE[order.status] ?? { label: order.status, tone: "neutral" as BadgeTone };
+            const idLabel = order.externalOrderId ? `#${order.externalOrderId}` : `#${order.id}`;
+            const total = orderTotal(order);
+            const date = formatDate(order.orderDate ?? order.createdAt);
+            const metaParts: string[] = [
+              `${order.lines.length} פריטים`,
+              total > 0 ? `₪${total.toLocaleString("he-IL")}` : "",
+              date || "",
+            ].filter(Boolean);
+            const canReceive = order.status === "AWAITING_DELIVERY";
+            return (
+              <InventoryRow
+                key={order.id}
+                thumb={<span style={{ fontSize: 26 }} aria-hidden>🚚</span>}
+                thumbBg="var(--inv-surface, #f5f7f9)"
+                title={
+                  <>
+                    <bdi>{order.supplierName || "הזמנה ללא ספק"}</bdi>
+                    {" · "}
+                    <bdi>{idLabel}</bdi>
+                  </>
+                }
+                meta={metaParts.map((part, i) => (
+                  <span key={i}>
+                    {i > 0 ? " · " : null}
+                    <bdi>{part}</bdi>
+                  </span>
+                ))}
+                trail={
+                  <>
+                    <InventoryBadge tone={badge.tone}>{badge.label}</InventoryBadge>
+                    {canReceive ? (
+                      <button
+                        type="button"
+                        className="inv-row__action"
+                        onClick={() => router.push(`/inventory/supplier-purchases/${order.id}/receive`)}
+                      >
+                        קבל סחורה ›
+                      </button>
+                    ) : null}
+                  </>
+                }
+              />
+            );
+          })}
+        </div>
+      )}
+    </InventorySubPage>
   );
 }

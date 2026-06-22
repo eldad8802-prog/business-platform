@@ -1,3 +1,8 @@
+import {
+  getMovementReasonLabel,
+  getMovementTypeLabel,
+} from "@/lib/inventory/inventory-labels";
+
 type Movement = {
   id: number;
   movementType: "IN" | "OUT" | string;
@@ -36,7 +41,7 @@ function getMovementStyle(type: string) {
     color: "#374151",
     background: "#f3f4f6",
     sign: "",
-    label: type,
+    label: getMovementTypeLabel(type),
   };
 }
 
@@ -130,7 +135,7 @@ export default function InventoryMovementsList({ movements }: Props) {
 
             {/* פרטים */}
             <div style={{ color: "#374151" }}>
-              סיבה: <strong>{m.reason}</strong>
+              סיבה: <strong>{getMovementReasonLabel(m.reason)}</strong>
             </div>
 
             <div style={{ color: "#374151" }}>

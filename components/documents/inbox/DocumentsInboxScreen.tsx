@@ -1,61 +1,28 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useDocumentsInbox } from "@/hooks/useDocumentsInbox";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
+import { TOKEN } from "@/lib/design/tokens";
 import DocumentCard from "./DocumentCard";
 import InboxEmptyState from "./InboxEmptyState";
 import InboxSkeleton from "./InboxSkeleton";
 import MonthSection from "./MonthSection";
-
-type TabKey = "pending" | "approved";
-
-function filterByTab(items: InboxListItem[], tab: TabKey): InboxListItem[] {
-  if (tab === "pending") return items.filter((i) => i.status === "needs_review");
-  return items.filter((i) => i.status === "approved");
-}
 
 function groupByMonthDescending(items: InboxListItem[]): string[] {
   const keys = new Set(items.map((i) => i.groupMonth));
   return Array.from(keys).sort().reverse();
 }
 
-function QueueStat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: "warning" | "success";
-}) {
-  return (
-    <div
-      style={{
-        border: "1px solid #dfe7f3",
-        borderRadius: 12,
-        background: "#ffffff",
-        padding: 12,
-        textAlign: "center",
-      }}
-    >
-      <div style={{ color: "#64748b", fontSize: 12, fontWeight: 850 }}>
-        {label}
-      </div>
-      <div
-        style={{
-          color: tone === "warning" ? "#d97706" : "#16a34a",
-          fontSize: 24,
-          fontWeight: 950,
-          marginTop: 4,
-          lineHeight: 1.1,
-        }}
-      >
-        {value.toLocaleString("he-IL")}
-      </div>
-    </div>
-  );
+function monthLabel(month: string | null | undefined): string {
+  if (!month) return "";
+  const [year, monthIndex] = month.split("-").map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(monthIndex)) return month;
+  return new Date(year, monthIndex - 1, 1).toLocaleDateString("he-IL", {
+    month: "long",
+    year: "numeric",
+  });
 }
 
 export default function DocumentsInboxScreen({
@@ -64,290 +31,229 @@ export default function DocumentsInboxScreen({
   authToken: string | null;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<TabKey>("pending");
+  const { scope, items, pagination, loading, loadingMore, error, refetch, loadMore } =
+    useDocumentsInbox(authToken);
 
-  const {
-    financialPulse,
-    items,
-    pagination,
-    loading,
-    loadingMore,
-    error,
-    loadMore,
-    refetch,
-  } = useDocumentsInbox(authToken);
-
-  const pendingCount = useMemo(
-    () => items.filter((i) => i.status === "needs_review").length,
+  const pendingItems = useMemo(
+    () => items.filter((item) => item.status === "needs_review"),
     [items]
   );
-  const approvedCount = useMemo(
-    () => items.filter((i) => i.status === "approved").length,
-    [items]
-  );
-  const filtered = useMemo(() => filterByTab(items, tab), [items, tab]);
-  const monthKeys = useMemo(() => groupByMonthDescending(filtered), [filtered]);
-  const nextPending = useMemo(
-    () => items.find((i) => i.status === "needs_review") ?? null,
-    [items]
+  const monthKeys = useMemo(
+    () => groupByMonthDescending(pendingItems),
+    [pendingItems]
   );
 
-  const emptyVariant = useMemo(() => {
-    if (loading || error || items.length > 0) return null;
-    return "no_documents_month" as const;
-  }, [loading, error, items.length]);
-
-  const tabEmptyVariant = useMemo(() => {
-    if (loading || error || items.length === 0 || filtered.length > 0) return null;
-    if (tab === "pending") return "no_pending" as const;
-    return "no_approved" as const;
-  }, [loading, error, items.length, filtered.length, tab]);
-
-  const pulsePendingCount = financialPulse?.inboxDocumentCounts.pendingReview ?? pendingCount;
-  const pulseApprovedCount =
-    financialPulse?.inboxDocumentCounts.approvedDocuments ?? approvedCount;
+  const displayError = error === "Server error" ? "שגיאת שרת" : error;
 
   return (
-    <div dir="rtl" style={{ minHeight: "100vh", background: "#f3f7ff" }}>
-      {/* Main content */}
-      <div
-        style={{
-          padding: "14px 14px 40px",
-          maxWidth: 760,
-          margin: "0 auto",
-          boxSizing: "border-box",
-        }}
-      >
-        {/* Error state */}
-        {error ? (
-          <div
-            style={{
-              background: "#fff1f2",
-              border: "1px solid rgba(220, 38, 38, 0.2)",
-              borderRadius: 16,
-              padding: "20px 16px",
-              textAlign: "center",
-              marginBottom: 16,
-            }}
+    <div dir="rtl" style={pageStyle}>
+      <main style={mainStyle}>
+        <header style={headStyle}>
+          <button
+            type="button"
+            onClick={() => router.push("/documents")}
+            style={backButtonStyle}
+            aria-label="חזרה למסמכים"
           >
-            <div
-              style={{
-                fontSize: 14,
-                color: "#991b1b",
-                fontWeight: 700,
-                marginBottom: 12,
-              }}
-            >
-              {error}
-            </div>
-            <button
-              type="button"
-              onClick={() => refetch()}
-              style={{
-                background: "#dc2626",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: 12,
-                padding: "10px 20px",
-                fontSize: 14,
-                fontWeight: 800,
-                cursor: "pointer",
-              }}
-            >
+            <BackChevronIcon />
+            חזרה
+          </button>
+          <div style={{ minWidth: 0, textAlign: "center" }}>
+            <h1 style={titleStyle}>תור אימות</h1>
+            <div style={subtitleStyle}>{monthLabel(scope?.month)}</div>
+          </div>
+          <div aria-hidden style={{ width: 52 }} />
+        </header>
+
+        {error ? (
+          <section style={errorStyle}>
+            <div style={{ fontWeight: TOKEN.weight.bold }}>{displayError}</div>
+            <p style={errorCopyStyle}>
+              לא הצלחנו לטעון את תור המסמכים כרגע.
+            </p>
+            <button type="button" onClick={() => refetch()} style={retryButtonStyle}>
               נסה שוב
             </button>
-          </div>
+          </section>
         ) : null}
 
-        {/* Skeleton */}
         {loading && items.length === 0 ? <InboxSkeleton /> : null}
 
-        {/* Global empty */}
-        {!loading && !error && emptyVariant ? (
-          <InboxEmptyState variant={emptyVariant} />
-        ) : null}
-
-        {!error && items.length > 0 ? (
+        {!loading && !error ? (
           <>
-            <section
-              style={{
-                background: "#ffffff",
-                border: "1px solid #dfe7f3",
-                borderRadius: 18,
-                padding: 16,
-                boxShadow: "0 10px 28px rgba(15, 23, 42, 0.06)",
-                marginBottom: 14,
-              }}
-            >
-              <div style={{ color: "#0f172a", fontSize: 16, fontWeight: 950 }}>
-                מצב התור
-              </div>
-              <p
-                style={{
-                  margin: "6px 0 0",
-                  color: "#64748b",
-                  fontSize: 13,
-                  lineHeight: 1.6,
-                  fontWeight: 800,
-                }}
-              >
-                כאן מטפלים במסמכים שמחכים להחלטה. דוחות, חיפוש וחבילה לרו״ח
-                מתעדכנים אחרי אישור.
-              </p>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                  gap: 10,
-                  marginTop: 12,
-                }}
-              >
-                <QueueStat label="ממתינים" value={pulsePendingCount} tone="warning" />
-                <QueueStat label="טופלו" value={pulseApprovedCount} tone="success" />
-              </div>
-              {nextPending ? (
-                <button
-                  type="button"
-                  onClick={() => router.push(`/documents/review/${nextPending.documentId}`)}
-                  style={{
-                    width: "100%",
-                    minHeight: 48,
-                    border: "none",
-                    borderRadius: 9,
-                    background: "linear-gradient(180deg, #176bff 0%, #0050e6 100%)",
-                    color: "#ffffff",
-                    fontSize: 15,
-                    fontWeight: 950,
-                    cursor: "pointer",
-                    marginTop: 12,
-                  }}
-                >
-                  בדוק את המסמך הבא <span style={{ marginInlineStart: 10 }}>←</span>
-                </button>
-              ) : null}
+            <section style={bandStyle}>
+              <WarningIcon />
+              <span>{pendingItems.length.toLocaleString("he-IL")}</span>
+              <span>מסמכים ממתינים לאימות</span>
             </section>
 
-            {/* Tab row */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                gap: 8,
-                marginBottom: 16,
-                background: "#ffffff",
-                border: "1px solid #dfe7f3",
-                borderRadius: 14,
-                padding: 6,
-              }}
-            >
-              {(
-                [
-                  { key: "pending" as const, label: "ממתינים", count: pendingCount },
-                  { key: "approved" as const, label: "מאושרים", count: approvedCount },
-                ] as const
-              ).map(({ key, label, count }) => {
-                const active = tab === key;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setTab(key)}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 7,
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      border: active ? "1px solid #0050e6" : "1px solid transparent",
-                      background: active
-                        ? "linear-gradient(180deg, #176bff 0%, #0050e6 100%)"
-                        : "#ffffff",
-                      color: active ? "#ffffff" : "#475569",
-                      fontSize: 14,
-                      fontWeight: 950,
-                      cursor: "pointer",
-                      boxShadow: active ? "0 6px 14px rgba(7, 91, 255, 0.18)" : "none",
-                    }}
-                  >
-                    {label}
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        minWidth: 20,
-                        height: 20,
-                        borderRadius: 999,
-                        background: active
-                          ? "rgba(255,255,255,0.18)"
-                          : "rgba(15, 23, 42, 0.07)",
-                        fontSize: 11,
-                        fontWeight: 900,
-                        padding: "0 5px",
-                      }}
-                    >
-                      {count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Tab-empty state */}
-            {tabEmptyVariant ? (
-              <InboxEmptyState variant={tabEmptyVariant} />
+            {pendingItems.length === 0 ? (
+              <InboxEmptyState variant={items.length === 0 ? "no_documents_month" : "no_pending"} />
             ) : (
-              <div
-                style={{
-                  background: "#ffffff",
-                  border: "1px solid #dfe7f3",
-                  borderRadius: 18,
-                  padding: 14,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 16,
-                }}
-              >
-                {monthKeys.map((mk) => (
-                  <MonthSection key={mk} monthKey={mk}>
-                    {filtered
-                      .filter((i) => i.groupMonth === mk)
+              <section style={listStyle}>
+                {monthKeys.map((monthKey) => (
+                  <MonthSection key={monthKey} monthKey={monthKey}>
+                    {pendingItems
+                      .filter((item) => item.groupMonth === monthKey)
                       .map((item) => (
                         <DocumentCard key={item.documentId} item={item} />
                       ))}
                   </MonthSection>
                 ))}
-              </div>
+              </section>
             )}
 
-            {/* Load more */}
             {pagination?.hasMore ? (
-              <div style={{ marginTop: 20, textAlign: "center" }}>
-                <button
-                  type="button"
-                  disabled={loadingMore}
-                  onClick={() => void loadMore()}
-                  style={{
-                    background: "#ffffff",
-                    border: "1px solid #dfe7f3",
-                    borderRadius: 10,
-                    padding: "12px 28px",
-                    fontSize: 14,
-                    fontWeight: 800,
-                    color: "#002b6b",
-                    cursor: loadingMore ? "not-allowed" : "pointer",
-                    opacity: loadingMore ? 0.6 : 1,
-                    boxShadow: "0 1px 4px rgba(15, 23, 42, 0.06)",
-                  }}
-                >
-                  {loadingMore ? "טוען…" : "טען עוד"}
-                </button>
-              </div>
+              <button
+                type="button"
+                disabled={loadingMore}
+                onClick={() => void loadMore()}
+                style={{
+                  ...loadMoreButtonStyle,
+                  opacity: loadingMore ? 0.6 : 1,
+                  cursor: loadingMore ? "not-allowed" : "pointer",
+                }}
+              >
+                {loadingMore ? "טוען..." : "טען עוד"}
+              </button>
             ) : null}
           </>
         ) : null}
-      </div>
+      </main>
     </div>
   );
 }
+
+function BackChevronIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="m9 6 6 6-6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function WarningIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M12 9v4m0 4h.01M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+const pageStyle = {
+  minHeight: "100vh",
+  background: TOKEN.surface.page,
+  color: TOKEN.ink.primary,
+} as const;
+
+const mainStyle = {
+  width: "100%",
+  maxWidth: 760,
+  margin: "0 auto",
+  padding: "14px 14px 40px",
+  boxSizing: "border-box",
+} as const;
+
+const headStyle = {
+  display: "grid",
+  gridTemplateColumns: "52px 1fr 52px",
+  alignItems: "center",
+  gap: 10,
+  marginBottom: 14,
+} as const;
+
+const backButtonStyle = {
+  width: 40,
+  height: 40,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.button,
+  background: TOKEN.surface.card,
+  color: TOKEN.brand.mid,
+  fontSize: 0,
+  fontWeight: TOKEN.weight.bold,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 0,
+} as const;
+
+const titleStyle = {
+  margin: 0,
+  fontSize: TOKEN.font.display,
+  lineHeight: 1.25,
+  fontWeight: TOKEN.weight.bold,
+  color: TOKEN.ink.primary,
+} as const;
+
+const subtitleStyle = {
+  marginTop: 4,
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.semibold,
+} as const;
+
+const bandStyle = {
+  minHeight: 54,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.card,
+  background: TOKEN.surface.card,
+  boxShadow: TOKEN.shadow.elevated,
+  padding: "0 16px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.title,
+  fontWeight: TOKEN.weight.bold,
+  marginBottom: 18,
+} as const;
+
+const listStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 18,
+} as const;
+
+const errorStyle = {
+  border: `1px solid ${TOKEN.semantic.urgent.border}`,
+  borderRadius: TOKEN.radius.card,
+  background: TOKEN.semantic.urgent.bgSoft,
+  color: TOKEN.semantic.urgent.ink,
+  padding: TOKEN.space.lg,
+  textAlign: "center",
+  marginBottom: 14,
+} as const;
+
+const errorCopyStyle = {
+  margin: "8px 0 12px",
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.body,
+  lineHeight: 1.6,
+} as const;
+
+const retryButtonStyle = {
+  minHeight: 40,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.button,
+  background: TOKEN.surface.card,
+  color: TOKEN.brand.mid,
+  padding: "0 18px",
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+  cursor: "pointer",
+} as const;
+
+const loadMoreButtonStyle = {
+  width: "100%",
+  minHeight: 48,
+  marginTop: 18,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.button,
+  background: TOKEN.surface.card,
+  color: TOKEN.brand.mid,
+  boxShadow: TOKEN.shadow.elevated,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+} as const;
