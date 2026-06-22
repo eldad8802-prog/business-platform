@@ -15,20 +15,19 @@ import {
   type BotBoundaryPresets,
   type BotWorkMode,
 } from "@/lib/features/conversation/bot-control";
+import {
+  FINAL_ACTION_OPTIONS as FINAL_ACTIONS,
+  type FinalAction,
+} from "@/lib/features/conversation/final-action";
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
   return localStorage.getItem("token") || "1";
 }
 
-const FINAL_ACTIONS = [
-  { value: "LEAVE_MESSAGE", label: "השארת הודעה" },
-  { value: "COLLECT_DETAILS", label: "איסוף פרטים" },
-  { value: "SEND_LINK", label: "שליחת קישור" },
-  { value: "ESCALATE", label: "העברה לנציג" },
-] as const;
-
-type FinalActionValue = (typeof FINAL_ACTIONS)[number]["value"];
+// FINAL_ACTIONS now sourced from the canonical FinalAction SoT (imported above
+// as the { value, label } option list). Same values, labels, and order.
+type FinalActionValue = FinalAction;
 
 type ApiSettings = {
   enabled: boolean;

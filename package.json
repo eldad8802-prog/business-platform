@@ -15,6 +15,7 @@
     "verify:whatsapp-webhook-pr4": "npx tsx lib/services/integrations/whatsapp/webhook-pr4.intake.test.ts",
     "verify:bot-fields": "npx tsx lib/features/conversation/bot-fields/bot-fields.verify.test.ts",
     "verify:field-catalog": "npx tsx lib/features/conversation/bot-fields/field-catalog.verify.test.ts",
+    "verify:bot-templates": "npx tsx lib/features/conversation/bot-templates/template-catalog.verify.test.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
