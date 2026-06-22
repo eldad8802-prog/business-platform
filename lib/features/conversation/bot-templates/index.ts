@@ -25,3 +25,10 @@ export {
   resolveTemplate,
   assertTemplateCatalogIntegrity,
 } from "./template-catalog.helpers";
+
+export {
+  templateToBotFields,
+  materializeTemplateConfig,
+  type MaterializedBotConfig,
+  type TemplateProvenance,
+} from "./materialize-template";
