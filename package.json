@@ -17,6 +17,7 @@
     "verify:field-catalog": "npx tsx lib/features/conversation/bot-fields/field-catalog.verify.test.ts",
     "verify:bot-templates": "npx tsx lib/features/conversation/bot-templates/template-catalog.verify.test.ts",
     "verify:materialize-template": "npx tsx lib/features/conversation/bot-templates/materialize-template.verify.test.ts",
+    "verify:bot-answers": "npx tsx lib/features/conversation/bot-answers/bot-answer.verify.test.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

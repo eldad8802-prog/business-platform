@@ -208,6 +208,7 @@ model Business {
   billingAuthoritySubmissions BillingAuthoritySubmission[]
   parties                     Party[]
   partyResolutionClaims       PartyResolutionClaim[]
+  botFieldAnswers             BotFieldAnswer[]
 
   @@index([archivedAt])
 }
@@ -373,6 +374,42 @@ model BusinessBotSettings {
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt
   business                    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+/// Structured capture of a customer's answer to a single bot field.
+///
+/// Derived layer ABOVE Message: `rawValue` is a verbatim snapshot (kept even if
+/// the source Message is later purged), `sourceMessageId` is provenance only
+/// (SetNull on Message delete). `parsedValue`/`parseStatus`/`confidence` are
+/// lazily filled by a future parser — not in this stage. Current answer per
+/// (conversationId, fieldKey) is enforced by a partial unique index
+/// (supersededAt IS NULL), added manually in the migration SQL.
+model BotFieldAnswer {
+  id                   Int                  @id @default(autoincrement())
+  businessId           Int
+  conversationId       Int
+  sourceMessageId      Int?
+  fieldKey             String
+  partyRole            String               @default("CUSTOMER")
+  rawValue             String
+  rawKind              String               @default("text")
+  parsedValue          Json?
+  parseStatus          BotAnswerParseStatus @default(UNPARSED)
+  confidence           Float?
+  capturedAt           DateTime             @default(now())
+  supersededAt         DateTime?
+  supersededByAnswerId Int? // soft pointer (no FK in this stage)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  business      Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  conversation  Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sourceMessage Message?     @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([conversationId, fieldKey])
+  @@index([sourceMessageId])
+  @@index([parseStatus])
 }
 
 model BusinessService {
@@ -583,6 +620,7 @@ model Conversation {
   messages                  Message[]
   replySuggestions          ReplySuggestion[]
   appointments              Appointment[]
+  botFieldAnswers           BotFieldAnswer[]
 }
 
 model Message {
@@ -633,6 +671,7 @@ model Message {
   sourceForSuggestions      ReplySuggestion[]   @relation("SuggestionSourceMessage")
   sentSuggestionFor         ReplySuggestion?    @relation("SuggestionSentMessage")
   appointments              Appointment[]
+  botFieldAnswers           BotFieldAnswer[]
 }
 
 model MessageAnalysis {
@@ -1820,6 +1859,13 @@ enum WhatsAppAttachmentImportStatus {
   imported
   skipped_duplicate
   failed
+}
+
+enum BotAnswerParseStatus {
+  UNPARSED
+  PARSED
+  FAILED
+  NOT_APPLICABLE
 }
 
 enum WhatsAppConnectionStatus {
