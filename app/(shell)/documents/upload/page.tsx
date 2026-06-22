@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
+import { glassActionStyle } from "@/lib/design/action-styles";
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -159,18 +160,10 @@ const headStyle = {
 } as const;
 
 const backButtonStyle = {
+  ...glassActionStyle({ height: 40 }),
   width: 40,
   height: 40,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.surface.card,
-  color: TOKEN.brand.mid,
   fontSize: 0,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
   padding: 0,
 } as const;
 
@@ -211,20 +204,11 @@ const dropTextStyle = {
 } as const;
 
 const cameraButtonStyle = {
+  ...glassActionStyle({ fullWidth: true, height: 48 }),
   width: "100%",
   minHeight: 48,
   marginTop: 14,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.surface.card,
-  color: TOKEN.ink.primary,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 8,
   fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
 } as const;
 
 const labelStyle = {

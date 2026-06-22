@@ -19,6 +19,13 @@ export const inventoryTheme = {
   /** Primary CTA — Dubiz brand gradient (navy → light blue). */
   primaryBtn: TOKEN.brand.gradient,
   primaryBtnHover: TOKEN.brand.gradientHover,
+  primaryBorder: TOKEN.action.primary.border,
+  primaryShadow: TOKEN.action.primary.shadow,
+  primaryShadowSoft: TOKEN.action.primary.shadowSoft,
+  glassBg: TOKEN.action.glass.background,
+  glassBorder: TOKEN.action.glass.border,
+  glassText: TOKEN.action.glass.color,
+  glassShadow: TOKEN.action.glass.shadow,
   successBtn: TOKEN.semantic.success.accent,
   danger: TOKEN.semantic.urgent.accent,
   warning: TOKEN.semantic.attention.accent,
@@ -117,7 +124,15 @@ export const inventoryCssVars = `
   --inv-text-muted: ${inventoryTheme.textMuted};
   --inv-accent: ${inventoryTheme.accent};
   --inv-accent-dark: ${inventoryTheme.accentDark};
+  --inv-brand-denim: ${TOKEN.brand.denim};
   --inv-primary: ${inventoryTheme.primaryBtn};
+  --inv-primary-border: ${inventoryTheme.primaryBorder};
+  --inv-primary-shadow: ${inventoryTheme.primaryShadow};
+  --inv-primary-shadow-soft: ${inventoryTheme.primaryShadowSoft};
+  --inv-glass-bg: ${inventoryTheme.glassBg};
+  --inv-glass-border: ${inventoryTheme.glassBorder};
+  --inv-glass-text: ${inventoryTheme.glassText};
+  --inv-glass-shadow: ${inventoryTheme.glassShadow};
   --inv-danger: ${inventoryTheme.danger};
   --inv-warning: ${inventoryTheme.warning};
   --inv-info: ${inventoryTheme.info};

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { dangerActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
 import { createInventoryMovement } from "@/lib/api/inventory";
 
 type Props = {
@@ -125,18 +126,12 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
           disabled={loading}
           onClick={() => handleMovementTypeChange("IN")}
           style={{
+            ...(movementType === "IN"
+              ? primaryActionStyle({ disabled: loading, height: 44 })
+              : glassActionStyle({ disabled: loading, height: 44 })),
             flex: 1,
             minHeight: "44px",
             padding: "9px 12px",
-            borderRadius: "12px",
-            border: "1px solid #e5e7eb",
-            background:
-              movementType === "IN"
-                ? "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)"
-                : "#f9fafb",
-            color: movementType === "IN" ? "#ffffff" : "#111827",
-            cursor: loading ? "not-allowed" : "pointer",
-            opacity: loading ? 0.7 : 1,
             fontWeight: 800,
           }}
         >
@@ -148,15 +143,12 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
           disabled={loading}
           onClick={() => handleMovementTypeChange("OUT")}
           style={{
+            ...(movementType === "OUT"
+              ? dangerActionStyle({ disabled: loading, height: 44 })
+              : glassActionStyle({ disabled: loading, height: 44 })),
             flex: 1,
             minHeight: "44px",
             padding: "9px 12px",
-            borderRadius: "12px",
-            border: "1px solid #e5e7eb",
-            background: movementType === "OUT" ? "#dc2626" : "#f9fafb",
-            color: movementType === "OUT" ? "#ffffff" : "#111827",
-            cursor: loading ? "not-allowed" : "pointer",
-            opacity: loading ? 0.7 : 1,
             fontWeight: 800,
           }}
         >
@@ -274,15 +266,10 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
           onClick={handleSubmit}
           disabled={loading}
           style={{
+            ...primaryActionStyle({ disabled: loading, fullWidth: true, height: 46 }),
             width: "100%",
             minHeight: "46px",
             padding: "10px 14px",
-            borderRadius: "12px",
-            background: "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)",
-            color: "#ffffff",
-            border: "none",
-            cursor: loading ? "not-allowed" : "pointer",
-            opacity: loading ? 0.75 : 1,
             fontSize: "14px",
             fontWeight: 800,
           }}

@@ -32,20 +32,20 @@ export const inventoryItemsListCss = `
     gap: 6px;
     min-height: 40px;
     padding: 0 16px;
-    border: none;
-    border-radius: 12px;
-    background: linear-gradient(90deg, #243B57 0%, #9DB4D4 100%);
+    border: var(--inv-primary-border, 1px solid rgba(255, 255, 255, 0.22));
+    border-radius: var(--inv-radius-button, 18px);
+    background: var(--inv-primary);
     color: #fff;
     font-size: 14px;
     font-weight: 800;
     font-family: inherit;
     cursor: pointer;
     flex-shrink: 0;
-    box-shadow: 0 2px 8px rgba(5, 150, 105, 0.25);
+    box-shadow: var(--inv-primary-shadow-soft, 0 10px 22px rgba(19, 41, 68, 0.18));
   }
 
   [data-inventory-items-list] .inv-items-list__add-btn:hover {
-    background: #047857;
+    background: var(--inv-primary);
   }
 
   [data-inventory-items-list] .inv-items-list__search-wrap {
@@ -344,15 +344,16 @@ export const inventoryItemsListCss = `
   }
 
   [data-inventory-items-list] .inv-items-list__empty-btn {
-    border: none;
-    border-radius: 10px;
-    background: linear-gradient(90deg, #243B57 0%, #9DB4D4 100%);
+    border: var(--inv-primary-border, 1px solid rgba(255, 255, 255, 0.22));
+    border-radius: var(--inv-radius-button, 18px);
+    background: var(--inv-primary);
     color: #fff;
     font-size: 13px;
     font-weight: 800;
     font-family: inherit;
     padding: 10px 18px;
     cursor: pointer;
+    box-shadow: var(--inv-primary-shadow-soft, 0 10px 22px rgba(19, 41, 68, 0.18));
   }
 
   @media (max-width: 720px) {

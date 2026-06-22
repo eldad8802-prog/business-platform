@@ -274,8 +274,8 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    background: "rgba(15, 118, 110, 0.08)",
-                    color: "#0f766e",
+                    background: "rgba(63, 97, 156, 0.08)",
+                    color: "#3F619C",
                   }}
                   aria-hidden
                 >

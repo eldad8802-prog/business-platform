@@ -1,4 +1,5 @@
 import { TOKEN } from "@/lib/design/tokens";
+import { glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
 
 export function basePageStyle() {
   return {
@@ -22,33 +23,16 @@ export function mainStyle() {
 
 export function primaryDarkButton(disabled?: boolean) {
   return {
+    ...primaryActionStyle({ disabled, fullWidth: true, height: 58 }),
     width: "100%",
-    minHeight: 58,
-    borderRadius: TOKEN.radius.button,
-    border: "none",
-    background: disabled
-      ? TOKEN.ink.disabled
-      : TOKEN.brand.gradient,
-    color: TOKEN.ink.inverse,
     fontSize: TOKEN.font.title,
-    fontWeight: TOKEN.weight.bold,
-    cursor: disabled ? "not-allowed" : "pointer",
-    boxShadow: disabled ? TOKEN.shadow.none : TOKEN.shadow.elevated,
   } as const;
 }
 
 export function secondaryButton(disabled?: boolean) {
   return {
+    ...glassActionStyle({ disabled, fullWidth: true, height: 56 }),
     width: "100%",
-    minHeight: 56,
-    borderRadius: TOKEN.radius.button,
-    border: `1px solid ${TOKEN.border.DEFAULT}`,
-    background: TOKEN.surface.card,
-    color: TOKEN.brand.mid,
-    fontSize: TOKEN.font.body,
-    fontWeight: TOKEN.weight.bold,
-    cursor: disabled ? "not-allowed" : "pointer",
-    opacity: disabled ? 0.6 : 1,
   } as const;
 }
 
