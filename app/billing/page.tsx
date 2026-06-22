@@ -52,7 +52,7 @@ const STATUS_STYLE: Record<
   BillingStatus | "QUOTE",
   { bg: string; fg: string; border: string }
 > = {
-  DRAFT: { bg: "#eff6ff", fg: "#1d4ed8", border: "#dbeafe" },
+  DRAFT: { bg: "#eff6ff", fg: "#3F619C", border: "#dbeafe" },
   PENDING_REVIEW: { bg: "#fff7ed", fg: "#d97706", border: "#fed7aa" },
   ISSUED: { bg: "#ecfdf5", fg: "#16a34a", border: "#bbf7d0" },
   QUOTE: { bg: "#f3e8ff", fg: "#7c3aed", border: "#e9d5ff" },
@@ -885,12 +885,17 @@ export default function BillingHubPage() {
               const data = await res.json();
               const ok = !!data?.identityComplete;
               setBillingIdentityOk(ok);
-              setIdentityGateOpen(false);
               if (ok) {
+                // Identity complete: close the gate and open the create flow.
+                setIdentityGateOpen(false);
                 setCreateDocumentType(pendingCreateType);
                 setCreateOpen(true);
               } else {
-                setGateError("חסרים עדיין שדות חובה לזהות העסק.");
+                // Incomplete: keep the gate OPEN so the error is visible and the
+                // user can finish. Do NOT clear pendingCreateType.
+                setGateError(
+                  'חסרים עדיין שדות חובה לזהות העסק. ודאו שמולאו: שם העסק, סוג עסק, ע.מ./ח.פ., כתובת, טלפון ודוא"ל.'
+                );
               }
             } catch {
               setGateError("לא הצלחנו להתחבר כדי לשמור. נסו שוב בעוד רגע.");
@@ -1602,7 +1607,7 @@ function ContinueDraftCard({ doc }: { doc: BillingDocumentListItem }) {
         color: "inherit",
       }}
     >
-      <div style={{ background: "#1d4ed8" }} aria-hidden="true" />
+      <div style={{ background: "#3F619C" }} aria-hidden="true" />
       <div className="billing-active-record-main" style={{ display: "grid", gap: 10, padding: "16px 18px" }}>
         <div
           style={{
@@ -1614,7 +1619,7 @@ function ContinueDraftCard({ doc }: { doc: BillingDocumentListItem }) {
           }}
         >
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12, fontWeight: 900, color: "#1d4ed8" }}>
+            <div style={{ fontSize: 12, fontWeight: 900, color: "#3F619C" }}>
               טיוטה
             </div>
             <div style={{ fontSize: 16, fontWeight: 950, color: "#0f172a", marginTop: 4 }}>
@@ -1639,7 +1644,7 @@ function ContinueDraftCard({ doc }: { doc: BillingDocumentListItem }) {
           <div style={{ fontSize: 12, color: "#94a3b8" }}>
             עודכן לאחרונה לפי רשומת המסמך
           </div>
-          <div style={{ fontSize: 13, fontWeight: 900, color: "#1d4ed8" }}>
+          <div style={{ fontSize: 13, fontWeight: 900, color: "#3F619C" }}>
             פתח והמשך
           </div>
         </div>
