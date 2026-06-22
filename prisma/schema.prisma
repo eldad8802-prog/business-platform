@@ -1370,21 +1370,27 @@ model SupplierPurchaseDraftLine {
 }
 
 model Supplier {
-  id                  Int      @id @default(autoincrement())
+  id                  Int                @id @default(autoincrement())
   businessId          Int
   name                String
-  isActive            Boolean  @default(true)
+  isActive            Boolean            @default(true)
   phone               String?
   email               String?
+  // Identity signal for Party Resolution (Supplier = Party Role, Phase 1).
+  // Strong establishing signal (KNOWN). Optional; NOT unique at table level —
+  // identity uniqueness lives in the Party/claim layer to avoid over-merge.
+  taxId               String?
+  taxIdType           CustomerTaxIdType?
   notes               String?
   defaultLeadTimeDays Int?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  business            Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
   @@index([businessId, isActive])
   @@index([businessId, name])
+  @@index([businessId, taxId])
 }
 
 model PurchaseOrder {
@@ -2236,6 +2242,7 @@ enum SourceChannel {
 enum PartyRoleType {
   CUSTOMER
   LEAD
+  SUPPLIER
 }
 
 enum PartySignalType {
@@ -2253,6 +2260,7 @@ enum PartyClaimConfidence {
 enum PartyResolutionMethod {
   DETERMINISTIC_EXACT
   SELF_ANCHOR
+  HUMAN_CONFIRMED
 }
 
 enum PartyClaimStatus {

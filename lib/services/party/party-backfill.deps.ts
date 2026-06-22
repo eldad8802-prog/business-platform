@@ -64,6 +64,16 @@ export interface BackfillPrismaClient {
       Array<{ id: number; phone: string | null; customerName: string | null }>
     >;
   };
+  supplier: {
+    findMany(args: FindManyArgs): Promise<
+      Array<{
+        id: number;
+        phone: string | null;
+        taxId: string | null;
+        name: string | null;
+      }>
+    >;
+  };
   party: {
     findMany(args: FindManyArgs): Promise<Array<{ id: number; businessId: number }>>;
   };
@@ -145,6 +155,14 @@ export function buildPrismaBackfillDeps(
           select: { id: true, phone: true, customerName: true },
         })
       ).map((l) => ({ id: l.id, phone: l.phone, name: l.customerName })),
+
+    loadSuppliers: async (businessId) =>
+      (
+        await client.supplier.findMany({
+          where: { businessId },
+          select: { id: true, phone: true, taxId: true, name: true },
+        })
+      ).map((s) => ({ id: s.id, phone: s.phone, taxId: s.taxId, name: s.name })),
 
     runInTx: async (fn, { dryRun }) => {
       if (!dryRun) {

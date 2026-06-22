@@ -49,6 +49,9 @@ export type BackfillDeps = {
   listBusinessIds: () => Promise<number[]>;
   loadCustomers: (businessId: number) => Promise<RoleRowInput[]>;
   loadLeads: (businessId: number) => Promise<RoleRowInput[]>;
+  // Optional for backward compatibility with existing mocks/callers. When absent,
+  // no Supplier role-rows are processed (the runner stays Customer/Lead only).
+  loadSuppliers?: (businessId: number) => Promise<RoleRowInput[]>;
   runInTx: <T>(
     fn: (tx: Prisma.TransactionClient) => Promise<T>,
     opts: { dryRun: boolean }
@@ -59,6 +62,7 @@ export type BusinessReport = {
   businessId: number;
   customersRead: number;
   leadsRead: number;
+  suppliersRead: number;
   applied: number;
   noop: number;
   singleton: number; // no-signal anchor
@@ -83,6 +87,7 @@ export type BackfillReport = {
     failedBusinesses: number;
     customersRead: number;
     leadsRead: number;
+    suppliersRead: number;
     applied: number;
     noop: number;
     singleton: number;
@@ -235,6 +240,7 @@ function emptyBusinessReport(businessId: number): BusinessReport {
     businessId,
     customersRead: 0,
     leadsRead: 0,
+    suppliersRead: 0,
     applied: 0,
     noop: 0,
     singleton: 0,
@@ -264,10 +270,14 @@ export async function iterateRoleRows(
   const leads = (await deps.loadLeads(businessId))
     .slice()
     .sort((a, b) => a.id - b.id);
+  const suppliers = deps.loadSuppliers
+    ? (await deps.loadSuppliers(businessId)).slice().sort((a, b) => a.id - b.id)
+    : [];
 
   return [
     ...customers.map((row) => ({ subjectType: PartyRoleType.CUSTOMER, row })),
     ...leads.map((row) => ({ subjectType: PartyRoleType.LEAD, row })),
+    ...suppliers.map((row) => ({ subjectType: PartyRoleType.SUPPLIER, row })),
   ];
 }
 
@@ -275,10 +285,10 @@ function signalsForRow(
   subjectType: PartyRoleType,
   row: RoleRowInput
 ): { phone?: string | null; taxId?: string | null } {
-  // Customers carry phone + taxId; Leads carry phone only (no taxId field).
-  return subjectType === PartyRoleType.CUSTOMER
-    ? { phone: row.phone, taxId: row.taxId }
-    : { phone: row.phone };
+  // Customers and Suppliers carry phone + taxId; Leads carry phone only.
+  return subjectType === PartyRoleType.LEAD
+    ? { phone: row.phone }
+    : { phone: row.phone, taxId: row.taxId };
 }
 
 type BatchTally = {
@@ -418,6 +428,9 @@ export async function backfillBusiness(
   report.leadsRead = rows.filter(
     (r) => r.subjectType === PartyRoleType.LEAD
   ).length;
+  report.suppliersRead = rows.filter(
+    (r) => r.subjectType === PartyRoleType.SUPPLIER
+  ).length;
 
   const dryRun = mode === "dry-run";
   // dry-run = single batch (whole business) so unification within the rolled-back
@@ -485,6 +498,7 @@ export async function runBackfill(
     (acc, b) => {
       acc.customersRead += b.customersRead;
       acc.leadsRead += b.leadsRead;
+      acc.suppliersRead += b.suppliersRead;
       acc.applied += b.applied;
       acc.noop += b.noop;
       acc.singleton += b.singleton;
@@ -501,6 +515,7 @@ export async function runBackfill(
       failedBusinesses: 0,
       customersRead: 0,
       leadsRead: 0,
+      suppliersRead: 0,
       applied: 0,
       noop: 0,
       singleton: 0,

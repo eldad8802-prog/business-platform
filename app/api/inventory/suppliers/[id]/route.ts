@@ -85,9 +85,12 @@ export async function PATCH(
     const supplier = await supplierService.updateSupplier({
       businessId: user.businessId,
       supplierId,
+      updatedByUserId: user.id,
       ...(body?.name !== undefined ? { name: body.name } : {}),
       ...(body?.phone !== undefined ? { phone: body.phone } : {}),
       ...(body?.email !== undefined ? { email: body.email } : {}),
+      ...(body?.taxId !== undefined ? { taxId: body.taxId } : {}),
+      ...(body?.taxIdType !== undefined ? { taxIdType: body.taxIdType } : {}),
       ...(body?.notes !== undefined ? { notes: body.notes } : {}),
       ...(body?.defaultLeadTimeDays !== undefined
         ? { defaultLeadTimeDays: body.defaultLeadTimeDays }

@@ -1,5 +1,9 @@
-import { Prisma } from "@prisma/client";
+import { CustomerTaxIdType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  reResolveSupplierPartyTx,
+  resolveSupplierPartyTx,
+} from "@/lib/services/party/supplier-party-resolution.service";
 import {
   InventoryNotFoundError,
   InventoryUnauthorizedError,
@@ -8,14 +12,18 @@ import {
 
 type Tx = Prisma.TransactionClient;
 type TxOptions = { tx?: Tx };
+const TRANSACTION_OPTIONS = { timeout: 15_000 };
 
 export type CreateSupplierInput = {
   businessId: number;
   name: string;
   phone?: string | null;
   email?: string | null;
+  taxId?: string | null;
+  taxIdType?: CustomerTaxIdType | null;
   notes?: string | null;
   defaultLeadTimeDays?: number | null;
+  createdByUserId?: number | null;
 };
 
 export type ListSuppliersInput = {
@@ -37,9 +45,12 @@ export type UpdateSupplierInput = {
   name?: string;
   phone?: string | null;
   email?: string | null;
+  taxId?: string | null;
+  taxIdType?: CustomerTaxIdType | null;
   notes?: string | null;
   defaultLeadTimeDays?: number | null;
   isActive?: boolean;
+  updatedByUserId?: number | null;
 };
 
 export type DeactivateSupplierInput = {
@@ -52,6 +63,7 @@ export type FindPossibleSupplierMatchesInput = {
   name: string;
   phone?: string | null;
   email?: string | null;
+  taxId?: string | null;
   limit?: number | null;
 };
 
@@ -88,6 +100,16 @@ function normalizeOptionalLeadTime(
     );
   }
   return parsed;
+}
+
+function normalizeTaxIdType(
+  value: CustomerTaxIdType | null | undefined
+): CustomerTaxIdType | null {
+  if (value == null) return null;
+  if (!Object.values(CustomerTaxIdType).includes(value)) {
+    throw new InventoryValidationError("Invalid taxIdType");
+  }
+  return value;
 }
 
 function normalizeSupplierId(value: number): number {
@@ -131,16 +153,29 @@ export const supplierService = {
       name: normalizeName(input.name),
       phone: normalizeOptionalText(input.phone),
       email: normalizeOptionalText(input.email),
+      taxId: normalizeOptionalText(input.taxId),
+      taxIdType: normalizeTaxIdType(input.taxIdType),
       notes: normalizeOptionalText(input.notes),
       defaultLeadTimeDays: normalizeOptionalLeadTime(input.defaultLeadTimeDays),
     };
 
-    const run = (tx: Tx | typeof prisma) =>
-      tx.supplier.create({ data });
+    // Create the row and resolve its Party identity atomically. Duplicate
+    // strategy unchanged: never block, never auto-merge — convergence happens
+    // only via shared STRONG signals (taxId/phone) inside Party Resolution.
+    const run = async (tx: Tx) => {
+      const supplier = await tx.supplier.create({ data });
+      await resolveSupplierPartyTx(tx, {
+        businessId: input.businessId,
+        supplierId: supplier.id,
+        taxId: supplier.taxId,
+        phone: supplier.phone,
+        resolvedByUserId: input.createdByUserId ?? null,
+      });
+      return supplier;
+    };
 
-    // Duplicate strategy: never block, never auto-merge. Creation always allowed.
     if (options?.tx) return run(options.tx);
-    return run(prisma);
+    return prisma.$transaction(run, TRANSACTION_OPTIONS);
   },
 
   async listSuppliers(input: ListSuppliersInput) {
@@ -193,6 +228,10 @@ export const supplierService = {
       data.phone = normalizeOptionalText(input.phone);
     if (input.email !== undefined)
       data.email = normalizeOptionalText(input.email);
+    if (input.taxId !== undefined)
+      data.taxId = normalizeOptionalText(input.taxId);
+    if (input.taxIdType !== undefined)
+      data.taxIdType = normalizeTaxIdType(input.taxIdType);
     if (input.notes !== undefined)
       data.notes = normalizeOptionalText(input.notes);
     if (input.defaultLeadTimeDays !== undefined)
@@ -206,7 +245,12 @@ export const supplierService = {
       data.isActive = input.isActive;
     }
 
-    const run = async (tx: Tx | typeof prisma) => {
+    // Re-resolution runs ONLY when a STRONG identity signal (taxId / phone) was
+    // part of the update. Deactivation and contact-only edits never touch claims.
+    const signalsChanged =
+      input.taxId !== undefined || input.phone !== undefined;
+
+    const run = async (tx: Tx) => {
       // Tenant guard: only update a row that belongs to this business.
       const updated = await tx.supplier.updateMany({
         where: { id: supplierId, businessId: input.businessId },
@@ -217,13 +261,25 @@ export const supplierService = {
         throw new InventoryNotFoundError("Supplier not found");
       }
 
-      return tx.supplier.findFirstOrThrow({
+      const supplier = await tx.supplier.findFirstOrThrow({
         where: { id: supplierId, businessId: input.businessId },
       });
+
+      if (signalsChanged) {
+        await reResolveSupplierPartyTx(tx, {
+          businessId: input.businessId,
+          supplierId: supplier.id,
+          taxId: supplier.taxId,
+          phone: supplier.phone,
+          resolvedByUserId: input.updatedByUserId ?? null,
+        });
+      }
+
+      return supplier;
     };
 
     if (options?.tx) return run(options.tx);
-    return run(prisma);
+    return prisma.$transaction(run, TRANSACTION_OPTIONS);
   },
 
   async deactivateSupplier(input: DeactivateSupplierInput, options?: TxOptions) {
@@ -247,6 +303,7 @@ export const supplierService = {
     const name = normalizeName(input.name);
     const phone = normalizeOptionalText(input.phone);
     const email = normalizeOptionalText(input.email);
+    const taxId = normalizeOptionalText(input.taxId);
     const normalizedName = normalizeForMatch(name);
     // Use the longest normalized token so "Strauss Ltd" still retrieves "Strauss".
     const anchorToken = normalizedName
@@ -260,6 +317,8 @@ export const supplierService = {
     }
     if (phone) or.push({ phone });
     if (email) or.push({ email: { equals: email, mode: "insensitive" } });
+    // Strong signal: same taxId ⇒ very likely the same Party. Advisory only.
+    if (taxId) or.push({ taxId });
 
     if (or.length === 0) return [];
 
@@ -276,7 +335,8 @@ export const supplierService = {
       const sameEmail = Boolean(
         email && candidate.email?.toLowerCase() === email.toLowerCase()
       );
-      return sameNormalizedName || samePhone || sameEmail;
+      const sameTaxId = Boolean(taxId && candidate.taxId === taxId);
+      return sameNormalizedName || samePhone || sameEmail || sameTaxId;
     });
   },
 };

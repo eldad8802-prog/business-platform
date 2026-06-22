@@ -78,8 +78,11 @@ export async function POST(request: NextRequest) {
       name: body?.name,
       phone: body?.phone ?? null,
       email: body?.email ?? null,
+      taxId: body?.taxId ?? null,
+      taxIdType: body?.taxIdType ?? null,
       notes: body?.notes ?? null,
       defaultLeadTimeDays: body?.defaultLeadTimeDays ?? null,
+      createdByUserId: user.id,
     });
 
     // Advisory only: surface likely existing suppliers. Never blocks creation.
@@ -88,6 +91,7 @@ export async function POST(request: NextRequest) {
       name: supplier.name,
       phone: supplier.phone,
       email: supplier.email,
+      taxId: supplier.taxId,
     });
 
     return NextResponse.json(

@@ -29,6 +29,7 @@ type MockSeed = {
   migrations?: string[];
   customers?: Record<number, Array<{ id: number; phone: string | null; taxId: string | null; name: string | null }>>;
   leads?: Record<number, Array<{ id: number; phone: string | null; customerName: string | null }>>;
+  suppliers?: Record<number, Array<{ id: number; phone: string | null; taxId: string | null; name: string | null }>>;
   parties?: Record<number, Array<{ id: number; businessId: number }>>;
   claims?: Record<
     number,
@@ -83,6 +84,9 @@ function makeMockClient(seed: MockSeed) {
     },
     lead: {
       findMany: async (args) => seed.leads?.[whereBusinessId(args)] ?? [],
+    },
+    supplier: {
+      findMany: async (args) => seed.suppliers?.[whereBusinessId(args)] ?? [],
     },
     party: {
       findMany: async (args) => seed.parties?.[whereBusinessId(args)] ?? [],
@@ -189,6 +193,9 @@ async function runTests() {
       leads: {
         1: [{ id: 11, phone: "lp1", customerName: "L1" }],
       },
+      suppliers: {
+        1: [{ id: 30, phone: "sp1", taxId: "st1", name: "S1" }],
+      },
     });
     const deps = buildPrismaBackfillDeps(client);
     ok("listBusinessIds", JSON.stringify(await deps.listBusinessIds()) === "[1,2]");
@@ -200,6 +207,10 @@ async function runTests() {
     ok("loadLeads maps customerName → name", l1.length === 1 && l1[0].name === "L1" && l1[0].phone === "lp1");
     const l2 = await deps.loadLeads(2);
     ok("loadLeads empty business", l2.length === 0);
+    const s1 = await deps.loadSuppliers!(1);
+    ok("loadSuppliers business 1", s1.length === 1 && s1[0].id === 30 && s1[0].taxId === "st1" && s1[0].phone === "sp1");
+    const s2 = await deps.loadSuppliers!(2);
+    ok("loadSuppliers empty business", s2.length === 0);
   }
 
   // 7. Verification loaders filter by businessId + ACTIVE status.
