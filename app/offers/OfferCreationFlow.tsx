@@ -462,7 +462,7 @@ export default function OfferCreationFlow() {
                 border: "1px solid #bfdbfe",
                 fontSize: 15,
                 fontWeight: 700,
-                color: "#1d4ed8",
+                color: "#3F619C",
               }}
             >
               שלב 1 הושלם. בשלב הבא נבנה את אזור הזנת הערך ללקוח.
