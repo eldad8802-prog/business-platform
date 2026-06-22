@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/ui/page-header";
+import { TOKEN } from "@/lib/design/tokens";
 import { isValidProductLinkUrl } from "@/lib/inbox-view/product-link-capability";
 import {
   BOT_BOUNDARY_OPTIONS,
@@ -271,55 +272,60 @@ export default function BusinessBotSettingsPage() {
 
   const inputStyle: CSSProperties = {
     padding: "8px 10px",
-    borderRadius: 8,
-    border: "1px solid #cbd5e1",
-    fontSize: 13,
+    borderRadius: TOKEN.radius.input,
+    border: `1px solid ${TOKEN.border.hover}`,
+    fontSize: TOKEN.font.body,
     fontFamily: "inherit",
   };
 
   const labelStyle: CSSProperties = {
-    fontSize: 12,
-    fontWeight: 600,
-    color: "#475569",
+    fontSize: TOKEN.font.meta,
+    fontWeight: TOKEN.weight.semibold,
+    color: TOKEN.ink.secondary,
   };
 
   const cardStyle: CSSProperties = {
-    background: "#fff",
-    border: "1px solid #e2e8f0",
-    borderRadius: 16,
-    padding: 18,
+    background: TOKEN.surface.card,
+    border: `1px solid ${TOKEN.border.DEFAULT}`,
+    borderRadius: TOKEN.radius.modal,
+    padding: TOKEN.space.lg,
     boxSizing: "border-box",
   };
 
   const sectionTitle: CSSProperties = {
     margin: "0 0 6px",
-    fontSize: 17,
-    fontWeight: 800,
-    color: "#0f172a",
+    fontSize: TOKEN.font.title,
+    fontWeight: TOKEN.weight.bold,
+    color: TOKEN.ink.primary,
     lineHeight: 1.3,
   };
 
   const sectionHint: CSSProperties = {
     margin: "0 0 16px",
-    fontSize: 13,
-    color: "#64748b",
+    fontSize: TOKEN.font.meta,
+    color: TOKEN.ink.muted,
     lineHeight: 1.55,
   };
 
   const previewBubble: CSSProperties = {
-    background: "#fff",
-    border: "1px solid #e2e8f0",
-    borderRadius: 14,
+    background: TOKEN.surface.card,
+    border: `1px solid ${TOKEN.border.DEFAULT}`,
+    borderRadius: TOKEN.radius.card,
     padding: "12px 14px",
-    fontSize: 14,
-    color: "#0f172a",
+    fontSize: TOKEN.font.body,
+    color: TOKEN.ink.primary,
     lineHeight: 1.5,
     maxWidth: "100%",
   };
 
+  // ─── Simulated WhatsApp chat preview ────────────────────────────────────
+  // The bubble FILLS below are intentionally literal WhatsApp brand colors
+  // (#e5ddd5 chat canvas, #dcf8c6 outgoing bubble, #ffffff incoming bubble) —
+  // they represent WhatsApp itself inside this mock, so they stay off-token.
+  // Only the text/structure around them uses design tokens.
   const waChatBg: CSSProperties = {
     background: "#e5ddd5",
-    borderRadius: 12,
+    borderRadius: TOKEN.radius.input,
     padding: "14px 10px",
     display: "flex",
     flexDirection: "column",
@@ -329,10 +335,10 @@ export default function BusinessBotSettingsPage() {
 
   const waBotBubble: CSSProperties = {
     background: "#dcf8c6",
-    borderRadius: 12,
+    borderRadius: TOKEN.radius.input,
     padding: "8px 12px",
-    fontSize: 14,
-    color: "#0f172a",
+    fontSize: TOKEN.font.body,
+    color: TOKEN.ink.primary,
     lineHeight: 1.55,
     wordBreak: "break-word",
     boxShadow: "0 1px 2px rgba(0,0,0,0.10)",
@@ -340,10 +346,10 @@ export default function BusinessBotSettingsPage() {
 
   const waCustomerBubble: CSSProperties = {
     background: "#ffffff",
-    borderRadius: 12,
+    borderRadius: TOKEN.radius.input,
     padding: "8px 12px",
-    fontSize: 14,
-    color: "#64748b",
+    fontSize: TOKEN.font.body,
+    color: TOKEN.ink.muted,
     lineHeight: 1.55,
     boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
     alignSelf: "flex-end",
@@ -354,8 +360,8 @@ export default function BusinessBotSettingsPage() {
     background: "none",
     border: "none",
     padding: 0,
-    fontSize: 11,
-    color: "#475569",
+    fontSize: TOKEN.font.caption,
+    color: TOKEN.ink.secondary,
     cursor: "pointer",
     fontFamily: "inherit",
     textDecoration: "underline",
@@ -364,7 +370,7 @@ export default function BusinessBotSettingsPage() {
   };
 
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: "#f1f5f9" }}>
+    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <PageHeader
         title="עריכת הבוט"
         backHref="/business/bot"
@@ -379,13 +385,13 @@ export default function BusinessBotSettingsPage() {
           boxSizing: "border-box",
         }}
       >
-        <p style={{ fontSize: 14, color: "#475569", marginTop: 0, lineHeight: 1.55 }}>
+        <p style={{ fontSize: TOKEN.font.body, color: TOKEN.ink.secondary, marginTop: 0, lineHeight: 1.55 }}>
           כאן מגדירים איך הבוט מכין טיוטות באינבוקס. אתה תמיד לוחץ שלח — הלקוח לא מקבל
           כלום מהבוט לבד. אפשר לעצור בכל שיחה עם &quot;אני מטפל מכאן&quot;.
         </p>
 
         {loading ? (
-          <div style={{ marginTop: 28, color: "#94a3b8", fontSize: 15 }}>טוען…</div>
+          <div style={{ marginTop: 28, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען…</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 22, marginTop: 22 }}>
             <section style={cardStyle}>
@@ -414,22 +420,22 @@ export default function BusinessBotSettingsPage() {
                         textAlign: "right",
                         width: "100%",
                         border: selected
-                          ? "2px solid #6366f1"
-                          : "1px solid #e2e8f0",
-                        borderRadius: 14,
+                          ? `2px solid ${TOKEN.brand.mid}`
+                          : `1px solid ${TOKEN.border.DEFAULT}`,
+                        borderRadius: TOKEN.radius.card,
                         padding: "14px 16px",
-                        background: selected ? "#eef2ff" : "#fff",
+                        background: selected ? TOKEN.brand.soft : TOKEN.surface.card,
                         cursor: "pointer",
                         opacity: 1,
                       }}
                     >
-                      <div style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>
+                      <div style={{ fontWeight: TOKEN.weight.bold, fontSize: TOKEN.font.body, color: TOKEN.ink.primary }}>
                         {opt.title}
                       </div>
                       <div
                         style={{
-                          fontSize: 13,
-                          color: "#64748b",
+                          fontSize: TOKEN.font.meta,
+                          color: TOKEN.ink.muted,
                           marginTop: 4,
                           lineHeight: 1.45,
                         }}
@@ -438,10 +444,10 @@ export default function BusinessBotSettingsPage() {
                       </div>
                       <div
                         style={{
-                          fontSize: 12,
-                          color: selected ? "#4f46e5" : "#94a3b8",
+                          fontSize: TOKEN.font.meta,
+                          color: selected ? TOKEN.brand.mid : TOKEN.ink.meta,
                           marginTop: 6,
-                          fontWeight: 600,
+                          fontWeight: TOKEN.weight.semibold,
                         }}
                       >
                         {opt.trustLine}
@@ -491,14 +497,14 @@ export default function BusinessBotSettingsPage() {
                       style={{ width: 18, height: 18, marginTop: 3, flexShrink: 0 }}
                     />
                     <span>
-                      <span style={{ display: "block", fontWeight: 700, fontSize: 14 }}>
+                      <span style={{ display: "block", fontWeight: TOKEN.weight.bold, fontSize: TOKEN.font.body }}>
                         {opt.label}
                       </span>
                       <span
                         style={{
                           display: "block",
-                          fontSize: 12,
-                          color: "#64748b",
+                          fontSize: TOKEN.font.meta,
+                          color: TOKEN.ink.muted,
                           marginTop: 2,
                         }}
                       >
@@ -506,7 +512,7 @@ export default function BusinessBotSettingsPage() {
                       </span>
                       {opt.isThreshold && boundaries.afterMessageCount ? (
                         <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 13, color: "#475569" }}>אחרי</span>
+                          <span style={{ fontSize: TOKEN.font.meta, color: TOKEN.ink.secondary }}>אחרי</span>
                           <input
                             type="number"
                             min={3}
@@ -524,12 +530,12 @@ export default function BusinessBotSettingsPage() {
                             style={{
                               width: 56,
                               padding: "6px 8px",
-                              borderRadius: 8,
-                              border: "1px solid #cbd5e1",
-                              fontSize: 14,
+                              borderRadius: TOKEN.radius.input,
+                              border: `1px solid ${TOKEN.border.hover}`,
+                              fontSize: TOKEN.font.body,
                             }}
                           />
-                          <span style={{ fontSize: 13, color: "#475569" }}>
+                          <span style={{ fontSize: TOKEN.font.meta, color: TOKEN.ink.secondary }}>
                             הודעות מהלקוח
                           </span>
                         </div>
@@ -551,7 +557,7 @@ export default function BusinessBotSettingsPage() {
                   onChange={(e) => setWelcomeMessage(e.target.value)}
                   rows={4}
                   placeholder="לדוגמה: היי! איך אפשר לעזור היום?"
-                  style={{ ...inputStyle, resize: "vertical", minHeight: 100, fontSize: 15 }}
+                  style={{ ...inputStyle, resize: "vertical", minHeight: 100, fontSize: TOKEN.font.body }}
                 />
               </label>
             </section>
@@ -570,13 +576,13 @@ export default function BusinessBotSettingsPage() {
                   onChange={(e) => setQuestionsLines(e.target.value)}
                   rows={5}
                   placeholder={"לדוגמה:\nמה השם שלך?\nמתי נוח לך?"}
-                  style={{ ...inputStyle, resize: "vertical", minHeight: 120, fontSize: 15 }}
+                  style={{ ...inputStyle, resize: "vertical", minHeight: 120, fontSize: TOKEN.font.body }}
                 />
               </label>
             </section>
 
-            <section style={{ ...cardStyle, background: "#f8fbf9", borderColor: "#c6f6d5" }}>
-              <h2 style={{ ...sectionTitle, fontSize: 16 }}>כך יראה הלקוח שלך את הבוט</h2>
+            <section style={{ ...cardStyle, background: TOKEN.semantic.success.bgSoft, borderColor: TOKEN.semantic.success.border }}>
+              <h2 style={{ ...sectionTitle, fontSize: TOKEN.font.title }}>כך יראה הלקוח שלך את הבוט</h2>
               <p style={{ ...sectionHint, marginBottom: 14 }}>
                 תצוגה של תחילת השיחה — לא צ׳אט חי, רק הדגמה ויזואלית.
               </p>
@@ -588,7 +594,7 @@ export default function BusinessBotSettingsPage() {
                     {welcomeMessage.trim() ? (
                       welcomeMessage.trim()
                     ) : (
-                      <span style={{ color: "#94a3b8", fontStyle: "italic" }}>
+                      <span style={{ color: TOKEN.ink.meta, fontStyle: "italic" }}>
                         [הודעת הפתיחה שלך תופיע כאן]
                       </span>
                     )}
@@ -611,7 +617,7 @@ export default function BusinessBotSettingsPage() {
                     {parsedQuestions.length > 0 ? (
                       parsedQuestions[0]
                     ) : (
-                      <span style={{ color: "#94a3b8", fontStyle: "italic" }}>
+                      <span style={{ color: TOKEN.ink.meta, fontStyle: "italic" }}>
                         [השאלה הראשונה שלך תופיע כאן]
                       </span>
                     )}
@@ -636,7 +642,7 @@ export default function BusinessBotSettingsPage() {
                         {parsedQuestions[1] ? (
                           parsedQuestions[1]
                         ) : (
-                          <span style={{ color: "#475569" }}>{finalActionPreviewText}</span>
+                          <span style={{ color: TOKEN.ink.secondary }}>{finalActionPreviewText}</span>
                         )}
                       </div>
                     </div>
@@ -644,7 +650,7 @@ export default function BusinessBotSettingsPage() {
                 )}
               </div>
 
-              <p style={{ margin: "12px 0 0", fontSize: 12, color: "#64748b", lineHeight: 1.55 }}>
+              <p style={{ margin: "12px 0 0", fontSize: TOKEN.font.meta, color: TOKEN.ink.muted, lineHeight: 1.55 }}>
                 אם הלקוח ישאל משהו שהבוט לא מכיר — השיחה תעבור אליך
               </p>
             </section>
@@ -660,7 +666,7 @@ export default function BusinessBotSettingsPage() {
                     onChange={(e) =>
                       setFinalAction(e.target.value as FinalActionValue)
                     }
-                    style={{ ...inputStyle, fontSize: 15, minHeight: 44 }}
+                    style={{ ...inputStyle, fontSize: TOKEN.font.body, minHeight: 44 }}
                   >
                     {FINAL_ACTIONS.map((a) => (
                       <option key={a.value} value={a.value}>
@@ -679,13 +685,13 @@ export default function BusinessBotSettingsPage() {
                       value={websiteUrl}
                       onChange={(e) => setWebsiteUrl(e.target.value)}
                       placeholder="https://…"
-                      style={{ ...inputStyle, fontSize: 15, minHeight: 44 }}
+                      style={{ ...inputStyle, fontSize: TOKEN.font.body, minHeight: 44 }}
                     />
                   </label>
                 ) : null}
-                <p style={{ margin: 0, fontSize: 12, color: "#94a3b8" }}>
+                <p style={{ margin: 0, fontSize: TOKEN.font.meta, color: TOKEN.ink.meta }}>
                   הבוט יפעל לפי:{" "}
-                  <strong style={{ color: "#475569" }}>
+                  <strong style={{ color: TOKEN.ink.secondary }}>
                     {finalActionLabels[finalAction] ?? finalAction}
                   </strong>
                 </p>
@@ -703,8 +709,8 @@ export default function BusinessBotSettingsPage() {
                   display: "flex",
                   alignItems: "flex-start",
                   gap: 12,
-                  fontSize: 15,
-                  color: "#1e293b",
+                  fontSize: TOKEN.font.body,
+                  color: TOKEN.ink.primary,
                   cursor: "pointer",
                   lineHeight: 1.45,
                   marginBottom: 16,
@@ -727,7 +733,7 @@ export default function BusinessBotSettingsPage() {
                   value={productLinkUrl}
                   onChange={(e) => setProductLinkUrl(e.target.value)}
                   placeholder="https://…"
-                  style={{ ...inputStyle, fontSize: 15, minHeight: 44 }}
+                  style={{ ...inputStyle, fontSize: TOKEN.font.body, minHeight: 44 }}
                 />
               </label>
               <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -737,7 +743,7 @@ export default function BusinessBotSettingsPage() {
                   onChange={(e) => setProductLinkIntro(e.target.value)}
                   rows={2}
                   placeholder="לדוגמה: הנה הקישור לקטלוג שלנו"
-                  style={{ ...inputStyle, resize: "vertical", minHeight: 72, fontSize: 15 }}
+                  style={{ ...inputStyle, resize: "vertical", minHeight: 72, fontSize: TOKEN.font.body }}
                 />
               </label>
               {isValidProductLinkUrl(productLinkUrl.trim()) ? (
@@ -745,15 +751,15 @@ export default function BusinessBotSettingsPage() {
                   style={{
                     marginTop: 16,
                     padding: "12px 14px",
-                    borderRadius: 12,
-                    background: "#f0fdf4",
-                    border: "1px solid #bbf7d0",
+                    borderRadius: TOKEN.radius.input,
+                    background: TOKEN.semantic.success.bgSoft,
+                    border: `1px solid ${TOKEN.semantic.success.border}`,
                   }}
                 >
-                  <p style={{ margin: "0 0 8px", fontSize: 12, fontWeight: 700, color: "#166534" }}>
+                  <p style={{ margin: "0 0 8px", fontSize: TOKEN.font.meta, fontWeight: TOKEN.weight.bold, color: TOKEN.semantic.success.ink }}>
                     תצוגה מקדימה
                   </p>
-                  <p style={{ margin: "0 0 8px", fontSize: 13, color: "#14532d", lineHeight: 1.5 }}>
+                  <p style={{ margin: "0 0 8px", fontSize: TOKEN.font.meta, color: TOKEN.semantic.success.ink, lineHeight: 1.5 }}>
                     כך זה יופיע ב-composer כשתלחץ &quot;שלח קישור למוצר&quot; באינבוקס.
                   </p>
                   {productLinkIntro.trim() ? (
@@ -763,7 +769,7 @@ export default function BusinessBotSettingsPage() {
                     style={{
                       ...previewBubble,
                       fontFamily: "ui-monospace, monospace",
-                      fontSize: 13,
+                      fontSize: TOKEN.font.meta,
                       wordBreak: "break-all",
                     }}
                   >
@@ -776,16 +782,16 @@ export default function BusinessBotSettingsPage() {
             <section
               style={{
                 ...cardStyle,
-                background: "#f8fafc",
+                background: TOKEN.surface.inset,
                 borderStyle: "dashed",
-                borderColor: "#cbd5e1",
+                borderColor: TOKEN.border.hover,
               }}
             >
-              <h2 style={{ ...sectionTitle, fontSize: 16 }}>הגדרות מתקדמות</h2>
+              <h2 style={{ ...sectionTitle, fontSize: TOKEN.font.title }}>הגדרות מתקדמות</h2>
               <p style={{ ...sectionHint }}>
                 טיוטות פתיחה נשלטות ממצב העבודה למעלה. כאן רק פרטים טכניים.
               </p>
-              <p style={{ margin: "0 0 12px", fontSize: 14, color: "#64748b", lineHeight: 1.5 }}>
+              <p style={{ margin: "0 0 12px", fontSize: TOKEN.font.body, color: TOKEN.ink.muted, lineHeight: 1.5 }}>
                 {workMode === "SMART_DRAFTS"
                   ? "טיוטות הבוט מוצגות באינבוקס — אתם שולחים ידנית."
                   : workMode === "MANUAL"
@@ -803,30 +809,30 @@ export default function BusinessBotSettingsPage() {
               >
                 <span
                   style={{
-                    fontSize: 12,
+                    fontSize: TOKEN.font.meta,
                     padding: "6px 12px",
-                    borderRadius: 999,
-                    background: "#e2e8f0",
-                    color: "#475569",
-                    fontWeight: 600,
+                    borderRadius: TOKEN.radius.pill,
+                    background: TOKEN.border.DEFAULT,
+                    color: TOKEN.ink.secondary,
+                    fontWeight: TOKEN.weight.semibold,
                   }}
                 >
                   מצב: Starter
                 </span>
                 <span
                   style={{
-                    fontSize: 12,
+                    fontSize: TOKEN.font.meta,
                     padding: "6px 12px",
-                    borderRadius: 999,
-                    background: "#e2e8f0",
-                    color: "#475569",
-                    fontWeight: 600,
+                    borderRadius: TOKEN.radius.pill,
+                    background: TOKEN.border.DEFAULT,
+                    color: TOKEN.ink.secondary,
+                    fontWeight: TOKEN.weight.semibold,
                   }}
                 >
                   ערוץ: WhatsApp
                 </span>
               </div>
-              <p style={{ margin: "10px 0 0", fontSize: 12, color: "#94a3b8", lineHeight: 1.45 }}>
+              <p style={{ margin: "10px 0 0", fontSize: TOKEN.font.meta, color: TOKEN.ink.meta, lineHeight: 1.45 }}>
                 מצב וערוץ נקבעים כרגע על ידי המערכת — לא ניתן לעריכה כאן.
               </p>
             </section>
@@ -835,18 +841,18 @@ export default function BusinessBotSettingsPage() {
               <div
                 role="alert"
                 style={{
-                  background: "#fef2f2",
-                  color: "#991b1b",
+                  background: TOKEN.semantic.urgent.bgSoft,
+                  color: TOKEN.semantic.urgent.ink,
                   padding: "12px 14px",
-                  borderRadius: 12,
-                  fontSize: 14,
+                  borderRadius: TOKEN.radius.input,
+                  fontSize: TOKEN.font.body,
                 }}
               >
                 {error}
               </div>
             ) : null}
             {savedOk ? (
-              <div style={{ fontSize: 15, color: "#166534", fontWeight: 600 }}>נשמר בהצלחה</div>
+              <div style={{ fontSize: TOKEN.font.body, color: TOKEN.semantic.success.ink, fontWeight: TOKEN.weight.semibold }}>נשמר בהצלחה</div>
             ) : null}
 
             <button
@@ -856,12 +862,12 @@ export default function BusinessBotSettingsPage() {
               style={{
                 width: "100%",
                 padding: "16px 20px",
-                borderRadius: 14,
+                borderRadius: TOKEN.radius.card,
                 border: "none",
-                background: saving ? "#94a3b8" : "#0f172a",
-                color: "#fff",
-                fontSize: 16,
-                fontWeight: 700,
+                background: saving ? TOKEN.ink.meta : TOKEN.ink.primary,
+                color: TOKEN.ink.inverse,
+                fontSize: TOKEN.font.title,
+                fontWeight: TOKEN.weight.bold,
                 cursor: saving ? "not-allowed" : "pointer",
                 minHeight: 52,
               }}
@@ -873,9 +879,9 @@ export default function BusinessBotSettingsPage() {
               <Link
                 href="/business/bot"
                 style={{
-                  fontSize: 15,
-                  fontWeight: 600,
-                  color: "#1d4ed8",
+                  fontSize: TOKEN.font.body,
+                  fontWeight: TOKEN.weight.semibold,
+                  color: TOKEN.brand.mid,
                   textDecoration: "none",
                   textAlign: "center",
                   padding: "10px 0",
@@ -886,9 +892,9 @@ export default function BusinessBotSettingsPage() {
               <Link
                 href="/inbox"
                 style={{
-                  fontSize: 15,
-                  fontWeight: 600,
-                  color: "#334155",
+                  fontSize: TOKEN.font.body,
+                  fontWeight: TOKEN.weight.semibold,
+                  color: TOKEN.ink.secondary,
                   textDecoration: "none",
                   textAlign: "center",
                   padding: "8px 0",
@@ -899,9 +905,9 @@ export default function BusinessBotSettingsPage() {
               <Link
                 href="/business"
                 style={{
-                  fontSize: 14,
-                  fontWeight: 500,
-                  color: "#64748b",
+                  fontSize: TOKEN.font.body,
+                  fontWeight: TOKEN.weight.medium,
+                  color: TOKEN.ink.muted,
                   textDecoration: "none",
                   textAlign: "center",
                 }}

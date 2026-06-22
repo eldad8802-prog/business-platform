@@ -10,6 +10,7 @@ import {
 } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/ui/page-header";
+import { TOKEN } from "@/lib/design/tokens";
 import {
   computeProductCatalogEnabled,
   isValidProductLinkUrl,
@@ -169,10 +170,10 @@ export default function BusinessBotHubPage() {
   }, [settings]);
 
   const cardStyle: CSSProperties = {
-    background: "#fff",
-    border: "1px solid #e2e8f0",
-    borderRadius: 16,
-    padding: 18,
+    background: TOKEN.surface.card,
+    border: `1px solid ${TOKEN.border.DEFAULT}`,
+    borderRadius: TOKEN.radius.modal,
+    padding: TOKEN.space.lg,
     boxSizing: "border-box",
   };
 
@@ -181,12 +182,12 @@ export default function BusinessBotHubPage() {
     width: "100%",
     textAlign: "center",
     padding: "14px 18px",
-    borderRadius: 12,
+    borderRadius: TOKEN.radius.input,
     border: "none",
-    background: "#0f172a",
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: 700,
+    background: TOKEN.ink.primary,
+    color: TOKEN.ink.inverse,
+    fontSize: TOKEN.font.title,
+    fontWeight: TOKEN.weight.bold,
     textDecoration: "none",
     boxSizing: "border-box",
   };
@@ -196,12 +197,12 @@ export default function BusinessBotHubPage() {
     width: "100%",
     textAlign: "center",
     padding: "12px 16px",
-    borderRadius: 12,
-    border: "1px solid #cbd5e1",
-    background: "#f8fafc",
-    color: "#0f172a",
-    fontSize: 15,
-    fontWeight: 600,
+    borderRadius: TOKEN.radius.input,
+    border: `1px solid ${TOKEN.border.hover}`,
+    background: TOKEN.surface.inset,
+    color: TOKEN.ink.primary,
+    fontSize: TOKEN.font.body,
+    fontWeight: TOKEN.weight.semibold,
     textDecoration: "none",
     boxSizing: "border-box",
   };
@@ -213,8 +214,8 @@ export default function BusinessBotHubPage() {
         display: "flex",
         alignItems: "center",
         gap: 10,
-        fontSize: 14,
-        color: done ? "#166534" : "#64748b",
+        fontSize: TOKEN.font.body,
+        color: done ? TOKEN.semantic.success.ink : TOKEN.ink.muted,
         marginBottom: 8,
       }}
     >
@@ -224,7 +225,7 @@ export default function BusinessBotHubPage() {
   );
 
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: "#f8fafc" }}>
+    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <PageHeader
         title="בוט לשיחות"
         backHref="/tools"
@@ -240,18 +241,18 @@ export default function BusinessBotHubPage() {
         }}
       >
         {loading ? (
-          <p style={{ margin: 0, color: "#94a3b8", fontSize: 15 }}>טוען…</p>
+          <p style={{ margin: 0, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען…</p>
         ) : error ? (
-          <p style={{ margin: 0, color: "#b91c1c", fontSize: 15 }}>{error}</p>
+          <p style={{ margin: 0, color: TOKEN.semantic.urgent.ink, fontSize: TOKEN.font.body }}>{error}</p>
         ) : settings ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
             <section style={cardStyle}>
               <p
                 style={{
                   margin: "0 0 8px",
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: "#64748b",
+                  fontSize: TOKEN.font.meta,
+                  fontWeight: TOKEN.weight.bold,
+                  color: TOKEN.ink.muted,
                   letterSpacing: 0.2,
                 }}
               >
@@ -260,24 +261,24 @@ export default function BusinessBotHubPage() {
               <h1
                 style={{
                   margin: "0 0 10px",
-                  fontSize: 22,
-                  fontWeight: 800,
-                  color: "#0f172a",
+                  fontSize: TOKEN.font.hero,
+                  fontWeight: TOKEN.weight.bold,
+                  color: TOKEN.ink.primary,
                   lineHeight: 1.25,
                 }}
               >
                 {derived.headline}
               </h1>
-              <p style={{ margin: 0, fontSize: 15, color: "#475569", lineHeight: 1.55 }}>
+              <p style={{ margin: 0, fontSize: TOKEN.font.body, color: TOKEN.ink.secondary, lineHeight: 1.55 }}>
                 {derived.subline}
               </p>
               {derived.workModeLabel ? (
                 <p
                   style={{
                     margin: "10px 0 0",
-                    fontSize: 13,
-                    color: "#6366f1",
-                    fontWeight: 600,
+                    fontSize: TOKEN.font.meta,
+                    color: TOKEN.brand.mid,
+                    fontWeight: TOKEN.weight.semibold,
                   }}
                 >
                   {derived.workModeLabel}
@@ -288,19 +289,19 @@ export default function BusinessBotHubPage() {
             <section
               style={{
                 ...cardStyle,
-                background: "#f8fafc",
-                borderColor: "#e2e8f0",
+                background: TOKEN.surface.inset,
+                borderColor: TOKEN.border.DEFAULT,
               }}
             >
-              <p style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: "#334155" }}>
+              <p style={{ margin: "0 0 8px", fontSize: TOKEN.font.body, fontWeight: TOKEN.weight.bold, color: TOKEN.ink.secondary }}>
                 אמון ושליטה
               </p>
               <ul
                 style={{
                   margin: 0,
                   paddingRight: 18,
-                  fontSize: 14,
-                  color: "#64748b",
+                  fontSize: TOKEN.font.body,
+                  color: TOKEN.ink.muted,
                   lineHeight: 1.6,
                 }}
               >
@@ -308,7 +309,7 @@ export default function BusinessBotHubPage() {
                 <li>הלקוח לא מקבל הודעות מהבוט לבד</li>
                 <li>בכל שיחה: &quot;אני מטפל מכאן&quot; עוצר טיוטות חדשות</li>
                 <li>
-                  <Link href="/inbox" style={{ color: "#4f46e5", fontWeight: 600 }}>
+                  <Link href="/inbox" style={{ color: TOKEN.brand.mid, fontWeight: TOKEN.weight.semibold }}>
                     מעבר לאינבוקס
                   </Link>{" "}
                   — אותה מערכת, לא כלי נפרד
@@ -320,9 +321,9 @@ export default function BusinessBotHubPage() {
               <p
                 style={{
                   margin: "0 0 12px",
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: "#64748b",
+                  fontSize: TOKEN.font.meta,
+                  fontWeight: TOKEN.weight.bold,
+                  color: TOKEN.ink.muted,
                 }}
               >
                 התקדמות קצרה
@@ -338,21 +339,21 @@ export default function BusinessBotHubPage() {
                 <p
                   style={{
                     margin: "0 0 8px",
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: "#166534",
+                    fontSize: TOKEN.font.meta,
+                    fontWeight: TOKEN.weight.bold,
+                    color: TOKEN.semantic.success.ink,
                   }}
                 >
                   קישור מוצרים
                 </p>
-                <p style={{ margin: "0 0 10px", fontSize: 14, color: "#334155", lineHeight: 1.55 }}>
+                <p style={{ margin: "0 0 10px", fontSize: TOKEN.font.body, color: TOKEN.ink.secondary, lineHeight: 1.55 }}>
                   chip באינבוקס ימלא את ההודעה — אתם שולחים בלחיצה.
                 </p>
                 {!computeProductCatalogEnabled({
                   productLinkEnabled: !!settings.productLinkEnabled,
                   productLinkUrl: settings.productLinkUrl ?? null,
                 }) ? (
-                  <p style={{ margin: "0 0 10px", fontSize: 12, color: "#b45309", lineHeight: 1.45 }}>
+                  <p style={{ margin: "0 0 10px", fontSize: TOKEN.font.meta, color: TOKEN.semantic.attention.ink, lineHeight: 1.45 }}>
                     כדי שהמערכת תוכל להציע את זה בשיחות, הפעילו את המצב בעריכת הבוט תחת
                     &quot;עזרה עם מוצרים&quot;.
                   </p>
@@ -362,11 +363,11 @@ export default function BusinessBotHubPage() {
                     style={{
                       marginBottom: 8,
                       padding: "10px 12px",
-                      borderRadius: 12,
-                      background: "#f8fafc",
-                      border: "1px solid #e2e8f0",
-                      fontSize: 14,
-                      color: "#0f172a",
+                      borderRadius: TOKEN.radius.input,
+                      background: TOKEN.surface.inset,
+                      border: `1px solid ${TOKEN.border.DEFAULT}`,
+                      fontSize: TOKEN.font.body,
+                      color: TOKEN.ink.primary,
                     }}
                   >
                     {(settings.productLinkIntro ?? "").trim()}
@@ -375,13 +376,13 @@ export default function BusinessBotHubPage() {
                 <div
                   style={{
                     padding: "10px 12px",
-                    borderRadius: 12,
-                    background: "#f0fdf4",
-                    border: "1px solid #bbf7d0",
+                    borderRadius: TOKEN.radius.input,
+                    background: TOKEN.semantic.success.bgSoft,
+                    border: `1px solid ${TOKEN.semantic.success.border}`,
                     fontFamily: "ui-monospace, monospace",
-                    fontSize: 13,
+                    fontSize: TOKEN.font.meta,
                     wordBreak: "break-all",
-                    color: "#14532d",
+                    color: TOKEN.semantic.success.ink,
                   }}
                 >
                   {(settings.productLinkUrl ?? "").trim()}
@@ -398,13 +399,13 @@ export default function BusinessBotHubPage() {
               </Link>
             </div>
 
-            <section style={{ ...cardStyle, background: "#f8fafc" }}>
+            <section style={{ ...cardStyle, background: TOKEN.surface.inset }}>
               <p
                 style={{
                   margin: "0 0 10px",
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: "#64748b",
+                  fontSize: TOKEN.font.meta,
+                  fontWeight: TOKEN.weight.bold,
+                  color: TOKEN.ink.muted,
                 }}
               >
                 מה הבוט יודע לעשות כרגע
@@ -413,8 +414,8 @@ export default function BusinessBotHubPage() {
                 style={{
                   margin: 0,
                   paddingInlineStart: 20,
-                  fontSize: 14,
-                  color: "#334155",
+                  fontSize: TOKEN.font.body,
+                  color: TOKEN.ink.secondary,
                   lineHeight: 1.65,
                 }}
               >
