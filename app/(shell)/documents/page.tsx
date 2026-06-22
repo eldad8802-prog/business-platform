@@ -7,7 +7,7 @@ import {
   fetchDocumentsHubSummary,
   fetchDocumentsInbox,
   type DocumentsHubSnapshot,
-} from "@/lib/documents/fetch-inbox";h
+} from "@/lib/documents/fetch-inbox";
 import type { InboxListItem, InboxPagination } from "@/lib/documents/inbox-types";
 import { CATEGORIES, CATEGORY_MAP } from "@/lib/constants/categories";
 
