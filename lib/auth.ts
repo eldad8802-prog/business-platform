@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { prisma } from "./prisma";
 import { verifyAuthToken } from "./auth-token";
 
@@ -33,4 +34,9 @@ export async function getCurrentUser(req: Request) {
     console.error("getCurrentUser error:", error);
     return null;
   }
+}
+
+/** Standard 401 response for routes that require an authenticated user. */
+export function authRequiredResponse(_req: Request): NextResponse {
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }

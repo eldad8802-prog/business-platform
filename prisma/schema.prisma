@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model ContentFeedback {
@@ -145,11 +146,14 @@ model ContentEvent {
 model Business {
   id                        Int                             @id @default(autoincrement())
   name                      String
+  archivedAt                DateTime?
+  archivedByUserId          Int?
   createdAt                 DateTime                        @default(now())
   updatedAt                 DateTime                        @updatedAt
   billingDocuments          BillingDocument[]
   billingAuditEvents        BillingAuditEvent[]
   billingNumberSequences    BillingDocumentNumberSequence[]
+  billingPaymentAllocations BillingPaymentAllocation[]
   profile                   BusinessProfile?
   botSettings               BusinessBotSettings?
   services                  BusinessService[]
@@ -199,6 +203,13 @@ model Business {
   purchaseOrders            PurchaseOrder[]
   receivingSessions         ReceivingSession[]
   suppliers                 Supplier[]
+  archivedByUser              User?                           @relation("BusinessArchivedBy", fields: [archivedByUserId], references: [id], onDelete: SetNull)
+  billingAuthorityConnections BillingAuthorityConnection[]
+  billingAuthoritySubmissions BillingAuthoritySubmission[]
+  parties                     Party[]
+  partyResolutionClaims       PartyResolutionClaim[]
+
+  @@index([archivedAt])
 }
 
 model User {
@@ -219,6 +230,8 @@ model User {
   platformAuditEvents PlatformAuditEvent[]
   productUsageEvents  ProductUsageEvent[]
   appointmentsCreated Appointment[]
+  archivedBusinesses                       Business[]                   @relation("BusinessArchivedBy")
+  billingAuthorityConnectionsOauthAuthorized BillingAuthorityConnection[] @relation("BillingAuthorityOauthAuthorizedBy")
 }
 
 /// Append-only product usage analytics (distinct from weekly `Usage` quota counters).
@@ -410,6 +423,11 @@ model Customer {
   phone            String?
   email            String?
   city             String?
+  /// Registered legal name when different from display `name` (billing snapshots).
+  legalName        String?
+  /// Counterparty tax identifier (ע.מ. / ח.פ. / ת.ז. etc.).
+  taxId            String?
+  taxIdType        CustomerTaxIdType?
   notes            String?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -1037,6 +1055,89 @@ model VendorLearning {
   @@index([vendorName])
 }
 
+// =============================================================================
+// Document Memory & Learning — Phase 1A: Correction Ledger Foundation.
+//
+// Write-only, APPEND-ONLY historical fact store. NOT a learning system.
+// No reads back into the engine, no priors, no re-ranking, no candidate
+// landscape. Scalar-only (no Prisma relations) so existing models are NOT
+// touched; document/business links are plain ids resolved at analysis time.
+// Captured 100% additively and never allowed to fail upload/approve.
+// =============================================================================
+
+/// Engine belief at extraction time (the moment runUnifiedDocumentIntelligence
+/// returns), captured before the chosen-value subset is persisted to
+/// ExtractedData. One row per extraction event (append-only; never updated).
+model ExtractionSnapshot {
+  id            Int      @id @default(autoincrement())
+  documentId    Int
+  businessId    Int
+  occurredAt    DateTime @default(now())
+  sourceChannel String
+
+  // Provenance
+  liveEngineVersion String
+  ocrEngine         String
+  ocrVersion        String
+  ocrTextHash       String?
+
+  // Memory Scope (raw — NO entity resolution, NO normalization)
+  vendorName   String?
+  documentType String?
+  direction    String?
+
+  // Engine belief (denormalized first-class for the key fields)
+  amount             Float?
+  date               DateTime?
+  category           String?
+  confidenceScore    Float?
+  amountConfidence   String?
+  vendorConfidence   String?
+  dateConfidence     String?
+  categoryConfidence String?
+  isFinancial        Boolean?
+  amountEligible     Boolean?
+  financialEvidenceLevel String?
+  guardrailRoute     String?
+
+  // Full, lossless engine result (forward-compatible provenance)
+  rawResult Json
+
+  @@index([documentId])
+  @@index([businessId, occurredAt])
+}
+
+/// Human verdict at approve time, captured before ExtractedData is overwritten.
+/// Stores both the original engine belief and the human-confirmed final value,
+/// plus the raw business context. One row per approve event (append-only).
+model ReviewEvent {
+  id             Int      @id @default(autoincrement())
+  documentId     Int
+  businessId     Int
+  occurredAt     DateTime @default(now())
+  reviewerUserId Int
+
+  // Outcome / document-type context
+  approvedAs        String // "financial" | "document"
+  explicitFinancial Boolean
+  profileId         String?
+
+  // Memory Scope (raw — belief vs human-confirmed)
+  vendorBelief    String?
+  vendorFinal     String?
+  directionBelief String?
+  directionFinal  String?
+
+  // Per-field verdict + delta: { field: { belief, final, verdict, delta? } }
+  verdicts  Json
+  // Lossless provenance
+  rawBelief Json
+  rawFinal  Json
+
+  @@index([documentId])
+  @@index([businessId, occurredAt])
+}
+
 model Usage {
   id         String   @id @default(cuid())
   createdAt  DateTime @default(now())
@@ -1255,6 +1356,7 @@ model SupplierPurchaseDraftLine {
   barcode       String?
   quantity      Float
   unitType      InventoryUnitType?
+  unitCost      Float?
   matchedItemId Int?
   matchScore    Float?
   decision      SupplierLineDecision?
@@ -1402,6 +1504,9 @@ model BillingDocument {
   lockedAt                DateTime?
   legalSnapshotHash       String?
   referenceDocumentId     Int?
+  allocationNumber        String?
+  allocationApprovedAt    DateTime?
+  isEmergencyAllocation   Boolean                @default(false)
   pdfRenderStatus         BillingPdfRenderStatus @default(PENDING)
   pdfTemplateVersion      String?
   pdfStorageKey           String?
@@ -1410,7 +1515,7 @@ model BillingDocument {
   pdfRenderError          String?
   createdAt               DateTime               @default(now())
   updatedAt               DateTime               @updatedAt
-  business                Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business                Business               @relation(fields: [businessId], references: [id], onDelete: Restrict)
   customer                Customer?              @relation(fields: [customerId], references: [id])
   lines                   BillingDocumentLine[]
   auditEvents             BillingAuditEvent[]
@@ -1419,12 +1524,17 @@ model BillingDocument {
   quotesConvertedToHere   BillingDocument[]      @relation("QuoteConvertedToInvoice")
   referencedDocument      BillingDocument?       @relation("BillingDocumentReversalReference", fields: [referenceDocumentId], references: [id], onDelete: Restrict)
   creditNotes             BillingDocument[]      @relation("BillingDocumentReversalReference")
+  authoritySubmission     BillingAuthoritySubmission?
+  receiptPayments             BillingReceiptPayment[]
+  paymentAllocationsAsReceipt BillingPaymentAllocation[] @relation("ReceiptAllocations")
+  paymentAllocationsAsInvoice BillingPaymentAllocation[] @relation("InvoiceAllocations")
 
   @@unique([businessId, documentType, documentNumber])
   @@index([businessId, status, issuedAt])
   @@index([businessId, createdAt])
   @@index([businessId, customerId])
   @@index([businessId, referenceDocumentId])
+  @@index([businessId, allocationNumber])
   @@index([pdfRenderStatus])
 }
 
@@ -1476,9 +1586,50 @@ model BillingDocumentNumberSequence {
   nextNumber   Int                 @default(1)
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
-  business     Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business     Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
 
   @@unique([businessId, documentType])
+}
+
+model BillingReceiptPayment {
+  id                Int             @id @default(autoincrement())
+  billingDocumentId Int
+  lineIndex         Int
+  method            PaymentMethod
+  amount            Decimal         @db.Decimal(18, 2)
+  currency          String          @default("ILS")
+  paymentDate       DateTime
+  bankName          String?
+  bankBranch        String?
+  bankAccountNumber String?
+  checkNumber       String?
+  checkDueDate      DateTime?
+  cardBrand         String?
+  cardLast4         String?
+  reference         String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  document          BillingDocument @relation(fields: [billingDocumentId], references: [id], onDelete: Cascade)
+
+  @@unique([billingDocumentId, lineIndex])
+  @@index([billingDocumentId])
+}
+
+model BillingPaymentAllocation {
+  id                Int             @id @default(autoincrement())
+  businessId        Int
+  receiptDocumentId Int
+  invoiceDocumentId Int
+  allocatedAmount   Decimal         @db.Decimal(18, 2)
+  currency          String          @default("ILS")
+  createdAt         DateTime        @default(now())
+  business          Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  receiptDocument   BillingDocument @relation("ReceiptAllocations", fields: [receiptDocumentId], references: [id], onDelete: Restrict)
+  invoiceDocument   BillingDocument @relation("InvoiceAllocations", fields: [invoiceDocumentId], references: [id], onDelete: Restrict)
+
+  @@unique([receiptDocumentId, invoiceDocumentId])
+  @@index([businessId, invoiceDocumentId])
+  @@index([businessId, receiptDocumentId])
 }
 
 model FinancialEvent {
@@ -1496,11 +1647,150 @@ model FinancialEvent {
   billingDocumentId Int?                     @unique
   createdAt         DateTime                 @default(now())
   updatedAt         DateTime                 @updatedAt
-  business          Business                 @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  billingDocument   BillingDocument?         @relation(fields: [billingDocumentId], references: [id], onDelete: Cascade)
+  business          Business                 @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  billingDocument   BillingDocument?         @relation(fields: [billingDocumentId], references: [id], onDelete: Restrict)
 
   @@unique([businessId, sourceType, sourceKey])
   @@index([businessId, occurredAt])
+}
+
+model BillingAuthorityApp {
+  id                       Int                         @id @default(autoincrement())
+  environment              BillingAuthorityEnvironment
+  status                   BillingAuthorityAppStatus   @default(ACTIVE)
+  accountingSoftwareNumber String
+  itaClientId              String?
+  clientSecretEncrypted    String?
+  clientSecretIv           String?
+  clientSecretTag          String?
+  encryptionKeyId          String?
+  portalOrganizationId     String?
+  portalApplicationId      String?
+  registeredAt             DateTime?
+  lastValidatedAt          DateTime?
+  lastErrorCode            String?
+  lastErrorMessage         String?
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
+
+  @@unique([environment])
+  @@index([status])
+}
+
+model BillingAuthorityConnection {
+  id                      Int                              @id @default(autoincrement())
+  businessId              Int
+  environment             BillingAuthorityEnvironment
+  status                  BillingAuthorityConnectionStatus @default(DISCONNECTED)
+  clientSoftwareKey       String?
+  accessTokenEncrypted    String?
+  accessTokenIv           String?
+  accessTokenTag          String?
+  refreshTokenEncrypted   String?
+  refreshTokenIv          String?
+  refreshTokenTag         String?
+  encryptionKeyId         String?
+  accessTokenExpiresAt    DateTime?
+  refreshTokenExpiresAt   DateTime?
+  oauthAuthorizedAt       DateTime?
+  oauthAuthorizedByUserId Int?
+  lastTokenRefreshAt      DateTime?
+  lastValidatedAt         DateTime?
+  revokedAt               DateTime?
+  lastErrorCode           String?
+  lastErrorMessage        String?
+  createdAt               DateTime                         @default(now())
+  updatedAt               DateTime                         @updatedAt
+
+  business              Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  oauthAuthorizedByUser User?    @relation("BillingAuthorityOauthAuthorizedBy", fields: [oauthAuthorizedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, environment])
+  @@index([businessId, status])
+  @@index([environment, status])
+  @@index([status, refreshTokenExpiresAt])
+  @@index([businessId, oauthAuthorizedAt])
+}
+
+model BillingAuthoritySubmission {
+  id                     Int                               @id @default(autoincrement())
+  businessId             Int
+  billingDocumentId      Int                               @unique
+  status                 BillingAuthoritySubmissionStatus  @default(READY)
+  submissionChannel      BillingAuthoritySubmissionChannel @default(STANDARD)
+  legalSnapshotHash      String?
+  authorityPayloadHash   String?
+  authorityResponseHash  String?
+  authoritySubmissionId  String?
+  allocationNumber       String?
+  isEmergencyAllocation  Boolean                           @default(false)
+  batchId                String?
+  batchItemIndex         Int?
+  heldDecisionType       BillingAuthorityDecisionType?
+  heldDecisionReportedAt DateTime?
+  submittedAt            DateTime?
+  approvedAt             DateTime?
+  rejectedAt             DateTime?
+  lastAttemptAt          DateTime?
+  errorCode              String?
+  errorMessage           String?
+  retryCount             Int                               @default(0)
+  createdAt              DateTime                          @default(now())
+  updatedAt              DateTime                          @updatedAt
+
+  business        Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  billingDocument BillingDocument @relation(fields: [billingDocumentId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, status])
+  @@index([businessId, lastAttemptAt])
+  @@index([businessId, approvedAt])
+  @@index([status, lastAttemptAt])
+  @@index([batchId])
+}
+
+model Party {
+  id        Int      @id @default(autoincrement())
+  businessId Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  claims   PartyResolutionClaim[]
+
+  @@index([businessId])
+}
+
+model PartyResolutionClaim {
+  id               Int                    @id @default(autoincrement())
+  businessId       Int
+  partyId          Int
+  subjectType      PartyRoleType
+  subjectId        Int
+  signalType       PartySignalType?
+  signalValue      String?
+  confidence       PartyClaimConfidence
+  method           PartyResolutionMethod  @default(DETERMINISTIC_EXACT)
+  source           String
+  resolvedByUserId Int?
+  status           PartyClaimStatus       @default(ACTIVE)
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  party    Party    @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, subjectType, subjectId])
+  @@index([businessId, signalType, signalValue])
+  @@index([businessId, partyId])
+  @@index([businessId, status])
+}
+
+enum CustomerTaxIdType {
+  AUTHORIZED_DEALER
+  EXEMPT_DEALER
+  LTD_COMPANY
+  PRIVATE_ID
+  OTHER
 }
 
 enum EmailProvider {
@@ -1837,6 +2127,18 @@ enum BillingDocumentType {
   TAX_INVOICE
   QUOTE
   CREDIT_NOTE
+  RECEIPT
+  TAX_INVOICE_RECEIPT
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CHECK
+  CREDIT_CARD
+  BIT
+  PAYBOX
+  OTHER
 }
 
 enum BillingDocumentStatus {
@@ -1849,6 +2151,48 @@ enum BillingPdfRenderStatus {
   PENDING
   RENDERED
   FAILED
+}
+
+enum BillingAuthorityEnvironment {
+  SANDBOX
+  PRODUCTION
+}
+
+enum BillingAuthorityAppStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum BillingAuthorityConnectionStatus {
+  DISCONNECTED
+  AUTHORIZATION_REQUIRED
+  CONNECTED
+  VALIDATED
+  ERROR
+  REVOKED
+}
+
+enum BillingAuthoritySubmissionStatus {
+  NOT_REQUIRED
+  READY
+  PENDING
+  SUBMITTED
+  APPROVED
+  REJECTED
+  FAILED
+}
+
+enum BillingAuthoritySubmissionChannel {
+  STANDARD
+  MULTI_BATCH
+  EMERGENCY
+}
+
+enum BillingAuthorityDecisionType {
+  ABANDONED
+  PROCEED_WITHOUT_ALLOCATION
+  REVERSE_CHARGE
+  HEARING_REQUESTED
 }
 
 enum FinancialEventDirection {
@@ -1887,4 +2231,32 @@ enum SourceChannel {
   PUBLIC_BOOKING
   EXTERNAL_API
   IMPORT
+}
+
+enum PartyRoleType {
+  CUSTOMER
+  LEAD
+}
+
+enum PartySignalType {
+  PHONE
+  TAX_ID
+}
+
+enum PartyClaimConfidence {
+  KNOWN
+  BELIEVED
+  SUSPECTED
+  UNKNOWN
+}
+
+enum PartyResolutionMethod {
+  DETERMINISTIC_EXACT
+  SELF_ANCHOR
+}
+
+enum PartyClaimStatus {
+  ACTIVE
+  CHALLENGED
+  RETRACTED
 }
