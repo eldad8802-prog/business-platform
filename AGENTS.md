@@ -39,3 +39,13 @@ Authority / SHAAM readiness foundation planning is defined in `docs/billing-auth
 
 Do not introduce Billing behavior that mutates issued invoices, weakens numbering, bypasses auditability, implies unsupported payment/authority states, or creates legal reversal through deletion/editing instead of explicit lifecycle records.
 <!-- END:billing-compliance-rules -->
+
+<!-- BEGIN:supplier-domain-rules -->
+# Supplier Domain rule (MANDATORY): Supplier-assisted Restocking
+
+Every change to Suppliers, Purchasing, Supplier Catalog, Product Mapping, Purchase Orders, or Receiving must follow the canonical constitution in `docs/dubiz-supplier-domain-constitution-v1.md` (v1.2, LOCKED). The derived domain model is in `docs/dubiz-supplier-domain-design-v1.md`.
+
+Non-negotiable invariants: Inventory Item is the System of Record of Physical Reality (changes only via append-only movements; from the supplier domain only via Receiving). Supplier = Role on Party (identity via Party/Entity Resolution), never a free-text root entity. Supplier catalog/price/availability/status = External Account → Evidence (Reported Reality), advisory only, never the record. Product Mapping = Entity Resolution applied to Products (corrigible binding-belief with confidence + provenance, fail-safe no-auto-merge), never a hard table. PO = Commitment Reality, Receiving = Physical Settlement — never collapse them (no "approval = full receiving"). No "Signal" primitive. Financial settlement stays in Documents.
+
+Anti-goals (do not build): ERP lifecycle, Marketplace/discovery, Supplier CRM, three-way matching, AP/accounting, supplier portal, catalog-as-master, auto-procurement.
+<!-- END:supplier-domain-rules -->
