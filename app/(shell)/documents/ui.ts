@@ -1,3 +1,5 @@
+import { TOKEN } from "@/lib/design/tokens";
+
 export const layout = {
   minHeight: "100vh",
   background: "#f8fafc",
@@ -69,14 +71,14 @@ export const primaryBtn = {
   width: "100%",
   minHeight: 54,
   padding: 14,
-  background: "linear-gradient(180deg, #176bff 0%, #0050e6 100%)",
+  background: TOKEN.brand.gradient,
   color: "#ffffff",
   border: "none",
   borderRadius: 18,
   fontSize: 15,
   fontWeight: 950,
   marginTop: 16,
-  boxShadow: "0 14px 26px rgba(7, 91, 255, 0.24)",
+  boxShadow: "0 14px 26px rgba(36, 59, 87, 0.24)",
 };
 
 export const secondaryBtn = {

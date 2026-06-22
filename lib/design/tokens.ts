@@ -35,6 +35,31 @@ export const TOKEN = {
     inverse: "#FFFFFF",
   },
 
+  /**
+   * Dubiz brand — navy→denim. The primary brand expression for action surfaces:
+   * primary/CTA buttons, active/selected states, selected tabs/chips. Text stays
+   * ink, surfaces stay white — the brand lives in actions and active states.
+   * Semantic (success/warning/danger) and decorative gradients are NOT brand.
+   */
+  brand: {
+    /** Deep navy — gradient start, solid emphasis on dark surfaces. */
+    navy: "#243B57",
+    /** Middle denim — interactive links, active text, icon accents (AA on white). */
+    mid: "#3F619C",
+    /** Soft light denim — gradient end. */
+    light: "#9DB4D4",
+    /** Primary action / active gradient (navy → light). */
+    gradient: "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)",
+    /** Hover — darken navy side, deepen light side slightly. */
+    gradientHover: "linear-gradient(90deg, #1B2E45 0%, #8AA6CC 100%)",
+    /** Soft tinted fill for active/selected surfaces on white. */
+    soft: "#EEF3F9",
+    /** Border for active/selected surfaces and soft chips. */
+    softBorder: "#C7D6E9",
+    /** Focus ring — brand denim at low alpha. */
+    focus: "rgba(63, 97, 156, 0.35)",
+  },
+
   border: {
     /** Single canonical border for cards, inputs, separators. */
     DEFAULT: "#E5E7EB",

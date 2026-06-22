@@ -2,6 +2,7 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { TOKEN } from "@/lib/design/tokens";
 
 export const inventoryTheme = {
   pageBg: "#f0f4f8",
@@ -12,7 +13,7 @@ export const inventoryTheme = {
   textMuted: "#64748b",
   accent: "#0f766e",
   accentDark: "#0d5c54",
-  primaryBtn: "#5b5bd6",
+  primaryBtn: TOKEN.brand.gradient,
   successBtn: "#059669",
   danger: "#dc2626",
   warning: "#d97706",
