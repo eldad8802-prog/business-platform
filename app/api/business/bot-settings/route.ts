@@ -7,6 +7,25 @@ import {
   MAX_PRODUCT_LINK_INTRO_CHARS,
   MAX_PRODUCT_LINK_URL_CHARS,
 } from "@/lib/inbox-view/product-link-capability";
+import { getBusinessContextByBusinessId } from "@/lib/services/business-context.service";
+
+/**
+ * Read-only business domain (category / sub-category) surfaced alongside bot
+ * settings so a domain-aware bot builder can read it later. Sourced from
+ * `BusinessProfile` via the existing context service — this NEVER mutates
+ * `BusinessBotSettings`, the locked `mode`, or the question flow.
+ */
+type BusinessProfileReadOnly = { category: string | null; subCategory: string | null };
+
+async function loadBusinessProfileReadOnly(
+  businessId: number
+): Promise<BusinessProfileReadOnly> {
+  const ctx = await getBusinessContextByBusinessId(businessId);
+  return {
+    category: ctx.category ?? null,
+    subCategory: ctx.subcategory ?? null,
+  };
+}
 
 const ALLOWED_MODES = new Set(["STARTER"]);
 const ALLOWED_CHANNELS = new Set(["WHATSAPP"]);
@@ -107,16 +126,20 @@ export async function GET(req: Request) {
       return authRequiredResponse(req);
     }
 
-    const row = await prisma.businessBotSettings.findUnique({
-      where: { businessId: user.businessId },
-      select: SETTINGS_SELECT,
-    });
+    const [row, businessProfile] = await Promise.all([
+      prisma.businessBotSettings.findUnique({
+        where: { businessId: user.businessId },
+        select: SETTINGS_SELECT,
+      }),
+      loadBusinessProfileReadOnly(user.businessId),
+    ]);
 
     if (!row) {
       return NextResponse.json({
         success: true,
         persisted: false,
         settings: defaultSettingsPayload(),
+        businessProfile,
       });
     }
 
@@ -129,6 +152,7 @@ export async function GET(req: Request) {
         id,
         updatedAt,
       },
+      businessProfile,
     });
   } catch (error) {
     console.error("BOT_SETTINGS_GET_ERROR:", error);
