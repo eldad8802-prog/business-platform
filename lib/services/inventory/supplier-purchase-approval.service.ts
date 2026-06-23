@@ -8,6 +8,11 @@ import { prisma } from "@/lib/prisma";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
 import { purchaseOrderService } from "@/lib/services/inventory/purchase-order.service";
 import { receivingService } from "@/lib/services/inventory/receiving.service";
+import {
+  ensureSupplierProductTx,
+  learnRepresentationMappingTx,
+  resolveSupplierIdByNameTx,
+} from "@/lib/services/inventory/supplier-identity-learning.service";
 
 type ApproveSupplierPurchaseInput = {
   draftId: number;
@@ -235,6 +240,56 @@ export async function approveSupplierPurchase(
           status: SupplierLineStatus.APPROVED,
         },
       });
+    }
+
+    // 🔒 Supplier Domain Phase 2 — Identity Learning (additive, append-only).
+    // The MERGE/CREATE_NEW decision above IS the human resolution act; here we
+    // persist it as a reusable, corrigible Identity link. Two writes per line:
+    // ensureSupplierProduct (Reported Reality) + learnRepresentationMapping
+    // (HUMAN_CONFIRMED / KNOWN). Precondition-guarded — absence of supplier or
+    // product identity degrades to "no mapping"; learning NEVER blocks approval,
+    // never writes InventoryItem, and carries no price / Measure.
+    const supplierId = await resolveSupplierIdByNameTx(tx, {
+      businessId,
+      supplierName: draft.supplierName,
+    });
+
+    if (supplierId !== null) {
+      const draftLineById = new Map(draft.lines.map((l) => [l.id, l]));
+
+      for (const line of plannedLines) {
+        const draftLine = draftLineById.get(line.draftLineId);
+        if (!draftLine) continue;
+
+        const source = `draft:${draft.id}:line:${draftLine.id}`;
+
+        const ensured = await ensureSupplierProductTx(tx, {
+          businessId,
+          supplierId,
+          externalSku: draftLine.sku,
+          barcode: draftLine.barcode,
+          rawName: draftLine.rawName,
+          source,
+        });
+
+        // No stable supplier-product identity on this line → no mapping.
+        if (!ensured) continue;
+
+        await learnRepresentationMappingTx(tx, {
+          businessId,
+          supplierProductId: ensured.id,
+          inventoryItemId: line.itemId,
+          identitySignal: ensured.identitySignal,
+          source,
+          resolvedByUserId: userId,
+        });
+
+        // Optional forward-link for traceability (Draft → learned identity).
+        await tx.supplierPurchaseDraftLine.update({
+          where: { id: draftLine.id },
+          data: { supplierProductId: ensured.id },
+        });
+      }
     }
 
     await tx.supplierPurchaseDraft.update({

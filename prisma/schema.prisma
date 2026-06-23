@@ -209,6 +209,8 @@ model Business {
   parties                     Party[]
   partyResolutionClaims       PartyResolutionClaim[]
   botFieldAnswers             BotFieldAnswer[]
+  supplierProducts            SupplierProduct[]
+  representationMappings      RepresentationMapping[]
 
   @@index([archivedAt])
 }
@@ -1230,6 +1232,7 @@ model InventoryItem {
   supplierPurchaseDraftLines SupplierPurchaseDraftLine[]
   purchaseOrderLines         PurchaseOrderLine[]
   receivingLines             ReceivingLine[]
+  representationMappings     RepresentationMapping[]
 
   @@index([businessId])
   @@index([sku])
@@ -1400,12 +1403,16 @@ model SupplierPurchaseDraftLine {
   matchScore    Float?
   decision      SupplierLineDecision?
   status        SupplierLineStatus    @default(PENDING)
+  // Phase 2 forward-link: the SupplierProduct identity learned at approval.
+  supplierProductId Int?
   createdAt     DateTime              @default(now())
   draft         SupplierPurchaseDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
   item          InventoryItem?        @relation(fields: [matchedItemId], references: [id])
+  supplierProduct SupplierProduct?    @relation(fields: [supplierProductId], references: [id])
 
   @@index([draftId])
   @@index([matchedItemId])
+  @@index([supplierProductId])
 }
 
 model Supplier {
@@ -1425,11 +1432,76 @@ model Supplier {
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   business            Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  supplierProducts    SupplierProduct[]
 
   @@index([businessId])
   @@index([businessId, isActive])
   @@index([businessId, name])
   @@index([businessId, taxId])
+}
+
+// Supplier Domain Phase 2 — Identity Learning (Reported Reality reference).
+// "How a supplier names a product" — scoped to one Supplier, NEVER a Product
+// Master and NEVER authoritative over InventoryItem. Carries identity signals
+// only (sku / barcode / name): no price, no unit/Measure, no availability.
+// Created lazily inside the approval transaction; deduped per identity signal.
+model SupplierProduct {
+  id             Int                         @id @default(autoincrement())
+  businessId     Int
+  supplierId     Int
+  // Supplier-reported identity signals (Establishing: externalSku, barcode).
+  externalSku    String?
+  barcode        String?
+  // Supporting signal: supplier's display name + a normalized form for lookup.
+  rawName        String?
+  normalizedName String?
+  isActive       Boolean                     @default(true)
+  // Provenance of first observation, e.g. "draft:{id}:line:{lineId}".
+  source         String
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+  business       Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  supplier       Supplier                    @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  mappings       RepresentationMapping[]
+  draftLines     SupplierPurchaseDraftLine[]
+
+  @@index([businessId])
+  @@index([supplierId])
+  @@index([supplierId, externalSku])
+  @@index([supplierId, barcode])
+  @@index([supplierId, normalizedName])
+}
+
+// Supplier Domain Phase 2 — Representation Mapping (Identity dimension only).
+// Mirrors PartyResolutionClaim: a corrigible binding-belief that links a
+// SupplierProduct to an InventoryItem, carrying confidence + method +
+// provenance. Append-only history — superseded rows become RETRACTED, never
+// deleted. Single ACTIVE row per SupplierProduct is enforced in application
+// code (retract-then-insert), matching the PartyResolutionClaim convention.
+// Phase 2 is Identity ONLY — no Measure / unit conversion dimension here.
+model RepresentationMapping {
+  id                 Int                   @id @default(autoincrement())
+  businessId         Int
+  supplierProductId  Int
+  inventoryItemId    Int
+  identityConfidence PartyClaimConfidence
+  method             PartyResolutionMethod @default(HUMAN_CONFIRMED)
+  // Which signal established the link (e.g. "sku" / "barcode" / "name").
+  identitySignal     String?
+  source             String
+  resolvedByUserId   Int?
+  status             PartyClaimStatus      @default(ACTIVE)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  business           Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  supplierProduct    SupplierProduct       @relation(fields: [supplierProductId], references: [id], onDelete: Cascade)
+  inventoryItem      InventoryItem         @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([supplierProductId])
+  @@index([supplierProductId, status])
+  @@index([businessId, inventoryItemId])
+  @@index([businessId, status])
 }
 
 model PurchaseOrder {
