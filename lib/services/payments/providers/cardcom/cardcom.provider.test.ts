@@ -81,6 +81,28 @@ async function main() {
     assert.ok(!JSON.stringify(r).includes("secretpass"));
   }
 
+  // --- 1b. ProductName is truncated to the stricter 50-char limit ---
+  {
+    const { fetchImpl, calls } = mockHttp((url) =>
+      url.includes("/Create")
+        ? { json: { ResponseCode: 0, Url: "https://pay/lp-x", LowProfileId: "lp-x" } }
+        : undefined
+    );
+    const longName = "x".repeat(300);
+    await provider(fetchImpl).createPaymentLink({
+      businessId: 1,
+      paymentRequestId: 7,
+      amount: "10.00",
+      currency: "ILS",
+      description: longName,
+      merchantId: "1000",
+      credential: CRED,
+    });
+    const productName = String(calls[0]!.body!.ProductName);
+    assert.equal(productName.length, 50);
+    assert.equal(productName, "x".repeat(50));
+  }
+
   // --- 2. GetLpResult success => PAID ---
   {
     const { fetchImpl } = mockHttp((url) =>

@@ -45,8 +45,11 @@ const GET_RESULT_PATH = "/api/v11/LowProfile/GetLpResult";
 /** CardCom ISO coin ids. DOCS-CONFIRM. */
 const ISO_COIN_ID: Record<string, number> = { ILS: 1, USD: 2, EUR: 978 };
 
-/** CardCom ProductName length cap (I3.1 verified — keep conservative). */
-const PRODUCT_NAME_MAX = 250;
+/**
+ * CardCom ProductName length cap. Docs conflict (OpenAPI: 250, KB prose: 50);
+ * we use the stricter 50 to avoid runtime rejection by CardCom.
+ */
+const PRODUCT_NAME_MAX = 50;
 
 // --- injectable HTTP (mocked in tests; defaults to global fetch) -----------
 
