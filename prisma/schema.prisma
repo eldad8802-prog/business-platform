@@ -211,6 +211,8 @@ model Business {
   botFieldAnswers             BotFieldAnswer[]
   supplierProducts            SupplierProduct[]
   representationMappings      RepresentationMapping[]
+  catalogSources              CatalogSource[]
+  catalogClaims               CatalogClaim[]
 
   @@index([archivedAt])
 }
@@ -1433,6 +1435,7 @@ model Supplier {
   updatedAt           DateTime           @updatedAt
   business            Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
   supplierProducts    SupplierProduct[]
+  catalogSources      CatalogSource[]
 
   @@index([businessId])
   @@index([businessId, isActive])
@@ -1510,6 +1513,101 @@ model RepresentationMapping {
   @@index([supplierProductId, status])
   @@index([businessId, inventoryItemId])
   @@index([businessId, status])
+}
+
+// Supplier Domain Catalog — provenance anchor for a batch of claims (one import /
+// future sync). Append-only; holds NO catalog values, no record authority, no
+// transport/credentials. The Evidence "Account / Observer" of the claims.
+model CatalogSource {
+  id          Int               @id @default(autoincrement())
+  businessId  Int
+  supplierId  Int
+  sourceType  CatalogSourceType
+  actorUserId Int?
+  occurredAt  DateTime          @default(now())
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+  business    Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  supplier    Supplier          @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  claims      CatalogClaim[]
+
+  @@index([businessId])
+  @@index([supplierId])
+  @@index([businessId, supplierId, occurredAt])
+}
+
+// Supplier Domain Catalog — append-only Claims Ledger ATOM: ONE supplier
+// assertion about ONE attribute of ONE subject at one time, with provenance.
+// Reported Reality — informs the Record, NEVER authors it. The current offer is a
+// DERIVED read-model (no stored "current", no freshness fields here). CONTENT is
+// insert-only; only corrigibility metadata (status/supersededAt/retracted*) may
+// change. Subject is POLYMORPHIC (subjectType+subjectId) with NO FK — and
+// deliberately NO FK to InventoryItem (guard rail: catalog never authors Record).
+model CatalogClaim {
+  id              Int                    @id @default(autoincrement())
+  businessId      Int
+  subjectType     CatalogSubjectType
+  subjectId       Int
+  attribute       CatalogAttribute
+  valueType       CatalogValueType
+  valueNumber     Float?
+  valueText       String?
+  valueBool       Boolean?
+  currency        String?
+  observedAt      DateTime?
+  recordedAt      DateTime               @default(now())
+  sourceId        Int
+  provenanceGrade CatalogProvenanceGrade @default(PROVIDER_ATTESTED)
+  status          CatalogClaimStatus     @default(ACTIVE)
+  supersededAt    DateTime?
+  retractedAt     DateTime?
+  retractedReason String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  business        Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  source          CatalogSource          @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([businessId, subjectType, subjectId, attribute, status], map: "CatalogClaim_subject_attr_status_idx")
+  @@index([businessId, subjectType, subjectId, attribute, observedAt], map: "CatalogClaim_subject_attr_observed_idx")
+  @@index([sourceId])
+  @@index([businessId, status])
+}
+
+enum CatalogSourceType {
+  MANUAL_ENTRY
+  FILE_IMPORT
+}
+
+enum CatalogSubjectType {
+  SUPPLIER_PRODUCT
+  SUPPLIER
+}
+
+enum CatalogAttribute {
+  ASKING_PRICE
+  AVAILABILITY
+  PACKAGE_DESCRIPTION
+  MINIMUM_ORDER_AMOUNT
+  LEAD_TIME_DAYS
+}
+
+enum CatalogValueType {
+  MONEY
+  NUMBER
+  TEXT
+  BOOLEAN
+}
+
+enum CatalogClaimStatus {
+  ACTIVE
+  SUPERSEDED
+  RETRACTED
+}
+
+enum CatalogProvenanceGrade {
+  PROVIDER_ATTESTED
+  INTERPRETED
 }
 
 model PurchaseOrder {
