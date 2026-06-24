@@ -14,6 +14,12 @@ import Link from "next/link";
 import { CustomerPicker } from "@/components/billing/CustomerPicker";
 import { IssuerSummaryBadge } from "@/components/billing/IssuerSummaryBadge";
 import { glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
+import {
+  isPaymentRequestStatus,
+  PAYMENT_REQUEST_STATUS_LABEL,
+  shouldShowCollections,
+  type PaymentRequestStatus,
+} from "@/lib/billing/collections-visibility";
 
 type BillingStatus = "DRAFT" | "PENDING_REVIEW" | "ISSUED";
 
@@ -1837,6 +1843,9 @@ function DocumentBody({
       {issuedFocus ? (
         <>
           <IssuedHero doc={doc} />
+          {shouldShowCollections(doc.documentType, doc.status) ? (
+            <CollectionsSection doc={doc} />
+          ) : null}
           <ReviewSummaryCard doc={doc} />
           {detailsContext}
         </>
@@ -3923,6 +3932,298 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
         </div>
       ) : null}
     </section>
+  );
+}
+
+type PaymentRequestView = {
+  id: number;
+  status: PaymentRequestStatus;
+  amount: string;
+  currency: string;
+  paymentUrl: string | null;
+  createdAt: string;
+};
+
+const PAYMENT_STATUS_STYLE: Record<
+  PaymentRequestStatus,
+  { bg: string; border: string; fg: string }
+> = {
+  PENDING: { bg: "#fffbeb", border: "#fde68a", fg: "#92400e" },
+  PAID: { bg: "#ecfdf5", border: "#bbf7d0", fg: "#166534" },
+  FAILED: { bg: "#fef2f2", border: "#fecaca", fg: "#991b1b" },
+  CANCELLED: { bg: "#f1f5f9", border: "#e2e8f0", fg: "#475569" },
+  EXPIRED: { bg: "#f1f5f9", border: "#e2e8f0", fg: "#475569" },
+};
+
+function toPaymentRequestView(raw: unknown): PaymentRequestView | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.id !== "number" || !isPaymentRequestStatus(r.status)) {
+    return null;
+  }
+  return {
+    id: r.id,
+    status: r.status,
+    amount: typeof r.amount === "string" ? r.amount : String(r.amount ?? ""),
+    currency: typeof r.currency === "string" ? r.currency : "ILS",
+    paymentUrl: typeof r.paymentUrl === "string" ? r.paymentUrl : null,
+    createdAt: typeof r.createdAt === "string" ? r.createdAt : "",
+  };
+}
+
+/**
+ * Collections ("גבייה") for an ISSUED TAX_INVOICE. Connects the existing
+ * payments services to the invoice screen: create a PaymentRequest for the
+ * invoice's open balance, then surface its status + hosted payment link.
+ *
+ * Open balance currently equals the invoice total — there is no receipt/
+ * allocation automation yet (out of P1.2 scope), so nothing has been settled
+ * against the invoice through this flow.
+ */
+function CollectionsSection({ doc }: { doc: BillingDocumentDetail }) {
+  const [loading, setLoading] = useState(true);
+  const [request, setRequest] = useState<PaymentRequestView | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const loadExisting = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = getAuthToken();
+      const res = await fetch(
+        `/api/payments/requests?billingDocumentId=${doc.id}&limit=1`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data?.requests) ? data.requests : [];
+        setRequest(list.length > 0 ? toPaymentRequestView(list[0]) : null);
+      }
+    } catch {
+      // Soft-fail: leave the create action available.
+    } finally {
+      setLoading(false);
+    }
+  }, [doc.id]);
+
+  useEffect(() => {
+    void loadExisting();
+  }, [loadExisting]);
+
+  async function handleCreate() {
+    if (creating) return;
+    setCreating(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const token = getAuthToken();
+      const res = await fetch(`/api/payments/requests`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          billingDocumentId: doc.id,
+          customerId: doc.customerId,
+          amount: doc.totalAmount,
+          currency: doc.currency,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(
+          data && typeof data.error === "string"
+            ? data.error
+            : "לא הצלחנו ליצור בקשת תשלום."
+        );
+        return;
+      }
+      const view = toPaymentRequestView(data);
+      if (!view) {
+        setError("התקבלה תגובה לא תקינה מהשרת.");
+        return;
+      }
+      setRequest(view);
+      setNotice("בקשת תשלום נוצרה.");
+    } catch {
+      setError("לא הצלחנו ליצור בקשת תשלום.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleCopyLink() {
+    if (!request?.paymentUrl) return;
+    try {
+      await navigator.clipboard.writeText(request.paymentUrl);
+      setNotice("קישור התשלום הועתק.");
+    } catch {
+      setError("לא הצלחנו להעתיק את הקישור.");
+    }
+  }
+
+  const openBalance = formatMoney(doc.totalAmount, doc.currency);
+
+  return (
+    <section
+      style={{
+        background: "#ffffff",
+        border: "1px solid #e2e8f0",
+        borderRadius: 14,
+        padding: 18,
+        display: "flex",
+        flexDirection: "column",
+        gap: 14,
+      }}
+    >
+      <div style={{ display: "grid", gap: 4 }}>
+        <span
+          style={{
+            fontSize: 13,
+            fontWeight: 800,
+            color: "#0f172a",
+            letterSpacing: "-0.01em",
+          }}
+        >
+          גבייה
+        </span>
+        <span style={{ fontSize: 14, color: "#475569" }}>
+          יתרה פתוחה: {openBalance}
+        </span>
+      </div>
+
+      {error ? (
+        <div
+          role="alert"
+          style={{
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            color: "#991b1b",
+            borderRadius: 10,
+            padding: "8px 12px",
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}
+        >
+          {error}
+        </div>
+      ) : null}
+
+      {notice ? (
+        <div
+          role="status"
+          style={{
+            background: "#ecfdf5",
+            border: "1px solid #bbf7d0",
+            color: "#166534",
+            borderRadius: 10,
+            padding: "8px 12px",
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}
+        >
+          {notice}
+        </div>
+      ) : null}
+
+      {loading ? (
+        <span style={{ fontSize: 13, color: "#94a3b8" }}>טוען…</span>
+      ) : request ? (
+        <div style={{ display: "grid", gap: 12 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
+            <PaymentStatusBadge status={request.status} />
+            <span style={{ fontSize: 13, color: "#64748b" }}>
+              נוצר: {formatDateTime(request.createdAt)}
+            </span>
+          </div>
+
+          {request.paymentUrl ? (
+            <div
+              dir="ltr"
+              style={{
+                fontSize: 12,
+                color: "#475569",
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: 10,
+                padding: "8px 10px",
+                wordBreak: "break-all",
+                textAlign: "left",
+              }}
+            >
+              {request.paymentUrl}
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={() => void handleCopyLink()}
+            disabled={!request.paymentUrl}
+            style={{
+              ...glassActionStyle({
+                disabled: !request.paymentUrl,
+                fullWidth: true,
+                height: 48,
+              }),
+              fontSize: 15,
+              fontWeight: 800,
+            }}
+          >
+            העתק קישור
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void handleCreate()}
+          disabled={creating}
+          style={{
+            ...primaryActionStyle({
+              disabled: creating,
+              fullWidth: true,
+              height: 48,
+            }),
+            fontSize: 15,
+            fontWeight: 800,
+          }}
+        >
+          {creating ? "יוצר בקשת תשלום…" : "שלח לתשלום"}
+        </button>
+      )}
+    </section>
+  );
+}
+
+function PaymentStatusBadge({ status }: { status: PaymentRequestStatus }) {
+  const style = PAYMENT_STATUS_STYLE[status];
+  return (
+    <span
+      style={{
+        padding: "4px 12px",
+        borderRadius: 999,
+        border: `1px solid ${style.border}`,
+        background: style.bg,
+        color: style.fg,
+        fontSize: 12,
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {PAYMENT_REQUEST_STATUS_LABEL[status]}
+    </span>
   );
 }
 
