@@ -11,7 +11,7 @@ export default function CorporateContactPage() {
   return (
     <CorporateContainer className="py-12 sm:py-16">
       <header className="max-w-3xl">
-        <h1 className="text-3xl font-extrabold leading-tight text-[#0C2138] sm:text-4xl">
+        <h1 className="text-3xl font-extrabold leading-tight text-[var(--mkt-ink)] sm:text-4xl">
           צור קשר
         </h1>
         <p className="mt-4 text-sm leading-7 text-gray-600 sm:text-base">
@@ -23,11 +23,11 @@ export default function CorporateContactPage() {
       <section className="mt-10 max-w-xl rounded-[24px] bg-white p-6 shadow-sm sm:p-7">
         <dl className="space-y-5 text-sm sm:text-base">
           <div>
-            <dt className="font-bold text-[#0C2138]">אימייל</dt>
+            <dt className="font-bold text-[var(--mkt-ink)]">אימייל</dt>
             <dd className="mt-1">
               <a
                 href="mailto:support@promaxgroup.co.il"
-                className="text-[#1E6BFF] underline"
+                className="text-[var(--mkt-link)] underline"
               >
                 support@promaxgroup.co.il
               </a>
@@ -35,22 +35,22 @@ export default function CorporateContactPage() {
           </div>
 
           <div>
-            <dt className="font-bold text-[#0C2138]">טלפון עסקי</dt>
+            <dt className="font-bold text-[var(--mkt-ink)]">טלפון עסקי</dt>
             <dd className="mt-1 text-gray-600">+972-50-566-8802</dd>
           </div>
 
           <div>
-            <dt className="font-bold text-[#0C2138]">כתובת</dt>
+            <dt className="font-bold text-[var(--mkt-ink)]">כתובת</dt>
             <dd className="mt-1 text-gray-600">הקבלן 25 דירה 16, ירושלים</dd>
           </div>
 
           <div>
-            <dt className="font-bold text-[#0C2138]">מפעילת השירות</dt>
+            <dt className="font-bold text-[var(--mkt-ink)]">מפעילת השירות</dt>
             <dd className="mt-1 text-gray-600">PRO MAX GROUP</dd>
           </div>
 
           <div>
-            <dt className="font-bold text-[#0C2138]">עוסק פטור</dt>
+            <dt className="font-bold text-[var(--mkt-ink)]">עוסק פטור</dt>
             <dd className="mt-1 text-gray-600">312260110</dd>
           </div>
         </dl>
