@@ -11,7 +11,7 @@ export default function CorporateTermsPage() {
   return (
     <CorporateContainer className="py-12 sm:py-16">
       <header className="max-w-3xl">
-        <h1 className="text-3xl font-extrabold leading-tight text-[#0C2138] sm:text-4xl">
+        <h1 className="text-3xl font-extrabold leading-tight text-[var(--mkt-ink)] sm:text-4xl">
           תנאי שימוש
         </h1>
         <p className="mt-3 text-sm text-gray-500">עודכן לאחרונה: 4 ביוני 2026</p>
@@ -19,7 +19,7 @@ export default function CorporateTermsPage() {
 
       <div className="mt-10 max-w-3xl space-y-9 text-sm leading-7 text-gray-600 sm:text-base">
         <section>
-          <h2 className="text-lg font-bold text-[#0C2138]">קבלת תנאים</h2>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">קבלת תנאים</h2>
           <p className="mt-3">
             השימוש בשירות Dubiz, המופעל על ידי PRO MAX GROUP, כפוף לתנאים אלה.
             עצם השימוש בשירות מהווה הסכמה לתנאים. אם אינך מסכים לתנאים, אין לעשות
@@ -28,7 +28,7 @@ export default function CorporateTermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold text-[#0C2138]">תיאור השירות</h2>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">תיאור השירות</h2>
           <p className="mt-3">
             Dubiz הוא כלי לניהול עסקי המאפשר ריכוז וניהול של שיחות ולקוחות,
             מסמכים וחשבוניות, מלאי ורכש, וכן הצגת תובנות והמלצות פעולה. היקף
@@ -37,7 +37,7 @@ export default function CorporateTermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold text-[#0C2138]">אחריות המשתמש</h2>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">אחריות המשתמש</h2>
           <p className="mt-3">
             אתה אחראי לפרטי החשבון שלך ולשמירה על סודיות פרטי ההתחברות, וכן לכל
             פעילות המתבצעת בחשבונך. עליך לוודא כי המידע שאתה מזין נכון ומעודכן,
@@ -46,7 +46,7 @@ export default function CorporateTermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold text-[#0C2138]">שימוש מותר ואסור</h2>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">שימוש מותר ואסור</h2>
           <p className="mt-3">
             מותר להשתמש בשירות למטרות עסקיות לגיטימיות בלבד. אסור לעשות בשירות
             שימוש בלתי חוקי, לפגוע באבטחתו או בתקינותו, לנסות לקבל גישה בלתי
@@ -56,7 +56,7 @@ export default function CorporateTermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold text-[#0C2138]">אינטגרציות צד ג&apos;</h2>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">אינטגרציות צד ג&apos;</h2>
           <p className="mt-3">
             השירות עשוי להציע חיבור לשירותים חיצוניים לפי בחירתך. השימוש בשירותים
             אלה כפוף לתנאים ולמדיניות של אותם ספקים, ואיננו אחראים לזמינותם,
@@ -65,7 +65,7 @@ export default function CorporateTermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold text-[#0C2138]">זמינות השירות</h2>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">זמינות השירות</h2>
           <p className="mt-3">
             אנו שואפים לספק שירות זמין ויציב, אך איננו מתחייבים לזמינות רציפה
             וללא הפרעות. ייתכנו פעולות תחזוקה, עדכונים או הפסקות שירות זמניות.
@@ -73,7 +73,7 @@ export default function CorporateTermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold text-[#0C2138]">קניין רוחני</h2>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">קניין רוחני</h2>
           <p className="mt-3">
             כל הזכויות בשירות Dubiz, לרבות התוכנה, העיצוב, הסימנים והתכנים שמקורם
             בנו, שייכות ל-PRO MAX GROUP או לבעלי הזכויות מטעמה. אין להעתיק, לשכפל
@@ -83,7 +83,7 @@ export default function CorporateTermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold text-[#0C2138]">הגבלת אחריות</h2>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">הגבלת אחריות</h2>
           <p className="mt-3">
             השירות מסופק כפי שהוא (&quot;as is&quot;). במידה המרבית המותרת על פי
             דין, PRO MAX GROUP לא תישא באחריות לנזקים עקיפים או תוצאתיים הנובעים
@@ -92,7 +92,7 @@ export default function CorporateTermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold text-[#0C2138]">שינויים בתנאים</h2>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">שינויים בתנאים</h2>
           <p className="mt-3">
             אנו רשאים לעדכן תנאים אלה מעת לעת. המשך השימוש בשירות לאחר עדכון מהווה
             הסכמה לתנאים המעודכנים. מומלץ לעיין בתנאים מעת לעת.
@@ -100,7 +100,7 @@ export default function CorporateTermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold text-[#0C2138]">דין חל</h2>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">דין חל</h2>
           <p className="mt-3">
             על תנאים אלה יחולו דיני מדינת ישראל, וסמכות השיפוט הבלעדית תהא נתונה
             לבתי המשפט המוסמכים בישראל.
@@ -108,12 +108,12 @@ export default function CorporateTermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold text-[#0C2138]">יצירת קשר</h2>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">יצירת קשר</h2>
           <p className="mt-3">
             לשאלות בנוגע לתנאים אלה ניתן לפנות אל PRO MAX GROUP בכתובת{" "}
             <a
               href="mailto:support@promaxgroup.co.il"
-              className="text-[#1E6BFF] underline"
+              className="text-[var(--mkt-link)] underline"
             >
               support@promaxgroup.co.il
             </a>

@@ -8,7 +8,7 @@ import { CorporateContainer } from "./CorporateContainer";
  */
 export function CorporateFooter() {
   return (
-    <footer className="mt-16 border-t border-[#E6ECF5] bg-[#EEF4FF]">
+    <footer className="mt-16 border-t border-[var(--mkt-border)] bg-[var(--mkt-soft)]">
       <CorporateContainer className="py-10">
         <div className="flex flex-col gap-8 sm:flex-row sm:justify-between">
           <div>
@@ -34,19 +34,19 @@ export function CorporateFooter() {
               </p>
               <ul className="mt-3 space-y-2 text-sm">
                 <li>
-                  <Link href="/home" className="text-gray-600 hover:text-[#0C2138]">
+                  <Link href="/home" className="text-gray-600 hover:text-[var(--mkt-ink)]">
                     בית
                   </Link>
                 </li>
                 <li>
-                  <Link href="/about" className="text-gray-600 hover:text-[#0C2138]">
+                  <Link href="/about" className="text-gray-600 hover:text-[var(--mkt-ink)]">
                     אודות
                   </Link>
                 </li>
                 <li>
                   <Link
                     href="/contact"
-                    className="text-gray-600 hover:text-[#0C2138]"
+                    className="text-gray-600 hover:text-[var(--mkt-ink)]"
                   >
                     צור קשר
                   </Link>
@@ -62,13 +62,13 @@ export function CorporateFooter() {
                 <li>
                   <Link
                     href="/privacy"
-                    className="text-gray-600 hover:text-[#0C2138]"
+                    className="text-gray-600 hover:text-[var(--mkt-ink)]"
                   >
                     מדיניות פרטיות
                   </Link>
                 </li>
                 <li>
-                  <Link href="/terms" className="text-gray-600 hover:text-[#0C2138]">
+                  <Link href="/terms" className="text-gray-600 hover:text-[var(--mkt-ink)]">
                     תנאי שימוש
                   </Link>
                 </li>
