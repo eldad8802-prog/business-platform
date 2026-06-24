@@ -122,6 +122,12 @@ export {
 } from "./bot-learning";
 
 export {
+  buildBotComposeContext,
+  applyVoiceToWelcome,
+  type BotComposeContext,
+} from "./bot-compose-context";
+
+export {
   SETUP_STATUSES,
   SETUP_MAX_STEP,
   validateSetupPatch,

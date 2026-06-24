@@ -59,6 +59,12 @@ import {
   type StarterBotSettingsSnapshot,
 } from "@/lib/features/conversation/starter-bot";
 import {
+  isBotComposeContextEnabled,
+  isBotComposeShadowEnabled,
+  isBotVoiceComposeEnabled,
+  loadBotComposeContext,
+} from "@/lib/services/conversation/bot-compose-context.service";
+import {
   logEvent,
   type WhatsAppPipelineEvent,
 } from "@/lib/services/integrations/whatsapp/webhook-events";
@@ -373,7 +379,7 @@ export async function runInboundMessagePipeline(
             handoffRules: botRow.handoffRules,
           };
 
-          const starterDraft = planStarterBotReply({
+          const plannerInput = {
             settings: plannerSettings,
             conversation: {
               id: conversation.id,
@@ -384,7 +390,39 @@ export async function runInboundMessagePipeline(
               stage: analysis.stage,
             },
             nextQuestionIndex: derivedNextQuestionIndex,
-          });
+          };
+
+          // Stage 9 (flag-gated, default OFF → byte-identical to before): build
+          // a read-only compose context and either return the voice-adjusted
+          // draft (9B active) or, in shadow, compute it for observation while
+          // returning the unchanged draft. Any failure falls back to the
+          // already-computed baseline draft. Does NOT touch the draft-only gate.
+          let starterDraft = planStarterBotReply(plannerInput);
+          if (isBotComposeContextEnabled()) {
+            try {
+              const composeContext = await loadBotComposeContext(businessId);
+              if (composeContext) {
+                if (isBotVoiceComposeEnabled()) {
+                  starterDraft = planStarterBotReply(plannerInput, composeContext);
+                } else if (isBotComposeShadowEnabled()) {
+                  const shadowDraft = planStarterBotReply(plannerInput, composeContext);
+                  // Dev-safe shadow log (no message text / PII) — observe only.
+                  console.info("[inbound-pipeline] compose-shadow", {
+                    conversationId: conversation.id,
+                    businessId,
+                    changed: shadowDraft.replyText !== starterDraft.replyText,
+                    oldLength: starterDraft.replyText.length,
+                    newLength: shadowDraft.replyText.length,
+                  });
+                }
+              }
+            } catch (composeErr) {
+              console.warn(
+                "[inbound-pipeline] compose-context failed (ignored):",
+                composeErr
+              );
+            }
+          }
 
           const workMode = resolveBotWorkMode({
             enabled: botRow.enabled,

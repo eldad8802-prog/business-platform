@@ -4,6 +4,10 @@ import type {
   StarterBotReplyKind,
   StarterBotSettingsSnapshot,
 } from "./types";
+import {
+  applyVoiceToWelcome,
+  type BotComposeContext,
+} from "../../bot/bot-compose-context";
 
 function parseQuestionItems(questions: unknown): string[] {
   if (!questions || typeof questions !== "object") return [];
@@ -66,9 +70,15 @@ function noDraft(reason: string): StarterBotPlannerResult {
 
 /**
  * דטרמיניסטי: לפי הגדרות + אינדקס שאלה — בלי LLM ובלי side effects.
+ *
+ * `context` (Stage 9) is OPTIONAL and additive. When absent, output is
+ * byte-for-byte identical to before. When present, the ONLY change is the
+ * WELCOME wording (mechanical voice). Questions, finalAction, replyKind and the
+ * draft-only nature are never affected. The caller decides whether to pass it.
  */
 export function planStarterBotReply(
-  input: StarterBotPlannerInput
+  input: StarterBotPlannerInput,
+  context?: BotComposeContext
 ): StarterBotPlannerResult {
   const { settings } = input;
   const qi = input.nextQuestionIndex ?? 0;
@@ -91,7 +101,11 @@ export function planStarterBotReply(
   const items = parseQuestionItems(settings.questions);
 
   if (qi === 0) {
-    const parts = [welcome];
+    // 9B: mechanical voice transform applies to the WELCOME wording only.
+    const effectiveWelcome = context
+      ? applyVoiceToWelcome(welcome, context)
+      : welcome;
+    const parts = [effectiveWelcome];
     if (items.length > 0) {
       parts.push(items[0]);
     }
