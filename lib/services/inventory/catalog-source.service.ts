@@ -18,6 +18,8 @@ export type CreateCatalogSourceInput = {
   occurredAt?: Date | null;
   /** Batch/import context (file name, row count, …). Never catalog values. */
   metadata?: Prisma.InputJsonValue | null;
+  /** Optional SupplierConnection this batch came through (provenance). */
+  connectionId?: number | null;
 };
 
 /** Create the provenance anchor for a catalog ingestion batch. */
@@ -33,6 +35,7 @@ export function createCatalogSourceTx(
       actorUserId: input.actorUserId ?? null,
       occurredAt: input.occurredAt ?? undefined,
       metadata: input.metadata ?? undefined,
+      connectionId: input.connectionId ?? null,
     },
   });
 }

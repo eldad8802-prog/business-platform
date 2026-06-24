@@ -138,6 +138,8 @@ export type IngestCatalogInput = {
   rows: CatalogImportRow[];
   supplierTerms?: SupplierTermsInput;
   metadata?: Prisma.InputJsonValue | null;
+  /** Optional SupplierConnection this import came through (provenance). */
+  connectionId?: number | null;
 };
 
 export type IngestCatalogResult = {
@@ -166,6 +168,7 @@ export async function ingestCatalogTx(
     sourceType: input.sourceType,
     actorUserId: input.actorUserId ?? null,
     metadata: input.metadata ?? undefined,
+    connectionId: input.connectionId ?? null,
   });
 
   let productsResolved = 0;

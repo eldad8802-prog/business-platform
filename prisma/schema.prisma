@@ -213,6 +213,7 @@ model Business {
   representationMappings      RepresentationMapping[]
   catalogSources              CatalogSource[]
   catalogClaims               CatalogClaim[]
+  supplierConnections         SupplierConnection[]
 
   @@index([archivedAt])
 }
@@ -1436,11 +1437,61 @@ model Supplier {
   business            Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
   supplierProducts    SupplierProduct[]
   catalogSources      CatalogSource[]
+  connections         SupplierConnection[]
 
   @@index([businessId])
   @@index([businessId, isActive])
   @@index([businessId, name])
   @@index([businessId, taxId])
+}
+
+// Supplier Domain — Connections Foundation. Represents HOW a business exchanges
+// data with a supplier (manual / email / CSV import / API placeholder). This is a
+// capability/provenance shell ONLY: no transport, no sync, no credentials, no
+// scheduler. It never authors identity or inventory; catalog data still enters
+// solely via explicit Catalog ingestion, and orders are still shared via the
+// existing sharedAt event.
+model SupplierConnection {
+  id             Int                           @id @default(autoincrement())
+  businessId     Int
+  supplierId     Int
+  connectionType SupplierConnectionType
+  status         SupplierConnectionStatus      @default(ACTIVE)
+  // Capability model only — declares what a connection COULD do; nothing is
+  // executed automatically in this Foundation.
+  capabilities   SupplierConnectionCapability[]
+  metadata       Json?
+  // "Last used to exchange data" (manual import/share). No background sync.
+  lastSyncAt     DateTime?
+  createdAt      DateTime                      @default(now())
+  updatedAt      DateTime                      @updatedAt
+  business       Business                      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  supplier       Supplier                      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  catalogSources CatalogSource[]
+
+  @@index([businessId])
+  @@index([supplierId])
+  @@index([businessId, supplierId])
+  @@index([businessId, status])
+}
+
+enum SupplierConnectionType {
+  MANUAL
+  EMAIL
+  CSV_IMPORT
+  API_PLACEHOLDER
+}
+
+enum SupplierConnectionStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum SupplierConnectionCapability {
+  CAN_IMPORT_CATALOG
+  CAN_RECEIVE_ORDER
+  CAN_REPORT_STATUS
+  CAN_REPORT_AVAILABILITY
 }
 
 // Supplier Domain Phase 2 — Identity Learning (Reported Reality reference).
@@ -1526,14 +1577,19 @@ model CatalogSource {
   actorUserId Int?
   occurredAt  DateTime          @default(now())
   metadata    Json?
+  // Optional provenance: which SupplierConnection this import batch came through.
+  // Nullable — direct/legacy ingestion has no connection. SetNull on delete.
+  connectionId Int?
   createdAt   DateTime          @default(now())
   business    Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
   supplier    Supplier          @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  connection  SupplierConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
   claims      CatalogClaim[]
 
   @@index([businessId])
   @@index([supplierId])
   @@index([businessId, supplierId, occurredAt])
+  @@index([connectionId])
 }
 
 // Supplier Domain Catalog — append-only Claims Ledger ATOM: ONE supplier
