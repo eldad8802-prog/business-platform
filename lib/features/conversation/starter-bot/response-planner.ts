@@ -6,6 +6,7 @@ import type {
 } from "./types";
 import {
   applyVoiceToWelcome,
+  chooseClosingTemplate,
   matchKnowledgeIntent,
   type BotComposeContext,
 } from "../../bot/bot-compose-context";
@@ -151,9 +152,17 @@ export function planStarterBotReply(
   }
 
   const { text, kind } = buildFinalActionText(settings);
+  // 9D: deterministic CLOSING wording only — never for HANDOFF/SEND_LINK, never
+  // changes kind / finalAction / questions. Falls back to `text` when there is
+  // no safe goal/approach template.
+  let closingText = text;
+  if (context && kind === "COMPLETE") {
+    const closing = chooseClosingTemplate(context, settings.finalAction);
+    if (closing) closingText = closing;
+  }
   return {
     shouldDraftReply: true,
-    replyText: text,
+    replyText: closingText,
     replyKind: kind,
     reason: "TERMINAL_CLOSING_AFTER_QUESTIONS",
     nextQuestionIndex: items.length,

@@ -60,6 +60,7 @@ import {
 } from "@/lib/features/conversation/starter-bot";
 import {
   isBotComposeContextEnabled,
+  isBotComposeGoalsApproachEnabled,
   isBotComposeKnowledgeEnabled,
   isBotComposeShadowEnabled,
   isBotVoiceComposeEnabled,
@@ -404,11 +405,13 @@ export async function runInboundMessagePipeline(
             try {
               const voiceArmed = isBotVoiceComposeEnabled();
               const knowledgeArmed = isBotComposeKnowledgeEnabled();
+              const goalsApproachArmed = isBotComposeGoalsApproachEnabled();
               const composeContext = await loadBotComposeContext(businessId, {
                 includeVoice: voiceArmed,
                 includeKnowledge: knowledgeArmed,
+                includeGoalsApproach: goalsApproachArmed,
               });
-              if (composeContext && (voiceArmed || knowledgeArmed)) {
+              if (composeContext && (voiceArmed || knowledgeArmed || goalsApproachArmed)) {
                 const contextForPlanner = {
                   ...composeContext,
                   customerMessageText: labelledMessage.contentText ?? undefined,

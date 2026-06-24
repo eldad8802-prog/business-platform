@@ -125,8 +125,11 @@ export {
   buildBotComposeContext,
   applyVoiceToWelcome,
   matchKnowledgeIntent,
+  deriveComposeStyle,
+  chooseClosingTemplate,
   type BotComposeContext,
   type BotComposeKnowledge,
+  type BotComposeApproach,
   type KnowledgeMatch,
   type KnowledgeMatchType,
 } from "./bot-compose-context";

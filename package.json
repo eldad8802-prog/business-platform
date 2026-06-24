@@ -28,6 +28,7 @@
     "verify:bot-learning": "npx tsx lib/features/bot/bot-learning.verify.test.ts",
     "verify:bot-compose-context": "npx tsx lib/features/bot/bot-compose-context.verify.test.ts",
     "verify:bot-compose-knowledge": "npx tsx lib/features/bot/bot-compose-knowledge.verify.test.ts",
+    "verify:bot-compose-goals-approach": "npx tsx lib/features/bot/bot-compose-goals-approach.verify.test.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

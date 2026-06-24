@@ -34,6 +34,11 @@ export function isBotComposeKnowledgeEnabled(): boolean {
   return envOn("BOT_COMPOSE_KNOWLEDGE_ENABLED");
 }
 
+/** 9D goals/approach — arm the deterministic closing template. Default false. */
+export function isBotComposeGoalsApproachEnabled(): boolean {
+  return envOn("BOT_COMPOSE_GOALS_APPROACH_ENABLED");
+}
+
 /**
  * Read-only load of the compose context for a business. Returns null when there
  * is no BusinessBot (→ caller falls back to existing behaviour). Never writes.
@@ -44,10 +49,15 @@ export function isBotComposeKnowledgeEnabled(): boolean {
  */
 export async function loadBotComposeContext(
   businessId: number,
-  options?: { includeVoice?: boolean; includeKnowledge?: boolean }
+  options?: {
+    includeVoice?: boolean;
+    includeKnowledge?: boolean;
+    includeGoalsApproach?: boolean;
+  }
 ): Promise<BotComposeContext | null> {
   const includeVoice = options?.includeVoice ?? true;
   const includeKnowledge = options?.includeKnowledge ?? false;
+  const includeGoalsApproach = options?.includeGoalsApproach ?? false;
 
   const bot = await prisma.businessBot.findUnique({
     where: { businessId },
@@ -56,6 +66,9 @@ export async function loadBotComposeContext(
       profile: { select: { voice: true, personality: true, approach: true } },
       knowledge: includeKnowledge
         ? { select: { hours: true, address: true, notes: true, faq: true } }
+        : false,
+      goalSelections: includeGoalsApproach
+        ? { select: { goalKey: true } }
         : false,
     },
   });
@@ -66,5 +79,9 @@ export async function loadBotComposeContext(
     displayName: includeVoice ? bot.displayName : null,
     profile: bot.profile,
     knowledge: includeKnowledge ? (bot.knowledge ?? null) : undefined,
+    goals: includeGoalsApproach
+      ? (bot.goalSelections ?? []).map((g) => g.goalKey)
+      : undefined,
+    includeApproach: includeGoalsApproach,
   });
 }
