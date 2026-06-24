@@ -18,6 +18,9 @@ type PurchaseOrderLine = {
   id: number;
   orderedQty: number;
   unitCost: number | null;
+  // Ledger-derived open quantity (from withPurchaseOrderLineQuantities); drives
+  // receive-eligibility instead of the dead AWAITING_DELIVERY status.
+  openQty?: number;
 };
 
 type PurchaseOrder = {
@@ -191,7 +194,14 @@ export default function SupplierPurchasesHubPage() {
               total > 0 ? `₪${total.toLocaleString("he-IL")}` : "",
               date || "",
             ].filter(Boolean);
-            const canReceive = order.status === "AWAITING_DELIVERY";
+            // Phase C — receive-eligibility is DERIVED from the ledger (open
+            // quantity), not the dead AWAITING_DELIVERY status. A PO created via
+            // approve COMMIT_ONLY (status CONFIRMED, openQty > 0) is now receivable.
+            const totalOpenQty = order.lines.reduce(
+              (sum, line) => sum + (line.openQty ?? 0),
+              0
+            );
+            const canReceive = order.status !== "CANCELLED" && totalOpenQty > 0;
             return (
               <InventoryRow
                 key={order.id}
