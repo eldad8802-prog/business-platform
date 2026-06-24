@@ -7,6 +7,7 @@ import { buildAmountPublishDecisionLog } from "./amount-publish-decision.service
 import { decideDocumentExtraction } from "./entities/document-decision.service";
 import { decideCategory } from "./category-decision.service";
 import { normalizeFinancialDocument } from "./financial-normalization.service";
+import { extractFinancialRoles } from "./financial-roles.service";
 import {
   detectDocumentType,
   type DocumentType,
@@ -220,6 +221,11 @@ export type UnifiedDocumentIntelligenceResult = {
   vendorConfidence: ConfidenceLabel;
   dateConfidence: ConfidenceLabel;
   categoryConfidence: ConfidenceLabel;
+  // Phase B — already-detected fields surfaced for persistence (no new detection).
+  // Null when the engine did not detect the field for this document.
+  vendorTaxId: string | null;
+  vatAmount: number | null;
+  subtotalAmount: number | null;
   documentType: DocumentType;
   isFinancial: boolean;
   guardrailRoute: DocumentGuardrailRoute;
@@ -736,6 +742,17 @@ export async function runUnifiedDocumentIntelligence(params: {
     financialEvidenceLevel: evidence.financialEvidenceLevel,
   });
 
+  // Phase B — surface already-detected fields for persistence (no new detection).
+  // Tax id from the resolved vendor entity (fallback: first detected business id).
+  // VAT / subtotal from extractFinancialRoles — the same pure role detector the
+  // amount pipeline already uses (amount-strategy / amount-entity); we only read
+  // its existing output here, no new rules. Null when not detected.
+  const vendorTaxId =
+    entities.vendor.businessId ?? entities.businessIds[0]?.value ?? null;
+  const financialRoles = extractFinancialRoles(cleanedText);
+  const vatAmount = financialRoles.vatAmount?.value ?? null;
+  const subtotalAmount = financialRoles.subtotalAmount?.value ?? null;
+
   return {
     amount: enforcedAmount,
     vendorName: decision.vendorName,
@@ -748,6 +765,9 @@ export async function runUnifiedDocumentIntelligence(params: {
     vendorConfidence: decision.vendorConfidence,
     dateConfidence: decision.dateConfidence,
     categoryConfidence: categoryResult.confidence,
+    vendorTaxId,
+    vatAmount,
+    subtotalAmount,
     documentType: typeDetection.documentType,
     isFinancial: typeDetection.isFinancial,
     guardrailRoute: guardrail.route,

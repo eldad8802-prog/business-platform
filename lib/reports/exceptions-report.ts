@@ -29,7 +29,7 @@ export type ExceptionTypeKey =
   | "MISSING_SOURCE_FILE"
   | "MISSING_VENDOR"
   | "PENDING_NOT_APPROVED"
-  | "MISSING_TAX_ID";
+  | "MISSING_VENDOR_TAX_ID";
 
 export type ExceptionRow = {
   severity: ExceptionSeverity;
@@ -64,7 +64,7 @@ const TYPE_LABEL: Record<ExceptionTypeKey, string> = {
   MISSING_SOURCE_FILE: "קובץ מקור חסר",
   MISSING_VENDOR: "חסר ספק",
   PENDING_NOT_APPROVED: "מסמך לא מאושר",
-  MISSING_TAX_ID: "חסר ח.פ/ע.מ",
+  MISSING_VENDOR_TAX_ID: "חסר ח.פ/ע.מ",
 };
 
 const SEVERITY_LABEL: Record<ExceptionSeverity, string> = {
@@ -80,6 +80,7 @@ export type ApprovedRecordInput = {
   amount: number;
   date: Date;
   vendorName: string;
+  vendorTaxId: string | null;
   document: { id: number; status: string; fileUrl: string | null } | null;
 };
 
@@ -91,6 +92,7 @@ export type PendingDocInput = {
     amount: number | null;
     date: Date | null;
     vendorName: string | null;
+    vendorTaxId: string | null;
   } | null;
 };
 
@@ -199,6 +201,22 @@ export function computeExceptionRows(inputs: ExceptionInputs): ExceptionRow[] {
         })
       );
     }
+
+    if (!hasVendor(r.vendorTaxId)) {
+      rows.push(
+        row({
+          severity: "Warning",
+          typeKey: "MISSING_VENDOR_TAX_ID",
+          recordType: "FinancialRecord",
+          recordId: r.id,
+          date: r.date ?? null,
+          vendor: r.vendorName ?? null,
+          amount: hasValidAmount(r.amount) ? r.amount : null,
+          description: "רשומה מאושרת ללא ח.פ/ע.מ של הספק",
+          suggestedAction: "השלם את מספר העוסק/ח.פ של הספק",
+        })
+      );
+    }
   }
 
   for (const d of pendingDocs) {
@@ -285,24 +303,23 @@ export function computeExceptionRows(inputs: ExceptionInputs): ExceptionRow[] {
         })
       );
     }
-  }
 
-  // Tax-ID checking is NOT AVAILABLE: the extraction layer does not persist a
-  // vendor tax id. Reported honestly as a single Info row (never fabricated).
-  rows.push(
-    row({
-      severity: "Info",
-      typeKey: "MISSING_TAX_ID",
-      recordType: "Document",
-      recordId: 0,
-      date: null,
-      vendor: null,
-      amount: null,
-      description:
-        "בדיקת ח.פ/ע.מ אינה זמינה — מספר עוסק אינו נשמר בשכבת החילוץ (NOT AVAILABLE)",
-      suggestedAction: "—",
-    })
-  );
+    if (!hasVendor(ex?.vendorTaxId)) {
+      rows.push(
+        row({
+          severity: "Warning",
+          typeKey: "MISSING_VENDOR_TAX_ID",
+          recordType: "Document",
+          recordId: d.id,
+          date: ex?.date ?? null,
+          vendor: ex?.vendorName ?? null,
+          amount: hasValidAmount(ex?.amount) ? (ex?.amount as number) : null,
+          description: "מסמך ממתין ללא ח.פ/ע.מ של הספק",
+          suggestedAction: "השלם את מספר העוסק/ח.פ של הספק במסך האימות",
+        })
+      );
+    }
+  }
 
   return rows;
 }
@@ -580,6 +597,7 @@ export async function computeExceptionsForPeriod(
       amount: r.amount,
       date: r.date,
       vendorName: r.vendorName,
+      vendorTaxId: r.vendorTaxId,
       document: r.document
         ? {
             id: r.document.id,
@@ -597,6 +615,7 @@ export async function computeExceptionsForPeriod(
             amount: d.extractedData.amount,
             date: d.extractedData.date,
             vendorName: d.extractedData.vendorName,
+            vendorTaxId: d.extractedData.vendorTaxId,
           }
         : null,
     })),

@@ -48,6 +48,10 @@ export async function createDocumentFromOcrText(params: {
       direction: extracted.direction,
       date: extracted.date,
       confidenceScore: extracted.confidence,
+      // Phase B — persist already-detected fields (null when not detected).
+      vendorTaxId: extracted.vendorTaxId,
+      vatAmount: extracted.vatAmount,
+      subtotalAmount: extracted.subtotalAmount,
     },
   });
 

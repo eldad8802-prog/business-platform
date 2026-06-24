@@ -29,6 +29,7 @@ const cleanApproved: ApprovedRecordInput = {
   amount: 117,
   date: new Date(2026, 5, 10),
   vendorName: "ספק תקין",
+  vendorTaxId: "514999999",
   document: { id: 10, status: "approved", fileUrl: GOOD_FILE },
 };
 
@@ -37,6 +38,7 @@ const missingAmountApproved: ApprovedRecordInput = {
   amount: 0,
   date: new Date(2026, 5, 11),
   vendorName: "ספק",
+  vendorTaxId: "514888888",
   document: { id: 11, status: "approved", fileUrl: "doc-11-aa11bb22.pdf" },
 };
 
@@ -45,6 +47,7 @@ const missingVendorApproved: ApprovedRecordInput = {
   amount: 50,
   date: new Date(2026, 5, 12),
   vendorName: "   ",
+  vendorTaxId: null, // also missing tax id → Warning MISSING_VENDOR_TAX_ID
   document: { id: 12, status: "approved", fileUrl: "doc-12-cc33dd44.pdf" },
 };
 
@@ -52,7 +55,7 @@ const pendingDoc: PendingDocInput = {
   id: 20,
   status: "pending",
   fileUrl: "doc-20-ee55ff66.pdf",
-  extractedData: { amount: null, date: null, vendorName: null },
+  extractedData: { amount: null, date: null, vendorName: null, vendorTaxId: null },
 };
 
 // --- computeExceptionRows ---
@@ -79,7 +82,12 @@ ok("zero amount approved → Critical MISSING_AMOUNT", has("MISSING_AMOUNT", "Cr
 ok("blank vendor approved → Warning MISSING_VENDOR", has("MISSING_VENDOR", "Warning", 3));
 ok("pending doc → Warning PENDING_NOT_APPROVED", has("PENDING_NOT_APPROVED", "Warning", 20));
 ok("pending doc missing amount → Critical", has("MISSING_AMOUNT", "Critical", 20));
-ok("tax-id is a single Info NOT-AVAILABLE row", rows.filter((r) => r.typeKey === "MISSING_TAX_ID").length === 1 && rows.some((r) => r.typeKey === "MISSING_TAX_ID" && r.severity === "Info"));
+
+// Phase B — Missing Vendor Tax ID (Warning), only when the field is empty.
+ok("record WITH tax id → no MISSING_VENDOR_TAX_ID", !has("MISSING_VENDOR_TAX_ID", "Warning", 1) && !has("MISSING_VENDOR_TAX_ID", "Warning", 2));
+ok("approved without tax id → Warning MISSING_VENDOR_TAX_ID", has("MISSING_VENDOR_TAX_ID", "Warning", 3));
+ok("pending without tax id → Warning MISSING_VENDOR_TAX_ID", has("MISSING_VENDOR_TAX_ID", "Warning", 20));
+ok("no NOT-AVAILABLE Info rows remain", rows.every((r) => r.severity !== "Info"));
 
 // --- summarizeExceptions ---
 const result = summarizeExceptions(rows);
@@ -87,15 +95,15 @@ const manualCritical = rows.filter((r) => r.severity === "Critical").length;
 const manualWarning = rows.filter((r) => r.severity === "Warning").length;
 ok("summary critical total matches", result.totals.critical === manualCritical);
 ok("summary warning total matches", result.totals.warning === manualWarning);
-ok("summary has at least one info (tax id)", result.totals.info >= 1);
+ok("summary info total is 0", result.totals.info === 0);
 ok("summary type rows present", result.summary.length > 0);
 
-// --- empty dataset still emits the tax-id info row only ---
+// --- empty dataset → no rows at all ---
 const empty = summarizeExceptions(
   computeExceptionRows({ approvedRecords: [], pendingDocs: [], missingFileDocIds: new Set() })
 );
 ok("empty dataset → no critical", empty.totals.critical === 0);
-ok("empty dataset → 1 info row", empty.totals.info === 1 && empty.totals.total === 1);
+ok("empty dataset → no rows", empty.totals.total === 0);
 
 // --- computeMonthSnapshotHash determinism / order-independence ---
 const recA = { id: 1, amount: 10, date: new Date(2026, 5, 1), vendorName: "A", category: "x", direction: "expense" };

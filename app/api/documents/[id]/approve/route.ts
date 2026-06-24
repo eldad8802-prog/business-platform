@@ -183,6 +183,12 @@ export async function POST(
         );
       }
 
+      // Phase B — carry already-detected fields from ExtractedData to the
+      // approved record (null when not detected). Not user-editable here.
+      const vendorTaxId = document.extractedData?.vendorTaxId ?? null;
+      const vatAmount = document.extractedData?.vatAmount ?? null;
+      const subtotalAmount = document.extractedData?.subtotalAmount ?? null;
+
       const existingRecord = await prisma.financialRecord.findFirst({
         where: { documentId },
       });
@@ -196,6 +202,9 @@ export async function POST(
             category,
             direction,
             date,
+            vendorTaxId,
+            vatAmount,
+            subtotalAmount,
           },
         });
       } else {
@@ -208,6 +217,9 @@ export async function POST(
             category,
             direction,
             date,
+            vendorTaxId,
+            vatAmount,
+            subtotalAmount,
           },
         });
       }

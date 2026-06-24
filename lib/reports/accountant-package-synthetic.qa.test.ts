@@ -50,6 +50,10 @@ type FakeRecord = {
   vendorName: string;
   category: string;
   direction: string;
+  // Phase B
+  vendorTaxId: string | null;
+  vatAmount: number | null;
+  subtotalAmount: number | null;
   document: {
     id: number;
     status: string;
@@ -67,6 +71,7 @@ type FakePending = {
     date: Date | null;
     vendorName: string | null;
     category: string | null;
+    vendorTaxId: string | null;
   } | null;
 };
 
@@ -142,6 +147,9 @@ function approved(
   date: Date,
   vendorName: string,
   hasFile: boolean,
+  taxId: string | null = "514000000",
+  vat: number | null = null,
+  subtotal: number | null = null,
   category = "services",
   direction = "expense"
 ): FakeRecord {
@@ -152,6 +160,9 @@ function approved(
     vendorName,
     category,
     direction,
+    vendorTaxId: taxId,
+    vatAmount: vat,
+    subtotalAmount: subtotal,
     document: {
       id,
       status: "approved",
@@ -165,14 +176,15 @@ function pending(
   id: number,
   amount: number | null,
   date: Date | null,
-  vendorName: string | null
+  vendorName: string | null,
+  taxId: string | null = "514000000"
 ): FakePending {
   return {
     id,
     status: "pending",
     fileUrl: fileName(id),
     createdAt: new Date(2026, 5, 1),
-    extractedData: { amount, date, vendorName, category: "services" },
+    extractedData: { amount, date, vendorName, category: "services", vendorTaxId: taxId },
   };
 }
 
@@ -213,10 +225,11 @@ async function main() {
     // Approved: 2 valid, 1 missing-amount, 1 missing-vendor, 1 missing-file.
     // Pending: 1 full (warning), 1 missing amount+vendor, 1 missing date.
     recordsReturn = [
-      approved(1001, 117, new Date(2026, 5, 5), "ספק א", true),
+      // 1001 carries Phase B fields (tax id + subtotal + vat) for Excel checks.
+      approved(1001, 117, new Date(2026, 5, 5), "ספק א", true, "514111111", 17, 100),
       approved(1002, 200, new Date(2026, 5, 8), "ספק ב", true),
       approved(1003, 0, new Date(2026, 5, 10), "ספק ג", true), // missing amount → Critical
-      approved(1004, 50, new Date(2026, 5, 12), "   ", true), // missing vendor → Warning
+      approved(1004, 50, new Date(2026, 5, 12), "   ", true, null), // missing vendor + missing tax id → 2 Warnings
       approved(1005, 80, new Date(2026, 5, 14), "ספק ה", false), // missing source file → Critical
     ];
     pendingReturn = [
@@ -280,8 +293,8 @@ async function main() {
     });
 
     ok("Details Critical count == 4", critical === 4, { critical });
-    ok("Details Warning count == 5", warning === 5, { warning });
-    ok("Details Info count == 1 (tax id)", info === 1, { info });
+    ok("Details Warning count == 6", warning === 6, { warning });
+    ok("Details Info count == 0 (no NOT-AVAILABLE rows)", info === 0, { info });
     ok(
       "Details shows missing-amount record 1003",
       detailLabels.includes("חסר סכום") && detailIds.includes(1003)
@@ -289,6 +302,10 @@ async function main() {
     ok(
       "Details shows missing source file record 1005",
       detailLabels.includes("קובץ מקור חסר") && detailIds.includes(1005)
+    );
+    ok(
+      "Details shows Missing Vendor Tax ID for record 1004",
+      detailLabels.includes("חסר ח.פ/ע.מ") && detailIds.includes(1004)
     );
     ok("Details shows pending docs 2001-2003", [2001, 2002, 2003].every((id) => detailIds.includes(id)));
 
@@ -305,12 +322,38 @@ async function main() {
     });
     ok("Summary total row present", summaryTotals !== null);
     ok(
-      "Summary totals match details (10/4/5)",
+      "Summary totals match details (10/4/6)",
       summaryTotals !== null &&
         summaryTotals!.total === 10 &&
         summaryTotals!.critical === 4 &&
-        summaryTotals!.warning === 5,
+        summaryTotals!.warning === 6,
       summaryTotals
+    );
+
+    // ---- Phase B: 01_Monthly_Summary.xlsx exposes the new columns + values ----
+    const sumBuf = await jszip.file("01_Monthly_Summary.xlsx")!.async("nodebuffer");
+    const sumWb = new ExcelJS.Workbook();
+    await sumWb.xlsx.load(sumBuf);
+    const sumWs = sumWb.getWorksheet("דוח")!;
+    const headerCells = sumWs.getRow(1).values as unknown[];
+    const headerText = headerCells.map((c) => String(c ?? ""));
+    ok(
+      "Summary has Phase B headers (tax id / subtotal / vat)",
+      headerText.includes("ח.פ/ע.מ") &&
+        headerText.includes('סכום לפני מע"מ') &&
+        headerText.includes('מע"מ'),
+      headerText
+    );
+    // Record 1001 is the earliest date → first data row (row 2). Columns 9/10/11.
+    const firstDataRow = sumWs.getRow(2);
+    ok(
+      "Summary row shows persisted tax id (514111111)",
+      String(firstDataRow.getCell(9).value ?? "") === "514111111"
+    );
+    ok(
+      "Summary row shows persisted subtotal (100) and vat (17)",
+      Number(firstDataRow.getCell(10).value) === 100 &&
+        Number(firstDataRow.getCell(11).value) === 17
     );
 
     // ---- Month Close gate: June (with criticals) is BLOCKED ----

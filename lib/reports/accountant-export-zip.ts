@@ -82,6 +82,11 @@ const REPORT_COLUMN_HEADERS = [
   "סטטוס מסמך",
   "רמת ביטחון בנתונים",
   "קובץ מקור",
+  // Phase B — appended (kept at the end for backwards-compatible column order).
+  // Blank when the field was not detected. "סכום" above is the Total.
+  "ח.פ/ע.מ",
+  'סכום לפני מע"מ',
+  'מע"מ',
 ] as const;
 
 /** Semicolon — `_meta` CSV for scripts / debug. */
@@ -202,6 +207,10 @@ function buildAccountantCsvText(
       mapStatusHe(doc?.status),
       confidence,
       sourceFileLabel(doc ?? undefined),
+      // Phase B — blank when not detected.
+      r.vendorTaxId ?? "",
+      r.subtotalAmount ?? "",
+      r.vatAmount ?? "",
     ].map(escapeCsvField);
     lines.push(row.join(ACCOUNTANT_CSV_SEP));
   }
@@ -218,7 +227,7 @@ function buildAccountantCsvBuffer(
   ]);
 }
 
-const COL_WIDTHS = [14, 28, 16, 12, 12, 14, 22, 36];
+const COL_WIDTHS = [14, 28, 16, 12, 12, 14, 22, 36, 18, 16, 12];
 
 async function buildAccountantXlsxBuffer(
   records: Awaited<ReturnType<typeof loadRecordsForExport>>
@@ -270,6 +279,17 @@ async function buildAccountantXlsxBuffer(
     row.getCell(7).value = confidence;
     row.getCell(8).value = sourceFileLabel(doc ?? undefined);
 
+    // Phase B — appended columns; blank when not detected.
+    if (r.vendorTaxId) row.getCell(9).value = r.vendorTaxId;
+    if (r.subtotalAmount != null) {
+      row.getCell(10).value = Number(r.subtotalAmount);
+      row.getCell(10).numFmt = "#,##0.00";
+    }
+    if (r.vatAmount != null) {
+      row.getCell(11).value = Number(r.vatAmount);
+      row.getCell(11).numFmt = "#,##0.00";
+    }
+
     rowNum += 1;
   }
 
@@ -278,7 +298,7 @@ async function buildAccountantXlsxBuffer(
   if (records.length > 0) {
     ws.autoFilter = {
       from: { row: 1, column: 1 },
-      to: { row: lastDataRow, column: 8 },
+      to: { row: lastDataRow, column: REPORT_COLUMN_HEADERS.length },
     };
 
     const sumAmount = records.reduce(
@@ -434,6 +454,7 @@ export async function appendAccountantPackToArchive(
         amount: r.amount,
         date: r.date,
         vendorName: r.vendorName,
+        vendorTaxId: r.vendorTaxId,
         document: r.document
           ? {
               id: r.document.id,
@@ -451,6 +472,7 @@ export async function appendAccountantPackToArchive(
               amount: d.extractedData.amount,
               date: d.extractedData.date,
               vendorName: d.extractedData.vendorName,
+              vendorTaxId: d.extractedData.vendorTaxId,
             }
           : null,
       })),
