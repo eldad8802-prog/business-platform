@@ -40,6 +40,8 @@ export type BotHubSignals = {
   personalityOk: boolean;
   approachOk: boolean;
   goalsCount: number;
+  /** real business-authored knowledge (FAQ/hours/address/notes) */
+  knowledgeOk: boolean;
 };
 
 export type BotHubAreaStateMap = Record<BotHubAreaId, BotAreaState>;
@@ -60,7 +62,8 @@ export function computeBotAreaStates(signals: BotHubSignals): BotHubAreaStateMap
     voice: voiceState,
     conversation: signals.questionsCount > 0 ? "ready" : "partial",
     approach: signals.approachOk ? "ready" : "partial",
-    knowledge: signals.productLinkOk ? "ready" : "partial",
+    // Stage 4: real knowledge → ready; only a product link / nothing → partial.
+    knowledge: signals.knowledgeOk ? "ready" : "partial",
     // Still no backend in Stage 1.
     memory: "soon",
     autonomy: "partial",

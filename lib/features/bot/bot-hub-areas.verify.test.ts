@@ -23,6 +23,7 @@ const EMPTY: BotHubSignals = {
   personalityOk: false,
   approachOk: false,
   goalsCount: 0,
+  knowledgeOk: false,
 };
 
 // ── 1. all 12 areas present ──────────────────────────────────────────────────
@@ -76,17 +77,27 @@ const EMPTY: BotHubSignals = {
   );
 }
 
-// ── 5. conversation / knowledge / allowed runtime-derived ────────────────────
+// ── 5. conversation / allowed runtime-derived ────────────────────────────────
 {
   const map = computeBotAreaStates({
     ...EMPTY,
     questionsCount: 3,
-    productLinkOk: true,
     finishOk: true,
   });
   assert.equal(map.conversation, "ready");
-  assert.equal(map.knowledge, "ready");
   assert.equal(map.allowed, "ready");
+}
+
+// ── 5b. knowledge: only a product link → partial; real knowledge → ready ─────
+{
+  assert.equal(
+    computeBotAreaStates({ ...EMPTY, productLinkOk: true }).knowledge,
+    "partial"
+  );
+  assert.equal(
+    computeBotAreaStates({ ...EMPTY, knowledgeOk: true }).knowledge,
+    "ready"
+  );
 }
 
 console.log("bot-hub-areas.verify: all assertions passed ✓");

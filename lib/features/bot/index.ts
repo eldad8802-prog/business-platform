@@ -81,3 +81,29 @@ export {
   type GoalDef,
   type GoalCategory,
 } from "./bot-goals";
+
+export {
+  assembleBase,
+  type AssembledBase,
+  type AssembledQuestion,
+  type AssembledItem,
+} from "./bot-setup-assembly";
+
+export {
+  SETUP_STATUSES,
+  SETUP_MAX_STEP,
+  validateSetupPatch,
+  coerceSelectedGoalKeys,
+  type SetupStatus,
+  type SetupDraftPatch,
+} from "./bot-setup";
+
+export {
+  MAX_FAQ_ITEMS,
+  emptyKnowledge,
+  validateKnowledge,
+  coerceKnowledge,
+  hasKnowledgeContent,
+  type BotKnowledge,
+  type FaqItem,
+} from "./bot-knowledge";

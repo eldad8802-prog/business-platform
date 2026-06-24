@@ -45,6 +45,7 @@ type HubPayload = {
     personalityOk: boolean;
     approachOk: boolean;
     goalsCount: number;
+    knowledgeOk: boolean;
   };
   areaStates: Record<AreaIconName, AreaState>;
 };
@@ -78,7 +79,11 @@ function deriveAreas(payload: HubPayload): BuilderArea[] {
         ? `${signals.questionsCount} שאלות legacy`
         : "אין שאלות עדיין",
     approach: signals.approachOk ? "גישה מוגדרת" : "טרם הוגדרה גישה",
-    knowledge: signals.productLinkOk ? "קישור קטלוג פעיל" : "קישור קטלוג לא פעיל",
+    knowledge: signals.knowledgeOk
+      ? "ידע עסקי מוגדר"
+      : signals.productLinkOk
+        ? "קישור קטלוג בלבד"
+        : "טרם הוגדר ידע",
     memory: "זיכרון לקוח מתמשך · בקרוב",
     autonomy: signals.workModeManual ? "רמה 1 · ידני" : "רמה 2 · טיוטות חכמות",
     allowed: signals.finishOk ? "סיום שיחה מוגדר" : "חסר סיום שיחה",

@@ -36,6 +36,7 @@ import {
   VoiceProfileScreen,
 } from "./bot-profile-screens";
 import { GoalsFlagshipScreen } from "./bot-goals-screen";
+import { KnowledgeProfileScreen } from "./bot-knowledge-screen";
 
 type FinalActionValue = FinalAction;
 
@@ -392,7 +393,17 @@ export function BotSettingsEditor({ area }: { area: BotSettingsArea }) {
     return <ConversationFlagshipScreen state={state} />;
   }
   if (area === "knowledge") {
-    return <KnowledgeFlagshipScreen state={state} />;
+    return (
+      <KnowledgeProfileScreen
+        productLinkEnabled={state.productLinkEnabled}
+        setProductLinkEnabled={state.setProductLinkEnabled}
+        productLinkUrl={state.productLinkUrl}
+        setProductLinkUrl={state.setProductLinkUrl}
+        productLinkIntro={state.productLinkIntro}
+        setProductLinkIntro={state.setProductLinkIntro}
+        onSaveSettings={state.handleSave}
+      />
+    );
   }
   if (area === "allowed") {
     return <AllowedFlagshipScreen state={state} />;
@@ -657,65 +668,6 @@ function ConversationFlagshipScreen({ state }: { state: EditorState }) {
             </section>
             <GuardNote>
               Structured Fields v2 לא מחובר כמקור חי במסך הזה. השמירה נשארת על שאלות legacy בלבד.
-            </GuardNote>
-            <div style={{ flex: 1 }} />
-            <StickyActionBar
-              onSave={() => void state.handleSave()}
-              saving={state.saving}
-              saved={state.savedOk}
-              error={state.error}
-              saveLabel="שמור"
-            />
-          </>
-        )}
-      </main>
-    </div>
-  );
-}
-
-function KnowledgeFlagshipScreen({ state }: { state: EditorState }) {
-  return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
-      <main style={builderScreenStyle}>
-        <AreaHeader
-          title="מה הוא יודע"
-          subtitle="בשלב הזה הידע הפעיל הוא קישור קטלוג/דף אחד לשימוש באינבוקס."
-          backHref="/business/bot"
-          backLabel="הבוט שלי"
-        />
-        {state.loading ? (
-          <p style={{ margin: "18px", color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען...</p>
-        ) : (
-          <>
-            <section style={areaPanelStyle}>
-              <ToggleRow
-                label="הצע קישור לקטלוג באינבוקס"
-                hint="כשלקוח מבקש לראות מוצרים, האינבוקס יוכל למלא הודעה עם הקישור."
-                checked={state.productLinkEnabled}
-                onChange={state.setProductLinkEnabled}
-              />
-              <div style={{ display: "grid", gap: 16, padding: "16px 0" }}>
-                <BuilderTextField
-                  label="כתובת דף (URL)"
-                  value={state.productLinkUrl}
-                  onChange={state.setProductLinkUrl}
-                  placeholder="https://..."
-                  type="url"
-                  inputMode="url"
-                  dir="ltr"
-                />
-                <BuilderTextAreaField
-                  label="משפט קצר לפני הקישור"
-                  hint="אופציונלי. יופיע לפני הקישור בהודעה המוצעת."
-                  value={state.productLinkIntro}
-                  onChange={state.setProductLinkIntro}
-                  rows={2}
-                  placeholder="לדוגמה: הנה הקישור לקטלוג שלנו"
-                />
-              </div>
-            </section>
-            <GuardNote>
-              זה לא קטלוג חי ולא מקור ידע חדש. הבוט משתמש רק בקישור שהוגדר כאן.
             </GuardNote>
             <div style={{ flex: 1 }} />
             <StickyActionBar

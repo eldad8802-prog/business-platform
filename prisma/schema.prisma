@@ -398,9 +398,11 @@ model BusinessBot {
   avatar      String?
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
-  business       Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business       Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
   profile        BusinessBotProfile?
   goalSelections BotGoalSelection[]
+  setupDraft     BusinessBotSetupDraft?
+  knowledge      BusinessBotKnowledge?
 }
 
 /// Descriptive, advisory profile branch under `BusinessBot` (Stage 1).
@@ -439,6 +441,45 @@ model BotGoalSelection {
 
   @@unique([botId, goalKey])
   @@index([botId])
+}
+
+/// Setup Wizard staging draft (Stage 3). Staging ONLY.
+///
+/// Holds the in-progress wizard: selected goals, current step, and a FROZEN
+/// `assembledBase` snapshot (copy-with-provenance: each assembled item records
+/// its source goals + the snapshot stamps the catalog version + `assembledAt`).
+/// status stops at REVIEW_READY — there is NO ACTIVATED here. Never writes
+/// BusinessBotSettings, never materializes, never read by the pipeline.
+model BusinessBotSetupDraft {
+  id               Int         @id @default(autoincrement())
+  botId            Int         @unique
+  status           String      @default("DRAFT")
+  currentStep      Int         @default(0)
+  selectedGoalKeys Json?
+  assembledBase    Json?
+  assembledAt      DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  bot              BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+}
+
+/// Advisory business knowledge for the bot builder (Stage 4).
+///
+/// FAQ / hours / address / notes the business wants its bot to "know". ADVISORY
+/// only: NOT read by the response-planner or the pipeline, NOT materialized into
+/// BusinessBotSettings. services/pricing + catalog link keep their existing
+/// sources of truth (BusinessService / BusinessBotSettings.productLink*).
+model BusinessBotKnowledge {
+  id        Int         @id @default(autoincrement())
+  botId     Int         @unique
+  hours     String?
+  address   String?
+  notes     String?
+  faq       Json?
+  version   Int         @default(1)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  bot       BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
 }
 
 /// Structured capture of a customer's answer to a single bot field.

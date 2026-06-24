@@ -7,9 +7,12 @@ import {
   resolveBotWorkMode,
 } from "@/lib/features/conversation/bot-control";
 import {
+  coerceKnowledge,
+  coerceSelectedGoalKeys,
   coerceStoredProfile,
   computeBotAreaStates,
   hasApproachContent,
+  hasKnowledgeContent,
   hasPersonalityContent,
   hasVoiceContent,
 } from "@/lib/features/bot";
@@ -80,7 +83,19 @@ export async function GET(req: Request) {
       }),
       prisma.businessBot.findUnique({
         where: { businessId: user.businessId },
-        include: { profile: true, _count: { select: { goalSelections: true } } },
+        include: {
+          profile: true,
+          knowledge: true,
+          setupDraft: {
+            select: {
+              status: true,
+              currentStep: true,
+              selectedGoalKeys: true,
+              assembledAt: true,
+            },
+          },
+          _count: { select: { goalSelections: true } },
+        },
       }),
     ]);
 
@@ -112,7 +127,18 @@ export async function GET(req: Request) {
       personalityOk: hasPersonalityContent(profile.personality),
       approachOk: hasApproachContent(profile.approach),
       goalsCount: bot?._count?.goalSelections ?? 0,
+      knowledgeOk: hasKnowledgeContent(coerceKnowledge(bot?.knowledge ?? null)),
     };
+
+    const setup = bot?.setupDraft
+      ? {
+          hasDraft: true,
+          status: bot.setupDraft.status,
+          currentStep: bot.setupDraft.currentStep,
+          selectedCount: coerceSelectedGoalKeys(bot.setupDraft.selectedGoalKeys).length,
+          assembled: bot.setupDraft.assembledAt !== null,
+        }
+      : { hasDraft: false, status: "DRAFT", currentStep: 0, selectedCount: 0, assembled: false };
 
     return NextResponse.json({
       success: true,
@@ -124,6 +150,7 @@ export async function GET(req: Request) {
         draftOnly: true,
       },
       signals,
+      setup,
       areaStates: computeBotAreaStates(signals),
     });
   } catch (error) {
