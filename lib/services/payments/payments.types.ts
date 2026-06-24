@@ -13,7 +13,7 @@
  * these unions and Prisma enums — the values are identical by construction.
  */
 
-export type PaymentProvider = "TRANZILA";
+export type PaymentProvider = "TRANZILA" | "CARDCOM";
 
 export type PaymentRequestStatus =
   | "PENDING"

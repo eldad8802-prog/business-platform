@@ -2363,6 +2363,7 @@ model PaymentWebhookEvent {
 
 enum PaymentProvider {
   TRANZILA
+  CARDCOM
 }
 
 enum PaymentRequestStatus {

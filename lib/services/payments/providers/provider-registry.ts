@@ -9,9 +9,13 @@
 import type { PaymentProvider } from "../payments.types";
 import type { PaymentProviderAdapter } from "./payment-provider.types";
 import { tranzilaProvider } from "./tranzila/tranzila.provider";
+import { cardComProvider } from "./cardcom/cardcom.provider";
 
 const REGISTRY: Record<PaymentProvider, PaymentProviderAdapter> = {
   TRANZILA: tranzilaProvider,
+  // CardCom is a registered identity only (I1). The stub fails clearly if
+  // invoked — no integration is implemented yet.
+  CARDCOM: cardComProvider,
 };
 
 export class UnknownPaymentProviderError extends Error {
