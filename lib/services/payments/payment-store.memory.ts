@@ -18,6 +18,7 @@ import type {
   PaymentStore,
   PaymentTransactionRecord,
   PaymentWebhookEventRecord,
+  UpsertConnectionRow,
   WebhookEventPatch,
 } from "./payments.types";
 
@@ -49,6 +50,7 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
     webhookEvents,
 
     seedConnection(connection) {
+      const now = new Date();
       const record: PaymentConnectionRecord = {
         id: ++connectionSeq,
         businessId: connection.businessId,
@@ -59,6 +61,8 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
         credentialTag: connection.credentialTag ?? null,
         encryptionKeyId: connection.encryptionKeyId ?? null,
         isActive: connection.isActive ?? true,
+        createdAt: connection.createdAt ?? now,
+        updatedAt: connection.updatedAt ?? now,
       };
       connections.push(record);
       return record;
@@ -69,6 +73,44 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
         (c) => c.businessId === businessId && c.provider === provider && c.isActive
       );
       return found ?? null;
+    },
+
+    async upsertConnection(row: UpsertConnectionRow) {
+      const existing = connections.find(
+        (c) => c.businessId === row.businessId && c.provider === row.provider
+      );
+      if (existing) {
+        existing.merchantId = row.merchantId;
+        existing.credentialEncrypted = row.credentialEncrypted;
+        existing.credentialIv = row.credentialIv;
+        existing.credentialTag = row.credentialTag;
+        existing.encryptionKeyId = row.encryptionKeyId;
+        existing.isActive = row.isActive;
+        existing.updatedAt = new Date();
+        return { ...existing };
+      }
+      const now = new Date();
+      const record: PaymentConnectionRecord = {
+        id: ++connectionSeq,
+        businessId: row.businessId,
+        provider: row.provider,
+        merchantId: row.merchantId,
+        credentialEncrypted: row.credentialEncrypted,
+        credentialIv: row.credentialIv,
+        credentialTag: row.credentialTag,
+        encryptionKeyId: row.encryptionKeyId,
+        isActive: row.isActive,
+        createdAt: now,
+        updatedAt: now,
+      };
+      connections.push(record);
+      return { ...record };
+    },
+
+    async listConnections(businessId: number) {
+      return connections
+        .filter((c) => c.businessId === businessId)
+        .map((c) => ({ ...c }));
     },
 
     async createPaymentRequest(row: CreatePaymentRequestRow) {
@@ -86,6 +128,7 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
         providerRequestId: null,
         expiresAt: row.expiresAt,
         paidAt: null,
+        createdAt: new Date(),
       };
       requests.push(record);
       return { ...record };
@@ -125,7 +168,13 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
         .filter(
           (r) =>
             r.businessId === businessId &&
-            (options?.status ? r.status === options.status : true)
+            (options?.status ? r.status === options.status : true) &&
+            (options?.customerId != null
+              ? r.customerId === options.customerId
+              : true) &&
+            (options?.billingDocumentId != null
+              ? r.billingDocumentId === options.billingDocumentId
+              : true)
         )
         .slice(-(options?.limit ?? 100))
         .reverse()

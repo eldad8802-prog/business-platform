@@ -7,8 +7,12 @@
  * for Prisma or a provider directly.
  */
 
-import { decryptPaymentCredential } from "./payment-crypto.service";
+import {
+  decryptPaymentCredential,
+  encryptPaymentCredential,
+} from "./payment-crypto.service";
 import { createPaymentPrismaStore } from "./payment-store.prisma";
+import type { PaymentConnectionDeps } from "./payment-connection.service";
 import type {
   CreatePaymentRequestDeps,
 } from "./payment-request.service";
@@ -52,5 +56,12 @@ export function paymentWebhookDeps(): ProcessWebhookDeps {
     store: createPaymentPrismaStore(),
     resolveProvider: resolvePaymentProvider,
     resolveWebhookSecret,
+  };
+}
+
+export function paymentConnectionDeps(): PaymentConnectionDeps {
+  return {
+    store: createPaymentPrismaStore(),
+    encryptCredential: encryptPaymentCredential,
   };
 }

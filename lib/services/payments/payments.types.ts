@@ -57,6 +57,23 @@ export interface PaymentConnectionRecord {
   credentialTag: string | null;
   encryptionKeyId: string | null;
   isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Connection shape safe to return through an API: no credential material at
+ * all. `hasCredential` says whether a secret is stored, without exposing it.
+ */
+export interface PublicPaymentConnection {
+  id: number;
+  businessId: number;
+  provider: PaymentProvider;
+  merchantId: string | null;
+  isActive: boolean;
+  hasCredential: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface PaymentRequestRecord {
@@ -74,6 +91,7 @@ export interface PaymentRequestRecord {
   providerRequestId: string | null;
   expiresAt: Date | null;
   paidAt: Date | null;
+  createdAt: Date;
 }
 
 export interface PaymentTransactionRecord {
@@ -99,6 +117,17 @@ export interface PaymentWebhookEventRecord {
 }
 
 // --- Store inputs --------------------------------------------------------
+
+export interface UpsertConnectionRow {
+  businessId: number;
+  provider: PaymentProvider;
+  merchantId: string | null;
+  credentialEncrypted: string | null;
+  credentialIv: string | null;
+  credentialTag: string | null;
+  encryptionKeyId: string | null;
+  isActive: boolean;
+}
 
 export interface CreatePaymentRequestRow {
   businessId: number;
@@ -145,6 +174,8 @@ export interface WebhookEventPatch {
 
 export interface ListPaymentRequestsOptions {
   status?: PaymentRequestStatus;
+  customerId?: number;
+  billingDocumentId?: number;
   limit?: number;
 }
 
@@ -159,6 +190,14 @@ export interface PaymentStore {
     businessId: number,
     provider: PaymentProvider
   ): Promise<PaymentConnectionRecord | null>;
+
+  /** Create or update a business's connection for a provider (unique per pair). */
+  upsertConnection(
+    row: UpsertConnectionRow
+  ): Promise<PaymentConnectionRecord>;
+
+  /** All connections for a business (credentials included — caller must redact). */
+  listConnections(businessId: number): Promise<PaymentConnectionRecord[]>;
 
   createPaymentRequest(
     row: CreatePaymentRequestRow

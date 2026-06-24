@@ -20,6 +20,7 @@ import type {
   PaymentStore,
   PaymentTransactionRecord,
   PaymentWebhookEventRecord,
+  UpsertConnectionRow,
   WebhookEventPatch,
 } from "./payments.types";
 
@@ -33,6 +34,8 @@ type ConnectionRow = {
   credentialTag: string | null;
   encryptionKeyId: string | null;
   isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 type RequestRow = {
@@ -49,6 +52,7 @@ type RequestRow = {
   providerRequestId: string | null;
   expiresAt: Date | null;
   paidAt: Date | null;
+  createdAt: Date;
 };
 
 type TransactionRow = {
@@ -84,6 +88,8 @@ function toConnectionRecord(row: ConnectionRow): PaymentConnectionRecord {
     credentialTag: row.credentialTag,
     encryptionKeyId: row.encryptionKeyId,
     isActive: row.isActive,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
@@ -102,6 +108,7 @@ function toRequestRecord(row: RequestRow): PaymentRequestRecord {
     providerRequestId: row.providerRequestId,
     expiresAt: row.expiresAt,
     paidAt: row.paidAt,
+    createdAt: row.createdAt,
   };
 }
 
@@ -146,6 +153,44 @@ export function createPaymentPrismaStore(): PaymentStore {
       });
       if (!row || !row.isActive) return null;
       return toConnectionRecord(row);
+    },
+
+    async upsertConnection(row: UpsertConnectionRow) {
+      const saved = await prisma.businessPaymentConnection.upsert({
+        where: {
+          businessId_provider: {
+            businessId: row.businessId,
+            provider: row.provider,
+          },
+        },
+        create: {
+          businessId: row.businessId,
+          provider: row.provider,
+          merchantId: row.merchantId,
+          credentialEncrypted: row.credentialEncrypted,
+          credentialIv: row.credentialIv,
+          credentialTag: row.credentialTag,
+          encryptionKeyId: row.encryptionKeyId,
+          isActive: row.isActive,
+        },
+        update: {
+          merchantId: row.merchantId,
+          credentialEncrypted: row.credentialEncrypted,
+          credentialIv: row.credentialIv,
+          credentialTag: row.credentialTag,
+          encryptionKeyId: row.encryptionKeyId,
+          isActive: row.isActive,
+        },
+      });
+      return toConnectionRecord(saved);
+    },
+
+    async listConnections(businessId: number) {
+      const rows = await prisma.businessPaymentConnection.findMany({
+        where: { businessId },
+        orderBy: { id: "asc" },
+      });
+      return rows.map(toConnectionRecord);
     },
 
     async createPaymentRequest(row: CreatePaymentRequestRow) {
@@ -200,6 +245,12 @@ export function createPaymentPrismaStore(): PaymentStore {
         where: {
           businessId,
           ...(options?.status ? { status: options.status } : {}),
+          ...(options?.customerId != null
+            ? { customerId: options.customerId }
+            : {}),
+          ...(options?.billingDocumentId != null
+            ? { billingDocumentId: options.billingDocumentId }
+            : {}),
         },
         orderBy: { createdAt: "desc" },
         take: options?.limit ?? 100,
