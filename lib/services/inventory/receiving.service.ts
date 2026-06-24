@@ -22,6 +22,10 @@ type ReceivingLineInput = {
   purchaseOrderLineId: number;
   receivedQty: number;
   unitCost?: number | null;
+  // Phase 3 — Measure snapshots (receivedQty/unitCost already in STOCK units).
+  purchaseUnitName?: string | null;
+  receivedPurchaseQty?: number | null;
+  conversionFactor?: number | null;
 };
 
 export type CreateReceivingSessionInput = {
@@ -136,6 +140,15 @@ function normalizeLines(lines: ReceivingLineInput[]) {
       purchaseOrderLineId,
       receivedQty: normalizePositiveNumber(line.receivedQty, "receivedQty"),
       unitCost: normalizeOptionalNonNegativeNumber(line.unitCost, "unitCost"),
+      purchaseUnitName: normalizeText(line.purchaseUnitName),
+      receivedPurchaseQty: normalizeOptionalNonNegativeNumber(
+        line.receivedPurchaseQty,
+        "receivedPurchaseQty"
+      ),
+      conversionFactor: normalizeOptionalNonNegativeNumber(
+        line.conversionFactor,
+        "conversionFactor"
+      ),
     };
   });
 }
@@ -178,6 +191,9 @@ async function validateReceivingLines(
       purchaseOrderLineId: number;
       receivedQty: number;
       unitCost?: number | null;
+      purchaseUnitName?: string | null;
+      receivedPurchaseQty?: number | null;
+      conversionFactor?: number | null;
     }>;
   }
 ) {
@@ -275,6 +291,9 @@ async function validateReceivingLines(
       unitCost: line.unitCost ?? purchaseOrderLine.unitCost ?? null,
       orderedQty: purchaseOrderLine.orderedQty,
       alreadyReceived,
+      purchaseUnitName: line.purchaseUnitName ?? null,
+      receivedPurchaseQty: line.receivedPurchaseQty ?? null,
+      conversionFactor: line.conversionFactor ?? null,
     };
   });
 }
@@ -314,6 +333,9 @@ export const receivingService = {
               itemId: line.itemId,
               receivedQty: line.receivedQty,
               unitCost: line.unitCost,
+              purchaseUnitName: line.purchaseUnitName,
+              receivedPurchaseQty: line.receivedPurchaseQty,
+              conversionFactor: line.conversionFactor,
             })),
           },
         },

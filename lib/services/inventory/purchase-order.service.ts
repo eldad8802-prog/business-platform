@@ -26,6 +26,10 @@ type PurchaseOrderLineInput = {
   orderedQty: number;
   unitCost?: number | null;
   unitType?: InventoryUnitType | null;
+  // Phase 3 — Measure snapshots (orderedQty/unitCost already in STOCK units).
+  purchaseUnitName?: string | null;
+  purchaseQty?: number | null;
+  conversionFactor?: number | null;
 };
 
 export type CreatePurchaseOrderInput = {
@@ -345,6 +349,15 @@ export const purchaseOrderService = {
             "unitCost"
           ),
           unitType: line.unitType ?? matchedItem?.unitType ?? null,
+          purchaseUnitName: normalizeText(line.purchaseUnitName),
+          purchaseQty: normalizeOptionalNonNegativeNumber(
+            line.purchaseQty,
+            "purchaseQty"
+          ),
+          conversionFactor: normalizeOptionalNonNegativeNumber(
+            line.conversionFactor,
+            "conversionFactor"
+          ),
           status: PurchaseOrderLineStatus.ORDERED,
         };
       });

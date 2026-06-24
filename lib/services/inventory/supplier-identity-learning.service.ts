@@ -215,3 +215,121 @@ export async function learnRepresentationMappingTx(
     },
   });
 }
+
+// ── Phase 3 — Measure (Representation Conversion) ────────────────────────────
+// Identity-only Phase 2 said "which product"; Measure says "how many stock-units
+// a supplier unit represents". The factor lives on the ACTIVE mapping row; per-
+// order snapshots on PO/Receiving preserve the factor used at order time.
+
+export type SetRepresentationMeasureInput = {
+  businessId: number;
+  supplierProductId: number;
+  purchaseUnitName?: string | null;
+  /** stock-units per 1 purchase-unit. null clears (→ 1:1); positive sets. */
+  factor: number | null;
+  measureSource: string;
+  measureConfidence?: PartyClaimConfidence | null;
+  resolvedByUserId?: number | null;
+};
+
+function normalizeFactor(factor: number | null | undefined): number | null {
+  if (factor == null) return null;
+  const f = Number(factor);
+  return Number.isFinite(f) && f > 0 ? f : null;
+}
+
+/**
+ * Attach / update the Measure on the ACTIVE mapping of a SupplierProduct. The
+ * factor is the owner's belief (Human-Entered ⇒ default BELIEVED, never KNOWN —
+ * it can be wrong and may rot). Updated in place on the mapping row; the
+ * canonical per-order record is the PO/Receiving snapshot, so historic orders
+ * are never rewritten by a later factor change.
+ */
+export async function setRepresentationMeasureTx(
+  tx: Prisma.TransactionClient,
+  input: SetRepresentationMeasureInput
+): Promise<void> {
+  const active = await tx.representationMapping.findFirst({
+    where: {
+      businessId: input.businessId,
+      supplierProductId: input.supplierProductId,
+      status: PartyClaimStatus.ACTIVE,
+    },
+    select: { id: true },
+  });
+  if (!active) {
+    throw new Error("No active mapping to attach a measure to");
+  }
+
+  await tx.representationMapping.update({
+    where: { id: active.id },
+    data: {
+      purchaseUnitName: (input.purchaseUnitName ?? "").trim() || null,
+      factor: normalizeFactor(input.factor),
+      measureSource: input.measureSource,
+      measureConfidence: input.measureConfidence ?? PartyClaimConfidence.BELIEVED,
+      measureResolvedByUserId: input.resolvedByUserId ?? null,
+    },
+  });
+}
+
+export type EffectiveMeasure = {
+  supplierProductId: number;
+  factor: number | null;
+  purchaseUnitName: string | null;
+};
+
+/**
+ * Read-only lookup of the Measure to apply for a supplier-reported line: find
+ * the existing SupplierProduct (same dedup precedence as ensure) and read its
+ * ACTIVE mapping's factor. No product / no mapping ⇒ null ⇒ caller uses 1:1.
+ * Never writes; never creates.
+ */
+export async function lookupEffectiveMeasureTx(
+  tx: Prisma.TransactionClient,
+  input: {
+    businessId: number;
+    supplierId: number;
+    externalSku?: string | null;
+    barcode?: string | null;
+    rawName?: string | null;
+  }
+): Promise<EffectiveMeasure | null> {
+  const externalSku = (input.externalSku ?? "").trim() || null;
+  const barcode = (input.barcode ?? "").trim() || null;
+  const normalizedName = normalizeSupplierText(input.rawName);
+
+  let lookup: Prisma.SupplierProductWhereInput;
+  if (externalSku) {
+    lookup = { businessId: input.businessId, supplierId: input.supplierId, externalSku };
+  } else if (barcode) {
+    lookup = { businessId: input.businessId, supplierId: input.supplierId, barcode };
+  } else if (normalizedName) {
+    lookup = { businessId: input.businessId, supplierId: input.supplierId, normalizedName };
+  } else {
+    return null;
+  }
+
+  const product = await tx.supplierProduct.findFirst({
+    where: lookup,
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (!product) return null;
+
+  const mapping = await tx.representationMapping.findFirst({
+    where: {
+      businessId: input.businessId,
+      supplierProductId: product.id,
+      status: PartyClaimStatus.ACTIVE,
+    },
+    orderBy: { id: "desc" },
+    select: { factor: true, purchaseUnitName: true },
+  });
+
+  return {
+    supplierProductId: product.id,
+    factor: mapping?.factor ?? null,
+    purchaseUnitName: mapping?.purchaseUnitName ?? null,
+  };
+}

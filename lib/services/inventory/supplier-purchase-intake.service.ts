@@ -43,6 +43,12 @@ function normalizeQuantity(value: number): number {
   return quantity;
 }
 
+function normalizeOptionalUnitCost(value?: number | null): number | null {
+  if (value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 function normalizeOrderDate(value?: Date | string | null): Date | null {
   if (!value) return null;
 
@@ -114,6 +120,9 @@ export async function createSupplierPurchaseDraft(
     barcode: normalizeText(line.barcode),
     quantity: normalizeQuantity(line.quantity),
     unitType: line.unitType ?? InventoryUnitType.UNIT,
+    // Phase 3: the supplier-reported price is PER PURCHASE-UNIT. Persisted so the
+    // approval can derive cost-per-stock-unit via the learned Measure factor.
+    unitCost: normalizeOptionalUnitCost(line.unitCost),
   }));
 
   const draft = await prisma.supplierPurchaseDraft.create({
@@ -132,6 +141,7 @@ export async function createSupplierPurchaseDraft(
           barcode: line.barcode,
           quantity: line.quantity,
           unitType: line.unitType,
+          unitCost: line.unitCost,
           status: SupplierLineStatus.PENDING,
         })),
       },

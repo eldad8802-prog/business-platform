@@ -11,8 +11,14 @@ import { receivingService } from "@/lib/services/inventory/receiving.service";
 import {
   ensureSupplierProductTx,
   learnRepresentationMappingTx,
+  lookupEffectiveMeasureTx,
   resolveSupplierIdByNameTx,
 } from "@/lib/services/inventory/supplier-identity-learning.service";
+import {
+  effectiveFactor,
+  toStockQuantity,
+  toStockUnitCost,
+} from "@/lib/services/inventory/measure-conversion.service";
 
 type ApproveSupplierPurchaseInput = {
   draftId: number;
@@ -140,23 +146,34 @@ export async function approveSupplierPurchase(
 
     // 🔒 בניית שורות ה־PO תוך שמירה על סדר השורות של ה־draft.
     // CREATE_NEW יוצר פריט עם מלאי 0 בלבד — שום תנועת INITIAL_STOCK.
+    // Resolve the supplier ROW once (find-or-create by name) — used by Phase 3 to
+    // read the learned Measure factor and by Phase 2 to hang the SupplierProduct.
+    // null when the draft has no supplier name → 1:1 conversion + no learning.
+    const supplierId = await resolveSupplierIdByNameTx(tx, {
+      businessId,
+      supplierName: draft.supplierName,
+    });
+
     const plannedLines: Array<{
       draftLineId: number;
       itemId: number;
-      quantity: number;
       decision: SupplierLineDecision;
+      // Phase 3 — converted to STOCK units via the learned Measure factor.
+      purchaseQty: number;
+      stockQty: number;
+      stockUnitCost: number | null;
+      purchaseUnitName: string | null;
+      conversionFactor: number;
     }> = [];
 
     for (const draftLine of draft.lines) {
       const inputLine = lineMap.get(draftLine.id)!;
 
+      let itemId: number;
+      let decision: SupplierLineDecision;
       if (inputLine.action === "MERGE") {
-        plannedLines.push({
-          draftLineId: draftLine.id,
-          itemId: inputLine.itemId,
-          quantity: draftLine.quantity,
-          decision: SupplierLineDecision.MERGE,
-        });
+        itemId = inputLine.itemId;
+        decision = SupplierLineDecision.MERGE;
       } else {
         const createdItem = await inventoryService.createItemWithInitialStock(
           {
@@ -172,14 +189,35 @@ export async function approveSupplierPurchase(
           },
           { tx }
         );
-
-        plannedLines.push({
-          draftLineId: draftLine.id,
-          itemId: createdItem.id,
-          quantity: draftLine.quantity,
-          decision: SupplierLineDecision.CREATE_NEW,
-        });
+        itemId = createdItem.id;
+        decision = SupplierLineDecision.CREATE_NEW;
       }
+
+      // 🔒 Phase 3 — Measure: translate the supplier's purchase-unit qty/cost into
+      // Dubiz stock-units using the learned factor (1:1 when no factor is known).
+      // Read-only; Measure NEVER moves stock — only Receiving (below) does.
+      const measure = supplierId
+        ? await lookupEffectiveMeasureTx(tx, {
+            businessId,
+            supplierId,
+            externalSku: draftLine.sku,
+            barcode: draftLine.barcode,
+            rawName: draftLine.rawName,
+          })
+        : null;
+      const factor = measure?.factor ?? null;
+      const purchaseQty = draftLine.quantity;
+
+      plannedLines.push({
+        draftLineId: draftLine.id,
+        itemId,
+        decision,
+        purchaseQty,
+        stockQty: toStockQuantity(purchaseQty, factor),
+        stockUnitCost: toStockUnitCost(draftLine.unitCost ?? null, factor),
+        purchaseUnitName: measure?.purchaseUnitName ?? null,
+        conversionFactor: effectiveFactor(factor),
+      });
     }
 
     // 🔒 Intent: PurchaseOrder (עם traceability ל־draft).
@@ -195,7 +233,11 @@ export async function approveSupplierPurchase(
         sourceSupplierPurchaseDraftId: draft.id,
         lines: plannedLines.map((line) => ({
           itemId: line.itemId,
-          orderedQty: line.quantity,
+          orderedQty: line.stockQty,
+          unitCost: line.stockUnitCost,
+          purchaseUnitName: line.purchaseUnitName,
+          purchaseQty: line.purchaseQty,
+          conversionFactor: line.conversionFactor,
         })),
       },
       { tx }
@@ -214,7 +256,11 @@ export async function approveSupplierPurchase(
         createdByUserId: userId,
         lines: plannedLines.map((line, index) => ({
           purchaseOrderLineId: purchaseOrder.lines[index].id,
-          receivedQty: line.quantity,
+          receivedQty: line.stockQty,
+          unitCost: line.stockUnitCost,
+          purchaseUnitName: line.purchaseUnitName,
+          receivedPurchaseQty: line.purchaseQty,
+          conversionFactor: line.conversionFactor,
         })),
       },
       { tx }
@@ -248,12 +294,7 @@ export async function approveSupplierPurchase(
     // ensureSupplierProduct (Reported Reality) + learnRepresentationMapping
     // (HUMAN_CONFIRMED / KNOWN). Precondition-guarded — absence of supplier or
     // product identity degrades to "no mapping"; learning NEVER blocks approval,
-    // never writes InventoryItem, and carries no price / Measure.
-    const supplierId = await resolveSupplierIdByNameTx(tx, {
-      businessId,
-      supplierName: draft.supplierName,
-    });
-
+    // never writes InventoryItem, and carries no price / Measure here.
     if (supplierId !== null) {
       const draftLineById = new Map(draft.lines.map((l) => [l.id, l]));
 

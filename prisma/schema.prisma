@@ -1488,6 +1488,14 @@ model RepresentationMapping {
   method             PartyResolutionMethod @default(HUMAN_CONFIRMED)
   // Which signal established the link (e.g. "sku" / "barcode" / "name").
   identitySignal     String?
+  // Phase 3 — Measure (Representation Conversion). `factor` = stock-units per 1
+  // purchase-unit; null ⇒ 1:1. Carried on the same mapping row; per-order
+  // snapshots on PO/Receiving lines preserve the factor used at order time.
+  purchaseUnitName        String?
+  factor                  Float?
+  measureConfidence       PartyClaimConfidence?
+  measureSource           String?
+  measureResolvedByUserId Int?
   source             String
   resolvedByUserId   Int?
   status             PartyClaimStatus      @default(ACTIVE)
@@ -1538,6 +1546,11 @@ model PurchaseOrderLine {
   orderedQty               Float
   unitCost                 Float?
   unitType                 InventoryUnitType?
+  // Phase 3 — Measure snapshots (immutable record of the conversion at commit).
+  // orderedQty stays in STOCK units; these preserve the purchase-unit context.
+  purchaseUnitName         String?
+  purchaseQty              Float?
+  conversionFactor         Float?
   status                   PurchaseOrderLineStatus             @default(ORDERED)
   remainingDecision        PurchaseOrderLineRemainingDecision?
   remainingDecisionQty     Float?
@@ -1588,6 +1601,11 @@ model ReceivingLine {
   itemId              Int
   receivedQty         Float
   unitCost            Float?
+  // Phase 3 — Measure snapshots (actual factor applied at this receiving event).
+  // receivedQty stays in STOCK units; these preserve the purchase-unit context.
+  purchaseUnitName    String?
+  receivedPurchaseQty Float?
+  conversionFactor    Float?
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
   receivingSession    ReceivingSession  @relation(fields: [receivingSessionId], references: [id], onDelete: Cascade)
