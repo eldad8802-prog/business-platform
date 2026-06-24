@@ -19,7 +19,7 @@ import type { CSSProperties } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 
 export const marketingVars = {
-  /** Primary CTA + brand "D" — the official Dubiz navy→denim gradient. */
+  /** Primary CTA background — the official Dubiz navy→denim gradient. */
   "--mkt-cta": TOKEN.brand.gradient,
   "--mkt-cta-hover": TOKEN.brand.gradientHover,
   /**
