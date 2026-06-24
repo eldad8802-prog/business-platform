@@ -1,4 +1,5 @@
 import {
+  Prisma,
   PurchaseOrderStatus,
   SupplierLineDecision,
   SupplierLineStatus,
@@ -20,10 +21,82 @@ import {
   toStockUnitCost,
 } from "@/lib/services/inventory/measure-conversion.service";
 
+/**
+ * Phase A — Commitment/Settlement boundary.
+ *   RECEIVE_NOW (default) — historical "approve and receive now": creates the
+ *     Purchase Order commitment AND settles it in full (ReceivingSession + post →
+ *     InventoryMovement). Behavior is byte-for-byte the prior flow.
+ *   COMMIT_ONLY — creates the Purchase Order commitment ONLY. No ReceivingSession,
+ *     no ReceivingLine, no InventoryMovement, no stock change. Inventory still
+ *     moves solely via postReceivingSession.
+ */
+type SettlementMode = "RECEIVE_NOW" | "COMMIT_ONLY";
+
+/** Index-aligned with the created PurchaseOrder lines. */
+type PlannedLine = {
+  draftLineId: number;
+  itemId: number;
+  decision: SupplierLineDecision;
+  // Phase 3 — converted to STOCK units via the learned Measure factor.
+  purchaseQty: number;
+  stockQty: number;
+  stockUnitCost: number | null;
+  purchaseUnitName: string | null;
+  conversionFactor: number;
+};
+
+/**
+ * Phase A — explicit Settlement step. Creates a ReceivingSession for the full
+ * committed quantity and posts it (the sole legal inventory entry). Extracted to
+ * make the Commitment↔Settlement boundary explicit; quantities, measure snapshots,
+ * and cost conversion are UNCHANGED from the prior inline flow.
+ */
+async function receivePurchaseOrderInFullTx(
+  tx: Prisma.TransactionClient,
+  args: {
+    businessId: number;
+    postedByUserId: number;
+    purchaseOrder: { id: number; lines: Array<{ id: number }> };
+    plannedLines: PlannedLine[];
+  }
+) {
+  const { businessId, postedByUserId, purchaseOrder, plannedLines } = args;
+
+  // 🔒 Reality: ReceivingSession(DRAFT) לכל הכמות שהוזמנה.
+  const receivingSession = await receivingService.createReceivingSession(
+    {
+      businessId,
+      purchaseOrderId: purchaseOrder.id,
+      createdByUserId: postedByUserId,
+      lines: plannedLines.map((line, index) => ({
+        purchaseOrderLineId: purchaseOrder.lines[index].id,
+        receivedQty: line.stockQty,
+        unitCost: line.stockUnitCost,
+        purchaseUnitName: line.purchaseUnitName,
+        receivedPurchaseQty: line.purchaseQty,
+        conversionFactor: line.conversionFactor,
+      })),
+    },
+    { tx }
+  );
+
+  // 🔒 Result: POSTED — הכניסה החוקית היחידה למלאי.
+  await receivingService.postReceivingSession(
+    {
+      businessId,
+      receivingSessionId: receivingSession.id,
+      postedByUserId,
+    },
+    { tx }
+  );
+}
+
 type ApproveSupplierPurchaseInput = {
   draftId: number;
   businessId: number;
   userId: number;
+  // Phase A — default RECEIVE_NOW preserves the historical behavior exactly.
+  settlement?: SettlementMode;
   lines: Array<
     | {
         lineId: number;
@@ -49,6 +122,7 @@ export async function approveSupplierPurchase(
   input: ApproveSupplierPurchaseInput
 ) {
   const { draftId, businessId, userId, lines } = input;
+  const settlementMode: SettlementMode = input.settlement ?? "RECEIVE_NOW";
 
   return prisma.$transaction(async (tx) => {
     // Atomic transition: only one concurrent approval can win.
@@ -154,17 +228,7 @@ export async function approveSupplierPurchase(
       supplierName: draft.supplierName,
     });
 
-    const plannedLines: Array<{
-      draftLineId: number;
-      itemId: number;
-      decision: SupplierLineDecision;
-      // Phase 3 — converted to STOCK units via the learned Measure factor.
-      purchaseQty: number;
-      stockQty: number;
-      stockUnitCost: number | null;
-      purchaseUnitName: string | null;
-      conversionFactor: number;
-    }> = [];
+    const plannedLines: PlannedLine[] = [];
 
     for (const draftLine of draft.lines) {
       const inputLine = lineMap.get(draftLine.id)!;
@@ -248,33 +312,17 @@ export async function approveSupplierPurchase(
       throw new Error("Purchase order line count mismatch");
     }
 
-    // 🔒 Reality: ReceivingSession(DRAFT) לכל הכמות שהוזמנה.
-    const receivingSession = await receivingService.createReceivingSession(
-      {
+    // 🔒 Settlement boundary (Phase A): inventory enters ONLY here, and ONLY when
+    // the caller asks to receive now. COMMIT_ONLY stops at the Commitment (PO) —
+    // no ReceivingSession, no ReceivingLine, no InventoryMovement, no stock change.
+    if (settlementMode === "RECEIVE_NOW") {
+      await receivePurchaseOrderInFullTx(tx, {
         businessId,
-        purchaseOrderId: purchaseOrder.id,
-        createdByUserId: userId,
-        lines: plannedLines.map((line, index) => ({
-          purchaseOrderLineId: purchaseOrder.lines[index].id,
-          receivedQty: line.stockQty,
-          unitCost: line.stockUnitCost,
-          purchaseUnitName: line.purchaseUnitName,
-          receivedPurchaseQty: line.purchaseQty,
-          conversionFactor: line.conversionFactor,
-        })),
-      },
-      { tx }
-    );
-
-    // 🔒 Result: POSTED — הכניסה החוקית היחידה למלאי.
-    await receivingService.postReceivingSession(
-      {
-        businessId,
-        receivingSessionId: receivingSession.id,
         postedByUserId: userId,
-      },
-      { tx }
-    );
+        purchaseOrder,
+        plannedLines,
+      });
+    }
 
     // שמירת ההחלטה על כל שורת draft (תאימות ל־UI/היסטוריה קיימים).
     for (const line of plannedLines) {
