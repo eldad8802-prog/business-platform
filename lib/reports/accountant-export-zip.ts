@@ -7,6 +7,13 @@ import {
 } from "@/lib/services/documents/document-storage.service";
 import { StorageObjectNotFoundError } from "@/lib/storage/storage.errors";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
+import {
+  buildExceptionsXlsxBuffer,
+  computeExceptionRows,
+  loadPendingDocsForPeriod,
+  summarizeExceptions,
+} from "@/lib/reports/exceptions-report";
+import { markPackageGenerated } from "@/lib/services/accounting/month-close.service";
 
 export type AccountantPackBody = {
   type: "month" | "quarter" | "year";
@@ -300,6 +307,8 @@ function buildSummaryText(params: {
   approvedFiles: number;
   pendingFiles: number;
   missingCount: number;
+  exceptionsCritical: number;
+  exceptionsWarning: number;
 }): string {
   const lines = [
     "חבילת רואה חשבון",
@@ -309,6 +318,8 @@ function buildSummaryText(params: {
     `קבצים בתיקיית מאושרים: ${params.approvedFiles}`,
     `קבצים בתיקיית ממתינים: ${params.pendingFiles}`,
     `קבצים חסרים באחסון: ${params.missingCount}`,
+    `חריגים קריטיים: ${params.exceptionsCritical}`,
+    `חריגים (אזהרה): ${params.exceptionsWarning}`,
   ];
   return lines.join("\n");
 }
@@ -330,14 +341,25 @@ export async function appendAccountantPackToArchive(
 
   const reportBase = `דוח_${periodLabel}`;
   const xlsxName = `${reportBase}.xlsx`;
+  // Stable, MVP-canonical name for the monthly summary. Kept ALONGSIDE the
+  // legacy localized name so existing consumers do not break.
+  const summaryCanonicalName = "01_Monthly_Summary.xlsx";
+  const exceptionsName = "02_Exceptions_Report.xlsx";
   const metaCsvPath = `_meta/${reportBase}.csv`;
 
   const xlsxBuf = await buildAccountantXlsxBuffer(records);
   archive.append(xlsxBuf, { name: xlsxName });
+  archive.append(xlsxBuf, { name: summaryCanonicalName });
 
   archive.append(buildAccountantCsvBuffer(records), { name: metaCsvPath });
 
-  const manifestFiles: string[] = [xlsxName, "סיכום.txt", metaCsvPath];
+  const manifestFiles: string[] = [
+    summaryCanonicalName,
+    xlsxName,
+    exceptionsName,
+    "סיכום.txt",
+    metaCsvPath,
+  ];
   const missingLines: string[] = [];
 
   let approvedFiles = 0;
@@ -345,6 +367,7 @@ export async function appendAccountantPackToArchive(
   let missingCount = 0;
 
   const seenDocIds = new Set<number>();
+  const missingFileDocIds = new Set<number>();
 
   for (const r of records) {
     const doc = r.document;
@@ -354,6 +377,7 @@ export async function appendAccountantPackToArchive(
     const folder = doc.status === "approved" ? "approved" : "pending";
     if (!doc.fileUrl) {
       missingLines.push(`document ${doc.id}: אין נתיב קובץ`);
+      missingFileDocIds.add(doc.id);
       missingCount += 1;
       continue;
     }
@@ -361,6 +385,7 @@ export async function appendAccountantPackToArchive(
     const basename = String(doc.fileUrl ?? "").trim();
     if (!STORED_DOCUMENT_FILENAME_REGEX.test(basename)) {
       missingLines.push(`document ${doc.id}: נתיב לא תקין (${doc.fileUrl})`);
+      missingFileDocIds.add(doc.id);
       missingCount += 1;
       continue;
     }
@@ -380,6 +405,7 @@ export async function appendAccountantPackToArchive(
         console.error("File read failed for export:", doc.id, doc.fileUrl, e);
         missingLines.push(`document ${doc.id}: כשל בקריאה (${doc.fileUrl})`);
       }
+      missingFileDocIds.add(doc.id);
       missingCount += 1;
     }
   }
@@ -391,12 +417,57 @@ export async function appendAccountantPackToArchive(
     archive.append(Buffer.alloc(0), { name: "pending/.keep" });
   }
 
+  // --- Exceptions Report (Phase A.2) ---
+  // Reuses the records already loaded for the summary + the set of source files
+  // that could not be packaged (no extra storage reads), and adds pending docs.
+  const pendingDocs = await loadPendingDocsForPeriod(
+    prisma,
+    businessId,
+    fromDate,
+    toDate,
+    categories
+  );
+  const exceptions = summarizeExceptions(
+    computeExceptionRows({
+      approvedRecords: records.map((r) => ({
+        id: r.id,
+        amount: r.amount,
+        date: r.date,
+        vendorName: r.vendorName,
+        document: r.document
+          ? {
+              id: r.document.id,
+              status: r.document.status,
+              fileUrl: r.document.fileUrl,
+            }
+          : null,
+      })),
+      pendingDocs: pendingDocs.map((d) => ({
+        id: d.id,
+        status: d.status,
+        fileUrl: d.fileUrl,
+        extractedData: d.extractedData
+          ? {
+              amount: d.extractedData.amount,
+              date: d.extractedData.date,
+              vendorName: d.extractedData.vendorName,
+            }
+          : null,
+      })),
+      missingFileDocIds,
+    })
+  );
+  const exceptionsBuf = await buildExceptionsXlsxBuffer(exceptions, periodLabel);
+  archive.append(exceptionsBuf, { name: exceptionsName });
+
   const summaryFinal = buildSummaryText({
     periodLabel,
     recordCount: records.length,
     approvedFiles,
     pendingFiles,
     missingCount,
+    exceptionsCritical: exceptions.totals.critical,
+    exceptionsWarning: exceptions.totals.warning,
   });
   archive.append(summaryFinal, { name: "סיכום.txt" });
 
@@ -422,4 +493,12 @@ export async function appendAccountantPackToArchive(
       ? missingLines.join("\n") + "\n"
       : "(אין קבצים חסרים)\n";
   archive.append(missingBody, { name: "_meta/missing-files.txt" });
+
+  // Best-effort: stamp packageGeneratedAt on a closed month (never blocks).
+  if (body.type === "month" && body.month) {
+    const [y, m] = body.month.split("-").map(Number);
+    if (Number.isInteger(y) && Number.isInteger(m)) {
+      await markPackageGenerated(prisma, businessId, y, m);
+    }
+  }
 }

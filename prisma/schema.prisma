@@ -214,6 +214,7 @@ model Business {
   catalogSources              CatalogSource[]
   catalogClaims               CatalogClaim[]
   supplierConnections         SupplierConnection[]
+  monthCloses                 MonthClose[]
 
   @@index([archivedAt])
 }
@@ -238,6 +239,7 @@ model User {
   appointmentsCreated Appointment[]
   archivedBusinesses                       Business[]                   @relation("BusinessArchivedBy")
   billingAuthorityConnectionsOauthAuthorized BillingAuthorityConnection[] @relation("BillingAuthorityOauthAuthorizedBy")
+  monthClosesClosed                        MonthClose[]                 @relation("MonthClosedBy")
 }
 
 /// Append-only product usage analytics (distinct from weekly `Usage` quota counters).
@@ -1945,6 +1947,39 @@ model FinancialEvent {
 
   @@unique([businessId, sourceType, sourceKey])
   @@index([businessId, occurredAt])
+}
+
+/// Minimal monthly close (Accountant Package — Phase A).
+///
+/// One row per (business, year, month). Existence is lazy: a month is OPEN by
+/// default and a row is only materialized when the month is CLOSED. CLOSED is a
+/// soft, append-style lock — it never deletes or mutates source data; it only
+/// guards the existing financial write flows (e.g. document approval) from
+/// landing new financial reality inside a settled period. Reopen / AMENDED are
+/// intentionally out of scope for Phase A.
+model MonthClose {
+  id                 Int              @id @default(autoincrement())
+  businessId         Int
+  year               Int
+  month              Int
+  status             MonthCloseStatus @default(OPEN)
+  closedAt           DateTime?
+  closedByUserId     Int?
+  packageGeneratedAt DateTime?
+  snapshotHash       String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  business     Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  closedByUser User?    @relation("MonthClosedBy", fields: [closedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, year, month])
+  @@index([businessId, status])
+}
+
+enum MonthCloseStatus {
+  OPEN
+  CLOSED
 }
 
 model BillingAuthorityApp {

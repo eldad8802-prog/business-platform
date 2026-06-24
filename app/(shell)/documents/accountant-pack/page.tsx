@@ -27,6 +27,20 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function parsePeriodMonth(period: string): { year: number; month: number } | null {
+  const [year, month] = period.split("-").map(Number);
+  if (!Number.isInteger(year) || !Number.isInteger(month)) return null;
+  return { year, month };
+}
+
+type MonthCloseState = {
+  status: "OPEN" | "CLOSED";
+  closedAt: string | null;
+  critical: number;
+  warning: number;
+  canClose: boolean;
+};
+
 export default function AccountantPackPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
@@ -36,6 +50,89 @@ export default function AccountantPackPage() {
   const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [monthClose, setMonthClose] = useState<MonthCloseState | null>(null);
+  const [closeBusy, setCloseBusy] = useState(false);
+  const [closeMsg, setCloseMsg] = useState("");
+
+  useEffect(() => {
+    if (!token || type !== "month") return;
+    const parsed = parsePeriodMonth(period);
+    if (!parsed) return;
+
+    let cancelled = false;
+    void fetch(
+      `/api/accounting/month-close?year=${parsed.year}&month=${parsed.month}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        setCloseMsg("");
+        if (!data) {
+          setMonthClose(null);
+          return;
+        }
+        setMonthClose({
+          status: data.monthClose?.status ?? "OPEN",
+          closedAt: data.monthClose?.closedAt ?? null,
+          critical: data.exceptions?.totals?.critical ?? 0,
+          warning: data.exceptions?.totals?.warning ?? 0,
+          canClose: Boolean(data.canClose),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setMonthClose(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, type, period]);
+
+  async function handleCloseMonth() {
+    if (!token || type !== "month") return;
+    const parsed = parsePeriodMonth(period);
+    if (!parsed) return;
+    try {
+      setCloseBusy(true);
+      setCloseMsg("");
+      const res = await fetch("/api/accounting/month-close", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ year: parsed.year, month: parsed.month }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setCloseMsg(data?.error ?? "שגיאה בסגירת החודש");
+        if (data?.exceptions?.totals) {
+          setMonthClose((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  critical: data.exceptions.totals.critical ?? prev.critical,
+                  warning: data.exceptions.totals.warning ?? prev.warning,
+                  canClose: false,
+                }
+              : prev
+          );
+        }
+        return;
+      }
+      setMonthClose({
+        status: data.monthClose?.status ?? "CLOSED",
+        closedAt: data.monthClose?.closedAt ?? null,
+        critical: data.exceptions?.totals?.critical ?? 0,
+        warning: data.exceptions?.totals?.warning ?? 0,
+        canClose: false,
+      });
+    } catch (err) {
+      setCloseMsg(errorMessage(err, "שגיאה בסגירת החודש"));
+    } finally {
+      setCloseBusy(false);
+    }
+  }
 
   useEffect(() => {
     void Promise.resolve().then(() => {
@@ -186,6 +283,53 @@ export default function AccountantPackPage() {
               {pendingCount.toLocaleString("he-IL")} מסמכים עדיין לא אומתו - אמת אותם כדי לכלול אותם
             </span>
           </div>
+        ) : null}
+
+        {type === "month" && monthClose ? (
+          <section style={{ marginTop: 18 }}>
+            <div style={labelStyle}>סטטוס חודש</div>
+            {monthClose.status === "CLOSED" ? (
+              <div style={closedBoxStyle}>
+                <span>
+                  החודש נסגר
+                  {monthClose.closedAt
+                    ? ` בתאריך ${new Date(monthClose.closedAt).toLocaleString("he-IL")}`
+                    : ""}
+                </span>
+              </div>
+            ) : (
+              <>
+                <div style={openBoxStyle}>
+                  <span>
+                    החודש פתוח · {monthClose.critical} חריגים קריטיים ·{" "}
+                    {monthClose.warning} אזהרות
+                  </span>
+                </div>
+                {monthClose.critical > 0 ? (
+                  <div style={errorStyle}>
+                    <WarningIcon />
+                    <span>יש לתקן את כל החריגים הקריטיים לפני סגירת החודש</span>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={closeBusy || monthClose.critical > 0}
+                  onClick={() => void handleCloseMonth()}
+                  style={{
+                    ...closeMonthButtonStyle,
+                    opacity: closeBusy || monthClose.critical > 0 ? 0.5 : 1,
+                    cursor:
+                      closeBusy || monthClose.critical > 0
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                >
+                  {closeBusy ? "סוגר חודש..." : "סגור חודש"}
+                </button>
+                {closeMsg ? <div style={errorStyle}>{closeMsg}</div> : null}
+              </>
+            )}
+          </section>
         ) : null}
 
         {error ? <div style={errorStyle}>{error}</div> : null}
@@ -374,6 +518,36 @@ const errorStyle = {
   border: `1px solid ${TOKEN.semantic.urgent.border}`,
   background: TOKEN.semantic.urgent.bgSoft,
   color: TOKEN.semantic.urgent.ink,
+} as const;
+
+const openBoxStyle = {
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.card,
+  background: TOKEN.surface.card,
+  boxShadow: TOKEN.shadow.elevated,
+  minHeight: 52,
+  padding: "0 14px",
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+  color: TOKEN.ink.primary,
+} as const;
+
+const closedBoxStyle = {
+  ...openBoxStyle,
+  border: `1px solid ${TOKEN.semantic.attention.border}`,
+  background: TOKEN.semantic.attention.bgSoft,
+  color: TOKEN.semantic.attention.ink,
+} as const;
+
+const closeMonthButtonStyle = {
+  ...glassActionStyle({ height: 48 }),
+  width: "100%",
+  marginTop: 12,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
 } as const;
 
 const bottomBarStyle = {

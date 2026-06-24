@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { resolveDocumentOutputProfile } from "@/lib/services/documents/output-profile-resolver.service";
 import { recordReviewEvent } from "@/lib/services/documents/ledger/correction-ledger.service";
+import { assertMonthOpen } from "@/lib/services/accounting/month-close.service";
+import { ConflictError } from "@/lib/errors";
 
 export async function POST(
   req: Request,
@@ -67,7 +69,11 @@ export async function POST(
         null,
       direction:
         body.extracted?.direction ??
-        (document.extractedData?.direction as any) ??
+        (document.extractedData?.direction as
+          | "expense"
+          | "income"
+          | "unknown"
+          | null) ??
         null,
       category:
         body.extracted?.category ??
@@ -75,6 +81,26 @@ export async function POST(
         null,
       confidenceScore: document.extractedData?.confidenceScore ?? null,
     };
+
+    // Phase A.1 Month-Close guard: approving a document lands a financial record
+    // dated to the document's date. If that month is CLOSED, refuse before any
+    // write so a settled period cannot gain new financial reality. (Best-effort
+    // guard on the resolved target date; other write paths are not yet covered.)
+    const guardDateMs = merged.date ? Date.parse(merged.date) : NaN;
+    const guardDate = Number.isFinite(guardDateMs)
+      ? new Date(guardDateMs)
+      : document.createdAt;
+    try {
+      await assertMonthOpen(prisma, user.businessId, guardDate);
+    } catch (guardError) {
+      if (guardError instanceof ConflictError) {
+        return Response.json(
+          { error: guardError.message, code: guardError.code },
+          { status: guardError.statusCode }
+        );
+      }
+      throw guardError;
+    }
 
     const profile = await resolveDocumentOutputProfile({
       documentId: document.id,
@@ -122,7 +148,9 @@ export async function POST(
       },
     });
 
-    let record: any = null;
+    let record:
+      | Awaited<ReturnType<typeof prisma.financialRecord.create>>
+      | null = null;
 
     if (allowFinancial) {
       const amount = typeof merged.amount === "number" ? merged.amount : NaN;
