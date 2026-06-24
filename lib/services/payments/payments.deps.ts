@@ -56,6 +56,7 @@ export function paymentWebhookDeps(): ProcessWebhookDeps {
     store: createPaymentPrismaStore(),
     resolveProvider: resolvePaymentProvider,
     resolveWebhookSecret,
+    decryptConnectionCredential,
   };
 }
 

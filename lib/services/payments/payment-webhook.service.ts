@@ -19,6 +19,7 @@
 
 import {
   isTerminalRequestStatus,
+  type PaymentConnectionRecord,
   type PaymentProvider,
   type PaymentRequestStatus,
   type PaymentStore,
@@ -28,6 +29,7 @@ import {
 import type {
   ParsedPaymentOutcome,
   PaymentProviderAdapter,
+  ProviderPaymentStatus,
 } from "./providers/payment-provider.types";
 
 export interface ProcessWebhookInput {
@@ -43,6 +45,14 @@ export interface ProcessWebhookDeps {
   resolveProvider: (provider: PaymentProvider) => PaymentProviderAdapter;
   /** Optional webhook secret resolver (per provider). */
   resolveWebhookSecret?: (provider: PaymentProvider) => string | null;
+  /**
+   * Decrypts a connection's provider credential for verification calls.
+   * Required for verification-capable providers; the credential is used
+   * in-memory only and never persisted.
+   */
+  decryptConnectionCredential?: (
+    connection: PaymentConnectionRecord
+  ) => string | null;
   now?: () => Date;
 }
 
@@ -55,6 +65,13 @@ export interface ProcessWebhookResult {
   paymentRequestId: number | null;
   paymentRequestStatus: PaymentRequestStatus | null;
   reason: string | null;
+  /**
+   * Authority boundary marker:
+   *   true  — outcome established by provider verification (authority)
+   *   false — legacy unverified path (provider has no verification yet)
+   *   null  — no authority decision reached (failure / duplicate / non-terminal)
+   */
+  verified: boolean | null;
 }
 
 function outcomeToTransactionStatus(
@@ -124,6 +141,7 @@ export async function processPaymentWebhook(
       paymentRequestId: null,
       paymentRequestStatus: null,
       reason: "duplicate_event",
+      verified: null,
     };
   }
 
@@ -146,6 +164,7 @@ export async function processPaymentWebhook(
       paymentRequestId,
       paymentRequestStatus,
       reason,
+      verified: null,
     };
   };
 
@@ -177,58 +196,120 @@ export async function processPaymentWebhook(
     return fail("UNMATCHED", "no_matching_payment_request");
   }
 
-  // 7. transaction-level idempotency: same provider transaction already
-  // recorded => do not create a second one or re-move the request.
-  if (parsed.providerTransactionId) {
-    const existingTx =
-      await deps.store.findTransactionByProviderTransactionId(
-        input.provider,
-        parsed.providerTransactionId
+  // 5. AUTHORITY. The webhook is only a signal. The provider's verification is
+  // the authority that determines the real outcome. A request may move to PAID
+  // (and a PaymentTransaction may be recorded) only from a verified outcome.
+  //
+  // Capability-gated, provider-agnostic:
+  //   - Verification-capable provider (adapter.getPaymentStatus present) =>
+  //     verification IS authority; the webhook's claimed outcome is ignored.
+  //   - Provider with no verification path yet (e.g. TRANZILA) => documented
+  //     backward-compatible legacy path: the webhook signal drives the outcome,
+  //     exactly as before. This is an explicit exception pending the provider
+  //     gaining a verification path (see docs/payments-authority-principle-v1.md).
+  let authoritativeOutcome: ParsedPaymentOutcome;
+  let authoritativeTransactionId: string | null;
+  let verified: boolean;
+
+  if (typeof adapter.getPaymentStatus === "function") {
+    const connection = await deps.store.findActiveConnection(
+      request.businessId,
+      input.provider
+    );
+    if (!connection) {
+      // Cannot establish authority without a connection => never PAID.
+      return fail(
+        "FAILED",
+        "verification_unavailable_no_active_connection",
+        request.id,
+        request.status
       );
-    if (existingTx) {
-      await deps.store.updateWebhookEvent(event.id, {
-        processingStatus: "PROCESSED",
-        processedAt: now(),
+    }
+    const credential = deps.decryptConnectionCredential?.(connection) ?? null;
+
+    let status: ProviderPaymentStatus;
+    try {
+      status = await adapter.getPaymentStatus({
+        providerRequestId: parsed.providerRequestId,
+        merchantId: connection.merchantId,
+        credential,
       });
-      return {
-        ok: true,
-        eventId: event.id,
-        processingStatus: "PROCESSED",
-        duplicate: true,
-        paymentRequestId: request.id,
-        paymentRequestStatus: request.status,
-        reason: "duplicate_transaction",
-      };
+    } catch {
+      // Fail safe: a failed/erroring verification can never produce PAID.
+      return fail(
+        "FAILED",
+        "verification_error",
+        request.id,
+        request.status
+      );
+    }
+
+    authoritativeOutcome = status.outcome;
+    authoritativeTransactionId =
+      status.providerTransactionId ?? parsed.providerTransactionId;
+    verified = true;
+  } else {
+    authoritativeOutcome = parsed.outcome;
+    authoritativeTransactionId = parsed.providerTransactionId;
+    verified = false;
+  }
+
+  // 6/7/8. Only a terminal authoritative outcome (PAID/FAILED/CANCELLED) may
+  // create a transaction or move the request. Non-terminal outcomes
+  // (PENDING/UNKNOWN) never settle anything.
+  const nextStatus = outcomeToRequestStatus(authoritativeOutcome);
+  let finalStatus: PaymentRequestStatus = request.status;
+
+  if (nextStatus) {
+    // transaction-level idempotency on the authoritative transaction id.
+    if (authoritativeTransactionId) {
+      const existingTx =
+        await deps.store.findTransactionByProviderTransactionId(
+          input.provider,
+          authoritativeTransactionId
+        );
+      if (existingTx) {
+        await deps.store.updateWebhookEvent(event.id, {
+          processingStatus: "PROCESSED",
+          processedAt: now(),
+        });
+        return {
+          ok: true,
+          eventId: event.id,
+          processingStatus: "PROCESSED",
+          duplicate: true,
+          paymentRequestId: request.id,
+          paymentRequestStatus: request.status,
+          reason: "duplicate_transaction",
+          verified,
+        };
+      }
+    }
+
+    // record the verified transaction.
+    await deps.store.createTransaction({
+      paymentRequestId: request.id,
+      provider: input.provider,
+      providerTransactionId: authoritativeTransactionId,
+      amount: parsed.amount ?? request.amount,
+      currency: parsed.currency ?? request.currency,
+      status: outcomeToTransactionStatus(authoritativeOutcome),
+      rawPayload: input.parsedBody ?? input.rawBody,
+    });
+
+    // move the request — idempotently, without overwriting a terminal state.
+    if (!isTerminalRequestStatus(request.status)) {
+      const updated = await deps.store.updatePaymentRequest(request.id, {
+        status: nextStatus,
+        paidAt: nextStatus === "PAID" ? now() : null,
+      });
+      finalStatus = updated.status;
     }
   }
 
-  // 5. record the transaction.
-  const txStatus = outcomeToTransactionStatus(parsed.outcome);
-  await deps.store.createTransaction({
-    paymentRequestId: request.id,
-    provider: input.provider,
-    providerTransactionId: parsed.providerTransactionId,
-    amount: parsed.amount ?? request.amount,
-    currency: parsed.currency ?? request.currency,
-    status: txStatus,
-    rawPayload: input.parsedBody ?? input.rawBody,
-  });
-
-  // 6. move the payment request — idempotently and without overwriting an
-  // existing terminal state.
-  const nextStatus = outcomeToRequestStatus(parsed.outcome);
-  let finalStatus: PaymentRequestStatus = request.status;
-  if (nextStatus && !isTerminalRequestStatus(request.status)) {
-    const updated = await deps.store.updatePaymentRequest(request.id, {
-      status: nextStatus,
-      paidAt: nextStatus === "PAID" ? now() : null,
-    });
-    finalStatus = updated.status;
-  }
-
-  // 8. Billing/Receipt hand-off is intentionally NOT auto-fired in P1.
-  // A successful PAID transition is the integration point; wiring it to a
-  // Receipt requires the receipt engine to be ready and is a separate step.
+  // Billing/Receipt hand-off is intentionally NOT auto-fired here. A verified
+  // PAID transition is the integration point; wiring it to a Receipt requires
+  // the receipt engine and is a separate step.
 
   await deps.store.updateWebhookEvent(event.id, {
     processingStatus: "PROCESSED",
@@ -243,5 +324,6 @@ export async function processPaymentWebhook(
     paymentRequestId: request.id,
     paymentRequestStatus: finalStatus,
     reason: null,
+    verified,
   };
 }
