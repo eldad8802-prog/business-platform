@@ -11,14 +11,14 @@ export default function CorporateAboutPage() {
   return (
     <CorporateContainer className="py-12 sm:py-16">
       <header className="max-w-3xl">
-        <h1 className="text-3xl font-extrabold leading-tight text-[#0C2138] sm:text-4xl">
+        <h1 className="text-3xl font-extrabold leading-tight text-[var(--mkt-ink)] sm:text-4xl">
           אודות Dubiz
         </h1>
       </header>
 
       <div className="mt-10 space-y-10">
         <section className="max-w-3xl">
-          <h2 className="text-lg font-bold text-[#0C2138]">מי אנחנו</h2>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">מי אנחנו</h2>
           <p className="mt-3 text-sm leading-7 text-gray-600 sm:text-base">
             Dubiz הוא מוצר המופעל על ידי PRO MAX GROUP. אנחנו בונים כלי ניהול
             עסקי שמטרתו לפשט את ההתנהלות היומיומית של עסקים קטנים ובינוניים,
@@ -27,7 +27,7 @@ export default function CorporateAboutPage() {
         </section>
 
         <section className="max-w-3xl">
-          <h2 className="text-lg font-bold text-[#0C2138]">מה Dubiz עושה</h2>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">מה Dubiz עושה</h2>
           <p className="mt-3 text-sm leading-7 text-gray-600 sm:text-base">
             Dubiz משמשת כמערכת הפעלה לעסק (Business Operating System): היא מרכזת
             שיחות ולקוחות, מסמכים וחשבוניות, מלאי ורכש, ולצד אלה מציגה תובנות
@@ -37,7 +37,7 @@ export default function CorporateAboutPage() {
         </section>
 
         <section className="max-w-3xl">
-          <h2 className="text-lg font-bold text-[#0C2138]">למי זה מתאים</h2>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">למי זה מתאים</h2>
           <p className="mt-3 text-sm leading-7 text-gray-600 sm:text-base">
             Dubiz מתאימה לבעלי עסקים קטנים ובינוניים, עצמאים ובעלי מקצוע שרוצים
             לשמור על סדר בעבודה השוטפת — לעקוב אחר לקוחות ופניות, לנהל מסמכים
@@ -47,7 +47,7 @@ export default function CorporateAboutPage() {
         </section>
 
         <section className="max-w-3xl rounded-[24px] bg-white p-6 shadow-sm sm:p-7">
-          <h2 className="text-lg font-bold text-[#0C2138]">על PRO MAX GROUP</h2>
+          <h2 className="text-lg font-bold text-[var(--mkt-ink)]">על PRO MAX GROUP</h2>
           <p className="mt-3 text-sm leading-7 text-gray-600 sm:text-base">
             Dubiz is operated by PRO MAX GROUP. PRO MAX GROUP אחראית לפיתוח
             המוצר, לתחזוקתו ולשירות הניתן למשתמשים.
