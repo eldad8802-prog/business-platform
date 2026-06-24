@@ -20,6 +20,7 @@
     "verify:bot-answers": "npx tsx lib/features/conversation/bot-answers/bot-answer.verify.test.ts",
     "verify:bot-profile": "npx tsx lib/features/bot/bot-profile.verify.test.ts",
     "verify:bot-hub-areas": "npx tsx lib/features/bot/bot-hub-areas.verify.test.ts",
+    "verify:bot-goals": "npx tsx lib/features/bot/bot-goals.verify.test.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

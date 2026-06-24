@@ -35,6 +35,7 @@ import {
   PersonalityFlagshipScreen,
   VoiceProfileScreen,
 } from "./bot-profile-screens";
+import { GoalsFlagshipScreen } from "./bot-goals-screen";
 
 type FinalActionValue = FinalAction;
 
@@ -385,7 +386,7 @@ export function BotSettingsEditor({ area }: { area: BotSettingsArea }) {
     return <ApproachFlagshipScreen />;
   }
   if (area === "goal") {
-    return <GoalFlagshipScreen state={state} />;
+    return <GoalsFlagshipScreen />;
   }
   if (area === "conversation") {
     return <ConversationFlagshipScreen state={state} />;
@@ -630,58 +631,6 @@ function ProductLinkSection({ state, cardStyle }: { state: EditorState; cardStyl
   );
 }
 
-function GoalFlagshipScreen({ state }: { state: EditorState }) {
-  return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
-      <main
-        style={{
-          maxWidth: BUILDER_SHELL_MAX_WIDTH,
-          minHeight: "100dvh",
-          margin: "0 auto",
-          padding: "0",
-          boxSizing: "border-box",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <AreaHeader
-          title="המטרה שלו"
-          subtitle="בשלב הזה המטרה נשענת על מצב העבודה הקיים של הבוט."
-          backHref="/business/bot"
-          backLabel="הבוט שלי"
-        />
-        {state.loading ? (
-          <p style={{ margin: "18px", color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>טוען...</p>
-        ) : (
-          <>
-            <section style={{ ...areaPanelStyle, padding: "16px 0" }}>
-              <div style={{ margin: "0 18px 14px" }}>
-                <h2 style={sectionTitle}>מצב עבודה</h2>
-                <p style={{ ...sectionHint, marginBottom: 0 }}>
-                  אין Goal Library חי בשלב הזה. כאן בוחרים אם הבוט מכין טיוטות או נשאר ידני.
-                </p>
-              </div>
-              <div style={{ margin: "0 18px" }}>
-                <WorkModeControls state={state} />
-              </div>
-            </section>
-            <GuardNote>
-              המצב נשאר draft-only: הבוט מכין טיוטות, ואתה מחליט מה לשלוח ללקוח.
-            </GuardNote>
-            <div style={{ flex: 1 }} />
-            <StickyActionBar
-              onSave={() => void state.handleSave()}
-              saving={state.saving}
-              saved={state.savedOk}
-              error={state.error}
-              saveLabel="שמור"
-            />
-          </>
-        )}
-      </main>
-    </div>
-  );
-}
 function ConversationFlagshipScreen({ state }: { state: EditorState }) {
   return (
     <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>

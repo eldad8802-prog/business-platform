@@ -34,11 +34,12 @@ export type BotHubSignals = {
   finishOk: boolean;
   productLinkOk: boolean;
   workModeManual: boolean;
-  /** new-world (BusinessBot / BusinessBotProfile) */
+  /** new-world (BusinessBot / BusinessBotProfile / BotGoalSelection) */
   identityNamed: boolean;
   voiceExtrasOk: boolean;
   personalityOk: boolean;
   approachOk: boolean;
+  goalsCount: number;
 };
 
 export type BotHubAreaStateMap = Record<BotHubAreaId, BotAreaState>;
@@ -52,8 +53,8 @@ export function computeBotAreaStates(signals: BotHubSignals): BotHubAreaStateMap
         : "partial";
 
   return {
-    // Unchanged from Stage 0 behaviour (no Goal Library yet).
-    goal: "partial",
+    // Stage 2: real Goal Library — ready once the business selects ≥1 goal.
+    goal: signals.goalsCount > 0 ? "ready" : "partial",
     // Upgraded in Stage 1: real persistence via BusinessBotProfile.
     personality: signals.personalityOk ? "ready" : "partial",
     voice: voiceState,

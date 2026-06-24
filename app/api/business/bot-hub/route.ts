@@ -80,7 +80,7 @@ export async function GET(req: Request) {
       }),
       prisma.businessBot.findUnique({
         where: { businessId: user.businessId },
-        include: { profile: true },
+        include: { profile: true, _count: { select: { goalSelections: true } } },
       }),
     ]);
 
@@ -111,6 +111,7 @@ export async function GET(req: Request) {
       voiceExtrasOk: hasVoiceContent(profile.voice),
       personalityOk: hasPersonalityContent(profile.personality),
       approachOk: hasApproachContent(profile.approach),
+      goalsCount: bot?._count?.goalSelections ?? 0,
     };
 
     return NextResponse.json({

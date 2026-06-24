@@ -67,3 +67,17 @@ export {
   type BotHubSignals,
   type BotHubAreaStateMap,
 } from "./bot-hub-areas";
+
+export {
+  GOAL_CATALOG_VERSION,
+  GOAL_CATEGORY_KEYS,
+  GOAL_CATALOG,
+  isGoalKey,
+  listGoalKeys,
+  getGoalDef,
+  assertGoalCatalogIntegrity,
+  validateGoalSelection,
+  type GoalCategoryKey,
+  type GoalDef,
+  type GoalCategory,
+} from "./bot-goals";

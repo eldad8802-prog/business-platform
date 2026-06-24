@@ -398,8 +398,9 @@ model BusinessBot {
   avatar      String?
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
-  business    Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  profile     BusinessBotProfile?
+  business       Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  profile        BusinessBotProfile?
+  goalSelections BotGoalSelection[]
 }
 
 /// Descriptive, advisory profile branch under `BusinessBot` (Stage 1).
@@ -417,6 +418,27 @@ model BusinessBotProfile {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   bot         BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+}
+
+/// A goal the business selected for its bot (Stage 2 — Goal Library).
+///
+/// Corrigible intent label, not behaviour. `goalKey` references the read-only
+/// Goal Catalog in `lib/features/bot/bot-goals`. Copy-with-provenance:
+/// `goalVersion` + `selectedAt` freeze WHAT was chosen WHEN, so a future
+/// catalog change never retroactively rewrites a business's selection. NOT
+/// materialized into BusinessBotSettings and NOT read by the pipeline.
+model BotGoalSelection {
+  id          Int         @id @default(autoincrement())
+  botId       Int
+  goalKey     String
+  goalVersion Int
+  selectedAt  DateTime    @default(now())
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  bot         BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@unique([botId, goalKey])
+  @@index([botId])
 }
 
 /// Structured capture of a customer's answer to a single bot field.
@@ -1105,6 +1127,12 @@ model ExtractedData {
   amountConfidence   String?
   vendorConfidence   String?
   categoryConfidence String?
+  // Phase B — additive persistence of already-detected fields (nullable; engine
+  // logic unchanged). vendorTaxId = ח.פ/ע.מ of the counterparty; vat/subtotal
+  // are the engine's role-classified amounts when present.
+  vendorTaxId        String?
+  vatAmount          Float?
+  subtotalAmount     Float?
   document           Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
 }
 
@@ -1117,6 +1145,10 @@ model FinancialRecord {
   vendorName String
   direction  String
   category   String
+  // Phase B — additive persistence (nullable; carried from ExtractedData at approve).
+  vendorTaxId    String?
+  vatAmount      Float?
+  subtotalAmount Float?
   approvedAt DateTime @default(now())
   business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)

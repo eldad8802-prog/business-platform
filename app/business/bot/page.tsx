@@ -44,6 +44,7 @@ type HubPayload = {
     voiceExtrasOk: boolean;
     personalityOk: boolean;
     approachOk: boolean;
+    goalsCount: number;
   };
   areaStates: Record<AreaIconName, AreaState>;
 };
@@ -66,7 +67,10 @@ function areaStateLabel(state: AreaState): string {
 function deriveAreas(payload: HubPayload): BuilderArea[] {
   const { signals, areaStates } = payload;
   const summaries: Record<AreaIconName, string> = {
-    goal: "Starter WhatsApp · מכין טיוטות לשיחות",
+    goal:
+      signals.goalsCount > 0
+        ? `${signals.goalsCount} מטרות נבחרו`
+        : "טרם נבחרו מטרות",
     personality: signals.personalityOk ? "אופי מוגדר" : "טרם הוגדר אופי",
     voice: signals.welcomeOk ? "הודעת פתיחה קיימת" : "חסרה הודעת פתיחה",
     conversation:
