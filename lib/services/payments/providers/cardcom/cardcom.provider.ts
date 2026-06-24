@@ -45,6 +45,9 @@ const GET_RESULT_PATH = "/api/v11/LowProfile/GetLpResult";
 /** CardCom ISO coin ids. DOCS-CONFIRM. */
 const ISO_COIN_ID: Record<string, number> = { ILS: 1, USD: 2, EUR: 978 };
 
+/** CardCom ProductName length cap (I3.1 verified — keep conservative). */
+const PRODUCT_NAME_MAX = 250;
+
 // --- injectable HTTP (mocked in tests; defaults to global fetch) -----------
 
 export interface CardComHttpResponse {
@@ -260,7 +263,8 @@ export function createCardComProvider(
         ISOCoinId: ISO_COIN_ID[input.currency] ?? ISO_COIN_ID.ILS,
         // Canonical correlation: our PaymentRequest id round-trips via ReturnValue.
         ReturnValue: String(input.paymentRequestId),
-        ProductName: input.description ?? "Payment",
+        // ProductName has a provider length limit (I3.1 verified) — cap safely.
+        ProductName: (input.description ?? "Payment").slice(0, PRODUCT_NAME_MAX),
         WebHookUrl: `${publicBaseUrl}/api/payments/webhook/cardcom`,
       };
       if (input.successUrl) body.SuccessRedirectUrl = input.successUrl;

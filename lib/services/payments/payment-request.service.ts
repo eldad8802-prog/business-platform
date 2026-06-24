@@ -52,7 +52,6 @@ export interface CreatePaymentRequestResult {
   paymentUrl: string;
 }
 
-const DEFAULT_PROVIDER: PaymentProvider = "TRANZILA";
 const DEFAULT_CURRENCY = "ILS";
 
 function assertPositiveInt(value: number, field: string): void {
@@ -91,10 +90,30 @@ export async function createPaymentRequest(
 
   const amount = normalizePaymentAmount(input.amount);
   const currency = normalizeCurrency(input.currency);
-  const provider = input.provider ?? DEFAULT_PROVIDER;
   const now = deps.now ?? (() => new Date());
 
-  // 2. active connection — fail nicely if the business has not connected.
+  // 2. resolve provider + active connection. When the caller does not specify a
+  // provider, pick the business's single active connection. Multiple active
+  // providers require an explicit choice — there is no implicit multi-provider
+  // routing (documented limitation: one active provider per business in P1).
+  let provider = input.provider ?? null;
+  if (!provider) {
+    const active = (await deps.store.listConnections(input.businessId)).filter(
+      (c) => c.isActive
+    );
+    if (active.length === 1) {
+      provider = active[0]!.provider;
+    } else if (active.length === 0) {
+      throw new ValidationError(
+        "No active payment connection for this business. Connect a payment provider first."
+      );
+    } else {
+      throw new ValidationError(
+        "Multiple active payment providers; specify which provider to use."
+      );
+    }
+  }
+
   const connection = await deps.store.findActiveConnection(
     input.businessId,
     provider
