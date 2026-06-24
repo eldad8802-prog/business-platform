@@ -1618,6 +1618,10 @@ model PurchaseOrder {
   source                        String?             @default("MANUAL")
   orderDate                     DateTime?
   status                        PurchaseOrderStatus @default(DRAFT)
+  // Phase D — Status Honesty. "Sent/shared to supplier" is an EVENT, not a stored
+  // lifecycle status (SENT is retired as a status). Nullable; set when the order
+  // is shared. Fulfillment stays DERIVED (Phase B); no stored fulfillment status.
+  sharedAt                      DateTime?
   createdByUserId               Int?
   sourceSupplierPurchaseDraftId Int?
   createdAt                     DateTime            @default(now())

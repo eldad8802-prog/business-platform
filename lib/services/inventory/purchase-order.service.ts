@@ -556,4 +556,54 @@ export const purchaseOrderService = {
     if (options?.tx) return run(options.tx);
     return prisma.$transaction(run, TRANSACTION_OPTIONS);
   },
+
+  /**
+   * Phase D — record the "order shared/sent to supplier" EVENT. Sets `sharedAt`
+   * only; it NEVER writes `status` (SENT is retired as a stored status) and never
+   * touches fulfillment (which stays derived from the ledger, Phase B). Idempotent
+   * — re-sharing refreshes the timestamp. A cancelled PO cannot be shared.
+   */
+  async markPurchaseOrderShared(
+    input: {
+      businessId: number;
+      purchaseOrderId: number;
+      sharedAt?: Date | string | null;
+    },
+    options?: TxOptions
+  ) {
+    const businessId = normalizePositiveInt(input.businessId, "businessId");
+    const purchaseOrderId = normalizePositiveInt(
+      input.purchaseOrderId,
+      "purchaseOrderId"
+    );
+    const sharedAt =
+      input.sharedAt != null
+        ? normalizeOrderDate(input.sharedAt) ?? new Date()
+        : new Date();
+
+    const run = async (tx: Tx) => {
+      const purchaseOrder = await tx.purchaseOrder.findFirst({
+        where: { id: purchaseOrderId, businessId },
+        select: { id: true, status: true },
+      });
+
+      if (!purchaseOrder) {
+        throw new InventoryNotFoundError("Purchase order not found");
+      }
+
+      if (purchaseOrder.status === PurchaseOrderStatus.CANCELLED) {
+        throw new InventoryValidationError(
+          "Cannot share a cancelled purchase order"
+        );
+      }
+
+      return tx.purchaseOrder.update({
+        where: { id: purchaseOrder.id },
+        data: { sharedAt },
+      });
+    };
+
+    if (options?.tx) return run(options.tx);
+    return prisma.$transaction(run, TRANSACTION_OPTIONS);
+  },
 };

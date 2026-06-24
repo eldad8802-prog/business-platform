@@ -14,12 +14,21 @@ import {
 } from "@/components/inventory/inventory-design";
 import { buildClientAuthHeaders } from "@/lib/client-session";
 
+import {
+  derivePurchaseOrderDisplayState,
+  purchaseOrderDisplayBucket,
+  isReceivableDisplayState,
+  type PoDisplayState,
+} from "@/lib/services/inventory/purchase-order-display";
+
 type PurchaseOrderLine = {
   id: number;
   orderedQty: number;
   unitCost: number | null;
-  // Ledger-derived open quantity (from withPurchaseOrderLineQuantities); drives
-  // receive-eligibility instead of the dead AWAITING_DELIVERY status.
+  // Ledger-derived quantities (from withPurchaseOrderLineQuantities); drive the
+  // derived display state instead of the dead SENT/AWAITING_DELIVERY/CLOSED status.
+  receivedQty?: number;
+  closedShortQty?: number;
   openQty?: number;
 };
 
@@ -30,25 +39,49 @@ type PurchaseOrder = {
   status: string;
   orderDate: string | null;
   createdAt: string;
+  // Phase D — share event metadata (SENT retired as a status).
+  sharedAt: string | null;
   lines: PurchaseOrderLine[];
 };
 
 type Tab = "pending" | "transit" | "history";
 
-const STATUS_GROUP: Record<Tab, string[]> = {
-  pending: ["DRAFT", "CONFIRMED"],
-  transit: ["SENT", "AWAITING_DELIVERY"],
-  history: ["CLOSED", "CANCELLED"],
-};
-
-const STATUS_BADGE: Record<string, { label: string; tone: BadgeTone }> = {
-  DRAFT: { label: "טיוטה", tone: "neutral" },
-  CONFIRMED: { label: "מאושרת", tone: "info" },
-  SENT: { label: "נשלחה", tone: "info" },
-  AWAITING_DELIVERY: { label: "בהמתנה לאספקה", tone: "low" },
+// Badge is keyed on the DERIVED display state, not the stored status.
+const STATE_BADGE: Record<PoDisplayState, { label: string; tone: BadgeTone }> = {
+  OPEN: { label: "פתוחה", tone: "info" },
+  SHARED: { label: "נשלחה לספק", tone: "info" },
+  PARTIAL: { label: "התקבלה חלקית", tone: "low" },
+  RECEIVED: { label: "התקבלה", tone: "ok" },
   CLOSED: { label: "נסגרה", tone: "ok" },
   CANCELLED: { label: "בוטלה", tone: "neutral" },
 };
+
+function orderTotals(order: PurchaseOrder) {
+  return order.lines.reduce(
+    (acc, line) => {
+      const received = line.receivedQty ?? 0;
+      const closedShort = line.closedShortQty ?? 0;
+      acc.orderedQty += line.orderedQty;
+      acc.receivedQty += received;
+      acc.closedShortQty += closedShort;
+      acc.openQty += line.openQty ?? line.orderedQty - received - closedShort;
+      return acc;
+    },
+    { orderedQty: 0, receivedQty: 0, closedShortQty: 0, openQty: 0 }
+  );
+}
+
+function orderDisplayState(order: PurchaseOrder): PoDisplayState {
+  const totals = orderTotals(order);
+  return derivePurchaseOrderDisplayState({
+    status: order.status,
+    orderedQty: totals.orderedQty,
+    receivedQty: totals.receivedQty,
+    closedShortQty: totals.closedShortQty,
+    openQty: totals.openQty,
+    sharedAt: order.sharedAt,
+  });
+}
 
 function formatDate(value: string | null): string {
   if (!value) return "";
@@ -100,19 +133,24 @@ export default function SupplierPurchasesHubPage() {
     };
   }, []);
 
+  const decorated = useMemo(
+    () =>
+      orders.map((order) => {
+        const state = orderDisplayState(order);
+        return { order, state, bucket: purchaseOrderDisplayBucket(state) };
+      }),
+    [orders]
+  );
+
   const groupCounts = useMemo(() => {
     const counts: Record<Tab, number> = { pending: 0, transit: 0, history: 0 };
-    for (const order of orders) {
-      (Object.keys(STATUS_GROUP) as Tab[]).forEach((t) => {
-        if (STATUS_GROUP[t].includes(order.status)) counts[t] += 1;
-      });
-    }
+    for (const d of decorated) counts[d.bucket] += 1;
     return counts;
-  }, [orders]);
+  }, [decorated]);
 
   const visibleOrders = useMemo(
-    () => orders.filter((order) => STATUS_GROUP[tab].includes(order.status)),
-    [orders, tab]
+    () => decorated.filter((d) => d.bucket === tab),
+    [decorated, tab]
   );
 
   const sub = (
@@ -184,8 +222,8 @@ export default function SupplierPurchasesHubPage() {
         </div>
       ) : (
         <div className="inv-rows">
-          {visibleOrders.map((order) => {
-            const badge = STATUS_BADGE[order.status] ?? { label: order.status, tone: "neutral" as BadgeTone };
+          {visibleOrders.map(({ order, state }) => {
+            const badge = STATE_BADGE[state];
             const idLabel = order.externalOrderId ? `#${order.externalOrderId}` : `#${order.id}`;
             const total = orderTotal(order);
             const date = formatDate(order.orderDate ?? order.createdAt);
@@ -194,14 +232,10 @@ export default function SupplierPurchasesHubPage() {
               total > 0 ? `₪${total.toLocaleString("he-IL")}` : "",
               date || "",
             ].filter(Boolean);
-            // Phase C — receive-eligibility is DERIVED from the ledger (open
-            // quantity), not the dead AWAITING_DELIVERY status. A PO created via
-            // approve COMMIT_ONLY (status CONFIRMED, openQty > 0) is now receivable.
-            const totalOpenQty = order.lines.reduce(
-              (sum, line) => sum + (line.openQty ?? 0),
-              0
-            );
-            const canReceive = order.status !== "CANCELLED" && totalOpenQty > 0;
+            // Phase C/D — receive-eligibility is DERIVED from the ledger (display
+            // state), not the dead AWAITING_DELIVERY status. A PO created via
+            // approve COMMIT_ONLY (CONFIRMED, openQty > 0) is now receivable.
+            const canReceive = isReceivableDisplayState(state);
             return (
               <InventoryRow
                 key={order.id}

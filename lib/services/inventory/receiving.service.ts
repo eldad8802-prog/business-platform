@@ -218,12 +218,12 @@ async function validateReceivingLines(
     throw new InventoryNotFoundError("Purchase order not found");
   }
 
-  if (
-    purchaseOrder.status === PurchaseOrderStatus.CLOSED ||
-    purchaseOrder.status === PurchaseOrderStatus.CANCELLED
-  ) {
+  // Phase D — CLOSED is retired as a stored status (it was never written);
+  // "done" is DERIVED from the ledger (openQty === 0). CANCELLED remains a real
+  // stored status and still blocks receiving.
+  if (purchaseOrder.status === PurchaseOrderStatus.CANCELLED) {
     throw new InventoryValidationError(
-      "Cannot receive against a closed or cancelled purchase order"
+      "Cannot receive against a cancelled purchase order"
     );
   }
 
