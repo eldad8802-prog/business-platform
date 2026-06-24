@@ -100,6 +100,28 @@ export {
 } from "./bot-recommendations";
 
 export {
+  MEMORY_TOGGLE_KEYS,
+  MEMORY_POLICY_VERSION,
+  MEMORY_TOGGLE_OPTIONS,
+  emptyMemoryPolicy,
+  validateMemoryPolicy,
+  coerceMemoryPolicy,
+  hasMemoryPolicyContent,
+  type MemoryToggleKey,
+  type BotMemoryPolicy,
+} from "./bot-memory-policy";
+
+export {
+  LEARNING_STATUSES,
+  LEARNING_TYPES,
+  LEARNING_TYPE_LABELS,
+  isLearningType,
+  isLearningStatus,
+  type LearningStatus,
+  type LearningType,
+} from "./bot-learning";
+
+export {
   SETUP_STATUSES,
   SETUP_MAX_STEP,
   validateSetupPatch,

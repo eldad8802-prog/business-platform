@@ -8,11 +8,13 @@ import {
 } from "@/lib/features/conversation/bot-control";
 import {
   coerceKnowledge,
+  coerceMemoryPolicy,
   coerceSelectedGoalKeys,
   coerceStoredProfile,
   computeBotAreaStates,
   hasApproachContent,
   hasKnowledgeContent,
+  hasMemoryPolicyContent,
   hasPersonalityContent,
   hasVoiceContent,
 } from "@/lib/features/bot";
@@ -86,6 +88,7 @@ export async function GET(req: Request) {
         include: {
           profile: true,
           knowledge: true,
+          memoryPolicy: true,
           setupDraft: {
             select: {
               status: true,
@@ -98,6 +101,7 @@ export async function GET(req: Request) {
             select: {
               goalSelections: true,
               recommendations: { where: { status: "PROPOSED" } },
+              learningSuggestions: { where: { status: "PROPOSED" } },
             },
           },
         },
@@ -133,6 +137,8 @@ export async function GET(req: Request) {
       approachOk: hasApproachContent(profile.approach),
       goalsCount: bot?._count?.goalSelections ?? 0,
       knowledgeOk: hasKnowledgeContent(coerceKnowledge(bot?.knowledge ?? null)),
+      memoryPolicyOk: hasMemoryPolicyContent(coerceMemoryPolicy(bot?.memoryPolicy ?? null)),
+      learningCount: bot?._count?.learningSuggestions ?? 0,
     };
 
     const setup = bot?.setupDraft

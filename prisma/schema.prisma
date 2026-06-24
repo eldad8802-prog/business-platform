@@ -404,6 +404,8 @@ model BusinessBot {
   setupDraft     BusinessBotSetupDraft?
   knowledge      BusinessBotKnowledge?
   recommendations BusinessBotRecommendation[]
+  memoryPolicy        BusinessBotMemoryPolicy?
+  learningSuggestions BusinessBotLearningSuggestion[]
 }
 
 /// Descriptive, advisory profile branch under `BusinessBot` (Stage 1).
@@ -511,6 +513,49 @@ model BusinessBotRecommendation {
 
   @@index([botId, status])
   @@index([botId, type])
+}
+
+/// Memory POLICY for the bot builder (Stage 7) — toggles ONLY.
+///
+/// What the bot would be allowed to remember about customers in the FUTURE.
+/// Stores NO actual customer memory, writes nothing to Customer, holds no
+/// cross-conversation data, and is NOT read by the planner/pipeline.
+model BusinessBotMemoryPolicy {
+  id                     Int         @id @default(autoincrement())
+  botId                  Int         @unique
+  newOrReturningCustomer Boolean     @default(false)
+  preferences            Boolean     @default(false)
+  contactHistory         Boolean     @default(false)
+  manualNotes            Boolean     @default(false)
+  accumulatedInsights    Boolean     @default(false)
+  version                Int         @default(1)
+  lastConfiguredAt       DateTime?
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+  bot                    BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+}
+
+/// Learning suggestion for the bot builder (Stage 8) — PROPOSALS ONLY.
+///
+/// The bot never changes itself. A suggestion stays PROPOSED until the owner
+/// adopts or dismisses it; even ADOPTED changes nothing about runtime in this
+/// stage (status flip only). NOT read by the planner/pipeline.
+model BusinessBotLearningSuggestion {
+  id          Int         @id @default(autoincrement())
+  botId       Int
+  type        String
+  status      String      @default("PROPOSED")
+  title       String
+  description String?
+  payload     Json?
+  evidence    Json?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  adoptedAt   DateTime?
+  dismissedAt DateTime?
+  bot         BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@index([botId, status])
 }
 
 /// Structured capture of a customer's answer to a single bot field.

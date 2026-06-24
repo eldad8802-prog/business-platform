@@ -13,9 +13,8 @@
   "learning",
 ] as const;
 
-// Stage 1: personality + approach moved to real persistence (BusinessBotProfile).
-// Only memory + learning remain backend-less placeholders.
-export const PLACEHOLDER_BOT_SETTINGS_AREAS = ["memory", "learning"] as const;
+// All 12 builder areas now have real backends (Stages 1–8). No placeholders left.
+export const PLACEHOLDER_BOT_SETTINGS_AREAS = [] as const;
 
 export type BotSettingsArea = (typeof ACTIVE_BOT_SETTINGS_AREAS)[number];
 export type PlaceholderBotSettingsArea =

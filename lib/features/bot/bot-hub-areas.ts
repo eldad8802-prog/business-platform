@@ -42,6 +42,10 @@ export type BotHubSignals = {
   goalsCount: number;
   /** real business-authored knowledge (FAQ/hours/address/notes) */
   knowledgeOk: boolean;
+  /** memory policy has ≥1 toggle on */
+  memoryPolicyOk: boolean;
+  /** number of PROPOSED learning suggestions */
+  learningCount: number;
 };
 
 export type BotHubAreaStateMap = Record<BotHubAreaId, BotAreaState>;
@@ -64,12 +68,13 @@ export function computeBotAreaStates(signals: BotHubSignals): BotHubAreaStateMap
     approach: signals.approachOk ? "ready" : "partial",
     // Stage 4: real knowledge → ready; only a product link / nothing → partial.
     knowledge: signals.knowledgeOk ? "ready" : "partial",
-    // Still no backend in Stage 1.
-    memory: "soon",
+    // Stage 7: memory policy (policy only — no actual customer memory).
+    memory: signals.memoryPolicyOk ? "ready" : "partial",
     autonomy: "partial",
     allowed: signals.finishOk ? "ready" : "partial",
     forbidden: "ready",
     handoff: "ready",
-    learning: "soon",
+    // Stage 8: learning suggestions (proposals only).
+    learning: signals.learningCount > 0 ? "ready" : "partial",
   };
 }

@@ -37,6 +37,8 @@ import {
 } from "./bot-profile-screens";
 import { GoalsFlagshipScreen } from "./bot-goals-screen";
 import { KnowledgeProfileScreen } from "./bot-knowledge-screen";
+import { MemoryPolicyScreen } from "./bot-memory-screen";
+import { LearningScreen } from "./bot-learning-screen";
 
 type FinalActionValue = FinalAction;
 
@@ -413,6 +415,12 @@ export function BotSettingsEditor({ area }: { area: BotSettingsArea }) {
   }
   if (area === "forbidden") {
     return <ForbiddenPlaceholderScreen />;
+  }
+  if (area === "memory") {
+    return <MemoryPolicyScreen />;
+  }
+  if (area === "learning") {
+    return <LearningScreen />;
   }
 
   return (

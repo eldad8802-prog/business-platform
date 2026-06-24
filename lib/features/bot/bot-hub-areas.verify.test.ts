@@ -24,6 +24,8 @@ const EMPTY: BotHubSignals = {
   approachOk: false,
   goalsCount: 0,
   knowledgeOk: false,
+  memoryPolicyOk: false,
+  learningCount: 0,
 };
 
 // ── 1. all 12 areas present ──────────────────────────────────────────────────
@@ -42,15 +44,17 @@ const EMPTY: BotHubSignals = {
   assert.equal(map.approach, "partial");
   assert.equal(map.voice, "partial");
   assert.equal(map.goal, "partial");
-  assert.equal(map.memory, "soon");
-  assert.equal(map.learning, "soon");
+  assert.equal(map.memory, "partial");
+  assert.equal(map.learning, "partial");
   assert.equal(map.forbidden, "ready");
   assert.equal(map.handoff, "ready");
 }
 
-// ── 2b. goal flips to ready once goals are selected ──────────────────────────
+// ── 2b. goal/memory/learning flip to ready ───────────────────────────────────
 {
   assert.equal(computeBotAreaStates({ ...EMPTY, goalsCount: 2 }).goal, "ready");
+  assert.equal(computeBotAreaStates({ ...EMPTY, memoryPolicyOk: true }).memory, "ready");
+  assert.equal(computeBotAreaStates({ ...EMPTY, learningCount: 3 }).learning, "ready");
 }
 
 // ── 3. content → ready ───────────────────────────────────────────────────────

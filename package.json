@@ -24,6 +24,8 @@
     "verify:bot-setup": "npx tsx lib/features/bot/bot-setup.verify.test.ts",
     "verify:bot-knowledge": "npx tsx lib/features/bot/bot-knowledge.verify.test.ts",
     "verify:bot-recommendations": "npx tsx lib/features/bot/bot-recommendations.verify.test.ts",
+    "verify:bot-memory-policy": "npx tsx lib/features/bot/bot-memory-policy.verify.test.ts",
+    "verify:bot-learning": "npx tsx lib/features/bot/bot-learning.verify.test.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

@@ -47,6 +47,8 @@ type HubPayload = {
     approachOk: boolean;
     goalsCount: number;
     knowledgeOk: boolean;
+    memoryPolicyOk: boolean;
+    learningCount: number;
   };
   recommendations?: { count: number; has: boolean };
   areaStates: Record<AreaIconName, AreaState>;
@@ -86,12 +88,17 @@ function deriveAreas(payload: HubPayload): BuilderArea[] {
       : signals.productLinkOk
         ? "קישור קטלוג בלבד"
         : "טרם הוגדר ידע",
-    memory: "זיכרון לקוח מתמשך · בקרוב",
+    memory: signals.memoryPolicyOk
+      ? "מדיניות זיכרון מוגדרת"
+      : "טרם הוגדרה מדיניות זיכרון",
     autonomy: signals.workModeManual ? "רמה 1 · ידני" : "רמה 2 · טיוטות חכמות",
     allowed: signals.finishOk ? "סיום שיחה מוגדר" : "חסר סיום שיחה",
     forbidden: "גבולות העברה ושמירה ברקע",
     handoff: "מחיר, נציג, חוסר ודאות ועוד",
-    learning: "הצעות ולמידה מאישורים · בקרוב",
+    learning:
+      signals.learningCount > 0
+        ? `${signals.learningCount} הצעות שיפור`
+        : "אין הצעות עדיין",
   };
   const titles: Record<AreaIconName, string> = {
     goal: "המטרה שלו",
