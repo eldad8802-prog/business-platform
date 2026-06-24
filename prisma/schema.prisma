@@ -156,6 +156,7 @@ model Business {
   billingPaymentAllocations BillingPaymentAllocation[]
   profile                   BusinessProfile?
   botSettings               BusinessBotSettings?
+  bot                       BusinessBot?
   services                  BusinessService[]
   collaborationDeals        CollaborationDeal[]
   conversations             Conversation[]
@@ -381,6 +382,41 @@ model BusinessBotSettings {
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt
   business                    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+/// Bot Builder root identity (Stage 1, intentionally thin).
+///
+/// Identity ONLY — no runtime state. Runtime config (enabled/workMode/questions/
+/// welcome/finalAction/handoffRules) stays in `BusinessBotSettings`, which the
+/// conversation pipeline reads. This root is reconciled with it by `businessId`
+/// and is NEVER read by the response-planner or the pipeline. Singleton per
+/// business for now (`businessId @unique`); multi-bot is deliberately deferred.
+model BusinessBot {
+  id          Int                 @id @default(autoincrement())
+  businessId  Int                 @unique
+  displayName String?
+  avatar      String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  business    Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  profile     BusinessBotProfile?
+}
+
+/// Descriptive, advisory profile branch under `BusinessBot` (Stage 1).
+///
+/// `voice` / `personality` / `approach` are grouped JSON, each constrained by
+/// app-side allow-list validators in `lib/features/bot` — never free-form JSON.
+/// Advisory only: NOT consumed by the response-planner or the pipeline.
+model BusinessBotProfile {
+  id          Int         @id @default(autoincrement())
+  botId       Int         @unique
+  voice       Json?
+  personality Json?
+  approach    Json?
+  version     Int         @default(1)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  bot         BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
 }
 
 /// Structured capture of a customer's answer to a single bot field.
