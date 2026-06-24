@@ -23,6 +23,7 @@
     "verify:bot-goals": "npx tsx lib/features/bot/bot-goals.verify.test.ts",
     "verify:bot-setup": "npx tsx lib/features/bot/bot-setup.verify.test.ts",
     "verify:bot-knowledge": "npx tsx lib/features/bot/bot-knowledge.verify.test.ts",
+    "verify:bot-recommendations": "npx tsx lib/features/bot/bot-recommendations.verify.test.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

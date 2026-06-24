@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import {
@@ -47,6 +48,7 @@ type HubPayload = {
     goalsCount: number;
     knowledgeOk: boolean;
   };
+  recommendations?: { count: number; has: boolean };
   areaStates: Record<AreaIconName, AreaState>;
 };
 
@@ -231,6 +233,29 @@ export default function BusinessBotHubPage() {
             >
               {derived.subtitle}
             </p>
+
+            {payload.recommendations?.has ? (
+              <Link
+                href="/business/bot-settings/goal"
+                style={{
+                  display: "block",
+                  margin: "12px 18px 0",
+                  padding: "12px 14px",
+                  borderRadius: TOKEN.radius.card,
+                  background: TOKEN.brand.soft,
+                  border: `1px solid ${TOKEN.brand.softBorder}`,
+                  color: TOKEN.brand.mid,
+                  textDecoration: "none",
+                }}
+              >
+                <span style={{ fontSize: TOKEN.font.body, fontWeight: TOKEN.weight.bold }}>
+                  יש {payload.recommendations.count} המלצות לעדכון הבוט
+                </span>
+                <span style={{ display: "block", marginTop: 2, fontSize: TOKEN.font.meta, color: TOKEN.ink.muted }}>
+                  המטרות השתנו — יש הצעות לעדכן. אתה מחליט אם להחיל.
+                </span>
+              </Link>
+            ) : null}
 
             <BotIdentityHero
               icon={

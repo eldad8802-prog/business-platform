@@ -403,6 +403,7 @@ model BusinessBot {
   goalSelections BotGoalSelection[]
   setupDraft     BusinessBotSetupDraft?
   knowledge      BusinessBotKnowledge?
+  recommendations BusinessBotRecommendation[]
 }
 
 /// Descriptive, advisory profile branch under `BusinessBot` (Stage 1).
@@ -448,8 +449,11 @@ model BotGoalSelection {
 /// Holds the in-progress wizard: selected goals, current step, and a FROZEN
 /// `assembledBase` snapshot (copy-with-provenance: each assembled item records
 /// its source goals + the snapshot stamps the catalog version + `assembledAt`).
-/// status stops at REVIEW_READY — there is NO ACTIVATED here. Never writes
-/// BusinessBotSettings, never materializes, never read by the pipeline.
+/// Client-writable status stops at REVIEW_READY. ACTIVATED is set ONLY by the
+/// activate route (Stage 5) — a controlled, minimal copy of the frozen
+/// `assembledBase` into the EXISTING BusinessBotSettings fields the planner
+/// already reads. `activatedAt` + `activationMeta` keep activation provenance
+/// OFF the planner path. Never changes mode/workMode/handoff/enabled.
 model BusinessBotSetupDraft {
   id               Int         @id @default(autoincrement())
   botId            Int         @unique
@@ -458,6 +462,8 @@ model BusinessBotSetupDraft {
   selectedGoalKeys Json?
   assembledBase    Json?
   assembledAt      DateTime?
+  activatedAt      DateTime?
+  activationMeta   Json?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
   bot              BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
@@ -480,6 +486,31 @@ model BusinessBotKnowledge {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
   bot       BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+}
+
+/// Opt-in recommendation for the bot builder (Stage 6).
+///
+/// Generated when goals change on an established bot. A recommendation NEVER
+/// changes anything by itself — it is stored + shown only. `apply` is a
+/// disabled placeholder (no runtime write). NOT read by the planner/pipeline.
+/// `type` is granular (subject baked in) so we can dedupe per (botId, type).
+model BusinessBotRecommendation {
+  id                Int         @id @default(autoincrement())
+  botId             Int
+  type              String
+  status            String      @default("PROPOSED")
+  reason            String
+  payload           Json?
+  sourceGoalKey     String?
+  sourceGoalVersion Int?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  appliedAt         DateTime?
+  dismissedAt       DateTime?
+  bot               BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@index([botId, status])
+  @@index([botId, type])
 }
 
 /// Structured capture of a customer's answer to a single bot field.

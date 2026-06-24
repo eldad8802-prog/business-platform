@@ -94,7 +94,12 @@ export async function GET(req: Request) {
               assembledAt: true,
             },
           },
-          _count: { select: { goalSelections: true } },
+          _count: {
+            select: {
+              goalSelections: true,
+              recommendations: { where: { status: "PROPOSED" } },
+            },
+          },
         },
       }),
     ]);
@@ -151,6 +156,10 @@ export async function GET(req: Request) {
       },
       signals,
       setup,
+      recommendations: {
+        count: bot?._count?.recommendations ?? 0,
+        has: (bot?._count?.recommendations ?? 0) > 0,
+      },
       areaStates: computeBotAreaStates(signals),
     });
   } catch (error) {

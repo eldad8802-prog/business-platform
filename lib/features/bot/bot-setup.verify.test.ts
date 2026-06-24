@@ -9,6 +9,8 @@
 import assert from "node:assert/strict";
 import {
   assembleBase,
+  materializeSettingsFromBase,
+  validateAssembledBase,
   validateSetupPatch,
   coerceSelectedGoalKeys,
   SETUP_MAX_STEP,
@@ -87,5 +89,33 @@ import {
 // ── 5. coerceSelectedGoalKeys (read-side) ────────────────────────────────────
 assert.deepEqual(coerceSelectedGoalKeys(["faq", "bad", "reminders"]), ["faq", "reminders"]);
 assert.deepEqual(coerceSelectedGoalKeys(null), []);
+
+// ── 6. snapshot carries welcome + finalAction; materialize is a COPY ─────────
+{
+  const base = assembleBase(["appointment_booking"], "2026-06-24T00:00:00.000Z");
+  assert.ok(base.welcome.length > 0);
+  assert.equal(base.finalAction, "COLLECT_DETAILS"); // collecting action present
+  const faqOnly = assembleBase(["faq"]);
+  // faq still collects details via GENERIC → COLLECT_DETAILS (deterministic)
+  assert.ok(["COLLECT_DETAILS", "LEAVE_MESSAGE"].includes(faqOnly.finalAction));
+
+  const mat = materializeSettingsFromBase(base);
+  assert.equal(mat.welcomeMessage, base.welcome);
+  assert.deepEqual(mat.questions.items, base.questions.map((q) => q.question));
+  assert.equal(mat.finalAction, base.finalAction);
+  // items is a fresh array (copy), not the questions array itself
+  mat.questions.items.push("x");
+  assert.notEqual(mat.questions.items.length, base.questions.length);
+}
+
+// ── 7. validateAssembledBase rejects junk, accepts a real snapshot ───────────
+{
+  const good = assembleBase(["faq"]);
+  assert.ok(validateAssembledBase(good));
+  assert.equal(validateAssembledBase(null), null);
+  assert.equal(validateAssembledBase({ welcome: "", finalAction: "COLLECT_DETAILS", questions: [], sources: [] }), null);
+  assert.equal(validateAssembledBase({ welcome: "hi", finalAction: "NOPE", questions: [], sources: [] }), null);
+  assert.equal(validateAssembledBase({ welcome: "hi", finalAction: "LEAVE_MESSAGE", questions: "x", sources: [] }), null);
+}
 
 console.log("bot-setup.verify: all assertions passed ✓");

@@ -84,10 +84,20 @@ export {
 
 export {
   assembleBase,
+  materializeSettingsFromBase,
+  validateAssembledBase,
   type AssembledBase,
   type AssembledQuestion,
   type AssembledItem,
+  type MaterializedSettings,
 } from "./bot-setup-assembly";
+
+export {
+  RECOMMENDATION_STATUSES,
+  generateGoalChangeRecommendations,
+  type RecommendationStatus,
+  type RecommendationCandidate,
+} from "./bot-recommendations";
 
 export {
   SETUP_STATUSES,

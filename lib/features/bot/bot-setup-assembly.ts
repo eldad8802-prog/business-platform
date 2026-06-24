@@ -12,7 +12,18 @@
  */
 
 import { getCatalogField } from "../conversation/bot-fields";
+import type { FinalAction } from "../conversation/final-action";
 import { GOAL_CATALOG_VERSION, isGoalKey } from "./bot-goals";
+
+const DEFAULT_WELCOME = "היי! תודה שפנית 🙂 כמה פרטים קצרים ונמשיך.";
+
+/** Actions that imply the bot should collect details before closing. */
+const COLLECTING_ACTIONS = new Set([
+  "collect_details",
+  "propose_appointment",
+  "take_order",
+  "collect_documents",
+]);
 
 // ── Advisory catalogs (labels live here; keys are stable) ────────────────────
 const ACTION_LABELS: Record<string, string> = {
@@ -112,6 +123,10 @@ export type AssembledBase = {
   catalogVersion: number;
   assembledAt: string;
   sources: { goalKey: string; goalVersion: number }[];
+  /** Proposed opener — materializable to BusinessBotSettings.welcomeMessage. */
+  welcome: string;
+  /** Proposed closing action — a value valid for the existing finalAction. */
+  finalAction: FinalAction;
   questions: AssembledQuestion[];
   knowledgeToComplete: AssembledItem[];
   actions: AssembledItem[];
@@ -165,13 +180,68 @@ export function assembleBase(
       .filter(([key]) => labels[key])
       .map(([key, fromGoals]) => ({ key, label: labels[key], fromGoals }));
 
+  const actions = toItems(accumulate(goalKeys, (c) => c.actions), ACTION_LABELS);
+  const finalAction: FinalAction = actions.some((a) => COLLECTING_ACTIONS.has(a.key))
+    ? "COLLECT_DETAILS"
+    : "LEAVE_MESSAGE";
+
   return {
     catalogVersion: GOAL_CATALOG_VERSION,
     assembledAt,
     sources: goalKeys.map((goalKey) => ({ goalKey, goalVersion: GOAL_CATALOG_VERSION })),
+    welcome: DEFAULT_WELCOME,
+    finalAction,
     questions,
     knowledgeToComplete: toItems(accumulate(goalKeys, (c) => c.knowledge), KNOWLEDGE_LABELS),
-    actions: toItems(accumulate(goalKeys, (c) => c.actions), ACTION_LABELS),
+    actions,
     handoff: toItems(accumulate(goalKeys, (c) => c.handoff), HANDOFF_LABELS),
   };
+}
+
+// ── Controlled materialization (Stage 5) ─────────────────────────────────────
+/**
+ * Pure projection of a snapshot into the EXISTING BusinessBotSettings shape the
+ * planner already reads. COPY, not reference. Only the safe subset:
+ * welcomeMessage + legacy `{ items }` questions + a valid finalAction. NEVER
+ * touches mode/workMode/handoff/enabled.
+ */
+export type MaterializedSettings = {
+  welcomeMessage: string;
+  questions: { items: string[] };
+  finalAction: FinalAction;
+};
+
+export function materializeSettingsFromBase(base: AssembledBase): MaterializedSettings {
+  return {
+    welcomeMessage: base.welcome,
+    questions: { items: base.questions.map((q) => q.question) },
+    finalAction: base.finalAction,
+  };
+}
+
+const FINAL_ACTIONS = new Set<FinalAction>([
+  "LEAVE_MESSAGE",
+  "COLLECT_DETAILS",
+  "SEND_LINK",
+  "ESCALATE",
+]);
+
+/**
+ * Defensive validation of a STORED assembledBase before activation. The
+ * snapshot is our own, but it may be old/corrupt — activate must refuse junk.
+ */
+export function validateAssembledBase(raw: unknown): AssembledBase | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.welcome !== "string" || !o.welcome.trim()) return null;
+  if (typeof o.finalAction !== "string" || !FINAL_ACTIONS.has(o.finalAction as FinalAction)) {
+    return null;
+  }
+  if (!Array.isArray(o.questions)) return null;
+  for (const q of o.questions) {
+    if (!q || typeof q !== "object") return null;
+    if (typeof (q as Record<string, unknown>).question !== "string") return null;
+  }
+  if (!Array.isArray(o.sources)) return null;
+  return raw as AssembledBase;
 }

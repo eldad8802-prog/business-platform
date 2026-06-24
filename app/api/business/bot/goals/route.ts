@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
-import { GOAL_CATALOG_VERSION, validateGoalSelection } from "@/lib/features/bot";
+import {
+  GOAL_CATALOG_VERSION,
+  coerceKnowledge,
+  generateGoalChangeRecommendations,
+  hasKnowledgeContent,
+  validateGoalSelection,
+} from "@/lib/features/bot";
 
 /**
  * Bot goal selection (Stage 2). Persists WHICH goals the business chose for its
@@ -105,6 +112,58 @@ export async function PUT(req: Request) {
             goalVersion: GOAL_CATALOG_VERSION,
           })),
         });
+      }
+
+      // Opt-in recommendations: only when goals CHANGE on an already-established
+      // bot (had prior goals, or an activated setup, or real knowledge). Never
+      // on a first-time selection. Stored only — no runtime effect.
+      if (toAdd.length > 0) {
+        const [draft, knowledgeRow] = await Promise.all([
+          tx.businessBotSetupDraft.findUnique({
+            where: { botId: bot.id },
+            select: { activatedAt: true },
+          }),
+          tx.businessBotKnowledge.findUnique({
+            where: { botId: bot.id },
+            select: { hours: true, address: true, notes: true, faq: true },
+          }),
+        ]);
+        const knowledge = coerceKnowledge(knowledgeRow);
+        const established =
+          existingKeys.size > 0 ||
+          draft?.activatedAt != null ||
+          hasKnowledgeContent(knowledge);
+
+        if (established) {
+          const candidates = generateGoalChangeRecommendations({
+            addedGoalKeys: toAdd,
+            knowledge,
+          });
+          if (candidates.length > 0) {
+            // Dedupe against ANY existing recommendation of the same type.
+            const priorTypes = new Set(
+              (
+                await tx.businessBotRecommendation.findMany({
+                  where: { botId: bot.id, type: { in: candidates.map((c) => c.type) } },
+                  select: { type: true },
+                })
+              ).map((r) => r.type)
+            );
+            const fresh = candidates.filter((c) => !priorTypes.has(c.type));
+            if (fresh.length > 0) {
+              await tx.businessBotRecommendation.createMany({
+                data: fresh.map((c) => ({
+                  botId: bot.id,
+                  type: c.type,
+                  reason: c.reason,
+                  payload: c.payload as Prisma.InputJsonValue,
+                  sourceGoalKey: c.sourceGoalKey,
+                  sourceGoalVersion: c.sourceGoalVersion,
+                })),
+              });
+            }
+          }
+        }
       }
 
       return tx.botGoalSelection.findMany({
