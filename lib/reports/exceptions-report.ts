@@ -234,6 +234,22 @@ export function computeExceptionRows(inputs: ExceptionInputs): ExceptionRow[] {
       );
     }
 
+    if (!hasValidDate(ex?.date ?? null)) {
+      rows.push(
+        row({
+          severity: "Critical",
+          typeKey: "MISSING_DATE",
+          recordType: "Document",
+          recordId: d.id,
+          date: null,
+          vendor: ex?.vendorName ?? null,
+          amount: hasValidAmount(ex?.amount) ? (ex?.amount as number) : null,
+          description: "מסמך ממתין ללא תאריך תקין",
+          suggestedAction: "הוסף תאריך עסקה במסך האימות",
+        })
+      );
+    }
+
     if (!hasVendor(ex?.vendorName)) {
       rows.push(
         row({
