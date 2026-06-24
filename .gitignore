@@ -99,3 +99,9 @@ stash-backup-*.patch
 /cloudflare.txt
 /vision-inline.txt
 /קלודפייר.txt
+
+# Tax Authority (ITA) sandbox credential dumps — contain API key + client secret, NEVER commit
+/api רשות המיסים סנדבוקס.txt
+/אישור עבור דוביז מפתח api סנדבוקס.txt
+# ITA OAuth working state written by scripts/sandbox-authority-certification.ts
+/.sandbox-auth/

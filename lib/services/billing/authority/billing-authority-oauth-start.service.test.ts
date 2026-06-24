@@ -125,6 +125,7 @@ withEnv(ENV, () => {
     oauthPathSegment: "tsandbox",
     redirectBaseUrl,
     businessId: 42,
+    actorUserId: 7,
     environment: BillingAuthorityEnvironment.SANDBOX,
     state: fixedState,
     secureCookies: false,
@@ -167,6 +168,7 @@ withEnv(PROD_ENV, () => {
     oauthPathSegment: "production",
     redirectBaseUrl: "https://prod.dubiz.test",
     businessId: 42,
+    actorUserId: 7,
     environment: BillingAuthorityEnvironment.PRODUCTION,
     state: fixedState,
     secureCookies: false,
@@ -185,15 +187,21 @@ withEnv(PROD_ENV, () => {
 const cookies = buildAuthorityOAuthStateCookies({
   state: fixedState,
   businessId: 42,
+  actorUserId: 7,
   environment: BillingAuthorityEnvironment.SANDBOX,
   secureCookies: false,
 });
 ok(
   "state persistence cookies scoped to business and environment",
-  cookies.length === 3 &&
+  cookies.length === 4 &&
     cookies[0].name === AUTHORITY_OAUTH_COOKIE_NAMES.STATE &&
     cookies[1].value === "42" &&
     cookies[2].value === "SANDBOX"
+);
+ok(
+  "actor user id carried for callback audit",
+  cookies[3].name === AUTHORITY_OAUTH_COOKIE_NAMES.ACTOR_USER_ID &&
+    cookies[3].value === "7"
 );
 ok(
   "state cookies are httpOnly with expiration",
@@ -206,7 +214,7 @@ ok(
     authorizeEndpoint:
       "https://openapi.taxes.gov.il/shaam/tsandbox/longtimetoken/oauth2/authorize",
     clientId: "client",
-    redirectUri: "https://app.example.com/api/billing/authority/callback",
+    redirectUri: "https://app.example.com/api/taxes/oauth/callback",
     state: "abc",
   }).includes("state=abc")
 );

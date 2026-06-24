@@ -1013,7 +1013,7 @@ async function runAsyncTests() {
         apiBase: "https://ita-api.taxes.gov.il",
         oauthPathSegment: "tsandbox",
         redirectBaseUrl: "https://app.dubiz.test",
-        redirectUri: "https://app.dubiz.test/api/billing/authority/callback",
+        redirectUri: "https://app.dubiz.test/api/taxes/oauth/callback",
       }) === sandboxTokenEndpoint
     );
   });

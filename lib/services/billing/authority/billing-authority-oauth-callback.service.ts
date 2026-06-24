@@ -178,6 +178,7 @@ export function buildAuthorityOAuthCookieClearSpecs(input?: {
     { name: AUTHORITY_OAUTH_COOKIE_NAMES.STATE, ...base },
     { name: AUTHORITY_OAUTH_COOKIE_NAMES.BUSINESS_ID, ...base },
     { name: AUTHORITY_OAUTH_COOKIE_NAMES.ENVIRONMENT, ...base },
+    { name: AUTHORITY_OAUTH_COOKIE_NAMES.ACTOR_USER_ID, ...base },
   ];
 }
 

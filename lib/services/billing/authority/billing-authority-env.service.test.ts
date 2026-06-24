@@ -71,7 +71,7 @@ withEnv(
     ok(
       "redirect uri includes callback path",
       config.redirectUri ===
-        "https://app.dubiz.test/api/billing/authority/callback"
+        "https://app.dubiz.test/api/taxes/oauth/callback"
     );
 
     ok(

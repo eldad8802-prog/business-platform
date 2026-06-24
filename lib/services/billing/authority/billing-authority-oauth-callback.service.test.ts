@@ -341,7 +341,7 @@ async function runAsyncTests() {
       ok(
         "cookies cleared on success",
         success.ok &&
-          success.clearedCookies.length === 3 &&
+          success.clearedCookies.length === 4 &&
           success.clearedCookies.every((cookie) => cookie.maxAge === 0)
       );
 
@@ -429,7 +429,7 @@ async function runAsyncTests() {
       );
       ok(
         "cookies cleared on failure",
-        failure.clearedCookies.length === 3 &&
+        failure.clearedCookies.length === 4 &&
           failure.clearedCookies[0].name === AUTHORITY_OAUTH_COOKIE_NAMES.STATE
       );
       ok(

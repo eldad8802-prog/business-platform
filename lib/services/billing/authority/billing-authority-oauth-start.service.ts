@@ -25,6 +25,7 @@ export const AUTHORITY_OAUTH_COOKIE_NAMES = {
   STATE: "authority_oauth_state",
   BUSINESS_ID: "authority_oauth_business_id",
   ENVIRONMENT: "authority_oauth_environment",
+  ACTOR_USER_ID: "authority_oauth_actor_user_id",
 } as const;
 
 /** OAuth state cookie lifetime — matches Gmail connect pattern. */
@@ -122,10 +123,12 @@ export function buildAuthorityOAuthAuthorizeRedirectUrl(
 export function buildAuthorityOAuthStateCookies(input: {
   state: string;
   businessId: number;
+  actorUserId: number;
   environment: BillingAuthorityEnvironment;
   secureCookies?: boolean;
 }): AuthorityOAuthCookieSpec[] {
   assertPositiveInteger(input.businessId, "businessId");
+  assertPositiveInteger(input.actorUserId, "actorUserId");
 
   const secure = input.secureCookies ?? process.env.NODE_ENV === "production";
 
@@ -153,6 +156,14 @@ export function buildAuthorityOAuthStateCookies(input: {
       value: input.environment,
       ...base,
     },
+    // Carries the authenticated actor across the ITA redirect: the browser
+    // returns via a top-level GET with no Authorization header, so the actor
+    // cannot be recovered from the session at callback time.
+    {
+      name: AUTHORITY_OAUTH_COOKIE_NAMES.ACTOR_USER_ID,
+      value: String(input.actorUserId),
+      ...base,
+    },
   ];
 }
 
@@ -162,6 +173,7 @@ export function composeAuthorityOAuthStartResult(input: {
   oauthPathSegment: string;
   redirectBaseUrl: string;
   businessId: number;
+  actorUserId: number;
   environment: BillingAuthorityEnvironment;
   state?: string;
   secureCookies?: boolean;
@@ -188,6 +200,7 @@ export function composeAuthorityOAuthStartResult(input: {
     cookies: buildAuthorityOAuthStateCookies({
       state,
       businessId: input.businessId,
+      actorUserId: input.actorUserId,
       environment: input.environment,
       secureCookies: input.secureCookies,
     }),
@@ -224,6 +237,7 @@ export async function startAuthorityOAuth(
     oauthPathSegment: envConfig.oauthPathSegment,
     redirectBaseUrl,
     businessId: input.businessId,
+    actorUserId: input.actorUserId,
     environment: input.environment,
     secureCookies: input.secureCookies,
   });

@@ -53,7 +53,7 @@ export type PublicAuthorityConnection = {
 };
 
 export const BILLING_AUTHORITY_OAUTH_CALLBACK_PATH =
-  "/api/billing/authority/callback" as const;
+  "/api/taxes/oauth/callback" as const;
 
 /** Pre-encrypted token material written by OAuth callback (D.2.5+). */
 export type AuthorityConnectionEncryptedTokenFields = {
