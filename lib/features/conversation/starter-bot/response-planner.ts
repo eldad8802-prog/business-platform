@@ -6,6 +6,7 @@ import type {
 } from "./types";
 import {
   applyVoiceToWelcome,
+  matchKnowledgeIntent,
   type BotComposeContext,
 } from "../../bot/bot-compose-context";
 
@@ -91,6 +92,22 @@ export function planStarterBotReply(
   }
   if (settings.channel !== "WHATSAPP") {
     return noDraft("UNSUPPORTED_CHANNEL");
+  }
+
+  // 9C: conservative deterministic knowledge answer. Only when the knowledge
+  // capability is armed (context.knowledge present). On a confident match it
+  // takes priority for THIS draft; otherwise full fall-through to the existing
+  // flow. Never advances the question index, never touches finalAction/handoff.
+  if (context?.knowledge) {
+    const km = matchKnowledgeIntent(context.customerMessageText, context.knowledge);
+    if (km) {
+      return {
+        shouldDraftReply: true,
+        replyText: km.replyText,
+        replyKind: "KNOWLEDGE",
+        reason: `KNOWLEDGE_${km.matchType.toUpperCase()}`,
+      };
+    }
   }
 
   const welcome = (settings.welcomeMessage || "").trim();

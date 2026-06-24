@@ -29,17 +29,42 @@ export function isBotVoiceComposeEnabled(): boolean {
   return envOn("BOT_COMPOSE_VOICE_ENABLED");
 }
 
+/** 9C knowledge — arm the deterministic knowledge matcher. Default false. */
+export function isBotComposeKnowledgeEnabled(): boolean {
+  return envOn("BOT_COMPOSE_KNOWLEDGE_ENABLED");
+}
+
 /**
  * Read-only load of the compose context for a business. Returns null when there
  * is no BusinessBot (→ caller falls back to existing behaviour). Never writes.
+ *
+ * Capabilities are gated by the caller: `includeVoice`/`includeKnowledge` decide
+ * which data is populated, so an un-armed capability simply isn't present and
+ * the planner can't act on it.
  */
 export async function loadBotComposeContext(
-  businessId: number
+  businessId: number,
+  options?: { includeVoice?: boolean; includeKnowledge?: boolean }
 ): Promise<BotComposeContext | null> {
+  const includeVoice = options?.includeVoice ?? true;
+  const includeKnowledge = options?.includeKnowledge ?? false;
+
   const bot = await prisma.businessBot.findUnique({
     where: { businessId },
-    select: { displayName: true, profile: { select: { voice: true, personality: true, approach: true } } },
+    select: {
+      displayName: true,
+      profile: { select: { voice: true, personality: true, approach: true } },
+      knowledge: includeKnowledge
+        ? { select: { hours: true, address: true, notes: true, faq: true } }
+        : false,
+    },
   });
   if (!bot) return null;
-  return buildBotComposeContext({ displayName: bot.displayName, profile: bot.profile });
+
+  return buildBotComposeContext({
+    // Voice transform keys off displayName — withhold it when voice isn't armed.
+    displayName: includeVoice ? bot.displayName : null,
+    profile: bot.profile,
+    knowledge: includeKnowledge ? (bot.knowledge ?? null) : undefined,
+  });
 }

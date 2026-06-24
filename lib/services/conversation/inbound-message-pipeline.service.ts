@@ -60,6 +60,7 @@ import {
 } from "@/lib/features/conversation/starter-bot";
 import {
   isBotComposeContextEnabled,
+  isBotComposeKnowledgeEnabled,
   isBotComposeShadowEnabled,
   isBotVoiceComposeEnabled,
   loadBotComposeContext,
@@ -392,28 +393,38 @@ export async function runInboundMessagePipeline(
             nextQuestionIndex: derivedNextQuestionIndex,
           };
 
-          // Stage 9 (flag-gated, default OFF → byte-identical to before): build
-          // a read-only compose context and either return the voice-adjusted
-          // draft (9B active) or, in shadow, compute it for observation while
-          // returning the unchanged draft. Any failure falls back to the
-          // already-computed baseline draft. Does NOT touch the draft-only gate.
+          // Stage 9 (flag-gated, default OFF → byte-identical to before): build a
+          // read-only compose context with ONLY the armed capabilities
+          // (voice 9B / knowledge 9C). Capabilities are applied unless SHADOW is
+          // on, in which case the new draft is computed for observation only and
+          // the baseline draft is returned. Any failure falls back to baseline.
+          // Does NOT touch the draft-only gate, send path, or any settings.
           let starterDraft = planStarterBotReply(plannerInput);
           if (isBotComposeContextEnabled()) {
             try {
-              const composeContext = await loadBotComposeContext(businessId);
-              if (composeContext) {
-                if (isBotVoiceComposeEnabled()) {
-                  starterDraft = planStarterBotReply(plannerInput, composeContext);
-                } else if (isBotComposeShadowEnabled()) {
-                  const shadowDraft = planStarterBotReply(plannerInput, composeContext);
+              const voiceArmed = isBotVoiceComposeEnabled();
+              const knowledgeArmed = isBotComposeKnowledgeEnabled();
+              const composeContext = await loadBotComposeContext(businessId, {
+                includeVoice: voiceArmed,
+                includeKnowledge: knowledgeArmed,
+              });
+              if (composeContext && (voiceArmed || knowledgeArmed)) {
+                const contextForPlanner = {
+                  ...composeContext,
+                  customerMessageText: labelledMessage.contentText ?? undefined,
+                };
+                const newDraft = planStarterBotReply(plannerInput, contextForPlanner);
+                if (isBotComposeShadowEnabled()) {
                   // Dev-safe shadow log (no message text / PII) — observe only.
                   console.info("[inbound-pipeline] compose-shadow", {
                     conversationId: conversation.id,
                     businessId,
-                    changed: shadowDraft.replyText !== starterDraft.replyText,
+                    changed: newDraft.replyText !== starterDraft.replyText,
                     oldLength: starterDraft.replyText.length,
-                    newLength: shadowDraft.replyText.length,
+                    newLength: newDraft.replyText.length,
                   });
+                } else {
+                  starterDraft = newDraft;
                 }
               }
             } catch (composeErr) {
