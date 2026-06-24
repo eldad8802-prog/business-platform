@@ -30,6 +30,7 @@ const cleanApproved: ApprovedRecordInput = {
   date: new Date(2026, 5, 10),
   vendorName: "ספק תקין",
   vendorTaxId: "514999999",
+  documentNumber: "INV-1",
   document: { id: 10, status: "approved", fileUrl: GOOD_FILE },
 };
 
@@ -39,6 +40,7 @@ const missingAmountApproved: ApprovedRecordInput = {
   date: new Date(2026, 5, 11),
   vendorName: "ספק",
   vendorTaxId: "514888888",
+  documentNumber: "INV-2",
   document: { id: 11, status: "approved", fileUrl: "doc-11-aa11bb22.pdf" },
 };
 
@@ -48,6 +50,7 @@ const missingVendorApproved: ApprovedRecordInput = {
   date: new Date(2026, 5, 12),
   vendorName: "   ",
   vendorTaxId: null, // also missing tax id → Warning MISSING_VENDOR_TAX_ID
+  documentNumber: null, // also missing doc number → Warning MISSING_DOCUMENT_NUMBER
   document: { id: 12, status: "approved", fileUrl: "doc-12-cc33dd44.pdf" },
 };
 
@@ -55,7 +58,13 @@ const pendingDoc: PendingDocInput = {
   id: 20,
   status: "pending",
   fileUrl: "doc-20-ee55ff66.pdf",
-  extractedData: { amount: null, date: null, vendorName: null, vendorTaxId: null },
+  extractedData: {
+    amount: null,
+    date: null,
+    vendorName: null,
+    vendorTaxId: null,
+    documentNumber: null,
+  },
 };
 
 // --- computeExceptionRows ---
@@ -88,6 +97,11 @@ ok("record WITH tax id → no MISSING_VENDOR_TAX_ID", !has("MISSING_VENDOR_TAX_I
 ok("approved without tax id → Warning MISSING_VENDOR_TAX_ID", has("MISSING_VENDOR_TAX_ID", "Warning", 3));
 ok("pending without tax id → Warning MISSING_VENDOR_TAX_ID", has("MISSING_VENDOR_TAX_ID", "Warning", 20));
 ok("no NOT-AVAILABLE Info rows remain", rows.every((r) => r.severity !== "Info"));
+
+// Phase C — Missing Document Number (Warning), only when empty.
+ok("record WITH document number → no MISSING_DOCUMENT_NUMBER", !has("MISSING_DOCUMENT_NUMBER", "Warning", 1) && !has("MISSING_DOCUMENT_NUMBER", "Warning", 2));
+ok("approved without document number → Warning MISSING_DOCUMENT_NUMBER", has("MISSING_DOCUMENT_NUMBER", "Warning", 3));
+ok("pending without document number → Warning MISSING_DOCUMENT_NUMBER", has("MISSING_DOCUMENT_NUMBER", "Warning", 20));
 
 // --- summarizeExceptions ---
 const result = summarizeExceptions(rows);

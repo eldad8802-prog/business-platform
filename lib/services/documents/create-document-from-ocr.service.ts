@@ -52,6 +52,8 @@ export async function createDocumentFromOcrText(params: {
       vendorTaxId: extracted.vendorTaxId,
       vatAmount: extracted.vatAmount,
       subtotalAmount: extracted.subtotalAmount,
+      // Phase C — persist label-detected document number (null when unsure).
+      documentNumber: extracted.documentNumber,
     },
   });
 

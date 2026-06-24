@@ -29,7 +29,8 @@ export type ExceptionTypeKey =
   | "MISSING_SOURCE_FILE"
   | "MISSING_VENDOR"
   | "PENDING_NOT_APPROVED"
-  | "MISSING_VENDOR_TAX_ID";
+  | "MISSING_VENDOR_TAX_ID"
+  | "MISSING_DOCUMENT_NUMBER";
 
 export type ExceptionRow = {
   severity: ExceptionSeverity;
@@ -65,6 +66,7 @@ const TYPE_LABEL: Record<ExceptionTypeKey, string> = {
   MISSING_VENDOR: "חסר ספק",
   PENDING_NOT_APPROVED: "מסמך לא מאושר",
   MISSING_VENDOR_TAX_ID: "חסר ח.פ/ע.מ",
+  MISSING_DOCUMENT_NUMBER: "חסר מספר מסמך",
 };
 
 const SEVERITY_LABEL: Record<ExceptionSeverity, string> = {
@@ -81,6 +83,7 @@ export type ApprovedRecordInput = {
   date: Date;
   vendorName: string;
   vendorTaxId: string | null;
+  documentNumber: string | null;
   document: { id: number; status: string; fileUrl: string | null } | null;
 };
 
@@ -93,6 +96,7 @@ export type PendingDocInput = {
     date: Date | null;
     vendorName: string | null;
     vendorTaxId: string | null;
+    documentNumber: string | null;
   } | null;
 };
 
@@ -217,6 +221,22 @@ export function computeExceptionRows(inputs: ExceptionInputs): ExceptionRow[] {
         })
       );
     }
+
+    if (!hasVendor(r.documentNumber)) {
+      rows.push(
+        row({
+          severity: "Warning",
+          typeKey: "MISSING_DOCUMENT_NUMBER",
+          recordType: "FinancialRecord",
+          recordId: r.id,
+          date: r.date ?? null,
+          vendor: r.vendorName ?? null,
+          amount: hasValidAmount(r.amount) ? r.amount : null,
+          description: "רשומה מאושרת ללא מספר מסמך",
+          suggestedAction: "השלם את מספר החשבונית/קבלה",
+        })
+      );
+    }
   }
 
   for (const d of pendingDocs) {
@@ -316,6 +336,22 @@ export function computeExceptionRows(inputs: ExceptionInputs): ExceptionRow[] {
           amount: hasValidAmount(ex?.amount) ? (ex?.amount as number) : null,
           description: "מסמך ממתין ללא ח.פ/ע.מ של הספק",
           suggestedAction: "השלם את מספר העוסק/ח.פ של הספק במסך האימות",
+        })
+      );
+    }
+
+    if (!hasVendor(ex?.documentNumber)) {
+      rows.push(
+        row({
+          severity: "Warning",
+          typeKey: "MISSING_DOCUMENT_NUMBER",
+          recordType: "Document",
+          recordId: d.id,
+          date: ex?.date ?? null,
+          vendor: ex?.vendorName ?? null,
+          amount: hasValidAmount(ex?.amount) ? (ex?.amount as number) : null,
+          description: "מסמך ממתין ללא מספר מסמך",
+          suggestedAction: "השלם את מספר החשבונית/קבלה במסך האימות",
         })
       );
     }
@@ -598,6 +634,7 @@ export async function computeExceptionsForPeriod(
       date: r.date,
       vendorName: r.vendorName,
       vendorTaxId: r.vendorTaxId,
+      documentNumber: r.documentNumber,
       document: r.document
         ? {
             id: r.document.id,
@@ -616,6 +653,7 @@ export async function computeExceptionsForPeriod(
             date: d.extractedData.date,
             vendorName: d.extractedData.vendorName,
             vendorTaxId: d.extractedData.vendorTaxId,
+            documentNumber: d.extractedData.documentNumber,
           }
         : null,
     })),

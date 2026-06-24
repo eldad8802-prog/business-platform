@@ -8,6 +8,7 @@ import { decideDocumentExtraction } from "./entities/document-decision.service";
 import { decideCategory } from "./category-decision.service";
 import { normalizeFinancialDocument } from "./financial-normalization.service";
 import { extractFinancialRoles } from "./financial-roles.service";
+import { extractDocumentNumber } from "./entities/document-number-entity.service";
 import {
   detectDocumentType,
   type DocumentType,
@@ -226,6 +227,8 @@ export type UnifiedDocumentIntelligenceResult = {
   vendorTaxId: string | null;
   vatAmount: number | null;
   subtotalAmount: number | null;
+  // Phase C — incoming document's own number (label-detected). Null when unsure.
+  documentNumber: string | null;
   documentType: DocumentType;
   isFinancial: boolean;
   guardrailRoute: DocumentGuardrailRoute;
@@ -752,6 +755,10 @@ export async function runUnifiedDocumentIntelligence(params: {
   const financialRoles = extractFinancialRoles(cleanedText);
   const vatAmount = financialRoles.vatAmount?.value ?? null;
   const subtotalAmount = financialRoles.subtotalAmount?.value ?? null;
+  // Phase C — label-focused document number (invoice/receipt/reference). Runs on
+  // the RAW OCR text, not cleanedText: the cleaner fragments tokens across lines
+  // and destroys the label↔value adjacency this detector relies on. Null when unsure.
+  const documentNumber = extractDocumentNumber(rawText);
 
   return {
     amount: enforcedAmount,
@@ -768,6 +775,7 @@ export async function runUnifiedDocumentIntelligence(params: {
     vendorTaxId,
     vatAmount,
     subtotalAmount,
+    documentNumber,
     documentType: typeDetection.documentType,
     isFinancial: typeDetection.isFinancial,
     guardrailRoute: guardrail.route,

@@ -29,6 +29,7 @@ const INVOICE_TEXT = [
   "חשבונית מס / קבלה",
   'ספק בדיקה בע"מ',
   "ח.פ 514111111",
+  "מספר חשבונית: 2024-7781",
   "תאריך: 05/06/2026",
   "פריט שירות",
   'סכום לפני מע"מ: ₪100.00',
@@ -47,11 +48,13 @@ async function main() {
     vendorTaxId: result.vendorTaxId,
     vatAmount: result.vatAmount,
     subtotalAmount: result.subtotalAmount,
+    documentNumber: result.documentNumber,
   });
 
   ok("vendorTaxId surfaced", result.vendorTaxId === "514111111", result.vendorTaxId);
   ok("vatAmount surfaced", result.vatAmount === 17, result.vatAmount);
   ok("subtotalAmount surfaced", result.subtotalAmount === 100, result.subtotalAmount);
+  ok("documentNumber surfaced", result.documentNumber === "2024-7781", result.documentNumber);
 
   // A document without any of these must surface null (no fabrication).
   const plainText = ["תזכורת לפגישה", "נתראה ביום שני בבוקר"].join("\n");
@@ -62,6 +65,7 @@ async function main() {
   ok("no tax id detected → null", plain.vendorTaxId === null, plain.vendorTaxId);
   ok("no vat detected → null", plain.vatAmount === null, plain.vatAmount);
   ok("no subtotal detected → null", plain.subtotalAmount === null, plain.subtotalAmount);
+  ok("no document number detected → null", plain.documentNumber === null, plain.documentNumber);
 
   if (failed > 0) {
     console.error(`\n${failed} Phase B surfacing check(s) FAILED`);

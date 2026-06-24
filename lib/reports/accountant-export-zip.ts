@@ -87,6 +87,8 @@ const REPORT_COLUMN_HEADERS = [
   "ח.פ/ע.מ",
   'סכום לפני מע"מ',
   'מע"מ',
+  // Phase C — appended; blank when no document number was detected.
+  "מספר מסמך",
 ] as const;
 
 /** Semicolon — `_meta` CSV for scripts / debug. */
@@ -211,6 +213,8 @@ function buildAccountantCsvText(
       r.vendorTaxId ?? "",
       r.subtotalAmount ?? "",
       r.vatAmount ?? "",
+      // Phase C — blank when not detected.
+      r.documentNumber ?? "",
     ].map(escapeCsvField);
     lines.push(row.join(ACCOUNTANT_CSV_SEP));
   }
@@ -227,7 +231,7 @@ function buildAccountantCsvBuffer(
   ]);
 }
 
-const COL_WIDTHS = [14, 28, 16, 12, 12, 14, 22, 36, 18, 16, 12];
+const COL_WIDTHS = [14, 28, 16, 12, 12, 14, 22, 36, 18, 16, 12, 18];
 
 async function buildAccountantXlsxBuffer(
   records: Awaited<ReturnType<typeof loadRecordsForExport>>
@@ -289,6 +293,8 @@ async function buildAccountantXlsxBuffer(
       row.getCell(11).value = Number(r.vatAmount);
       row.getCell(11).numFmt = "#,##0.00";
     }
+    // Phase C — document number (text; blank when not detected).
+    if (r.documentNumber) row.getCell(12).value = r.documentNumber;
 
     rowNum += 1;
   }
@@ -455,6 +461,7 @@ export async function appendAccountantPackToArchive(
         date: r.date,
         vendorName: r.vendorName,
         vendorTaxId: r.vendorTaxId,
+        documentNumber: r.documentNumber,
         document: r.document
           ? {
               id: r.document.id,
@@ -473,6 +480,7 @@ export async function appendAccountantPackToArchive(
               date: d.extractedData.date,
               vendorName: d.extractedData.vendorName,
               vendorTaxId: d.extractedData.vendorTaxId,
+              documentNumber: d.extractedData.documentNumber,
             }
           : null,
       })),

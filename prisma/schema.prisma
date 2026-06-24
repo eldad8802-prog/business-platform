@@ -1174,6 +1174,9 @@ model ExtractedData {
   vendorTaxId        String?
   vatAmount          Float?
   subtotalAmount     Float?
+  // Phase C — incoming document's own number (invoice/receipt/reference),
+  // label-detected from OCR text. Nullable; null when not confidently found.
+  documentNumber     String?
   document           Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
 }
 
@@ -1190,6 +1193,8 @@ model FinancialRecord {
   vendorTaxId    String?
   vatAmount      Float?
   subtotalAmount Float?
+  // Phase C — carried from ExtractedData at approve. Nullable.
+  documentNumber String?
   approvedAt DateTime @default(now())
   business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)

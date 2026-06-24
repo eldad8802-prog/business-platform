@@ -54,6 +54,8 @@ type FakeRecord = {
   vendorTaxId: string | null;
   vatAmount: number | null;
   subtotalAmount: number | null;
+  // Phase C
+  documentNumber: string | null;
   document: {
     id: number;
     status: string;
@@ -72,6 +74,7 @@ type FakePending = {
     vendorName: string | null;
     category: string | null;
     vendorTaxId: string | null;
+    documentNumber: string | null;
   } | null;
 };
 
@@ -150,6 +153,7 @@ function approved(
   taxId: string | null = "514000000",
   vat: number | null = null,
   subtotal: number | null = null,
+  docNumber: string | null = "DOC-1000",
   category = "services",
   direction = "expense"
 ): FakeRecord {
@@ -163,6 +167,7 @@ function approved(
     vendorTaxId: taxId,
     vatAmount: vat,
     subtotalAmount: subtotal,
+    documentNumber: docNumber,
     document: {
       id,
       status: "approved",
@@ -177,14 +182,22 @@ function pending(
   amount: number | null,
   date: Date | null,
   vendorName: string | null,
-  taxId: string | null = "514000000"
+  taxId: string | null = "514000000",
+  docNumber: string | null = "DOC-PEND"
 ): FakePending {
   return {
     id,
     status: "pending",
     fileUrl: fileName(id),
     createdAt: new Date(2026, 5, 1),
-    extractedData: { amount, date, vendorName, category: "services", vendorTaxId: taxId },
+    extractedData: {
+      amount,
+      date,
+      vendorName,
+      category: "services",
+      vendorTaxId: taxId,
+      documentNumber: docNumber,
+    },
   };
 }
 
@@ -225,11 +238,11 @@ async function main() {
     // Approved: 2 valid, 1 missing-amount, 1 missing-vendor, 1 missing-file.
     // Pending: 1 full (warning), 1 missing amount+vendor, 1 missing date.
     recordsReturn = [
-      // 1001 carries Phase B fields (tax id + subtotal + vat) for Excel checks.
-      approved(1001, 117, new Date(2026, 5, 5), "ספק א", true, "514111111", 17, 100),
+      // 1001 carries Phase B+C fields (tax id + subtotal + vat + doc number) for Excel checks.
+      approved(1001, 117, new Date(2026, 5, 5), "ספק א", true, "514111111", 17, 100, "INV-1001"),
       approved(1002, 200, new Date(2026, 5, 8), "ספק ב", true),
       approved(1003, 0, new Date(2026, 5, 10), "ספק ג", true), // missing amount → Critical
-      approved(1004, 50, new Date(2026, 5, 12), "   ", true, null), // missing vendor + missing tax id → 2 Warnings
+      approved(1004, 50, new Date(2026, 5, 12), "   ", true, null, null, null, null), // missing vendor + tax id + doc number → 3 Warnings
       approved(1005, 80, new Date(2026, 5, 14), "ספק ה", false), // missing source file → Critical
     ];
     pendingReturn = [
@@ -293,7 +306,7 @@ async function main() {
     });
 
     ok("Details Critical count == 4", critical === 4, { critical });
-    ok("Details Warning count == 6", warning === 6, { warning });
+    ok("Details Warning count == 7", warning === 7, { warning });
     ok("Details Info count == 0 (no NOT-AVAILABLE rows)", info === 0, { info });
     ok(
       "Details shows missing-amount record 1003",
@@ -306,6 +319,10 @@ async function main() {
     ok(
       "Details shows Missing Vendor Tax ID for record 1004",
       detailLabels.includes("חסר ח.פ/ע.מ") && detailIds.includes(1004)
+    );
+    ok(
+      "Details shows Missing Document Number for record 1004",
+      detailLabels.includes("חסר מספר מסמך") && detailIds.includes(1004)
     );
     ok("Details shows pending docs 2001-2003", [2001, 2002, 2003].every((id) => detailIds.includes(id)));
 
@@ -322,11 +339,11 @@ async function main() {
     });
     ok("Summary total row present", summaryTotals !== null);
     ok(
-      "Summary totals match details (10/4/6)",
+      "Summary totals match details (11/4/7)",
       summaryTotals !== null &&
-        summaryTotals!.total === 10 &&
+        summaryTotals!.total === 11 &&
         summaryTotals!.critical === 4 &&
-        summaryTotals!.warning === 6,
+        summaryTotals!.warning === 7,
       summaryTotals
     );
 
@@ -338,13 +355,14 @@ async function main() {
     const headerCells = sumWs.getRow(1).values as unknown[];
     const headerText = headerCells.map((c) => String(c ?? ""));
     ok(
-      "Summary has Phase B headers (tax id / subtotal / vat)",
+      "Summary has Phase B+C headers (tax id / subtotal / vat / doc number)",
       headerText.includes("ח.פ/ע.מ") &&
         headerText.includes('סכום לפני מע"מ') &&
-        headerText.includes('מע"מ'),
+        headerText.includes('מע"מ') &&
+        headerText.includes("מספר מסמך"),
       headerText
     );
-    // Record 1001 is the earliest date → first data row (row 2). Columns 9/10/11.
+    // Record 1001 is the earliest date → first data row (row 2). Columns 9/10/11/12.
     const firstDataRow = sumWs.getRow(2);
     ok(
       "Summary row shows persisted tax id (514111111)",
@@ -354,6 +372,10 @@ async function main() {
       "Summary row shows persisted subtotal (100) and vat (17)",
       Number(firstDataRow.getCell(10).value) === 100 &&
         Number(firstDataRow.getCell(11).value) === 17
+    );
+    ok(
+      "Summary row shows persisted document number (INV-1001)",
+      String(firstDataRow.getCell(12).value ?? "") === "INV-1001"
     );
 
     // ---- Month Close gate: June (with criticals) is BLOCKED ----
