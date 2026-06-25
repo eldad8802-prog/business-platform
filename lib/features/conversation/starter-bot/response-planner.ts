@@ -4,6 +4,12 @@ import type {
   StarterBotReplyKind,
   StarterBotSettingsSnapshot,
 } from "./types";
+import {
+  applyVoiceToWelcome,
+  chooseClosingTemplate,
+  matchKnowledgeIntent,
+  type BotComposeContext,
+} from "../../bot/bot-compose-context";
 
 function parseQuestionItems(questions: unknown): string[] {
   if (!questions || typeof questions !== "object") return [];
@@ -66,9 +72,15 @@ function noDraft(reason: string): StarterBotPlannerResult {
 
 /**
  * דטרמיניסטי: לפי הגדרות + אינדקס שאלה — בלי LLM ובלי side effects.
+ *
+ * `context` (Stage 9) is OPTIONAL and additive. When absent, output is
+ * byte-for-byte identical to before. When present, the ONLY change is the
+ * WELCOME wording (mechanical voice). Questions, finalAction, replyKind and the
+ * draft-only nature are never affected. The caller decides whether to pass it.
  */
 export function planStarterBotReply(
-  input: StarterBotPlannerInput
+  input: StarterBotPlannerInput,
+  context?: BotComposeContext
 ): StarterBotPlannerResult {
   const { settings } = input;
   const qi = input.nextQuestionIndex ?? 0;
@@ -83,6 +95,22 @@ export function planStarterBotReply(
     return noDraft("UNSUPPORTED_CHANNEL");
   }
 
+  // 9C: conservative deterministic knowledge answer. Only when the knowledge
+  // capability is armed (context.knowledge present). On a confident match it
+  // takes priority for THIS draft; otherwise full fall-through to the existing
+  // flow. Never advances the question index, never touches finalAction/handoff.
+  if (context?.knowledge) {
+    const km = matchKnowledgeIntent(context.customerMessageText, context.knowledge);
+    if (km) {
+      return {
+        shouldDraftReply: true,
+        replyText: km.replyText,
+        replyKind: "KNOWLEDGE",
+        reason: `KNOWLEDGE_${km.matchType.toUpperCase()}`,
+      };
+    }
+  }
+
   const welcome = (settings.welcomeMessage || "").trim();
   if (!welcome) {
     return noDraft("NO_WELCOME_MESSAGE");
@@ -91,7 +119,11 @@ export function planStarterBotReply(
   const items = parseQuestionItems(settings.questions);
 
   if (qi === 0) {
-    const parts = [welcome];
+    // 9B: mechanical voice transform applies to the WELCOME wording only.
+    const effectiveWelcome = context
+      ? applyVoiceToWelcome(welcome, context)
+      : welcome;
+    const parts = [effectiveWelcome];
     if (items.length > 0) {
       parts.push(items[0]);
     }
@@ -120,9 +152,17 @@ export function planStarterBotReply(
   }
 
   const { text, kind } = buildFinalActionText(settings);
+  // 9D: deterministic CLOSING wording only — never for HANDOFF/SEND_LINK, never
+  // changes kind / finalAction / questions. Falls back to `text` when there is
+  // no safe goal/approach template.
+  let closingText = text;
+  if (context && kind === "COMPLETE") {
+    const closing = chooseClosingTemplate(context, settings.finalAction);
+    if (closing) closingText = closing;
+  }
   return {
     shouldDraftReply: true,
-    replyText: text,
+    replyText: closingText,
     replyKind: kind,
     reason: "TERMINAL_CLOSING_AFTER_QUESTIONS",
     nextQuestionIndex: items.length,

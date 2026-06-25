@@ -156,6 +156,7 @@ model Business {
   billingPaymentAllocations BillingPaymentAllocation[]
   profile                   BusinessProfile?
   botSettings               BusinessBotSettings?
+  bot                       BusinessBot?
   services                  BusinessService[]
   collaborationDeals        CollaborationDeal[]
   conversations             Conversation[]
@@ -373,6 +374,180 @@ model BusinessBotSettings {
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt
   business                    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+/// Bot Builder root identity (Stage 1, intentionally thin).
+///
+/// Identity ONLY — no runtime state. Runtime config (enabled/workMode/questions/
+/// welcome/finalAction/handoffRules) stays in `BusinessBotSettings`, which the
+/// conversation pipeline reads. This root is reconciled with it by `businessId`
+/// and is NEVER read by the response-planner or the pipeline. Singleton per
+/// business for now (`businessId @unique`); multi-bot is deliberately deferred.
+model BusinessBot {
+  id          Int                 @id @default(autoincrement())
+  businessId  Int                 @unique
+  displayName String?
+  avatar      String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  business       Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  profile        BusinessBotProfile?
+  goalSelections BotGoalSelection[]
+  setupDraft     BusinessBotSetupDraft?
+  knowledge      BusinessBotKnowledge?
+  recommendations BusinessBotRecommendation[]
+  memoryPolicy        BusinessBotMemoryPolicy?
+  learningSuggestions BusinessBotLearningSuggestion[]
+}
+
+/// Descriptive, advisory profile branch under `BusinessBot` (Stage 1).
+///
+/// `voice` / `personality` / `approach` are grouped JSON, each constrained by
+/// app-side allow-list validators in `lib/features/bot` — never free-form JSON.
+/// Advisory only: NOT consumed by the response-planner or the pipeline.
+model BusinessBotProfile {
+  id          Int         @id @default(autoincrement())
+  botId       Int         @unique
+  voice       Json?
+  personality Json?
+  approach    Json?
+  version     Int         @default(1)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  bot         BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+}
+
+/// A goal the business selected for its bot (Stage 2 — Goal Library).
+///
+/// Corrigible intent label, not behaviour. `goalKey` references the read-only
+/// Goal Catalog in `lib/features/bot/bot-goals`. Copy-with-provenance:
+/// `goalVersion` + `selectedAt` freeze WHAT was chosen WHEN, so a future
+/// catalog change never retroactively rewrites a business's selection. NOT
+/// materialized into BusinessBotSettings and NOT read by the pipeline.
+model BotGoalSelection {
+  id          Int         @id @default(autoincrement())
+  botId       Int
+  goalKey     String
+  goalVersion Int
+  selectedAt  DateTime    @default(now())
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  bot         BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@unique([botId, goalKey])
+  @@index([botId])
+}
+
+/// Setup Wizard staging draft (Stage 3). Staging ONLY.
+///
+/// Holds the in-progress wizard: selected goals, current step, and a FROZEN
+/// `assembledBase` snapshot (copy-with-provenance: each assembled item records
+/// its source goals + the snapshot stamps the catalog version + `assembledAt`).
+/// Client-writable status stops at REVIEW_READY. ACTIVATED is set ONLY by the
+/// activate route (Stage 5) — a controlled, minimal copy of the frozen
+/// `assembledBase` into the EXISTING BusinessBotSettings fields the planner
+/// already reads. `activatedAt` + `activationMeta` keep activation provenance
+/// OFF the planner path. Never changes mode/workMode/handoff/enabled.
+model BusinessBotSetupDraft {
+  id               Int         @id @default(autoincrement())
+  botId            Int         @unique
+  status           String      @default("DRAFT")
+  currentStep      Int         @default(0)
+  selectedGoalKeys Json?
+  assembledBase    Json?
+  assembledAt      DateTime?
+  activatedAt      DateTime?
+  activationMeta   Json?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  bot              BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+}
+
+/// Advisory business knowledge for the bot builder (Stage 4).
+///
+/// FAQ / hours / address / notes the business wants its bot to "know". ADVISORY
+/// only: NOT read by the response-planner or the pipeline, NOT materialized into
+/// BusinessBotSettings. services/pricing + catalog link keep their existing
+/// sources of truth (BusinessService / BusinessBotSettings.productLink*).
+model BusinessBotKnowledge {
+  id        Int         @id @default(autoincrement())
+  botId     Int         @unique
+  hours     String?
+  address   String?
+  notes     String?
+  faq       Json?
+  version   Int         @default(1)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  bot       BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+}
+
+/// Opt-in recommendation for the bot builder (Stage 6).
+///
+/// Generated when goals change on an established bot. A recommendation NEVER
+/// changes anything by itself — it is stored + shown only. `apply` is a
+/// disabled placeholder (no runtime write). NOT read by the planner/pipeline.
+/// `type` is granular (subject baked in) so we can dedupe per (botId, type).
+model BusinessBotRecommendation {
+  id                Int         @id @default(autoincrement())
+  botId             Int
+  type              String
+  status            String      @default("PROPOSED")
+  reason            String
+  payload           Json?
+  sourceGoalKey     String?
+  sourceGoalVersion Int?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  appliedAt         DateTime?
+  dismissedAt       DateTime?
+  bot               BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@index([botId, status])
+  @@index([botId, type])
+}
+
+/// Memory POLICY for the bot builder (Stage 7) — toggles ONLY.
+///
+/// What the bot would be allowed to remember about customers in the FUTURE.
+/// Stores NO actual customer memory, writes nothing to Customer, holds no
+/// cross-conversation data, and is NOT read by the planner/pipeline.
+model BusinessBotMemoryPolicy {
+  id                     Int         @id @default(autoincrement())
+  botId                  Int         @unique
+  newOrReturningCustomer Boolean     @default(false)
+  preferences            Boolean     @default(false)
+  contactHistory         Boolean     @default(false)
+  manualNotes            Boolean     @default(false)
+  accumulatedInsights    Boolean     @default(false)
+  version                Int         @default(1)
+  lastConfiguredAt       DateTime?
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+  bot                    BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+}
+
+/// Learning suggestion for the bot builder (Stage 8) — PROPOSALS ONLY.
+///
+/// The bot never changes itself. A suggestion stays PROPOSED until the owner
+/// adopts or dismisses it; even ADOPTED changes nothing about runtime in this
+/// stage (status flip only). NOT read by the planner/pipeline.
+model BusinessBotLearningSuggestion {
+  id          Int         @id @default(autoincrement())
+  botId       Int
+  type        String
+  status      String      @default("PROPOSED")
+  title       String
+  description String?
+  payload     Json?
+  evidence    Json?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  adoptedAt   DateTime?
+  dismissedAt DateTime?
+  bot         BusinessBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@index([botId, status])
 }
 
 model BusinessService {
