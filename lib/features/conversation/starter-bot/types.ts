@@ -6,7 +6,10 @@ export type StarterBotReplyKind =
   | "WELCOME"
   | "QUESTION"
   | "COMPLETE"
-  | "HANDOFF";
+  | "HANDOFF"
+  // 9C: deterministic knowledge answer. Intentionally NON-terminal (not in
+  // TERMINAL_BOT_VARIANT_TYPES) so it never marks the starter flow complete.
+  | "KNOWLEDGE";
 
 export type StarterBotSettingsSnapshot = {
   enabled: boolean;
