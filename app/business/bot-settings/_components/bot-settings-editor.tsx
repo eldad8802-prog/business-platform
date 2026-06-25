@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { TOKEN } from "@/lib/design/tokens";
@@ -119,7 +119,7 @@ function areaMeta(area: BotSettingsArea): { title: string; eyebrow: string } {
   }
 }
 
-function useBotSettingsEditorState() {
+export function useBotSettingsEditorState() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

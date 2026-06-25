@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 
@@ -253,7 +253,8 @@ function StepButton({
   );
 }
 
-export function GuardNote({ children }: { children: ReactNode }) {
+export function GuardNote({ children, tone = "info" }: { children: ReactNode; tone?: "info" | "success" | "attention" | "urgent" | "purple" }) {
+  const semanticTone = TOKEN.semantic[tone];
   return (
     <div
       style={{
@@ -262,20 +263,19 @@ export function GuardNote({ children }: { children: ReactNode }) {
         gap: 9,
         margin: "18px 18px 0",
         padding: "11px 14px",
-        background: TOKEN.surface.inset,
+        background: semanticTone.bgSoft,
         borderRadius: TOKEN.radius.input,
-        color: TOKEN.ink.muted,
+        color: semanticTone.ink,
         fontSize: TOKEN.font.meta,
         fontWeight: TOKEN.weight.semibold,
         lineHeight: 1.5,
       }}
     >
-      <span aria-hidden style={{ color: TOKEN.ink.meta, flexShrink: 0 }}>◇</span>
+      <span aria-hidden style={{ color: semanticTone.accent, flexShrink: 0 }}>◇</span>
       <span>{children}</span>
     </div>
   );
 }
-
 export function StickyActionBar({
   onSave,
   saving,
