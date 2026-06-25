@@ -30,7 +30,7 @@ export const inventoryTheme = {
   danger: TOKEN.semantic.urgent.accent,
   warning: TOKEN.semantic.attention.accent,
   info: TOKEN.semantic.info.accent,
-  purple: "#7c3aed",
+  purple: TOKEN.semantic.purple.accent,
   /** Inset surface — inputs, segmented/stepper backgrounds. */
   surface: TOKEN.surface.inset,
   /** Focus ring color for inputs. */
@@ -87,10 +87,10 @@ export const inventoryToneStyles: Record<
     iconBg: TOKEN.semantic.attention.bg,
   },
   purple: {
-    bg: "#f5f3ff",
-    border: "#ddd6fe",
-    color: "#5b21b6",
-    iconBg: "#ede9fe",
+    bg: TOKEN.semantic.purple.bgSoft,
+    border: TOKEN.semantic.purple.border,
+    color: TOKEN.semantic.purple.ink,
+    iconBg: TOKEN.semantic.purple.bg,
   },
   info: {
     bg: TOKEN.semantic.info.bgSoft,
@@ -136,6 +136,15 @@ export const inventoryCssVars = `
   --inv-danger: ${inventoryTheme.danger};
   --inv-warning: ${inventoryTheme.warning};
   --inv-info: ${inventoryTheme.info};
+  --inv-ok-bg: ${TOKEN.semantic.success.bg};
+  --inv-ok-ink: ${TOKEN.semantic.success.ink};
+  --inv-ok-accent: ${TOKEN.semantic.success.accent};
+  --inv-low-bg: ${TOKEN.semantic.attention.bg};
+  --inv-low-ink: ${TOKEN.semantic.attention.ink};
+  --inv-low-accent: ${TOKEN.semantic.attention.accent};
+  --inv-crit-bg: ${TOKEN.semantic.urgent.bg};
+  --inv-crit-ink: ${TOKEN.semantic.urgent.ink};
+  --inv-crit-accent: ${TOKEN.semantic.urgent.accent};
   --inv-max-width: ${inventoryLayout.maxWidth}px;
   --inv-content-max: 720px;
   --inv-radius-lg: ${inventoryRadius.xl}px;

@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { inventoryToneStyles } from "@/components/inventory/inventory-tokens";
+import { TOKEN } from "@/lib/design/tokens";
 
 /* ============================================================= icons === */
 
@@ -537,9 +538,9 @@ export type StockTone = "ok" | "critical" | "low";
 
 /** Converged stock palette (matches StatusPill/StockBar and the mockup). */
 const STOCK_PALETTE: Record<StockTone, { bg: string; ink: string; bar: string }> = {
-  ok: { bg: "#dcfce7", ink: "#166534", bar: "#22c55e" },
-  critical: { bg: "#fee2e2", ink: "#991b1b", bar: "#ef4444" },
-  low: { bg: "#fef3c7", ink: "#92400e", bar: "#f59e0b" },
+  ok: { bg: TOKEN.semantic.success.bg, ink: TOKEN.semantic.success.ink, bar: TOKEN.semantic.success.accent },
+  critical: { bg: TOKEN.semantic.urgent.bg, ink: TOKEN.semantic.urgent.ink, bar: TOKEN.semantic.urgent.accent },
+  low: { bg: TOKEN.semantic.attention.bg, ink: TOKEN.semantic.attention.ink, bar: TOKEN.semantic.attention.accent },
 };
 
 export function stockPalette(tone: StockTone) {
@@ -729,7 +730,7 @@ export function InventoryRow({
 }) {
   const body = (
     <>
-      <span className="inv-row__thumb" style={{ background: thumbBg ?? "var(--inv-surface, #f5f7f9)" }} aria-hidden>
+      <span className="inv-row__thumb" style={{ background: thumbBg ?? TOKEN.surface.inset }} aria-hidden>
         {thumb}
       </span>
       <span className="inv-row__mid">
@@ -810,13 +811,13 @@ export function InventorySearch({
           className="inv-search__scan"
           onClick={onScan}
           aria-label="סריקת ברקוד"
-          style={{ border: 0, background: "transparent", padding: 0, cursor: "pointer", display: "flex", color: "var(--inv-accent)" }}
+          style={{ border: 0, background: "transparent", padding: 0, cursor: "pointer", display: "flex", color: TOKEN.brand.mid }}
         >
           <IconScan />
         </button>
       ) : (
         // Decorative scan affordance (not yet wired) — shown for mockup parity; non-interactive.
-        <span className="inv-search__scan" aria-hidden style={{ display: "flex", color: "var(--inv-accent)" }}>
+        <span className="inv-search__scan" aria-hidden style={{ display: "flex", color: TOKEN.brand.mid }}>
           <IconScan />
         </span>
       )}
@@ -958,7 +959,7 @@ export function InventoryOrderLine({
       {thumb !== undefined ? (
         <span
           className="inv-row__thumb"
-          style={{ background: thumbBg ?? "var(--inv-surface, #f5f7f9)", width: 48, height: 48, fontSize: 22 }}
+          style={{ background: thumbBg ?? TOKEN.surface.inset, width: 48, height: 48, fontSize: 22 }}
           aria-hidden
         >
           {thumb}

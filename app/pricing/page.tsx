@@ -657,7 +657,7 @@ export default function PricingPage() {
                       className="pricing-pressable"
                       onClick={() => openCalculate(item.id)}
                     >
-                      <span style={itemAvatarStyle} aria-hidden>
+                      <span style={itemAvatarStyle(item.type)} aria-hidden>
                         {item.name.trim().charAt(0) || "₪"}
                       </span>
                       <span style={itemBodyStyle}>
@@ -1387,19 +1387,22 @@ const itemStyle: CSSProperties = {
   boxShadow: TOKEN.shadow.elevated,
 };
 
-const itemAvatarStyle: CSSProperties = {
-  width: 46,
-  height: 46,
-  borderRadius: TOKEN.radius.input,
-  background: TOKEN.surface.inset,
-  color: TOKEN.brand.mid,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: TOKEN.font.display,
-  fontWeight: TOKEN.weight.bold,
-  flexShrink: 0,
-};
+function itemAvatarStyle(type: PricingItem["type"]): CSSProperties {
+  const isService = type !== "PRODUCT";
+  return {
+    width: 46,
+    height: 46,
+    borderRadius: TOKEN.radius.input,
+    background: isService ? TOKEN.semantic.info.bg : TOKEN.semantic.purple.bg,
+    color: isService ? TOKEN.semantic.info.ink : TOKEN.semantic.purple.ink,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: TOKEN.font.display,
+    fontWeight: TOKEN.weight.bold,
+    flexShrink: 0,
+  };
+}
 
 const itemBodyStyle: CSSProperties = {
   flex: 1,

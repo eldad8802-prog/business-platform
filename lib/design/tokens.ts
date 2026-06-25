@@ -16,6 +16,8 @@ export const TOKEN = {
     card: "#FFFFFF",
     /** Inset surface inside cards: inputs, draft container, business bubble. */
     inset: "#F5F6F8",
+    /** Secondary soft surface from the bot builder mock. */
+    surface2: "#EEF1F6",
     /** Floating overlays (drawer/sheet/dropdown) — always white. */
     overlay: "#FFFFFF",
   },
@@ -45,6 +47,9 @@ export const TOKEN = {
     softBorder: "#C7D6E9",
     /** Focus ring — bright-but-restrained brand blue at low alpha. */
     focus: "rgba(46, 82, 127, 0.35)",
+    /** Purple accent used by the bot builder mock for conversation-group icons. */
+    purpleBg: "#EDE9FE",
+    purpleInk: "#6D28D9",
   },
 
   action: {
@@ -80,6 +85,10 @@ export const TOKEN = {
     muted: "#6B7280",
     /** Meta — timestamps, counts, less-prominent labels. */
     meta: "#9CA3AF",
+    /** Soft icon gray used for quiet helper/guard icons. */
+    subtle: "#94A3B8",
+    /** Slate icon/text tone used for intentional neutral states. */
+    slate: "#64748B",
     /** Disabled/placeholder. */
     disabled: "#D1D5DB",
     /** On dark surfaces (rail, primary buttons). */
@@ -124,6 +133,13 @@ export const TOKEN = {
       bgSoft: "#EFF6FF",
       border: "#BFDBFE",
       accent: "#3B82F6",
+    },
+    purple: {
+      ink: "#6D28D9",
+      bg: "#EDE9FE",
+      bgSoft: "#F5F3FF",
+      border: "#DDD6FE",
+      accent: "#8B5CF6",
     },
   },
 

@@ -12,6 +12,7 @@ import {
   InventoryHeader,
   type InventoryHeaderAction as InventoryHeaderActionType,
 } from "@/components/inventory/inventory-primitives";
+import { TOKEN } from "@/lib/design/tokens";
 import { glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
 
 export const inventoryTheme = inventoryTokenTheme;
@@ -181,7 +182,7 @@ export function QuickActionTile({
           ? `2px solid ${inventoryTheme.accent}`
           : `1px solid ${inventoryTheme.cardBorder}`,
         borderRadius: inventoryRadius.lg,
-        background: outline ? "#eff6ff" : inventoryTheme.cardBg,
+        background: outline ? TOKEN.semantic.info.bgSoft : inventoryTheme.cardBg,
         padding: `${inventorySpacing.lg}px ${inventorySpacing.sm}px`,
         cursor: "pointer",
         display: "flex",
@@ -237,8 +238,8 @@ export function SectionHeader({
 }) {
   const badgeStyle =
     badgeTone === "danger"
-      ? { background: "#fee2e2", color: inventoryTheme.danger }
-      : { background: "#ede9fe", color: inventoryTheme.purple };
+      ? { background: TOKEN.semantic.urgent.bg, color: TOKEN.semantic.urgent.ink }
+      : { background: TOKEN.semantic.purple.bg, color: TOKEN.semantic.purple.ink };
 
   return (
     <RowBetween>
@@ -282,10 +283,10 @@ export function StatusPill({
 }) {
   const styles =
     tone === "ok"
-      ? { bg: "#dcfce7", color: "#166534" }
+      ? { bg: TOKEN.semantic.success.bg, color: TOKEN.semantic.success.ink }
       : tone === "critical"
-        ? { bg: "#fee2e2", color: "#991b1b" }
-        : { bg: "#fef3c7", color: "#92400e" };
+        ? { bg: TOKEN.semantic.urgent.bg, color: TOKEN.semantic.urgent.ink }
+        : { bg: TOKEN.semantic.attention.bg, color: TOKEN.semantic.attention.ink };
 
   return (
     <span
@@ -307,7 +308,11 @@ export function StatusPill({
 
 export function StockBar({ ratio, tone }: { ratio: number; tone: "ok" | "critical" | "low" }) {
   const color =
-    tone === "ok" ? "#22c55e" : tone === "critical" ? "#ef4444" : "#f59e0b";
+    tone === "ok"
+      ? TOKEN.semantic.success.accent
+      : tone === "critical"
+        ? TOKEN.semantic.urgent.accent
+        : TOKEN.semantic.attention.accent;
   const pct = Math.max(0, Math.min(100, ratio * 100));
 
   return (
@@ -315,7 +320,7 @@ export function StockBar({ ratio, tone }: { ratio: number; tone: "ok" | "critica
       style={{
         height: 6,
         borderRadius: 999,
-        background: "#e2e8f0",
+        background: TOKEN.surface.surface2,
         overflow: "hidden",
         minWidth: 72,
       }}
@@ -777,7 +782,7 @@ export const inventoryResponsiveCss = `
     z-index: 50;
     background: rgba(255,255,255,0.96);
     backdrop-filter: blur(12px);
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid ${TOKEN.border.DEFAULT};
     padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
   }
   .inv-main-shell { padding-bottom: 32px; }
@@ -834,23 +839,23 @@ const introToneStyles: Record<
 > = {
   accent: {
     stageColor: inventoryTheme.accent,
-    bg: "#ecfdf5",
-    border: "#bbf7d0",
+    bg: TOKEN.semantic.success.bgSoft,
+    border: TOKEN.semantic.success.border,
   },
   primary: {
     stageColor: inventoryTheme.primaryBtn,
-    bg: "#eef2ff",
-    border: "#c7d2fe",
+    bg: TOKEN.semantic.info.bgSoft,
+    border: TOKEN.semantic.info.border,
   },
   warning: {
     stageColor: inventoryTheme.warning,
-    bg: "#fff7ed",
-    border: "#fed7aa",
+    bg: TOKEN.semantic.attention.bgSoft,
+    border: TOKEN.semantic.attention.border,
   },
   info: {
     stageColor: inventoryTheme.info,
-    bg: "#eff6ff",
-    border: "#bfdbfe",
+    bg: TOKEN.semantic.info.bgSoft,
+    border: TOKEN.semantic.info.border,
   },
 };
 
@@ -1017,7 +1022,7 @@ export function HubActionCard({
           border: accent
             ? `1px solid ${inventoryTheme.primaryBtn}`
             : `1px solid ${inventoryTheme.cardBorder}`,
-          background: accent ? "#eef2ff" : inventoryTheme.cardBg,
+          background: accent ? TOKEN.semantic.info.bgSoft : inventoryTheme.cardBg,
         }),
         display: "flex",
         flexDirection: "column",
@@ -1040,7 +1045,7 @@ export function HubActionCard({
             width: 36,
             height: 36,
             borderRadius: 12,
-            background: accent ? "#e0e7ff" : "#f1f5f9",
+            background: accent ? TOKEN.semantic.info.bg : TOKEN.surface.inset,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -1076,23 +1081,23 @@ export function NoticeBanner({
   const styles =
     tone === "success"
       ? {
-          border: "#bbf7d0",
-          bg: "#f0fdf4",
-          color: "#166534",
-          btn: "#166534",
+          border: TOKEN.semantic.success.border,
+          bg: TOKEN.semantic.success.bgSoft,
+          color: TOKEN.semantic.success.ink,
+          btn: TOKEN.semantic.success.ink,
         }
       : tone === "info"
         ? {
-            border: "#bfdbfe",
-            bg: "#eff6ff",
-            color: "#3F619C",
-            btn: "#3F619C",
+            border: TOKEN.semantic.info.border,
+            bg: TOKEN.semantic.info.bgSoft,
+            color: TOKEN.semantic.info.ink,
+            btn: TOKEN.semantic.info.ink,
           }
         : {
-            border: "#fecaca",
-            bg: "#fef2f2",
-            color: "#991b1b",
-            btn: "#991b1b",
+            border: TOKEN.semantic.urgent.border,
+            bg: TOKEN.semantic.urgent.bgSoft,
+            color: TOKEN.semantic.urgent.ink,
+            btn: TOKEN.semantic.urgent.ink,
           };
 
   return (
@@ -1113,7 +1118,7 @@ export function NoticeBanner({
             marginTop: 10,
             border: "none",
             background: styles.btn,
-            color: "#fff",
+            color: TOKEN.ink.inverse,
             borderRadius: 10,
             padding: "8px 12px",
             fontWeight: 800,
@@ -1150,7 +1155,7 @@ export function inventoryFieldStyle(disabled?: boolean): CSSProperties {
     borderRadius: 12,
     border: `1px solid ${inventoryTheme.cardBorder}`,
     fontSize: 14,
-    background: disabled ? "#f8fafc" : inventoryTheme.cardBg,
+    background: disabled ? TOKEN.surface.inset : inventoryTheme.cardBg,
     boxSizing: "border-box",
     outline: "none",
   };
