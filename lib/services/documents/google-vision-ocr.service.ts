@@ -133,3 +133,196 @@ export async function runGoogleVisionOCR(
     throw error;
   }
 }
+
+// ===========================================================================
+// T1 — Geometry Acquisition (SHADOW ONLY)
+//
+// Google Vision already returns per-word bounding boxes inside
+// `fullTextAnnotation.pages[].blocks[].paragraphs[].words[]`. The production
+// `runGoogleVisionOCR` above keeps ONLY `.text` and discards that geometry.
+//
+// The exports below are ADDITIVE: they do NOT modify `runGoogleVisionOCR`, its
+// signature, its text output, or any existing caller. They expose token +
+// geometry through a separate shadow function for offline/eval use only. No
+// interpretation, no grouping, no amount detection, no DB, no production wiring.
+// ===========================================================================
+
+export type OcrBoundingBox = {
+  /** min-x of the word's vertices (pixel coords for images; may be normalized for PDF). */
+  x: number;
+  /** min-y of the word's vertices. */
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type OcrToken = {
+  /** Word value reconstructed by concatenating Vision symbol texts. */
+  value: string;
+  /** 1-based page number. */
+  page: number;
+  /** null when Vision provided no usable vertices for this word — never guessed. */
+  bbox: OcrBoundingBox | null;
+  /** 0..1 when Vision provides it; otherwise null. */
+  confidence: number | null;
+  provenance: { source: "google_vision"; unit: "word"; page: number };
+};
+
+export type OcrGeometryResult = {
+  /** Same text extraction as runGoogleVisionOCR (shadow copy; production path unchanged). */
+  text: string;
+  tokens: OcrToken[];
+  /** true iff at least one token carries a bounding box. */
+  geometryAvailable: boolean;
+  pageCount: number;
+};
+
+// Minimal structural view of the Vision response we read from. Intentionally
+// permissive so a token with missing fields is handled, never assumed.
+type VisionVertex = { x?: number | null; y?: number | null };
+type VisionBoundingPoly = {
+  vertices?: VisionVertex[] | null;
+  normalizedVertices?: VisionVertex[] | null;
+};
+type VisionWord = {
+  symbols?: { text?: string | null }[] | null;
+  boundingBox?: VisionBoundingPoly | null;
+  confidence?: number | null;
+};
+type VisionParagraph = { words?: VisionWord[] | null };
+type VisionBlock = { paragraphs?: VisionParagraph[] | null };
+type VisionPage = { blocks?: VisionBlock[] | null };
+export type VisionFullTextAnnotation = {
+  text?: string | null;
+  pages?: VisionPage[] | null;
+};
+
+/** Pure: derive an axis-aligned box from a Vision bounding poly, or null. */
+export function boundingBoxFromPoly(
+  poly: VisionBoundingPoly | null | undefined
+): OcrBoundingBox | null {
+  const raw =
+    poly?.vertices && poly.vertices.length > 0
+      ? poly.vertices
+      : poly?.normalizedVertices ?? [];
+
+  const xs = raw
+    .map((v) => v?.x)
+    .filter((n): n is number => typeof n === "number" && Number.isFinite(n));
+  const ys = raw
+    .map((v) => v?.y)
+    .filter((n): n is number => typeof n === "number" && Number.isFinite(n));
+
+  if (xs.length === 0 || ys.length === 0) return null;
+
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
+
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+/** Pure: walk a fullTextAnnotation and emit word-level tokens with geometry. */
+export function extractTokensFromFullTextAnnotation(
+  fta: VisionFullTextAnnotation | null | undefined,
+  pageNumber: number
+): OcrToken[] {
+  const tokens: OcrToken[] = [];
+
+  for (const page of fta?.pages ?? []) {
+    for (const block of page?.blocks ?? []) {
+      for (const paragraph of block?.paragraphs ?? []) {
+        for (const word of paragraph?.words ?? []) {
+          const value = (word?.symbols ?? [])
+            .map((s) => s?.text ?? "")
+            .join("");
+
+          if (value.length === 0) continue;
+
+          tokens.push({
+            value,
+            page: pageNumber,
+            bbox: boundingBoxFromPoly(word?.boundingBox),
+            confidence:
+              typeof word?.confidence === "number" ? word.confidence : null,
+            provenance: { source: "google_vision", unit: "word", page: pageNumber },
+          });
+        }
+      }
+    }
+  }
+
+  return tokens;
+}
+
+/**
+ * SHADOW: run the same Vision call as production, but ALSO return tokens with
+ * geometry. The returned `text` mirrors runGoogleVisionOCR; production keeps
+ * calling runGoogleVisionOCR and is unaffected.
+ */
+export async function runGoogleVisionOCRWithGeometry(
+  filePath: string,
+  mimeType?: string
+): Promise<OcrGeometryResult> {
+  const client = createVisionClient();
+
+  if (!fs.existsSync(filePath)) {
+    throw new Error("File not found for OCR");
+  }
+
+  const isPdf =
+    mimeType === "application/pdf" || filePath.toLowerCase().endsWith(".pdf");
+
+  if (isPdf) {
+    const pdfBytes = fs.readFileSync(filePath);
+
+    const [batchResult] = await client.batchAnnotateFiles({
+      requests: [
+        {
+          inputConfig: { mimeType: "application/pdf", content: pdfBytes },
+          features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
+        },
+      ],
+    });
+
+    const pageResponses = batchResult.responses?.[0]?.responses ?? [];
+
+    const text = pageResponses
+      .map((p) => p.fullTextAnnotation?.text || "")
+      .join("\n")
+      .trim();
+
+    const tokens: OcrToken[] = [];
+    pageResponses.forEach((p, index) => {
+      tokens.push(
+        ...extractTokensFromFullTextAnnotation(
+          p.fullTextAnnotation as unknown as VisionFullTextAnnotation | null,
+          index + 1
+        )
+      );
+    });
+
+    return {
+      text,
+      tokens,
+      geometryAvailable: tokens.some((t) => t.bbox !== null),
+      pageCount: pageResponses.length,
+    };
+  }
+
+  const [result] = await client.textDetection(filePath);
+
+  const text = (result.fullTextAnnotation?.text || "").trim();
+  const tokens = extractTokensFromFullTextAnnotation(
+    result.fullTextAnnotation as unknown as VisionFullTextAnnotation | null,
+    1
+  );
+
+  return {
+    text,
+    tokens,
+    geometryAvailable: tokens.some((t) => t.bbox !== null),
+    pageCount: result.fullTextAnnotation?.pages?.length ?? (tokens.length > 0 ? 1 : 0),
+  };
+}

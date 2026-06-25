@@ -1275,11 +1275,78 @@ model ExtractionSnapshot {
   financialEvidenceLevel String?
   guardrailRoute     String?
 
+  // General Decision Ledger — structural (slice) engine provenance. Nullable:
+  // legacy-only extractions (no geometry) leave these null. Shadow only — these
+  // never influence any extraction decision or user-visible output.
+  sliceEngineVersion String?
+  ocrGeometryHash    String?
+  geometryAvailable  Boolean?
+
   // Full, lossless engine result (forward-compatible provenance)
   rawResult Json
 
+  // General Decision Ledger relations (additive, append-only).
+  sliceDecisions SliceDecision[]
+  evidence       ExtractionEvidence?
+
   @@index([documentId])
   @@index([businessId, occurredAt])
+}
+
+/// General Decision Ledger — one row per FIELD decision of the engine.
+/// fieldKey ∈ amount.extracted | vendor.extracted | date.extracted |
+/// documentType.extracted | direction.interpreted | category.classified.
+/// Append-only, write-only w.r.t. the engine, never read back into a decision.
+/// `producedBy` distinguishes the structural slice (amount, when geometry is
+/// available — Shadow only) from the legacy unified engine (all other fields).
+/// `layer`/`stage` carry the Documents(Fact) ↔ Business(Interpretation) boundary.
+model SliceDecision {
+  id                   Int      @id @default(autoincrement())
+  extractionSnapshotId Int
+  documentId           Int
+  businessId           Int
+  occurredAt           DateTime @default(now())
+
+  fieldKey        String
+  // Boundary discriminator (Documents = Fact Extraction / Business = Interpretation).
+  // Nullable: Phase 1 rows written before this column existed leave it null.
+  layer           String?
+  stage           String?
+  engineValue     String?
+  legacyValue     String?
+  resolutionState String?
+  basis           String?
+  confidenceLabel String?
+  provenance      Json?
+  strength        Json?
+  reasoningBlob   Json?
+  producedBy      String
+  sliceEngineVersion String?
+
+  snapshot ExtractionSnapshot @relation(fields: [extractionSnapshotId], references: [id], onDelete: Cascade)
+
+  @@index([extractionSnapshotId])
+  @@index([businessId, fieldKey])
+  @@index([documentId])
+}
+
+/// General Decision Ledger — heavy, shared deterministic evidence for a single
+/// extraction (1:1 with ExtractionSnapshot). Holds the full geometric OCR result
+/// (Tier 2) and the frozen reasoning chain (Tier 3) so the engine's reasoning can
+/// be reconstructed byte-for-byte later. Append-only, never read into a decision.
+model ExtractionEvidence {
+  id                   Int      @id @default(autoincrement())
+  extractionSnapshotId Int      @unique
+  occurredAt           DateTime @default(now())
+
+  ocrGeometry        Json?
+  reasoningBlob      Json?
+  geometryHash       String?
+  sliceEngineVersion String?
+
+  snapshot ExtractionSnapshot @relation(fields: [extractionSnapshotId], references: [id], onDelete: Cascade)
+
+  @@index([extractionSnapshotId])
 }
 
 /// Human verdict at approve time, captured before ExtractedData is overwritten.
