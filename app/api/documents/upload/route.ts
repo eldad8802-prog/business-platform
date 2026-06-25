@@ -4,7 +4,11 @@ import os from "os";
 import path from "path";
 import { mkdir, unlink, writeFile } from "fs/promises";
 import { getCurrentUser } from "@/lib/auth";
-import { runGoogleVisionOCR } from "@/lib/services/documents/google-vision-ocr.service";
+import {
+  runGoogleVisionOCR,
+  runGoogleVisionOCRWithGeometry,
+  type OcrGeometryResult,
+} from "@/lib/services/documents/google-vision-ocr.service";
 import { runUnifiedDocumentIntelligence } from "@/lib/services/documents/unified-extraction-engine.service";
 import { recordExtractionSnapshot } from "@/lib/services/documents/ledger/correction-ledger.service";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
@@ -119,16 +123,36 @@ export async function POST(req: Request) {
     const buffer = Buffer.from(await file.arrayBuffer());
     await writeFile(tempFilePath, buffer);
 
+    // Single OCR call. The geometry variant returns a SUPERSET: the same `.text`
+    // as runGoogleVisionOCR (identical Vision calls) PLUS token geometry. We feed
+    // `.text` to the legacy engine exactly as before and pass geometry to the
+    // Shadow ledger — no second Vision call. If the geometry call fails for any
+    // reason, fall back to the legacy text-only OCR so the upload is never
+    // affected by ledger/geometry concerns (ledger then records legacy-only).
     let rawText: string;
+    let ledgerGeometry: OcrGeometryResult | null = null;
     try {
-      rawText = (
-        await runGoogleVisionOCR(tempFilePath, mimeType || undefined)
-      ).trim();
-    } catch {
-      return NextResponse.json(
-        { error: "שגיאה בעיבוד המסמך. אנא נסה שוב מאוחר יותר." },
-        { status: 500 }
+      const ocr = await runGoogleVisionOCRWithGeometry(
+        tempFilePath,
+        mimeType || undefined
       );
+      rawText = ocr.text.trim();
+      ledgerGeometry = ocr;
+    } catch (geometryError) {
+      console.error(
+        "[ledger] geometry OCR failed, falling back to text-only OCR:",
+        geometryError
+      );
+      try {
+        rawText = (
+          await runGoogleVisionOCR(tempFilePath, mimeType || undefined)
+        ).trim();
+      } catch {
+        return NextResponse.json(
+          { error: "שגיאה בעיבוד המסמך. אנא נסה שוב מאוחר יותר." },
+          { status: 500 }
+        );
+      }
     }
 
     if (!rawText) {
@@ -207,13 +231,16 @@ export async function POST(req: Request) {
       },
     });
 
-    // Phase 1A Correction Ledger — additive, write-only, never throws.
+    // Phase 1A Correction Ledger — additive, write-only, never throws. Geometry
+    // (when the single OCR call above produced it) feeds the Shadow slice ledger;
+    // null when the text-only fallback ran.
     await recordExtractionSnapshot({
       documentId: document.id,
       businessId,
       sourceChannel: "upload",
       ocrText: rawText,
       extracted,
+      geometry: ledgerGeometry,
     });
 
     await recordProductUsageEvent({
