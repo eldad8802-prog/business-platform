@@ -143,14 +143,14 @@ function SummaryRow({ title, sub, value, tone }: { title: string; sub: string; v
   const done = tone === "done";
   return (
     <div style={summaryRowStyle}>
-      <div style={{ ...summaryIconStyle, background: done ? TOKEN.semantic.success.bg : TOKEN.surface.surface2 }}>
+      <div style={{ ...summaryIconStyle, background: done ? TOKEN.semantic.success.bg : TOKEN.surface.inset }}>
         {done ? <CheckIcon size={18} stroke={TOKEN.semantic.success.accent} /> : <DashIcon />}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={rowTitleStyle}>{title}</div>
         <div style={rowSubStyle}>{sub}</div>
       </div>
-      <div style={{ ...rowValueStyle, color: done ? TOKEN.semantic.success.ink : TOKEN.ink.slate }}>{value}</div>
+      <div style={{ ...rowValueStyle, color: done ? TOKEN.semantic.success.ink : TOKEN.ink.muted }}>{value}</div>
     </div>
   );
 }
@@ -187,7 +187,7 @@ function GuardNote() {
 function EmptyState({ displayName }: { displayName: string }) {
   return (
     <section style={{ ...heroStyle, paddingTop: 70 }}>
-      <div style={{ ...checkStyle, background: TOKEN.surface.surface2 }}>
+      <div style={{ ...checkStyle, background: TOKEN.surface.inset }}>
         <DashIcon size={32} />
       </div>
       <h1 style={titleStyle}>לא נמצאה הפעלה אחרונה</h1>
@@ -202,13 +202,13 @@ function CheckIcon({ size = 24, stroke = "currentColor" }: { size?: number; stro
   return <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden><path d="M5 13l4 4L19 7" stroke={stroke} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" fill="none" /></svg>;
 }
 function DashIcon({ size = 18 }: { size?: number }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden><path d="M6 12h12" stroke={TOKEN.ink.slate} strokeWidth="2.4" strokeLinecap="round" /></svg>;
+  return <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden><path d="M6 12h12" stroke={TOKEN.ink.muted} strokeWidth="2.4" strokeLinecap="round" /></svg>;
 }
 function ChatIcon() {
   return <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden><path d="M4 5h16v11H9l-5 4V5z" stroke={TOKEN.semantic.info.ink} strokeWidth="1.9" fill="none" strokeLinejoin="round" /></svg>;
 }
 function ShieldIcon() {
-  return <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden style={{ flexShrink: 0, marginTop: 1 }}><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" stroke={TOKEN.ink.subtle} strokeWidth="1.8" fill="none" strokeLinejoin="round" /></svg>;
+  return <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden style={{ flexShrink: 0, marginTop: 1 }}><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" stroke={TOKEN.ink.meta} strokeWidth="1.8" fill="none" strokeLinejoin="round" /></svg>;
 }
 
 const pageStyle: CSSProperties = { minHeight: "100dvh", background: TOKEN.surface.page, display: "flex", justifyContent: "center" };

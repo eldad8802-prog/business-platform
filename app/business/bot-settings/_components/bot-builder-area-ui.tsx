@@ -253,7 +253,7 @@ function StepButton({
   );
 }
 
-export function GuardNote({ children, tone = "info" }: { children: ReactNode; tone?: "info" | "success" | "attention" | "urgent" | "purple" }) {
+export function GuardNote({ children, tone = "info" }: { children: ReactNode; tone?: "info" | "success" | "attention" | "urgent" }) {
   const semanticTone = TOKEN.semantic[tone];
   return (
     <div
