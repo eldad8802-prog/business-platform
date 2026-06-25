@@ -16,13 +16,23 @@
  */
 
 import { createHash } from "crypto";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { UnifiedDocumentIntelligenceResult } from "../unified-extraction-engine.service";
+import type { OcrGeometryResult } from "../google-vision-ocr.service";
+import { buildRepresentationFromOcr } from "../representation/document-representation";
+import { groupTokensGeometrically } from "../representation/document-grouping";
+import { deriveMoneyAmounts } from "../representation/document-money-amount";
+import { findAmountRelationsFromMoneyAmounts } from "../representation/document-amount-relations";
+import { deriveAmountRoles } from "../representation/document-amount-roles";
+import { readAmount } from "../representation/document-amount-readout";
 
 /** Provenance — bump on any change to the live extraction decision logic. */
 export const LIVE_ENGINE_VERSION = "unified-extraction-engine@1.0.0";
 export const OCR_ENGINE = "google-vision";
 export const OCR_VERSION = "textDetection-v1";
+/** Provenance — bump on any change to the structural (slice) reasoning. */
+export const SLICE_ENGINE_VERSION = "amount-slice@1.0.0";
 
 type JsonSafe = unknown;
 
@@ -44,17 +54,167 @@ function hashOcrText(ocrText: string | null | undefined): string | null {
   }
 }
 
-/** Engine belief captured at extraction, before the value subset is persisted. */
+/** Content hash of the deterministic geometry input — the replay key. */
+function hashGeometry(geometry: OcrGeometryResult | null): string | null {
+  if (!geometry) return null;
+  try {
+    const payload = JSON.stringify({
+      text: geometry.text,
+      tokens: geometry.tokens,
+    });
+    return "sha256:" + createHash("sha256").update(payload).digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+/** Truthful string encoding for a ledger value. null/empty stay null. */
+function asLedgerString(value: unknown): string | null {
+  if (value == null) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : null;
+  const s = String(value).trim();
+  return s.length > 0 ? s : null;
+}
+
+/** Coarse provenance for a legacy-engine field decision. */
+function legacyProvenance(reason?: string | null): Prisma.InputJsonValue {
+  return reason ? { source: "legacy-unified", reason } : { source: "legacy-unified" };
+}
+
+/**
+ * Amount Slice — SHADOW ONLY. Runs the structural representation pipeline on the
+ * geometric OCR result for evidence. It NEVER publishes a value and is NEVER read
+ * back into any extraction decision. Swallows all errors.
+ */
+type AmountSliceTrace = {
+  value: number | null;
+  resolutionState: string;
+  basis: string | null;
+  provenance: unknown;
+  strength: unknown;
+  readout: unknown;
+};
+
+function runAmountSliceShadow(
+  geometry: OcrGeometryResult
+): { trace: AmountSliceTrace; reasoningBlob: unknown } | null {
+  try {
+    const rep = buildRepresentationFromOcr(geometry);
+    const grouping = groupTokensGeometrically(rep);
+    const moneyAmounts = deriveMoneyAmounts(rep);
+    const relation = findAmountRelationsFromMoneyAmounts(moneyAmounts, grouping);
+    const roles = deriveAmountRoles(relation, grouping);
+    const readout = readAmount(roles, moneyAmounts);
+
+    return {
+      trace: {
+        value: readout.value,
+        resolutionState: readout.resolutionState,
+        basis: readout.basis,
+        provenance: readout.provenance,
+        strength: readout.strength,
+        readout,
+      },
+      reasoningBlob: { moneyAmounts, grouping, relation, roles, readout },
+    };
+  } catch (err) {
+    console.error("[correction-ledger] amount slice (shadow) failed:", err);
+    return null;
+  }
+}
+
+/**
+ * Build the six per-field decision rows (general contract). `amount` is produced
+ * by the structural slice when geometry yielded a trace (Shadow only); all other
+ * fields are recorded verbatim from the legacy engine. `businessCategory` is
+ * ALWAYS written — even when the value is the "general" fallback — because that
+ * is itself a key metric for future category work.
+ */
+function buildSliceDecisionRows(input: {
+  snapshotId: number;
+  documentId: number;
+  businessId: number;
+  extracted: UnifiedDocumentIntelligenceResult;
+  amountSlice: AmountSliceTrace | null;
+}): Prisma.SliceDecisionCreateManyInput[] {
+  const { snapshotId, documentId, businessId, extracted: e, amountSlice } = input;
+  const base = {
+    extractionSnapshotId: snapshotId,
+    documentId,
+    businessId,
+  };
+
+  const legacyRow = (
+    fieldKey: string,
+    engineValue: unknown,
+    confidenceLabel: unknown,
+    reason?: string | null
+  ): Prisma.SliceDecisionCreateManyInput => ({
+    ...base,
+    fieldKey,
+    engineValue: asLedgerString(engineValue),
+    legacyValue: asLedgerString(engineValue),
+    confidenceLabel: asLedgerString(confidenceLabel),
+    provenance: legacyProvenance(reason),
+    producedBy: "legacy",
+  });
+
+  const amountRow: Prisma.SliceDecisionCreateManyInput = amountSlice
+    ? {
+        ...base,
+        fieldKey: "amount",
+        engineValue: asLedgerString(amountSlice.value),
+        legacyValue: asLedgerString(e.amount),
+        resolutionState: amountSlice.resolutionState,
+        basis: amountSlice.basis,
+        confidenceLabel: asLedgerString(e.amountConfidence),
+        provenance: jsonSafe(amountSlice.provenance) as Prisma.InputJsonValue,
+        strength: jsonSafe(amountSlice.strength) as Prisma.InputJsonValue,
+        reasoningBlob: jsonSafe(amountSlice.readout) as Prisma.InputJsonValue,
+        producedBy: "slice",
+        sliceEngineVersion: SLICE_ENGINE_VERSION,
+      }
+    : legacyRow("amount", e.amount, e.amountConfidence);
+
+  return [
+    amountRow,
+    legacyRow("vendor", e.vendorName, e.vendorConfidence),
+    legacyRow("date", e.date, e.dateConfidence),
+    legacyRow("direction", e.direction, null),
+    legacyRow("documentType", e.documentType, null),
+    legacyRow("businessCategory", e.category, e.categoryConfidence),
+  ];
+}
+
+/**
+ * Engine belief captured at extraction, before the value subset is persisted.
+ * Writes the document snapshot, six per-field SliceDecisions, and (when geometry
+ * is supplied) the shared deterministic evidence. Strictly additive, append-only,
+ * Shadow — it never publishes a value and never feeds back into any decision.
+ * `geometry` is optional: channels without it (e.g. email/whatsapp) record
+ * legacy-only field decisions and no evidence.
+ */
 export async function recordExtractionSnapshot(input: {
   documentId: number;
   businessId: number;
   sourceChannel: string;
   ocrText: string | null;
   extracted: UnifiedDocumentIntelligenceResult;
+  geometry?: OcrGeometryResult | null;
 }): Promise<void> {
   try {
     const e = input.extracted;
-    await prisma.extractionSnapshot.create({
+    const geometry = input.geometry ?? null;
+    const geometryAvailable = geometry?.geometryAvailable ?? false;
+    const ocrGeometryHash = hashGeometry(geometry);
+
+    // Amount Slice — Shadow only, when geometry is available.
+    const sliceRun =
+      geometry && geometryAvailable ? runAmountSliceShadow(geometry) : null;
+    const amountSlice = sliceRun?.trace ?? null;
+
+    const snapshot = await prisma.extractionSnapshot.create({
       data: {
         documentId: input.documentId,
         businessId: input.businessId,
@@ -86,9 +246,49 @@ export async function recordExtractionSnapshot(input: {
           : null,
         guardrailRoute: e.guardrailRoute ? String(e.guardrailRoute) : null,
 
+        // General Decision Ledger — structural (slice) provenance.
+        sliceEngineVersion: SLICE_ENGINE_VERSION,
+        ocrGeometryHash,
+        geometryAvailable: geometry ? geometryAvailable : null,
+
         rawResult: jsonSafe(e) as object,
       },
     });
+
+    // Six per-field decisions (general contract). Isolated so a failure here
+    // never blocks the snapshot/evidence.
+    try {
+      await prisma.sliceDecision.createMany({
+        data: buildSliceDecisionRows({
+          snapshotId: snapshot.id,
+          documentId: input.documentId,
+          businessId: input.businessId,
+          extracted: e,
+          amountSlice,
+        }),
+      });
+    } catch (err) {
+      console.error("[correction-ledger] sliceDecision.createMany failed:", err);
+    }
+
+    // Heavy shared evidence (Tier 2 geometry + Tier 3 frozen reasoning blob).
+    if (geometry) {
+      try {
+        await prisma.extractionEvidence.create({
+          data: {
+            extractionSnapshotId: snapshot.id,
+            ocrGeometry: jsonSafe(geometry) as Prisma.InputJsonValue,
+            reasoningBlob: sliceRun
+              ? (jsonSafe(sliceRun.reasoningBlob) as Prisma.InputJsonValue)
+              : undefined,
+            geometryHash: ocrGeometryHash,
+            sliceEngineVersion: SLICE_ENGINE_VERSION,
+          },
+        });
+      } catch (err) {
+        console.error("[correction-ledger] extractionEvidence.create failed:", err);
+      }
+    }
   } catch (err) {
     // Never allow a ledger failure to affect the extraction/upload flow.
     console.error("[correction-ledger] recordExtractionSnapshot failed:", err);
