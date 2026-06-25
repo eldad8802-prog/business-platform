@@ -1367,6 +1367,10 @@ model SliceDecision {
   occurredAt           DateTime @default(now())
 
   fieldKey        String
+  // Boundary discriminator (Documents = Fact Extraction / Business = Interpretation).
+  // Nullable: Phase 1 rows written before this column existed leave it null.
+  layer           String?
+  stage           String?
   engineValue     String?
   legacyValue     String?
   resolutionState String?

@@ -125,11 +125,18 @@ function runAmountSliceShadow(
 }
 
 /**
- * Build the six per-field decision rows (general contract). `amount` is produced
- * by the structural slice when geometry yielded a trace (Shadow only); all other
- * fields are recorded verbatim from the legacy engine. `businessCategory` is
- * ALWAYS written — even when the value is the "general" fallback — because that
- * is itself a key metric for future category work.
+ * Build the six per-field decision rows (general contract), each tagged with the
+ * boundary discriminator. `amount` is produced by the structural slice when
+ * geometry yielded a trace (Shadow only); all other fields are recorded verbatim
+ * from the legacy engine. fieldKeys are stage-suffixed so the key agrees with the
+ * stage. `category.classified` is ALWAYS written — even when the value is the
+ * "general" fallback — because that is itself a key metric for future category
+ * work.
+ *
+ * Boundary note: `direction.interpreted` and `category.classified` are business
+ * interpretation. Even though the legacy engine still produces them inside the
+ * Documents code path, the ledger tags them `layer: "business"` (the target
+ * architecture) with `producedBy: "legacy"` (the actual, pre-boundary producer).
  */
 function buildSliceDecisionRows(input: {
   snapshotId: number;
@@ -147,12 +154,16 @@ function buildSliceDecisionRows(input: {
 
   const legacyRow = (
     fieldKey: string,
+    layer: string,
+    stage: string,
     engineValue: unknown,
     confidenceLabel: unknown,
     reason?: string | null
   ): Prisma.SliceDecisionCreateManyInput => ({
     ...base,
     fieldKey,
+    layer,
+    stage,
     engineValue: asLedgerString(engineValue),
     legacyValue: asLedgerString(engineValue),
     confidenceLabel: asLedgerString(confidenceLabel),
@@ -163,7 +174,9 @@ function buildSliceDecisionRows(input: {
   const amountRow: Prisma.SliceDecisionCreateManyInput = amountSlice
     ? {
         ...base,
-        fieldKey: "amount",
+        fieldKey: "amount.extracted",
+        layer: "documents",
+        stage: "extraction",
         engineValue: asLedgerString(amountSlice.value),
         legacyValue: asLedgerString(e.amount),
         resolutionState: amountSlice.resolutionState,
@@ -175,15 +188,23 @@ function buildSliceDecisionRows(input: {
         producedBy: "slice",
         sliceEngineVersion: SLICE_ENGINE_VERSION,
       }
-    : legacyRow("amount", e.amount, e.amountConfidence);
+    : legacyRow(
+        "amount.extracted",
+        "documents",
+        "extraction",
+        e.amount,
+        e.amountConfidence
+      );
 
   return [
+    // Documents layer — facts extracted from the page.
     amountRow,
-    legacyRow("vendor", e.vendorName, e.vendorConfidence),
-    legacyRow("date", e.date, e.dateConfidence),
-    legacyRow("direction", e.direction, null),
-    legacyRow("documentType", e.documentType, null),
-    legacyRow("businessCategory", e.category, e.categoryConfidence),
+    legacyRow("vendor.extracted", "documents", "extraction", e.vendorName, e.vendorConfidence),
+    legacyRow("date.extracted", "documents", "extraction", e.date, e.dateConfidence),
+    legacyRow("documentType.extracted", "documents", "extraction", e.documentType, null),
+    // Business layer — interpretation (still produced by the legacy monolith today).
+    legacyRow("direction.interpreted", "business", "interpretation", e.direction, null),
+    legacyRow("category.classified", "business", "classification", e.category, e.categoryConfidence),
   ];
 }
 
