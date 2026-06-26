@@ -868,6 +868,7 @@ export function InventoryProductRow({
   statusLabel,
   quantity,
   unitLabel,
+  subValue,
   href,
   onClick,
 }: {
@@ -881,6 +882,8 @@ export function InventoryProductRow({
   statusLabel: string;
   quantity: ReactNode;
   unitLabel?: string;
+  /** Optional small business-value line under the quantity (e.g. stock value). */
+  subValue?: ReactNode;
   href?: string;
   onClick?: () => void;
 }) {
@@ -916,6 +919,7 @@ export function InventoryProductRow({
           {quantity}
           {unitLabel ? <small> {unitLabel}</small> : null}
         </span>
+        {subValue ? <span className="inv-row__subval">{subValue}</span> : null}
       </span>
     </>
   );

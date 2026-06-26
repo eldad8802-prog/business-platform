@@ -118,6 +118,9 @@ export default function InventoryHomePage() {
   );
   const visibleAttention = showAll ? attentionItems : attentionItems.slice(0, 4);
 
+  // The hour is client-local, so server and client HTML can legitimately differ.
+  // suppressHydrationWarning on the rendered node is React's sanctioned way to
+  // allow that single text difference without a hydration error. (audit P2 #15)
   const greeting = useMemo(() => {
     const h = new Date().getHours();
     if (h < 12) return "בוקר טוב 👋";
@@ -151,10 +154,12 @@ export default function InventoryHomePage() {
   ];
 
   const quickActions: Array<{ t: string; icon: ReactNode; onClick: () => void }> = [
-    { t: "מוצר חדש", icon: <IconPlus />, onClick: () => router.push("/inventory/items/create") },
-    { t: "ספירת מלאי", icon: <IconClipboard />, onClick: () => router.push("/inventory/items") },
+    { t: "כל המוצרים", icon: <IconBox />, onClick: () => router.push("/inventory/items") },
+    { t: "מרכז הרכש", icon: <IconHub />, onClick: () => router.push("/inventory/supplier-purchases") },
     { t: "הזמנה מספק", icon: <IconTruck />, onClick: () => router.push("/inventory/supplier-purchases/new") },
     { t: "קבלת סחורה", icon: <IconReceive />, onClick: () => router.push("/inventory/supplier-purchases/pending") },
+    { t: "מוצר חדש", icon: <IconPlus />, onClick: () => router.push("/inventory/items/create") },
+    { t: "ספירת מלאי", icon: <IconClipboard />, onClick: () => router.push("/inventory/items") },
   ];
 
   return (
@@ -171,7 +176,7 @@ export default function InventoryHomePage() {
             <IconScan />
           </button>
         </header>
-        <div className="inv-hm-greet">{greeting}</div>
+        <div className="inv-hm-greet" suppressHydrationWarning>{greeting}</div>
 
         <div className="inv-hm-tiles">
           {tiles.map((tile) => (
@@ -254,3 +259,5 @@ function IconPlus() { return <Svg><path d="M12 5v14M5 12h14" stroke="currentColo
 function IconClipboard() { return <Svg><rect x="5" y="3" width="14" height="18" rx="2.5" stroke="currentColor" strokeWidth="1.9" /><path d="M9 8h6M9 12h6M9 16h3" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" /></Svg>; }
 function IconTruck() { return <Svg><path d="M2 7h11v9H2zM13 10h4l3 3v3h-7" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /><circle cx="6" cy="18.5" r="1.6" stroke="currentColor" strokeWidth="1.8" /><circle cx="17" cy="18.5" r="1.6" stroke="currentColor" strokeWidth="1.8" /></Svg>; }
 function IconReceive() { return <Svg><path d="M3 9h18v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z" stroke="currentColor" strokeWidth="1.8" /><path d="M3 9 5 4h14l2 5M9 14h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></Svg>; }
+function IconBox() { return <Svg><path d="M12 2.7 4 7v10l8 4.3L20 17V7l-8-4.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /><path d="M4 7l8 4.3L20 7M12 11.3V21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></Svg>; }
+function IconHub() { return <Svg><rect x="3" y="3" width="7" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.8" /><rect x="14" y="3" width="7" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.8" /><rect x="3" y="14" width="7" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.8" /><rect x="14" y="14" width="7" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.8" /></Svg>; }

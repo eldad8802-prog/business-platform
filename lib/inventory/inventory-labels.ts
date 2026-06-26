@@ -6,7 +6,7 @@ const MOVEMENT_REASON_LABELS: Record<string, string> = {
   MANUAL_REMOVE: "הפחתה ידנית",
   SALE: "מכירה",
   RETURN: "החזרה",
-  DAMAGE: "נזק או קלקול",
+  DAMAGE: "נזק",
   INVENTORY_COUNT_CORRECTION: "תיקון ספירת מלאי",
   SUPPLIER_PURCHASE: "קנייה מספק",
 };

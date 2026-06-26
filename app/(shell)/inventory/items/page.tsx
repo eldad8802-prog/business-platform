@@ -39,6 +39,20 @@ const UNIT_SHORT: Record<string, string> = {
   ML: "מ״ל",
 };
 
+const stockValueFormatter = new Intl.NumberFormat("he-IL", {
+  maximumFractionDigits: 0,
+});
+
+/** Stock value = on-hand quantity × unit cost (falls back to last purchase
+ *  cost). The most useful at-a-glance business number per the list row. */
+function itemStockValue(item: InventoryItemDTO): string | undefined {
+  const unitCost = item.costPerUnit ?? item.lastPurchaseCost;
+  if (unitCost == null || !Number.isFinite(unitCost) || unitCost <= 0) return undefined;
+  const value = item.currentQuantity * unitCost;
+  if (value <= 0) return undefined;
+  return `שווי ₪${stockValueFormatter.format(Math.round(value))}`;
+}
+
 const TONE_DOTS: Record<StockTone, string> = {
   critical: "#ef4444",
   low: "#f59e0b",
@@ -275,6 +289,7 @@ function InventoryItemsListPageContent() {
                 statusLabel={getStockStatusLabel(tone)}
                 quantity={item.currentQuantity}
                 unitLabel={UNIT_SHORT[item.unitType] ?? undefined}
+                subValue={itemStockValue(item)}
                 href={`/inventory/items/${item.id}`}
               />
             );

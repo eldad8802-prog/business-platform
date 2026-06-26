@@ -65,6 +65,19 @@ class InventoryService {
       throw new InventoryValidationError("reorderPoint must be 0 or greater");
     }
 
+    // Reorder point is the "low/reorder" threshold and must sit at or above the
+    // critical minimum — you reorder before hitting the critical floor, never
+    // below it. (audit P1 #4)
+    if (
+      reorderPoint !== undefined &&
+      reorderPoint !== null &&
+      reorderPoint < minimumQuantity
+    ) {
+      throw new InventoryValidationError(
+        "reorderPoint must be greater than or equal to minimumQuantity"
+      );
+    }
+
     if (costPerUnit !== undefined && costPerUnit !== null && (!Number.isFinite(costPerUnit) || costPerUnit < 0)) {
       throw new InventoryValidationError("costPerUnit must be 0 or greater");
     }

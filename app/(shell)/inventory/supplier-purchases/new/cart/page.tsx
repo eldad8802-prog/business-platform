@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useOrderWizard } from "@/components/inventory/supplier-purchase-order/order-wizard-context";
 import { OrderWizardShell } from "@/components/inventory/supplier-purchase-order/order-wizard-shell";
@@ -27,6 +28,11 @@ export default function NewSupplierPurchaseCartPage() {
   } = useOrderWizard();
 
   const hasItems = selectedItems.length > 0;
+
+  // Warm the next step so the forward <button> navigation is instant. (audit P1 #6)
+  useEffect(() => {
+    router.prefetch("/inventory/supplier-purchases/new/confirm");
+  }, [router]);
 
   const total = selectedItems.reduce((sum, item) => {
     const qty = order[item.id] ?? 0;

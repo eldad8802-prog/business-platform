@@ -297,6 +297,7 @@ export async function updateInventoryItem(
     barcode?: string | null;
     isActive?: boolean;
     categoryId?: number | null;
+    supplierName?: string | null;
   }
 ) {
   const res = await fetchWithTimeout(`/api/inventory/items/${id}`, {

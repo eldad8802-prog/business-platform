@@ -10,13 +10,18 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  createInventoryCategory,
+  getInventoryCategories,
   getInventoryItemById,
   getInventoryMovementsByItemId,
   resolveInventoryAlert,
   updateInventoryItem,
+  type InventoryCategoryDTO,
   type InventoryItemDTO,
   type InventoryMovementDTO,
 } from "@/lib/api/inventory";
+import { inventoryTextKey, normalizeInventoryText } from "@/lib/inventory/normalize";
+import { inventoryToast } from "@/components/inventory/inventory-toast";
 import InventoryItemImageUploader from "@/components/inventory/inventory-item-image-uploader";
 import MovementSheet from "@/components/inventory/movement-sheet";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
@@ -83,6 +88,7 @@ export default function ProductDetailView({
 }) {
   const [item, setItem] = useState<InventoryItemDTO | null>(null);
   const [movements, setMovements] = useState<InventoryMovementDTO[]>([]);
+  const [categories, setCategories] = useState<InventoryCategoryDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -90,6 +96,9 @@ export default function ProductDetailView({
   const [editing, setEditing] = useState(false);
   const [resolvingAlertId, setResolvingAlertId] = useState<number | null>(null);
   const [movementKind, setMovementKind] = useState<"IN" | "OUT" | "ADJUSTMENT" | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<
+    Partial<Record<"name" | "minimumQuantity" | "reorderPoint", string>>
+  >({});
   const [form, setForm] = useState({
     name: "",
     sku: "",
@@ -99,6 +108,8 @@ export default function ProductDetailView({
     reorderPoint: "",
     costPerUnit: "",
     sellPricePerUnit: "",
+    supplierName: "",
+    categoryName: "",
   });
 
   const syncForm = useCallback((it: InventoryItemDTO) => {
@@ -111,6 +122,8 @@ export default function ProductDetailView({
       reorderPoint: it.reorderPoint == null ? "" : String(it.reorderPoint),
       costPerUnit: it.costPerUnit == null ? "" : String(it.costPerUnit),
       sellPricePerUnit: it.sellPricePerUnit == null ? "" : String(it.sellPricePerUnit),
+      supplierName: it.supplierName || "",
+      categoryName: it.category?.name || "",
     });
   }, []);
 
@@ -124,13 +137,15 @@ export default function ProductDetailView({
       try {
         if (!options?.silent) setLoading(true);
         setError(null);
-        const [itemData, movementsData] = await Promise.all([
+        const [itemData, movementsData, categoriesData] = await Promise.all([
           getInventoryItemById(itemId),
           getInventoryMovementsByItemId(itemId),
+          getInventoryCategories().catch(() => []),
         ]);
         setItem(itemData);
         syncForm(itemData);
         setMovements(Array.isArray(movementsData) ? movementsData : []);
+        setCategories(Array.isArray(categoriesData) ? categoriesData : []);
       } catch (err: unknown) {
         const message = getErrorMessage(err, "שגיאה בטעינת פרטי המוצר");
         if (message === "UNAUTHORIZED") setError("אין הרשאה. צריך להתחבר מחדש.");
@@ -148,28 +163,61 @@ export default function ProductDetailView({
     return () => window.clearTimeout(timer);
   }, [loadItemData]);
 
+  async function resolveCategoryId(): Promise<number | null> {
+    const normalized = normalizeInventoryText(form.categoryName);
+    if (!normalized) return null;
+    const key = normalized.toLowerCase();
+    const existing = categories.find((c) => inventoryTextKey(c.name) === key);
+    if (existing) return existing.id;
+    const created = await createInventoryCategory({ name: normalized });
+    setCategories((cur) => [...cur, created]);
+    return created.id;
+  }
+
   async function handleSave() {
     if (!item || saving) return;
-    if (!form.name.trim()) return setError("צריך להזין שם מוצר");
+
     const minimumQuantity = Number(form.minimumQuantity);
-    if (!Number.isFinite(minimumQuantity) || minimumQuantity < 0) return setError("מינימום חייב להיות 0 או יותר");
+    const reorderProvided = form.reorderPoint.trim() !== "";
+    const reorderPoint = reorderProvided ? Number(form.reorderPoint) : null;
+
+    const nextErrors: Partial<Record<"name" | "minimumQuantity" | "reorderPoint", string>> = {};
+    if (!form.name.trim()) nextErrors.name = "צריך להזין שם מוצר";
+    if (!Number.isFinite(minimumQuantity) || minimumQuantity < 0)
+      nextErrors.minimumQuantity = "מינימום חייב להיות 0 או יותר";
+    if (reorderProvided && (!Number.isFinite(reorderPoint as number) || (reorderPoint as number) < 0))
+      nextErrors.reorderPoint = "סף ההזמנה חייב להיות 0 או יותר";
+    else if (reorderPoint !== null && Number.isFinite(minimumQuantity) && reorderPoint < minimumQuantity)
+      nextErrors.reorderPoint = "סף ההזמנה חייב להיות שווה או גבוה מהסף הקריטי";
+
+    setFieldErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
+      setError(null);
+      return;
+    }
+
     try {
       setSaving(true);
       setError(null);
+      const categoryId = await resolveCategoryId();
+      const normalizedSupplier = normalizeInventoryText(form.supplierName);
       const updated = await updateInventoryItem(item.id, {
         name: form.name.trim(),
         sku: form.sku.trim() || null,
         barcode: form.barcode.trim() || null,
         unitType: form.unitType,
         minimumQuantity,
-        reorderPoint: form.reorderPoint.trim() ? Number(form.reorderPoint) : null,
+        reorderPoint,
         costPerUnit: form.costPerUnit.trim() ? Number(form.costPerUnit) : null,
         sellPricePerUnit: form.sellPricePerUnit.trim() ? Number(form.sellPricePerUnit) : null,
+        supplierName: normalizedSupplier ? normalizedSupplier : null,
+        categoryId,
       });
       setItem(updated);
       syncForm(updated);
       setEditing(false);
       setSuccess("פרטי המוצר עודכנו");
+      inventoryToast.success("פרטי המוצר עודכנו");
     } catch (err: unknown) {
       setError(getErrorMessage(err, "שגיאה בעדכון המוצר"));
     } finally {
@@ -197,10 +245,10 @@ export default function ProductDetailView({
   const caption = useMemo(() => {
     if (!item) return "";
     if (tone === "critical") {
-      return `מתחת לסף הקריטי (${item.minimumQuantity})${item.reorderPoint != null ? ` · סף הזמנה מחדש ${item.reorderPoint}` : ""}`;
+      return `בסף הקריטי או מתחתיו (${item.minimumQuantity})${item.reorderPoint != null ? ` · סף הזמנה מחדש ${item.reorderPoint}` : ""}`;
     }
     if (tone === "low") {
-      return `מתחת לסף ההזמנה${item.reorderPoint != null ? ` (${item.reorderPoint})` : ""}`;
+      return `בסף ההזמנה או מתחתיו${item.reorderPoint != null ? ` (${item.reorderPoint})` : ""}`;
     }
     return `מעל הספים · ${item.currentQuantity} במלאי`;
   }, [item, tone]);
@@ -331,17 +379,42 @@ export default function ProductDetailView({
           <BottomSheet
             title="עריכת מוצר"
             who={item.name}
-            onClose={() => { syncForm(item); setEditing(false); }}
-            footer={<SheetActions confirmLabel={saving ? "שומר…" : "שמור מוצר"} onCancel={() => { syncForm(item); setEditing(false); }} onConfirm={() => void handleSave()} confirmDisabled={saving} />}
+            onClose={() => { syncForm(item); setFieldErrors({}); setEditing(false); }}
+            footer={<SheetActions confirmLabel={saving ? "שומר…" : "שמור מוצר"} onCancel={() => { syncForm(item); setFieldErrors({}); setEditing(false); }} onConfirm={() => void handleSave()} confirmDisabled={saving} />}
           >
             <div style={{ margin: "0 0 14px" }}>
               <InventoryItemImageUploader itemId={item.id} imageUrl={safeImage(item.imageUrl)} onUpdated={(updated) => setItem((cur) => (cur ? { ...cur, ...updated } : cur))} />
             </div>
-            <div className="inv-field"><div className="inv-field__lab">שם מוצר <span>*</span></div><input className="inv-input" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></div>
+            <div className="inv-field">
+              <div className="inv-field__lab">שם מוצר <span>*</span></div>
+              <input className={`inv-input${fieldErrors.name ? " inv-input--err" : ""}`} value={form.name} onChange={(e) => { setForm((f) => ({ ...f, name: e.target.value })); if (fieldErrors.name) setFieldErrors((f) => ({ ...f, name: undefined })); }} aria-invalid={fieldErrors.name ? true : undefined} />
+              {fieldErrors.name ? <div className="inv-field__err">{fieldErrors.name}</div> : null}
+            </div>
+            <div className="inv-field">
+              <div className="inv-field__lab">קטגוריה</div>
+              <input className="inv-input" list="inv-edit-categories" value={form.categoryName} onChange={(e) => setForm((f) => ({ ...f, categoryName: e.target.value }))} placeholder="בחר או צור קטגוריה" />
+              <datalist id="inv-edit-categories">
+                {categories.map((c) => (
+                  <option key={c.id} value={c.name} />
+                ))}
+              </datalist>
+            </div>
+            <div className="inv-field">
+              <div className="inv-field__lab">ספק</div>
+              <input className="inv-input" value={form.supplierName} onChange={(e) => setForm((f) => ({ ...f, supplierName: e.target.value }))} placeholder="שם הספק" />
+            </div>
             <div className="inv-field"><div className="inv-field__lab">יחידת מידה</div><SegmentedControl value={form.unitType} onChange={(v) => setForm((f) => ({ ...f, unitType: v }))} options={UNIT_OPTIONS} /></div>
             <div className="inv-two">
-              <div className="inv-field"><div className="inv-field__lab">סף מינימום</div><input className="inv-input" inputMode="numeric" value={form.minimumQuantity} onChange={(e) => setForm((f) => ({ ...f, minimumQuantity: e.target.value }))} /></div>
-              <div className="inv-field"><div className="inv-field__lab">סף הזמנה מחדש</div><input className="inv-input" inputMode="numeric" placeholder="לא חובה" value={form.reorderPoint} onChange={(e) => setForm((f) => ({ ...f, reorderPoint: e.target.value }))} /></div>
+              <div className="inv-field">
+                <div className="inv-field__lab">סף מינימום</div>
+                <input className={`inv-input${fieldErrors.minimumQuantity ? " inv-input--err" : ""}`} inputMode="numeric" value={form.minimumQuantity} onChange={(e) => { setForm((f) => ({ ...f, minimumQuantity: e.target.value })); if (fieldErrors.minimumQuantity || fieldErrors.reorderPoint) setFieldErrors((f) => ({ ...f, minimumQuantity: undefined, reorderPoint: undefined })); }} aria-invalid={fieldErrors.minimumQuantity ? true : undefined} />
+                {fieldErrors.minimumQuantity ? <div className="inv-field__err">{fieldErrors.minimumQuantity}</div> : null}
+              </div>
+              <div className="inv-field">
+                <div className="inv-field__lab">סף הזמנה מחדש</div>
+                <input className={`inv-input${fieldErrors.reorderPoint ? " inv-input--err" : ""}`} inputMode="numeric" placeholder="לא חובה" value={form.reorderPoint} onChange={(e) => { setForm((f) => ({ ...f, reorderPoint: e.target.value })); if (fieldErrors.reorderPoint) setFieldErrors((f) => ({ ...f, reorderPoint: undefined })); }} aria-invalid={fieldErrors.reorderPoint ? true : undefined} />
+                {fieldErrors.reorderPoint ? <div className="inv-field__err">{fieldErrors.reorderPoint}</div> : null}
+              </div>
             </div>
             <div className="inv-two">
               <div className="inv-field"><div className="inv-field__lab">עלות ליחידה</div><input className="inv-input" inputMode="decimal" placeholder="לא חובה" value={form.costPerUnit} onChange={(e) => setForm((f) => ({ ...f, costPerUnit: e.target.value }))} /></div>

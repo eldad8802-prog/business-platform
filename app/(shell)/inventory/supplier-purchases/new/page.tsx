@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useOrderWizard } from "@/components/inventory/supplier-purchase-order/order-wizard-context";
 import { OrderWizardShell } from "@/components/inventory/supplier-purchase-order/order-wizard-shell";
@@ -30,6 +31,13 @@ export default function NewSupplierPurchaseSelectPage() {
   } = useOrderWizard();
 
   const canContinue = summary.totalItems > 0;
+
+  // The forward CTA navigates via a <button> (not <Link>), so the next step's
+  // RSC payload isn't prefetched and a slow first click can read as "needs a
+  // second tap". Warm it on mount so the transition is instant. (audit P1 #6)
+  useEffect(() => {
+    router.prefetch("/inventory/supplier-purchases/new/cart");
+  }, [router]);
 
   return (
     <OrderWizardShell

@@ -8,9 +8,16 @@ import {
   createInventoryCategory,
   createInventoryItem,
   getInventoryCategories,
+  getInventoryItems,
   uploadInventoryItemImage,
   type InventoryCategoryDTO,
 } from "@/lib/api/inventory";
+import { inventoryTextKey, normalizeInventoryText } from "@/lib/inventory/normalize";
+import { inventoryToast } from "@/components/inventory/inventory-toast";
+
+type CreateFieldErrors = Partial<
+  Record<"name" | "initialQuantity" | "minimumQuantity" | "reorderPoint", string>
+>;
 
 const UNIT_OPTIONS = [
   { value: "UNIT", label: "יחידה" },
@@ -39,10 +46,12 @@ export default function CreateInventoryItemPage() {
   const [sellPricePerUnit, setSellPricePerUnit] = useState("");
   const [categories, setCategories] = useState<InventoryCategoryDTO[]>([]);
   const [categoryName, setCategoryName] = useState("");
+  const [supplierOptions, setSupplierOptions] = useState<string[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<CreateFieldErrors>({});
 
   const parsedInitialQuantity = useMemo(() => {
     const n = Number(initialQuantity);
@@ -72,8 +81,22 @@ export default function CreateInventoryItemPage() {
     let isMounted = true;
     const timer = window.setTimeout(async () => {
       try {
-        const result = await getInventoryCategories();
-        if (isMounted) setCategories(result);
+        const [result, items] = await Promise.all([
+          getInventoryCategories(),
+          // Existing supplier names power the autocomplete so the same supplier
+          // is reused instead of re-typed into a near-duplicate. (audit P1 #5)
+          getInventoryItems().catch(() => []),
+        ]);
+        if (!isMounted) return;
+        setCategories(result);
+        const uniqueSuppliers = new Map<string, string>();
+        for (const item of items) {
+          const normalized = normalizeInventoryText(item.supplierName);
+          if (normalized) uniqueSuppliers.set(normalized.toLowerCase(), normalized);
+        }
+        setSupplierOptions(
+          Array.from(uniqueSuppliers.values()).sort((a, b) => a.localeCompare(b, "he"))
+        );
       } catch (err: unknown) {
         const message = getErrorMessage(err, "שגיאה בטעינת קטגוריות");
         if (isMounted) setError(message === "UNAUTHORIZED" ? "אין הרשאה. צריך להתחבר מחדש." : message);
@@ -111,38 +134,61 @@ export default function CreateInventoryItemPage() {
   }
 
   async function resolveCategoryId(): Promise<number | null> {
-    const trimmed = categoryName.trim();
-    if (!trimmed) return null;
-    const existing = categories.find((c) => c.name.trim().toLowerCase() === trimmed.toLowerCase());
+    const normalized = normalizeInventoryText(categoryName);
+    if (!normalized) return null;
+    const key = normalized.toLowerCase();
+    const existing = categories.find((c) => inventoryTextKey(c.name) === key);
     if (existing) return existing.id;
-    const created = await createInventoryCategory({ name: trimmed });
+    const created = await createInventoryCategory({ name: normalized });
     return created.id;
   }
 
   async function handleSubmit() {
     if (loading) return;
-    if (!name.trim()) return setError("צריך להזין שם מוצר");
-    if (parsedInitialQuantity === null || parsedInitialQuantity < 0) return setError("כמות התחלתית חייבת להיות 0 או יותר");
-    if (parsedMinimumQuantity === null || parsedMinimumQuantity < 0) return setError("סף מינימום חייב להיות 0 או יותר");
+
+    const nextErrors: CreateFieldErrors = {};
+    if (!name.trim()) nextErrors.name = "צריך להזין שם מוצר";
+    if (parsedInitialQuantity === null || parsedInitialQuantity < 0)
+      nextErrors.initialQuantity = "כמות התחלתית חייבת להיות 0 או יותר";
+    if (parsedMinimumQuantity === null || parsedMinimumQuantity < 0)
+      nextErrors.minimumQuantity = "סף מינימום חייב להיות 0 או יותר";
+    if (
+      normalizedReorderPoint !== null &&
+      parsedMinimumQuantity !== null &&
+      normalizedReorderPoint < parsedMinimumQuantity
+    )
+      nextErrors.reorderPoint = "סף ההזמנה חייב להיות שווה או גבוה מהסף הקריטי";
+
+    setFieldErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
+      setError(null);
+      return;
+    }
+
+    // Validated non-null above; narrow for the typed API call.
+    const safeInitialQuantity = parsedInitialQuantity ?? 0;
+    const safeMinimumQuantity = parsedMinimumQuantity ?? 0;
 
     setLoading(true);
     setError(null);
     try {
       const categoryId = await resolveCategoryId();
+      const normalizedSupplier = normalizeInventoryText(supplierName);
       const createdItem = await createInventoryItem({
         name: name.trim(),
         barcode: barcode.trim() ? barcode.trim() : null,
-        supplierName: supplierName.trim() ? supplierName.trim() : null,
+        supplierName: normalizedSupplier ? normalizedSupplier : null,
         sku: sku.trim() ? sku.trim() : null,
         unitType,
-        initialQuantity: parsedInitialQuantity,
-        minimumQuantity: parsedMinimumQuantity,
+        initialQuantity: safeInitialQuantity,
+        minimumQuantity: safeMinimumQuantity,
         reorderPoint: normalizedReorderPoint,
         costPerUnit: normalizedCostPerUnit,
         sellPricePerUnit: normalizedSellPricePerUnit,
         categoryId,
       });
       if (selectedFile) await uploadInventoryItemImage(createdItem.id, selectedFile);
+      inventoryToast.success("המוצר נוסף למלאי");
       router.push(`/inventory/items?q=${encodeURIComponent(createdItem.name)}`);
     } catch (err: unknown) {
       const message = getErrorMessage(err, "שגיאה ביצירת המוצר");
@@ -186,7 +232,14 @@ export default function CreateInventoryItemPage() {
 
         <div className="inv-field">
           <div className="inv-field__lab">שם המוצר <span>*</span></div>
-          <input className="inv-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="לדוגמה: חלב 3% תנובה" />
+          <input
+            className={`inv-input${fieldErrors.name ? " inv-input--err" : ""}`}
+            value={name}
+            onChange={(e) => { setName(e.target.value); if (fieldErrors.name) setFieldErrors((f) => ({ ...f, name: undefined })); }}
+            placeholder="לדוגמה: חלב 3% תנובה"
+            aria-invalid={fieldErrors.name ? true : undefined}
+          />
+          {fieldErrors.name ? <div className="inv-field__err">{fieldErrors.name}</div> : null}
         </div>
 
         <div className="inv-field">
@@ -206,24 +259,50 @@ export default function CreateInventoryItemPage() {
 
         <div className="inv-field">
           <div className="inv-field__lab">ספק</div>
-          <input className="inv-input" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} placeholder="שם הספק" />
+          <input className="inv-input" list="inv-suppliers" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} placeholder="בחר או הקלד שם ספק" />
+          <datalist id="inv-suppliers">
+            {supplierOptions.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
         </div>
 
         <div className="inv-field">
           <div className="inv-field__lab">כמות התחלתית</div>
-          <input className="inv-input" inputMode="numeric" value={initialQuantity} onChange={(e) => setInitialQuantity(e.target.value)} />
+          <input
+            className={`inv-input${fieldErrors.initialQuantity ? " inv-input--err" : ""}`}
+            inputMode="numeric"
+            value={initialQuantity}
+            onChange={(e) => { setInitialQuantity(e.target.value); if (fieldErrors.initialQuantity) setFieldErrors((f) => ({ ...f, initialQuantity: undefined })); }}
+            aria-invalid={fieldErrors.initialQuantity ? true : undefined}
+          />
+          {fieldErrors.initialQuantity ? <div className="inv-field__err">{fieldErrors.initialQuantity}</div> : null}
         </div>
 
         <div className="inv-two">
           <div className="inv-field">
             <div className="inv-field__lab">סף מינימום</div>
-            <input className="inv-input" inputMode="numeric" value={minimumQuantity} onChange={(e) => setMinimumQuantity(e.target.value)} placeholder="0" />
-            <div className="inv-field__help">מתחת לזה — מלאי קריטי (אדום)</div>
+            <input
+              className={`inv-input${fieldErrors.minimumQuantity ? " inv-input--err" : ""}`}
+              inputMode="numeric"
+              value={minimumQuantity}
+              onChange={(e) => { setMinimumQuantity(e.target.value); if (fieldErrors.minimumQuantity || fieldErrors.reorderPoint) setFieldErrors((f) => ({ ...f, minimumQuantity: undefined, reorderPoint: undefined })); }}
+              placeholder="0"
+              aria-invalid={fieldErrors.minimumQuantity ? true : undefined}
+            />
+            {fieldErrors.minimumQuantity ? <div className="inv-field__err">{fieldErrors.minimumQuantity}</div> : <div className="inv-field__help">בסף זה או מתחתיו — מלאי קריטי (אדום)</div>}
           </div>
           <div className="inv-field">
             <div className="inv-field__lab">סף הזמנה מחדש</div>
-            <input className="inv-input" inputMode="numeric" value={reorderPoint} onChange={(e) => setReorderPoint(e.target.value)} placeholder="0" />
-            <div className="inv-field__help">מתחת לזה — מלאי נמוך (כתום)</div>
+            <input
+              className={`inv-input${fieldErrors.reorderPoint ? " inv-input--err" : ""}`}
+              inputMode="numeric"
+              value={reorderPoint}
+              onChange={(e) => { setReorderPoint(e.target.value); if (fieldErrors.reorderPoint) setFieldErrors((f) => ({ ...f, reorderPoint: undefined })); }}
+              placeholder="0"
+              aria-invalid={fieldErrors.reorderPoint ? true : undefined}
+            />
+            {fieldErrors.reorderPoint ? <div className="inv-field__err">{fieldErrors.reorderPoint}</div> : <div className="inv-field__help">בסף זה או מתחתיו — מלאי נמוך (כתום)</div>}
           </div>
         </div>
 

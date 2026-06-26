@@ -16,6 +16,7 @@ import {
   Stepper,
   SheetActions,
 } from "@/components/inventory/inventory-primitives";
+import { inventoryToast } from "@/components/inventory/inventory-toast";
 
 type MovementKind = "IN" | "OUT" | "ADJUSTMENT";
 
@@ -28,7 +29,7 @@ const IN_REASONS = [
 const OUT_REASONS = [
   { value: "MANUAL_REMOVE", label: "הפחתה ידנית" },
   { value: "SALE", label: "מכירה" },
-  { value: "DAMAGE", label: "נזק או קלקול" },
+  { value: "DAMAGE", label: "נזק" },
 ] as const;
 
 export default function MovementSheet({
@@ -75,7 +76,18 @@ export default function MovementSheet({
   }, [kind, value, currentQuantity]);
 
   const display = kind === "IN" ? `+${value}` : kind === "OUT" ? `−${value}` : `${value}`;
-  const invalid = delta === 0 || after < 0;
+  // Why the confirm button is disabled, made explicit to the user instead of a
+  // silently greyed-out button (audit P0 #2).
+  const wouldGoNegative = after < 0;
+  const noChange = delta === 0;
+  const invalid = noChange || wouldGoNegative;
+  const blockReason = wouldGoNegative
+    ? kind === "OUT"
+      ? `אי אפשר להפחית ${value}${unit} — במלאי יש רק ${currentQuantity}${unit}. הכמות לא יכולה לרדת מתחת ל־0.`
+      : `הכמות החדשה (${after}${unit}) שלילית. המלאי לא יכול לרדת מתחת ל־0.`
+    : noChange
+      ? "אין שינוי בכמות. עדכנו את הכמות כדי לשמור."
+      : null;
 
   async function handleConfirm() {
     if (loading || invalid) return;
@@ -90,6 +102,7 @@ export default function MovementSheet({
         note: note.trim() ? note.trim() : undefined,
       });
       await onSuccess();
+      inventoryToast.success("המלאי עודכן");
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "שגיאה בשמירת התנועה");
@@ -161,6 +174,12 @@ export default function MovementSheet({
           <bdi>{currentQuantity}</bdi> ← <bdi>{after}{unit}</bdi>
         </b>
       </div>
+
+      {blockReason ? (
+        <div className="inv-inline-warn" role="alert">
+          {blockReason}
+        </div>
+      ) : null}
 
       <input
         className="inv-input"

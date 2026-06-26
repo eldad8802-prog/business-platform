@@ -169,7 +169,7 @@ export function InventoryItemRow({
       <span
         className={`${p}__price${sellPrice == null ? ` ${p}__price--missing` : ""}`}
       >
-        {sellPrice != null ? `₪${formatListPrice(sellPrice)}` : "ללא מחיר"}
+        {sellPrice != null ? `₪${formatListPrice(sellPrice)}` : "אין מחיר"}
       </span>
 
       <span className={`${p}__badge-cell`}>
