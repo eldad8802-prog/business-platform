@@ -61,10 +61,13 @@ export default function ReviewPage() {
   const [state, setState] = useState<ReviewState>("decision");
   const [reviewMode, setReviewMode] = useState<ReviewMode>("document");
   const [editField, setEditField] = useState<EditableField>("amount");
-  const [approvedAs, setApprovedAs] = useState<"financial" | "document" | null>(null);
+  const [approvedAs, setApprovedAs] = useState<
+    "financial" | "document" | "dismissed" | null
+  >(null);
   const [showFieldDetails, setShowFieldDetails] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [documentOnlyConfirmOpen, setDocumentOnlyConfirmOpen] = useState(false);
+  const [dismissConfirmOpen, setDismissConfirmOpen] = useState(false);
   const [nextPendingDocumentId, setNextPendingDocumentId] = useState<number | null>(null);
 
   const [document, setDocument] = useState<ApiDocument | null>(null);
@@ -84,6 +87,10 @@ export default function ReviewPage() {
     direction: "unknown",
     category: "general",
   });
+
+  // Snapshot of the draft taken when a field editor opens, so "ביטול" truly
+  // reverts the in-progress edit instead of silently keeping it.
+  const editBaselineRef = useRef<ReviewDraft | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -358,6 +365,73 @@ export default function ReviewPage() {
     }
   }, [authHeader, draft, id, refreshNextPendingDocument]);
 
+  const dismissDocument = useCallback(async () => {
+    if (!authHeader) {
+      setError("כדי להסיר מסמך צריך להתחבר מחדש.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const res = await fetch(`/api/documents/${id}/dismiss`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authorization: authHeader,
+        },
+        body: JSON.stringify({}),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || "לא הצלחנו להסיר את המסמך");
+      }
+
+      setApprovedAs("dismissed");
+      await refreshNextPendingDocument();
+      setState("done");
+    } catch (e: unknown) {
+      setError(errorMessage(e, "שגיאה בהסרת המסמך"));
+    } finally {
+      setLoading(false);
+    }
+  }, [authHeader, id, refreshNextPendingDocument]);
+
+  const undoDismiss = useCallback(async () => {
+    if (!authHeader) {
+      setError("כדי להחזיר מסמך צריך להתחבר מחדש.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const res = await fetch(`/api/documents/${id}/dismiss`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authorization: authHeader,
+        },
+        body: JSON.stringify({ undo: true }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || "לא הצלחנו להחזיר את המסמך לתור");
+      }
+
+      setApprovedAs(null);
+      setState("decision");
+    } catch (e: unknown) {
+      setError(errorMessage(e, "שגיאה בהחזרת המסמך"));
+    } finally {
+      setLoading(false);
+    }
+  }, [authHeader, id]);
+
   const previewReady = fileStatus === "ready" && !!fileBlobUrl;
   const previewLoading = fileStatus === "loading";
   const previewKind = getPreviewKind(fileBlobUrl || "", document?.mimeType);
@@ -371,28 +445,39 @@ export default function ReviewPage() {
     previewFailed,
   });
 
-  const handleEditField = useCallback(
+  const openFieldEditor = useCallback(
     (field: EditableField) => {
+      editBaselineRef.current = draft;
       setEditField(field);
       setEditModalOpen(true);
     },
-    []
+    [draft]
   );
 
-  const handleSummaryEditField = useCallback((field: EditableField) => {
-    setEditField(field);
-    setEditModalOpen(true);
+  const confirmFieldEditor = useCallback(() => {
+    editBaselineRef.current = null;
+    setEditModalOpen(false);
   }, []);
+
+  const cancelFieldEditor = useCallback(() => {
+    if (editBaselineRef.current) {
+      setDraft(editBaselineRef.current);
+    }
+    editBaselineRef.current = null;
+    setEditModalOpen(false);
+  }, []);
+
+  const handleEditField = openFieldEditor;
+  const handleSummaryEditField = openFieldEditor;
 
   const handleSummaryApproveFinancial = useCallback(() => {
     const missing = firstMissingFinancialField(draft);
     if (missing) {
-      setEditField(missing);
-      setEditModalOpen(true);
+      openFieldEditor(missing);
       return;
     }
     void approveFinancial();
-  }, [draft, approveFinancial]);
+  }, [draft, approveFinancial, openFieldEditor]);
 
   const handleDecisionPrimaryApprove = useCallback(() => {
     if (reviewMode !== "financial") {
@@ -406,12 +491,11 @@ export default function ReviewPage() {
 
     const missing = firstMissingFinancialField(draft);
     if (missing) {
-      setEditField(missing);
-      setEditModalOpen(true);
+      openFieldEditor(missing);
       return;
     }
     void approveFinancial();
-  }, [reviewMode, isUnknown, draft, approveFinancial]);
+  }, [reviewMode, isUnknown, draft, approveFinancial, openFieldEditor]);
 
   if (pageLoading) {
     return <DocumentsReviewSkeleton />;
@@ -478,6 +562,7 @@ export default function ReviewPage() {
               isUnknown,
               onApproveDocumentOnly: () => setDocumentOnlyConfirmOpen(true),
               onPrimaryApprove: handleDecisionPrimaryApprove,
+              onDismiss: () => setDismissConfirmOpen(true),
             }}
           />
         ) : null}
@@ -511,6 +596,7 @@ export default function ReviewPage() {
             }
             onHub={() => router.push("/documents")}
             onSearch={() => router.push("/documents/search")}
+            onUndo={approvedAs === "dismissed" ? () => void undoDismiss() : undefined}
           />
         ) : null}
 
@@ -525,15 +611,15 @@ export default function ReviewPage() {
         ) : null}
 
         {editModalOpen ? (
-          <ReviewOverlayShell title={editFieldTitle} onClose={() => setEditModalOpen(false)}>
+          <ReviewOverlayShell title={editFieldTitle} onClose={cancelFieldEditor}>
             <ReviewFieldEditorLazy
               editFieldTitle={editFieldTitle}
               editField={editField}
               draft={draft}
               loading={loading}
               onDraftChange={setDraft}
-              onConfirm={() => setEditModalOpen(false)}
-              onCancel={() => setEditModalOpen(false)}
+              onConfirm={confirmFieldEditor}
+              onCancel={cancelFieldEditor}
             />
           </ReviewOverlayShell>
         ) : null}
@@ -569,8 +655,44 @@ export default function ReviewPage() {
             </div>
           </ReviewOverlayShell>
         ) : null}
+
+        {dismissConfirmOpen ? (
+          <ReviewOverlayShell
+            title="להסיר את המסמך מהתור?"
+            onClose={() => setDismissConfirmOpen(false)}
+          >
+            <p style={confirmTextStyle}>
+              המסמך לא יימחק — הוא יוסר מתור האימות, לא ייספר כמשימה פתוחה ולא ייכנס
+              לחבילת רו״ח. תמיד אפשר להחזיר אותו לתור.
+            </p>
+            <div style={confirmActionGridStyle}>
+              <button
+                type="button"
+                disabled={loading}
+                style={reviewConfirmSecondaryStyle}
+                onClick={() => setDismissConfirmOpen(false)}
+              >
+                ביטול
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                style={reviewConfirmPrimaryStyle(loading)}
+                onClick={() => {
+                  setDismissConfirmOpen(false);
+                  void dismissDocument();
+                }}
+              >
+                הסר מהתור
+              </button>
+            </div>
+          </ReviewOverlayShell>
+        ) : null}
       </main>
       <style jsx global>{`
+        .documents-review-grab {
+          display: none;
+        }
         @media (max-width: 640px) {
           .documents-review-overlay {
             align-items: flex-end !important;
@@ -580,8 +702,12 @@ export default function ReviewPage() {
           .documents-review-dialog {
             width: 100% !important;
             max-width: none !important;
-            border-radius: 22px 22px 0 0 !important;
+            border-radius: 16px 16px 0 0 !important;
             max-height: 86vh !important;
+          }
+
+          .documents-review-grab {
+            display: block;
           }
         }
       `}</style>
@@ -603,6 +729,7 @@ function ReviewOverlayShell({
   return createPortal(
     <div className="documents-review-overlay" style={reviewOverlayStyle}>
       <section className="documents-review-dialog" role="dialog" aria-modal="true" style={reviewDialogStyle}>
+        <div className="documents-review-grab" style={reviewGrabStyle} aria-hidden />
         <div style={reviewDialogHeaderStyle}>
           <div style={reviewDialogTitleStyle}>{title}</div>
           <button type="button" aria-label="סגור" onClick={onClose} style={reviewDialogCloseStyle}>
@@ -701,6 +828,14 @@ const reviewDialogStyle = {
   background: TOKEN.surface.overlay,
   padding: 20,
   boxShadow: TOKEN.shadow.floating,
+} as const;
+
+const reviewGrabStyle = {
+  width: 42,
+  height: 4,
+  borderRadius: TOKEN.radius.pill,
+  background: TOKEN.border.hover,
+  margin: "0 auto 14px",
 } as const;
 
 const reviewDialogHeaderStyle = {

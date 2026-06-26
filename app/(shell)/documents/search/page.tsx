@@ -148,7 +148,7 @@ export default function DocumentsSearchPage() {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="חיפוש לפי ספק או טקסט חופשי"
+            placeholder="חיפוש לפי ספק, קטגוריה או סכום"
             aria-label="חיפוש מסמכים"
             style={searchInputStyle}
           />
@@ -171,7 +171,9 @@ export default function DocumentsSearchPage() {
         <div style={countStyle}>
           {loading
             ? "טוען תוצאות..."
-            : `${results.length.toLocaleString("he-IL")} תוצאות · רשומות מאושרות בלבד`}
+            : `${results.length.toLocaleString("he-IL")} תוצאות · רשומות מאושרות בלבד · ${
+                filter === "month" ? currentMonthLabel() : "כל הזמן"
+              }`}
         </div>
 
         {error ? <div style={errorStyle}>{error}</div> : null}

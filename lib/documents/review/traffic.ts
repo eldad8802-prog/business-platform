@@ -1,6 +1,10 @@
 import type { ExtractionConfidenceMeta, ReviewDraft, TrafficLevel } from "./types";
 import { formatDateShort } from "./format";
 import { hasNonEmptyText, isValidPositiveAmount } from "./validation";
+import {
+  isPlausibleDocumentDate,
+  isValidFinancialAmount,
+} from "@/lib/documents/financial-validation";
 
 function normalizeConfidenceLabel(raw: string | null | undefined): TrafficLevel {
   const v = String(raw ?? "")
@@ -25,6 +29,10 @@ export function trafficForAmount(
   draft: Pick<ReviewDraft, "amount">
 ): TrafficLevel {
   if (!isValidPositiveAmount(draft.amount)) return "low";
+  // Gate confidence on business sanity: an out-of-range amount (e.g. an absurd
+  // value read off a reference number) must never be shown as high-confidence,
+  // regardless of the OCR engine's own score.
+  if (!isValidFinancialAmount(draft.amount)) return "low";
   if (meta?.amountConfidence) return normalizeConfidenceLabel(meta.amountConfidence);
   return "medium";
 }
@@ -43,6 +51,9 @@ export function trafficForDate(
   draft: Pick<ReviewDraft, "date">
 ): TrafficLevel {
   if (!draft.date || !formatDateShort(draft.date)) return "low";
+  // An implausible date (far future / absurdly old) is a misread signal — never
+  // present it as trustworthy even if the engine score was high.
+  if (!isPlausibleDocumentDate(draft.date)) return "low";
   return scoreToTrafficLevel(meta?.confidenceScore);
 }
 

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { decryptToken, encryptToken } from "./token-crypto.placeholder";
 import { refreshGoogleAccessToken } from "./oauth-refresh.service";
+import { GmailServiceError } from "./gmail-errors";
 
 export type GmailAttachmentMetadata = {
   messageId: string;
@@ -37,7 +38,7 @@ type GmailMessagePart = {
 
 function requireEnv(name: string): string {
   const v = process.env[name];
-  if (!v) throw new Error(`Missing env var: ${name}`);
+  if (!v) throw new GmailServiceError("service_unavailable", `Missing env var: ${name}`);
   return v;
 }
 
@@ -94,7 +95,13 @@ async function gmailFetchJson<T>(url: string, accessToken: string): Promise<T> {
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Gmail API failed (${res.status}): ${text || res.statusText}`);
+    const detail = `Gmail API failed (${res.status}): ${text || res.statusText}`;
+    // 401/403 from Gmail almost always means the grant was revoked or the token
+    // is no longer valid — surface as a re-auth prompt, not a generic failure.
+    if (res.status === 401 || res.status === 403) {
+      throw new GmailServiceError("reauth_required", detail);
+    }
+    throw new GmailServiceError("upstream_error", detail);
   }
 
   return (await res.json()) as T;
@@ -121,13 +128,17 @@ export async function discoverGmailAttachments(params: {
   });
 
   if (!connection || !connection.token) {
-    throw new Error("No connected Gmail integration found");
+    throw new GmailServiceError("not_connected", "No connected Gmail integration found");
   }
 
   const accessToken = decryptToken(connection.token.accessTokenEncrypted);
   const refreshToken = decryptToken(connection.token.refreshTokenEncrypted);
-  if (!accessToken) throw new Error("Missing/decrypt failed: access token");
-  if (!refreshToken) throw new Error("Missing/decrypt failed: refresh token");
+  if (!accessToken) {
+    throw new GmailServiceError("reauth_required", "Missing/decrypt failed: access token");
+  }
+  if (!refreshToken) {
+    throw new GmailServiceError("reauth_required", "Missing/decrypt failed: refresh token");
+  }
 
   const now = Date.now();
   const expiresMs = new Date(connection.token.expiresAt).getTime();
@@ -135,14 +146,27 @@ export async function discoverGmailAttachments(params: {
 
   let effectiveAccessToken = accessToken;
   if (needsRefresh) {
-    const refreshed = await refreshGoogleAccessToken({
-      clientId: requireEnv("GOOGLE_OAUTH_CLIENT_ID"),
-      clientSecret: requireEnv("GOOGLE_OAUTH_CLIENT_SECRET"),
-      refreshToken,
-    });
+    let refreshed: Awaited<ReturnType<typeof refreshGoogleAccessToken>>;
+    try {
+      refreshed = await refreshGoogleAccessToken({
+        clientId: requireEnv("GOOGLE_OAUTH_CLIENT_ID"),
+        clientSecret: requireEnv("GOOGLE_OAUTH_CLIENT_SECRET"),
+        refreshToken,
+      });
+    } catch (refreshError) {
+      // A rejected refresh means the stored grant can no longer mint tokens —
+      // the user has to reconnect. Re-throw config errors as-is.
+      if (refreshError instanceof GmailServiceError) throw refreshError;
+      throw new GmailServiceError(
+        "reauth_required",
+        refreshError instanceof Error ? refreshError.message : "token refresh failed"
+      );
+    }
 
     const enc = encryptToken(refreshed.access_token);
-    if (!enc) throw new Error("Failed to encrypt refreshed access token");
+    if (!enc) {
+      throw new GmailServiceError("service_unavailable", "Failed to encrypt refreshed access token");
+    }
 
     const newExpiresAt = new Date(Date.now() + Math.max(0, refreshed.expires_in) * 1000);
 

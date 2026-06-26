@@ -73,6 +73,11 @@ export async function GET(req: Request) {
       if (toDate) dateFilter.lte = toDate;
     }
 
+    // When the query is numeric, also match it against the amount. People often
+    // recall an expense by its sum ("1,250") rather than the vendor name.
+    const qNumeric = q ? Number(q.replace(/[,₪\s]/g, "")) : NaN;
+    const qIsAmount = Number.isFinite(qNumeric) && qNumeric > 0;
+
     const results = await prisma.financialRecord.findMany({
       where: {
         businessId: user.businessId,
@@ -82,6 +87,7 @@ export async function GET(req: Request) {
                 OR: [
                   { vendorName: { contains: q, mode: "insensitive" as const } },
                   { category: { contains: q, mode: "insensitive" as const } },
+                  ...(qIsAmount ? [{ amount: qNumeric }] : []),
                 ],
               }
             : {},

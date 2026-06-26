@@ -9,6 +9,7 @@ import { decideCategory } from "./category-decision.service";
 import { normalizeFinancialDocument } from "./financial-normalization.service";
 import { extractFinancialRoles } from "./financial-roles.service";
 import { extractDocumentNumber } from "./entities/document-number-entity.service";
+import { checkVatConsistency } from "@/lib/documents/financial-validation";
 import {
   detectDocumentType,
   type DocumentType,
@@ -733,18 +734,6 @@ export async function runUnifiedDocumentIntelligence(params: {
     });
   }
 
-  const enforcedNeedsReview = !publishAmountAllowed || needsReview;
-
-  const outputProfile = buildDocumentOutputProfile({
-    documentType: typeDetection.documentType,
-    isFinancial: typeDetection.isFinancial,
-    guardrailRoute: guardrail.route,
-    searchableText: normalized.searchableText,
-    needsReview: enforcedNeedsReview,
-    confidence: decision.confidenceScore,
-    financialEvidenceLevel: evidence.financialEvidenceLevel,
-  });
-
   // Phase B — surface already-detected fields for persistence (no new detection).
   // Tax id from the resolved vendor entity (fallback: first detected business id).
   // VAT / subtotal from extractFinancialRoles — the same pure role detector the
@@ -755,6 +744,32 @@ export async function runUnifiedDocumentIntelligence(params: {
   const financialRoles = extractFinancialRoles(cleanedText);
   const vatAmount = financialRoles.vatAmount?.value ?? null;
   const subtotalAmount = financialRoles.subtotalAmount?.value ?? null;
+
+  // VAT triangle consistency: when subtotal + VAT + total are all detected they
+  // should reconcile. A mismatch means at least one figure was misread, so the
+  // document must not pass as auto-approvable — force a review. Advisory only:
+  // when any figure is missing the check is skipped (no false positives).
+  const vatConsistency = checkVatConsistency({
+    total: enforcedAmount,
+    subtotal: subtotalAmount,
+    vat: vatAmount,
+  });
+  const vatInconsistent = vatConsistency ? !vatConsistency.consistent : false;
+
+  const enforcedNeedsReview = !publishAmountAllowed || needsReview || vatInconsistent;
+  const enforcedAmountConfidenceFinal: ConfidenceLabel = vatInconsistent
+    ? "low"
+    : enforcedAmountConfidence;
+
+  const outputProfile = buildDocumentOutputProfile({
+    documentType: typeDetection.documentType,
+    isFinancial: typeDetection.isFinancial,
+    guardrailRoute: guardrail.route,
+    searchableText: normalized.searchableText,
+    needsReview: enforcedNeedsReview,
+    confidence: decision.confidenceScore,
+    financialEvidenceLevel: evidence.financialEvidenceLevel,
+  });
   // Phase C — label-focused document number (invoice/receipt/reference). Runs on
   // the RAW OCR text, not cleanedText: the cleaner fragments tokens across lines
   // and destroys the label↔value adjacency this detector relies on. Null when unsure.
@@ -768,7 +783,7 @@ export async function runUnifiedDocumentIntelligence(params: {
     direction,
     confidence: decision.confidenceScore,
     needsReview: enforcedNeedsReview,
-    amountConfidence: enforcedAmountConfidence,
+    amountConfidence: enforcedAmountConfidenceFinal,
     vendorConfidence: decision.vendorConfidence,
     dateConfidence: decision.dateConfidence,
     categoryConfidence: categoryResult.confidence,

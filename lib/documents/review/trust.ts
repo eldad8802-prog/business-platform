@@ -8,6 +8,10 @@ import type {
 } from "./types";
 import { hasNonEmptyText, isValidPositiveAmount } from "./validation";
 import {
+  isPlausibleDocumentDate,
+  validateFinancialAmount,
+} from "@/lib/documents/financial-validation";
+import {
   trafficForAmount,
   trafficForCategory,
   trafficForDate,
@@ -66,12 +70,16 @@ export function computeTrustContext(input: {
       ? `${directionDisplay} בסך ${amountDisplay}, בתאריך ${dateDisplay}, בקטגוריית ${categoryDisplay}.`
       : "המסמך יישמר בארכיון המסמכים, בלי ליצור רשומה פיננסית.";
 
+  const amountCheck = validateFinancialAmount(draft.amount);
+
   const trustReasons = [
     reviewMode === "financial" && !isValidPositiveAmount(draft.amount)
       ? "לא זוהה סכום תקין. צריך להשלים סכום לפני שהמסמך נשמר כרשומה פיננסית."
-      : reviewMode === "financial" && amountLevel !== "high"
-        ? "הסכום זוהה, אבל כדאי לוודא שזה הסכום הסופי במסמך."
-        : null,
+      : reviewMode === "financial" && !amountCheck.ok && amountCheck.message
+        ? amountCheck.message
+        : reviewMode === "financial" && amountLevel !== "high"
+          ? "הסכום זוהה, אבל כדאי לוודא שזה הסכום הסופי במסמך."
+          : null,
     reviewMode === "financial" && !hasNonEmptyText(draft.vendorName)
       ? "לא זוהה ספק או לקוח ברור. זה חשוב לזיהוי הרשומה בהמשך."
       : vendorLevel === "low"
@@ -81,7 +89,9 @@ export function computeTrustContext(input: {
           : null,
     reviewMode === "financial" && (!draft.date || !formatDateShort(draft.date))
       ? "לא זוהה תאריך ברור, ולכן אי אפשר לשייך את המסמך לתקופה הנכונה בביטחון."
-      : dateLevel === "low"
+      : draft.date && !isPlausibleDocumentDate(draft.date)
+        ? "התאריך שזוהה חריג (עתידי או ישן מאוד). ודא שזה תאריך המסמך הנכון."
+        : dateLevel === "low"
         ? "התאריך דורש בדיקה; ייתכן שמופיעים כמה תאריכים במסמך."
         : dateLevel === "medium"
           ? "התאריך נראה סביר, אבל כדאי לוודא שזה תאריך העסקה."

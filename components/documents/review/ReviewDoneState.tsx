@@ -5,13 +5,14 @@ import { primaryDarkButton, reviewCard, secondaryButton } from "./review-ui";
 import { TOKEN } from "@/lib/design/tokens";
 
 export type ReviewDoneStateProps = {
-  approvedAs: "financial" | "document" | null;
+  approvedAs: "financial" | "document" | "dismissed" | null;
   directionDisplay: string;
   amountDisplay: string;
   nextPendingDocumentId: number | null;
   onNext: () => void;
   onHub: () => void;
   onSearch: () => void;
+  onUndo?: () => void;
 };
 
 export default function ReviewDoneState({
@@ -22,7 +23,9 @@ export default function ReviewDoneState({
   onNext,
   onHub,
   onSearch,
+  onUndo,
 }: ReviewDoneStateProps) {
+  const dismissed = approvedAs === "dismissed";
   return (
     <section
       style={{
@@ -38,8 +41,8 @@ export default function ReviewDoneState({
           width: 92,
           height: 92,
           borderRadius: 999,
-          background: TOKEN.semantic.success.bg,
-          color: TOKEN.semantic.success.ink,
+          background: dismissed ? TOKEN.surface.inset : TOKEN.semantic.success.bg,
+          color: dismissed ? TOKEN.ink.muted : TOKEN.semantic.success.ink,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -49,7 +52,7 @@ export default function ReviewDoneState({
           boxShadow: TOKEN.shadow.elevated,
         }}
       >
-        ✓
+        {dismissed ? "↩" : "✓"}
       </div>
       <h2
         style={{
@@ -60,7 +63,7 @@ export default function ReviewDoneState({
           fontWeight: TOKEN.weight.bold,
         }}
       >
-        המסמך אושר בהצלחה
+        {dismissed ? "המסמך הוסר מהתור" : "המסמך אושר בהצלחה"}
       </h2>
       <p
         style={{
@@ -71,39 +74,53 @@ export default function ReviewDoneState({
           lineHeight: 1.6,
         }}
       >
-        {approvedAs === "financial"
-          ? `${directionDisplay} בסך ${amountDisplay} נשמרה כרשומה פיננסית מאושרת.`
-          : "המסמך נשמר כמידע עסקי ולא יצר רשומה פיננסית."}
+        {dismissed
+          ? "המסמך לא ייספר כמשימה פתוחה ולא ייכנס לחבילת רו״ח. הוא נשמר במערכת וניתן להחזירו לתור."
+          : approvedAs === "financial"
+            ? `${directionDisplay} בסך ${amountDisplay} נשמרה כרשומה פיננסית מאושרת.`
+            : "המסמך נשמר כמידע עסקי ולא יצר רשומה פיננסית."}
       </p>
 
-      <div
-        style={{
-          border: `1px solid ${TOKEN.border.DEFAULT}`,
-          background: TOKEN.surface.inset,
-          borderRadius: TOKEN.radius.card,
-          textAlign: "right",
-          overflow: "hidden",
-        }}
-      >
-        <ReviewOutcomeRow
-          icon="✓"
-          title="נשמר ב-Documents"
-          body={
-            approvedAs === "financial"
-              ? "הרשומה זמינה ברשומות המאושרות"
-              : "המסמך נשמר לתיעוד פנימי"
-          }
-        />
-        <ReviewOutcomeRow
-          icon="✓"
-          title="זמין להמשך עבודה"
-          body={
-            approvedAs === "financial"
-              ? "אפשר למצוא אותו בחיפוש ולהכליל בחומר לרו״ח"
-              : "אפשר לחזור אליו מתוך מסמכי העסק"
-          }
-        />
-      </div>
+      {dismissed && onUndo ? (
+        <button
+          type="button"
+          style={{ ...secondaryButton(false), marginBottom: 8 }}
+          onClick={onUndo}
+        >
+          החזר לתור האימות
+        </button>
+      ) : null}
+
+      {!dismissed ? (
+        <div
+          style={{
+            border: `1px solid ${TOKEN.border.DEFAULT}`,
+            background: TOKEN.surface.inset,
+            borderRadius: TOKEN.radius.card,
+            textAlign: "right",
+            overflow: "hidden",
+          }}
+        >
+          <ReviewOutcomeRow
+            icon="✓"
+            title="נשמר ב-Documents"
+            body={
+              approvedAs === "financial"
+                ? "הרשומה זמינה ברשומות המאושרות"
+                : "המסמך נשמר לתיעוד פנימי"
+            }
+          />
+          <ReviewOutcomeRow
+            icon="✓"
+            title="זמין להמשך עבודה"
+            body={
+              approvedAs === "financial"
+                ? "אפשר למצוא אותו בחיפוש ולהכליל בחומר לרו״ח"
+                : "אפשר לחזור אליו מתוך מסמכי העסק"
+            }
+          />
+        </div>
+      ) : null}
 
       <div
         style={{

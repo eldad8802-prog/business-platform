@@ -126,6 +126,7 @@ export default function DocumentsHome() {
   }
 
   const snapshot = state.status === "ready" ? state.snapshot : null;
+  const isLoadingPulse = state.status === "loading";
   const pendingCount =
     snapshot?.financialPulse.inboxDocumentCounts.pendingReview ?? 0;
   const approvedCount =
@@ -181,16 +182,29 @@ export default function DocumentsHome() {
         ) : null}
 
         <section style={financialPulseStyle}>
-          <div style={pulseLabelStyle}>תזרים החודש</div>
-          <div style={pulseNetStyle}>{formatMoney(pulse?.net ?? 0)}</div>
-          <div style={pulseStatsStyle}>
-            <PulseBox label="הכנסות" value={formatMoney(pulse?.income ?? 0)} />
-            <PulseBox label="הוצאות" value={formatMoney(pulse?.expense ?? 0)} />
-            <PulseBox
-              label="רשומות"
-              value={(pulse?.recordCount ?? approvedCount).toLocaleString("he-IL")}
-            />
-          </div>
+          <div style={pulseLabelStyle}>תזרים החודש · {monthLabel(currentMonthValue())}</div>
+          {isLoadingPulse ? (
+            <>
+              <div style={{ ...pulseNetStyle, ...pulsePlaceholderBarStyle, width: "55%" }} />
+              <div style={pulseStatsStyle}>
+                <PulseBox label="הכנסות" value="—" loading />
+                <PulseBox label="הוצאות" value="—" loading />
+                <PulseBox label="רשומות" value="—" loading />
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={pulseNetStyle}>{formatMoney(pulse?.net ?? 0)}</div>
+              <div style={pulseStatsStyle}>
+                <PulseBox label="הכנסות" value={formatMoney(pulse?.income ?? 0)} />
+                <PulseBox label="הוצאות" value={formatMoney(pulse?.expense ?? 0)} />
+                <PulseBox
+                  label="רשומות"
+                  value={(pulse?.recordCount ?? approvedCount).toLocaleString("he-IL")}
+                />
+              </div>
+            </>
+          )}
         </section>
 
         <section>
@@ -220,7 +234,8 @@ export default function DocumentsHome() {
             <HubTile
               icon="💬"
               label="מ-WhatsApp"
-              onClick={() => router.push("/settings/whatsapp")}
+              disabled
+              badge="בקרוב"
             />
           </div>
         </section>
@@ -317,13 +332,14 @@ export default function DocumentsHome() {
                     </button>
                     <button
                       type="button"
-                      style={sheetTileStyle}
-                      onClick={() => router.push("/settings/whatsapp")}
+                      style={sheetTileDisabledStyle}
+                      disabled
+                      aria-disabled
                     >
                       <span style={sheetTileIconStyle}>
                         💬
                       </span>
-                      <span>מ-WhatsApp</span>
+                      <span>מ-WhatsApp · בקרוב</span>
                     </button>
                   </div>
                   <div style={sheetActionsStyle}>
@@ -361,11 +377,21 @@ export default function DocumentsHome() {
   );
 }
 
-function PulseBox({ label, value }: { label: string; value: string }) {
+function PulseBox({
+  label,
+  value,
+  loading = false,
+}: {
+  label: string;
+  value: string;
+  loading?: boolean;
+}) {
   return (
     <div style={pulseStatBoxStyle}>
       <span style={pulseStatLabelStyle}>{label}</span>
-      <strong style={pulseStatValueStyle}>{value}</strong>
+      <strong style={loading ? pulseStatValueLoadingStyle : pulseStatValueStyle}>
+        {value}
+      </strong>
     </div>
   );
 }
@@ -382,15 +408,26 @@ function HubTile({
   icon,
   label,
   onClick,
+  disabled = false,
+  badge,
 }: {
   icon: React.ReactNode;
   label: string;
-  onClick: () => void;
+  onClick?: () => void;
+  disabled?: boolean;
+  badge?: string;
 }) {
   return (
-    <button type="button" style={hubTileStyle} onClick={onClick}>
+    <button
+      type="button"
+      style={disabled ? hubTileDisabledStyle : hubTileStyle}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      aria-disabled={disabled}
+    >
       <span style={hubTileIconStyle}>{icon}</span>
       <span style={hubTileTextStyle}>{label}</span>
+      {badge ? <span style={hubTileBadgeStyle}>{badge}</span> : null}
     </button>
   );
 }
@@ -511,6 +548,18 @@ const pulseStatValueStyle = {
   textOverflow: "ellipsis",
 };
 
+const pulseStatValueLoadingStyle = {
+  ...pulseStatValueStyle,
+  color: TOKEN.ink.inverse,
+  opacity: 0.6,
+};
+
+const pulsePlaceholderBarStyle = {
+  height: 30,
+  borderRadius: TOKEN.radius.pill,
+  background: "rgba(255, 255, 255, 0.28)",
+} as const;
+
 const hubSectionHeadStyle = {
   margin: `${TOKEN.space.xl}px 0 ${TOKEN.space.md}px`,
 };
@@ -543,6 +592,26 @@ const hubTileStyle = {
   cursor: "pointer",
   font: "inherit",
   textAlign: "center" as const,
+};
+
+const hubTileDisabledStyle = {
+  ...hubTileStyle,
+  position: "relative" as const,
+  cursor: "not-allowed",
+  opacity: 0.55,
+};
+
+const hubTileBadgeStyle = {
+  position: "absolute" as const,
+  top: 8,
+  insetInlineEnd: 8,
+  background: TOKEN.surface.card,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.pill,
+  color: TOKEN.ink.muted,
+  fontSize: 11,
+  fontWeight: TOKEN.weight.bold,
+  padding: "2px 8px",
 };
 
 const hubTileIconStyle = {
@@ -755,6 +824,12 @@ const sheetTileStyle = {
   cursor: "pointer",
   padding: "12px 14px",
   textAlign: "right" as const,
+};
+
+const sheetTileDisabledStyle = {
+  ...sheetTileStyle,
+  cursor: "not-allowed",
+  opacity: 0.55,
 };
 
 const sheetTileIconStyle = {

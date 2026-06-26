@@ -129,7 +129,14 @@ export default function EmailDocumentsPage() {
         { headers: { authorization: header } }
       );
       const data = await response.json();
-      if (!response.ok) throw new Error(data?.error || "Scan failed");
+      if (!response.ok) {
+        // When the connection is gone or the token can't be refreshed, drop back
+        // to the disconnected state so the "חבר Gmail" button guides the fix.
+        if (data?.code === "not_connected" || data?.code === "reauth_required") {
+          setConnected(false);
+        }
+        throw new Error(data?.error || "Scan failed");
+      }
       const list: GmailDiscoveryAttachment[] = Array.isArray(data.attachments)
         ? data.attachments
         : [];

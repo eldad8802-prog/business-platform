@@ -10,6 +10,7 @@ export type ReviewActionsProps = {
   isUnknown: boolean;
   onApproveDocumentOnly: () => void;
   onPrimaryApprove: () => void;
+  onDismiss: () => void;
 };
 
 export default function ReviewActions({
@@ -18,6 +19,7 @@ export default function ReviewActions({
   isUnknown,
   onApproveDocumentOnly,
   onPrimaryApprove,
+  onDismiss,
 }: ReviewActionsProps) {
   return (
     <div
@@ -55,8 +57,29 @@ export default function ReviewActions({
           שמור כמסמך מידע
         </button>
       </div>
+      <button
+        type="button"
+        disabled={loading}
+        style={dismissButtonStyle(loading)}
+        onClick={onDismiss}
+      >
+        לא רלוונטי · הסר מהתור
+      </button>
     </div>
   );
+}
+
+function dismissButtonStyle(loading: boolean) {
+  return {
+    minHeight: 44,
+    border: "none",
+    background: "transparent",
+    color: TOKEN.ink.muted,
+    fontSize: 13,
+    fontWeight: TOKEN.weight.bold,
+    cursor: loading ? "not-allowed" : "pointer",
+    textDecoration: "underline",
+  } as const;
 }
 
 const secondaryActionBoxStyle = {

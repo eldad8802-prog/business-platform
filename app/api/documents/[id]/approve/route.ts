@@ -4,6 +4,7 @@ import { resolveDocumentOutputProfile } from "@/lib/services/documents/output-pr
 import { recordReviewEvent } from "@/lib/services/documents/ledger/correction-ledger.service";
 import { assertMonthOpen } from "@/lib/services/accounting/month-close.service";
 import { ConflictError } from "@/lib/errors";
+import { validateFinancialAmount } from "@/lib/documents/financial-validation";
 
 export async function POST(
   req: Request,
@@ -164,9 +165,10 @@ export async function POST(
       const dateMs = merged.date ? Date.parse(merged.date) : NaN;
       const date = Number.isFinite(dateMs) ? new Date(dateMs) : document.createdAt;
 
-      if (!Number.isFinite(amount) || amount <= 0) {
+      const amountCheck = validateFinancialAmount(amount);
+      if (!amountCheck.ok) {
         return Response.json(
-          { error: "Missing/invalid amount for financial approval" },
+          { error: amountCheck.message, code: `amount_${amountCheck.code}` },
           { status: 400 }
         );
       }

@@ -1,4 +1,5 @@
 import type { DocumentEntities } from "./document-entities.types";
+import { isPlausibleDocumentDate } from "@/lib/documents/financial-validation";
 
 export type EntityValidationResult = {
   confidenceAdjustment: number;
@@ -14,6 +15,12 @@ export function validateDocumentEntities(
   if (!entities.vendor.name) {
     reviewReasons.push("לא זוהה ספק בצורה אמינה");
     confidenceAdjustment -= 0.15;
+  }
+
+  // Guard against a single stray character being accepted as a vendor name.
+  if (entities.vendor.name && entities.vendor.name.trim().length < 2) {
+    reviewReasons.push("שם הספק קצר מדי וכנראה אינו מלא");
+    confidenceAdjustment -= 0.12;
   }
 
   if (entities.vendor.confidence < 0.65) {
@@ -39,6 +46,9 @@ export function validateDocumentEntities(
   if (!entities.date.value) {
     reviewReasons.push("לא זוהה תאריך מסמך");
     confidenceAdjustment -= 0.08;
+  } else if (!isPlausibleDocumentDate(entities.date.value)) {
+    reviewReasons.push("התאריך שזוהה חריג (עתידי או ישן מאוד) ודורש בדיקה");
+    confidenceAdjustment -= 0.12;
   }
 
   if (entities.businessIds.length === 0) {
