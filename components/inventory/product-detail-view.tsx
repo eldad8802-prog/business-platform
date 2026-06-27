@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   createInventoryCategory,
   getInventoryCategories,
@@ -375,7 +376,14 @@ export default function ProductDetailView({
           )}
         </div>
 
-        {editing ? (
+        {/* Portal the edit sheet to <body>: the shell wraps page content in a
+            z-index:1 stacking context and the fixed BottomBar (z-100) is its
+            sibling, so it paints over the sheet footer and intercepts taps on
+            "שמור מוצר"/"ביטול" (click-through to a nav target). Portaling escapes
+            that trap; the data-inventory-module wrapper preserves --inv-* styles. */}
+        {editing && typeof document !== "undefined" ? (
+          createPortal(
+            <div data-inventory-module>
           <BottomSheet
             title="עריכת מוצר"
             who={item.name}
@@ -423,6 +431,9 @@ export default function ProductDetailView({
             <div className="inv-field"><div className="inv-field__lab">מק״ט</div><input className="inv-input" value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} /></div>
             <div className="inv-field"><div className="inv-field__lab">ברקוד</div><input className="inv-input" value={form.barcode} onChange={(e) => setForm((f) => ({ ...f, barcode: e.target.value }))} /></div>
           </BottomSheet>
+            </div>,
+            document.body
+          )
         ) : null}
 
         {movementKind ? (
