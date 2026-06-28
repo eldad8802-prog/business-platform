@@ -209,6 +209,8 @@ model Business {
   billingAuthoritySubmissions BillingAuthoritySubmission[]
   parties                     Party[]
   partyResolutionClaims       PartyResolutionClaim[]
+  paymentConnections          BusinessPaymentConnection[]
+  paymentRequests             PaymentRequest[]
 
   @@index([archivedAt])
 }
@@ -611,6 +613,7 @@ model Customer {
   business         Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
   messages         Message[]
   appointments     Appointment[]
+  paymentRequests  PaymentRequest[]
 
   @@unique([businessId, phone])
 }
@@ -1770,6 +1773,7 @@ model BillingDocument {
   receiptPayments             BillingReceiptPayment[]
   paymentAllocationsAsReceipt BillingPaymentAllocation[] @relation("ReceiptAllocations")
   paymentAllocationsAsInvoice BillingPaymentAllocation[] @relation("InvoiceAllocations")
+  paymentRequests             PaymentRequest[]
 
   @@unique([businessId, documentType, documentNumber])
   @@index([businessId, status, issuedAt])
@@ -2501,4 +2505,127 @@ enum PartyClaimStatus {
   ACTIVE
   CHALLENGED
   RETRACTED
+}
+
+// ---------------------------------------------------------------------------
+// Payments / External clearing (P1 — Payment Links Foundation)
+//
+// Dubiz is NOT a payment processor. We never store card numbers / CVV / card
+// details and never hold customer funds. Payment happens at an external
+// provider via a hosted checkout (paymentUrl). We persist only statuses,
+// identifiers, the payment link, webhook events, and links to document /
+// customer. Provider credentials (merchant secret) are encrypted at rest with
+// AES-256-GCM (see payment-crypto.service.ts) — same pattern as authority
+// tokens. No card data ever reaches these tables.
+// ---------------------------------------------------------------------------
+
+model BusinessPaymentConnection {
+  id                  Int             @id @default(autoincrement())
+  businessId          Int
+  provider            PaymentProvider
+  merchantId          String?
+  // Encrypted provider credential (AES-256-GCM). NEVER card data — only the
+  // merchant's API secret/terminal credential used to talk to the provider.
+  credentialEncrypted String?
+  credentialIv        String?
+  credentialTag       String?
+  encryptionKeyId     String?
+  isActive            Boolean         @default(false)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@unique([businessId, provider])
+  @@index([businessId, isActive])
+}
+
+model PaymentRequest {
+  id                Int                  @id @default(autoincrement())
+  businessId        Int
+  customerId        Int?
+  billingDocumentId Int?
+  provider          PaymentProvider
+  amount            Decimal              @db.Decimal(18, 2)
+  currency          String               @default("ILS")
+  description       String?
+  status            PaymentRequestStatus @default(PENDING)
+  paymentUrl        String?
+  providerRequestId String?
+  expiresAt         DateTime?
+  paidAt            DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  business        Business             @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  customer        Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  billingDocument BillingDocument?     @relation(fields: [billingDocumentId], references: [id], onDelete: SetNull)
+  transactions    PaymentTransaction[]
+
+  @@index([businessId, status])
+  @@index([businessId, createdAt])
+  @@index([provider, providerRequestId])
+  @@index([businessId, billingDocumentId])
+}
+
+model PaymentTransaction {
+  id                    Int                      @id @default(autoincrement())
+  paymentRequestId      Int
+  provider              PaymentProvider
+  providerTransactionId String?
+  amount                Decimal                  @db.Decimal(18, 2)
+  currency              String                   @default("ILS")
+  status                PaymentTransactionStatus
+  rawPayload            Json?
+  createdAt             DateTime                 @default(now())
+
+  paymentRequest PaymentRequest @relation(fields: [paymentRequestId], references: [id], onDelete: Cascade)
+
+  @@index([paymentRequestId])
+  @@index([provider, providerTransactionId])
+}
+
+model PaymentWebhookEvent {
+  id               Int                            @id @default(autoincrement())
+  provider         PaymentProvider
+  eventType        String?
+  providerEventId  String?
+  payload          Json
+  processingStatus PaymentWebhookProcessingStatus @default(RECEIVED)
+  processedAt      DateTime?
+  error            String?
+  createdAt        DateTime                       @default(now())
+
+  // DB-level idempotency: a (provider, providerEventId) pair can only be
+  // ingested once. NULL providerEventId rows are distinct under Postgres
+  // semantics — the service layer handles those defensively.
+  @@unique([provider, providerEventId])
+  @@index([processingStatus, createdAt])
+}
+
+enum PaymentProvider {
+  TRANZILA
+  CARDCOM
+}
+
+enum PaymentRequestStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentTransactionStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+}
+
+enum PaymentWebhookProcessingStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+  UNMATCHED
 }

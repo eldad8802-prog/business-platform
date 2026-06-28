@@ -1,0 +1,329 @@
+/**
+ * Inbound webhook processing.
+ *
+ *   1. persist the raw webhook BEFORE processing (idempotent on
+ *      provider + providerEventId)
+ *   2. verify signature / authenticity (provider-specific, if any)
+ *   3. parse the event
+ *   4. locate the PaymentRequest by providerRequestId
+ *   5. create a PaymentTransaction
+ *   6. update the PaymentRequest to PAID / FAILED / CANCELLED
+ *   7. idempotency: a duplicate webhook never creates a double charge or a
+ *      wrong status
+ *   8. (future) hand off to Billing/Receipt — prepared, not auto-fired here
+ *
+ * This function NEVER throws on a bad/duplicate/unrecognized webhook: it
+ * records the outcome on the event row and returns a result object, so the
+ * route can always answer 200 and the provider does not retry-storm.
+ */
+
+import {
+  isTerminalRequestStatus,
+  type PaymentConnectionRecord,
+  type PaymentProvider,
+  type PaymentRequestStatus,
+  type PaymentStore,
+  type PaymentTransactionStatus,
+  type PaymentWebhookProcessingStatus,
+} from "./payments.types";
+import type {
+  ParsedPaymentOutcome,
+  PaymentProviderAdapter,
+  ProviderPaymentStatus,
+} from "./providers/payment-provider.types";
+
+export interface ProcessWebhookInput {
+  provider: PaymentProvider;
+  rawBody: string;
+  headers?: Record<string, string | null | undefined>;
+  /** Optional pre-parsed JSON body, when the route already parsed it. */
+  parsedBody?: unknown;
+}
+
+export interface ProcessWebhookDeps {
+  store: PaymentStore;
+  resolveProvider: (provider: PaymentProvider) => PaymentProviderAdapter;
+  /** Optional webhook secret resolver (per provider). */
+  resolveWebhookSecret?: (provider: PaymentProvider) => string | null;
+  /**
+   * Decrypts a connection's provider credential for verification calls.
+   * Required for verification-capable providers; the credential is used
+   * in-memory only and never persisted.
+   */
+  decryptConnectionCredential?: (
+    connection: PaymentConnectionRecord
+  ) => string | null;
+  now?: () => Date;
+}
+
+export interface ProcessWebhookResult {
+  ok: boolean;
+  eventId: number;
+  processingStatus: PaymentWebhookProcessingStatus;
+  /** True when this exact event/effect was already applied. */
+  duplicate: boolean;
+  paymentRequestId: number | null;
+  paymentRequestStatus: PaymentRequestStatus | null;
+  reason: string | null;
+  /**
+   * Authority boundary marker:
+   *   true  — outcome established by provider verification (authority)
+   *   false — legacy unverified path (provider has no verification yet)
+   *   null  — no authority decision reached (failure / duplicate / non-terminal)
+   */
+  verified: boolean | null;
+}
+
+function outcomeToTransactionStatus(
+  outcome: ParsedPaymentOutcome
+): PaymentTransactionStatus {
+  switch (outcome) {
+    case "PAID":
+      return "PAID";
+    case "CANCELLED":
+      return "CANCELLED";
+    case "FAILED":
+      return "FAILED";
+    default:
+      return "PENDING";
+  }
+}
+
+function outcomeToRequestStatus(
+  outcome: ParsedPaymentOutcome
+): PaymentRequestStatus | null {
+  switch (outcome) {
+    case "PAID":
+      return "PAID";
+    case "FAILED":
+      return "FAILED";
+    case "CANCELLED":
+      return "CANCELLED";
+    default:
+      return null; // PENDING / UNKNOWN — do not move the request
+  }
+}
+
+export async function processPaymentWebhook(
+  input: ProcessWebhookInput,
+  deps: ProcessWebhookDeps
+): Promise<ProcessWebhookResult> {
+  const now = deps.now ?? (() => new Date());
+  const headers = input.headers ?? {};
+  const adapter = deps.resolveProvider(input.provider);
+
+  // Parse first (never throws) so we can extract the event id for dedup.
+  let parsed;
+  try {
+    parsed = adapter.parseWebhook({
+      rawBody: input.rawBody,
+      parsedBody: input.parsedBody,
+    });
+  } catch {
+    parsed = null;
+  }
+
+  // 1. persist raw, idempotent on (provider, providerEventId).
+  const { created, event } = await deps.store.insertWebhookEventIfNew({
+    provider: input.provider,
+    eventType: parsed?.eventType ?? null,
+    providerEventId: parsed?.providerEventId ?? null,
+    payload: input.parsedBody ?? input.rawBody,
+  });
+
+  // 7. duplicate event already fully processed — no-op.
+  if (!created && event.processingStatus === "PROCESSED") {
+    return {
+      ok: true,
+      eventId: event.id,
+      processingStatus: event.processingStatus,
+      duplicate: true,
+      paymentRequestId: null,
+      paymentRequestStatus: null,
+      reason: "duplicate_event",
+      verified: null,
+    };
+  }
+
+  const fail = async (
+    status: PaymentWebhookProcessingStatus,
+    reason: string,
+    paymentRequestId: number | null = null,
+    paymentRequestStatus: PaymentRequestStatus | null = null
+  ): Promise<ProcessWebhookResult> => {
+    await deps.store.updateWebhookEvent(event.id, {
+      processingStatus: status,
+      processedAt: now(),
+      error: reason.slice(0, 500),
+    });
+    return {
+      ok: false,
+      eventId: event.id,
+      processingStatus: status,
+      duplicate: false,
+      paymentRequestId,
+      paymentRequestStatus,
+      reason,
+      verified: null,
+    };
+  };
+
+  // 2. verify authenticity.
+  const secret = deps.resolveWebhookSecret?.(input.provider) ?? null;
+  const verify = adapter.verifyWebhook({
+    rawBody: input.rawBody,
+    headers,
+    secret,
+  });
+  if (!verify.ok) {
+    return fail("FAILED", `signature: ${verify.reason}`);
+  }
+
+  // 3. require a usable parse.
+  if (!parsed || parsed.outcome === "UNKNOWN") {
+    return fail("UNMATCHED", "unparseable_or_unknown_outcome");
+  }
+
+  // 4. locate the payment request.
+  if (!parsed.providerRequestId) {
+    return fail("UNMATCHED", "missing_provider_request_id");
+  }
+  const request = await deps.store.findPaymentRequestByProviderRequestId(
+    input.provider,
+    parsed.providerRequestId
+  );
+  if (!request) {
+    return fail("UNMATCHED", "no_matching_payment_request");
+  }
+
+  // 5. AUTHORITY. The webhook is only a signal. The provider's verification is
+  // the authority that determines the real outcome. A request may move to PAID
+  // (and a PaymentTransaction may be recorded) only from a verified outcome.
+  //
+  // Capability-gated, provider-agnostic:
+  //   - Verification-capable provider (adapter.getPaymentStatus present) =>
+  //     verification IS authority; the webhook's claimed outcome is ignored.
+  //   - Provider with no verification path yet (e.g. TRANZILA) => documented
+  //     backward-compatible legacy path: the webhook signal drives the outcome,
+  //     exactly as before. This is an explicit exception pending the provider
+  //     gaining a verification path (see docs/payments-authority-principle-v1.md).
+  let authoritativeOutcome: ParsedPaymentOutcome;
+  let authoritativeTransactionId: string | null;
+  let verified: boolean;
+
+  if (typeof adapter.getPaymentStatus === "function") {
+    const connection = await deps.store.findActiveConnection(
+      request.businessId,
+      input.provider
+    );
+    if (!connection) {
+      // Cannot establish authority without a connection => never PAID.
+      return fail(
+        "FAILED",
+        "verification_unavailable_no_active_connection",
+        request.id,
+        request.status
+      );
+    }
+    const credential = deps.decryptConnectionCredential?.(connection) ?? null;
+
+    let status: ProviderPaymentStatus;
+    try {
+      status = await adapter.getPaymentStatus({
+        providerRequestId: parsed.providerRequestId,
+        merchantId: connection.merchantId,
+        credential,
+      });
+    } catch {
+      // Fail safe: a failed/erroring verification can never produce PAID.
+      return fail(
+        "FAILED",
+        "verification_error",
+        request.id,
+        request.status
+      );
+    }
+
+    authoritativeOutcome = status.outcome;
+    authoritativeTransactionId =
+      status.providerTransactionId ?? parsed.providerTransactionId;
+    verified = true;
+  } else {
+    authoritativeOutcome = parsed.outcome;
+    authoritativeTransactionId = parsed.providerTransactionId;
+    verified = false;
+  }
+
+  // 6/7/8. Only a terminal authoritative outcome (PAID/FAILED/CANCELLED) may
+  // create a transaction or move the request. Non-terminal outcomes
+  // (PENDING/UNKNOWN) never settle anything.
+  const nextStatus = outcomeToRequestStatus(authoritativeOutcome);
+  let finalStatus: PaymentRequestStatus = request.status;
+
+  if (nextStatus) {
+    // transaction-level idempotency on the authoritative transaction id.
+    if (authoritativeTransactionId) {
+      const existingTx =
+        await deps.store.findTransactionByProviderTransactionId(
+          input.provider,
+          authoritativeTransactionId
+        );
+      if (existingTx) {
+        await deps.store.updateWebhookEvent(event.id, {
+          processingStatus: "PROCESSED",
+          processedAt: now(),
+        });
+        return {
+          ok: true,
+          eventId: event.id,
+          processingStatus: "PROCESSED",
+          duplicate: true,
+          paymentRequestId: request.id,
+          paymentRequestStatus: request.status,
+          reason: "duplicate_transaction",
+          verified,
+        };
+      }
+    }
+
+    // record the verified transaction.
+    await deps.store.createTransaction({
+      paymentRequestId: request.id,
+      provider: input.provider,
+      providerTransactionId: authoritativeTransactionId,
+      amount: parsed.amount ?? request.amount,
+      currency: parsed.currency ?? request.currency,
+      status: outcomeToTransactionStatus(authoritativeOutcome),
+      rawPayload: input.parsedBody ?? input.rawBody,
+    });
+
+    // move the request — idempotently, without overwriting a terminal state.
+    if (!isTerminalRequestStatus(request.status)) {
+      const updated = await deps.store.updatePaymentRequest(request.id, {
+        status: nextStatus,
+        paidAt: nextStatus === "PAID" ? now() : null,
+      });
+      finalStatus = updated.status;
+    }
+  }
+
+  // Billing/Receipt hand-off is intentionally NOT auto-fired here. A verified
+  // PAID transition is the integration point; wiring it to a Receipt requires
+  // the receipt engine and is a separate step.
+
+  await deps.store.updateWebhookEvent(event.id, {
+    processingStatus: "PROCESSED",
+    processedAt: now(),
+  });
+
+  return {
+    ok: true,
+    eventId: event.id,
+    processingStatus: "PROCESSED",
+    duplicate: false,
+    paymentRequestId: request.id,
+    paymentRequestStatus: finalStatus,
+    reason: null,
+    verified,
+  };
+}
