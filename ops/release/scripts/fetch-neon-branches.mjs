@@ -31,6 +31,15 @@ const BRANCH_ALLOW_LIST = [
   'parent_id',
   'created_at',
   'updated_at',
+  // S6 discriminating activity metrics (non-sensitive: sizes, durations, counts).
+  // These distinguish a live production workload from idle snapshots/backups.
+  'logical_size',
+  'last_reset_at',
+  'cpu_used_sec',
+  'compute_time_seconds',
+  'active_time_seconds',
+  'written_data_bytes',
+  'data_transfer_bytes',
 ];
 
 function requireEnv(name) {
