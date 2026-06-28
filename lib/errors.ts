@@ -51,3 +51,16 @@ export class ServiceUnavailableError extends AppError {
     this.name = "ServiceUnavailableError";
   }
 }
+
+export const BILLING_PDF_RENDERER_POLICY_ERROR =
+  "BILLING_PDF_RENDERER_POLICY_VIOLATION" as const;
+
+export const BILLING_PDF_RENDERER_POLICY_MESSAGE =
+  "Production billing PDFs require the HTML renderer. Unset BILLING_PDF_RENDERER or set BILLING_PDF_RENDERER=html.";
+
+export class BillingPdfRendererPolicyError extends AppError {
+  constructor(message = BILLING_PDF_RENDERER_POLICY_MESSAGE) {
+    super(message, 503, BILLING_PDF_RENDERER_POLICY_ERROR);
+    this.name = "BillingPdfRendererPolicyError";
+  }
+}
