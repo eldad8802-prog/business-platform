@@ -1,11 +1,11 @@
 name: release-infra-registry
 
-# Phase 4 · Step 1 — Infrastructure Registry (Neon DB Identity), READ-ONLY.
+# Phase 4 · Step 1 + 4.3 Step A — Infrastructure Registry (Neon DB Identity), READ-ONLY.
 #
-# Manual only. Calls exactly one Neon endpoint with GET and uploads an
-# allow-listed branch inventory as an artifact. It performs NO writes to:
-# the repository, Vercel, Neon, the database, env, secrets, or branch
-# protection. It does not run migrations and is not a blocking gate.
+# Manual only. Calls Neon GET endpoints (branches, then endpoints) and uploads
+# allow-listed inventories as artifacts. It performs NO writes to: the
+# repository, Vercel, Neon, the database, env, secrets, or branch protection.
+# It does not run migrations and is not a blocking gate.
 on:
   workflow_dispatch: {}
 
@@ -34,9 +34,18 @@ jobs:
           NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
         run: node ops/release/scripts/fetch-neon-branches.mjs
 
-      - name: Upload infra-registry artifact
+      - name: Fetch Neon endpoints (GET only; host <-> branch map)
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          NEON_BRANCHES_JSON: ops/release/infra-registry.json
+        run: node ops/release/scripts/fetch-neon-endpoints.mjs
+
+      - name: Upload infra-registry artifacts
         uses: actions/upload-artifact@v4
         with:
           name: infra-registry
-          path: ops/release/infra-registry.json
+          path: |
+            ops/release/infra-registry.json
+            ops/release/infra-endpoints.json
           if-no-files-found: error
