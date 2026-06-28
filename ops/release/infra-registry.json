@@ -1,0 +1,19 @@
+{
+  "schema": "dubiz.release.infra-registry/v1",
+  "generated_by": "TEMPLATE — not yet generated from a live Neon call",
+  "source": {
+    "provider": "neon",
+    "api": "https://console.neon.tech/api/v2/projects/{project_id}/branches",
+    "method": "GET",
+    "project_id": "UNKNOWN-until-workflow-run"
+  },
+  "note": "Placeholder committed additively. The release-infra-registry workflow (workflow_dispatch) overwrites this file with the live, allow-listed branch inventory. Contains NO connection strings or credentials. env->branch binding is UNKNOWN until separately approved.",
+  "branch_count": 0,
+  "default_or_primary_branch_hint": null,
+  "env_to_branch_identity": {
+    "production": "UNKNOWN",
+    "preview": "UNKNOWN",
+    "development": "UNKNOWN"
+  },
+  "branches": []
+}

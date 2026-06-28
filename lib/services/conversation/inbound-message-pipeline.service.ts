@@ -59,6 +59,14 @@ import {
   type StarterBotSettingsSnapshot,
 } from "@/lib/features/conversation/starter-bot";
 import {
+  isBotComposeContextEnabled,
+  isBotComposeGoalsApproachEnabled,
+  isBotComposeKnowledgeEnabled,
+  isBotComposeShadowEnabled,
+  isBotVoiceComposeEnabled,
+  loadBotComposeContext,
+} from "@/lib/services/conversation/bot-compose-context.service";
+import {
   logEvent,
   type WhatsAppPipelineEvent,
 } from "@/lib/services/integrations/whatsapp/webhook-events";
@@ -373,7 +381,7 @@ export async function runInboundMessagePipeline(
             handoffRules: botRow.handoffRules,
           };
 
-          const starterDraft = planStarterBotReply({
+          const plannerInput = {
             settings: plannerSettings,
             conversation: {
               id: conversation.id,
@@ -384,7 +392,51 @@ export async function runInboundMessagePipeline(
               stage: analysis.stage,
             },
             nextQuestionIndex: derivedNextQuestionIndex,
-          });
+          };
+
+          // Stage 9 (flag-gated, default OFF → byte-identical to before): build a
+          // read-only compose context with ONLY the armed capabilities
+          // (voice 9B / knowledge 9C). Capabilities are applied unless SHADOW is
+          // on, in which case the new draft is computed for observation only and
+          // the baseline draft is returned. Any failure falls back to baseline.
+          // Does NOT touch the draft-only gate, send path, or any settings.
+          let starterDraft = planStarterBotReply(plannerInput);
+          if (isBotComposeContextEnabled()) {
+            try {
+              const voiceArmed = isBotVoiceComposeEnabled();
+              const knowledgeArmed = isBotComposeKnowledgeEnabled();
+              const goalsApproachArmed = isBotComposeGoalsApproachEnabled();
+              const composeContext = await loadBotComposeContext(businessId, {
+                includeVoice: voiceArmed,
+                includeKnowledge: knowledgeArmed,
+                includeGoalsApproach: goalsApproachArmed,
+              });
+              if (composeContext && (voiceArmed || knowledgeArmed || goalsApproachArmed)) {
+                const contextForPlanner = {
+                  ...composeContext,
+                  customerMessageText: labelledMessage.contentText ?? undefined,
+                };
+                const newDraft = planStarterBotReply(plannerInput, contextForPlanner);
+                if (isBotComposeShadowEnabled()) {
+                  // Dev-safe shadow log (no message text / PII) — observe only.
+                  console.info("[inbound-pipeline] compose-shadow", {
+                    conversationId: conversation.id,
+                    businessId,
+                    changed: newDraft.replyText !== starterDraft.replyText,
+                    oldLength: starterDraft.replyText.length,
+                    newLength: newDraft.replyText.length,
+                  });
+                } else {
+                  starterDraft = newDraft;
+                }
+              }
+            } catch (composeErr) {
+              console.warn(
+                "[inbound-pipeline] compose-context failed (ignored):",
+                composeErr
+              );
+            }
+          }
 
           const workMode = resolveBotWorkMode({
             enabled: botRow.enabled,

@@ -1,0 +1,63 @@
+name: release-event-log
+
+# Phase 4 · Step 3 — Event Log Skeleton, REPORT-ONLY.
+#
+# Manual only. Appends one sanitized event to an append-only NDJSON log and
+# uploads it as an artifact. It enforces NO state, is NOT a gate, makes NO
+# provider/network calls, and never writes to the repository (no commit/push).
+on:
+  workflow_dispatch:
+    inputs:
+      type:
+        description: 'Event type (e.g. ReleaseCreated, ArtifactBuilt)'
+        required: true
+        type: string
+      release_id:
+        description: 'Release id this event belongs to (optional)'
+        required: false
+        type: string
+      payload:
+        description: 'JSON payload (optional; sanitized before storage)'
+        required: false
+        type: string
+
+# Least privilege: read repo contents to run the script. No write scopes.
+permissions:
+  contents: read
+
+jobs:
+  append-event:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Restore prior event log (best-effort, for chaining)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: release-event-log
+          path: ops/release/_events
+
+      - name: Append sanitized event (no provider calls, no secrets)
+        env:
+          EVENT_TYPE: ${{ inputs.type }}
+          EVENT_RELEASE_ID: ${{ inputs.release_id }}
+          EVENT_PAYLOAD: ${{ inputs.payload }}
+          EVENT_PRODUCER: 'workflow:release-event-log'
+        run: node ops/release/scripts/append-event.mjs
+
+      - name: Upload event log artifact (append-only NDJSON)
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-event-log
+          path: ops/release/_events/release-events.ndjson
+          if-no-files-found: error
+          overwrite: true
