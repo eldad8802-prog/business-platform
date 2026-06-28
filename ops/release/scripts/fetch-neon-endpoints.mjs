@@ -35,6 +35,11 @@ const ENDPOINT_ALLOW_LIST = [
   'region_id',
   'current_state',
   'created_at',
+  // S6 discriminating recency metrics (non-sensitive: timestamps/flags/state).
+  'last_active',
+  'updated_at',
+  'pooler_enabled',
+  'pending_state',
 ];
 
 function requireEnv(name) {
@@ -109,7 +114,7 @@ async function main() {
     },
     note: 'Endpoint host <-> branch map for host correlation. Contains NO connection strings, credentials, usernames, passwords, or database names. A host (ep-*.neon.tech) is not a credential.',
     endpoint_count: projected.length,
-    host_to_branch: projected.map((p) => ({ host: p.host, branch_id: p.branch_id, branch_name: p.branch_name, type: p.type })),
+    host_to_branch: projected.map((p) => ({ host: p.host, branch_id: p.branch_id, branch_name: p.branch_name, type: p.type, last_active: p.last_active ?? null })),
     endpoints: projected,
   };
 
@@ -123,9 +128,9 @@ async function main() {
       '',
       `- Endpoints found: **${projected.length}**`,
       '',
-      '| host | branch | type | state |',
-      '| --- | --- | --- | --- |',
-      ...projected.map((p) => `| ${p.host ?? ''} | ${p.branch_name ?? p.branch_id ?? ''} | ${p.type ?? ''} | ${p.current_state ?? ''} |`),
+      '| host | branch | type | state | last_active |',
+      '| --- | --- | --- | --- | --- |',
+      ...projected.map((p) => `| ${p.host ?? ''} | ${p.branch_name ?? p.branch_id ?? ''} | ${p.type ?? ''} | ${p.current_state ?? ''} | ${p.last_active ?? ''} |`),
       '',
       '_Hosts are not credentials. No connection strings collected._',
     ];
