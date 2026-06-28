@@ -92,8 +92,8 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const core = ['${{ steps.validate.outcome }}', '${{ steps.lint.outcome }}', '${{ steps.build.outcome }}'];
-            const ok = core.every(o => o === 'success');
+            const outcomes = ['${{ steps.validate.outcome }}', '${{ steps.lint.outcome }}', '${{ steps.build.outcome }}'];
+            const ok = outcomes.every(o => o === 'success');
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
