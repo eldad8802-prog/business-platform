@@ -1,0 +1,104 @@
+name: release-ci-verify
+
+# Phase 4 · Step 4 — Non-blocking CI Verification, REPORT-ONLY.
+#
+# Runs read-only checks (prisma validate, lint, build) and publishes a
+# NON-REQUIRED commit status + Job Summary. It does NOT block merges (no
+# required checks / no branch protection are configured here). It performs NO
+# database writes, NO migrations, NO deploys, and NO provider changes.
+on:
+  pull_request: {}
+  workflow_dispatch: {}
+
+# Least privilege: read repo contents; write only the non-required commit status.
+permissions:
+  contents: read
+  statuses: write
+
+# Avoid overlapping runs on the same ref; never cancel in a way that blocks.
+concurrency:
+  group: release-ci-verify-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (npm ci — lockfile present)
+        run: npm ci
+
+      - name: prisma validate (offline, no DB)
+        id: validate
+        continue-on-error: true
+        run: npx prisma validate
+
+      - name: Lint (report-only)
+        id: lint
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Build (no deploy; prisma generate + next build)
+        id: build
+        continue-on-error: true
+        run: npm run build
+
+      # migrate status is DB-touching. It runs ONLY against an explicitly-provided
+      # non-production CI binding (CI_DATABASE_URL). The production/preview
+      # DATABASE_URL secret is intentionally NOT referenced, so production data
+      # can never be touched. With no CI_DATABASE_URL set, this is skipped.
+      - name: prisma migrate status (read-only; skipped if no DB binding)
+        id: migrate_status
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.CI_DATABASE_URL }}
+        run: |
+          if [ -z "${DATABASE_URL}" ]; then
+            echo "skipped: no DB binding (CI_DATABASE_URL not set)"
+            echo "outcome=skipped" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "outcome=ran" >> "$GITHUB_OUTPUT"
+          npx prisma migrate status
+
+      - name: Job Summary
+        if: always()
+        run: |
+          {
+            echo "## release/verify (report-only, non-blocking)"
+            echo ""
+            echo "| check | result |"
+            echo "| --- | --- |"
+            echo "| prisma validate | ${{ steps.validate.outcome }} |"
+            echo "| lint | ${{ steps.lint.outcome }} |"
+            echo "| build | ${{ steps.build.outcome }} |"
+            echo "| migrate status | ${{ steps.migrate_status.outputs.outcome || 'skipped' }} |"
+            echo ""
+            echo "_This check never blocks merge. No DB writes, no migrations, no deploy._"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish non-required commit status (PR only)
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const core = ['${{ steps.validate.outcome }}', '${{ steps.lint.outcome }}', '${{ steps.build.outcome }}'];
+            const ok = core.every(o => o === 'success');
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.payload.pull_request.head.sha,
+              state: ok ? 'success' : 'failure',
+              context: 'release/verify',
+              description: ok ? 'read-only checks passed (non-blocking)' : 'read-only checks reported issues (non-blocking)',
+            });

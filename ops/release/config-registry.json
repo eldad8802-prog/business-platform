@@ -1,0 +1,13 @@
+{
+  "schema": "dubiz.release.config-registry/v1",
+  "generated_by": "TEMPLATE — no input dumps provided",
+  "note": "Placeholder committed additively. Populated by build-config-registry.mjs from read-only text dumps of `vercel env ls`, `gh secret list`, `gh variable list`. Key NAMES + scope + source only. Contains NO secret values, tokens, or credentials. Variable values are never read.",
+  "sources": {
+    "vercel-env": "vercel env ls (names + scope; values are Encrypted/ignored)",
+    "gh-secret": "gh secret list (names + timestamps; values never exposed)",
+    "gh-variable": "gh variable list (names only; value column dropped)"
+  },
+  "key_count": 0,
+  "production_only_keys_missing_in_preview": [],
+  "keys": []
+}
