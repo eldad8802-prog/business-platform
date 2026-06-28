@@ -38,9 +38,15 @@ jobs:
       - name: Install dependencies (npm ci — lockfile present)
         run: npm ci
 
+      # Non-connecting placeholders ONLY so env("DATABASE_URL")/env("DIRECT_URL")
+      # resolve for OFFLINE schema validation. `prisma validate` never opens a
+      # connection — these are NOT a DB binding and never touch any database.
       - name: prisma validate (offline, no DB)
         id: validate
         continue-on-error: true
+        env:
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          DIRECT_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
         run: npx prisma validate
 
       - name: Lint (report-only)
@@ -71,18 +77,41 @@ jobs:
           echo "outcome=ran" >> "$GITHUB_OUTPUT"
           npx prisma migrate status
 
+      # Two-Tier reporting (uses .outcome — the real result, not the
+      # continue-on-error-masked .conclusion):
+      #   Blockers     -> validate, build  (a failure here = failing status)
+      #   Report-only  -> lint, migrate status  (observations; never block)
       - name: Job Summary
         if: always()
+        env:
+          VALIDATE: ${{ steps.validate.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+          MIGRATE: ${{ steps.migrate_status.outputs.outcome || 'skipped' }}
         run: |
           {
-            echo "## release/verify (report-only, non-blocking)"
+            echo "## release/verify (Evidence Producer — non-blocking)"
             echo ""
+            echo "### Blockers (determine pass/fail)"
             echo "| check | result |"
             echo "| --- | --- |"
-            echo "| prisma validate | ${{ steps.validate.outcome }} |"
-            echo "| lint | ${{ steps.lint.outcome }} |"
-            echo "| build | ${{ steps.build.outcome }} |"
-            echo "| migrate status | ${{ steps.migrate_status.outputs.outcome || 'skipped' }} |"
+            echo "| prisma validate | ${VALIDATE} |"
+            echo "| build | ${BUILD} |"
+            echo ""
+            echo "### Report-only observations (never block)"
+            echo "| check | result |"
+            echo "| --- | --- |"
+            echo "| lint | ${LINT} |"
+            echo "| migrate status | ${MIGRATE} |"
+            echo ""
+            failed=""
+            [ "${VALIDATE}" != "success" ] && failed="${failed} validate"
+            [ "${BUILD}" != "success" ] && failed="${failed} build"
+            if [ -n "${failed}" ]; then
+              echo "**Failure reason:** blocking checks failed —${failed} (lint is report-only)."
+            else
+              echo "**Failure reason:** none — all blockers passed (lint is report-only)."
+            fi
             echo ""
             echo "_This check never blocks merge. No DB writes, no migrations, no deploy._"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -92,13 +121,19 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const outcomes = ['${{ steps.validate.outcome }}', '${{ steps.lint.outcome }}', '${{ steps.build.outcome }}'];
-            const ok = outcomes.every(o => o === 'success');
+            // Two-Tier status (.outcome = real result, not continue-on-error-masked
+            // .conclusion). Status is determined by BLOCKERS only; lint is report-only.
+            const blockers = { validate: '${{ steps.validate.outcome }}', build: '${{ steps.build.outcome }}' };
+            const failed = Object.entries(blockers).filter(([, o]) => o !== 'success').map(([k]) => k);
+            const ok = failed.length === 0;
+            const description = ok
+              ? 'blockers passed (validate, build); lint report-only (non-blocking)'
+              : `blocking checks failed: ${failed.join(', ')} (lint report-only; non-blocking)`;
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
               sha: context.payload.pull_request.head.sha,
               state: ok ? 'success' : 'failure',
               context: 'release/verify',
-              description: ok ? 'read-only checks passed (non-blocking)' : 'read-only checks reported issues (non-blocking)',
+              description,
             });
