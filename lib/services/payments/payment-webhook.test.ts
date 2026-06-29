@@ -2,9 +2,14 @@
  * Run: npx tsx lib/services/payments/payment-webhook.test.ts
  *
  * No DB, no real provider. Uses the in-memory store + stub provider.
- * Covers: PAID transition, duplicate-by-eventId idempotency, duplicate-by
- * transactionId idempotency, unmatched event, and bad signature — none of
- * which may throw.
+ * Covers: verified PAID transition, duplicate-by-eventId idempotency,
+ * duplicate-by transactionId idempotency, unmatched event, bad signature, and
+ * signal-only (no-verification) provider — none of which may throw.
+ *
+ * Authority Principle (Stage 0): the webhook is only a signal. A settlement
+ * (PAID/transaction) happens ONLY through a verification-capable provider. The
+ * stub is made verification-capable via `verifiedStatus`; without it the stub
+ * is signal-only and can never settle to PAID.
  */
 import assert from "node:assert/strict";
 import {
@@ -13,15 +18,27 @@ import {
 } from "./payment-webhook.service";
 import { createInMemoryPaymentStore } from "./payment-store.memory";
 import { createStubProvider } from "./providers/stub/stub.provider";
+import type { ProviderPaymentStatus } from "./providers/payment-provider.types";
 
-function setup(secret?: string) {
+/** Verification result that confirms a PAID, transaction id taken from the body. */
+const VERIFIED_PAID: ProviderPaymentStatus = {
+  outcome: "PAID",
+  providerTransactionId: null,
+};
+
+function setup(
+  opts: { secret?: string; verifiedStatus?: ProviderPaymentStatus } = {}
+) {
   const store = createInMemoryPaymentStore();
   store.seedConnection({ businessId: 1, provider: "TRANZILA", isActive: true });
-  const provider = createStubProvider(secret ? { requiredSecret: secret } : {});
+  const provider = createStubProvider({
+    requiredSecret: opts.secret,
+    verifiedStatus: opts.verifiedStatus,
+  });
   const deps: ProcessWebhookDeps = {
     store,
     resolveProvider: () => provider,
-    resolveWebhookSecret: secret ? () => secret : undefined,
+    resolveWebhookSecret: opts.secret ? () => opts.secret ?? null : undefined,
   };
   return { store, deps };
 }
@@ -58,15 +75,16 @@ function paidBody(overrides: Record<string, unknown> = {}): string {
 }
 
 async function main() {
-// --- 1. PAID webhook => request PAID + transaction created ---
+// --- 1. verified PAID => request PAID + transaction created ---
 {
-  const { store, deps } = setup();
+  const { store, deps } = setup({ verifiedStatus: VERIFIED_PAID });
   await seedPendingRequest(store);
   const res = await processPaymentWebhook(
     { provider: "TRANZILA", rawBody: paidBody() },
     deps
   );
   assert.equal(res.ok, true);
+  assert.equal(res.verified, true);
   assert.equal(res.processingStatus, "PROCESSED");
   assert.equal(res.paymentRequestStatus, "PAID");
   assert.equal(store.transactions.length, 1);
@@ -76,7 +94,7 @@ async function main() {
 
 // --- 2. duplicate by same providerEventId => idempotent ---
 {
-  const { store, deps } = setup();
+  const { store, deps } = setup({ verifiedStatus: VERIFIED_PAID });
   await seedPendingRequest(store);
   await processPaymentWebhook({ provider: "TRANZILA", rawBody: paidBody() }, deps);
   const dup = await processPaymentWebhook(
@@ -92,7 +110,7 @@ async function main() {
 
 // --- 3. duplicate by same providerTransactionId, different eventId ---
 {
-  const { store, deps } = setup();
+  const { store, deps } = setup({ verifiedStatus: VERIFIED_PAID });
   await seedPendingRequest(store);
   await processPaymentWebhook({ provider: "TRANZILA", rawBody: paidBody() }, deps);
   const dup = await processPaymentWebhook(
@@ -107,7 +125,7 @@ async function main() {
 
 // --- 4. unrecognized event (no matching request) => UNMATCHED, no throw ---
 {
-  const { store, deps } = setup();
+  const { store, deps } = setup({ verifiedStatus: VERIFIED_PAID });
   const res = await processPaymentWebhook(
     {
       provider: "TRANZILA",
@@ -122,7 +140,7 @@ async function main() {
 
 // --- 5. garbage body => stored, UNMATCHED, no throw ---
 {
-  const { store, deps } = setup();
+  const { store, deps } = setup({ verifiedStatus: VERIFIED_PAID });
   const res = await processPaymentWebhook(
     { provider: "TRANZILA", rawBody: "not json at all" },
     deps
@@ -134,7 +152,7 @@ async function main() {
 
 // --- 6. bad signature => FAILED, no throw, no transaction ---
 {
-  const { store, deps } = setup("the-secret");
+  const { store, deps } = setup({ secret: "the-secret", verifiedStatus: VERIFIED_PAID });
   await seedPendingRequest(store);
   const res = await processPaymentWebhook(
     {
@@ -150,9 +168,11 @@ async function main() {
   assert.equal(store.requests[0]?.status, "PENDING"); // untouched
 }
 
-// --- 7. FAILED outcome => request FAILED ---
+// --- 7. verified FAILED outcome => request FAILED ---
 {
-  const { store, deps } = setup();
+  const { store, deps } = setup({
+    verifiedStatus: { outcome: "FAILED", providerTransactionId: null },
+  });
   await seedPendingRequest(store);
   const res = await processPaymentWebhook(
     {
@@ -162,8 +182,26 @@ async function main() {
     deps
   );
   assert.equal(res.ok, true);
+  assert.equal(res.verified, true);
   assert.equal(res.paymentRequestStatus, "FAILED");
   assert.equal(store.requests[0]?.status, "FAILED");
+}
+
+// --- 8. Stage 0 / AC8: a SIGNAL-ONLY provider (no verification) with a valid,
+//        matching PAID webhook NEVER settles. Webhook alone is insufficient. ---
+{
+  const { store, deps } = setup(); // stub WITHOUT verifiedStatus => signal only
+  await seedPendingRequest(store);
+  const res = await processPaymentWebhook(
+    { provider: "TRANZILA", rawBody: paidBody() },
+    deps
+  );
+  assert.equal(res.ok, true);
+  assert.equal(res.verified, false);
+  assert.equal(res.reason, "signal_only_no_verification");
+  assert.equal(res.paymentRequestStatus, "PENDING");
+  assert.equal(store.requests[0]?.status, "PENDING");
+  assert.equal(store.transactions.length, 0);
 }
 
   console.log("payment-webhook tests: OK");

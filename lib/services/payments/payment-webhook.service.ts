@@ -196,63 +196,66 @@ export async function processPaymentWebhook(
     return fail("UNMATCHED", "no_matching_payment_request");
   }
 
-  // 5. AUTHORITY. The webhook is only a signal. The provider's verification is
-  // the authority that determines the real outcome. A request may move to PAID
-  // (and a PaymentTransaction may be recorded) only from a verified outcome.
+  // 5. AUTHORITY. The webhook is only a signal. A PaymentRequest may move to
+  // PAID (and a PaymentTransaction may be recorded) ONLY from an outcome the
+  // provider's own verification establishes. There is no unverified settlement
+  // path — this enforces the Authority Principle uniformly across providers
+  // (see docs/payments-authority-principle-v1.md):
   //
-  // Capability-gated, provider-agnostic:
   //   - Verification-capable provider (adapter.getPaymentStatus present) =>
-  //     verification IS authority; the webhook's claimed outcome is ignored.
-  //   - Provider with no verification path yet (e.g. TRANZILA) => documented
-  //     backward-compatible legacy path: the webhook signal drives the outcome,
-  //     exactly as before. This is an explicit exception pending the provider
-  //     gaining a verification path (see docs/payments-authority-principle-v1.md).
-  let authoritativeOutcome: ParsedPaymentOutcome;
-  let authoritativeTransactionId: string | null;
-  let verified: boolean;
-
-  if (typeof adapter.getPaymentStatus === "function") {
-    const connection = await deps.store.findActiveConnection(
-      request.businessId,
-      input.provider
-    );
-    if (!connection) {
-      // Cannot establish authority without a connection => never PAID.
-      return fail(
-        "FAILED",
-        "verification_unavailable_no_active_connection",
-        request.id,
-        request.status
-      );
-    }
-    const credential = deps.decryptConnectionCredential?.(connection) ?? null;
-
-    let status: ProviderPaymentStatus;
-    try {
-      status = await adapter.getPaymentStatus({
-        providerRequestId: parsed.providerRequestId,
-        merchantId: connection.merchantId,
-        credential,
-      });
-    } catch {
-      // Fail safe: a failed/erroring verification can never produce PAID.
-      return fail(
-        "FAILED",
-        "verification_error",
-        request.id,
-        request.status
-      );
-    }
-
-    authoritativeOutcome = status.outcome;
-    authoritativeTransactionId =
-      status.providerTransactionId ?? parsed.providerTransactionId;
-    verified = true;
-  } else {
-    authoritativeOutcome = parsed.outcome;
-    authoritativeTransactionId = parsed.providerTransactionId;
-    verified = false;
+  //     verification IS the authority; the webhook's claimed outcome is ignored.
+  //   - Provider with no verification path yet (e.g. TRANZILA today) => the
+  //     webhook is recorded as a signal only and nothing settles. The request
+  //     stays PENDING until the provider gains a real verification path. A
+  //     webhook alone can NEVER produce PAID.
+  if (typeof adapter.getPaymentStatus !== "function") {
+    await deps.store.updateWebhookEvent(event.id, {
+      processingStatus: "PROCESSED",
+      processedAt: now(),
+    });
+    return {
+      ok: true,
+      eventId: event.id,
+      processingStatus: "PROCESSED",
+      duplicate: false,
+      paymentRequestId: request.id,
+      paymentRequestStatus: request.status,
+      reason: "signal_only_no_verification",
+      verified: false,
+    };
   }
+
+  const connection = await deps.store.findActiveConnection(
+    request.businessId,
+    input.provider
+  );
+  if (!connection) {
+    // Cannot establish authority without a connection => never PAID.
+    return fail(
+      "FAILED",
+      "verification_unavailable_no_active_connection",
+      request.id,
+      request.status
+    );
+  }
+  const credential = deps.decryptConnectionCredential?.(connection) ?? null;
+
+  let status: ProviderPaymentStatus;
+  try {
+    status = await adapter.getPaymentStatus({
+      providerRequestId: parsed.providerRequestId,
+      merchantId: connection.merchantId,
+      credential,
+    });
+  } catch {
+    // Fail safe: a failed/erroring verification can never produce PAID.
+    return fail("FAILED", "verification_error", request.id, request.status);
+  }
+
+  const authoritativeOutcome = status.outcome;
+  const authoritativeTransactionId =
+    status.providerTransactionId ?? parsed.providerTransactionId;
+  const verified = true;
 
   // 6/7/8. Only a terminal authoritative outcome (PAID/FAILED/CANCELLED) may
   // create a transaction or move the request. Non-terminal outcomes

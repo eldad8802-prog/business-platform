@@ -15,6 +15,7 @@ import type {
   ParsedWebhookEvent,
   ParseWebhookInput,
   PaymentProviderAdapter,
+  ProviderPaymentStatus,
   VerifyWebhookInput,
   VerifyWebhookResult,
 } from "../payment-provider.types";
@@ -26,6 +27,13 @@ const STUB_PROVIDER: PaymentProvider = "TRANZILA";
 export interface StubProviderOptions {
   /** When set, verifyWebhook requires this exact secret. */
   requiredSecret?: string;
+  /**
+   * When set, the stub is verification-capable: getPaymentStatus returns this
+   * authoritative outcome, mirroring a provider whose own verification API is
+   * the source of truth. When omitted, the stub has NO getPaymentStatus and is
+   * signal-only — a webhook can never settle it to PAID (Authority Principle).
+   */
+  verifiedStatus?: ProviderPaymentStatus;
 }
 
 const KNOWN_OUTCOMES: ReadonlySet<string> = new Set([
@@ -45,7 +53,7 @@ function coerceOutcome(value: unknown): ParsedPaymentOutcome {
 export function createStubProvider(
   options: StubProviderOptions = {}
 ): PaymentProviderAdapter {
-  return {
+  const adapter: PaymentProviderAdapter = {
     provider: STUB_PROVIDER,
 
     async createPaymentLink(
@@ -99,4 +107,15 @@ export function createStubProvider(
       };
     },
   };
+
+  // When a verified status is configured the stub becomes verification-capable,
+  // mirroring a provider whose own verification API is the source of truth.
+  // Without it the stub has no getPaymentStatus and is signal-only: a webhook
+  // can never settle it to PAID (Authority Principle).
+  if (options.verifiedStatus) {
+    const verifiedStatus = options.verifiedStatus;
+    adapter.getPaymentStatus = async () => verifiedStatus;
+  }
+
+  return adapter;
 }
