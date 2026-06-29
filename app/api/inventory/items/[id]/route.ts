@@ -179,6 +179,8 @@ export async function PATCH(request: NextRequest) {
       barcode?: string | null;
       imageUrl?: string | null;
       isActive?: boolean;
+      supplierName?: string | null;
+      categoryId?: number | null;
     } = {};
 
     if (body.name !== undefined) {
@@ -248,6 +250,38 @@ export async function PATCH(request: NextRequest) {
       }
 
       data.isActive = body.isActive;
+    }
+
+    if (body.supplierName !== undefined) {
+      data.supplierName =
+        typeof body.supplierName === "string" && body.supplierName.trim()
+          ? body.supplierName.trim()
+          : null;
+    }
+
+    if (body.categoryId !== undefined) {
+      if (body.categoryId === null) {
+        data.categoryId = null;
+      } else {
+        const parsedCategoryId = Number(body.categoryId);
+
+        if (Number.isNaN(parsedCategoryId)) {
+          throw new InventoryValidationError("Invalid categoryId");
+        }
+
+        const category = await prisma.inventoryCategory.findFirst({
+          where: {
+            id: parsedCategoryId,
+            businessId: user.businessId,
+          },
+        });
+
+        if (!category) {
+          throw new InventoryValidationError("Category not found");
+        }
+
+        data.categoryId = parsedCategoryId;
+      }
     }
 
     const updatedItem = await prisma.inventoryItem.update({
