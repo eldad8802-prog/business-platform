@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     }
 
     const ip = getClientIp(request);
-    const ipLimit = consumeRateLimit({
+    const ipLimit = await consumeRateLimit({
       key: `inventory:pos:sale:ip:${ip}`,
       limit: 120,
       windowMs: 60_000,
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const businessLimit = consumeRateLimit({
+    const businessLimit = await consumeRateLimit({
       key: `inventory:pos:sale:business:${businessId}`,
       limit: 600,
       windowMs: 60_000,

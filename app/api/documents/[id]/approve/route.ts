@@ -10,14 +10,14 @@ export async function POST(
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return Response.json({ error: "לא מחובר" }, { status: 401 });
     }
 
     const params = await context.params;
     const documentId = Number(params.id);
 
     if (isNaN(documentId)) {
-      return Response.json({ error: "Invalid ID" }, { status: 400 });
+      return Response.json({ error: "מזהה מסמך לא תקין" }, { status: 400 });
     }
 
     const document = await prisma.document.findUnique({
@@ -26,11 +26,11 @@ export async function POST(
     });
 
     if (!document) {
-      return Response.json({ error: "Document not found" }, { status: 404 });
+      return Response.json({ error: "המסמך לא נמצא" }, { status: 404 });
     }
 
     if (document.businessId !== user.businessId) {
-      return Response.json({ error: "Forbidden" }, { status: 403 });
+      return Response.json({ error: "אין הרשאה" }, { status: 403 });
     }
 
     const wasAlreadyApproved = document.status === "approved";
@@ -49,7 +49,7 @@ export async function POST(
         };
 
     if (!body) {
-      return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+      return Response.json({ error: "בקשה לא תקינה" }, { status: 400 });
     }
 
     const merged = {
@@ -138,19 +138,19 @@ export async function POST(
 
       if (!Number.isFinite(amount) || amount <= 0) {
         return Response.json(
-          { error: "Missing/invalid amount for financial approval" },
+          { error: "חסר סכום תקין לאישור כספי" },
           { status: 400 }
         );
       }
       if (!vendorName) {
         return Response.json(
-          { error: "Missing vendorName for financial approval" },
+          { error: "חסר שם ספק לאישור כספי" },
           { status: 400 }
         );
       }
       if (!direction) {
         return Response.json(
-          { error: "Missing direction (income/expense) for financial approval" },
+          { error: "חסר כיוון (הכנסה/הוצאה) לאישור כספי" },
           { status: 400 }
         );
       }
@@ -251,7 +251,7 @@ export async function POST(
     console.error("APPROVE ERROR FULL:", error);
 
     return Response.json(
-      { error: String(error) },
+      { error: "שגיאה באישור המסמך. נסה שוב מאוחר יותר." },
       { status: 500 }
     );
   }

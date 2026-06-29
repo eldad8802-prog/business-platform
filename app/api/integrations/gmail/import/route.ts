@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getGmailAccessTokenForBusiness } from "@/lib/services/integrations/gmail/gmail-auth.service";
+import { GmailReauthRequiredError } from "@/lib/services/integrations/gmail/gmail-errors";
 import { fetchGmailAttachmentBytes } from "@/lib/services/integrations/gmail/gmail-attachment-fetch.service";
 import { checkEmailImportDedup } from "@/lib/services/integrations/gmail/email-import-dedup.service";
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
     }
     businessId = user.businessId;
 
@@ -84,13 +85,16 @@ export async function POST(req: NextRequest) {
     }
 
     if (!body.mimeType || !isAllowedMime(body.mimeType)) {
-      return NextResponse.json({ error: "Unsupported mimeType" }, { status: 400 });
+      return NextResponse.json(
+        { error: "סוג קובץ לא נתמך (נדרש PDF או תמונה)" },
+        { status: 400 }
+      );
     }
 
     if (body.sizeBytes != null && body.sizeBytes > MAX_ATTACHMENT_BYTES) {
       return NextResponse.json(
         {
-          error: "Attachment too large",
+          error: "הקובץ גדול מדי (עד 15MB)",
           limitBytes: MAX_ATTACHMENT_BYTES,
           sizeBytes: body.sizeBytes,
         },
@@ -128,7 +132,7 @@ export async function POST(req: NextRequest) {
     if (effectiveSize > MAX_ATTACHMENT_BYTES) {
       return NextResponse.json(
         {
-          error: "Attachment too large",
+          error: "הקובץ גדול מדי (עד 15MB)",
           limitBytes: MAX_ATTACHMENT_BYTES,
           sizeBytes: effectiveSize,
         },
@@ -137,7 +141,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (bytes.length === 0) {
-      return NextResponse.json({ error: "Empty attachment" }, { status: 400 });
+      return NextResponse.json({ error: "הקובץ המצורף ריק" }, { status: 400 });
     }
 
     const contentHashSha256 = sha256Hex(bytes);
@@ -272,8 +276,21 @@ export async function POST(req: NextRequest) {
         // ignore cleanup errors
       }
     }
+    if (error instanceof GmailReauthRequiredError) {
+      console.warn("GMAIL_IMPORT_REAUTH_REQUIRED:", error.reason);
+      return NextResponse.json(
+        {
+          error: "החיבור ל-Gmail פג. יש לחבר מחדש כדי להמשיך.",
+          needsReconnect: true,
+        },
+        { status: 409 }
+      );
+    }
     console.error("GMAIL_IMPORT_ERROR:", error);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "שגיאה בייבוא המסמך. נסה שוב מאוחר יותר." },
+      { status: 500 }
+    );
   } finally {
     if (cleanup) {
       try {

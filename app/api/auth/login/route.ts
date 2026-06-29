@@ -31,7 +31,7 @@ async function recordLoginFailure(input: {
 export async function POST(req: Request) {
   try {
     const ip = getClientIp(req);
-    const rl = consumeRateLimit({
+    const rl = await consumeRateLimit({
       key: `auth:login:${ip}`,
       limit: 10,
       windowMs: 60_000,

@@ -1,3 +1,5 @@
+import { GmailReauthRequiredError } from "./gmail-errors";
+
 export type GoogleRefreshTokenResponse = {
   access_token: string;
   expires_in: number;
@@ -24,6 +26,15 @@ export async function refreshGoogleAccessToken(input: {
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    // Google returns 400 (invalid_grant) when the refresh token is revoked or
+    // expired — unrecoverable without the user reconnecting. 5xx and other
+    // failures are treated as transient (generic error -> 500 upstream).
+    if (res.status === 400) {
+      throw new GmailReauthRequiredError(
+        "refresh_rejected",
+        `Google refresh rejected (400): ${text || res.statusText}`
+      );
+    }
     throw new Error(
       `Google refresh failed (${res.status}): ${text || res.statusText}`
     );

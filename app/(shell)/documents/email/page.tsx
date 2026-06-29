@@ -107,13 +107,13 @@ export default function EmailDocumentsPage() {
         },
       });
       const data = (await response.json().catch(() => ({}))) as {
-        authorizeUrl?: string;
+        url?: string;
         error?: string;
       };
-      if (!response.ok || !data.authorizeUrl) {
+      if (!response.ok || !data.url) {
         throw new Error(data.error || "לא הצלחנו לפתוח את החיבור ל-Gmail");
       }
-      window.location.href = data.authorizeUrl;
+      window.location.href = data.url;
     } catch (err) {
       setError(errorMessage(err, "שגיאה בחיבור Gmail"));
     }
@@ -129,7 +129,16 @@ export default function EmailDocumentsPage() {
         { headers: { authorization: header } }
       );
       const data = await response.json();
-      if (!response.ok) throw new Error(data?.error || "Scan failed");
+      if (response.status === 409 || data?.needsReconnect) {
+        // Token is no longer usable (key rotated / refresh revoked). Reflect the
+        // real connection health so the user sees the reconnect CTA instead of a
+        // stale "Connected" + cryptic error.
+        setConnected(false);
+        setAttachments([]);
+        setError("החיבור ל-Gmail פג. חבר מחדש כדי להמשיך.");
+        return;
+      }
+      if (!response.ok) throw new Error(data?.error || "שגיאה בסריקת מיילים");
       const list: GmailDiscoveryAttachment[] = Array.isArray(data.attachments)
         ? data.attachments
         : [];
@@ -169,6 +178,12 @@ export default function EmailDocumentsPage() {
         }),
       });
       const data = await response.json().catch(() => ({}));
+      if (response.status === 409 || data?.needsReconnect) {
+        setConnected(false);
+        setError("החיבור ל-Gmail פג. חבר מחדש כדי להמשיך.");
+        setStatusByKey((current) => ({ ...current, [attachment.key]: "failed" }));
+        return false;
+      }
       const status =
         !response.ok
           ? "failed"
