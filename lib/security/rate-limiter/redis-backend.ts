@@ -15,8 +15,18 @@ import { Redis } from "@upstash/redis";
 import { RateLimiterBackendError, RateLimiterConfigError } from "./errors";
 import type { RateLimitBackend, RuleResult } from "./types";
 
-/** Max time we wait for a single Redis decision before applying fail mode. */
-export const REDIS_TIMEOUT_MS = 200;
+/**
+ * Max time we wait for a single Redis decision before applying fail mode.
+ * 200ms proved too tight for cross-region Upstash REST round-trips (every call
+ * tripped the timeout -> backend_unavailable -> fail-closed 503 on uploads).
+ * 1000ms tolerates cross-region latency while still failing fast; on a healthy
+ * same-region Upstash the call returns in a few ms, so this adds no real latency.
+ * Override via RATE_LIMIT_REDIS_TIMEOUT_MS.
+ */
+export const REDIS_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.RATE_LIMIT_REDIS_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 1000;
+})();
 
 let redis: Redis | null = null;
 
