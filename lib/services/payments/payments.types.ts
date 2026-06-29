@@ -103,6 +103,7 @@ export interface PaymentTransactionRecord {
   currency: string;
   status: PaymentTransactionStatus;
   rawPayload: unknown;
+  createdAt: Date;
 }
 
 export interface PaymentWebhookEventRecord {
@@ -266,6 +267,11 @@ export interface PaymentStore {
     provider: PaymentProvider,
     providerTransactionId: string
   ): Promise<PaymentTransactionRecord | null>;
+
+  /** All settlement records for one request, oldest-first (ledger read). */
+  listTransactionsByRequest(
+    paymentRequestId: number
+  ): Promise<PaymentTransactionRecord[]>;
 
   /**
    * Insert a webhook event, deduplicating on (provider, providerEventId).

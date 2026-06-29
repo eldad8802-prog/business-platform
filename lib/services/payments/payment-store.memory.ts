@@ -198,6 +198,7 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
         currency: row.currency,
         status: row.status,
         rawPayload: row.rawPayload,
+        createdAt: new Date(),
       };
       transactions.push(record);
       return { ...record };
@@ -212,6 +213,12 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
             t.providerTransactionId === providerTransactionId
         );
       return record ? { ...record } : null;
+    },
+
+    async listTransactionsByRequest(paymentRequestId: number) {
+      return transactions
+        .filter((t) => t.paymentRequestId === paymentRequestId)
+        .map((t) => ({ ...t }));
     },
 
     async insertWebhookEventIfNew(row: InsertWebhookEventRow) {

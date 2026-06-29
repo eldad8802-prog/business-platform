@@ -68,6 +68,7 @@ type TransactionRow = {
   currency: string;
   status: string;
   rawPayload: Prisma.JsonValue | null;
+  createdAt: Date;
 };
 
 type WebhookRow = {
@@ -126,6 +127,7 @@ function toTransactionRecord(row: TransactionRow): PaymentTransactionRecord {
     currency: row.currency,
     status: row.status as PaymentTransactionRecord["status"],
     rawPayload: row.rawPayload,
+    createdAt: row.createdAt,
   };
 }
 
@@ -316,6 +318,14 @@ export function createPaymentPrismaStore(): PaymentStore {
         orderBy: { id: "desc" },
       });
       return row ? toTransactionRecord(row) : null;
+    },
+
+    async listTransactionsByRequest(paymentRequestId: number) {
+      const rows = await prisma.paymentTransaction.findMany({
+        where: { paymentRequestId },
+        orderBy: { id: "asc" },
+      });
+      return rows.map(toTransactionRecord);
     },
 
     async insertWebhookEventIfNew(row: InsertWebhookEventRow) {
