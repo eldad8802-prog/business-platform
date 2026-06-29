@@ -4,11 +4,51 @@ import path from "path";
 
 const CREDENTIALS_ENV = "GOOGLE_VISION_CREDENTIALS_JSON";
 
+/**
+ * Hard ceiling on a single Vision call. Without it, a large/slow PDF can hang
+ * the request until the platform function timeout (→ 500 with nothing saved).
+ * A timeout here surfaces as a normal OCR error, so callers persist the file as
+ * a needs_review document instead of losing it. Override via OCR_TIMEOUT_MS.
+ */
+const OCR_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.OCR_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 60_000;
+})();
+
 export class GoogleVisionConfigError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "GoogleVisionConfigError";
   }
+}
+
+export class GoogleVisionTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GoogleVisionTimeoutError";
+  }
+}
+
+function withOcrTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new GoogleVisionTimeoutError(
+          `Google Vision ${label} timed out after ${OCR_TIMEOUT_MS}ms`
+        )
+      );
+    }, OCR_TIMEOUT_MS);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
 }
 
 function legacyCredentialsPath(): string {
@@ -89,17 +129,20 @@ export async function runGoogleVisionOCR(
 
       const pdfBytes = fs.readFileSync(filePath);
 
-      const [batchResult] = await client.batchAnnotateFiles({
-        requests: [
-          {
-            inputConfig: {
-              mimeType: "application/pdf",
-              content: pdfBytes,
+      const [batchResult] = await withOcrTimeout(
+        client.batchAnnotateFiles({
+          requests: [
+            {
+              inputConfig: {
+                mimeType: "application/pdf",
+                content: pdfBytes,
+              },
+              features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
             },
-            features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
-          },
-        ],
-      });
+          ],
+        }),
+        "batchAnnotateFiles"
+      );
 
       const pages = batchResult.responses?.[0]?.responses ?? [];
       const text = pages
@@ -118,7 +161,10 @@ export async function runGoogleVisionOCR(
 
     console.log("GOOGLE VISION OCR: image detected");
 
-    const [result] = await client.textDetection(filePath);
+    const [result] = await withOcrTimeout(
+      client.textDetection(filePath),
+      "textDetection"
+    );
 
     const text = result.fullTextAnnotation?.text || "";
 
@@ -277,14 +323,17 @@ export async function runGoogleVisionOCRWithGeometry(
   if (isPdf) {
     const pdfBytes = fs.readFileSync(filePath);
 
-    const [batchResult] = await client.batchAnnotateFiles({
-      requests: [
-        {
-          inputConfig: { mimeType: "application/pdf", content: pdfBytes },
-          features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
-        },
-      ],
-    });
+    const [batchResult] = await withOcrTimeout(
+      client.batchAnnotateFiles({
+        requests: [
+          {
+            inputConfig: { mimeType: "application/pdf", content: pdfBytes },
+            features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
+          },
+        ],
+      }),
+      "batchAnnotateFiles"
+    );
 
     const pageResponses = batchResult.responses?.[0]?.responses ?? [];
 
@@ -311,7 +360,10 @@ export async function runGoogleVisionOCRWithGeometry(
     };
   }
 
-  const [result] = await client.textDetection(filePath);
+  const [result] = await withOcrTimeout(
+    client.textDetection(filePath),
+    "textDetection"
+  );
 
   const text = (result.fullTextAnnotation?.text || "").trim();
   const tokens = extractTokensFromFullTextAnnotation(

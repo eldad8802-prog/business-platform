@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { decryptToken, encryptToken } from "./token-crypto.placeholder";
 import { refreshGoogleAccessToken } from "./oauth-refresh.service";
+import { GmailReauthRequiredError } from "./gmail-errors";
 
 export type GmailAttachmentMetadata = {
   messageId: string;
@@ -121,13 +122,23 @@ export async function discoverGmailAttachments(params: {
   });
 
   if (!connection || !connection.token) {
-    throw new Error("No connected Gmail integration found");
+    throw new GmailReauthRequiredError("no_connection");
   }
 
   const accessToken = decryptToken(connection.token.accessTokenEncrypted);
   const refreshToken = decryptToken(connection.token.refreshTokenEncrypted);
-  if (!accessToken) throw new Error("Missing/decrypt failed: access token");
-  if (!refreshToken) throw new Error("Missing/decrypt failed: refresh token");
+  if (!accessToken) {
+    throw new GmailReauthRequiredError(
+      "token_undecryptable",
+      "Missing/decrypt failed: access token"
+    );
+  }
+  if (!refreshToken) {
+    throw new GmailReauthRequiredError(
+      "token_undecryptable",
+      "Missing/decrypt failed: refresh token"
+    );
+  }
 
   const now = Date.now();
   const expiresMs = new Date(connection.token.expiresAt).getTime();

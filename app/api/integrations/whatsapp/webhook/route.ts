@@ -17,6 +17,7 @@ import {
   verifyWebhookSignature,
 } from "@/lib/services/integrations/whatsapp/webhook-verify.service";
 import { logEvent } from "@/lib/services/integrations/whatsapp/webhook-events";
+import { checkRateLimit } from "@/lib/security/rate-limiter";
 
 export const runtime = "nodejs";
 
@@ -116,6 +117,21 @@ export async function POST(req: NextRequest) {
       }
 
       if (decision.kind === "DOCUMENTS_INTAKE") {
+        // Per-business abuse/cost throttle. Fail-open (a Redis blip must not drop
+        // legitimate documents). On genuine over-limit we skip processing this
+        // message but still return 200 so Meta does not retry-storm.
+        const intakeGate = await checkRateLimit({
+          bucket: "WHATSAPP_INTAKE",
+          business: decision.businessId,
+        });
+        if (!intakeGate.allowed) {
+          console.warn("[whatsapp-webhook] intake throttled", {
+            businessId: decision.businessId,
+            retryAfterSeconds: intakeGate.retryAfterSeconds,
+          });
+          continue;
+        }
+
         const outcome = await processWhatsAppDocumentsIntake({
           businessId: decision.businessId,
           phoneNumberId: decision.phoneNumberId,

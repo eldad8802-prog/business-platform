@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/security/rate-limiter";
+import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
 import { STORED_DOCUMENT_FILENAME_REGEX } from "@/lib/services/documents/document-storage-paths";
 import {
   formatYearMonthJerusalem,
@@ -130,7 +132,27 @@ export async function GET(req: Request) {
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+    }
+
+    // Reads bucket — fail-OPEN: a transient Redis blip must not break viewing
+    // documents (the orchestrator logs the degradation). Only a genuine
+    // over-limit returns 429.
+    const apiDecision = await checkRateLimit({
+      bucket: "DOCUMENTS_API",
+      user: user.id,
+      business: user.businessId,
+    });
+    if (!apiDecision.allowed) {
+      console.warn("[rate-limit] throttled", {
+        feature: "documents.inbox",
+        bucket: apiDecision.bucket,
+        scope: apiDecision.scope,
+        userId: user.id,
+        businessId: user.businessId,
+        retryAfterSeconds: apiDecision.retryAfterSeconds,
+      });
+      return buildRateLimitResponse(apiDecision);
     }
 
     const url = new URL(req.url);
@@ -145,7 +167,7 @@ export async function GET(req: Request) {
         ? monthParam.trim()
         : getCurrentYearMonthJerusalem();
     } catch {
-      return NextResponse.json({ error: "Invalid month default" }, { status: 500 });
+      return NextResponse.json({ error: "שגיאה בטעינת התקופה" }, { status: 500 });
     }
 
     let from: Date;
@@ -154,7 +176,7 @@ export async function GET(req: Request) {
       ({ from, toExclusive } = jerusalemMonthUtcHalfOpen(resolvedMonth));
     } catch {
       return NextResponse.json(
-        { error: "Invalid month (use YYYY-MM)" },
+        { error: "חודש לא תקין (פורמט YYYY-MM)" },
         { status: 400 }
       );
     }
@@ -277,7 +299,7 @@ export async function GET(req: Request) {
 
     const cursor = cursorRaw?.trim() ? decodeCursor(cursorRaw.trim()) : null;
     if (cursorRaw?.trim() && !cursor) {
-      return NextResponse.json({ error: "Invalid cursor" }, { status: 400 });
+      return NextResponse.json({ error: "סמן עמוד לא תקין" }, { status: 400 });
     }
 
     const [
@@ -480,6 +502,9 @@ export async function GET(req: Request) {
     });
   } catch (e) {
     console.error("DOCUMENTS_INBOX_ERROR:", e);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "שגיאה בטעינת המסמכים. נסה שוב מאוחר יותר." },
+      { status: 500 }
+    );
   }
 }

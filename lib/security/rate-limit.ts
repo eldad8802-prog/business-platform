@@ -1,26 +1,18 @@
 /**
- * In-memory rate limiter for early MVP / single-instance only.
+ * Backward-compatible rate-limit shim.
  *
- * Limitations:
- * - Not shared across instances/regions (will not work correctly behind a load balancer).
- * - Resets on process restart.
- * - Memory grows with unique keys (should be bounded/cleaned up if expanded).
+ * Historically this was an in-memory `Map` limiter (single-instance only). It is
+ * now a thin async wrapper over the shared, production-grade limiter in
+ * `./rate-limiter` (Upstash Redis in production, in-memory in dev). The public
+ * surface is unchanged except that `consumeRateLimit` is now async — existing
+ * callers only need to `await` it. Per-route keys, limits and windows are
+ * preserved exactly.
  *
- * For production: use a shared store (Redis/Upstash/DB-backed) + observability.
+ * New code should prefer the bucket API in `./rate-limiter` (checkRateLimit)
+ * instead of raw keys.
  */
 
-type RateLimitParams = {
-  key: string;
-  limit: number;
-  windowMs: number;
-};
-
-type Bucket = {
-  count: number;
-  resetAt: number;
-};
-
-const buckets = new Map<string, Bucket>();
+import { consumeRawLimit } from "./rate-limiter";
 
 export function getClientIp(req: Request): string {
   const xff = req.headers.get("x-forwarded-for");
@@ -38,39 +30,14 @@ export function getClientIp(req: Request): string {
   return "unknown";
 }
 
-export function consumeRateLimit(params: RateLimitParams): {
-  allowed: boolean;
-  remaining: number;
-  resetAt: number;
-} {
-  const now = Date.now();
-  const existing = buckets.get(params.key);
-
-  if (!existing || existing.resetAt <= now) {
-    const resetAt = now + params.windowMs;
-    buckets.set(params.key, { count: 1, resetAt });
-    return {
-      allowed: true,
-      remaining: Math.max(0, params.limit - 1),
-      resetAt,
-    };
-  }
-
-  if (existing.count >= params.limit) {
-    return {
-      allowed: false,
-      remaining: 0,
-      resetAt: existing.resetAt,
-    };
-  }
-
-  existing.count += 1;
-  buckets.set(params.key, existing);
-
-  return {
-    allowed: true,
-    remaining: Math.max(0, params.limit - existing.count),
-    resetAt: existing.resetAt,
-  };
+export async function consumeRateLimit(params: {
+  key: string;
+  limit: number;
+  windowMs: number;
+}): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  return consumeRawLimit({
+    key: params.key,
+    limit: params.limit,
+    windowSeconds: Math.max(1, Math.ceil(params.windowMs / 1000)),
+  });
 }
-

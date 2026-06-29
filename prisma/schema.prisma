@@ -1065,6 +1065,9 @@ model Document {
   whatsappImport  WhatsAppAttachmentImport?
   extractedData   ExtractedData?
   financialRecord FinancialRecord?
+
+  @@index([businessId, createdAt])
+  @@index([businessId, status, createdAt])
 }
 
 model WhatsAppAttachmentImport {
@@ -1216,6 +1219,8 @@ model FinancialRecord {
   approvedAt DateTime @default(now())
   business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, date])
 }
 
 model VendorLearning {

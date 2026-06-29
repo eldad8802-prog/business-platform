@@ -148,7 +148,7 @@ export default function DocumentsSearchPage() {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="חיפוש לפי ספק או טקסט חופשי"
+            placeholder="חיפוש לפי שם ספק או קטגוריה"
             aria-label="חיפוש מסמכים"
             style={searchInputStyle}
           />

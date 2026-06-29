@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getAuthenticatedUser(request);
 
-    const userLimit = consumeRateLimit({
+    const userLimit = await consumeRateLimit({
       key: `inventory:supplier-purchases:import:csv:user:${user.id}`,
       limit: 5,
       windowMs: 60 * 60_000,
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const businessLimit = consumeRateLimit({
+    const businessLimit = await consumeRateLimit({
       key: `inventory:supplier-purchases:import:csv:business:${user.businessId}`,
       limit: 20,
       windowMs: 24 * 60 * 60_000,

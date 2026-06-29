@@ -9,7 +9,7 @@ export async function GET(
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
+      return Response.json({ error: "לא מחובר" }, { status: 401 });
     }
 
     const params = await context.params; // 🔥 חשוב
@@ -17,7 +17,7 @@ export async function GET(
 
     if (isNaN(id)) {
       return Response.json(
-        { error: "Invalid ID" },
+        { error: "מזהה מסמך לא תקין" },
         { status: 400 }
       );
     }
@@ -39,13 +39,13 @@ export async function GET(
 
     if (!document) {
       return Response.json(
-        { error: "Document not found" },
+        { error: "המסמך לא נמצא" },
         { status: 404 }
       );
     }
 
     if (document.businessId !== user.businessId) {
-      return Response.json({ error: "Forbidden" }, { status: 403 });
+      return Response.json({ error: "אין הרשאה" }, { status: 403 });
     }
 
     const debug =
@@ -92,7 +92,7 @@ export async function GET(
     console.error("GET DOCUMENT ERROR:", error);
 
     return Response.json(
-      { error: "Server error" },
+      { error: "שגיאה בטעינת המסמך. נסה שוב מאוחר יותר." },
       { status: 500 }
     );
   }

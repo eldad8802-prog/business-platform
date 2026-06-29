@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   fetchDocumentsHubSummary,
   type DocumentsHubSnapshot,
 } from "@/lib/documents/fetch-inbox";
 import { TOKEN } from "@/lib/design/tokens";
-import { glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
+import { glassActionStyle } from "@/lib/design/action-styles";
 
 type LoadState =
   | { status: "loading" }
@@ -53,7 +52,6 @@ export default function DocumentsHome() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
-  const [intakeSheet, setIntakeSheet] = useState<"upload" | "camera" | null>(null);
 
   async function load() {
     const token =
@@ -200,16 +198,23 @@ export default function DocumentsHome() {
               icon="📤"
               label="העלאת קובץ"
               onClick={() => {
+                if (uploading) return;
                 setUploadError("");
-                setIntakeSheet("upload");
+                // Open the file picker directly within the user gesture. A
+                // deferred (setTimeout) click is blocked by iOS Safari, which is
+                // what made the previous chooser-modal appear to "do nothing"
+                // and re-open. No intermediate modal — these tiles ARE the
+                // single canonical intake chooser.
+                uploadInputRef.current?.click();
               }}
             />
             <HubTile
               icon="📷"
               label="צילום מסמך"
               onClick={() => {
+                if (uploading) return;
                 setUploadError("");
-                setIntakeSheet("camera");
+                cameraInputRef.current?.click();
               }}
             />
             <HubTile
@@ -253,109 +258,6 @@ export default function DocumentsHome() {
           </>
         ) : null}
 
-        {intakeSheet && typeof document !== "undefined"
-          ? createPortal(
-              <div className="documents-intake-overlay" style={intakeOverlayStyle}>
-                <section role="dialog" aria-modal="true" style={intakeDialogStyle}>
-                  <div style={sheetGrabStyle} />
-                  <div style={intakeDialogHeaderStyle}>
-                    <div>
-                      <h2 style={intakeDialogTitleStyle}>
-                        {intakeSheet === "upload" ? "העלאת מסמך" : "צילום מסמך"}
-                      </h2>
-                      <p style={intakeDialogTextStyle}>
-                        {intakeSheet === "upload"
-                          ? "בחר קובץ מהמחשב - נריץ OCR ונעביר לאימות."
-                          : "צלם מסמך או בחר תמונה קיימת - נריץ OCR ונעביר לאימות."}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      aria-label="סגור"
-                      style={intakeDialogCloseStyle}
-                      onClick={() => setIntakeSheet(null)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <div style={sheetTileGridStyle}>
-                    <button
-                      type="button"
-                      style={sheetTileStyle}
-                      onClick={() => {
-                        setIntakeSheet(null);
-                        window.setTimeout(() => uploadInputRef.current?.click(), 0);
-                      }}
-                    >
-                      <span style={sheetTileIconStyle}>
-                        📤
-                      </span>
-                      <span>העלאת קובץ</span>
-                    </button>
-                    <button
-                      type="button"
-                      style={sheetTileStyle}
-                      onClick={() => {
-                        setIntakeSheet(null);
-                        window.setTimeout(() => cameraInputRef.current?.click(), 0);
-                      }}
-                    >
-                      <span style={sheetTileIconStyle}>
-                        📷
-                      </span>
-                      <span>צילום מסמך</span>
-                    </button>
-                    <button
-                      type="button"
-                      style={sheetTileStyle}
-                      onClick={() => router.push("/documents/email")}
-                    >
-                      <span style={sheetTileIconStyle}>
-                        📧
-                      </span>
-                      <span>מ-Gmail</span>
-                    </button>
-                    <button
-                      type="button"
-                      style={sheetTileStyle}
-                      onClick={() => router.push("/settings/whatsapp")}
-                    >
-                      <span style={sheetTileIconStyle}>
-                        💬
-                      </span>
-                      <span>מ-WhatsApp</span>
-                    </button>
-                  </div>
-                  <div style={sheetActionsStyle}>
-                    <button
-                      type="button"
-                      style={intakeSecondaryActionStyle}
-                      onClick={() => setIntakeSheet(null)}
-                    >
-                      ביטול
-                    </button>
-                    <button
-                      type="button"
-                      style={intakePrimaryActionStyle(uploading)}
-                      disabled={uploading}
-                      onClick={() => {
-                        const target = intakeSheet;
-                        setIntakeSheet(null);
-                        window.setTimeout(() => {
-                          if (target === "upload") uploadInputRef.current?.click();
-                          if (target === "camera") cameraInputRef.current?.click();
-                        }, 0);
-                      }}
-                    >
-                      {intakeSheet === "upload" ? "בחר קובץ" : "פתח מצלמה"}
-                    </button>
-                  </div>
-                  <p style={sheetHintStyle}>PDF או תמונה · עד 15MB</p>
-                </section>
-              </div>,
-              document.body
-            )
-          : null}
       </main>
     </div>
   );
@@ -660,135 +562,6 @@ const secondaryButtonStyle = {
   minHeight: 44,
   marginTop: 14,
   fontSize: TOKEN.font.body,
-};
-
-const intakeOverlayStyle = {
-  position: "fixed" as const,
-  inset: 0,
-  zIndex: 2147483000,
-  background: "rgba(15, 23, 42, 0.28)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 20,
-};
-
-const intakeDialogStyle = {
-  width: "min(440px, 100%)",
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.modal,
-  background: TOKEN.surface.overlay,
-  padding: TOKEN.space.xl,
-  boxShadow: TOKEN.shadow.floating,
-};
-
-const sheetGrabStyle = {
-  width: 42,
-  height: 4,
-  borderRadius: TOKEN.radius.pill,
-  background: TOKEN.border.hover,
-  margin: "0 auto 14px",
-};
-
-const intakeDialogHeaderStyle = {
-  display: "flex" as const,
-  alignItems: "flex-start" as const,
-  justifyContent: "space-between" as const,
-  gap: 12,
-};
-
-const intakeDialogTitleStyle = {
-  margin: 0,
-  color: TOKEN.ink.primary,
-  fontSize: TOKEN.font.display,
-  fontWeight: TOKEN.weight.bold,
-};
-
-const intakeDialogCloseStyle = {
-  width: 40,
-  height: 40,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.surface.card,
-  color: TOKEN.ink.muted,
-  fontSize: 24,
-  lineHeight: 1,
-  cursor: "pointer",
-  flexShrink: 0,
-};
-
-const intakeDialogTextStyle = {
-  margin: "6px 0 0",
-  color: TOKEN.ink.muted,
-  fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.semibold,
-  lineHeight: 1.6,
-};
-
-const sheetActionsStyle = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1.3fr",
-  gap: TOKEN.space.sm,
-  marginTop: TOKEN.space.xl,
-};
-
-const sheetTileGridStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: TOKEN.space.sm,
-  marginTop: TOKEN.space.lg,
-};
-
-const sheetTileStyle = {
-  minHeight: 82,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.card,
-  background: TOKEN.surface.inset,
-  color: TOKEN.ink.primary,
-  display: "flex",
-  flexDirection: "row" as const,
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: TOKEN.space.md,
-  fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
-  padding: "12px 14px",
-  textAlign: "right" as const,
-};
-
-const sheetTileIconStyle = {
-  width: 44,
-  height: 44,
-  borderRadius: TOKEN.radius.card,
-  background: TOKEN.surface.card,
-  boxShadow: TOKEN.shadow.elevated,
-  fontSize: 21,
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  flexShrink: 0,
-};
-
-const intakeSecondaryActionStyle = {
-  ...glassActionStyle({ height: 50 }),
-  minHeight: 50,
-  fontSize: TOKEN.font.body,
-};
-
-const intakePrimaryActionStyle = (disabled: boolean) =>
-  ({
-    ...primaryActionStyle({ disabled, height: 50 }),
-    minHeight: 50,
-    fontSize: TOKEN.font.body,
-  }) as const;
-
-const sheetHintStyle = {
-  margin: `${TOKEN.space.md}px 0 0`,
-  color: TOKEN.ink.muted,
-  fontSize: TOKEN.font.meta,
-  fontWeight: TOKEN.weight.semibold,
-  textAlign: "center" as const,
 };
 
 function ChevronLeftIcon() {

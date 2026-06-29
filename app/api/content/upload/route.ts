@@ -20,7 +20,7 @@ export async function POST(req: Request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userLimit = consumeRateLimit({
+    const userLimit = await consumeRateLimit({
       key: `content:upload:user:${user.id}`,
       limit: 30,
       windowMs: 60 * 60_000,
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const businessLimit = consumeRateLimit({
+    const businessLimit = await consumeRateLimit({
       key: `content:upload:business:${user.businessId}`,
       limit: 200,
       windowMs: 24 * 60 * 60_000,

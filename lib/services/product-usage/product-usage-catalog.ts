@@ -16,6 +16,7 @@ export const PRODUCT_USAGE_ACTIONS = {
   COMPLETED: "completed",
   FAILED: "failed",
   ABANDONED: "abandoned",
+  THROTTLED: "throttled",
 } as const;
 
 export type ProductUsageAction =
