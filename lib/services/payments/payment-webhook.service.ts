@@ -31,6 +31,7 @@ import type {
   PaymentProviderAdapter,
   ProviderPaymentStatus,
 } from "./providers/payment-provider.types";
+import { recordPaymentAuditEvent } from "./payment-audit.service";
 
 export interface ProcessWebhookInput {
   provider: PaymentProvider;
@@ -101,6 +102,26 @@ function outcomeToRequestStatus(
       return "CANCELLED";
     default:
       return null; // PENDING / UNKNOWN — do not move the request
+  }
+}
+
+/** The audit event for a verified terminal outcome (PROVIDER-sourced). */
+function verifiedOutcomeAuditType(
+  outcome: ParsedPaymentOutcome
+):
+  | "PAYMENT_VERIFIED_PAID"
+  | "PAYMENT_VERIFIED_FAILED"
+  | "PAYMENT_VERIFIED_CANCELLED"
+  | null {
+  switch (outcome) {
+    case "PAID":
+      return "PAYMENT_VERIFIED_PAID";
+    case "FAILED":
+      return "PAYMENT_VERIFIED_FAILED";
+    case "CANCELLED":
+      return "PAYMENT_VERIFIED_CANCELLED";
+    default:
+      return null;
   }
 }
 
@@ -213,6 +234,19 @@ export async function processPaymentWebhook(
       processingStatus: "PROCESSED",
       processedAt: now(),
     });
+    await recordPaymentAuditEvent(deps.store, {
+      businessId: request.businessId,
+      paymentRequestId: request.id,
+      eventType: "PAYMENT_SIGNAL_ONLY_NO_VERIFICATION",
+      source: "SYSTEM",
+      summary: `Webhook signal received for ${input.provider} request ${request.id}; provider has no verification path — not settled`,
+      metadata: {
+        provider: input.provider,
+        providerEventId: parsed.providerEventId,
+        claimedOutcome: parsed.outcome,
+      },
+      occurredAt: now(),
+    });
     return {
       ok: true,
       eventId: event.id,
@@ -231,6 +265,15 @@ export async function processPaymentWebhook(
   );
   if (!connection) {
     // Cannot establish authority without a connection => never PAID.
+    await recordPaymentAuditEvent(deps.store, {
+      businessId: request.businessId,
+      paymentRequestId: request.id,
+      eventType: "PAYMENT_VERIFICATION_UNAVAILABLE",
+      source: "SYSTEM",
+      summary: `Verification unavailable for ${input.provider} request ${request.id}: no active connection`,
+      metadata: { provider: input.provider },
+      occurredAt: now(),
+    });
     return fail(
       "FAILED",
       "verification_unavailable_no_active_connection",
@@ -249,6 +292,15 @@ export async function processPaymentWebhook(
     });
   } catch {
     // Fail safe: a failed/erroring verification can never produce PAID.
+    await recordPaymentAuditEvent(deps.store, {
+      businessId: request.businessId,
+      paymentRequestId: request.id,
+      eventType: "PAYMENT_VERIFICATION_ERROR",
+      source: "SYSTEM",
+      summary: `Verification call failed for ${input.provider} request ${request.id}`,
+      metadata: { provider: input.provider },
+      occurredAt: now(),
+    });
     return fail("FAILED", "verification_error", request.id, request.status);
   }
 
@@ -307,6 +359,24 @@ export async function processPaymentWebhook(
         paidAt: nextStatus === "PAID" ? now() : null,
       });
       finalStatus = updated.status;
+    }
+
+    // audit the verified, provider-established settlement outcome.
+    const verifiedType = verifiedOutcomeAuditType(authoritativeOutcome);
+    if (verifiedType) {
+      await recordPaymentAuditEvent(deps.store, {
+        businessId: request.businessId,
+        paymentRequestId: request.id,
+        eventType: verifiedType,
+        source: "PROVIDER",
+        summary: `Provider verification established ${authoritativeOutcome} for ${input.provider} request ${request.id}`,
+        metadata: {
+          provider: input.provider,
+          providerTransactionId: authoritativeTransactionId,
+          outcome: authoritativeOutcome,
+        },
+        occurredAt: now(),
+      });
     }
   }
 

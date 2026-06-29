@@ -17,6 +17,7 @@ import type {
   PaymentStore,
   PublicPaymentConnection,
 } from "./payments.types";
+import { recordPaymentAuditEvent } from "./payment-audit.service";
 
 export interface ConnectProviderInput {
   businessId: number;
@@ -25,6 +26,8 @@ export interface ConnectProviderInput {
   /** Plaintext provider credential. Encrypted before storage, never returned. */
   credential: string;
   isActive?: boolean;
+  /** Authenticated user who connected the provider (for the audit trail). */
+  actorUserId?: number | null;
 }
 
 export interface PaymentConnectionDeps {
@@ -89,6 +92,21 @@ export async function connectPaymentProvider(
     credentialTag: encrypted.credentialTag,
     encryptionKeyId: encrypted.encryptionKeyId,
     isActive: input.isActive ?? true,
+  });
+
+  // audit the connection change. NEVER record credential material — only the
+  // non-secret shape (provider, merchant id, active flag).
+  await recordPaymentAuditEvent(deps.store, {
+    businessId: input.businessId,
+    actorUserId: input.actorUserId ?? null,
+    eventType: "PAYMENT_CONNECTION_UPSERTED",
+    source: input.actorUserId != null ? "USER" : "SYSTEM",
+    summary: `Payment provider ${provider} connection ${saved.id} saved`,
+    metadata: {
+      provider,
+      merchantId,
+      isActive: saved.isActive,
+    },
   });
 
   return toPublicConnection(saved);

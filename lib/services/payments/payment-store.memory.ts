@@ -7,10 +7,13 @@
  */
 
 import type {
+  AppendPaymentAuditEventRow,
   CreatePaymentRequestRow,
   CreateTransactionRow,
   InsertWebhookEventRow,
+  ListPaymentAuditEventsOptions,
   ListPaymentRequestsOptions,
+  PaymentAuditEventRecord,
   PaymentConnectionRecord,
   PaymentProvider,
   PaymentRequestPatch,
@@ -31,6 +34,7 @@ export interface InMemoryPaymentStore extends PaymentStore {
   readonly requests: PaymentRequestRecord[];
   readonly transactions: PaymentTransactionRecord[];
   readonly webhookEvents: PaymentWebhookEventRecord[];
+  readonly auditEvents: PaymentAuditEventRecord[];
 }
 
 export function createInMemoryPaymentStore(): InMemoryPaymentStore {
@@ -38,16 +42,19 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
   const requests: PaymentRequestRecord[] = [];
   const transactions: PaymentTransactionRecord[] = [];
   const webhookEvents: PaymentWebhookEventRecord[] = [];
+  const auditEvents: PaymentAuditEventRecord[] = [];
 
   let connectionSeq = 0;
   let requestSeq = 0;
   let transactionSeq = 0;
   let webhookSeq = 0;
+  let auditSeq = 0;
 
   return {
     requests,
     transactions,
     webhookEvents,
+    auditEvents,
 
     seedConnection(connection) {
       const now = new Date();
@@ -240,6 +247,42 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
       if (patch.processedAt !== undefined) record.processedAt = patch.processedAt;
       if (patch.error !== undefined) record.error = patch.error;
       return { ...record };
+    },
+
+    async appendAuditEvent(row: AppendPaymentAuditEventRow) {
+      const now = new Date();
+      const record: PaymentAuditEventRecord = {
+        id: ++auditSeq,
+        businessId: row.businessId,
+        paymentRequestId: row.paymentRequestId,
+        actorUserId: row.actorUserId,
+        eventType: row.eventType,
+        source: row.source,
+        summary: row.summary,
+        metadata: row.metadata,
+        eventHash: row.eventHash,
+        occurredAt: row.occurredAt,
+        createdAt: now,
+      };
+      auditEvents.push(record);
+      return { ...record };
+    },
+
+    async listAuditEvents(
+      businessId: number,
+      options?: ListPaymentAuditEventsOptions
+    ) {
+      return auditEvents
+        .filter(
+          (e) =>
+            e.businessId === businessId &&
+            (options?.paymentRequestId != null
+              ? e.paymentRequestId === options.paymentRequestId
+              : true) &&
+            (options?.eventType ? e.eventType === options.eventType : true)
+        )
+        .slice(0, options?.limit ?? 100)
+        .map((e) => ({ ...e }));
     },
   };
 }
