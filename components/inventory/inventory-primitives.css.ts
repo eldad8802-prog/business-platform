@@ -384,7 +384,9 @@ export const inventoryPrimitivesCss = `
   [data-inventory-module] .inv-modal-scrim {
     position: fixed;
     inset: 0;
-    z-index: 70;
+    /* Above the global BottomBar (z-index 100) so the modal + its actions are
+       not covered or click-intercepted by the bottom navigation. */
+    z-index: 210;
     background: rgba(15, 23, 41, 0.45);
     display: flex;
     align-items: center;
@@ -559,6 +561,8 @@ export const inventoryPrimitivesCss = `
     box-shadow: 0 0 0 3px var(--inv-focus, rgba(63, 97, 156, 0.18));
   }
   [data-inventory-module] .inv-field__help { font-size: 12px; color: var(--inv-text-muted); font-weight: 500; margin-top: 6px; }
+  [data-inventory-module] .inv-field__err { font-size: 12.5px; color: var(--inv-danger, #dc2626); font-weight: 700; margin-top: 6px; line-height: 1.45; }
+  [data-inventory-module] .inv-input--err { border-color: var(--inv-danger, #dc2626) !important; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12) !important; }
   [data-inventory-module] .inv-two { display: flex; gap: 11px; }
   [data-inventory-module] .inv-two > .inv-field { flex: 1; }
 

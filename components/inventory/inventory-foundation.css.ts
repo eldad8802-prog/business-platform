@@ -294,7 +294,9 @@ export const inventoryFoundationCss = `
   [data-inventory-module] .inv-modal-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 70;
+    /* Above the global BottomBar (z-index 100) so the modal is not covered or
+       click-intercepted by the bottom navigation. */
+    z-index: 210;
     background: rgba(15, 23, 42, 0.42);
     display: flex;
     align-items: center;
