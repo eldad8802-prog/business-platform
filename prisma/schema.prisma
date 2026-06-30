@@ -212,6 +212,8 @@ model Business {
   partyResolutionClaims       PartyResolutionClaim[]
   paymentConnections          BusinessPaymentConnection[]
   paymentRequests             PaymentRequest[]
+  businessObligations         BusinessObligation[]
+  businessObligationOrientation BusinessObligationOrientation?
 
   @@index([archivedAt])
 }
@@ -991,6 +993,49 @@ model Task {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   business    Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+/// Business Obligation (Payment Secretary) — an OUTBOUND, forward-looking
+/// commitment-to-pay the business owner must meet. This is an OPERATIONAL
+/// PROJECTION owned by the coordinator, never a financial source of truth
+/// (see docs/dubiz-business-obligation-domain-v1.md and AGENTS.md
+/// payment-secretary-rules). state/source/recurrence are stored as strings and
+/// mapped to the domain unions in the store, mirroring the payments domain.
+model BusinessObligation {
+  id                   Int       @id @default(autoincrement())
+  businessId           Int
+  obligeeName          String
+  amount               Decimal   @db.Decimal(18, 2)
+  currency             String    @default("ILS")
+  dueAt                DateTime
+  state                String    @default("OPEN") // OPEN | MET | RELEASED
+  source               String    @default("MANUAL") // MANUAL (MVP)
+  recurrence           String    @default("NONE") // NONE | WEEKLY | MONTHLY | YEARLY
+  recurrenceSeriesId   String?
+  note                 String?
+  followUpAt           DateTime?
+  settlementAssertedBy String? // OWNER (MVP owner-asserted closure)
+  metAt                DateTime?
+  releasedAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  business             Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, state])
+  @@index([businessId, dueAt])
+  @@index([recurrenceSeriesId])
+}
+
+/// Per-business orientation for the Payment Secretary: has the owner affirmed
+/// the recurring backbone is reasonably captured? Governs whether the morning
+/// verdict may be a global "you're in control" (Blueprint §0.3). One row per
+/// business.
+model BusinessObligationOrientation {
+  businessId Int       @id
+  oriented   Boolean   @default(false)
+  orientedAt DateTime?
+  updatedAt  DateTime  @updatedAt
+  business   Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
 }
 
 /// Appointment business object (Step 1 — data layer only).

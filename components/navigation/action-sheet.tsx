@@ -18,8 +18,9 @@ const EASE_IN = "cubic-bezier(0.4, 0, 1, 1)";
 const QUICK_ACTIONS: {
   label: string;
   href: string;
-  icon: "upload" | "invoice" | "chat" | "content" | "inventory";
+  icon: "upload" | "invoice" | "chat" | "content" | "inventory" | "secretary";
 }[] = [
+  { label: "המזכירה", href: "/secretary", icon: "secretary" },
   { label: "העלאת מסמך", href: "/documents/upload", icon: "upload" },
   { label: "חשבונית חדשה", href: "/billing", icon: "invoice" },
   { label: "שיחה חדשה", href: "/inbox", icon: "chat" },
@@ -241,7 +242,8 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
                 boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
                 transition:
                   "transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease",
-                ...(index === QUICK_ACTIONS.length - 1
+                ...(index === QUICK_ACTIONS.length - 1 &&
+                QUICK_ACTIONS.length % 2 === 1
                   ? { gridColumn: "1 / -1" }
                   : {}),
               }}
@@ -314,11 +316,29 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
 function ActionGlyph({
   kind,
 }: {
-  kind: "upload" | "invoice" | "chat" | "content" | "inventory";
+  kind: "upload" | "invoice" | "chat" | "content" | "inventory" | "secretary";
 }) {
   const stroke = 1.85;
   const size = 22;
   switch (kind) {
+    case "secretary":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <path
+            d="M9 4h6a1 1 0 0 1 1 1v1h2a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h2V5a1 1 0 0 1 1-1z"
+            stroke="currentColor"
+            strokeWidth={stroke}
+            strokeLinejoin="round"
+          />
+          <path
+            d="M9 13l2 2 4-4"
+            stroke="currentColor"
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
     case "upload":
       return (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none">

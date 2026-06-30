@@ -9,6 +9,8 @@
     "start": "next start",
     "lint": "eslint",
     "verify:writing-package": "npx tsx lib/features/content/writing-package/verify-writing-package-runtime.ts",
+    "verify:obligations-state": "npx tsx lib/services/obligations/obligation-core.verify.test.ts",
+    "verify:obligations-service": "npx tsx lib/services/obligations/obligation-service.verify.test.ts",
     "verify:whatsapp-webhook-pr1": "npx tsx lib/services/integrations/whatsapp/webhook-pr1.verify.test.ts",
     "verify:whatsapp-webhook-pr2": "npx tsx lib/services/integrations/whatsapp/webhook-pr2.routing.test.ts",
     "verify:whatsapp-webhook-pr3": "npx tsx lib/services/integrations/whatsapp/webhook-pr3.media.test.ts",
