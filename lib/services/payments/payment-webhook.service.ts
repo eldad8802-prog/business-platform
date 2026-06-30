@@ -54,7 +54,24 @@ export interface ProcessWebhookDeps {
   decryptConnectionCredential?: (
     connection: PaymentConnectionRecord
   ) => string | null;
+  /**
+   * Best-effort downstream hook fired ONLY on a verified PAID settlement, AFTER
+   * the PaymentTransaction exists (so it carries the transaction id). Used to
+   * project the money-in fact into Financial Control (FinancialEvent PAYMENT).
+   * Its failure must never break the payment flow — the request is already PAID.
+   */
+  onVerifiedPaid?: (event: VerifiedPaidEvent) => Promise<void>;
   now?: () => Date;
+}
+
+export interface VerifiedPaidEvent {
+  businessId: number;
+  paymentRequestId: number;
+  /** The verified settlement record id — the money-in fact's stable key. */
+  transactionId: number;
+  amount: string;
+  currency: string;
+  occurredAt: Date;
 }
 
 export interface ProcessWebhookResult {
@@ -342,7 +359,7 @@ export async function processPaymentWebhook(
     }
 
     // record the verified transaction.
-    await deps.store.createTransaction({
+    const transaction = await deps.store.createTransaction({
       paymentRequestId: request.id,
       provider: input.provider,
       providerTransactionId: authoritativeTransactionId,
@@ -377,6 +394,25 @@ export async function processPaymentWebhook(
         },
         occurredAt: now(),
       });
+    }
+
+    // Financial Control projection: a verified PAID settlement is money actually
+    // received. Fire the hook ONLY for PAID, AFTER the transaction exists, keyed
+    // on the transaction id. Best-effort — a downstream failure never breaks the
+    // payment, which is already PAID.
+    if (authoritativeOutcome === "PAID") {
+      try {
+        await deps.onVerifiedPaid?.({
+          businessId: request.businessId,
+          paymentRequestId: request.id,
+          transactionId: transaction.id,
+          amount: transaction.amount,
+          currency: transaction.currency,
+          occurredAt: now(),
+        });
+      } catch (err) {
+        console.error("onVerifiedPaid hook error:", err);
+      }
     }
   }
 

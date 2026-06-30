@@ -95,3 +95,85 @@ export async function ensureBillingInvoicePostedEvent(
     throw e;
   }
 }
+
+const PAYMENT_CATEGORY = "payment";
+
+export interface EnsurePaymentPostedEventInput {
+  businessId: number;
+  paymentRequestId: number;
+  /** The verified settlement record — the money-in FACT this event represents. */
+  transactionId: number;
+  /** Settled amount, decimal serialized as string. */
+  amount: string;
+  currency: string;
+  /** When the payment was verified PAID. */
+  occurredAt: Date;
+  counterpartyName?: string | null;
+}
+
+/**
+ * Creates a POSTED income FinancialEvent (sourceType=PAYMENT) for a verified
+ * settlement — the fact that money actually came in. Keyed on the
+ * PaymentTransaction (sourceKey = transaction id), NOT the PaymentRequest:
+ * Financial Control records settlement facts, not intents.
+ *
+ * Idempotent on (businessId, PAYMENT, sourceKey) — a duplicate webhook can never
+ * create a second event. billingDocumentId is left null (PAYMENT is keyed on the
+ * composite only). Call ONLY after a verified PAID PaymentTransaction exists.
+ */
+export async function ensurePaymentPostedEvent(
+  tx: Prisma.TransactionClient,
+  input: EnsurePaymentPostedEventInput
+): Promise<void> {
+  const sourceKey = String(input.transactionId);
+
+  const existing = await tx.financialEvent.findUnique({
+    where: {
+      businessId_sourceType_sourceKey: {
+        businessId: input.businessId,
+        sourceType: FinancialEventSourceType.PAYMENT,
+        sourceKey,
+      },
+    },
+  });
+  if (existing) {
+    return;
+  }
+
+  const counterpartyName = (input.counterpartyName ?? "").trim();
+
+  try {
+    await tx.financialEvent.create({
+      data: {
+        businessId: input.businessId,
+        direction: FinancialEventDirection.INCOME,
+        amount: input.amount,
+        currency: input.currency,
+        occurredAt: input.occurredAt,
+        category: PAYMENT_CATEGORY,
+        counterpartyName: counterpartyName.length > 0 ? counterpartyName : null,
+        sourceType: FinancialEventSourceType.PAYMENT,
+        sourceKey,
+        status: FinancialEventStatus.POSTED,
+        // billingDocumentId intentionally null — PAYMENT dedups on the composite.
+      },
+    });
+  } catch (e) {
+    if (!isUniqueConstraintError(e)) {
+      throw e;
+    }
+    const winner = await tx.financialEvent.findUnique({
+      where: {
+        businessId_sourceType_sourceKey: {
+          businessId: input.businessId,
+          sourceType: FinancialEventSourceType.PAYMENT,
+          sourceKey,
+        },
+      },
+    });
+    if (winner) {
+      return;
+    }
+    throw e;
+  }
+}
