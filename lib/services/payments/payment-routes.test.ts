@@ -142,7 +142,10 @@ async function main() {
 
     const deps: ProcessWebhookDeps = {
       store,
-      resolveProvider: () => createStubProvider(),
+      resolveProvider: () =>
+        createStubProvider({
+          verifiedStatus: { outcome: "PAID", providerTransactionId: null },
+        }),
     };
 
     const paid = await handleProviderWebhook(

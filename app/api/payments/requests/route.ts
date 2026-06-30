@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
+import {
+  authorizePaymentAction,
+  PAYMENT_ACTIONS,
+} from "@/lib/services/payments/payment-authorization";
 import { createPaymentRequest } from "@/lib/services/payments/payment-request.service";
 import { paymentRequestDeps } from "@/lib/services/payments/payments.deps";
 import {
@@ -43,9 +47,7 @@ function parseStatus(value: string | null): PaymentRequestStatus | undefined {
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = authorizePaymentAction(user, PAYMENT_ACTIONS.CREATE_CHARGE);
 
     let body: Record<string, unknown> = {};
     try {
@@ -63,7 +65,8 @@ export async function POST(req: NextRequest) {
 
     const result = await createPaymentRequest(
       {
-        businessId: user.businessId,
+        businessId: actor.businessId,
+        actorUserId: actor.userId,
         amount: body.amount as string | number,
         currency: typeof body.currency === "string" ? body.currency : undefined,
         description:
@@ -92,9 +95,7 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = authorizePaymentAction(user, PAYMENT_ACTIONS.VIEW_TRANSACTIONS);
 
     const { searchParams } = req.nextUrl;
     const limitRaw = searchParams.get("limit");
@@ -121,7 +122,7 @@ export async function GET(req: NextRequest) {
     };
 
     const records = await paymentRequestDeps().store.listPaymentRequests(
-      user.businessId,
+      actor.businessId,
       options
     );
 

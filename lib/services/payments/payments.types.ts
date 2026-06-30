@@ -103,6 +103,7 @@ export interface PaymentTransactionRecord {
   currency: string;
   status: PaymentTransactionStatus;
   rawPayload: unknown;
+  createdAt: Date;
 }
 
 export interface PaymentWebhookEventRecord {
@@ -179,6 +180,44 @@ export interface ListPaymentRequestsOptions {
   limit?: number;
 }
 
+// --- Audit (M7) ----------------------------------------------------------
+
+/** Origin of an audit event: a person, an engine decision, or the provider. */
+export type PaymentAuditSource = "USER" | "SYSTEM" | "PROVIDER";
+
+export interface PaymentAuditEventRecord {
+  id: number;
+  businessId: number;
+  paymentRequestId: number | null;
+  actorUserId: number | null;
+  eventType: string;
+  source: PaymentAuditSource;
+  summary: string;
+  metadata: unknown;
+  eventHash: string;
+  occurredAt: Date;
+  createdAt: Date;
+}
+
+/** Normalized, hashed row the store appends. Append-only — never updated. */
+export interface AppendPaymentAuditEventRow {
+  businessId: number;
+  paymentRequestId: number | null;
+  actorUserId: number | null;
+  eventType: string;
+  source: PaymentAuditSource;
+  summary: string;
+  metadata: Record<string, unknown> | null;
+  eventHash: string;
+  occurredAt: Date;
+}
+
+export interface ListPaymentAuditEventsOptions {
+  paymentRequestId?: number;
+  eventType?: string;
+  limit?: number;
+}
+
 /**
  * Persistence port for the payments domain. Production uses the Prisma-backed
  * implementation; tests use an in-memory fake. Services depend on this
@@ -229,6 +268,11 @@ export interface PaymentStore {
     providerTransactionId: string
   ): Promise<PaymentTransactionRecord | null>;
 
+  /** All settlement records for one request, oldest-first (ledger read). */
+  listTransactionsByRequest(
+    paymentRequestId: number
+  ): Promise<PaymentTransactionRecord[]>;
+
   /**
    * Insert a webhook event, deduplicating on (provider, providerEventId).
    * Returns `created: false` plus the existing row when the same event id was
@@ -244,4 +288,18 @@ export interface PaymentStore {
     id: number,
     patch: WebhookEventPatch
   ): Promise<PaymentWebhookEventRecord>;
+
+  /**
+   * Append-only audit insert (M7). There is deliberately no update or delete:
+   * the payments audit trail can only grow. Callers build the hashed row via
+   * the payment-audit service and emit best-effort.
+   */
+  appendAuditEvent(
+    row: AppendPaymentAuditEventRow
+  ): Promise<PaymentAuditEventRecord>;
+
+  listAuditEvents(
+    businessId: number,
+    options?: ListPaymentAuditEventsOptions
+  ): Promise<PaymentAuditEventRecord[]>;
 }

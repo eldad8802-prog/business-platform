@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
+import {
+  authorizePaymentAction,
+  PAYMENT_ACTIONS,
+} from "@/lib/services/payments/payment-authorization";
 import { connectPaymentProvider } from "@/lib/services/payments/payment-connection.service";
 import { paymentConnectionDeps } from "@/lib/services/payments/payments.deps";
 
@@ -20,9 +24,7 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const actor = authorizePaymentAction(user, PAYMENT_ACTIONS.CONNECT_PROVIDER);
 
     let body: Record<string, unknown> = {};
     try {
@@ -57,7 +59,8 @@ export async function POST(req: NextRequest) {
 
     const connection = await connectPaymentProvider(
       {
-        businessId: user.businessId,
+        businessId: actor.businessId,
+        actorUserId: actor.userId,
         provider: "CARDCOM",
         merchantId: terminalRaw.trim(),
         // Provider-specific secret shape, encrypted as a single opaque blob.

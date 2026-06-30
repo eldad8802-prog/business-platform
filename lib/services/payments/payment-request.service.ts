@@ -22,6 +22,7 @@ import type {
   PaymentStore,
 } from "./payments.types";
 import type { PaymentProviderAdapter } from "./providers/payment-provider.types";
+import { recordPaymentAuditEvent } from "./payment-audit.service";
 
 export interface CreatePaymentRequestInput {
   businessId: number;
@@ -35,6 +36,8 @@ export interface CreatePaymentRequestInput {
   provider?: PaymentProvider;
   successUrl?: string;
   failureUrl?: string;
+  /** Authenticated user who created the charge (for the audit trail). */
+  actorUserId?: number | null;
 }
 
 export interface CreatePaymentRequestDeps {
@@ -135,6 +138,24 @@ export async function createPaymentRequest(
     description: input.description ?? null,
     status: "PENDING",
     expiresAt: input.expiresAt ?? null,
+  });
+
+  // audit the charge creation (best-effort; never blocks the flow).
+  await recordPaymentAuditEvent(deps.store, {
+    businessId: input.businessId,
+    paymentRequestId: created.id,
+    actorUserId: input.actorUserId ?? null,
+    eventType: "PAYMENT_REQUEST_CREATED",
+    source: input.actorUserId != null ? "USER" : "SYSTEM",
+    summary: `Payment request ${created.id} created for ${amount} ${currency} via ${provider}`,
+    metadata: {
+      provider,
+      amount,
+      currency,
+      customerId: input.customerId ?? null,
+      billingDocumentId: input.billingDocumentId ?? null,
+    },
+    occurredAt: now(),
   });
 
   // 4. ask the provider for a hosted-checkout link.

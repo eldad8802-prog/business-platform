@@ -146,35 +146,39 @@ async function main() {
     assert.equal(store.transactions.length, 0);
   }
 
-  // --- 5. legacy provider (no getPaymentStatus) => backward-compatible PAID ---
+  // --- 5. provider WITHOUT verification (no getPaymentStatus) => signal only:
+  //        a webhook that CLAIMS PAID never settles. Request stays PENDING, no
+  //        transaction. The Authority Principle, enforced uniformly (Stage 0). ---
+  const signalOnlyProvider = (eventId: string): PaymentProviderAdapter => ({
+    provider: "TRANZILA",
+    async createPaymentLink() {
+      throw new Error("unused");
+    },
+    verifyWebhook: () => ({ ok: true }),
+    parseWebhook: () => ({
+      providerEventId: eventId,
+      eventType: "payment",
+      providerRequestId: REQUEST_ID,
+      providerTransactionId: `txn-${eventId}`,
+      outcome: "PAID", // the webhook CLAIMS PAID — but it is only a signal
+      amount: "100.00",
+      currency: "ILS",
+    }),
+    // no getPaymentStatus => no authority => can never settle to PAID
+  });
   {
     const store = createInMemoryPaymentStore();
     await seedPending(store);
-    const legacy: PaymentProviderAdapter = {
-      provider: "TRANZILA",
-      async createPaymentLink() {
-        throw new Error("unused");
-      },
-      verifyWebhook: () => ({ ok: true }),
-      parseWebhook: () => ({
-        providerEventId: "evt-legacy",
-        eventType: "payment",
-        providerRequestId: REQUEST_ID,
-        providerTransactionId: "txn-legacy",
-        outcome: "PAID",
-        amount: "100.00",
-        currency: "ILS",
-      }),
-      // no getPaymentStatus
-    };
     const res = await processPaymentWebhook(
       { provider: "TRANZILA", rawBody: body },
-      depsFor(store, legacy)
+      depsFor(store, signalOnlyProvider("evt-signal"))
     );
     assert.equal(res.ok, true);
-    assert.equal(res.verified, false); // explicit: unverified legacy path
-    assert.equal(res.paymentRequestStatus, "PAID");
-    assert.equal(store.requests[0]?.status, "PAID");
+    assert.equal(res.verified, false); // explicit: signal-only, not authority
+    assert.equal(res.reason, "signal_only_no_verification");
+    assert.notEqual(res.paymentRequestStatus, "PAID");
+    assert.equal(store.requests[0]?.status, "PENDING");
+    assert.equal(store.transactions.length, 0);
   }
 
   // --- 6. CARDCOM stub (real registry) can NEVER produce PAID ---
@@ -192,6 +196,23 @@ async function main() {
     );
     assert.equal(res.ok, false);
     assert.notEqual(res.paymentRequestStatus, "PAID");
+    assert.equal(store.requests[0]?.status, "PENDING");
+    assert.equal(store.transactions.length, 0);
+  }
+
+  // --- 7. AC8: a signal-only provider can fire the webhook repeatedly and a
+  //        PAID is NEVER produced — a webhook alone is insufficient for PAID. ---
+  {
+    const store = createInMemoryPaymentStore();
+    await seedPending(store);
+    await processPaymentWebhook(
+      { provider: "TRANZILA", rawBody: body },
+      depsFor(store, signalOnlyProvider("evt-a"))
+    );
+    await processPaymentWebhook(
+      { provider: "TRANZILA", rawBody: body },
+      depsFor(store, signalOnlyProvider("evt-b"))
+    );
     assert.equal(store.requests[0]?.status, "PENDING");
     assert.equal(store.transactions.length, 0);
   }

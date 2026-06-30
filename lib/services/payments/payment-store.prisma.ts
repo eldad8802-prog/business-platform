@@ -9,10 +9,14 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type {
+  AppendPaymentAuditEventRow,
   CreatePaymentRequestRow,
   CreateTransactionRow,
   InsertWebhookEventRow,
+  ListPaymentAuditEventsOptions,
   ListPaymentRequestsOptions,
+  PaymentAuditEventRecord,
+  PaymentAuditSource,
   PaymentConnectionRecord,
   PaymentProvider,
   PaymentRequestPatch,
@@ -64,6 +68,7 @@ type TransactionRow = {
   currency: string;
   status: string;
   rawPayload: Prisma.JsonValue | null;
+  createdAt: Date;
 };
 
 type WebhookRow = {
@@ -122,6 +127,37 @@ function toTransactionRecord(row: TransactionRow): PaymentTransactionRecord {
     currency: row.currency,
     status: row.status as PaymentTransactionRecord["status"],
     rawPayload: row.rawPayload,
+    createdAt: row.createdAt,
+  };
+}
+
+type AuditRow = {
+  id: number;
+  businessId: number;
+  paymentRequestId: number | null;
+  actorUserId: number | null;
+  eventType: string;
+  source: string;
+  summary: string;
+  metadata: Prisma.JsonValue | null;
+  eventHash: string;
+  occurredAt: Date;
+  createdAt: Date;
+};
+
+function toAuditRecord(row: AuditRow): PaymentAuditEventRecord {
+  return {
+    id: row.id,
+    businessId: row.businessId,
+    paymentRequestId: row.paymentRequestId,
+    actorUserId: row.actorUserId,
+    eventType: row.eventType,
+    source: row.source as PaymentAuditSource,
+    summary: row.summary,
+    metadata: row.metadata,
+    eventHash: row.eventHash,
+    occurredAt: row.occurredAt,
+    createdAt: row.createdAt,
   };
 }
 
@@ -284,6 +320,14 @@ export function createPaymentPrismaStore(): PaymentStore {
       return row ? toTransactionRecord(row) : null;
     },
 
+    async listTransactionsByRequest(paymentRequestId: number) {
+      const rows = await prisma.paymentTransaction.findMany({
+        where: { paymentRequestId },
+        orderBy: { id: "asc" },
+      });
+      return rows.map(toTransactionRecord);
+    },
+
     async insertWebhookEventIfNew(row: InsertWebhookEventRow) {
       try {
         const created = await prisma.paymentWebhookEvent.create({
@@ -328,6 +372,44 @@ export function createPaymentPrismaStore(): PaymentStore {
         },
       });
       return toWebhookRecord(updated);
+    },
+
+    async appendAuditEvent(row: AppendPaymentAuditEventRow) {
+      const created = await prisma.paymentAuditEvent.create({
+        data: {
+          businessId: row.businessId,
+          paymentRequestId: row.paymentRequestId,
+          actorUserId: row.actorUserId,
+          eventType: row.eventType,
+          source: row.source,
+          summary: row.summary,
+          metadata:
+            row.metadata === null
+              ? Prisma.JsonNull
+              : (row.metadata as Prisma.InputJsonValue),
+          eventHash: row.eventHash,
+          occurredAt: row.occurredAt,
+        },
+      });
+      return toAuditRecord(created);
+    },
+
+    async listAuditEvents(
+      businessId: number,
+      options?: ListPaymentAuditEventsOptions
+    ) {
+      const rows = await prisma.paymentAuditEvent.findMany({
+        where: {
+          businessId,
+          ...(options?.paymentRequestId != null
+            ? { paymentRequestId: options.paymentRequestId }
+            : {}),
+          ...(options?.eventType ? { eventType: options.eventType } : {}),
+        },
+        orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+        take: options?.limit ?? 100,
+      });
+      return rows.map(toAuditRecord);
     },
   };
 }

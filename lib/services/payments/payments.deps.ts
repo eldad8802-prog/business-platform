@@ -7,6 +7,8 @@
  * for Prisma or a provider directly.
  */
 
+import { prisma } from "@/lib/prisma";
+import { ensurePaymentPostedEvent } from "@/lib/services/financial-events/financial-event.service";
 import {
   decryptPaymentCredential,
   encryptPaymentCredential,
@@ -57,6 +59,24 @@ export function paymentWebhookDeps(): ProcessWebhookDeps {
     resolveProvider: resolvePaymentProvider,
     resolveWebhookSecret,
     decryptConnectionCredential,
+    // Financial Control projection: verified PAID -> FinancialEvent(PAYMENT).
+    // Best-effort and idempotent on the transaction id; never breaks the flow.
+    onVerifiedPaid: async (e) => {
+      try {
+        await prisma.$transaction((tx) =>
+          ensurePaymentPostedEvent(tx, {
+            businessId: e.businessId,
+            paymentRequestId: e.paymentRequestId,
+            transactionId: e.transactionId,
+            amount: e.amount,
+            currency: e.currency,
+            occurredAt: e.occurredAt,
+          })
+        );
+      } catch (err) {
+        console.error("onVerifiedPaid (FinancialEvent PAYMENT) error:", err);
+      }
+    },
   };
 }
 

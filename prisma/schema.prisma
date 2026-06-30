@@ -152,6 +152,7 @@ model Business {
   updatedAt                 DateTime                        @updatedAt
   billingDocuments          BillingDocument[]
   billingAuditEvents        BillingAuditEvent[]
+  paymentAuditEvents        PaymentAuditEvent[]
   billingNumberSequences    BillingDocumentNumberSequence[]
   billingPaymentAllocations BillingPaymentAllocation[]
   profile                   BusinessProfile?
@@ -230,6 +231,7 @@ model User {
   contentRunsCreated  ContentRun[]
   contentEvents       ContentEvent[]
   billingAuditEvents  BillingAuditEvent[]
+  paymentAuditEvents  PaymentAuditEvent[]
   platformAuditEvents PlatformAuditEvent[]
   productUsageEvents  ProductUsageEvent[]
   appointmentsCreated Appointment[]
@@ -2566,6 +2568,7 @@ model PaymentRequest {
   customer        Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
   billingDocument BillingDocument?     @relation(fields: [billingDocumentId], references: [id], onDelete: SetNull)
   transactions    PaymentTransaction[]
+  auditEvents     PaymentAuditEvent[]
 
   @@index([businessId, status])
   @@index([businessId, createdAt])
@@ -2606,6 +2609,32 @@ model PaymentWebhookEvent {
   // semantics — the service layer handles those defensively.
   @@unique([provider, providerEventId])
   @@index([processingStatus, createdAt])
+}
+
+/// Append-only payments audit trail. Mirrors the BillingAuditEvent pattern but
+/// is payments-scoped (links to a PaymentRequest, not a BillingDocument) and
+/// uses a payments-specific source set incl. PROVIDER for verification events.
+/// Written best-effort — an audit failure never breaks the money path.
+model PaymentAuditEvent {
+  id               Int      @id @default(autoincrement())
+  businessId       Int
+  paymentRequestId Int?
+  actorUserId      Int?
+  eventType        String
+  source           String   @default("USER")
+  summary          String
+  metadata         Json?
+  eventHash        String
+  occurredAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  paymentRequest PaymentRequest? @relation(fields: [paymentRequestId], references: [id], onDelete: SetNull)
+  actorUser      User?           @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, occurredAt])
+  @@index([paymentRequestId, occurredAt])
+  @@index([eventType, occurredAt])
 }
 
 enum PaymentProvider {
