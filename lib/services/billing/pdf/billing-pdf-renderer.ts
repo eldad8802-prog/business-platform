@@ -101,3 +101,20 @@ export async function renderBillingPdfFromSnapshot(
     doc.end();
   });
 }
+
+// Public (additive): render ANY pdfmake docDefinition into a PDF Buffer, reusing
+// the single shared PdfPrinter and the same Hebrew font. Used by the uniform
+// export registration reports (WP3). This does NOT alter the billing invoice
+// path (`renderBillingPdfFromSnapshot`) or any existing template/logic.
+export async function renderPdfFromDocDefinition(docDef: unknown): Promise<Buffer> {
+  const printer = getPrinter();
+  const doc = await printer.createPdfKitDocument(docDef);
+
+  return await new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", (err: unknown) => reject(err));
+    doc.end();
+  });
+}
