@@ -1,0 +1,96 @@
+name: release-migrate
+
+# Gated Production migration — "Human approves, the Runner executes."
+#
+# This is the dedicated, gated Release step that applies pending Prisma
+# migrations to Production. It is the ONLY automated place that runs
+# `prisma migrate deploy` against Production.
+#
+# Safety model:
+#   - Manual trigger only (workflow_dispatch). NEVER runs on push/merge.
+#   - The job targets the protected `production-db` GitHub Environment, which has
+#     a REQUIRED REVIEWER. GitHub pauses the run until a human approves — and the
+#     Production DB connection secrets are only exposed to the job AFTER approval.
+#   - Uses the Neon DIRECT (non-pooled) connection for DDL, per Neon/Prisma.
+#   - Applies PENDING migrations only (migrate deploy never resets, never
+#     generates, and — on the baselined Production DB — never re-runs history,
+#     so the known timestamp anomaly does not affect a pending-only apply).
+#   - Vercel auto-deploy is untouched; this workflow never deploys app code.
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Audit note: why this migration run is happening (optional)'
+        required: false
+        type: string
+
+# Least privilege: read repo contents only. No write scopes are needed.
+permissions:
+  contents: read
+
+# Never overlap two migration runs against Production.
+concurrency:
+  group: release-migrate-production
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    # Binding this job to the protected environment is what enforces the
+    # human-approval gate AND scopes the DATABASE_URL / DIRECT_URL secrets to
+    # this job only (they do not exist anywhere else in CI).
+    environment: production-db
+    steps:
+      - name: Checkout (read-only, no persisted git credentials)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (npm ci — includes prisma CLI from devDependencies)
+        run: npm ci
+
+      # Pre-state (read-only). `migrate status` exits non-zero when migrations
+      # are pending — that is expected here, so this step is informational only.
+      - name: prisma migrate status (pre — read-only, expected to show pending)
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: npx prisma migrate status
+
+      # The actual, approved apply. Applies pending migrations only, in order.
+      # Fails the job (and stops the release) on any migration error.
+      - name: prisma migrate deploy (apply pending — Production)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: npx prisma migrate deploy
+
+      # Post-state verification. Must be "up to date" (exit 0); if not, the job
+      # fails so the release is not declared complete.
+      - name: prisma migrate status (post — must be up to date)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: npx prisma migrate status
+
+      - name: Job Summary
+        if: always()
+        env:
+          REASON: ${{ inputs.reason }}
+        run: |
+          {
+            echo "## release-migrate (gated Production migration)"
+            echo ""
+            echo "- Trigger: manual (workflow_dispatch), approved via \`production-db\` environment."
+            echo "- Action: \`prisma migrate deploy\` (pending migrations only) over the direct connection."
+            echo "- Reason: ${REASON:-'(none provided)'}"
+            echo ""
+            echo "_Vercel auto-deploy is unaffected. This workflow applies migrations only._"
+          } >> "$GITHUB_STEP_SUMMARY"
