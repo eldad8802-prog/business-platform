@@ -6,47 +6,29 @@ export type SettingsCategory = {
   icon: string;
 };
 
+// Only active categories appear here. A category is listed only when it
+// shows real information, allows a real action, or links to an owner screen
+// that solves a real need. Not-yet-ready capabilities are not shown at all.
 export const SETTINGS_CATEGORIES: SettingsCategory[] = [
-  {
-    key: "workspace",
-    href: "/settings/workspace",
-    title: "סביבת עבודה",
-    description: "שפה, אזור זמן ומטבע — יוגדרו בהמשך",
-    icon: "🧭",
-  },
   {
     key: "team",
     href: "/settings/team",
-    title: "צוות והרשאות",
-    description: "משתמשים והרשאות — יוגדרו בהמשך",
-    icon: "👥",
+    title: "החשבון שלי",
+    description: "הפרטים שלך, העסק המחובר, והתנתקות",
+    icon: "👤",
   },
   {
     key: "connections",
     href: "/settings/connections",
     title: "חיבורים",
-    description: "אינטגרציות וחשבונות מקושרים — יוגדרו בהמשך",
+    description: "מה מחובר — סליקה, וואטסאפ ו-Gmail",
     icon: "🔌",
   },
   {
-    key: "security",
-    href: "/settings/security",
-    title: "אבטחה",
-    description: "הגנת חשבון ומדיניות — יוגדרו בהמשך",
-    icon: "🔐",
-  },
-  {
-    key: "billing",
-    href: "/settings/billing",
-    title: "מנוי וחיוב",
-    description: "תוכנית ותשלומים — יוגדרו בהמשך",
-    icon: "💳",
-  },
-  {
-    key: "ai",
-    href: "/settings/ai",
-    title: "הרשאות AI",
-    description: "הרשאות מערכתיות לשימוש ב־AI — יוגדרו בהמשך",
-    icon: "🤖",
+    key: "workspace",
+    href: "/settings/workspace",
+    title: "שפה ואזור",
+    description: "שפה, מטבע ואזור זמן",
+    icon: "🌍",
   },
 ];

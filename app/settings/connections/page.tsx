@@ -1,6 +1,7 @@
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHeader";
 import { PaymentConnectionCard } from "@/components/settings/PaymentConnectionCard";
+import { IntegrationStatusCards } from "@/components/settings/IntegrationStatusCards";
 
 export default function SettingsConnectionsPage() {
   return (
@@ -9,11 +10,14 @@ export default function SettingsConnectionsPage() {
       <div className="mb-4">
         <PaymentConnectionCard />
       </div>
+      <div className="mb-4">
+        <IntegrationStatusCards />
+      </div>
       <SettingsSection>
         <p className="text-sm leading-6 text-gray-600">
-          כאן יוגדרו בעתיד אינטגרציות וחשבונות מקושרים — רק ברמת המערכת.
+          מוצג כאן מצב החיבורים הקיימים. ניהול החיבור עצמו מתבצע במסך הייעודי של כל
+          אינטגרציה.
         </p>
-        <p className="mt-3 text-xs leading-5 text-gray-500">מצב זמני: אין שינויים לשמירה.</p>
       </SettingsSection>
     </>
   );

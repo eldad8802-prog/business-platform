@@ -1,15 +1,20 @@
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHeader";
+import { AccountSummaryCard } from "@/components/settings/AccountSummaryCard";
+import { LogoutButton } from "@/components/settings/LogoutButton";
 
-export default function SettingsTeamPage() {
+export default function SettingsAccountPage() {
   return (
     <>
-      <SettingsSubPageHeader title="צוות והרשאות" />
-      <SettingsSection>
-        <p className="text-sm leading-6 text-gray-600">
-          כאן יוגדרו בעתיד משתמשים והרשאות — רק ברמת המערכת.
-        </p>
-        <p className="mt-3 text-xs leading-5 text-gray-500">מצב זמני: אין שינויים לשמירה.</p>
+      <SettingsSubPageHeader title="החשבון שלי" />
+      <div className="mb-4">
+        <AccountSummaryCard />
+      </div>
+      <SettingsSection title="התנתקות">
+        <p className="text-sm leading-6 text-gray-600">יציאה מהחשבון במכשיר זה.</p>
+        <div className="mt-3">
+          <LogoutButton />
+        </div>
       </SettingsSection>
     </>
   );
