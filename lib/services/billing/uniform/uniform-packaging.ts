@@ -1,7 +1,8 @@
 /**
  * WP2.7 — Packaging to the OPENFRMT directory structure (spec 1.31 §2.2).
  *
- * Writes `INI.TXT` (uncompressed) and the compressed `BKMVDATA` archive under
+ * Writes `INI.TXT` (uncompressed), `BKMVDATA.TXT` (uncompressed — the simulator/
+ * upload accepts .txt), and the compressed `BKMVDATA.zip` archive under
  * `<root>/OPENFRMT/<8-digit עוסק>.<YY>/<MMDDhhmm>/`. Thin IO layer over the pure
  * builder; the record bytes are already produced by `buildUniformExportFiles`.
  */
@@ -30,12 +31,13 @@ export function zipBkmvdata(bkmvdataTxt: Buffer): Promise<Buffer> {
 export type WriteResult = {
   outputDir: string;
   iniPath: string;
+  bkmvdataTxtPath: string;
   bkmvdataZipPath: string;
 };
 
 /**
  * Materialize the OPENFRMT structure under `rootDir`. Returns the paths written.
- * (`INI.TXT` uncompressed; `BKMVDATA` zipped, per spec.)
+ * (`INI.TXT` + `BKMVDATA.TXT` uncompressed; `BKMVDATA.zip` compressed, per spec.)
  */
 export async function writeUniformExport(
   rootDir: string,
@@ -47,9 +49,14 @@ export async function writeUniformExport(
   const iniPath = join(outputDir, "INI.TXT");
   writeFileSync(iniPath, result.iniBuffer);
 
+  // Uncompressed BKMVDATA.TXT (identical bytes to what gets zipped) — the ITA
+  // simulator/upload accepts .txt files only.
+  const bkmvdataTxtPath = join(outputDir, "BKMVDATA.TXT");
+  writeFileSync(bkmvdataTxtPath, result.bkmvdataBuffer);
+
   const zip = await zipBkmvdata(result.bkmvdataBuffer);
   const bkmvdataZipPath = join(outputDir, "BKMVDATA.zip");
   writeFileSync(bkmvdataZipPath, zip);
 
-  return { outputDir, iniPath, bkmvdataZipPath };
+  return { outputDir, iniPath, bkmvdataTxtPath, bkmvdataZipPath };
 }

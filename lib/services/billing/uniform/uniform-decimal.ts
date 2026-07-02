@@ -1,5 +1,6 @@
 /**
- * WP3 — shared decimal-string helpers (single source for report sums + display).
+ * Shared decimal-string helpers — the SINGLE SOURCE for 2-decimal summation
+ * (used by the assembler projection totals and the report sums + display).
  * Integer-agorot math (exact within safe range); no float drift, deterministic.
  * Distinct from WP2's fixed-width `formatSignedAmount` (that is file-layout; this
  * is aggregation + human display).

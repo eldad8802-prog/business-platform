@@ -16,6 +16,7 @@
  * This is NOT the official "מבנה אחיד" serializer. No layout/encoding here.
  */
 
+import { sumDecimal2 } from "@/lib/services/billing/uniform/uniform-decimal";
 import {
   UNIFORM_EXPORT_PROJECTION_SCHEMA_VERSION,
   type AllocationSource,
@@ -34,37 +35,8 @@ const INCLUDED_STATUS = "ISSUED";
 /** Document types excluded from the books export (quotes are not books records). */
 const EXCLUDED_TYPES = new Set(["QUOTE"]);
 
-// ---- deterministic decimal(2) helpers (integer-cents as number, no float math) ----
-// Money is summed in integer agorot; realistic sums stay well within
-// Number.MAX_SAFE_INTEGER, so this is exact and deterministic.
-
-function toCents(value: string): number {
-  const trimmed = (value ?? "").trim();
-  if (trimmed === "") return 0;
-  const negative = trimmed.startsWith("-");
-  const unsigned = negative ? trimmed.slice(1) : trimmed;
-  const [intPart = "0", fracRaw = ""] = unsigned.split(".");
-  const frac = (fracRaw + "00").slice(0, 2);
-  const intDigits = intPart.replace(/\D/g, "") || "0";
-  const fracDigits = frac.replace(/\D/g, "") || "0";
-  const cents = Number(intDigits) * 100 + Number(fracDigits);
-  return negative ? -cents : cents;
-}
-
-function centsToString(cents: number): string {
-  const rounded = Math.round(cents);
-  const negative = rounded < 0;
-  const abs = Math.abs(rounded);
-  const intPart = Math.floor(abs / 100);
-  const fracPart = String(abs % 100).padStart(2, "0");
-  return `${negative ? "-" : ""}${intPart}.${fracPart}`;
-}
-
-function sumDecimal2(values: string[]): string {
-  let acc = 0;
-  for (const v of values) acc += toCents(v);
-  return centsToString(acc);
-}
+// Deterministic decimal(2) summation is provided by the shared single source
+// `uniform-decimal.ts` (integer-agorot math). Imported above as `sumDecimal2`.
 
 function nonEmpty(value: string | null | undefined): string | null {
   if (value == null) return null;

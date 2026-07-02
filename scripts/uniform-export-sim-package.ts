@@ -18,23 +18,28 @@ import { join } from "node:path";
 import { assembleUniformExportProjection } from "@/lib/services/billing/uniform/uniform-export-assembler";
 import { SIMULATOR_SOFTWARE_CONFIG } from "@/lib/services/billing/uniform/uniform-config";
 import { buildUniformExportFiles } from "@/lib/services/billing/uniform/uniform-file-builder";
+import {
+  A000_LAYOUT,
+  A100_LAYOUT,
+  B110_LAYOUT,
+  C100_LAYOUT,
+  D110_LAYOUT,
+  D120_LAYOUT,
+  INI_SUMMARY_LAYOUT,
+  Z900_LAYOUT,
+} from "@/lib/services/billing/uniform/uniform-layout-1_31";
 import { writeUniformExport } from "@/lib/services/billing/uniform/uniform-packaging";
 import { renderUniformReports } from "@/lib/services/billing/uniform/uniform-report-render";
 import { SIM_BUILD_OPTS, SIM_FIXTURE_INPUT } from "@/lib/services/billing/uniform/__fixtures__/uniform-sim.fixture";
 
 const ROOT_DIR = join(process.cwd(), "artifacts", "uniform-sim");
 
-/** Expected serialized length per record type (from the 1.31 layouts). */
-const EXPECTED_LEN: Record<string, number> = {
-  A100: 95,
-  B110: 376,
-  C100: 444,
-  D110: 339,
-  D120: 222,
-  Z900: 110,
-};
-const A000_LEN = 466;
-const INI_SUMMARY_LEN = 19;
+/** Expected serialized length per BKMVDATA record type — sourced from the 1.31 layouts. */
+const EXPECTED_LEN: Record<string, number> = Object.fromEntries(
+  [A100_LAYOUT, B110_LAYOUT, C100_LAYOUT, D110_LAYOUT, D120_LAYOUT, Z900_LAYOUT].map((l) => [l.code, l.length])
+);
+const A000_LEN = A000_LAYOUT.length;
+const INI_SUMMARY_LEN = INI_SUMMARY_LAYOUT.length;
 
 function sanity(iniText: string, bkmvdataText: string, meta: { totalBkmvRecords: number; counts: { B110: number; C100: number; D110: number; D120: number } }): string[] {
   const problems: string[] = [];
@@ -109,14 +114,8 @@ async function main() {
   }
   console.log("  sanity: OK (record codes/lengths/CRLF + control counts)");
 
-  // WP2 packaging: write INI.TXT + BKMVDATA.zip (unchanged).
+  // WP2 packaging: writes INI.TXT + BKMVDATA.TXT + BKMVDATA.zip.
   const written = await writeUniformExport(ROOT_DIR, built);
-
-  // The official simulator accepts .txt only (rejects BKMVDATA.zip). Write the
-  // uncompressed BKMVDATA.TXT ALONGSIDE (not replacing) the zip. Source is the
-  // exact same buffer the zip was built from → byte-for-byte identical content.
-  const bkmvdataTxtPath = join(written.outputDir, "BKMVDATA.TXT");
-  writeFileSync(bkmvdataTxtPath, built.bkmvdataBuffer);
 
   // WP3: render the three registration reports into the same dir.
   const pdfs = await renderUniformReports(proj, built, SIMULATOR_SOFTWARE_CONFIG);
@@ -130,7 +129,7 @@ async function main() {
   console.log("\nPackage written:");
   console.log("  dir : " + written.outputDir);
   console.log("  " + written.iniPath);
-  console.log("  " + bkmvdataTxtPath + ` (${built.bkmvdataBuffer.length} bytes)`);
+  console.log("  " + written.bkmvdataTxtPath + ` (${built.bkmvdataBuffer.length} bytes)`);
   console.log("  " + written.bkmvdataZipPath);
   console.log(`  ${p26} (${pdfs.report26Pdf.length} bytes)`);
   console.log(`  ${p54} (${pdfs.report54Pdf.length} bytes)`);
