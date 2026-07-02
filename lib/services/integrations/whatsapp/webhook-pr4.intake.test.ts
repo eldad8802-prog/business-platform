@@ -71,10 +71,11 @@ function createMockDeps(options: {
   storageFail?: boolean;
   createDocumentThrow?: boolean;
   sha256Hex?: (buf: Buffer) => string;
-}): { deps: WhatsAppIntakeDeps; rows: ImportRow[]; documents: Array<{ source: string; status: string }> } {
+}): { deps: WhatsAppIntakeDeps; rows: ImportRow[]; documents: Array<{ source: string; status: string }>; deleted: string[] } {
   const rows: ImportRow[] = [...(options.initialRows ?? [])];
   let nextId = rows.length + 1;
   const documents: Array<{ source: string; status: string }> = [];
+  const deleted: string[] = [];
   const buffer = options.mediaBuffer ?? SMALL_JPEG;
   const mime = options.mediaMime ?? "image/jpeg";
 
@@ -179,7 +180,9 @@ function createMockDeps(options: {
     putDocument: async () => {
       if (options.storageFail) throw new Error("disk full");
     },
-    deleteDocument: async () => {},
+    deleteDocument: async (_businessId: number, basename: string) => {
+      deleted.push(basename);
+    },
     createDocument: async (p) => {
       if (options.createDocumentThrow) throw new Error("db down");
       documents.push({ source: p.source, status: "needs_review" });
@@ -199,7 +202,7 @@ function createMockDeps(options: {
     buildStoredFileName: () => "doc-test-pr4.jpg",
   };
 
-  return { deps, rows, documents };
+  return { deps, rows, documents, deleted };
 }
 
 async function run(): Promise<void> {
@@ -314,29 +317,42 @@ async function run(): Promise<void> {
     assert.ok(rows[0].error?.includes("media_fetch"));
   }
 
-  // --- OCR fail ---
+  // --- SEC-24 durability: OCR failure MUST NOT discard the persisted artifact ---
+  // Enrichment (OCR) failed, but the file was already persisted → it must survive
+  // as a needs_review document and MUST NOT be deleted. (Aligns WhatsApp with the
+  // upload / Gmail paths.)
   {
-    const { deps, rows } = createMockDeps({ ocrThrow: true });
+    const { deps, rows, documents, deleted } = createMockDeps({ ocrThrow: true });
     const out = await processWhatsAppDocumentsIntake(
       baseInput({ wamid: "wamid.ocr-fail" }),
       deps
     );
-    assert.equal(out.status, "failed");
-    if (out.status === "failed") assert.equal(out.reason, "ocr_failed");
-    const row = rows.find((r) => r.wamid === "wamid.ocr-fail");
-    assert.equal(row?.status, "failed");
+    assert.equal(out.status, "imported");
+    assert.equal(documents.length, 1);
+    assert.equal(documents[0].status, "needs_review");
+    assert.equal(
+      deleted.length,
+      0,
+      "SEC-24: stored file must NOT be deleted when OCR fails"
+    );
+    assert.equal(rows.find((r) => r.wamid === "wamid.ocr-fail")?.status, "imported");
   }
 
-  // --- OCR empty ---
+  // --- SEC-24 durability: empty OCR MUST NOT discard the persisted artifact ---
   {
-    const { deps, rows } = createMockDeps({ ocrText: "   " });
+    const { deps, rows, documents, deleted } = createMockDeps({ ocrText: "   " });
     const out = await processWhatsAppDocumentsIntake(
       baseInput({ wamid: "wamid.ocr-empty" }),
       deps
     );
-    assert.equal(out.status, "failed");
-    if (out.status === "failed") assert.equal(out.reason, "ocr_empty");
-    assert.equal(rows.find((r) => r.wamid === "wamid.ocr-empty")?.status, "failed");
+    assert.equal(out.status, "imported");
+    assert.equal(documents.length, 1);
+    assert.equal(
+      deleted.length,
+      0,
+      "SEC-24: stored file must NOT be deleted when OCR is empty"
+    );
+    assert.equal(rows.find((r) => r.wamid === "wamid.ocr-empty")?.status, "imported");
   }
 
   // --- createDocument fail ---

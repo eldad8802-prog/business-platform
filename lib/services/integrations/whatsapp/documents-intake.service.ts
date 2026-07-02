@@ -233,15 +233,16 @@ export async function processWhatsAppDocumentsIntake(
     });
     tempCleanup = tmp.cleanup;
 
-    let rawText: string;
+    // SEC-24: OCR is best-effort ENRICHMENT. Its failure or empty result MUST
+    // NOT discard the already-persisted artifact — mirror the upload / Gmail
+    // paths and fall through with empty text so a needs_review document is still
+    // created and the file survives (reviewable). Only genuine PERSISTENCE
+    // failures (storage put / document row) remain fatal.
+    let rawText = "";
     try {
       rawText = (await deps.runOcr(tmp.tempPath, mediaResult.mimeType)).trim();
     } catch {
-      return fail("ocr_failed");
-    }
-
-    if (!rawText) {
-      return fail("ocr_empty");
+      rawText = "";
     }
 
     let created: Awaited<ReturnType<typeof createDocumentFromOcrText>>;

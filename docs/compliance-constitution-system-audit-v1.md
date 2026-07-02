@@ -135,7 +135,7 @@ Data leaves Dubiz to: **Google** (Gmail readonly + Vision OCR — full document 
 | G-21 | Compliance | No cross-border transfer basis / data-residency rule; processor regions unverified (WP5 CMP-12) | Missing/Unknown | Medium |
 | G-22 | Security/Privacy | Backups / disaster-recovery ungoverned — undermines erasure & retention (Review M-3) — **owned WP3 SEC-22** | Missing | Medium |
 | G-23 | Security | **W0 added `public/.well-known/security.txt`** with a **temporary** contact (promaxgroup.co.il/contact); dedicated security channel + triage SLA still pending (Review M-4) — **owned WP3 SEC-23** | Partial (was Missing) | Low-Medium |
-| G-24 | Security/Documents | No pipeline-durability requirement — enrichment (OCR) failure could silently lose an accepted user artifact (Validation; OCR data-loss incident) — **owned WP3 SEC-24 (v1.2)** | Missing (constitution) / Implemented (code convention) | High |
+| G-24 | Security/Documents | SEC-24 pipeline durability. Upload+Gmail already compliant. **W7: WhatsApp intake aligned** (OCR failure → needs_review Document, file no longer deleted) + **automated proof** (`verify:whatsapp-webhook-pr4`). Residual code follow-ups: create_document_failed still deletes; route-level test for upload/gmail — **owned WP3 SEC-24** | Partial→Covered (WhatsApp) | High |
 | G-25 | Compliance/Tax | SHAAM export has no production guard against emitting simulator/placeholder identity (Validation latent incident) — **owned WP5 CMP-13 (v1.2)** | Missing | Medium |
 | G-26 | Security | Gmail OAuth tokens use AES-256-GCM but bind no `businessId` AAD (unlike WhatsApp) — cross-tenant paste-protection weaker (Validation) — **owned WP3 SEC-10 (v1.2)** | Partial | Low-Medium |
 
