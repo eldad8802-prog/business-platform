@@ -18,9 +18,17 @@ const EASE_IN = "cubic-bezier(0.4, 0, 1, 1)";
 const QUICK_ACTIONS: {
   label: string;
   href: string;
-  icon: "upload" | "invoice" | "chat" | "content" | "inventory" | "secretary";
+  icon:
+    | "upload"
+    | "invoice"
+    | "chat"
+    | "content"
+    | "inventory"
+    | "secretary"
+    | "payments";
 }[] = [
   { label: "המזכירה", href: "/secretary", icon: "secretary" },
+  { label: "סליקה", href: "/payments", icon: "payments" },
   { label: "העלאת מסמך", href: "/documents/upload", icon: "upload" },
   { label: "חשבונית חדשה", href: "/billing", icon: "invoice" },
   { label: "שיחה חדשה", href: "/inbox", icon: "chat" },
@@ -316,7 +324,14 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
 function ActionGlyph({
   kind,
 }: {
-  kind: "upload" | "invoice" | "chat" | "content" | "inventory" | "secretary";
+  kind:
+    | "upload"
+    | "invoice"
+    | "chat"
+    | "content"
+    | "inventory"
+    | "secretary"
+    | "payments";
 }) {
   const stroke = 1.85;
   const size = 22;
@@ -406,6 +421,33 @@ function ActionGlyph({
             strokeWidth={stroke}
             strokeLinecap="round"
             strokeLinejoin="round"
+          />
+        </svg>
+      );
+    case "payments":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <rect
+            x="2.5"
+            y="5"
+            width="19"
+            height="14"
+            rx="2.5"
+            stroke="currentColor"
+            strokeWidth={stroke}
+            strokeLinejoin="round"
+          />
+          <path
+            d="M2.5 9.5h19"
+            stroke="currentColor"
+            strokeWidth={stroke}
+            strokeLinecap="round"
+          />
+          <path
+            d="M6 15h4"
+            stroke="currentColor"
+            strokeWidth={stroke}
+            strokeLinecap="round"
           />
         </svg>
       );
