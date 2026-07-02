@@ -1,0 +1,8 @@
+# Dubiz / PRO MAX GROUP — security contact (RFC 9116)
+# NOTE: TEMPORARY SECURITY CONTACT — points to the official Dubiz/PRO MAX GROUP
+# contact channel until a dedicated security channel is opened (WP3 SEC-23 / gap G-23).
+Contact: https://promaxgroup.co.il/contact
+Expires: 2027-07-02T00:00:00.000Z
+Preferred-Languages: he, en
+# Vulnerability disclosure: please report privately via the contact channel above.
+# A dedicated security address and triage SLA will replace this temporary entry.
