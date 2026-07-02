@@ -65,6 +65,33 @@ async function main() {
     assert.equal(result.paymentRequest.status, "PENDING");
   }
 
+  // --- standalone create: no billingDocumentId => request has null doc + url ---
+  // Mirrors POST /api/payments/requests with a body that omits billingDocumentId
+  // (the סליקה screen). The request must be a first-class standalone charge:
+  // billingDocumentId stays null, customerId stays null, and a paymentUrl is
+  // returned — no invoice / BillingDocument is involved anywhere.
+  {
+    const store = createInMemoryPaymentStore();
+    await connectPaymentProvider(
+      { businessId: 1, merchantId: "term-standalone", credential: "secret" },
+      { store, encryptCredential: fakeEncrypt }
+    );
+    const result = await createPaymentRequest(
+      { businessId: 1, amount: 149.9, currency: "ILS", description: "סליקה" },
+      {
+        store,
+        resolveProvider: () => createStubProvider(),
+        decryptConnectionCredential: () => "secret",
+      }
+    );
+    assert.equal(result.paymentRequest.billingDocumentId, null);
+    assert.equal(result.paymentRequest.customerId, null);
+    assert.ok(result.paymentUrl.startsWith("https://stub.local/"));
+    assert.equal(result.paymentRequest.paymentUrl, result.paymentUrl);
+    // the persisted row carries no document linkage
+    assert.equal(store.requests[0]?.billingDocumentId, null);
+  }
+
   // --- create request with no connection => rejects (route -> 400) ---
   {
     const store = createInMemoryPaymentStore();
