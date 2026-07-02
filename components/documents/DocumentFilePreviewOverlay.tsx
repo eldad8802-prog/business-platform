@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useAccessibleDialog } from "@/components/ui/use-accessible-dialog";
+import { useAccessibleDialog } from "@/components/ui/accessibility";
 import {
   buildDocumentDownloadName,
   fetchDocumentFileBlob,

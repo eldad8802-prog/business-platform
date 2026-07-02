@@ -14,7 +14,7 @@ import {
 } from "@/lib/api/inventory";
 import { inventoryTextKey, normalizeInventoryText } from "@/lib/inventory/normalize";
 import { inventoryToast } from "@/components/inventory/inventory-toast";
-import { getAccessibleFieldProps, focusFirstInvalidField } from "@/components/ui/accessible-field";
+import { getAccessibleFieldProps, focusFirstInvalidField } from "@/components/ui/accessibility";
 
 type CreateFieldErrors = Partial<
   Record<"name" | "initialQuantity" | "minimumQuantity" | "reorderPoint", string>
