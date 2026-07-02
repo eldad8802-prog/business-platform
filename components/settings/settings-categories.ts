@@ -18,6 +18,13 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     icon: "👤",
   },
   {
+    key: "business",
+    href: "/settings/business",
+    title: "העסק שלי",
+    description: "שם, תחום וכתובת העסק",
+    icon: "🏢",
+  },
+  {
     key: "connections",
     href: "/settings/connections",
     title: "חיבורים",
