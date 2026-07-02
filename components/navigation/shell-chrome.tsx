@@ -53,6 +53,8 @@ export function ShellChrome({ children }: ShellChromeProps) {
         </div>
       ) : null}
       <div
+        id="main-content"
+        tabIndex={-1}
         className="min-h-0 min-w-0 flex-1 overflow-x-hidden"
         style={{
           position: "relative",
