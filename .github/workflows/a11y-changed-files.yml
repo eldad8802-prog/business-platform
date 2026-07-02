@@ -1,0 +1,46 @@
+name: a11y-changed-files
+
+# WP1 A-16 enforcement (CI Enforcement Phase 1).
+#
+# jsx-a11y rules stay `warn` in eslint.config.mjs, so a FULL lint never fails —
+# legacy/grandfathered code is untouched (WP9 §10). This job enforces jsx-a11y as
+# BLOCKING on the files CHANGED in a pull request ONLY: the goal is "no new a11y
+# debt", not "fix all existing debt". Scoped to jsx-a11y rules (other lint
+# warnings are ignored here). A justified `eslint-disable` is the documented
+# exception for intentional patterns.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  jsx-a11y-changed:
+    name: jsx-a11y (changed files)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - name: Enforce jsx-a11y on changed .tsx/.jsx (legacy grandfathered)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA"...HEAD -- '*.tsx' '*.jsx' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "No changed .tsx/.jsx files — nothing to enforce."
+            exit 0
+          fi
+          echo "Changed UI files:"
+          echo "$CHANGED"
+          npx eslint -f json $CHANGED > eslint-a11y.json || true
+          node scripts/ci/check-jsx-a11y.mjs eslint-a11y.json

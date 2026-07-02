@@ -118,7 +118,7 @@ Data leaves Dubiz to: **Google** (Gmail readonly + Vision OCR — full document 
 | G-4 | Privacy | No retention policy / TTL / purge for PII | Missing | High |
 | G-5 | Privacy | Export limited to financial data; no CRM/message/account export | Partial | Medium |
 | G-6 | Privacy | PII plaintext at rest (customer, messages, OCR text) | Missing | Medium-High |
-| G-7 | Accessibility | WCAG governance + DoD now defined (WP1). Tooling: `eslint-plugin-jsx-a11y` was **partially active via `eslint-config-next`**; **W0 extended it to the full recommended set as `warn`** (non-blocking). Full retrofit + promotion to `error` still pending | Partial (was Missing) | High (legal, IL Equal Rights / WCAG 2.0 AA obligation) |
+| G-7 | Accessibility | WCAG governance + DoD defined (WP1). Tooling: `eslint-plugin-jsx-a11y` full recommended set as `warn` (W0). **W9: ENFORCED on changed files** (blocking CI `a11y-changed-files` + `scripts/ci/check-jsx-a11y.mjs`; legacy grandfathered). Full legacy retrofit + promotion to `error` in base config still pending | Partial→Enforced (new code) | High (legal, IL Equal Rights / WCAG 2.0 AA obligation) |
 | G-8 | Accessibility | Forms lack a11y (labels-to-error linkage, required/invalid) | Partial | Medium |
 | G-9 | Accessibility | No focus trap / skip links / reduced-motion / contrast verification | Partial | Medium |
 | G-10 | Security | Stateless tokens — no revocation/logout invalidation | Partial | Medium |

@@ -155,6 +155,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
           pointerEvents: visualOpen ? "auto" : "none",
         }}
       />
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/click-events-have-key-events -- the dialog only stops backdrop-click propagation; keyboard dismiss is Escape, handled in this component */}
       <div
         role="dialog"
         aria-modal="true"
