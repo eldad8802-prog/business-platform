@@ -1,20 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
-import { ValidationError } from "@/lib/errors";
 import {
   authorizePaymentAction,
   PAYMENT_ACTIONS,
 } from "@/lib/services/payments/payment-authorization";
-import { connectPaymentProvider } from "@/lib/services/payments/payment-connection.service";
+import { connectProviderFromDescriptor } from "@/lib/services/payments/payment-connection.service";
 import { paymentConnectionDeps } from "@/lib/services/payments/payments.deps";
 
 export const runtime = "nodejs";
 
 /**
- * Connect (or update) the business's Tranzila connection. The credential is
- * encrypted at rest and never returned — the response carries only the public
- * connection shape.
+ * Backward-compatible Tranzila wrapper. Preserves the legacy body
+ * `{ merchantId, credential }` but routes through the generic, descriptor-driven
+ * connect so the stored credential shape matches every other provider. Prefer
+ * the generic `POST /api/payments/connections` for new callers.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -31,21 +31,13 @@ export async function POST(req: NextRequest) {
       body = {};
     }
 
-    if (typeof body.merchantId !== "string" || !body.merchantId.trim()) {
-      throw new ValidationError("merchantId is required");
-    }
-    if (typeof body.credential !== "string" || !body.credential) {
-      throw new ValidationError("credential is required");
-    }
-
-    const connection = await connectPaymentProvider(
+    const connection = await connectProviderFromDescriptor(
       {
         businessId: actor.businessId,
         actorUserId: actor.userId,
         provider: "TRANZILA",
-        merchantId: body.merchantId,
-        credential: body.credential,
-        isActive: typeof body.isActive === "boolean" ? body.isActive : true,
+        fields: { merchantId: body.merchantId, secret: body.credential },
+        isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
       },
       paymentConnectionDeps()
     );

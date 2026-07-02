@@ -1,25 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
-import { ValidationError } from "@/lib/errors";
 import {
   authorizePaymentAction,
   PAYMENT_ACTIONS,
 } from "@/lib/services/payments/payment-authorization";
-import { connectPaymentProvider } from "@/lib/services/payments/payment-connection.service";
+import { connectProviderFromDescriptor } from "@/lib/services/payments/payment-connection.service";
 import { paymentConnectionDeps } from "@/lib/services/payments/payments.deps";
 
 export const runtime = "nodejs";
 
 /**
- * Connect (or update) the business's CardCom connection.
- *
- * Connection model (no schema change — reuses the encrypted credential column):
- *   merchantId  = CardCom TerminalNumber
- *   credential  = JSON { apiName, apiPassword }  (encrypted at rest)
- *
- * The API password is write-only: it is sent here, encrypted, and never
- * returned. The response carries only the public connection shape (no secrets).
+ * Backward-compatible CardCom wrapper. Preserves the legacy body
+ * `{ merchantId | terminalNumber, apiName, apiPassword }` but routes through the
+ * generic, descriptor-driven connect. The API password is write-only. Prefer the
+ * generic `POST /api/payments/connections` for new callers.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -36,36 +31,17 @@ export async function POST(req: NextRequest) {
       body = {};
     }
 
-    // Accept either `merchantId` or `terminalNumber` for the terminal.
-    const terminalRaw =
-      typeof body.merchantId === "string"
-        ? body.merchantId
-        : typeof body.terminalNumber === "string"
-          ? body.terminalNumber
-          : "";
-    const apiName = typeof body.apiName === "string" ? body.apiName : "";
-    const apiPassword =
-      typeof body.apiPassword === "string" ? body.apiPassword : "";
-
-    if (!terminalRaw.trim()) {
-      throw new ValidationError("terminalNumber (merchantId) is required");
-    }
-    if (!apiName.trim()) {
-      throw new ValidationError("apiName is required");
-    }
-    if (!apiPassword) {
-      throw new ValidationError("apiPassword is required");
-    }
-
-    const connection = await connectPaymentProvider(
+    const connection = await connectProviderFromDescriptor(
       {
         businessId: actor.businessId,
         actorUserId: actor.userId,
         provider: "CARDCOM",
-        merchantId: terminalRaw.trim(),
-        // Provider-specific secret shape, encrypted as a single opaque blob.
-        credential: JSON.stringify({ apiName: apiName.trim(), apiPassword }),
-        isActive: typeof body.isActive === "boolean" ? body.isActive : true,
+        fields: {
+          terminalNumber: body.terminalNumber ?? body.merchantId,
+          apiName: body.apiName,
+          apiPassword: body.apiPassword,
+        },
+        isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
       },
       paymentConnectionDeps()
     );

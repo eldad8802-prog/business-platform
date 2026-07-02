@@ -36,6 +36,7 @@ import {
   type VerifyWebhookInput,
   type VerifyWebhookResult,
 } from "../payment-provider.types";
+import type { ProviderDescriptor } from "../provider-descriptor.types";
 
 const CARDCOM_PROVIDER: PaymentProvider = "CARDCOM";
 const DEFAULT_BASE_URL = "https://secure.cardcom.solutions";
@@ -351,3 +352,26 @@ export function createCardComProvider(
 
 /** Default instance registered in the provider registry (global fetch + env). */
 export const cardComProvider: PaymentProviderAdapter = createCardComProvider();
+
+/**
+ * Declarative descriptor (provider-driven connections). CardCom implements
+ * `getPaymentStatus` (GetLpResult) → `capabilities.verification` is true.
+ * Credential is stored as the generic JSON blob { apiName, apiPassword }.
+ */
+export const cardComDescriptor: ProviderDescriptor = {
+  key: CARDCOM_PROVIDER,
+  label: "CardCom",
+  merchantIdField: { key: "terminalNumber", label: "Terminal Number" },
+  credentialFields: [
+    { key: "apiName", label: "API Name", type: "text", required: true },
+    { key: "apiPassword", label: "API Password", type: "secret", required: true },
+  ],
+  capabilities: {
+    hostedCheckout: true,
+    verification: true,
+    refund: false,
+    sandbox: true,
+    webhooks: true,
+    tokens: false,
+  },
+};
