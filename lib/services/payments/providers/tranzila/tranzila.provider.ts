@@ -27,6 +27,7 @@ import type {
   VerifyWebhookInput,
   VerifyWebhookResult,
 } from "../payment-provider.types";
+import type { ProviderDescriptor } from "../provider-descriptor.types";
 
 const TRANZILA_PROVIDER: PaymentProvider = "TRANZILA";
 
@@ -199,5 +200,28 @@ export const tranzilaProvider: PaymentProviderAdapter = {
       amount: fields["sum"] ?? fields["amount"] ?? null,
       currency: fields["currency"] ?? null,
     };
+  },
+};
+
+/**
+ * Declarative descriptor (provider-driven connections). Tranzila is signal-only:
+ * it has no `getPaymentStatus`, so `capabilities.verification` is false. The
+ * stored credential is currently not consumed by the adapter (webhook auth uses
+ * the env secret), so its storage shape is free to be the generic JSON blob.
+ */
+export const tranzilaDescriptor: ProviderDescriptor = {
+  key: TRANZILA_PROVIDER,
+  label: "Tranzila",
+  merchantIdField: { key: "merchantId", label: "Merchant ID (Terminal)" },
+  credentialFields: [
+    { key: "secret", label: "Secret", type: "secret", required: true },
+  ],
+  capabilities: {
+    hostedCheckout: true,
+    verification: false,
+    refund: false,
+    sandbox: true,
+    webhooks: true,
+    tokens: false,
   },
 };

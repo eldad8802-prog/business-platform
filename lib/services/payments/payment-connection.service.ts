@@ -18,6 +18,7 @@ import type {
   PublicPaymentConnection,
 } from "./payments.types";
 import { recordPaymentAuditEvent } from "./payment-audit.service";
+import { getProviderDescriptor } from "./providers/provider-registry";
 
 export interface ConnectProviderInput {
   businessId: number;
@@ -110,6 +111,69 @@ export async function connectPaymentProvider(
   });
 
   return toPublicConnection(saved);
+}
+
+export interface ConnectProviderFromFieldsInput {
+  businessId: number;
+  /** Raw provider key from the request; validated against the registry. */
+  provider: string;
+  /**
+   * All submitted values, keyed by descriptor field keys — the merchant-id
+   * field (or a `merchantId` fallback) plus the credential fields. The
+   * descriptor decides which keys are consumed; extra keys are ignored.
+   */
+  fields: Record<string, unknown>;
+  isActive?: boolean;
+  actorUserId?: number | null;
+}
+
+/**
+ * Descriptor-driven connect: validates the provider + fields against its
+ * ProviderDescriptor, builds the encrypted credential blob (JSON of the
+ * credentialFields), then delegates to connectPaymentProvider. This is the
+ * single code path for the generic connection route AND the backward-compatible
+ * per-provider wrappers, so all providers store an identical JSON credential.
+ */
+export async function connectProviderFromDescriptor(
+  input: ConnectProviderFromFieldsInput,
+  deps: PaymentConnectionDeps
+): Promise<PublicPaymentConnection> {
+  const descriptor = getProviderDescriptor(input.provider);
+  if (!descriptor) {
+    throw new ValidationError(
+      `Unknown payment provider: ${String(input.provider)}`
+    );
+  }
+
+  const merchantRaw =
+    input.fields[descriptor.merchantIdField.key] ?? input.fields.merchantId;
+  const merchantId = (typeof merchantRaw === "string" ? merchantRaw : "").trim();
+  if (!merchantId) {
+    throw new ValidationError(`${descriptor.merchantIdField.label} is required`);
+  }
+
+  const credentialObject: Record<string, string> = {};
+  for (const field of descriptor.credentialFields) {
+    const raw = input.fields[field.key];
+    const value = typeof raw === "string" ? raw : "";
+    const normalized = field.type === "secret" ? value : value.trim();
+    if (field.required && normalized.length === 0) {
+      throw new ValidationError(`${field.label} is required`);
+    }
+    if (normalized.length > 0) credentialObject[field.key] = normalized;
+  }
+
+  return connectPaymentProvider(
+    {
+      businessId: input.businessId,
+      provider: descriptor.key,
+      merchantId,
+      credential: JSON.stringify(credentialObject),
+      isActive: input.isActive,
+      actorUserId: input.actorUserId ?? null,
+    },
+    deps
+  );
 }
 
 export async function listPaymentConnections(

@@ -8,14 +8,24 @@
 
 import type { PaymentProvider } from "../payments.types";
 import type { PaymentProviderAdapter } from "./payment-provider.types";
-import { tranzilaProvider } from "./tranzila/tranzila.provider";
-import { cardComProvider } from "./cardcom/cardcom.provider";
+import type { ProviderDescriptor } from "./provider-descriptor.types";
+import { tranzilaProvider, tranzilaDescriptor } from "./tranzila/tranzila.provider";
+import { cardComProvider, cardComDescriptor } from "./cardcom/cardcom.provider";
 
 const REGISTRY: Record<PaymentProvider, PaymentProviderAdapter> = {
   TRANZILA: tranzilaProvider,
-  // CardCom is a registered identity only (I1). The stub fails clearly if
-  // invoked — no integration is implemented yet.
   CARDCOM: cardComProvider,
+};
+
+/**
+ * Declarative descriptors, keyed identically to REGISTRY. Adding a provider =
+ * add its adapter + descriptor here (+ enum value). The generic connection
+ * route, catalog endpoint, and data-driven UI all read from these — no new
+ * route or UI per provider.
+ */
+const DESCRIPTORS: Record<PaymentProvider, ProviderDescriptor> = {
+  TRANZILA: tranzilaDescriptor,
+  CARDCOM: cardComDescriptor,
 };
 
 export class UnknownPaymentProviderError extends Error {
@@ -37,4 +47,17 @@ export function resolvePaymentProvider(
 
 export function isSupportedProvider(value: string): value is PaymentProvider {
   return Object.prototype.hasOwnProperty.call(REGISTRY, value);
+}
+
+/** Descriptor for one provider, or null if unknown. */
+export function getProviderDescriptor(
+  provider: string
+): ProviderDescriptor | null {
+  if (!isSupportedProvider(provider)) return null;
+  return DESCRIPTORS[provider];
+}
+
+/** All provider descriptors (catalog source; metadata only, no secrets). */
+export function listProviderDescriptors(): ProviderDescriptor[] {
+  return Object.values(DESCRIPTORS);
 }

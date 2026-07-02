@@ -38,11 +38,10 @@ function decryptConnectionCredential(
 }
 
 function resolveWebhookSecret(provider: PaymentProvider): string | null {
-  // Per-provider webhook secret from env (optional in foundation stage).
-  if (provider === "TRANZILA") {
-    return process.env.TRANZILA_WEBHOOK_SECRET ?? null;
-  }
-  return null;
+  // Provider-driven convention: `<PROVIDER>_WEBHOOK_SECRET` (optional).
+  // Preserves the existing TRANZILA_WEBHOOK_SECRET and adds new providers with
+  // zero code change (e.g. CARDCOM_WEBHOOK_SECRET).
+  return process.env[`${provider}_WEBHOOK_SECRET`] ?? null;
 }
 
 export function paymentRequestDeps(): CreatePaymentRequestDeps {
