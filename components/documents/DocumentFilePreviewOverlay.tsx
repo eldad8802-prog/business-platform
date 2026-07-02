@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useAccessibleDialog } from "@/components/ui/use-accessible-dialog";
 import {
   buildDocumentDownloadName,
   fetchDocumentFileBlob,
@@ -65,13 +66,13 @@ export default function DocumentFilePreviewOverlay({
     };
   }, [documentId]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  // WP1 A-11 via the shared A-18 primitive: role/aria-modal, focus trap + restore,
+  // Escape, background inert, scroll lock — all inherited, no hand-rolling.
+  const { dialogProps, backdropProps } = useAccessibleDialog({
+    open: true,
+    onClose,
+    ariaLabel: "תצוגת מסמך מקור",
+  });
 
   const kind = getPreviewKind("", mimeType);
 
@@ -92,15 +93,9 @@ export default function DocumentFilePreviewOverlay({
       dir="rtl"
       className="documents-file-overlay"
       style={overlayStyle}
-      onClick={onClose}
+      {...backdropProps}
     >
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-label="תצוגת מסמך מקור"
-        style={dialogStyle}
-        onClick={(e) => e.stopPropagation()}
-      >
+      <section {...dialogProps} style={dialogStyle}>
         <header style={headerStyle}>
           <div style={titleStyle} title={title}>
             {title}
