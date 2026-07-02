@@ -263,16 +263,22 @@ export function createCardComProvider(
       const body: Record<string, unknown> = {
         TerminalNumber: Number(input.merchantId),
         ApiName: credential.apiName,
+        // Explicit operation. Default is ChargeOnly; sent explicitly to be
+        // resilient to a future default change and for auditability.
+        Operation: "ChargeOnly",
         Amount: Number(input.amount),
         ISOCoinId: ISO_COIN_ID[input.currency] ?? ISO_COIN_ID.ILS,
         // Canonical correlation: our PaymentRequest id round-trips via ReturnValue.
         ReturnValue: String(input.paymentRequestId),
         // ProductName has a provider length limit (I3.1 verified) — cap safely.
         ProductName: (input.description ?? "Payment").slice(0, PRODUCT_NAME_MAX),
+        // v11 CreateLowProfile requires the redirect URLs. Use caller-supplied
+        // values when present, else safe defaults from the public base URL (the
+        // browser lands on a real page; settlement is server-side via webhook).
+        SuccessRedirectUrl: input.successUrl ?? `${publicBaseUrl}/?payment=success`,
+        FailedRedirectUrl: input.failureUrl ?? `${publicBaseUrl}/?payment=failed`,
         WebHookUrl: `${publicBaseUrl}/api/payments/webhook/cardcom`,
       };
-      if (input.successUrl) body.SuccessRedirectUrl = input.successUrl;
-      if (input.failureUrl) body.FailedRedirectUrl = input.failureUrl;
 
       const result = await postJson(CREATE_PATH, body);
       const responseCode = caseInsensitiveGet(result, "ResponseCode");

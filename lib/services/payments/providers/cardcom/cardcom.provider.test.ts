@@ -72,6 +72,10 @@ async function main() {
     assert.equal(body.Amount, 100);
     assert.equal(body.TerminalNumber, 1000);
     assert.equal(body.WebHookUrl, "https://app.example/api/payments/webhook/cardcom");
+    // v11 hardening: explicit Operation + always-sent redirect URLs (defaults)
+    assert.equal(body.Operation, "ChargeOnly");
+    assert.equal(body.SuccessRedirectUrl, "https://app.example/?payment=success");
+    assert.equal(body.FailedRedirectUrl, "https://app.example/?payment=failed");
     // never any card data
     const s = JSON.stringify(body);
     assert.ok(!/cardnumber|"cvv"|"pan"/i.test(s));
@@ -101,6 +105,30 @@ async function main() {
     const productName = String(calls[0]!.body!.ProductName);
     assert.equal(productName.length, 50);
     assert.equal(productName, "x".repeat(50));
+  }
+
+  // --- 1c. redirect URLs: caller-supplied values override the safe defaults ---
+  {
+    const { fetchImpl, calls } = mockHttp((url) =>
+      url.includes("/Create")
+        ? { json: { ResponseCode: 0, Url: "https://pay/lp-o", LowProfileId: "lp-o" } }
+        : undefined
+    );
+    await provider(fetchImpl).createPaymentLink({
+      businessId: 1,
+      paymentRequestId: 8,
+      amount: "10.00",
+      currency: "ILS",
+      description: null,
+      merchantId: "1000",
+      credential: CRED,
+      successUrl: "https://caller/ok",
+      failureUrl: "https://caller/no",
+    });
+    const body = calls[0]!.body!;
+    assert.equal(body.SuccessRedirectUrl, "https://caller/ok");
+    assert.equal(body.FailedRedirectUrl, "https://caller/no");
+    assert.equal(body.Operation, "ChargeOnly");
   }
 
   // --- 2. GetLpResult success => PAID ---
