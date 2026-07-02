@@ -71,6 +71,40 @@ export const SIM_BUILD_OPTS = {
   generatedAt: "2026-07-01T09:00:00.000Z",
 } as const;
 
+/**
+ * Filler documents to satisfy the simulator's certification minimum
+ * (">= 2000 records ... examples from every document type"). Simple, balanced
+ * TAX_INVOICE docs (1 line each): C100.1219 == D110.1267 so each reconciles.
+ * The 4 representative docs above already cover every in-scope type (305/320/
+ * 400/330). Deterministic — no Date/random. Each filler = 1 C100 + 1 D110.
+ */
+function buildFillerDocs(count: number): UniformDocumentInput[] {
+  const docs: UniformDocumentInput[] = [];
+  for (let i = 0; i < count; i++) {
+    const day = String((i % 28) + 1).padStart(2, "0");
+    const num = 2000 + i;
+    docs.push(
+      doc({
+        id: 1000 + i,
+        documentNumber: num,
+        documentNumberFormatted: String(num).padStart(8, "0"),
+        issuedAt: `2026-06-${day}T10:00:00.000Z`,
+        lockedAt: `2026-06-${day}T10:00:00.000Z`,
+        subtotalAmount: "100.00",
+        vatAmount: "17.00",
+        totalAmount: "117.00",
+        lines: [
+          { lineIndex: 0, description: "שירות", quantity: "1.0000", unitPrice: "100.00", vatRatePercent: "17.00", lineSubtotal: "100.00", vatAmount: "17.00", lineTotal: "117.00" },
+        ],
+      })
+    );
+  }
+  return docs;
+}
+
+/** 1000 fillers → 2000 records (1 C100 + 1 D110 each); +9 representative +2 (A100/Z900). */
+const FILLER_COUNT = 1000;
+
 export const SIM_FIXTURE_INPUT: UniformExportAssemblerInput = {
   businessId: 1,
   period: { start: "2026-06-01T00:00:00.000Z", end: "2026-06-30T23:59:59.999Z" },
@@ -146,5 +180,7 @@ export const SIM_FIXTURE_INPUT: UniformExportAssemblerInput = {
         { lineIndex: 0, description: "זיכוי חלקי", quantity: "1.0000", unitPrice: "100.00", vatRatePercent: "17.00", lineSubtotal: "100.00", vatAmount: "17.00", lineTotal: "117.00" },
       ],
     }),
+    // Filler invoices to exceed the simulator's 2000-record certification minimum.
+    ...buildFillerDocs(FILLER_COUNT),
   ],
 };

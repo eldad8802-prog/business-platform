@@ -9,6 +9,7 @@
 
 import { randomInt } from "node:crypto";
 import type {
+  UniformCustomer,
   UniformDocumentRecord,
   UniformExportProjection,
   UniformLineRecord,
@@ -19,6 +20,7 @@ import { encodeIso8859_8i } from "@/lib/services/billing/uniform/uniform-encodin
 import {
   A000_LAYOUT,
   A100_LAYOUT,
+  B110_LAYOUT,
   C100_LAYOUT,
   D110_LAYOUT,
   D120_LAYOUT,
@@ -198,7 +200,7 @@ function d110Values(line: UniformLineRecord, docType: string, docNum: string, do
     1264: line.quantity,
     1265: line.unitPrice,
     1266: "0", // no line discount
-    1267: line.lineTotal,
+    1267: line.lineSubtotal, // §4.5: line amount BEFORE VAT (qty*unitPrice - discount); reconciles to C100.1219 — NOT incl VAT
     1268: line.vatRatePercent,
     1270: "",
     1272: docDateIso,
@@ -234,6 +236,39 @@ function d120Values(pay: UniformPaymentRecord, docType: string, docNum: string, 
   };
 }
 
+/**
+ * B110 — account card for a customer (§ B110, len 376). BD-1 scope: a MINIMUM
+ * account, not double-entry bookkeeping — all balances (1414/1415/1416/1422) = 0.
+ * 1403 (account key) mirrors C100.1225 so the simulator can reconcile them.
+ */
+function b110Values(cust: UniformCustomer, business: { billingTaxId: string | null }, recordNumber: number): FieldValues {
+  const ZERO = "0"; // AMOUNT kind → "+00000000000000"
+  return {
+    1401: String(recordNumber),
+    1402: vat9(business.billingTaxId),
+    1403: cust.id != null ? String(cust.id) : "", // == C100.1225
+    1404: cust.name ?? "",
+    1405: "CUSTOMERS", // stable trial-balance code
+    1406: "לקוחות",
+    1407: "", // street (ח/ר)
+    1408: "", // house no (ח/ר)
+    1409: cust.city ?? "", // city (ח/ר)
+    1410: "", // zip (ח/ר)
+    1411: "", // country (ח/ר)
+    1412: "", // country code (ח/ר)
+    1413: "", // central account (ח/ר)
+    1414: ZERO, // opening balance
+    1415: ZERO, // total debit
+    1416: ZERO, // total credit
+    1417: "", // accounting-classification code (ח/ר) → zero-filled
+    1419: vat9(cust.taxId), // customer VAT/ID when present, else zeros
+    1421: "", // branch id — conditional on 1034=1 (not set)
+    1422: ZERO, // opening balance (foreign currency)
+    1423: "", // foreign-currency code (ח/ר)
+    1424: "", // future-data area → spaces
+  };
+}
+
 // ---- builders ----
 
 export type UniformBuildResult = {
@@ -245,7 +280,7 @@ export type UniformBuildResult = {
     primaryId: string;
     generatedAt: string;
     totalBkmvRecords: number;
-    counts: { C100: number; D110: number; D120: number };
+    counts: { B110: number; C100: number; D110: number; D120: number };
     dirPath: string;
     vatNumber: string;
   };
@@ -298,6 +333,24 @@ export function buildUniformExportFiles(
     1105: "",
   });
 
+  // B110 account cards — one per unique customer on a document, placed AFTER
+  // A100 and BEFORE C100 (required record ordering). Deduped by account key
+  // (== C100.1225). BD-1 minimum: basic accounts only, no double-entry.
+  const b110Customers: UniformCustomer[] = [];
+  const seenAccountKeys = new Set<string>();
+  for (const doc of proj.documentRecords) {
+    const cust = doc.customer;
+    if (!cust || cust.id == null) continue;
+    const key = String(cust.id);
+    if (seenAccountKeys.has(key)) continue;
+    seenAccountKeys.add(key);
+    b110Customers.push(cust);
+  }
+  for (const cust of b110Customers) {
+    recNo += 1;
+    bkmv += serializeRecordLine(B110_LAYOUT, b110Values(cust, business, recNo));
+  }
+
   for (const doc of proj.documentRecords) {
     recNo += 1;
     bkmv += serializeRecordLine(C100_LAYOUT, c100Values(doc, business, recNo));
@@ -330,6 +383,7 @@ export function buildUniformExportFiles(
 
   // ---- INI.TXT ----
   const counts = {
+    B110: b110Customers.length,
     C100: proj.documentRecords.length,
     D110: proj.lineRecords.length,
     D120: proj.paymentRecords.length,
@@ -340,6 +394,7 @@ export function buildUniformExportFiles(
   );
   // one summary record per data record-type that exists (§2.5.ה order)
   for (const [code, count] of [
+    ["B110", counts.B110],
     ["C100", counts.C100],
     ["D110", counts.D110],
     ["D120", counts.D120],

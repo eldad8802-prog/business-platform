@@ -27,6 +27,7 @@ const ROOT_DIR = join(process.cwd(), "artifacts", "uniform-sim");
 /** Expected serialized length per record type (from the 1.31 layouts). */
 const EXPECTED_LEN: Record<string, number> = {
   A100: 95,
+  B110: 376,
   C100: 444,
   D110: 339,
   D120: 222,
@@ -35,7 +36,7 @@ const EXPECTED_LEN: Record<string, number> = {
 const A000_LEN = 466;
 const INI_SUMMARY_LEN = 19;
 
-function sanity(iniText: string, bkmvdataText: string, meta: { totalBkmvRecords: number; counts: { C100: number; D110: number; D120: number } }): string[] {
+function sanity(iniText: string, bkmvdataText: string, meta: { totalBkmvRecords: number; counts: { B110: number; C100: number; D110: number; D120: number } }): string[] {
   const problems: string[] = [];
 
   // Every BKMVDATA line: CRLF-terminated, code known, length exact.
@@ -56,15 +57,16 @@ function sanity(iniText: string, bkmvdataText: string, meta: { totalBkmvRecords:
   // Record-count reconciliation: A100 + C100 + D110 + D120 + Z900 == totalBkmvRecords.
   const total = Object.values(seen).reduce((a, b) => a + b, 0);
   if (total !== meta.totalBkmvRecords) problems.push(`record total ${total} != meta.totalBkmvRecords ${meta.totalBkmvRecords}`);
+  if ((seen.B110 ?? 0) !== meta.counts.B110) problems.push(`B110 ${seen.B110 ?? 0} != meta ${meta.counts.B110}`);
   if ((seen.C100 ?? 0) !== meta.counts.C100) problems.push(`C100 ${seen.C100 ?? 0} != meta ${meta.counts.C100}`);
   if ((seen.D110 ?? 0) !== meta.counts.D110) problems.push(`D110 ${seen.D110 ?? 0} != meta ${meta.counts.D110}`);
   if ((seen.D120 ?? 0) !== meta.counts.D120) problems.push(`D120 ${seen.D120 ?? 0} != meta ${meta.counts.D120}`);
   if ((seen.A100 ?? 0) !== 1) problems.push(`A100 count ${seen.A100 ?? 0} != 1`);
   if ((seen.Z900 ?? 0) !== 1) problems.push(`Z900 count ${seen.Z900 ?? 0} != 1`);
 
-  // INI = A000 (466) + one 19-char summary per PRESENT data record-type (C100/D110/D120).
+  // INI = A000 (466) + one 19-char summary per PRESENT data record-type (B110/C100/D110/D120).
   const iniLines = iniText.split("\r\n").filter((l) => l.length > 0);
-  const expectedSummaries = [meta.counts.C100, meta.counts.D110, meta.counts.D120].filter((c) => c > 0).length;
+  const expectedSummaries = [meta.counts.B110, meta.counts.C100, meta.counts.D110, meta.counts.D120].filter((c) => c > 0).length;
   const expectedIniLines = 1 + expectedSummaries;
   if (iniLines.length !== expectedIniLines) {
     problems.push(`INI.TXT has ${iniLines.length} lines (expected ${expectedIniLines}: A000 + ${expectedSummaries} summaries)`);
@@ -95,7 +97,7 @@ async function main() {
     primaryId: SIM_BUILD_OPTS.primaryId,
     generatedAt: SIM_BUILD_OPTS.generatedAt,
   });
-  console.log(`\nWP2 build: ${built.meta.totalBkmvRecords} BKMVDATA records (C100=${built.meta.counts.C100} D110=${built.meta.counts.D110} D120=${built.meta.counts.D120})`);
+  console.log(`\nWP2 build: ${built.meta.totalBkmvRecords} BKMVDATA records (B110=${built.meta.counts.B110} C100=${built.meta.counts.C100} D110=${built.meta.counts.D110} D120=${built.meta.counts.D120})`);
   console.log(`  path: ${built.meta.dirPath}`);
 
   // Sanity BEFORE writing.
@@ -107,8 +109,14 @@ async function main() {
   }
   console.log("  sanity: OK (record codes/lengths/CRLF + control counts)");
 
-  // WP2 packaging: write INI.TXT + BKMVDATA.zip.
+  // WP2 packaging: write INI.TXT + BKMVDATA.zip (unchanged).
   const written = await writeUniformExport(ROOT_DIR, built);
+
+  // The official simulator accepts .txt only (rejects BKMVDATA.zip). Write the
+  // uncompressed BKMVDATA.TXT ALONGSIDE (not replacing) the zip. Source is the
+  // exact same buffer the zip was built from → byte-for-byte identical content.
+  const bkmvdataTxtPath = join(written.outputDir, "BKMVDATA.TXT");
+  writeFileSync(bkmvdataTxtPath, built.bkmvdataBuffer);
 
   // WP3: render the three registration reports into the same dir.
   const pdfs = await renderUniformReports(proj, built, SIMULATOR_SOFTWARE_CONFIG);
@@ -122,6 +130,7 @@ async function main() {
   console.log("\nPackage written:");
   console.log("  dir : " + written.outputDir);
   console.log("  " + written.iniPath);
+  console.log("  " + bkmvdataTxtPath + ` (${built.bkmvdataBuffer.length} bytes)`);
   console.log("  " + written.bkmvdataZipPath);
   console.log(`  ${p26} (${pdfs.report26Pdf.length} bytes)`);
   console.log(`  ${p54} (${pdfs.report54Pdf.length} bytes)`);

@@ -161,6 +161,7 @@ const built = buildUniformExportFiles(proj, SIMULATOR_SOFTWARE_CONFIG, {
 const bkmv = built.bkmvdataText.split(CRLF).filter(Boolean);
 const ini = built.iniText.split(CRLF).filter(Boolean);
 const a100 = bkmv.find((r) => r.startsWith("A100"))!;
+const b110s = bkmv.filter((r) => r.startsWith("B110"));
 const c100s = bkmv.filter((r) => r.startsWith("C100"));
 const d110s = bkmv.filter((r) => r.startsWith("D110"));
 const d120s = bkmv.filter((r) => r.startsWith("D120"));
@@ -169,12 +170,14 @@ const a000 = ini.find((r) => r.startsWith("A000"))!;
 const summaries = ini.filter((r) => !r.startsWith("A000"));
 
 // ---- record counts / totals ----
-ok("counts: C100=3 D110=2 D120=2", built.meta.counts.C100 === 3 && built.meta.counts.D110 === 2 && built.meta.counts.D120 === 2, built.meta.counts);
-ok("total BKMVDATA records = 9", built.meta.totalBkmvRecords === 9, built.meta.totalBkmvRecords);
-ok("BKMVDATA line count = 9", bkmv.length === 9);
+ok("counts: B110=2 C100=3 D110=2 D120=2", built.meta.counts.B110 === 2 && built.meta.counts.C100 === 3 && built.meta.counts.D110 === 2 && built.meta.counts.D120 === 2, built.meta.counts);
+// A100 + 2×B110 (customers id 7 + id 9) + 3×C100 + 2×D110 + 2×D120 + Z900 = 11
+ok("total BKMVDATA records = 11", built.meta.totalBkmvRecords === 11, built.meta.totalBkmvRecords);
+ok("BKMVDATA line count = 11", bkmv.length === 11);
 
 // ---- record lengths (spec §2.5.ה) ----
 ok("A100 len 95", a100.length === 95);
+ok("B110 present (2) len 376", b110s.length === 2 && b110s.every((r) => r.length === 376), b110s.length);
 ok("all C100 len 444", c100s.every((r) => r.length === 444));
 ok("all D110 len 339", d110s.every((r) => r.length === 339));
 ok("all D120 len 222", d120s.every((r) => r.length === 222));
@@ -184,7 +187,7 @@ ok("summaries len 19", summaries.every((r) => r.length === 19));
 
 // ---- A000 field positions ----
 ok("A000 code", F(a000, 1, 4) === "A000");
-ok("A000 1002 total=9", F(a000, 10, 15) === "000000000000009", F(a000, 10, 15));
+ok("A000 1002 total=11", F(a000, 10, 15) === "000000000000011", F(a000, 10, 15));
 ok("A000 1003 עוסק", F(a000, 25, 9) === "515000123");
 ok("A000 1004 primaryId", F(a000, 34, 15) === PRIMARY);
 ok("A000 1005 &OF1.31&", F(a000, 49, 8) === "&OF1.31&");
@@ -196,10 +199,11 @@ ok("A000 1029 charset=1", F(a000, 396, 1) === "1");
 ok("A000 1032 currency ILS", F(a000, 417, 3) === "ILS");
 ok("A000 1015 ח\"פ (LTD)", F(a000, 187, 9) === "515000123");
 
-// ---- INI summaries ----
-ok("summary C100=3", summaries[0] === "C100" + "000000000000003", summaries[0]);
-ok("summary D110=2", summaries[1] === "D110" + "000000000000002");
-ok("summary D120=2", summaries[2] === "D120" + "000000000000002");
+// ---- INI summaries (B110 first, then C100/D110/D120) ----
+ok("summary B110=2", summaries[0] === "B110" + "000000000000002", summaries[0]);
+ok("summary C100=3", summaries[1] === "C100" + "000000000000003", summaries[1]);
+ok("summary D110=2", summaries[2] === "D110" + "000000000000002");
+ok("summary D120=2", summaries[3] === "D120" + "000000000000002");
 
 // ---- C100 (doc1) ----
 const c1 = c100s[0];
@@ -218,13 +222,28 @@ ok("C100 1234 link=documentId", F(c1, 425, 7) === "0000001");
 ok("C100 doc2 type=400 (RECEIPT)", F(c100s[1], 23, 3) === "400");
 ok("C100 doc3 type=320 (TAX_INVOICE_RECEIPT)", F(c100s[2], 23, 3) === "320");
 
+// ---- B110 (single customer account card, record #2) ----
+const b1 = b110s[0];
+ok("B110 code", F(b1, 1, 4) === "B110");
+ok("B110 1401 recNo=2", F(b1, 5, 9) === "000000002", F(b1, 5, 9));
+ok("B110 1402 עוסק", F(b1, 14, 9) === "515000123");
+ok("B110 1403 account key = customer id (== C100.1225 by construction)", F(b1, 23, 15).trim() === "7", JSON.stringify(F(b1, 23, 15)));
+ok("B110 1404 account name", F(b1, 38, 4) === "לקוח");
+ok("B110 1405 trial-balance code", F(b1, 88, 9) === "CUSTOMERS");
+ok("B110 1406 trial-balance desc", F(b1, 103, 6) === "לקוחות");
+ok("B110 1414 opening balance 0", F(b1, 278, 15) === "+00000000000000", F(b1, 278, 15));
+ok("B110 1416 total credit 0", F(b1, 308, 15) === "+00000000000000");
+ok("B110 1419 customer taxId", F(b1, 327, 9) === "514000000", F(b1, 327, 9));
+ok("B110 1424 future area = spaces", F(b1, 361, 16) === " ".repeat(16));
+ok("B110 len 376", b1.length === 376);
+
 // ---- D110 (doc1 line) ----
 const l1 = d110s[0];
 ok("D110 code", F(l1, 1, 4) === "D110");
 ok("D110 1255 line#=1", F(l1, 46, 4) === "0001");
 ok("D110 1264 quantity(4dp)", F(l1, 224, 17) === "+0000000000010000", F(l1, 224, 17));
 ok("D110 1265 unit price(2dp)", F(l1, 241, 15) === "+00000000010000");
-ok("D110 1267 line total", F(l1, 271, 15) === "+00000000011700");
+ok("D110 1267 line subtotal (pre-VAT)", F(l1, 271, 15) === "+00000000010000", F(l1, 271, 15));
 ok("D110 1268 VAT rate=1700", F(l1, 286, 4) === "1700");
 ok("D110 1263 unit default יחידה", F(l1, 204, 6) === "יחידה ");
 
@@ -242,8 +261,8 @@ ok("D120 CHECK due date(1311)", F(p2, 96, 8) === "20260725");
 
 // ---- Z900 ----
 ok("Z900 code", F(z900, 1, 4) === "Z900");
-ok("Z900 1155 total=9 (== A000 1002)", F(z900, 46, 15) === "000000000000009");
-ok("Z900 1151 recNo=9", F(z900, 5, 9) === "000000009");
+ok("Z900 1155 total=11 (== A000 1002)", F(z900, 46, 15) === "000000000000011");
+ok("Z900 1151 recNo=11", F(z900, 5, 9) === "000000011");
 ok("A100 1101 recNo=1", F(a100, 5, 9) === "000000001");
 
 // ---- CRLF + encoding ----

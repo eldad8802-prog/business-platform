@@ -4,8 +4,12 @@
  *
  * In-scope records only (BD-1, invoice-issuance software):
  *   INI.TXT:      A000 (466), summary records (19 each)
- *   BKMVDATA.TXT: A100 (95), C100 (444), D110 (339), D120 (222), Z900 (110)
- * Out of scope (not produced): B100, B110, M100.
+ *   BKMVDATA.TXT: A100 (95), B110 (376), C100 (444), D110 (339), D120 (222), Z900 (110)
+ * Out of scope (not produced): B100, M100.
+ *
+ * B110 (account card) added post-BD-1 as a scoped minimum: the simulator blocks
+ * a file with zero B110 records. We emit one basic account per customer that
+ * appears on a document — NOT double-entry bookkeeping (all balances = 0).
  *
  * Cancelled fields (מבוטל, length 0) are intentionally omitted — they occupy no
  * columns. Every layout self-asserts that Σ(field lengths) == declared length.
@@ -96,6 +100,41 @@ export const A100_LAYOUT: RecordLayout = {
     num(1103, "מזהה ראשי", 15),
     konst(1104, "קבוע מערכת", 8, SYSTEM_CONSTANT),
     alpha(1105, "שטח לנתונים עתידיים", 50),
+  ],
+};
+
+// B110 — חשבון בהנהלת חשבונות (account card). Transcribed VERBATIM from the
+// official 1.31 table (total length 376; cancelled fields 1418/1420 = len 0,
+// omitted). Amounts are signed X9(12)v99 (len 15, 2 implied decimals).
+export const B110_LAYOUT: RecordLayout = {
+  code: "B110",
+  length: 376,
+  fields: [
+    konst(1400, "קוד רשומה", 4, "B110"),
+    num(1401, "מס רשומה בקובץ", 9),
+    num(1402, "מס עוסק מורשה", 9),
+    alpha(1403, "מפתח החשבון", 15),
+    alpha(1404, "שם החשבון", 50),
+    alpha(1405, "קוד מאזן בוחן", 15),
+    alpha(1406, "תיאור קוד מאזן בוחן", 30),
+    alpha(1407, "רחוב לקוח/ספק", 50),
+    alpha(1408, "מספר בית", 10),
+    alpha(1409, "עיר", 30),
+    alpha(1410, "מיקוד", 8),
+    alpha(1411, "מדינה", 30),
+    alpha(1412, "קוד מדינה", 2),
+    alpha(1413, "חשבון מרכז", 15),
+    amount(1414, "יתרת החשבון בתחילת החתך", 15),
+    amount(1415, "סה\"כ חובה", 15),
+    amount(1416, "סה\"כ זכות", 15),
+    num(1417, "קוד בסיווג החשבונאי", 4),
+    // 1418 cancelled (0)
+    num(1419, "מספר עוסק של ספק/לקוח", 9),
+    // 1420 cancelled (0)
+    alpha(1421, "מזהה סניף/ענף", 7),
+    amount(1422, "יתרת חשבון בתחילת חתך במט\"ח", 15),
+    alpha(1423, "קוד מטבע יתרת החשבון במט\"ח", 3),
+    alpha(1424, "שטח לנתונים עתידיים", 16),
   ],
 };
 
@@ -230,6 +269,7 @@ export const ALL_LAYOUTS: RecordLayout[] = [
   A000_LAYOUT,
   INI_SUMMARY_LAYOUT,
   A100_LAYOUT,
+  B110_LAYOUT,
   Z900_LAYOUT,
   C100_LAYOUT,
   D110_LAYOUT,

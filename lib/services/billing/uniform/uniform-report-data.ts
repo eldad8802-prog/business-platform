@@ -144,6 +144,7 @@ function bkmvRecordRows(meta: UniformBuildResult["meta"]): RecordTypeRow[] {
     if (count > 0) rows.push({ code, name: RECORD_TYPE_LABELS[code], count });
   };
   push("A100", 1);
+  push("B110", meta.counts.B110);
   push("C100", meta.counts.C100);
   push("D110", meta.counts.D110);
   push("D120", meta.counts.D120);

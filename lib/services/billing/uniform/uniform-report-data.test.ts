@@ -96,7 +96,7 @@ ok("formatMoneyDisplay 2dp", formatMoneyDisplay("217") === "217.00");
   ok("5.4 const message", d.constMessage === "ביצוע ממשק פתוח הסתיים בהצלחה.");
   ok("5.4 dirPath == meta", d.dirPath === built.meta.dirPath);
   const codes = d.recordRows.map((r) => r.code);
-  ok("5.4 record rows present only", JSON.stringify(codes) === JSON.stringify(["A100", "C100", "D110", "D120", "Z900"]), codes);
+  ok("5.4 record rows present only", JSON.stringify(codes) === JSON.stringify(["A100", "B110", "C100", "D110", "D120", "Z900"]), codes);
   const c100 = d.recordRows.find((r) => r.code === "C100")!;
   ok("5.4 C100 count matches meta", c100.count === built.meta.counts.C100);
   ok("5.4 A100/Z900 = 1", d.recordRows.find((r) => r.code === "A100")!.count === 1 && d.recordRows.find((r) => r.code === "Z900")!.count === 1);
@@ -108,7 +108,7 @@ ok("formatMoneyDisplay 2dp", formatMoneyDisplay("217") === "217.00");
 {
   const d = buildSummaryData(proj, built.meta, SIMULATOR_SOFTWARE_CONFIG);
   ok("summary totalRecords == meta", d.totalRecords === built.meta.totalBkmvRecords);
-  ok("summary record rows match", d.recordRows.map((r) => r.code).join(",") === "A100,C100,D110,D120,Z900");
+  ok("summary record rows match", d.recordRows.map((r) => r.code).join(",") === "A100,B110,C100,D110,D120,Z900");
   ok("summary vendor identity", d.vendorName === "DUBIZ");
 }
 
