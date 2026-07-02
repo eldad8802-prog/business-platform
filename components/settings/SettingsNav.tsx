@@ -4,11 +4,8 @@ import { SettingsSection } from "./SettingsSection";
 
 export function SettingsNav() {
   return (
-    <SettingsSection
-      title="קטגוריות"
-      description="הגדרות מערכתיות בלבד — לא ניהול שוטף של העסק"
-    >
-      <nav aria-label="הגדרות מערכת" className="flex flex-col divide-y divide-gray-100">
+    <SettingsSection>
+      <nav aria-label="הגדרות" className="flex flex-col divide-y divide-gray-100">
         {SETTINGS_CATEGORIES.map((item) => (
           <SettingsRow
             key={item.key}

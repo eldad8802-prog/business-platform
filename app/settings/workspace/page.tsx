@@ -11,10 +11,10 @@ const SYSTEM_VALUES: { label: string; value: string }[] = [
 export default function SettingsWorkspacePage() {
   return (
     <>
-      <SettingsSubPageHeader title="סביבת עבודה" />
-      <SettingsSection title="ערכי מערכת">
+      <SettingsSubPageHeader title="שפה ואזור" />
+      <SettingsSection title="הגדרות אזור">
         <p className="text-sm leading-6 text-gray-600">
-          ערכי בסיס קבועים של סביבת העבודה. כרגע לקריאה בלבד.
+          כך המערכת מוצגת ומחשבת. כרגע לקריאה בלבד.
         </p>
         <div className="mt-3 divide-y divide-gray-100">
           {SYSTEM_VALUES.map((row) => (
