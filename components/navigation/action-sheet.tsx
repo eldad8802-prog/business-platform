@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { usePrefersReducedMotion, motionSafe } from "@/components/ui/accessibility";
 
 type ActionSheetProps = {
   open: boolean;
@@ -46,8 +47,12 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
   const [visualOpen, setVisualOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enterRafRef = useRef<number | null>(null);
+  // WP1 A-8: honor prefers-reduced-motion (drop the slide/fade; open/close and
+  // timing are unchanged — only the transition is removed).
+  const reduced = usePrefersReducedMotion();
 
   useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect -- pre-existing enter/exit animation state machine; W6 (A-8) only added motion gating, not this effect */
     if (open) {
       if (closeTimerRef.current) {
         clearTimeout(closeTimerRef.current);
@@ -81,6 +86,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
         closeTimerRef.current = null;
       }
     };
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [open]);
 
   useEffect(() => {
@@ -145,7 +151,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
           inset: 0,
           background: "rgba(15, 23, 42, 0.42)",
           opacity: overlayOpacity,
-          transition: `opacity ${TRANS_MS}ms ${visualOpen ? EASE_OUT : EASE_IN}`,
+          transition: motionSafe(reduced, `opacity ${TRANS_MS}ms ${visualOpen ? EASE_OUT : EASE_IN}`, "none"),
           pointerEvents: visualOpen ? "auto" : "none",
         }}
       />
@@ -168,7 +174,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
           boxShadow:
             "0 -8px 32px rgba(15, 23, 42, 0.08), 0 -2px 12px rgba(15, 23, 42, 0.04)",
           transform: sheetTransform,
-          transition: `transform ${TRANS_MS}ms ${visualOpen ? EASE_OUT : EASE_IN}`,
+          transition: motionSafe(reduced, `transform ${TRANS_MS}ms ${visualOpen ? EASE_OUT : EASE_IN}`, "none"),
           willChange: "transform",
           padding:
             "10px 14px calc(18px + env(safe-area-inset-bottom, 0px)) 14px",
@@ -248,8 +254,11 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
                 touchAction: "manipulation",
                 WebkitTapHighlightColor: "transparent",
                 boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
-                transition:
+                transition: motionSafe(
+                  reduced,
                   "transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease",
+                  "none"
+                ),
                 ...(index === QUICK_ACTIONS.length - 1 &&
                 QUICK_ACTIONS.length % 2 === 1
                   ? { gridColumn: "1 / -1" }

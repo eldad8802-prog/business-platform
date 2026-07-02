@@ -23,6 +23,7 @@ import {
 | A **form field** | `getAccessibleFieldProps` (builder) | label binding, `aria-required` / `aria-invalid` / `aria-describedby`, error `role="alert"`, hint binding |
 | A **form's submit** | `focusFirstInvalidField()` | moves focus to the first invalid field after a failed submit |
 | An **app page** | *(nothing — `SkipLink` is already global in the app shell)* | keyboard users skip to `#main-content` |
+| A component with **animation / transition** | `usePrefersReducedMotion` (+ `motionSafe`) | drop/shorten motion when the user asked the OS to reduce motion (A-8) |
 
 ## Basic examples
 
@@ -44,6 +45,13 @@ const f = getAccessibleFieldProps({ id: "item-name", error: errors.name, require
 {errors.name ? <div {...f.errorProps} className="err">{errors.name}</div> : null}
 // in your submit handler, after validation fails:
 focusFirstInvalidField();
+```
+
+**Reduced motion:**
+```tsx
+const reduced = usePrefersReducedMotion();
+<div style={{ transition: motionSafe(reduced, `transform 200ms ease`, "none") }} />
+// motion is dropped for users who set prefers-reduced-motion; layout/behavior unchanged.
 ```
 
 ## What NOT to do

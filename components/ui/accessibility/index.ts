@@ -10,3 +10,5 @@ export { getAccessibleFieldProps, focusFirstInvalidField } from "./accessible-fi
 export type { AccessibleFieldOptions } from "./accessible-field";
 
 export { SkipLink } from "./skip-link";
+
+export { usePrefersReducedMotion, motionSafe } from "./use-prefers-reduced-motion";
