@@ -10,7 +10,7 @@ export async function createDocumentFromOcrText(params: {
   fileUrl: string;
 }): Promise<{
   documentId: number;
-  extractedDataId: number;
+  extractedDataId: number | null;
   analysis: {
     documentType: string;
     isFinancial: boolean;
@@ -18,12 +18,26 @@ export async function createDocumentFromOcrText(params: {
     needsReview: boolean;
     direction: string;
     confidence: number;
-  };
+  } | null;
 }> {
-  const extracted = await runUnifiedDocumentIntelligence({
-    businessId: params.businessId,
-    rawText: params.ocrText,
-  });
+  // SEC-24: extraction is best-effort ENRICHMENT. Its failure MUST NOT discard
+  // the already-persisted artifact — so extraction runs inside try/catch and the
+  // needs_review Document is created regardless. On extraction failure we skip
+  // ExtractedData (mirrors the upload / Gmail bare-document fallback), and the
+  // document surfaces in the Review Station for manual completion. This is the
+  // shared choke point for the WhatsApp and Gmail import paths.
+  let extracted: Awaited<
+    ReturnType<typeof runUnifiedDocumentIntelligence>
+  > | null = null;
+  try {
+    extracted = await runUnifiedDocumentIntelligence({
+      businessId: params.businessId,
+      rawText: params.ocrText,
+    });
+  } catch (extractionError) {
+    console.error("CREATE_DOCUMENT_EXTRACTION_FAILED:", extractionError);
+    extracted = null;
+  }
 
   const document = await prisma.document.create({
     data: {
@@ -35,6 +49,11 @@ export async function createDocumentFromOcrText(params: {
       ocrText: params.ocrText,
     },
   });
+
+  // Extraction unavailable → bare needs_review Document (no ExtractedData).
+  if (!extracted) {
+    return { documentId: document.id, extractedDataId: null, analysis: null };
+  }
 
   const extractedData = await prisma.extractedData.create({
     data: {
@@ -73,4 +92,3 @@ export async function createDocumentFromOcrText(params: {
     },
   };
 }
-
