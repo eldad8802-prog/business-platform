@@ -11,10 +11,21 @@ import jsxA11y from "eslint-plugin-jsx-a11y";
 // (grandfathering, WP9 §10). `eslint` does not fail on warnings (no --max-warnings 0), so new
 // and changed code surfaces a11y warnings in review. Promotion of specific rules to "error"
 // is a future decision, only after the warning volume drops materially.
+// Downgrade every ACTIVE recommended jsx-a11y rule to "warn"; preserve rules the
+// recommended config leaves OFF (e.g. the deprecated `label-has-for`) as off — do NOT
+// turn them on. (W1 fix: the initial W0 mapping forced off-rules to warn, causing
+// false positives.)
+const isOff = (sev) => {
+  const s = Array.isArray(sev) ? sev[0] : sev;
+  return s === "off" || s === 0;
+};
 const jsxA11yWarn = {
   files: ["**/*.tsx", "**/*.jsx"],
   rules: Object.fromEntries(
-    Object.keys(jsxA11y.configs.recommended.rules).map((rule) => [rule, "warn"]),
+    Object.entries(jsxA11y.configs.recommended.rules).map(([rule, sev]) => [
+      rule,
+      isOff(sev) ? "off" : "warn",
+    ]),
   ),
 };
 

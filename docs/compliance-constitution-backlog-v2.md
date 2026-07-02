@@ -38,6 +38,7 @@ Deferred deliberately: these reduce size/echo but change no obligation, so they 
 | C-4 | Give **SEC-3 an interim contract** (e.g. token-version column + denylist) so revocation is buildable from WP3 without the D1 doc | delegation-depth improvement |
 | C-5 | Add a **numbering-invariant one-liner** to DEV-9 (gapless? per-year? per-business?) or an explicit pointer, so numbering is buildable | currently delegated to frozen family |
 | C-6 | Elevate **amount/currency-match on payment verification** from principle-doc prose to an enforceable SEC-14 MUST | real gap; code doesn't check amount today |
+| C-7 | **A-11 "background MUST be `inert`" for inline (non-portal) modals** — clarify WP1 that for a modal rendered inline (not via a portal), the inert-background intent is satisfied by `aria-modal="true"` + a focus trap, with true DOM `inert` achievable once the shared `useAccessibleDialog` primitive (A-18) portals the dialog. Discovered in W1 pilot (movement-modal). Clarification, not a requirement defect. | W1 pilot finding; route via Governance, do not patch WP1 directly |
 
 ---
 

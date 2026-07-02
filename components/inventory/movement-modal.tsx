@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { createInventoryMovement } from "@/lib/api/inventory";
 
 type Mode = "ADD" | "REMOVE";
@@ -42,6 +48,11 @@ const REMOVE_REASONS: ReasonOption[] = [
   { value: "INVENTORY_COUNT_CORRECTION", label: "תיקון ספירה" },
 ];
 
+// WP1 accessibility ids (A-11 dialog labelling, A-15 error linkage).
+const TITLE_ID = "movement-modal-title";
+const ERROR_ID = "movement-modal-error";
+const QUANTITY_ID = "movement-quantity";
+
 export default function MovementModal({
   open,
   itemId,
@@ -56,6 +67,10 @@ export default function MovementModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // WP1 A-11: refs for focus management (trap + restore).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+
   const reasons = useMemo(
     () => (mode === "ADD" ? ADD_REASONS : REMOVE_REASONS),
     [mode]
@@ -64,11 +79,17 @@ export default function MovementModal({
   useEffect(() => {
     if (!open) return;
 
+    // Intentional reset-on-(re)open: this modal stays mounted (renders null when
+    // closed), so form state must be cleared each time it reopens. Pre-existing
+    // behavior — preserved unchanged. (A codebase-wide react-hooks refactor to a
+    // key-based remount is a separate code-quality task, not an a11y change.)
+    /* eslint-disable react-hooks/set-state-in-effect */
     setQuantity("1");
     setNote("");
     setError(null);
     setLoading(false);
     setReason(mode === "ADD" ? "MANUAL_ADD" : "MANUAL_REMOVE");
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [open, mode]);
 
   useEffect(() => {
@@ -84,8 +105,48 @@ export default function MovementModal({
     return () => window.removeEventListener("keydown", handleEscape);
   }, [open, loading, onClose]);
 
+  // WP1 A-11: move focus into the dialog on open, restore it on close.
+  useEffect(() => {
+    if (!open) return;
+
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    dialogRef.current
+      ?.querySelector<HTMLElement>(`#${QUANTITY_ID}`)
+      ?.focus();
+
+    return () => {
+      previouslyFocusedRef.current?.focus?.();
+    };
+  }, [open]);
+
   if (!open || itemId === null) {
     return null;
+  }
+
+  // WP1 A-11: keep keyboard focus inside the dialog while it is open.
+  function trapFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Tab") return;
+
+    const focusables = dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (!focusables || focusables.length === 0) return;
+
+    const list = Array.from(focusables).filter(
+      (el) => !el.hasAttribute("disabled")
+    );
+    if (list.length === 0) return;
+
+    const first = list[0];
+    const last = list[list.length - 1];
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   async function handleSubmit() {
@@ -100,6 +161,8 @@ export default function MovementModal({
       !Number.isFinite(parsedQuantity)
     ) {
       setError("צריך להזין כמות גדולה מ־0");
+      // WP1 A-15: move focus to the invalid field on validation failure.
+      dialogRef.current?.querySelector<HTMLElement>(`#${QUANTITY_ID}`)?.focus();
       return;
     }
 
@@ -117,18 +180,27 @@ export default function MovementModal({
 
       await onSuccess();
       onClose();
-    } catch (err: any) {
-      setError(err?.message || "שגיאה בשמירת התנועה");
+    } catch (err) {
+      // Preserve prior behavior (use a thrown value's `message` if present) without `any`.
+      const message =
+        typeof err === "object" && err !== null && "message" in err
+          ? String((err as { message?: unknown }).message ?? "")
+          : "";
+      setError(message || "שגיאה בשמירת התנועה");
     } finally {
       setLoading(false);
     }
   }
 
   return (
+    // WP1 A-11: backdrop click is optional mouse dismiss only; the accessible
+    // keyboard dismiss paths are Escape and the close button. Closes only when
+    // the backdrop itself (not its children) is clicked.
     <div
       dir="rtl"
-      onClick={() => {
-        if (!loading) {
+      role="presentation"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !loading) {
           onClose();
         }
       }}
@@ -143,8 +215,13 @@ export default function MovementModal({
         padding: "16px",
       }}
     >
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- WAI-ARIA APG dialog pattern: focus-trap keydown is managed on the dialog element (A-11) */}
       <div
-        onClick={(e) => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={TITLE_ID}
+        onKeyDown={trapFocus}
         style={{
           width: "100%",
           maxWidth: "440px",
@@ -165,7 +242,7 @@ export default function MovementModal({
           }}
         >
           <div>
-            <div style={{ fontSize: "17px", fontWeight: 800, color: "#111827" }}>
+            <div id={TITLE_ID} style={{ fontSize: "17px", fontWeight: 800, color: "#111827" }}>
               {mode === "ADD" ? "הוספת מלאי" : "הפחתת מלאי"}
             </div>
 
@@ -197,17 +274,20 @@ export default function MovementModal({
 
         <div style={{ padding: "18px", display: "flex", flexDirection: "column", gap: "14px" }}>
           <div>
-            <label htmlFor="movement-quantity" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
+            <label htmlFor={QUANTITY_ID} style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
               כמות
             </label>
 
             <input
-              id="movement-quantity"
+              id={QUANTITY_ID}
               type="number"
               min="1"
               step="1"
               value={quantity}
               disabled={loading}
+              aria-required={true}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? ERROR_ID : undefined}
               onChange={(e) => {
                 setQuantity(e.target.value);
                 setError(null);
@@ -283,7 +363,8 @@ export default function MovementModal({
           </div>
 
           {error && (
-            <div style={{ color: "#b91c1c", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "12px", padding: "10px 12px", fontSize: "13px", lineHeight: 1.5 }}>
+            // WP1 A-13: announce the error to assistive tech.
+            <div id={ERROR_ID} role="alert" style={{ color: "#b91c1c", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "12px", padding: "10px 12px", fontSize: "13px", lineHeight: 1.5 }}>
               {error}
             </div>
           )}
