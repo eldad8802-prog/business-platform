@@ -37,5 +37,12 @@ export function getHomeQuickActions(): QuickAction[] {
       href: "/documents",
       status: "active",
     },
+    {
+      key: "secretary",
+      title: "המזכירה שלך",
+      icon: "secretary",
+      href: "/secretary",
+      status: "active",
+    },
   ];
 }
