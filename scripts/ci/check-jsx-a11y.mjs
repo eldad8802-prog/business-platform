@@ -11,7 +11,22 @@ if (!file) {
   process.exit(2);
 }
 
-const report = JSON.parse(readFileSync(file, "utf8"));
+let report;
+try {
+  report = JSON.parse(readFileSync(file, "utf8"));
+} catch (err) {
+  console.error(`Could not read/parse ESLint report '${file}': ${err.message}`);
+  process.exit(2);
+}
+// The caller only runs this when files WERE changed, so an empty/non-array
+// report means ESLint did not actually lint them — fail rather than pass blind.
+if (!Array.isArray(report) || report.length === 0) {
+  console.error(
+    `ESLint report '${file}' is empty or not an array — refusing to pass (possible ESLint failure).`
+  );
+  process.exit(2);
+}
+
 const issues = report.flatMap((f) =>
   (f.messages || [])
     .filter((m) => m.ruleId && m.ruleId.startsWith("jsx-a11y/"))

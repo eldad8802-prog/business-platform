@@ -1,13 +1,8 @@
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createInventoryMovement } from "@/lib/api/inventory";
+import { useAccessibleDialog } from "@/components/ui/accessibility";
 
 type Mode = "ADD" | "REMOVE";
 
@@ -67,9 +62,17 @@ export default function MovementModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // WP1 A-11: refs for focus management (trap + restore).
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  // WP1 A-11 via the shared A-18 primitive: role/aria-modal, focus trap +
+  // focus-in (to the quantity field) + focus-restore, Escape, background inert,
+  // scroll-lock. `loading` gates dismissal (no Escape/backdrop close while saving).
+  const { dialogRef, dialogProps, backdropProps } =
+    useAccessibleDialog<HTMLDivElement>({
+      open,
+      onClose,
+      labelledById: TITLE_ID,
+      disableClose: loading,
+      initialFocusId: QUANTITY_ID,
+    });
 
   const reasons = useMemo(
     () => (mode === "ADD" ? ADD_REASONS : REMOVE_REASONS),
@@ -92,61 +95,8 @@ export default function MovementModal({
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [open, mode]);
 
-  useEffect(() => {
-    if (!open) return;
-
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === "Escape" && !loading) {
-        onClose();
-      }
-    }
-
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [open, loading, onClose]);
-
-  // WP1 A-11: move focus into the dialog on open, restore it on close.
-  useEffect(() => {
-    if (!open) return;
-
-    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
-    dialogRef.current
-      ?.querySelector<HTMLElement>(`#${QUANTITY_ID}`)
-      ?.focus();
-
-    return () => {
-      previouslyFocusedRef.current?.focus?.();
-    };
-  }, [open]);
-
   if (!open || itemId === null) {
     return null;
-  }
-
-  // WP1 A-11: keep keyboard focus inside the dialog while it is open.
-  function trapFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
-    if (event.key !== "Tab") return;
-
-    const focusables = dialogRef.current?.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
-    if (!focusables || focusables.length === 0) return;
-
-    const list = Array.from(focusables).filter(
-      (el) => !el.hasAttribute("disabled")
-    );
-    if (list.length === 0) return;
-
-    const first = list[0];
-    const last = list[list.length - 1];
-
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
   }
 
   async function handleSubmit() {
@@ -193,17 +143,9 @@ export default function MovementModal({
   }
 
   return (
-    // WP1 A-11: backdrop click is optional mouse dismiss only; the accessible
-    // keyboard dismiss paths are Escape and the close button. Closes only when
-    // the backdrop itself (not its children) is clicked.
     <div
       dir="rtl"
-      role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !loading) {
-          onClose();
-        }
-      }}
+      {...backdropProps}
       style={{
         position: "fixed",
         inset: 0,
@@ -215,13 +157,8 @@ export default function MovementModal({
         padding: "16px",
       }}
     >
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- WAI-ARIA APG dialog pattern: focus-trap keydown is managed on the dialog element (A-11) */}
       <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={TITLE_ID}
-        onKeyDown={trapFocus}
+        {...dialogProps}
         style={{
           width: "100%",
           maxWidth: "440px",

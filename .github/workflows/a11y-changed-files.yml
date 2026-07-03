@@ -35,12 +35,22 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA"...HEAD -- '*.tsx' '*.jsx' || true)
-          if [ -z "$CHANGED" ]; then
+          # NUL-delimited so paths with spaces are safe.
+          mapfile -d '' CHANGED < <(git diff -z --name-only --diff-filter=ACMR "$BASE_SHA"...HEAD -- '*.tsx' '*.jsx')
+          if [ ${#CHANGED[@]} -eq 0 ]; then
             echo "No changed .tsx/.jsx files — nothing to enforce."
             exit 0
           fi
-          echo "Changed UI files:"
-          echo "$CHANGED"
-          npx eslint -f json $CHANGED > eslint-a11y.json || true
+          printf 'Changed UI file: %s\n' "${CHANGED[@]}"
+          set +e
+          npx eslint -f json "${CHANGED[@]}" > eslint-a11y.json
+          ESLINT_EXIT=$?
+          set -e
+          # ESLint exit codes: 0 = no problems, 1 = problems reported (we parse them
+          # for jsx-a11y), >=2 = ESLint itself failed (bad config / crash) → fail hard
+          # so a crash can never leave empty JSON that silently passes the gate.
+          if [ "$ESLINT_EXIT" -gt 1 ]; then
+            echo "::error::ESLint failed to run (exit $ESLINT_EXIT) — failing the a11y gate."
+            exit 1
+          fi
           node scripts/ci/check-jsx-a11y.mjs eslint-a11y.json

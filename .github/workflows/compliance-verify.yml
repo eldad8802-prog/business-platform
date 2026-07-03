@@ -1,0 +1,33 @@
+name: compliance-verify
+
+# Runs the compliance verify-tests (SEC-24 documents durability + WhatsApp intake)
+# as BLOCKING checks, so the "caught in CI" guarantee is real — not just a local
+# script. These are fast, DB-free tsx checks (source-contract + injected-fake
+# behavioural).
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: compliance verify-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - name: SEC-24 documents durability contract
+        run: npm run verify:documents-sec24
+
+      - name: WhatsApp intake (SEC-24 behavioural)
+        run: npm run verify:whatsapp-webhook-pr4

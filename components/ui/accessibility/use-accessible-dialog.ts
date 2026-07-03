@@ -46,6 +46,11 @@ export type UseAccessibleDialogOptions = {
   describedById?: string;
   /** When true, Escape and backdrop click are ignored (e.g. while saving). */
   disableClose?: boolean;
+  /**
+   * Id of the element to focus on open (e.g. the first form field). When omitted,
+   * focus moves to the first focusable element in the dialog.
+   */
+  initialFocusId?: string;
 };
 
 const FOCUSABLE_SELECTOR =
@@ -58,11 +63,13 @@ export function useAccessibleDialog<T extends HTMLElement = HTMLElement>({
   ariaLabel,
   describedById,
   disableClose = false,
+  initialFocusId,
 }: UseAccessibleDialogOptions) {
   const dialogRef = useRef<T | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
-  // Escape to close.
+  // Escape to close. stopPropagation keeps a parent surface (e.g. a wrapping
+  // sheet) from also acting on the same Escape — this dialog owns the dismissal.
   useEffect(() => {
     if (!open) return;
     function onKeyDown(event: KeyboardEvent) {
@@ -81,13 +88,16 @@ export function useAccessibleDialog<T extends HTMLElement = HTMLElement>({
     previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
 
     const node = dialogRef.current;
-    const first = node?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
-    (first ?? node)?.focus?.();
+    const preferred = initialFocusId
+      ? node?.querySelector<HTMLElement>(`#${initialFocusId}`)
+      : null;
+    const target = preferred ?? node?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+    (target ?? node)?.focus?.();
 
     return () => {
       previouslyFocusedRef.current?.focus?.();
     };
-  }, [open]);
+  }, [open, initialFocusId]);
 
   // Make everything outside the dialog inert + lock body scroll while open.
   useEffect(() => {
