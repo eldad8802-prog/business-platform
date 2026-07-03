@@ -4,6 +4,14 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ConversationList } from "@/components/inbox/ConversationList";
 import { ConversationView } from "@/components/inbox/ConversationView";
+import {
+  InboxConnectionLoader,
+  WhatsAppInboxOnboarding,
+  WhatsAppReconnectBanner,
+} from "@/components/inbox/WhatsAppConversationsGate";
+import { InboxConnectedEmptyState } from "@/components/inbox/InboxConnectedEmptyState";
+import { useWhatsAppConnection } from "@/components/whatsapp/use-whatsapp-connection";
+import { WA_COPY } from "@/components/whatsapp/wa-copy";
 import type { InboxItemViewModel } from "@/lib/inbox-view/inbox-item.types";
 import {
   assignInboxWorkCategory,
@@ -194,6 +202,12 @@ function InboxPageContent() {
   const [isMobile, setIsMobile] = useState(false);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  // WhatsApp connection gate: bumped after a (re)connect completes so the
+  // status re-fetches and the onboarding/banner clears.
+  const [waReloadKey, setWaReloadKey] = useState(0);
+  const waConnection = useWhatsAppConnection(waReloadKey);
+  // Friendly notice when an outbound WhatsApp reply couldn't be delivered.
+  const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [takeOverBusy, setTakeOverBusy] = useState(false);
   const [productLinkPrefill, setProductLinkPrefill] =
     useState<ProductLinkPrefill | null>(null);
@@ -591,6 +605,23 @@ function InboxPageContent() {
       if (!res.ok) {
         console.error("Failed to send business message", data);
         return;
+      }
+
+      // Surface a friendly notice if WhatsApp delivery failed (e.g. outside the
+      // 24h window, or the connection was revoked). The message is still stored.
+      const wa = data?.whatsappSend;
+      if (wa && wa.status === "FAILED") {
+        const reasonKey =
+          wa.reason === "window"
+            ? "windowExpired"
+            : wa.reason === "revoked"
+              ? "revoked"
+              : wa.reason === "not_connected"
+                ? "notConnected"
+                : "failed";
+        setSendNotice(WA_COPY.outbound[reasonKey]);
+      } else {
+        setSendNotice(null);
       }
 
       if (selectedSuggestionId) {
@@ -1002,18 +1033,54 @@ function InboxPageContent() {
     );
   }
 
+  // ── WhatsApp connection gate ────────────────────────────────────────────
+  // While the status resolves, hold a calm loader (avoids flashing the
+  // onboarding then the conversations). Never connected → full onboarding.
+  // Was connected but the link broke → conversations + a reconnect banner.
+  const reloadWaConnection = () => setWaReloadKey((k) => k + 1);
+
+  if (waConnection.phase === "loading") {
+    return <InboxConnectionLoader />;
+  }
+
+  const waNeverConnected =
+    waConnection.phase === "disconnected" && waConnection.previousStatus === null;
+  const waBroken =
+    waConnection.phase === "disconnected" && waConnection.previousStatus !== null;
+
+  if (waNeverConnected) {
+    return <WhatsAppInboxOnboarding onConnected={reloadWaConnection} />;
+  }
+
+  // Connected but no conversations yet → the Inbox's own connected empty state
+  // (moment 3) instead of a blank list.
+  if (waConnection.phase === "connected" && allConversations.length === 0) {
+    return <InboxConnectedEmptyState />;
+  }
+
+  const reconnectBanner = waBroken ? (
+    <WhatsAppReconnectBanner onConnected={reloadWaConnection} />
+  ) : null;
+
+  const sendToast = sendNotice ? (
+    <SendNoticeToast message={sendNotice} onClose={() => setSendNotice(null)} />
+  ) : null;
+
   if (!isMobile) {
     return (
-      <div
-        style={{
-          direction: "rtl",
-          minHeight: "100vh",
-          background: "#f8fafc",
-          padding: "16px 20px",
-          boxSizing: "border-box",
-          overflowX: "hidden",
-        }}
-      >
+      <>
+        {reconnectBanner}
+        {sendToast}
+        <div
+          style={{
+            direction: "rtl",
+            minHeight: "100vh",
+            background: "#f8fafc",
+            padding: "16px 20px",
+            boxSizing: "border-box",
+            overflowX: "hidden",
+          }}
+        >
         <div
           style={{
             maxWidth: 1280,
@@ -1114,24 +1181,28 @@ function InboxPageContent() {
           </section>
         </div>
       </div>
+      </>
     );
   }
 
   return (
-    <div
-      style={{
-        direction: "rtl",
-        display: "flex",
-        flexDirection: "column",
-        minHeight: "100vh",
-        alignItems: "stretch",
-        background: "#f8fafc",
-        width: "100%",
-        maxWidth: "100%",
-        overflowX: "hidden",
-        boxSizing: "border-box",
-      }}
-    >
+    <>
+      {reconnectBanner}
+      {sendToast}
+      <div
+        style={{
+          direction: "rtl",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: "100vh",
+          alignItems: "stretch",
+          background: "#f8fafc",
+          width: "100%",
+          maxWidth: "100%",
+          overflowX: "hidden",
+          boxSizing: "border-box",
+        }}
+      >
       {inboxScreen === "categories" && (
         <ConversationList
           listPhase="categories"
@@ -1220,7 +1291,8 @@ function InboxPageContent() {
           />
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -1407,6 +1479,69 @@ export default function InboxPage() {
     <Suspense fallback={null}>
       <InboxPageContent />
     </Suspense>
+  );
+}
+
+function SendNoticeToast({
+  message,
+  onClose,
+}: {
+  message: string;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      dir="rtl"
+      role="alert"
+      style={{
+        position: "fixed",
+        top: 12,
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 2000,
+        width: "calc(100% - 32px)",
+        maxWidth: 480,
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 10,
+        background: "#FEF3C7",
+        border: "1px solid #FDE68A",
+        borderRadius: 14,
+        boxShadow: "0 10px 25px -5px rgba(15, 23, 42, 0.15)",
+        padding: "12px 14px",
+        boxSizing: "border-box",
+      }}
+    >
+      <span
+        style={{
+          flex: 1,
+          fontSize: 13,
+          fontWeight: 600,
+          color: "#92400E",
+          lineHeight: 1.5,
+        }}
+      >
+        {message}
+      </span>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="סגירה"
+        style={{
+          flex: "0 0 auto",
+          border: "none",
+          background: "transparent",
+          color: "#92400E",
+          fontSize: 18,
+          fontWeight: 800,
+          lineHeight: 1,
+          cursor: "pointer",
+          padding: 0,
+        }}
+      >
+        ×
+      </button>
+    </div>
   );
 }
 
