@@ -86,7 +86,7 @@ export default function MovementModal({
     // closed), so form state must be cleared each time it reopens. Pre-existing
     // behavior — preserved unchanged. (A codebase-wide react-hooks refactor to a
     // key-based remount is a separate code-quality task, not an a11y change.)
-    /* eslint-disable react-hooks/set-state-in-effect */
+    /* eslint-disable react-hooks/set-state-in-effect -- intentional reset-on-reopen (see comment above); pre-existing, a11y-neutral */
     setQuantity("1");
     setNote("");
     setError(null);

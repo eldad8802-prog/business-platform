@@ -232,7 +232,7 @@ export default function CreateInventoryItemPage() {
         >
           <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleFileChange} />
           {previewUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
+            // eslint-disable-next-line @next/next/no-img-element -- local object-URL preview of the just-picked image, not a static/optimizable asset
             <img src={previewUrl} alt="" style={{ width: "100%", height: 120, objectFit: "cover" }} />
           ) : (
             "הוספת תמונת מוצר"
