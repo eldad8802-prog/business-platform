@@ -14,7 +14,7 @@ Every secret in this Runbook belongs to exactly one class. The class determines 
 |---|---|---|---|---|
 | **A. Infrastructure Secrets** | Vercel/Neon DB (`DATABASE_URL`, `DIRECT_URL`), `NEON_API_KEY`, `CI_DATABASE_URL`, GitHub Actions store, plus platform app secrets `AUTH_TOKEN_SECRET`, `POS_INGEST_SECRET` | **Broad blast radius** — a failure can take down the whole app, CI, or migrations; often stored in **multiple stores** (Vercel **and** GitHub) | Coordinated update across **all** stores; may require a maintenance window (DB, auth) | Platform-wide; can force logout (auth) or downtime (DB) |
 | **B. Third-party Provider Secrets** | Google, Meta, OpenAI, CardCom/Tranzila, Cloudflare R2, Upstash, Creatomate, Pexels, ITA/SHAAM authority | **Isolated to one integration** — failure degrades that feature only | Provider console; usually **self-service with overlapping-key ZDT** (create new → deploy → revoke old); some **vendor-coordinated** (ITA) | The affected integration only (documents, WhatsApp, payments, content, etc.) |
-| **C. Cryptographic Keys** | `PAYMENTS_ENCRYPTION_KEY`, `GMAIL_TOKEN_ENCRYPTION_KEY`, `WHATSAPP_TOKEN_ENCRYPTION_KEY`, key behind `EMAIL_TOKEN_ENCRYPTION_KEY_ID` | **Highest** — these protect **already-stored ciphertext**; a naive swap **destroys access to stored data** | **Product decision required** (§6.1): Re-encryption Migration **or** Re-connect — never an autonomous engineering swap | Stored tokens/connections become unreadable unless migrated; may force re-auth/re-connect |
+| **C. Cryptographic Keys** | `PAYMENTS_ENCRYPTION_KEY`, `GMAIL_TOKEN_ENCRYPTION_KEY`, `WHATSAPP_TOKEN_ENCRYPTION_KEY`, `BILLING_AUTHORITY_ENCRYPTION_KEY`, key behind `EMAIL_TOKEN_ENCRYPTION_KEY_ID` | **Highest** — these protect **already-stored ciphertext**; a naive swap **destroys access to stored data** | **Product decision required** (§6.1): Re-encryption Migration **or** Re-connect — never an autonomous engineering swap | Stored tokens/connections become unreadable unless migrated; may force re-auth/re-connect |
 
 ## 2. Governance of the Secret Rotation process
 This is the canonical process that governs **any** rotation, now and in future.
@@ -83,6 +83,7 @@ Legend — **Cls** = category (§1) · **Self-service** = rotate without vendor 
 | 18 | `GMAIL_TOKEN_ENCRYPTION_KEY` | C | App + Vercel; encrypts **stored** Gmail tokens | Yes | **Depends on path (§6.1)** | **Yes** | Maybe (re-connect) | **CRITICAL** |
 | 19 | `WHATSAPP_TOKEN_ENCRYPTION_KEY` | C | App + Vercel; encrypts **stored** WhatsApp tokens | Yes | **Depends on path (§6.1)** | **Yes** | Maybe (re-connect) | **CRITICAL** |
 | 20 | `EMAIL_TOKEN_ENCRYPTION_KEY_ID` | C | App/key-store reference | Reconcile w/ key store | Depends | **Yes (referenced key)** | Maybe | **CRITICAL** |
+| 21 | `BILLING_AUTHORITY_ENCRYPTION_KEY` | C | App + Vercel; encrypts **stored** ITA/SHAAM tokens + app client secret (`BillingAuthorityConnection`, `BillingAuthorityApp`) | Yes | **Depends on path (§6.1)** | **Yes** | Maybe (ITA re-auth) | **CRITICAL** |
 | — | `GITHUB_TOKEN` | A | GitHub Actions (auto per-run) | **N/A — auto-provisioned, not manually rotatable** | — | — | — | N/A |
 | — | CardCom / Tranzila provider creds | B | **DB, per-business** (encrypted via `PAYMENTS_ENCRYPTION_KEY`), **not env** | Vendor + in-app re-entry (§6.2) | No | tied to #17 | **Yes, per business** | HIGH |
 
@@ -103,7 +104,7 @@ Rotation = **create/obtain new → update every store that holds it → redeploy
 
 ## 6. Three findings that must NOT be "smoothed over"
 ### 6.1 Cryptographic keys — a PRODUCT decision, not an engineering one
-`PAYMENTS_ENCRYPTION_KEY`, `GMAIL_TOKEN_ENCRYPTION_KEY`, `WHATSAPP_TOKEN_ENCRYPTION_KEY`, and the key behind `EMAIL_TOKEN_ENCRYPTION_KEY_ID` protect **already-stored ciphertext**. Replacing the env value **breaks decryption of every stored record**. **No autonomous decision** — the two alternatives, for the product owner to choose:
+`PAYMENTS_ENCRYPTION_KEY`, `GMAIL_TOKEN_ENCRYPTION_KEY`, `WHATSAPP_TOKEN_ENCRYPTION_KEY`, `BILLING_AUTHORITY_ENCRYPTION_KEY`, and the key behind `EMAIL_TOKEN_ENCRYPTION_KEY_ID` protect **already-stored ciphertext**. Replacing the env value **breaks decryption of every stored record**. **No autonomous decision** — the two alternatives, for the product owner to choose:
 
 | | **A. Re-encryption Migration** | **B. Re-connect (invalidate stored)** |
 |---|---|---|
@@ -152,6 +153,7 @@ Tick each row live. The completed table + sign-off is the Rotation Event record 
 | 18 | GMAIL_TOKEN_ENCRYPTION_KEY | C | | | | | | | §6.1 decision: ____ |
 | 19 | WHATSAPP_TOKEN_ENCRYPTION_KEY | C | | | | | | | §6.1 decision: ____ |
 | 20 | EMAIL_TOKEN_ENCRYPTION_KEY_ID (referenced key) | C | | | | | | | §6.1 decision: ____ |
+| 21 | BILLING_AUTHORITY_ENCRYPTION_KEY | C | | | | | | | §6.1 decision: ____ |
 | — | CardCom/Tranzila per-business creds | B | | | | | | | per-business re-entry (§6.2) |
 | — | Vercel-env ↔ code reconciliation done | — | | | | | | | any prod-only secret? |
 | — | GitHub-secrets ↔ workflow reconciliation done | — | | | | | | | any store-only secret? |
