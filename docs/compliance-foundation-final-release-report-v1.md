@@ -33,7 +33,9 @@ A ratified constitutional framework (frozen; changes only via WP9 Governance):
 - **Owner action remaining (repo settings, not code):** mark `compliance verify-tests`, `jsx-a11y (changed files)`, and `gitleaks` as **Required status checks** in branch protection.
 
 ## 4. What remains Blocked External
-- **P0 secret rotation (G-1 / SEC-9):** rotate the live `.env` secrets + adopt a managed store. **Owner ops action** (no console access here). **Not marked complete** until there is evidence the rotation ran and all services work with the new secrets.
+- **P0 secret rotation (G-1 / SEC-9):** rotate the live secrets + adopt a managed store. **Owner ops action** (no console access here). **Not marked complete** until there is evidence the rotation ran and all services work with the new secrets.
+- Procedure + evidence-based secret inventory + completion criteria: **`compliance-secret-rotation-runbook-v1.md`**. Note: a code scan found the rotation scope is **broader** than the initial list (adds OpenAI, Cloudflare R2, Upstash, Creatomate, Pexels, ITA/SHAAM authority, POS-ingest, and app-managed encryption keys with special re-encryption handling).
+- **This is the gate on Phase 1 *Operational Readiness*.** Phase 1 *Engineering* is complete; the ordered close (merge → main-CI → prod-deploy → smoke test → close) begins **only after** G-1 is evidenced Completed.
 
 ## 5. Workstreams closed
 - ✅ **Accessibility Platform** (WP1: A-11/A-15/A-4/A-8 primitives, consolidated + documented + CI-enforced).
