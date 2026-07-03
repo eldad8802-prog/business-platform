@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
 import {
@@ -77,6 +77,17 @@ function formatDueDate(iso: string): string {
 }
 
 export default function SecretaryPage() {
+  // useSearchParams() bails out of static prerendering unless wrapped in a
+  // Suspense boundary — wrap the inner client screen so `next build` can
+  // prerender the route (the skeleton is the natural fallback).
+  return (
+    <Suspense fallback={<SecretaryHomeSkeleton />}>
+      <SecretaryPageInner />
+    </Suspense>
+  );
+}
+
+function SecretaryPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const routeKey = searchParams.toString();
