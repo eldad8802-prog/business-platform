@@ -45,6 +45,19 @@ export const TOKEN = {
     softBorder: "#C7D6E9",
     /** Focus ring — bright-but-restrained brand blue at low alpha. */
     focus: "rgba(46, 82, 127, 0.35)",
+    /**
+     * WhatsApp channel brand — used ONLY on the WhatsApp connection screens
+     * for the connect / reconnect / retry primary action and the glyph.
+     * `green` is the official WhatsApp brand color; production should swap the
+     * approximated glyph for the licensed asset (Brand Review required).
+     */
+    whatsapp: {
+      green: "#25D366",
+      gradient: "linear-gradient(140deg, #25D366 0%, #1EBE5B 100%)",
+      ink: "#FFFFFF",
+      shadow:
+        "0 10px 22px rgba(37, 211, 102, 0.30), 0 3px 8px rgba(37, 211, 102, 0.20)",
+    },
   },
 
   action: {

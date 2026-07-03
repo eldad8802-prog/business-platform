@@ -6,6 +6,7 @@ import { getContextMessages } from "@/lib/conversation-context/get-context-messa
 import { getSuggestionMode } from "@/lib/decision/get-suggestion-mode";
 import { applyMessageEvent } from "@/lib/conversation-state/conversation-state.service";
 import { getCurrentUser } from "@/lib/auth";
+import { sendWhatsAppTextForBusiness } from "@/lib/services/integrations/whatsapp/outbound-send.service";
 import { runBotPolicyEngine } from "@/lib/features/conversation/bot-policy";
 import {
   isHumanTakeoverConversation,
@@ -245,9 +246,66 @@ export async function POST(req: Request) {
     });
 
     if (!(direction === "INBOUND" && senderType === "CUSTOMER")) {
+      // ── WhatsApp outbound delivery (Stage 1: text only) ─────────────────
+      // Only genuine business replies on the WhatsApp channel are delivered.
+      // Non-WhatsApp / simulated messages keep their existing store-only
+      // behavior. The message row is already persisted above; here we attempt
+      // delivery and record the outcome on it.
+      const channel = body.channel ?? "WHATSAPP";
+      const isWhatsAppOutbound =
+        channel === "WHATSAPP" && direction === "OUTBOUND" && senderType !== "CUSTOMER";
+
+      let messageForResponse = createdMessage;
+      let whatsappSend:
+        | { status: "SENT" }
+        | { status: "FAILED"; reason: string }
+        | undefined;
+
+      if (isWhatsAppOutbound) {
+        let recipientPhone: string | null = null;
+        if (conversation.customerId) {
+          const customer = await prisma.customer.findFirst({
+            where: { id: conversation.customerId, businessId: user.businessId },
+            select: { phone: true },
+          });
+          recipientPhone = customer?.phone ?? null;
+        }
+
+        const outcome = await sendWhatsAppTextForBusiness({
+          businessId: user.businessId,
+          toPhone: recipientPhone,
+          text: body.contentText,
+        });
+
+        const now = new Date();
+        if (outcome.ok) {
+          messageForResponse = await prisma.message.update({
+            where: { id: createdMessage.id },
+            data: {
+              sendStatus: "SENT",
+              providerMessageId: outcome.providerMessageId,
+              sentAt: now,
+              sendAttemptedAt: now,
+            },
+          });
+          whatsappSend = { status: "SENT" };
+        } else {
+          messageForResponse = await prisma.message.update({
+            where: { id: createdMessage.id },
+            data: {
+              sendStatus: "FAILED",
+              sendAttemptedAt: now,
+              sendErrorCode: outcome.code.slice(0, 64),
+              sendErrorMessage: outcome.message.slice(0, 500),
+            },
+          });
+          whatsappSend = { status: "FAILED", reason: outcome.reason };
+        }
+      }
+
       try {
         await applyMessageEvent({
-          message: createdMessage,
+          message: messageForResponse,
           conversation,
           analysis: null,
         });
@@ -260,12 +318,13 @@ export async function POST(req: Request) {
 
       return NextResponse.json(
         {
-          message: createdMessage,
+          message: messageForResponse,
           analysis: null,
           mode: null,
           shouldGenerate: false,
           suggestions: [],
           updatedOutcomeSuggestion: null,
+          whatsappSend,
         },
         { status: 201 }
       );

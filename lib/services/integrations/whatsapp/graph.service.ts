@@ -163,3 +163,87 @@ export async function fetchPhoneNumberDisplay(
     return { ok: false, code: "display_network", message: "Network error fetching phone number" };
   }
 }
+
+export type SendTextResult =
+  | { ok: true; providerMessageId: string }
+  | { ok: false; kind: "auth" | "window" | "other"; code: string; message: string };
+
+/**
+ * Sends a plain text WhatsApp message (Outbound MVP — Stage 1, text only).
+ *
+ * `POST /{phone-number-id}/messages` with the business access token. Returns the
+ * provider message id (wamid) on success. On failure it classifies the error so
+ * the caller can react:
+ *   - `auth`   → 401/403 or OAuth code 190 (token revoked/expired) → caller wipes
+ *                the connection via `markRevokedByMeta`.
+ *   - `window` → code 131047: more than 24h since the customer last replied, so a
+ *                free-form text is not allowed (a template would be required).
+ *   - `other`  → anything else.
+ *
+ * The access token, request body, and provider id are never logged.
+ */
+export async function sendWhatsAppText(input: {
+  phoneNumberId: string;
+  accessToken: string;
+  toPhone: string;
+  text: string;
+}): Promise<SendTextResult> {
+  const to = input.toPhone.replace(/\D/g, "");
+  const body = input.text;
+  if (!input.phoneNumberId || !input.accessToken || !to || !body) {
+    return { ok: false, kind: "other", code: "send_config_missing", message: "Missing send inputs" };
+  }
+
+  const url = new URL(
+    `${GRAPH_BASE}/${graphVersion()}/${encodeURIComponent(input.phoneNumberId)}/messages`
+  );
+
+  try {
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        Authorization: `Bearer ${input.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "text",
+        text: { preview_url: false, body },
+      }),
+    });
+
+    const data = (await res.json().catch(() => null)) as
+      | {
+          messages?: Array<{ id?: unknown }>;
+          error?: { code?: unknown; message?: unknown };
+        }
+      | null;
+
+    const providerId = data?.messages?.[0]?.id;
+    if (res.ok && typeof providerId === "string" && providerId.length > 0) {
+      return { ok: true, providerMessageId: providerId };
+    }
+
+    const rawCode = data?.error?.code;
+    const errCode =
+      typeof rawCode === "number"
+        ? rawCode
+        : typeof rawCode === "string"
+          ? Number(rawCode)
+          : NaN;
+    const safe = safeError(data, `send_${res.status}`);
+
+    if (res.status === 401 || res.status === 403 || errCode === 190) {
+      return { ok: false, kind: "auth", ...safe };
+    }
+    if (errCode === 131047) {
+      return { ok: false, kind: "window", ...safe };
+    }
+    return { ok: false, kind: "other", ...safe };
+  } catch {
+    return { ok: false, kind: "other", code: "send_network", message: "Network error sending message" };
+  }
+}
