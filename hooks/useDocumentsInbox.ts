@@ -18,6 +18,11 @@ export type UseDocumentsInboxResult = {
   loadingMore: boolean;
   error: string | null;
   refetch: () => void;
+  /**
+   * Re-fetch the first page WITHOUT toggling `loading` (no skeleton flash).
+   * Used for background polling while documents are still `processing`.
+   */
+  refetchQuiet: () => Promise<void>;
   loadMore: () => void;
 };
 
@@ -84,6 +89,22 @@ export function useDocumentsInbox(authToken: string | null): UseDocumentsInboxRe
     }
   }, [authToken, pagination, scope?.month]);
 
+  // Silent refresh of the first page — keeps `loading` false so background
+  // polling never flashes the skeleton over an already-rendered list.
+  const refetchQuiet = useCallback(async () => {
+    if (!authToken) return;
+    try {
+      const snap = await fetchDocumentsInbox(authToken);
+      setScope(snap.scope);
+      setFinancialPulse(snap.financialPulse);
+      setItems(snap.items);
+      setPagination(snap.pagination);
+      setError(null);
+    } catch {
+      // Poll failures are transient — keep showing the current list.
+    }
+  }, [authToken]);
+
   useEffect(() => {
     runInitial();
   }, [runInitial]);
@@ -102,6 +123,7 @@ export function useDocumentsInbox(authToken: string | null): UseDocumentsInboxRe
       loadingMore,
       error,
       refetch,
+      refetchQuiet,
       loadMore,
     }),
     [
@@ -113,6 +135,7 @@ export function useDocumentsInbox(authToken: string | null): UseDocumentsInboxRe
       loadingMore,
       error,
       refetch,
+      refetchQuiet,
       loadMore,
     ]
   );
