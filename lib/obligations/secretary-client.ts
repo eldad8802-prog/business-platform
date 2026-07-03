@@ -56,6 +56,15 @@ export interface CreateObligationInput {
   note?: string | null;
 }
 
+export interface UpdateObligationInput {
+  obligeeName?: string;
+  amount?: string | number;
+  currency?: string;
+  dueAt?: string; // ISO
+  recurrence?: RecurrenceCadence;
+  note?: string | null;
+}
+
 async function apiFetch<T>(
   path: string,
   token: string,
@@ -88,11 +97,15 @@ export function fetchBriefing(token: string): Promise<BriefingApi> {
 
 export function fetchObligations(
   token: string,
-  includeClosed = false
+  includeClosed = false,
+  limit?: number
 ): Promise<{ obligations: ObligationApi[] }> {
-  const q = includeClosed ? "?includeClosed=1" : "";
+  const params = new URLSearchParams();
+  if (includeClosed) params.set("includeClosed", "1");
+  if (limit !== undefined) params.set("limit", String(limit));
+  const q = params.toString();
   return apiFetch<{ obligations: ObligationApi[] }>(
-    `/api/obligations${q}`,
+    `/api/obligations${q ? `?${q}` : ""}`,
     token
   );
 }
@@ -103,6 +116,17 @@ export function createObligation(
 ): Promise<ObligationApi> {
   return apiFetch<ObligationApi>("/api/obligations", token, {
     method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateObligation(
+  token: string,
+  id: number,
+  input: UpdateObligationInput
+): Promise<ObligationApi> {
+  return apiFetch<ObligationApi>(`/api/obligations/${id}`, token, {
+    method: "PATCH",
     body: JSON.stringify(input),
   });
 }

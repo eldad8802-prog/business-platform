@@ -152,6 +152,52 @@ export const TOKEN = {
     slate: "#64748B",
   },
 
+  /** Payment Secretary / Business Memory visual language. */
+  secretary: {
+    ink: "#0F1729",
+    muted: "#6B7280",
+    line: "#E1E7EF",
+    canvas: "#FFFFFF",
+    surface: "#F5F7F9",
+    surface2: "#EEF1F6",
+    action: "#0F6FFF",
+    grad: "linear-gradient(100deg, #17334F 0%, #3D608F 58%, #7597C7 100%)",
+    brand: "#17334F",
+    brandShadow: "0 16px 34px rgba(23, 51, 79, 0.28)",
+    primaryShadow: "0 18px 34px rgba(23, 51, 79, 0.26)",
+    focusShadow: "0 18px 44px rgba(15, 23, 42, 0.10)",
+    hi: "#22C55E",
+    hiBg: "#DCFCE7",
+    hiInk: "#166534",
+    md: "#F59E0B",
+    mdBg: "#FEF3C7",
+    mdInk: "#92400E",
+    lo: "#14B8A6",
+    loBg: "#CCFBF1",
+    loInk: "#0F766E",
+    infoBg: "#E0EDFF",
+    infoInk: "#1D4ED8",
+    calm: "#14B8A6",
+    calmBg: "#CCFBF1",
+    calmInk: "#0F766E",
+    purple: "#8B5CF6",
+    purpleBg: "#EDE9FE",
+    purpleInk: "#5B21B6",
+    neutralText: "#64748B",
+    softIcon: "#DBEAFE",
+    selectedBorder: "#86EFAC",
+    dashedBorder: "#CBD5E1",
+    sheetDim: "rgba(15, 23, 42, 0.45)",
+    activeRing: "rgba(15, 111, 255, 0.18)",
+    homeWash:
+      "linear-gradient(180deg, rgba(239, 246, 255, 0.92) 0%, rgba(255, 255, 255, 0.98) 42%, #FFFFFF 100%)",
+    homeShadowSoft:
+      "0 18px 44px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04)",
+    homeShadowLift:
+      "0 24px 60px rgba(15, 23, 42, 0.12), 0 6px 16px rgba(15, 23, 42, 0.06)",
+    homeGoColor: "#2E527F",
+  },
+
   /** Strict radius scale — 5 values only. */
   radius: {
     chip: 6,
