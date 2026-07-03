@@ -1,64 +1,53 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
 import {
   completeObligation,
   createObligation,
   fetchBriefing,
-  markOriented,
+  fetchObligations,
   releaseObligation,
   snoozeObligation,
+  updateObligation,
   type AttentionReason,
   type BriefingApi,
+  type CreateObligationInput,
   type ObligationApi,
   type RecurrenceCadence,
+  type UpdateObligationInput,
 } from "@/lib/obligations/secretary-client";
+import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
+import {
+  SecretaryErrorBoundary,
+  SecretaryFlowScreen,
+  SecretaryHomeScreen,
+  SecretaryHomeSkeleton,
+  TodayScreen,
+  type SecretaryHomeModel,
+  type SecretaryLoopMode,
+  type SecretaryScreenName,
+  type TodayModel,
+} from "./secretary-ui";
 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; briefing: BriefingApi };
+  | {
+      status: "ready";
+      briefing: BriefingApi;
+      obligations: ObligationApi[];
+      obligationsLimit: number;
+      obligationsHasMore: boolean;
+      obligationsLoading: boolean;
+    };
 
-function errorMessage(e: unknown, fallback: string): string {
-  return e instanceof Error ? e.message : fallback;
-}
-
-function formatMoney(amount: string, currency: string): string {
-  const n = Number(amount);
-  try {
-    return new Intl.NumberFormat("he-IL", {
-      style: "currency",
-      currency: currency || "ILS",
-      maximumFractionDigits: 2,
-    }).format(n);
-  } catch {
-    return `${n.toLocaleString("he-IL")} ${currency}`;
-  }
-}
-
-function formatDueDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("he-IL", {
-    day: "numeric",
-    month: "long",
-    weekday: "long",
-  });
-}
-
-function reasonLabel(reason: AttentionReason): { text: string; tier: "urgent" | "attention" } {
-  switch (reason) {
-    case "OVERDUE":
-      return { text: "באיחור", tier: "urgent" };
-    case "DUE_TODAY":
-      return { text: "להיום", tier: "urgent" };
-    case "DUE_SOON":
-    default:
-      return { text: "מתקרב", tier: "attention" };
-  }
-}
+// Load the full working set up front so summary counts/totals on the list
+// screens match the briefing (home) exactly — a small page size truncated the
+// "all obligations" summary and made it disagree with the home screen.
+const INITIAL_OBLIGATION_LIMIT = 100;
+const OBLIGATION_PAGE_SIZE = 100;
 
 const RECURRENCE_LABEL: Record<RecurrenceCadence, string> = {
   NONE: "חד-פעמי",
@@ -67,760 +56,519 @@ const RECURRENCE_LABEL: Record<RecurrenceCadence, string> = {
   YEARLY: "שנתי",
 };
 
+function errorMessage(e: unknown, fallback: string): string {
+  return e instanceof Error ? e.message : fallback;
+}
+
+/** A trustworthy display name — never surface an empty or junk obligee name. */
+function displayObligeeName(name: string | null | undefined): string {
+  const trimmed = (name ?? "").trim();
+  return trimmed.length >= 2 ? trimmed : "התחייבות ללא שם";
+}
+
+function formatDueDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleDateString("he-IL", {
+    day: "numeric",
+    month: "long",
+    weekday: "long",
+  });
+}
+
 export default function SecretaryPage() {
+  // useSearchParams() bails out of static prerendering unless wrapped in a
+  // Suspense boundary — wrap the inner client screen so `next build` can
+  // prerender the route (the skeleton is the natural fallback).
+  return (
+    <Suspense fallback={<SecretaryHomeSkeleton />}>
+      <SecretaryPageInner />
+    </Suspense>
+  );
+}
+
+function SecretaryPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const routeKey = searchParams.toString();
   const tokenRef = useRef<string | null>(null);
   const [state, setState] = useState<LoadState>({ status: "loading" });
-  const [showCapture, setShowCapture] = useState(false);
-  const [showWatching, setShowWatching] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
 
-  async function load(tok: string) {
-    setState({ status: "loading" });
-    try {
-      const briefing = await fetchBriefing(tok);
-      setState({ status: "ready", briefing });
-    } catch (e) {
-      setState({ status: "error", message: errorMessage(e, "שגיאה בטעינה") });
-    }
+  function currentRouteState() {
+    const screen = parseSecretaryScreen(searchParams.get("screen"));
+    const selectedId = parseOptionalNumber(searchParams.get("id"));
+    const loopMode = parseLoopMode(searchParams.get("loopMode"));
+    const showToday = searchParams.has("today");
+    const prefillName = searchParams.get("name")?.trim() || undefined;
+    return { screen, selectedId, loopMode, showToday, prefillName };
   }
-
-  useEffect(() => {
-    const tok =
-      typeof window !== "undefined" ? window.localStorage.getItem("token") : null;
-    if (!tok) {
-      router.replace("/login");
-      return;
-    }
-    tokenRef.current = tok;
-    // Initial load. setState happens only after the await, so it does not run
-    // synchronously within the effect body.
-    let cancelled = false;
-    (async () => {
-      try {
-        const briefing = await fetchBriefing(tok);
-        if (!cancelled) setState({ status: "ready", briefing });
-      } catch (e) {
-        if (!cancelled) {
-          setState({ status: "error", message: errorMessage(e, "שגיאה בטעינה") });
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   function flashMessage(msg: string) {
     setFlash(msg);
     window.setTimeout(() => setFlash(null), 3200);
   }
 
-  async function onComplete(o: ObligationApi) {
+  async function fetchObligationWindow(tok: string, limit: number) {
+    const payload = await fetchObligations(tok, true, limit + 1);
+    return {
+      obligations: payload.obligations.slice(0, limit),
+      hasMore: payload.obligations.length > limit,
+    };
+  }
+
+  async function loadObligationPage(limit: number) {
     const token = tokenRef.current;
     if (!token) return;
-    setBusyId(o.id);
+    setState((prev) =>
+      prev.status === "ready" ? { ...prev, obligationsLoading: true } : prev
+    );
     try {
-      const res = await completeObligation(token, o.id);
-      flashMessage(
-        res.nextInstance
-          ? `סגרתי את "${o.obligeeName}". כבר זוכרת את הפעם הבאה.`
-          : `סגרתי את "${o.obligeeName}". זה טופל.`
+      const loaded = await fetchObligationWindow(token, limit);
+      setState((prev) =>
+        prev.status === "ready"
+          ? {
+              ...prev,
+              obligations: loaded.obligations,
+              obligationsLimit: limit,
+              obligationsHasMore: loaded.hasMore,
+              obligationsLoading: false,
+            }
+          : prev
       );
-      await load(token);
     } catch (e) {
-      flashMessage(errorMessage(e, "לא הצלחתי לסגור"));
-    } finally {
-      setBusyId(null);
+      setState((prev) =>
+        prev.status === "ready" ? { ...prev, obligationsLoading: false } : prev
+      );
+      flashMessage(errorMessage(e, "לא הצלחתי לטעון את ההתחייבויות"));
     }
   }
 
-  async function onSnooze(o: ObligationApi, days: number) {
-    const token = tokenRef.current;
-    if (!token) return;
-    setBusyId(o.id);
-    try {
-      const target = new Date();
-      target.setDate(target.getDate() + days);
-      await snoozeObligation(token, o.id, target.toISOString());
-      flashMessage(`בסדר. אזכיר לך שוב כש"${o.obligeeName}" יתקרב.`);
-      await load(token);
-    } catch (e) {
-      flashMessage(errorMessage(e, "לא הצלחתי לדחות"));
-    } finally {
-      setBusyId(null);
+  async function refreshAfterMutation(token: string) {
+    const briefing = await fetchBriefing(token);
+    const route = currentRouteState();
+    if (!route.screen) {
+      setState({
+        status: "ready",
+        briefing,
+        obligations: [],
+        obligationsLimit: 0,
+        obligationsHasMore: false,
+        obligationsLoading: false,
+      });
+      return;
     }
-  }
 
-  async function onRelease(o: ObligationApi) {
-    const token = tokenRef.current;
-    if (!token) return;
-    setBusyId(o.id);
-    try {
-      await releaseObligation(token, o.id);
-      flashMessage(`הסרתי את "${o.obligeeName}". כבר לא במעקב.`);
-      await load(token);
-    } catch (e) {
-      flashMessage(errorMessage(e, "לא הצלחתי להסיר"));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function onCapture(input: {
-    obligeeName: string;
-    amount: string;
-    dueAt: string;
-    recurrence: RecurrenceCadence;
-    note: string;
-  }) {
-    const token = tokenRef.current;
-    if (!token) return;
-    await createObligation(token, {
-      obligeeName: input.obligeeName,
-      amount: input.amount,
-      dueAt: new Date(input.dueAt).toISOString(),
-      recurrence: input.recurrence,
-      note: input.note || null,
+    const limit =
+      state.status === "ready" && state.obligationsLimit > 0
+        ? state.obligationsLimit
+        : INITIAL_OBLIGATION_LIMIT;
+    const loaded = await fetchObligationWindow(token, limit);
+    setState({
+      status: "ready",
+      briefing,
+      obligations: loaded.obligations,
+      obligationsLimit: limit,
+      obligationsHasMore: loaded.hasMore,
+      obligationsLoading: false,
     });
-    flashMessage(`מעכשיו אני זוכרת את "${input.obligeeName}" בשבילך.`);
-    setShowCapture(false);
-    await load(token);
   }
 
-  async function onAffirmOriented() {
+  useEffect(() => {
+    const token =
+      typeof window !== "undefined" ? window.localStorage.getItem("token") : null;
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    tokenRef.current = token;
+    let cancelled = false;
+    (async () => {
+      try {
+        const briefing = await fetchBriefing(token);
+        if (!cancelled) {
+          setState({
+            status: "ready",
+            briefing,
+            obligations: [],
+            obligationsLimit: 0,
+            obligationsHasMore: false,
+            obligationsLoading: false,
+          });
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setState({
+            status: "error",
+            message: errorMessage(e, "שגיאה בטעינת המזכירה"),
+          });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
+  useEffect(() => {
+    const route = currentRouteState();
+    if (!route.screen || state.status !== "ready") return;
+    if (state.obligationsLimit > 0 || state.obligationsLoading) return;
+    void loadObligationPage(INITIAL_OBLIGATION_LIMIT);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeKey, state]);
+
+  async function onCreateFlow(input: CreateObligationInput): Promise<ObligationApi | void> {
+    const token = tokenRef.current;
+    if (!token) return undefined;
+    const saved = await createObligation(token, input);
+    await refreshAfterMutation(token);
+    return saved;
+  }
+
+  async function onUpdateFlow(id: number, input: UpdateObligationInput): Promise<void> {
     const token = tokenRef.current;
     if (!token) return;
-    try {
-      await markOriented(token);
-      flashMessage("מצוין. אני שומרת על הכול מכאן.");
-      await load(token);
-    } catch (e) {
-      flashMessage(errorMessage(e, "לא הצלחתי לעדכן"));
+    await updateObligation(token, id, input);
+    await refreshAfterMutation(token);
+  }
+
+  async function onCreateManyFlow(inputs: CreateObligationInput[]): Promise<ObligationApi[]> {
+    const token = tokenRef.current;
+    if (!token) return [];
+    const created: ObligationApi[] = [];
+    for (const input of inputs) {
+      created.push(await createObligation(token, input));
     }
+    await refreshAfterMutation(token);
+    return created;
+  }
+
+  async function onCompleteFlow(id: number) {
+    const token = tokenRef.current;
+    if (!token) return;
+    await completeObligation(token, id);
+    await refreshAfterMutation(token);
+    router.push("/secretary?screen=loops&id=" + id + "&loopMode=met");
+  }
+
+  async function onSnoozeFlow(id: number, followUpAt: string) {
+    const token = tokenRef.current;
+    if (!token) return;
+    await snoozeObligation(token, id, followUpAt);
+    await refreshAfterMutation(token);
+  }
+
+  async function onReleaseFlow(id: number) {
+    const token = tokenRef.current;
+    if (!token) return;
+    await releaseObligation(token, id);
+    await refreshAfterMutation(token);
+    router.push("/secretary?screen=loops&id=" + id + "&loopMode=release");
+  }
+
+  const route = currentRouteState();
+  // Hide the app's fixed bottom nav + FAB while a secretary sub-screen or the
+  // "today" surface is open. Those screens have their own back navigation, and
+  // the fixed bottom bar (a sibling stacking context) otherwise floats over
+  // their bottom CTAs (e.g. "מסור למזכירה"). The home screen keeps the nav so
+  // the user can move to other sections of the app.
+  useHideShellChrome(Boolean(route.screen) || route.showToday);
+
+  if (state.status === "ready") {
+    const focus = state.briefing.attention[0]?.obligation ?? null;
+
+    if (route.screen) {
+      return (
+        <SecretaryErrorBoundary>
+          <SecretaryFlowScreen
+            screen={route.screen}
+            obligations={state.obligations}
+            selectedId={route.selectedId}
+            loopMode={route.loopMode}
+            prefillName={route.prefillName}
+            obligationsLoading={state.obligationsLoading}
+            obligationsHasMore={state.obligationsHasMore}
+            onLoadMore={() =>
+              void loadObligationPage(state.obligationsLimit + OBLIGATION_PAGE_SIZE)
+            }
+            onCreate={onCreateFlow}
+            onCreateMany={onCreateManyFlow}
+            onUpdate={onUpdateFlow}
+            onComplete={onCompleteFlow}
+            onSnooze={onSnoozeFlow}
+            onRelease={onReleaseFlow}
+          />
+          {flash ? <div aria-live="polite" style={flashStyle}>{flash}</div> : null}
+        </SecretaryErrorBoundary>
+      );
+    }
+
+    if (route.showToday) {
+      return (
+        <SecretaryErrorBoundary>
+          <TodayScreen
+            model={todayModelFromBriefing(state.briefing)}
+            onComplete={focus ? () => onCompleteFlow(focus.id) : undefined}
+            onSnooze={focus ? () => router.push("/secretary?screen=remind&id=" + focus.id) : undefined}
+            onRelease={focus ? () => onReleaseFlow(focus.id) : undefined}
+          />
+          {flash ? <div aria-live="polite" style={flashStyle}>{flash}</div> : null}
+        </SecretaryErrorBoundary>
+      );
+    }
+
+    return (
+      <SecretaryErrorBoundary>
+        <SecretaryHomeScreen model={homeModelFromBriefing(state.briefing)} />
+        {flash ? <div aria-live="polite" style={flashStyle}>{flash}</div> : null}
+      </SecretaryErrorBoundary>
+    );
+  }
+
+  if (state.status === "loading") {
+    // Instant, calm skeleton of the home shell — entry never shows a blank
+    // screen or a blocking "checking…" page while the briefing is in flight.
+    return <SecretaryHomeSkeleton />;
   }
 
   return (
-    <div
-      dir="rtl"
-      style={{
-        minHeight: "100%",
-        background: TOKEN.surface.page,
-        padding: `${TOKEN.space.xl}px ${TOKEN.space.lg}px 120px`,
-        boxSizing: "border-box",
-        color: TOKEN.ink.primary,
-        maxWidth: 560,
-        margin: "0 auto",
-      }}
-    >
-      <header style={{ marginBottom: TOKEN.space.lg }}>
-        <div
-          style={{
-            fontSize: TOKEN.font.meta,
-            color: TOKEN.ink.meta,
-            fontWeight: TOKEN.weight.semibold,
-            letterSpacing: "0.02em",
-          }}
-        >
-          המזכירה
-        </div>
-      </header>
-
-      {flash && (
-        <div
-          role="status"
-          style={{
-            marginBottom: TOKEN.space.md,
-            padding: `${TOKEN.space.sm}px ${TOKEN.space.md}px`,
-            borderRadius: TOKEN.radius.card,
-            background: TOKEN.semantic.success.bgSoft,
-            border: `1px solid ${TOKEN.semantic.success.border}`,
-            color: TOKEN.semantic.success.ink,
-            fontSize: TOKEN.font.body,
-            fontWeight: TOKEN.weight.medium,
-          }}
-        >
-          {flash}
-        </div>
-      )}
-
-      {state.status === "loading" && (
-        <div style={{ color: TOKEN.ink.muted, fontSize: TOKEN.font.body }}>
-          רגע, בודקת את היום שלך…
-        </div>
-      )}
-
-      {state.status === "error" && (
-        <div
-          style={{
-            padding: TOKEN.space.lg,
-            borderRadius: TOKEN.radius.card,
-            background: TOKEN.surface.card,
-            border: `1px solid ${TOKEN.border.DEFAULT}`,
-          }}
-        >
-          <p style={{ margin: 0, color: TOKEN.ink.secondary }}>{state.message}</p>
-          <button
-            type="button"
-            onClick={() => {
-              if (tokenRef.current) void load(tokenRef.current);
-            }}
-            style={secondaryBtnStyle()}
-          >
-            לנסות שוב
-          </button>
-        </div>
-      )}
-
-      {state.status === "ready" && (
-        <BriefingView
-          briefing={state.briefing}
-          busyId={busyId}
-          showCapture={showCapture}
-          showWatching={showWatching}
-          onToggleCapture={() => setShowCapture((v) => !v)}
-          onToggleWatching={() => setShowWatching((v) => !v)}
-          onComplete={onComplete}
-          onSnooze={onSnooze}
-          onRelease={onRelease}
-          onCapture={onCapture}
-          onAffirmOriented={onAffirmOriented}
-        />
-      )}
-    </div>
-  );
-}
-
-function BriefingView({
-  briefing,
-  busyId,
-  showCapture,
-  showWatching,
-  onToggleCapture,
-  onToggleWatching,
-  onComplete,
-  onSnooze,
-  onRelease,
-  onCapture,
-  onAffirmOriented,
-}: {
-  briefing: BriefingApi;
-  busyId: number | null;
-  showCapture: boolean;
-  showWatching: boolean;
-  onToggleCapture: () => void;
-  onToggleWatching: () => void;
-  onComplete: (o: ObligationApi) => void;
-  onSnooze: (o: ObligationApi, days: number) => void;
-  onRelease: (o: ObligationApi) => void;
-  onCapture: (input: {
-    obligeeName: string;
-    amount: string;
-    dueAt: string;
-    recurrence: RecurrenceCadence;
-    note: string;
-  }) => Promise<void>;
-  onAffirmOriented: () => void;
-}) {
-  const { state, attention, watching, counts } = briefing;
-  const focus = attention[0] ?? null;
-  const remaining = Math.max(0, attention.length - 1);
-  const firstLaunch = counts.open === 0 && !briefing.oriented;
-
-  return (
-    <>
-      <Hero state={state} firstLaunch={firstLaunch} focus={focus} />
-
-      {/* The single act of attention — one focus at a time. */}
-      {focus && (
-        <FocusCard
-          item={focus}
-          busy={busyId === focus.obligation.id}
-          onComplete={() => onComplete(focus.obligation)}
-          onSnooze={(days) => onSnooze(focus.obligation, days)}
-          onRelease={() => onRelease(focus.obligation)}
-        />
-      )}
-
-      {remaining > 0 && (
-        <p style={{ color: TOKEN.ink.muted, fontSize: TOKEN.font.meta, margin: `${TOKEN.space.sm}px 2px ${TOKEN.space.lg}px` }}>
-          ועוד {remaining} {remaining === 1 ? "דבר" : "דברים"} השבוע — אביא אותם
-          אחד-אחד.
+    <main dir="rtl" style={errorPageStyle}>
+      <section style={errorCardStyle}>
+        <h1 style={{ margin: 0, fontSize: 22 }}>רגע, משהו בבדיקה נתקע.</h1>
+        <p style={{ margin: "10px 0 0", color: TOKEN.ink.muted, lineHeight: 1.6 }}>
+          {state.message}
         </p>
-      )}
-
-      {/* Onboarding affirmation: unlock global calm once the backbone is in. */}
-      {!briefing.oriented && counts.open > 0 && (
-        <div style={cardStyle()}>
-          <p style={{ margin: `0 0 ${TOKEN.space.sm}px`, color: TOKEN.ink.secondary, fontSize: TOKEN.font.body, lineHeight: 1.5 }}>
-            עדיין מכירה את העסק שלך. סיפרת לי על העיקריות?
-          </p>
-          <button type="button" onClick={onAffirmOriented} style={secondaryBtnStyle()}>
-            אלה ההתחייבויות העיקריות שלי
-          </button>
-        </div>
-      )}
-
-      {/* Tell-the-secretary (capture / handoff). */}
-      <div style={{ marginTop: TOKEN.space.lg }}>
-        {!showCapture ? (
-          <button type="button" onClick={onToggleCapture} style={primaryBtnStyle()}>
-            + למסור לי עוד התחייבות
-          </button>
-        ) : (
-          <CaptureForm onSubmit={onCapture} onCancel={onToggleCapture} />
-        )}
-      </div>
-
-      {/* What I'm watching — on demand only. */}
-      {counts.watching > 0 && (
-        <div style={{ marginTop: TOKEN.space.lg }}>
-          <button
-            type="button"
-            onClick={onToggleWatching}
-            style={linkBtnStyle()}
-          >
-            {showWatching
-              ? "להסתיר את מה שאני שומרת"
-              : `מה אני שומרת (${counts.watching})`}
-          </button>
-          {showWatching && <WatchingList items={watching} />}
-        </div>
-      )}
-    </>
+        <button
+          type="button"
+          onClick={() => {
+            const token = tokenRef.current;
+            if (token) void refreshAfterMutation(token);
+          }}
+          style={retryButtonStyle}
+        >
+          לנסות שוב
+        </button>
+      </section>
+    </main>
   );
 }
 
-function Hero({
-  state,
-  firstLaunch,
-  focus,
-}: {
-  state: BriefingApi["state"];
-  firstLaunch: boolean;
-  focus: BriefingApi["attention"][number] | null;
-}) {
-  let title: string;
-  let sub: string | null = null;
+const flashStyle = {
+  position: "fixed" as const,
+  zIndex: 80,
+  right: 18,
+  bottom: 92,
+  maxWidth: 360,
+  borderRadius: 16,
+  padding: "12px 14px",
+  background: TOKEN.semantic.success.bgSoft,
+  color: TOKEN.semantic.success.ink,
+  boxShadow: TOKEN.shadow.floating,
+  fontWeight: 800,
+};
 
-  if (firstLaunch) {
-    title = "שלום, אני המזכירה שלך.";
-    sub =
-      "התפקיד שלי לזכור כל תשלום שאתה צריך לשלם — כדי שלא תצטרך. בוא נתחיל עם אלה שאתה הכי לא רוצה לשכוח.";
-  } else {
-    switch (state) {
-      case "CRITICAL":
-        title = "בוקר טוב. דבר אחד דורש אותך היום — והנה למה.";
-        break;
-      case "BUSY":
-        title = "בוקר טוב. כמה דברים מגיעים השבוע — הכול מוכן. נתחיל בראשון.";
-        break;
-      case "STILL_SETTLING_IN":
-        title = "בוקר טוב.";
-        sub = "שום דבר ממה שסיפרת לי לא דורש אותך היום.";
-        break;
-      case "CALM":
-      default:
-        title = "בוקר טוב. אתה בשליטה היום — שום דבר לא דורש אותך.";
-        break;
-    }
+const errorPageStyle = {
+  minHeight: "100dvh",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: TOKEN.surface.page,
+  padding: 20,
+  boxSizing: "border-box" as const,
+};
+
+const errorCardStyle = {
+  width: "min(100%, 520px)",
+  borderRadius: 24,
+  background: TOKEN.surface.card,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  padding: 22,
+  boxShadow: TOKEN.shadow.floating,
+};
+
+const retryButtonStyle = {
+  marginTop: 16,
+  minHeight: 48,
+  border: 0,
+  borderRadius: 16,
+  padding: "0 18px",
+  background: TOKEN.brand.gradient,
+  color: TOKEN.ink.inverse,
+  font: "inherit",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+function homeModelFromBriefing(briefing: BriefingApi): SecretaryHomeModel {
+  const focus = briefing.attention[0] ?? null;
+  const openItems = uniqueBriefingObligations([
+    ...briefing.attention.map((item) => item.obligation),
+    ...briefing.watching,
+  ]);
+  const currency = focus?.obligation.currency ?? openItems[0]?.currency ?? "ILS";
+  const allAmount = formatHomeAmount(String(sumObligationAmounts(openItems)), currency);
+  const hasToday =
+    briefing.state === "CRITICAL" ||
+    briefing.attention.some((item) => item.reason === "OVERDUE" || item.reason === "DUE_TODAY");
+
+  if (briefing.counts.open === 0) {
+    return {
+      state: "new",
+      title: "שלום, אני\nהמזכירה שלך.",
+      subtitle: "מסור לי את התשלומים שהעסק צריך להוציא - ואני אזכור אותם בשבילך.",
+      todayHref: "/secretary?today=1",
+      allHref: "/secretary?screen=all",
+      addHref: "/secretary?screen=bank",
+      today: { label: "בוא נתחיל", body: "מסור לי את ההתחייבות הראשונה" },
+    };
   }
 
-  return (
-    <section
-      style={{
-        marginBottom: TOKEN.space.lg,
-        padding: focus ? 0 : TOKEN.space.xs,
-      }}
-    >
-      <h1
-        style={{
-          margin: 0,
-          fontSize: TOKEN.font.hero,
-          lineHeight: 1.3,
-          fontWeight: TOKEN.weight.bold,
-          letterSpacing: "-0.02em",
-          color: TOKEN.ink.primary,
-        }}
-      >
-        {title}
-      </h1>
-      {sub && (
-        <p
-          style={{
-            margin: `${TOKEN.space.sm}px 0 0`,
-            fontSize: TOKEN.font.body,
-            lineHeight: 1.55,
-            color: TOKEN.ink.secondary,
-          }}
-        >
-          {sub}
-        </p>
-      )}
-    </section>
-  );
-}
-
-function FocusCard({
-  item,
-  busy,
-  onComplete,
-  onSnooze,
-  onRelease,
-}: {
-  item: BriefingApi["attention"][number];
-  busy: boolean;
-  onComplete: () => void;
-  onSnooze: (days: number) => void;
-  onRelease: () => void;
-}) {
-  const o = item.obligation;
-  const reason = reasonLabel(item.reason);
-  const tier = TOKEN.semantic[reason.tier];
-
-  return (
-    <section
-      style={{
-        ...cardStyle(),
-        borderInlineStart: `3px solid ${tier.accent}`,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: TOKEN.space.sm,
-          marginBottom: TOKEN.space.sm,
-        }}
-      >
-        <span
-          style={{
-            fontSize: TOKEN.font.caption,
-            fontWeight: TOKEN.weight.bold,
-            color: tier.ink,
-            background: tier.bg,
-            border: `1px solid ${tier.border}`,
-            borderRadius: TOKEN.radius.chip,
-            padding: "2px 8px",
-          }}
-        >
-          {reason.text}
-        </span>
-        {o.recurrence !== "NONE" && (
-          <span style={{ fontSize: TOKEN.font.caption, color: TOKEN.ink.meta }}>
-            {RECURRENCE_LABEL[o.recurrence]}
-          </span>
-        )}
-      </div>
-
-      <div
-        style={{
-          fontSize: TOKEN.font.title,
-          fontWeight: TOKEN.weight.semibold,
-          color: TOKEN.ink.primary,
-        }}
-      >
-        {o.obligeeName}
-      </div>
-      <div
-        style={{
-          fontSize: TOKEN.font.display,
-          fontWeight: TOKEN.weight.bold,
-          margin: `${TOKEN.space.xs}px 0`,
-        }}
-      >
-        {formatMoney(o.amount, o.currency)}
-      </div>
-      <div style={{ fontSize: TOKEN.font.body, color: TOKEN.ink.secondary }}>
-        {formatDueDate(o.dueAt)}
-      </div>
-      {o.note && (
-        <div
-          style={{
-            marginTop: TOKEN.space.sm,
-            fontSize: TOKEN.font.meta,
-            color: TOKEN.ink.muted,
-          }}
-        >
-          {o.note}
-        </div>
-      )}
-
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: TOKEN.space.sm,
-          marginTop: TOKEN.space.lg,
-        }}
-      >
-        <button type="button" onClick={onComplete} disabled={busy} style={primaryBtnStyle()}>
-          זה טופל
-        </button>
-        <button type="button" onClick={() => onSnooze(3)} disabled={busy} style={secondaryBtnStyle()}>
-          להזכיר לי אחר כך
-        </button>
-        <button type="button" onClick={onRelease} disabled={busy} style={dangerBtnStyle()}>
-          כבר לא רלוונטי
-        </button>
-      </div>
-    </section>
-  );
-}
-
-function CaptureForm({
-  onSubmit,
-  onCancel,
-}: {
-  onSubmit: (input: {
-    obligeeName: string;
-    amount: string;
-    dueAt: string;
-    recurrence: RecurrenceCadence;
-    note: string;
-  }) => Promise<void>;
-  onCancel: () => void;
-}) {
-  const [obligeeName, setObligeeName] = useState("");
-  const [amount, setAmount] = useState("");
-  const [dueAt, setDueAt] = useState("");
-  const [recurrence, setRecurrence] = useState<RecurrenceCadence>("NONE");
-  const [note, setNote] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const canSubmit = obligeeName.trim() !== "" && amount.trim() !== "" && dueAt !== "";
-
-  async function submit() {
-    if (!canSubmit) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      await onSubmit({ obligeeName, amount, dueAt, recurrence, note });
-    } catch (e) {
-      setError(errorMessage(e, "לא הצלחתי לשמור"));
-    } finally {
-      setSubmitting(false);
-    }
+  if (focus) {
+    return {
+      state: "due",
+      title: hasToday ? "יש דבר אחד שצריך\nלסגור היום." : "יש כמה דברים שכדאי\nלסגור השבוע.",
+      subtitle: hasToday ? "כל השאר שמור אצלי - אזכיר לך בזמן." : "נתחיל מהקרוב, ואת השאר אשמור לך בזמן.",
+      todayHref: "/secretary?today=1",
+      allHref: "/secretary?screen=all",
+      addHref: "/secretary?screen=bank",
+      today: {
+        label: "היום שלי",
+        badge: dueBadge(focus.reason),
+        body: displayObligeeName(focus.obligation.obligeeName),
+        amount: formatHomeAmount(focus.obligation.amount, focus.obligation.currency),
+      },
+      all: {
+        line: briefing.counts.open.toLocaleString("he-IL") + " במעקב",
+        amount: allAmount,
+        suffix: "להוצאה",
+      },
+    };
   }
 
-  return (
-    <section style={cardStyle()}>
-      <div
-        style={{
-          fontSize: TOKEN.font.title,
-          fontWeight: TOKEN.weight.semibold,
-          marginBottom: TOKEN.space.md,
-        }}
-      >
-        מה שאזכור בשבילך?
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: TOKEN.space.md }}>
-        <Field label="למי משלמים">
-          <input
-            value={obligeeName}
-            onChange={(e) => setObligeeName(e.target.value)}
-            placeholder="לדוגמה: בעל הבית, ספק, רשות המסים"
-            style={inputStyle()}
-          />
-        </Field>
-        <Field label="כמה">
-          <input
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            inputMode="decimal"
-            placeholder="₪"
-            style={inputStyle()}
-          />
-        </Field>
-        <Field label="מתי">
-          <input
-            type="date"
-            value={dueAt}
-            onChange={(e) => setDueAt(e.target.value)}
-            style={inputStyle()}
-          />
-        </Field>
-        <Field label="חוזר?">
-          <select
-            value={recurrence}
-            onChange={(e) => setRecurrence(e.target.value as RecurrenceCadence)}
-            style={inputStyle()}
-          >
-            <option value="NONE">חד-פעמי</option>
-            <option value="WEEKLY">כל שבוע</option>
-            <option value="MONTHLY">כל חודש</option>
-            <option value="YEARLY">כל שנה</option>
-          </select>
-        </Field>
-        <Field label="הערה (לא חובה)">
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            style={inputStyle()}
-          />
-        </Field>
-      </div>
-
-      {error && (
-        <p style={{ color: TOKEN.semantic.urgent.ink, fontSize: TOKEN.font.meta, marginTop: TOKEN.space.sm }}>
-          {error}
-        </p>
-      )}
-
-      <div style={{ display: "flex", gap: TOKEN.space.sm, marginTop: TOKEN.space.lg }}>
-        <button type="button" onClick={submit} disabled={!canSubmit || submitting} style={primaryBtnStyle()}>
-          {submitting ? "שומרת…" : "מסור לי"}
-        </button>
-        <button type="button" onClick={onCancel} disabled={submitting} style={secondaryBtnStyle()}>
-          ביטול
-        </button>
-      </div>
-    </section>
-  );
-}
-
-function WatchingList({ items }: { items: ObligationApi[] }) {
-  return (
-    <div
-      style={{
-        marginTop: TOKEN.space.sm,
-        display: "flex",
-        flexDirection: "column",
-        gap: TOKEN.space.xs,
-      }}
-    >
-      {items.map((o) => (
-        <div
-          key={o.id}
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            padding: `${TOKEN.space.sm}px ${TOKEN.space.md}px`,
-            background: TOKEN.surface.card,
-            border: `1px solid ${TOKEN.border.DEFAULT}`,
-            borderRadius: TOKEN.radius.card,
-          }}
-        >
-          <div>
-            <div style={{ fontSize: TOKEN.font.body, fontWeight: TOKEN.weight.medium }}>
-              {o.obligeeName}
-            </div>
-            <div style={{ fontSize: TOKEN.font.meta, color: TOKEN.ink.muted }}>
-              {formatDueDate(o.dueAt)}
-            </div>
-          </div>
-          <div style={{ fontSize: TOKEN.font.body, fontWeight: TOKEN.weight.semibold }}>
-            {formatMoney(o.amount, o.currency)}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label style={{ display: "block" }}>
-      <span
-        style={{
-          display: "block",
-          fontSize: TOKEN.font.meta,
-          color: TOKEN.ink.secondary,
-          fontWeight: TOKEN.weight.medium,
-          marginBottom: TOKEN.space.xs,
-        }}
-      >
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
-
-// --- shared inline styles --------------------------------------------------
-
-function cardStyle(): React.CSSProperties {
   return {
-    background: TOKEN.surface.card,
-    border: `1px solid ${TOKEN.border.DEFAULT}`,
-    borderRadius: TOKEN.radius.card,
-    boxShadow: TOKEN.shadow.elevated,
-    padding: TOKEN.space.lg,
-    marginBottom: TOKEN.space.md,
+    state: "calm",
+    title: "הכל רגוע.\nאין מה שדורש אותך.",
+    subtitle: "אני שומרת " + briefing.counts.open.toLocaleString("he-IL") + " התחייבויות ואזכיר לך כשמשהו יתקרב.",
+    todayHref: "/secretary?today=1",
+    allHref: "/secretary?screen=all",
+    addHref: "/secretary?screen=bank",
+    today: { label: "היום שלי", body: "אין תשלום שדורש אותך היום" },
+    all: {
+      line: briefing.counts.open.toLocaleString("he-IL") + " במעקב",
+      amount: allAmount,
+      suffix: "להוצאה",
+    },
   };
 }
 
-function inputStyle(): React.CSSProperties {
+function todayModelFromBriefing(briefing: BriefingApi): TodayModel {
+  const focus = briefing.attention[0] ?? null;
+  if (!focus) {
+    return {
+      state: "calm",
+      status: "הכול תחת מעקב",
+      title: "אין משהו שדורש אותך עכשיו.",
+      subtitle: "עברתי על הכול. אני ממשיכה לעקוב, וברגע שמשהו יתקרב - אגיד לך.",
+      watching: {
+        line: "אני שומרת " + briefing.counts.open.toLocaleString("he-IL") + " התחייבויות",
+        subline: "הכול רגוע - אזכיר כשמשהו יתקרב.",
+      },
+    };
+  }
+  const urgent = focus.reason === "OVERDUE" || focus.reason === "DUE_TODAY";
   return {
-    width: "100%",
-    boxSizing: "border-box",
-    padding: `${TOKEN.space.sm}px ${TOKEN.space.md}px`,
-    fontSize: TOKEN.font.body,
-    color: TOKEN.ink.primary,
-    background: TOKEN.surface.inset,
-    border: `1px solid ${TOKEN.border.DEFAULT}`,
-    borderRadius: TOKEN.radius.input,
-    fontFamily: "inherit",
+    state: urgent ? "critical" : "busy",
+    status: urgent ? "בדקתי את היום שלך" : "עברתי על השבוע שלך",
+    title: urgent ? "יש דבר אחד שכדאי לסגור היום." : "יש כמה דברים השבוע. בוא נתחיל מהחשוב.",
+    subtitle: urgent ? "בוא נטפל בו קודם - אני כבר שומרת את כל השאר." : "נסגור אחד-אחד. אני כאן לאורך כל הדרך.",
+    focus: {
+      id: focus.obligation.id,
+      tone: urgent ? "urgent" : "soon",
+      tag: dueBadge(focus.reason),
+      name: displayObligeeName(focus.obligation.obligeeName),
+      amount: formatHomeAmount(focus.obligation.amount, focus.obligation.currency),
+      meta: formatDueDate(focus.obligation.dueAt),
+      chip: RECURRENCE_LABEL[focus.obligation.recurrence],
+      note: focus.obligation.note ?? undefined,
+    },
+    watching: {
+      line: "אני שומרת עוד " + briefing.counts.watching.toLocaleString("he-IL") + " דברים במעקב",
+      subline: "אין מה לעשות בהם עכשיו - אזכיר בזמן.",
+    },
   };
 }
 
-function primaryBtnStyle(): React.CSSProperties {
-  return {
-    appearance: "none",
-    border: TOKEN.action.primary.border,
-    background: TOKEN.action.primary.background,
-    color: TOKEN.action.primary.color,
-    fontSize: TOKEN.font.body,
-    fontWeight: TOKEN.weight.semibold,
-    padding: `${TOKEN.space.sm}px ${TOKEN.space.lg}px`,
-    borderRadius: TOKEN.radius.button,
-    boxShadow: TOKEN.action.primary.shadowSoft,
-    cursor: "pointer",
-  };
+function uniqueBriefingObligations(items: ObligationApi[]): ObligationApi[] {
+  const seen = new Set<number>();
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
 }
 
-function secondaryBtnStyle(): React.CSSProperties {
-  return {
-    appearance: "none",
-    border: TOKEN.action.glass.border,
-    background: TOKEN.action.glass.background,
-    color: TOKEN.action.glass.color,
-    fontSize: TOKEN.font.body,
-    fontWeight: TOKEN.weight.medium,
-    padding: `${TOKEN.space.sm}px ${TOKEN.space.lg}px`,
-    borderRadius: TOKEN.radius.button,
-    cursor: "pointer",
-  };
+function sumObligationAmounts(items: ObligationApi[]): number {
+  return items.reduce((sum, item) => {
+    const amount = Number(item.amount);
+    return Number.isFinite(amount) ? sum + amount : sum;
+  }, 0);
 }
 
-function dangerBtnStyle(): React.CSSProperties {
-  return {
-    appearance: "none",
-    border: TOKEN.action.danger.border,
-    background: TOKEN.action.danger.background,
-    color: TOKEN.action.danger.color,
-    fontSize: TOKEN.font.body,
-    fontWeight: TOKEN.weight.medium,
-    padding: `${TOKEN.space.sm}px ${TOKEN.space.lg}px`,
-    borderRadius: TOKEN.radius.button,
-    cursor: "pointer",
-  };
+function formatHomeAmount(amount: string, currency: string): string {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return amount;
+  try {
+    return new Intl.NumberFormat("he-IL", {
+      style: "currency",
+      currency: currency || "ILS",
+      maximumFractionDigits: 0,
+    }).format(n);
+  } catch {
+    return n.toLocaleString("he-IL", { maximumFractionDigits: 0 }) + " " + currency;
+  }
 }
 
-function linkBtnStyle(): React.CSSProperties {
-  return {
-    appearance: "none",
-    border: "none",
-    background: "transparent",
-    color: TOKEN.brand.mid,
-    fontSize: TOKEN.font.body,
-    fontWeight: TOKEN.weight.medium,
-    padding: 0,
-    cursor: "pointer",
-    textDecoration: "underline",
-  };
+function dueBadge(reason: AttentionReason): string {
+  switch (reason) {
+    case "OVERDUE":
+      return "באיחור";
+    case "DUE_TODAY":
+      return "להיום";
+    case "DUE_SOON":
+    default:
+      return "מתקרב";
+  }
+}
+
+function parseOptionalNumber(value: string | null): number | null {
+  if (!value) return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function parseSecretaryScreen(value: string | null): SecretaryScreenName | null {
+  const screens: SecretaryScreenName[] = [
+    "bank",
+    "all",
+    "detail",
+    "update",
+    "capture",
+    "loops",
+    "remind",
+    "watching",
+    "notify",
+  ];
+  return screens.includes(value as SecretaryScreenName)
+    ? (value as SecretaryScreenName)
+    : null;
+}
+
+function parseLoopMode(value: string | null): SecretaryLoopMode | null {
+  const modes: SecretaryLoopMode[] = ["met", "snooze", "release", "created"];
+  return modes.includes(value as SecretaryLoopMode)
+    ? (value as SecretaryLoopMode)
+    : null;
 }

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { ActionSheet } from "./action-sheet";
+import { useShellChromeHidden } from "./shell-chrome-visibility";
 
 /** Below in-app modals (~200); shell content is z-index 1 - bar stays above page for the strip only. */
 export const BOTTOM_BAR_Z_INDEX = 100;
@@ -41,7 +42,12 @@ export function BottomBar() {
   const pathname = usePathname() || "/";
   const [actionSheetOpen, setActionSheetOpen] = useState(false);
   const [fabPressed, setFabPressed] = useState(false);
+  const chromeHidden = useShellChromeHidden();
   const inDocuments = pathname === "/documents" || pathname.startsWith("/documents/");
+
+  // A full-screen surface (e.g. a secretary sub-screen/modal) has requested the
+  // shell chrome be hidden so its bottom CTA is not covered by the fixed bar.
+  if (chromeHidden) return null;
 
   const tabs: TabDef[] = inDocuments
     ? [
