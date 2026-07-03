@@ -10,16 +10,55 @@ const COOKIE_STATE = "gmail_oauth_state";
 const COOKIE_VERIFIER = "gmail_oauth_code_verifier";
 const COOKIE_BUSINESS_ID = "gmail_oauth_business_id";
 
+// Where the user lands after Google redirects back here. This is a top-level
+// browser navigation (not a fetch), so we must send the user back into the app
+// UI — never render raw JSON, which reads as "connection failed" even on success.
+const EMAIL_SCREEN_PATH = "/documents/email";
+
 function requireEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing env var: ${name}`);
   return v;
 }
 
+// Base for the user-facing redirect. Prefer the configured OAuth redirect base
+// (the canonical app origin) and fall back to the request origin so we can still
+// bounce the user back into the app even if the env var is momentarily missing.
+function appBase(req: NextRequest): string {
+  return process.env.GOOGLE_OAUTH_REDIRECT_BASE_URL || req.nextUrl.origin;
+}
+
 function clearOauthCookies(res: NextResponse) {
   res.cookies.set(COOKIE_STATE, "", { path: "/", maxAge: 0 });
   res.cookies.set(COOKIE_VERIFIER, "", { path: "/", maxAge: 0 });
   res.cookies.set(COOKIE_BUSINESS_ID, "", { path: "/", maxAge: 0 });
+}
+
+// Safe, whitelisted error codes only — never leak provider/internal error text
+// into the URL. The email screen can map these to a friendly Hebrew message.
+type CallbackErrorCode =
+  | "google_access_denied"
+  | "gmail_state_invalid"
+  | "gmail_token_exchange_failed"
+  | "gmail_callback_failed";
+
+function redirectToEmail(
+  req: NextRequest,
+  query: string
+): NextResponse {
+  const res = NextResponse.redirect(
+    new URL(`${EMAIL_SCREEN_PATH}?${query}`, appBase(req))
+  );
+  clearOauthCookies(res);
+  return res;
+}
+
+function redirectSuccess(req: NextRequest): NextResponse {
+  return redirectToEmail(req, "connected=1");
+}
+
+function redirectError(req: NextRequest, code: CallbackErrorCode): NextResponse {
+  return redirectToEmail(req, `error=${code}`);
 }
 
 export async function GET(req: NextRequest) {
@@ -29,21 +68,18 @@ export async function GET(req: NextRequest) {
     const errorParam = req.nextUrl.searchParams.get("error");
 
     if (errorParam) {
-      const out = NextResponse.json(
-        { error: `OAuth error: ${errorParam}` },
-        { status: 400 }
+      // Google returned an error on the consent screen (most commonly the user
+      // declining). Only distinguish access_denied; everything else is generic.
+      return redirectError(
+        req,
+        errorParam === "access_denied"
+          ? "google_access_denied"
+          : "gmail_callback_failed"
       );
-      clearOauthCookies(out);
-      return out;
     }
 
     if (!code || !state) {
-      const out = NextResponse.json(
-        { error: "Missing code/state" },
-        { status: 400 }
-      );
-      clearOauthCookies(out);
-      return out;
+      return redirectError(req, "gmail_callback_failed");
     }
 
     const cookieState = req.cookies.get(COOKIE_STATE)?.value || "";
@@ -52,27 +88,15 @@ export async function GET(req: NextRequest) {
     const businessId = Number(businessIdRaw);
 
     if (!cookieState || cookieState !== state) {
-      const out = NextResponse.json({ error: "Invalid state" }, { status: 400 });
-      clearOauthCookies(out);
-      return out;
+      return redirectError(req, "gmail_state_invalid");
     }
 
     if (!codeVerifier) {
-      const out = NextResponse.json(
-        { error: "Missing PKCE verifier" },
-        { status: 400 }
-      );
-      clearOauthCookies(out);
-      return out;
+      return redirectError(req, "gmail_state_invalid");
     }
 
     if (!Number.isFinite(businessId) || businessId <= 0) {
-      const out = NextResponse.json(
-        { error: "Missing business context" },
-        { status: 400 }
-      );
-      clearOauthCookies(out);
-      return out;
+      return redirectError(req, "gmail_state_invalid");
     }
 
     const clientId = requireEnv("GOOGLE_OAUTH_CLIENT_ID");
@@ -84,25 +108,26 @@ export async function GET(req: NextRequest) {
       redirectBase
     ).toString();
 
-    const tokens = await exchangeCodeForTokens({
-      clientId,
-      clientSecret,
-      redirectUri,
-      code,
-      codeVerifier,
-    });
-
-    const userInfo = await fetchGoogleUserInfo(tokens.access_token);
+    let tokens;
+    let userInfo;
+    try {
+      tokens = await exchangeCodeForTokens({
+        clientId,
+        clientSecret,
+        redirectUri,
+        code,
+        codeVerifier,
+      });
+      userInfo = await fetchGoogleUserInfo(tokens.access_token);
+    } catch (exchangeError) {
+      console.error("GMAIL_CALLBACK_TOKEN_EXCHANGE_ERROR:", exchangeError);
+      return redirectError(req, "gmail_token_exchange_failed");
+    }
 
     const accessEnc = encryptToken(tokens.access_token);
     const refreshEnc = encryptToken(tokens.refresh_token);
     if (!accessEnc) {
-      const out = NextResponse.json(
-        { error: "Missing access token" },
-        { status: 500 }
-      );
-      clearOauthCookies(out);
-      return out;
+      return redirectError(req, "gmail_token_exchange_failed");
     }
 
     const now = Date.now();
@@ -154,24 +179,9 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    const out = NextResponse.json({
-      success: true,
-      connection: {
-        id: connection.id,
-        provider: connection.provider,
-        emailAddress: connection.emailAddress,
-        providerAccountId: connection.providerAccountId,
-        businessId: connection.businessId,
-        status: connection.status,
-      },
-    });
-    clearOauthCookies(out);
-    return out;
+    return redirectSuccess(req);
   } catch (error) {
     console.error("GMAIL_CALLBACK_ERROR:", error);
-    const out = NextResponse.json({ error: "Server error" }, { status: 500 });
-    clearOauthCookies(out);
-    return out;
+    return redirectError(req, "gmail_callback_failed");
   }
 }
-
