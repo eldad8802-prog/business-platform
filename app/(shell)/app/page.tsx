@@ -54,6 +54,8 @@ function getIcon(icon: string) {
       return "📄";
     case "spark":
       return "✨";
+    case "secretary":
+      return "\u{1F464}";
     default:
       return "🧩";
   }

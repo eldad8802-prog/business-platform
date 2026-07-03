@@ -1,4 +1,4 @@
-import { Component, useEffect, useRef, useState, type CSSProperties, type FormEvent, type MutableRefObject, type ReactNode } from "react";
+import { Component, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
@@ -1197,8 +1197,6 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
   const [amount, setAmount] = useState("");
   const [dueAt, setDueAt] = useState("");
   const [invoiceDate, setInvoiceDate] = useState("");
-  const dateInputRef = useRef<HTMLInputElement | null>(null);
-  const invoiceDateInputRef = useRef<HTMLInputElement | null>(null);
   const [recurrence, setRecurrence] = useState<RecurrenceCadence>("NONE");
   const [note, setNote] = useState("");
   const [kind, setKind] = useState<CaptureKind>("regular");
@@ -1229,13 +1227,6 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
     if (kind === "installments") return Boolean(dueAt.trim() && installmentCountNumber > 1);
     return Boolean(dueAt.trim());
   })();
-
-  function openDatePicker(ref: MutableRefObject<HTMLInputElement | null>) {
-    const picker = ref.current as (HTMLInputElement & { showPicker?: () => void }) | null;
-    if (!picker) return;
-    if (typeof picker.showPicker === "function") picker.showPicker();
-    else picker.click();
-  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1368,7 +1359,7 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
                 <input className={styles.captureInput} value="₪ שקל" readOnly aria-label="מטבע שקל" />
               </CaptureField>
             </div>
-            <CaptureDateInput label="מתי לתשלום" value={dueAt} fallback="בחר תאריך" inputRef={dateInputRef} onOpen={() => openDatePicker(dateInputRef)} onChange={setDueAt} />
+            <CaptureDateInput label="מתי לתשלום" value={dueAt} fallback="בחר תאריך" onChange={setDueAt} />
             <div className={styles.captureField}>
               <span>תדירות</span>
               <div className={styles.captureSegbar} role="radiogroup" aria-label="חזרתיות">
@@ -1393,7 +1384,7 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
                 <input className={styles.captureInput} inputMode="numeric" value={installmentCount} onChange={(event) => setInstallmentCount(event.target.value)} placeholder="3" />
               </CaptureField>
             </div>
-            <CaptureDateInput label="תאריך ראשון" value={dueAt} fallback="בחר תשלום ראשון" inputRef={dateInputRef} onOpen={() => openDatePicker(dateInputRef)} onChange={setDueAt} />
+            <CaptureDateInput label="תאריך ראשון" value={dueAt} fallback="בחר תשלום ראשון" onChange={setDueAt} />
             <section className={styles.captureSchedule} aria-label="לוח התשלומים">
               <strong>לוח התשלומים</strong>
               {scheduleRows.length > 0 ? scheduleRows.map((row) => (
@@ -1415,7 +1406,7 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
                 <input className={styles.captureInput} value={checkNumber} onChange={(event) => setCheckNumber(event.target.value)} placeholder="000000" />
               </CaptureField>
             </div>
-            <CaptureDateInput label="תאריך פירעון" value={dueAt} fallback="בחר פירעון" inputRef={dateInputRef} onOpen={() => openDatePicker(dateInputRef)} onChange={setDueAt} />
+            <CaptureDateInput label="תאריך פירעון" value={dueAt} fallback="בחר פירעון" onChange={setDueAt} />
             <div className={styles.captureCalmNote}>אזכיר לך יומיים לפני הפירעון לוודא שהחשבון מכוסה, כדי שיהיה לך זמן לטפל בזה ברוגע.</div>
           </> : null}
 
@@ -1423,7 +1414,7 @@ function CaptureScreen({ obligations, onCreate, onCreateMany, prefillName }: { o
             <CaptureField label="סכום">
               <input className={styles.captureInput} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0 ₪" />
             </CaptureField>
-            <CaptureDateInput label="תאריך חשבונית" value={invoiceDate} fallback="בחר תאריך חשבונית" inputRef={invoiceDateInputRef} onOpen={() => openDatePicker(invoiceDateInputRef)} onChange={setInvoiceDate} />
+            <CaptureDateInput label="תאריך חשבונית" value={invoiceDate} fallback="בחר תאריך חשבונית" onChange={setInvoiceDate} />
             <div className={styles.captureField}>
               <span>תנאי תשלום</span>
               <div className={styles.captureSegbar} role="radiogroup" aria-label="תנאי תשלום">
@@ -1450,22 +1441,26 @@ function CaptureField({ label, children }: { label: string; children: ReactNode 
   return <label className={styles.captureField}><span>{label}</span>{children}</label>;
 }
 
-function CaptureDateInput({ label, value, fallback, inputRef, onOpen, onChange }: { label: string; value: string; fallback: string; inputRef: MutableRefObject<HTMLInputElement | null>; onOpen: () => void; onChange: (value: string) => void }) {
+function CaptureDateInput({ label, value, fallback, onChange }: { label: string; value: string; fallback: string; onChange: (value: string) => void }) {
+  // The native date input sits as a full-size transparent overlay above the
+  // styled display, so a tap on the field opens the OS date picker natively
+  // (the reliable, cross-browser behaviour used elsewhere in the app) instead
+  // of depending on showPicker() against a hidden input.
   return (
     <CaptureField label={label}>
-      <button type="button" className={[styles.captureInput, styles.captureDateButton].join(" ")} onClick={onOpen}>
-        <span>{dateLabel(value, fallback)}</span>
-        <CalendarIcon />
-      </button>
-      <input
-        ref={inputRef}
-        className={styles.captureDateNative}
-        type="date"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        aria-label={label}
-        tabIndex={-1}
-      />
+      <div className={styles.captureDateField}>
+        <div className={[styles.captureInput, styles.captureDateButton].join(" ")} aria-hidden="true">
+          <span>{dateLabel(value, fallback)}</span>
+          <CalendarIcon />
+        </div>
+        <input
+          className={styles.captureDateOverlay}
+          type="date"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          aria-label={label}
+        />
+      </div>
     </CaptureField>
   );
 }
@@ -1703,7 +1698,6 @@ function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | nu
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dateRef = useRef<HTMLInputElement | null>(null);
   if (!obligation) return <SecretaryScreen title="תזכורת" backHref={screenHref("all")}><EmptyMemory title="אין התחייבות לדחות" body="כשיהיה פריט אמיתי במעקב, אפשר יהיה לבחור מתי להזכיר שוב." /></SecretaryScreen>;
   const obligationId = obligation.id;
   const now = new Date();
@@ -1719,13 +1713,6 @@ function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | nu
     if (choiceKey === "custom") return customValue;
     const preset = presets.find((option) => option.key === choiceKey);
     return preset ? preset.date : null;
-  }
-
-  function openPicker() {
-    const el = dateRef.current as (HTMLInputElement & { showPicker?: () => void }) | null;
-    if (!el) return;
-    if (typeof el.showPicker === "function") el.showPicker();
-    else el.click();
   }
 
   async function submit() {
@@ -1772,19 +1759,17 @@ function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | nu
               <span>⏱</span><strong>{option.label}</strong><em>{formatDateValue(option.date.toISOString())}</em><b />
             </button>
           ))}
-          <button type="button" className={`${styles.remindOption} ${choiceKey === "custom" ? styles.remindOptionSelected : ""}`} onClick={openPicker}>
+          <label className={`${styles.remindOption} ${choiceKey === "custom" ? styles.remindOptionSelected : ""}`}>
             <span>🔔</span><strong>בחר תאריך אחר</strong><em>{customValue ? formatDateValue(customValue.toISOString()) : "בחירת תאריך"}</em><b />
-          </button>
-          <input
-            ref={dateRef}
-            className={styles.captureDateNative}
-            type="date"
-            min={minDate}
-            value={customDate}
-            onChange={(event) => { const v = event.target.value; setCustomDate(v); if (v) { setChoiceKey("custom"); setError(null); } }}
-            aria-label="בחירת תאריך לתזכורת"
-            tabIndex={-1}
-          />
+            <input
+              className={styles.captureDateOverlay}
+              type="date"
+              min={minDate}
+              value={customDate}
+              onChange={(event) => { const v = event.target.value; setCustomDate(v); if (v) { setChoiceKey("custom"); setError(null); } }}
+              aria-label="בחירת תאריך לתזכורת"
+            />
+          </label>
         </div>
         {error ? <div className={styles.formError}>{error}</div> : null}
         <PrimaryButton disabled={busy} onClick={() => void submit()}>{busy ? "רגע…" : "אזכיר לי אז"}</PrimaryButton>
