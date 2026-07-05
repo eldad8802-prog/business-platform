@@ -101,7 +101,7 @@ export function OrderWizardShell({
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(15, 23, 42, 0.45)",
+            background: "var(--inv-backdrop)",
             zIndex: 60,
             display: "flex",
             alignItems: "center",
@@ -115,15 +115,15 @@ export function OrderWizardShell({
               width: "100%",
               maxWidth: 400,
               borderRadius: 20,
-              background: "#ffffff",
-              boxShadow: "0 24px 70px rgba(15, 23, 42, 0.28)",
+              background: "var(--inv-card-bg)",
+              boxShadow: "var(--inv-shadow-overlay)",
               padding: 20,
               display: "flex",
               flexDirection: "column",
               gap: 12,
             }}
           >
-            <div style={{ fontSize: 17, fontWeight: 950 }}>
+            <div style={{ fontSize: 17, fontWeight: 600 }}>
               יש הזמנה בתהליך
             </div>
             <div

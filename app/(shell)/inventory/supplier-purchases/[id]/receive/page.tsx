@@ -171,7 +171,7 @@ export default function ReceivingPage() {
                   name={line.rawName || `פריט #${line.id}`}
                   sub={
                     short && rec > 0 ? (
-                      <span style={{ color: "#92400e" }}>
+                      <span style={{ color: "var(--inv-warning-ink)" }}>
                         הוזמן <bdi>{line.orderedQty}</bdi> · התקבל <bdi>{rec}</bdi> — חוסר של <bdi>{shortBy}</bdi>
                       </span>
                     ) : (

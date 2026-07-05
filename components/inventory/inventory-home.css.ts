@@ -3,8 +3,8 @@ export const inventoryHomeCss = `
   [data-inventory-home].inv-page-root {
     min-height: 100vh;
     min-height: 100dvh;
-    background: #ffffff !important;
-    color: #0b1b3f;
+    background: var(--inv-card-bg) !important;
+    color: var(--inv-text);
     direction: rtl;
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   }
@@ -36,9 +36,9 @@ export const inventoryHomeCss = `
     position: sticky;
     top: 0;
     z-index: 40;
-    background: rgba(255, 255, 255, 0.94);
+    background: rgba(254, 248, 242, 0.94);
     backdrop-filter: blur(14px);
-    border-bottom: 1px solid #edf2fa;
+    border-bottom: 1px solid var(--inv-border);
   }
 
   [data-inventory-home] .inv-home-topbar__inner {
@@ -60,8 +60,8 @@ export const inventoryHomeCss = `
     align-items: center;
     gap: 11px;
     font-size: 21px;
-    font-weight: 900;
-    color: #0b1b3f;
+    font-weight: 600;
+    color: var(--inv-text);
     letter-spacing: 0;
   }
 
@@ -72,8 +72,8 @@ export const inventoryHomeCss = `
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    color: #0f6fff;
-    background: #edf5ff;
+    color: var(--inv-accent);
+    background: var(--inv-success-bg);
   }
 
   [data-inventory-home] .inv-home-brand__mark svg {
@@ -85,14 +85,14 @@ export const inventoryHomeCss = `
     justify-self: center;
     width: 100%;
     height: 42px;
-    border: 1px solid #e5edf8;
+    border: 1px solid var(--inv-border);
     border-radius: 999px;
-    background: #f8fbff;
+    background: var(--inv-surface-2);
     display: flex;
     align-items: center;
     gap: 9px;
     padding: 0 15px;
-    color: #8aa0bf;
+    color: var(--inv-text-muted);
   }
 
   [data-inventory-home] .inv-home-search input {
@@ -101,13 +101,13 @@ export const inventoryHomeCss = `
     border: 0;
     outline: 0;
     background: transparent;
-    color: #263b62;
+    color: var(--inv-text);
     font-size: 14px;
     text-align: right;
   }
 
   [data-inventory-home] .inv-home-search input::placeholder {
-    color: #94a7c3;
+    color: var(--inv-text-muted);
   }
 
   [data-inventory-home] .inv-home-topbar__actions {
@@ -121,10 +121,10 @@ export const inventoryHomeCss = `
   [data-inventory-home] .inv-home-topbar__actions button {
     width: 40px;
     height: 40px;
-    border: 1px solid #e6edf7;
+    border: 1px solid var(--inv-border);
     border-radius: 999px;
-    background: #ffffff;
-    color: #60728f;
+    background: var(--inv-card-bg);
+    color: var(--inv-text-muted);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -133,9 +133,9 @@ export const inventoryHomeCss = `
 
   [data-inventory-home] .inv-home-topbar__actions .inv-home-avatar {
     background:
-      radial-gradient(circle at 50% 38%, #ffffff 0 18%, transparent 19%),
-      radial-gradient(circle at 50% 76%, #ffffff 0 26%, transparent 27%),
-      linear-gradient(135deg, #dbe7f6, #b7c8df);
+      radial-gradient(circle at 50% 38%, var(--inv-card-bg) 0 18%, transparent 19%),
+      radial-gradient(circle at 50% 76%, var(--inv-card-bg) 0 26%, transparent 27%),
+      var(--inv-primary);
   }
 
   [data-inventory-home] .inv-workspace {
@@ -151,10 +151,10 @@ export const inventoryHomeCss = `
   [data-inventory-home] .inv-home-hero {
     position: relative;
     min-height: 560px;
-    border: 1px solid #e6edf7;
+    border: 1px solid var(--inv-border);
     border-radius: 16px;
-    background: #ffffff;
-    box-shadow: 0 18px 42px rgba(15, 40, 80, 0.08);
+    background: var(--inv-card-bg);
+    box-shadow: var(--inv-shadow);
     overflow: hidden;
     display: grid;
     grid-template-columns: minmax(360px, 1fr) minmax(340px, 0.95fr);
@@ -174,20 +174,20 @@ export const inventoryHomeCss = `
 
   [data-inventory-home] .inv-home-hero__copy h1 {
     margin: 0 0 18px;
-    color: #091a3d;
+    color: var(--inv-text);
     font-size: 56px;
     line-height: 1.08;
-    font-weight: 950;
+    font-weight: 600;
     letter-spacing: 0;
   }
 
   [data-inventory-home] .inv-home-hero__sub,
   [data-inventory-home] .inv-home-hero__state {
     margin: 0;
-    color: #54647f;
+    color: var(--inv-text-muted);
     font-size: 24px;
     line-height: 1.55;
-    font-weight: 650;
+    font-weight: 400;
   }
 
   [data-inventory-home] .inv-home-hero__state {
@@ -195,9 +195,9 @@ export const inventoryHomeCss = `
   }
 
   [data-inventory-home] .inv-home-hero__state strong {
-    color: #0f6fff;
+    color: var(--inv-accent);
     font-size: 30px;
-    font-weight: 950;
+    font-weight: 600;
   }
 
   [data-inventory-home] .inv-home-hero__cta {
@@ -206,15 +206,15 @@ export const inventoryHomeCss = `
     min-height: 84px;
     border: 0;
     border-radius: 14px;
-    background: #0f6fff;
-    color: #ffffff;
-    box-shadow: 0 14px 26px rgba(15, 111, 255, 0.24);
+    background: var(--inv-primary);
+    color: var(--inv-on-accent);
+    box-shadow: var(--inv-shadow-glow);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 18px;
     font-size: 24px;
-    font-weight: 850;
+    font-weight: 600;
     cursor: pointer;
   }
 
@@ -224,12 +224,12 @@ export const inventoryHomeCss = `
     bottom: 58px;
     border: 0;
     background: transparent;
-    color: #0f6fff;
+    color: var(--inv-accent);
     display: inline-flex;
     align-items: center;
     gap: 8px;
     font-size: 18px;
-    font-weight: 850;
+    font-weight: 600;
     cursor: pointer;
   }
 
@@ -243,7 +243,7 @@ export const inventoryHomeCss = `
   [data-inventory-home] .inv-home-illustration__blob {
     position: absolute;
     border-radius: 42% 58% 52% 48%;
-    background: #f2f6ff;
+    background: var(--inv-surface-2);
   }
 
   [data-inventory-home] .inv-home-illustration__blob--one {
@@ -267,7 +267,7 @@ export const inventoryHomeCss = `
     bottom: 18px;
     height: 10px;
     border-radius: 999px;
-    background: #e7f0ff;
+    background: var(--inv-success-bg);
   }
 
   [data-inventory-home] .inv-home-illustration__clipboard {
@@ -276,10 +276,10 @@ export const inventoryHomeCss = `
     top: 42px;
     width: 170px;
     height: 250px;
-    border: 8px solid #dbe9ff;
+    border: 8px solid var(--inv-border);
     border-radius: 18px;
-    background: #ffffff;
-    box-shadow: 0 18px 28px rgba(72, 126, 218, 0.08);
+    background: var(--inv-card-bg);
+    box-shadow: var(--inv-shadow);
     padding: 48px 28px 24px;
   }
 
@@ -291,7 +291,7 @@ export const inventoryHomeCss = `
     width: 74px;
     height: 28px;
     border-radius: 6px 6px 4px 4px;
-    background: linear-gradient(#80b2ff, #2f73e8);
+    background: var(--inv-primary);
   }
 
   [data-inventory-home] .inv-home-illustration__clip::before {
@@ -300,8 +300,8 @@ export const inventoryHomeCss = `
     width: 30px;
     height: 30px;
     border-radius: 999px;
-    border: 8px solid #6ca4ff;
-    background: #ffffff;
+    border: 8px solid var(--inv-accent);
+    background: var(--inv-card-bg);
     top: -21px;
     right: 22px;
   }
@@ -318,7 +318,7 @@ export const inventoryHomeCss = `
     width: 26px;
     height: 26px;
     border-radius: 7px;
-    background: #eaf2ff;
+    background: var(--inv-success-bg);
     position: relative;
   }
 
@@ -327,8 +327,8 @@ export const inventoryHomeCss = `
     position: absolute;
     width: 13px;
     height: 7px;
-    border-left: 4px solid #2473ef;
-    border-bottom: 4px solid #2473ef;
+    border-left: 4px solid var(--inv-accent);
+    border-bottom: 4px solid var(--inv-accent);
     transform: rotate(-45deg);
     right: 6px;
     top: 7px;
@@ -337,8 +337,8 @@ export const inventoryHomeCss = `
   [data-inventory-home] .inv-home-illustration__check-row i {
     height: 7px;
     border-radius: 999px;
-    background: #dbe8fb;
-    box-shadow: 0 14px 0 #dbe8fb;
+    background: var(--inv-border);
+    box-shadow: 0 14px 0 var(--inv-border);
   }
 
   [data-inventory-home] .inv-home-illustration__boxes {
@@ -352,7 +352,7 @@ export const inventoryHomeCss = `
   [data-inventory-home] .inv-home-illustration__boxes span {
     position: absolute;
     border-radius: 4px;
-    background: linear-gradient(135deg, #f5c985, #cba170);
+    background: var(--inv-warning-bg);
   }
 
   [data-inventory-home] .inv-home-illustration__boxes span:nth-child(1) {
@@ -367,7 +367,7 @@ export const inventoryHomeCss = `
     height: 72px;
     right: 76px;
     bottom: 0;
-    background: linear-gradient(135deg, #efc181, #b88e5e);
+    background: var(--inv-warning-bg);
   }
 
   [data-inventory-home] .inv-home-illustration__boxes span:nth-child(3) {
@@ -375,7 +375,7 @@ export const inventoryHomeCss = `
     height: 62px;
     right: 58px;
     bottom: 72px;
-    background: linear-gradient(135deg, #f6d195, #d9ad73);
+    background: var(--inv-warning-bg);
   }
 
   [data-inventory-home] .inv-home-illustration__plant {
@@ -393,7 +393,7 @@ export const inventoryHomeCss = `
     width: 34px;
     height: 40px;
     border-radius: 4px 4px 9px 9px;
-    background: #cbd7e8;
+    background: var(--inv-border-hover);
   }
 
   [data-inventory-home] .inv-home-illustration__plant i,
@@ -402,7 +402,7 @@ export const inventoryHomeCss = `
     content: "";
     position: absolute;
     border-radius: 90% 12% 90% 12%;
-    background: #78d49b;
+    background: var(--inv-success);
   }
 
   [data-inventory-home] .inv-home-illustration__plant i {
@@ -439,18 +439,18 @@ export const inventoryHomeCss = `
   [data-inventory-home] .inv-home-stations h2 {
     margin: 0;
     text-align: center;
-    color: #0b1b3f;
+    color: var(--inv-text);
     font-size: 28px;
-    font-weight: 950;
+    font-weight: 600;
   }
 
   [data-inventory-home] .inv-home-stations__bar {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    border: 1px solid #e2ebf7;
+    border: 1px solid var(--inv-border);
     border-radius: 14px;
-    background: #ffffff;
-    box-shadow: 0 10px 24px rgba(15, 40, 80, 0.05);
+    background: var(--inv-card-bg);
+    box-shadow: var(--inv-shadow);
     overflow: hidden;
   }
 
@@ -458,15 +458,15 @@ export const inventoryHomeCss = `
     position: relative;
     min-height: 126px;
     border: 0;
-    border-left: 1px solid #e8eef7;
-    background: #ffffff;
-    color: #0b1b3f;
+    border-left: 1px solid var(--inv-border);
+    background: var(--inv-card-bg);
+    color: var(--inv-text);
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 38px;
     font-size: 25px;
-    font-weight: 900;
+    font-weight: 600;
     cursor: pointer;
   }
 
@@ -475,8 +475,8 @@ export const inventoryHomeCss = `
   }
 
   [data-inventory-home] .inv-home-station.is-active {
-    color: #0f6fff;
-    background: #fbfdff;
+    color: var(--inv-accent);
+    background: var(--inv-surface-2);
   }
 
   [data-inventory-home] .inv-home-station.is-active::after {
@@ -486,22 +486,22 @@ export const inventoryHomeCss = `
     right: 0;
     bottom: 0;
     height: 4px;
-    background: #0f6fff;
+    background: var(--inv-accent);
   }
 
   [data-inventory-home] .inv-home-station:nth-child(2):not(.is-active) {
-    color: #0aa967;
+    color: var(--inv-success);
   }
 
   [data-inventory-home] .inv-home-station:nth-child(3):not(.is-active) {
-    color: #7d35ff;
+    color: var(--inv-accent);
   }
 
   [data-inventory-home] .inv-home-task-card {
-    border: 1px solid #e2ebf7;
+    border: 1px solid var(--inv-border);
     border-radius: 14px;
-    background: #ffffff;
-    box-shadow: 0 12px 28px rgba(15, 40, 80, 0.05);
+    background: var(--inv-card-bg);
+    box-shadow: var(--inv-shadow);
     overflow: hidden;
   }
 
@@ -512,21 +512,21 @@ export const inventoryHomeCss = `
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    border-bottom: 1px solid #e9eff7;
+    border-bottom: 1px solid var(--inv-border);
   }
 
   [data-inventory-home] .inv-home-task-card__header h2 {
     margin: 0;
     font-size: 28px;
-    font-weight: 950;
-    color: #0b1b3f;
+    font-weight: 600;
+    color: var(--inv-text);
   }
 
   [data-inventory-home] .inv-home-task-card__header p {
     margin: 0;
-    color: #5b6b88;
+    color: var(--inv-text-muted);
     font-size: 16px;
-    font-weight: 750;
+    font-weight: 400;
   }
 
   [data-inventory-home] .inv-station-content-grid {
@@ -538,9 +538,9 @@ export const inventoryHomeCss = `
 
   [data-inventory-home] .inv-station-nav-card {
     min-height: 94px;
-    border: 1px solid #e6edf7;
+    border: 1px solid var(--inv-border);
     border-radius: 14px;
-    background: #ffffff;
+    background: var(--inv-card-bg);
     display: grid;
     grid-template-columns: 62px minmax(0, 1fr) 28px;
     align-items: center;
@@ -548,13 +548,13 @@ export const inventoryHomeCss = `
     padding: 16px 18px;
     text-align: right;
     cursor: pointer;
-    color: #0b1b3f;
-    box-shadow: 0 8px 18px rgba(15, 40, 80, 0.04);
+    color: var(--inv-text);
+    box-shadow: var(--inv-shadow);
   }
 
   [data-inventory-home] .inv-station-nav-card:hover {
-    background: #fbfdff;
-    border-color: #cfe0fb;
+    background: var(--inv-surface-2);
+    border-color: var(--inv-border-hover);
   }
 
   [data-inventory-home] .inv-station-nav-card__icon {
@@ -567,28 +567,28 @@ export const inventoryHomeCss = `
   }
 
   [data-inventory-home] .inv-station-nav-card__icon--danger {
-    color: #f04438;
-    background: #ffe7e7;
+    color: var(--inv-danger);
+    background: var(--inv-danger-bg);
   }
 
   [data-inventory-home] .inv-station-nav-card__icon--success {
-    color: #0aa967;
-    background: #e5f9ee;
+    color: var(--inv-success);
+    background: var(--inv-success-bg);
   }
 
   [data-inventory-home] .inv-station-nav-card__icon--purple {
-    color: #7d35ff;
-    background: #f1e7ff;
+    color: var(--inv-accent);
+    background: var(--inv-success-bg);
   }
 
   [data-inventory-home] .inv-station-nav-card__icon--blue {
-    color: #0f6fff;
-    background: #e9f2ff;
+    color: var(--inv-accent);
+    background: var(--inv-success-bg);
   }
 
   [data-inventory-home] .inv-station-nav-card__icon--warning {
-    color: #ef7d00;
-    background: #fff1e4;
+    color: var(--inv-warning);
+    background: var(--inv-warning-bg);
   }
 
   [data-inventory-home] .inv-station-nav-card__copy {
@@ -599,21 +599,21 @@ export const inventoryHomeCss = `
   }
 
   [data-inventory-home] .inv-station-nav-card__title {
-    color: #0b1b3f;
+    color: var(--inv-text);
     font-size: 18px;
     line-height: 1.25;
-    font-weight: 950;
+    font-weight: 600;
   }
 
   [data-inventory-home] .inv-station-nav-card__meta {
-    color: #5b6b88;
+    color: var(--inv-text-muted);
     font-size: 14px;
     line-height: 1.4;
-    font-weight: 650;
+    font-weight: 400;
   }
 
   [data-inventory-home] .inv-station-nav-card__chevron {
-    color: #23446f;
+    color: var(--inv-text-muted);
     display: inline-flex;
   }
 
@@ -710,7 +710,7 @@ export const inventoryHomeCss = `
 
     [data-inventory-home] .inv-home-station {
       border-left: 0;
-      border-bottom: 1px solid #e8eef7;
+      border-bottom: 1px solid var(--inv-border);
     }
 
     [data-inventory-home] .inv-home-task-card__header {

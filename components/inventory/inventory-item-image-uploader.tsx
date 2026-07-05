@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
-import { primaryActionStyle } from "@/lib/design/action-styles";
+import { primaryActionStyle } from "@/components/inventory/inventory-tokens";
 import { uploadInventoryItemImage } from "@/lib/api/inventory";
 
 type Props = {
@@ -146,18 +146,18 @@ export default function InventoryItemImageUploader({
   return (
     <section
       style={{
-        border: "1px solid #e5e7eb",
-        borderRadius: "18px",
-        background: "#ffffff",
+        border: "1px solid var(--inv-border)",
+        borderRadius: "16px",
+        background: "var(--inv-card-bg)",
         padding: "16px",
       }}
     >
       <div
         style={{
           marginBottom: "6px",
-          fontWeight: 800,
+          fontWeight: 600,
           fontSize: "16px",
-          color: "#111827",
+          color: "var(--inv-text)",
         }}
       >
         תמונת פריט
@@ -167,7 +167,7 @@ export default function InventoryItemImageUploader({
         style={{
           marginBottom: "12px",
           fontSize: "13px",
-          color: "#6b7280",
+          color: "var(--inv-text-muted)",
           lineHeight: 1.5,
         }}
       >
@@ -178,13 +178,13 @@ export default function InventoryItemImageUploader({
         style={{
           width: "100%",
           height: 220,
-          border: "1px dashed #d1d5db",
+          border: "1px dashed var(--inv-border-hover)",
           borderRadius: "16px",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
-          background: "#f9fafb",
+          background: "var(--inv-surface-2)",
           marginBottom: "12px",
         }}
       >
@@ -203,7 +203,7 @@ export default function InventoryItemImageUploader({
         ) : (
           <div
             style={{
-              color: "#6b7280",
+              color: "var(--inv-text-muted)",
               fontSize: "14px",
               textAlign: "center",
               lineHeight: 1.6,
@@ -214,9 +214,9 @@ export default function InventoryItemImageUploader({
                 width: 42,
                 height: 42,
                 borderRadius: 14,
-                border: "1px solid #dbe3ef",
-                background: "#ffffff",
-                color: "#94a3b8",
+                border: "1px solid var(--inv-border)",
+                background: "var(--inv-card-bg)",
+                color: "var(--inv-text-tertiary)",
                 display: "inline-flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -265,12 +265,12 @@ export default function InventoryItemImageUploader({
             minHeight: "42px",
             padding: "9px 13px",
             borderRadius: "12px",
-            border: "1px solid #d1d5db",
-            background: "#ffffff",
-            color: "#111827",
+            border: "1px solid var(--inv-border)",
+            background: "var(--inv-card-bg)",
+            color: "var(--inv-text)",
             cursor: loading ? "not-allowed" : "pointer",
             opacity: loading ? 0.65 : 1,
-            fontWeight: 700,
+            fontWeight: 600,
           }}
         >
           בחירה מהגלריה
@@ -284,12 +284,12 @@ export default function InventoryItemImageUploader({
             minHeight: "42px",
             padding: "9px 13px",
             borderRadius: "12px",
-            border: "1px solid #d1d5db",
-            background: "#ffffff",
-            color: "#111827",
+            border: "1px solid var(--inv-border)",
+            background: "var(--inv-card-bg)",
+            color: "var(--inv-text)",
             cursor: loading ? "not-allowed" : "pointer",
             opacity: loading ? 0.65 : 1,
-            fontWeight: 700,
+            fontWeight: 600,
           }}
         >
           צילום פריט
@@ -304,12 +304,12 @@ export default function InventoryItemImageUploader({
               minHeight: "42px",
               padding: "9px 13px",
               borderRadius: "12px",
-              border: "1px solid #fecaca",
-              background: "#fef2f2",
-              color: "#991b1b",
+              border: "1px solid var(--inv-danger-border)",
+              background: "var(--inv-danger-bg)",
+              color: "var(--inv-danger)",
               cursor: loading ? "not-allowed" : "pointer",
               opacity: loading ? 0.65 : 1,
-              fontWeight: 700,
+              fontWeight: 600,
             }}
           >
             ביטול בחירה
@@ -324,7 +324,7 @@ export default function InventoryItemImageUploader({
             ...primaryActionStyle({ disabled: loading || !file, height: 42 }),
             minHeight: "42px",
             padding: "9px 15px",
-            fontWeight: 800,
+            fontWeight: 600,
           }}
         >
           {loading ? "מעלה..." : "העלאת תמונה"}
@@ -335,7 +335,7 @@ export default function InventoryItemImageUploader({
         <div
           style={{
             fontSize: "13px",
-            color: "#374151",
+            color: "var(--inv-text-muted)",
             marginBottom: "8px",
             lineHeight: 1.5,
           }}
@@ -347,9 +347,9 @@ export default function InventoryItemImageUploader({
       {successText && (
         <div
           style={{
-            color: "#166534",
-            background: "#f0fdf4",
-            border: "1px solid #bbf7d0",
+            color: "var(--inv-success)",
+            background: "var(--inv-success-bg)",
+            border: "1px solid var(--inv-success-border)",
             borderRadius: "12px",
             padding: "10px 12px",
             fontSize: "13px",
@@ -363,9 +363,9 @@ export default function InventoryItemImageUploader({
       {error && (
         <div
           style={{
-            color: "#b91c1c",
-            background: "#fef2f2",
-            border: "1px solid #fecaca",
+            color: "var(--inv-danger)",
+            background: "var(--inv-danger-bg)",
+            border: "1px solid var(--inv-danger-border)",
             borderRadius: "12px",
             padding: "10px 12px",
             fontSize: "13px",

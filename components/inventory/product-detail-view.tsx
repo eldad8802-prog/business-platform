@@ -312,9 +312,9 @@ export default function ProductDetailView({
               primary: true,
               icon: (
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <path d="M2 7h11v9H2zM13 10h4l3 3v3h-7" stroke="#fff" strokeWidth="1.8" strokeLinejoin="round" />
-                  <circle cx="6" cy="18.5" r="1.6" stroke="#fff" strokeWidth="1.8" />
-                  <circle cx="17" cy="18.5" r="1.6" stroke="#fff" strokeWidth="1.8" />
+                  <path d="M2 7h11v9H2zM13 10h4l3 3v3h-7" stroke="var(--inv-on-accent)" strokeWidth="1.8" strokeLinejoin="round" />
+                  <circle cx="6" cy="18.5" r="1.6" stroke="var(--inv-on-accent)" strokeWidth="1.8" />
+                  <circle cx="17" cy="18.5" r="1.6" stroke="var(--inv-on-accent)" strokeWidth="1.8" />
                 </svg>
               ),
               onClick: () => (window.location.href = "/inventory/supplier-purchases/new"),
@@ -365,7 +365,7 @@ export default function ProductDetailView({
                 <MovementRow
                   key={mv.id}
                   icon={<span>{REASON_EMOJI[mv.reason] || "•"}</span>}
-                  iconBg={up ? "#dcfce7" : "#fee2e2"}
+                  iconBg={up ? "var(--inv-success-bg)" : "var(--inv-danger-bg)"}
                   title={getMovementReasonLabel(mv.reason)}
                   sub={<><bdi>{mv.quantityBefore}</bdi> ← <bdi>{mv.quantityAfter}</bdi> · <bdi>{new Date(mv.createdAt).toLocaleDateString("he-IL", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })}</bdi></>}
                   delta={`${up ? "+" : "−"}${Math.abs(mv.quantityDelta)}`}

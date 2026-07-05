@@ -21,8 +21,8 @@ type Props = {
 function getMovementStyle(type: string) {
   if (type === "IN") {
     return {
-      color: "#166534",
-      background: "#dcfce7",
+      color: "var(--inv-success)",
+      background: "var(--inv-success-bg)",
       sign: "+",
       label: "הוספה",
     };
@@ -30,16 +30,16 @@ function getMovementStyle(type: string) {
 
   if (type === "OUT") {
     return {
-      color: "#991b1b",
-      background: "#fee2e2",
+      color: "var(--inv-danger)",
+      background: "var(--inv-danger-bg)",
       sign: "−",
       label: "הפחתה",
     };
   }
 
   return {
-    color: "#374151",
-    background: "#f3f4f6",
+    color: "var(--inv-text-muted)",
+    background: "var(--inv-surface-2)",
     sign: "",
     label: getMovementTypeLabel(type),
   };
@@ -59,12 +59,12 @@ export default function InventoryMovementsList({ movements }: Props) {
       <div
         style={{
           marginTop: "16px",
-          border: "1px solid #e5e7eb",
+          border: "1px solid var(--inv-border)",
           borderRadius: "14px",
           padding: "16px",
-          background: "#f9fafb",
+          background: "var(--inv-surface-2)",
           textAlign: "center",
-          color: "#6b7280",
+          color: "var(--inv-text-muted)",
           fontSize: "14px",
         }}
       >
@@ -89,11 +89,11 @@ export default function InventoryMovementsList({ movements }: Props) {
           <div
             key={m.id}
             style={{
-              border: "1px solid #e5e7eb",
+              border: "1px solid var(--inv-border)",
               borderRadius: "14px",
               padding: "12px",
               fontSize: "13px",
-              background: "#ffffff",
+              background: "var(--inv-card-bg)",
               display: "flex",
               flexDirection: "column",
               gap: "6px",
@@ -111,8 +111,8 @@ export default function InventoryMovementsList({ movements }: Props) {
             >
               <div
                 style={{
-                  fontWeight: 800,
-                  color: "#111827",
+                  fontWeight: 600,
+                  color: "var(--inv-text)",
                 }}
               >
                 {style.label}
@@ -124,7 +124,7 @@ export default function InventoryMovementsList({ movements }: Props) {
                   borderRadius: "999px",
                   background: style.background,
                   color: style.color,
-                  fontWeight: 800,
+                  fontWeight: 600,
                   fontSize: "12px",
                 }}
               >
@@ -134,11 +134,11 @@ export default function InventoryMovementsList({ movements }: Props) {
             </div>
 
             {/* פרטים */}
-            <div style={{ color: "#374151" }}>
+            <div style={{ color: "var(--inv-text-muted)" }}>
               סיבה: <strong>{getMovementReasonLabel(m.reason)}</strong>
             </div>
 
-            <div style={{ color: "#374151" }}>
+            <div style={{ color: "var(--inv-text-muted)" }}>
               לפני: {m.quantityBefore} → אחרי:{" "}
               <strong>{m.quantityAfter}</strong>
             </div>
@@ -146,8 +146,8 @@ export default function InventoryMovementsList({ movements }: Props) {
             {m.note && (
               <div
                 style={{
-                  color: "#374151",
-                  background: "#f9fafb",
+                  color: "var(--inv-text-muted)",
+                  background: "var(--inv-surface-2)",
                   borderRadius: "8px",
                   padding: "6px 8px",
                 }}
@@ -159,7 +159,7 @@ export default function InventoryMovementsList({ movements }: Props) {
             <div
               style={{
                 fontSize: "11px",
-                color: "#6b7280",
+                color: "var(--inv-text-muted)",
                 marginTop: "4px",
               }}
             >

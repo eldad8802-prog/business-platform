@@ -5,6 +5,9 @@ export const inventoryFoundationCss = `
   [data-inventory-module] {
     ${inventoryCssVars}
     overflow-x: hidden;
+    font-family: 'Heebo', system-ui, -apple-system, sans-serif;
+    /* DS v1 tops out at weight 600 — never let the browser fake 700+ bold. */
+    font-synthesis-weight: none;
   }
 
   [data-inventory-module] .inv-page-root {
@@ -47,7 +50,7 @@ export const inventoryFoundationCss = `
     text-align: center;
     color: var(--inv-text-muted);
     font-size: 14px;
-    font-weight: 800;
+    font-weight: 500;
     line-height: 1.6;
     padding: 28px 18px;
   }
@@ -56,7 +59,7 @@ export const inventoryFoundationCss = `
     display: block;
     color: var(--inv-text);
     font-size: 17px;
-    font-weight: 950;
+    font-weight: 600;
     margin-bottom: 6px;
   }
 
@@ -67,19 +70,16 @@ export const inventoryFoundationCss = `
   [data-inventory-module] .inv-hero-card {
     border-radius: calc(var(--inv-radius-lg) + 6px);
     padding: 24px;
-    color: #fff;
-    box-shadow: 0 18px 44px rgba(15, 23, 42, 0.16);
+    color: var(--inv-on-accent);
+    box-shadow: var(--inv-shadow-overlay);
     box-sizing: border-box;
   }
 
-  [data-inventory-module] .inv-hero-card--green {
-    background: linear-gradient(135deg, #047857 0%, #059669 100%);
-  }
-
-  [data-inventory-module] .inv-hero-card--purple {
-    background: linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%);
-  }
-
+  /* DS v1 has one brand gradient (teal) — the former green/purple/blue hero
+     variants all resolve to the single primary gradient (colour = signal,
+     never a decorative block). */
+  [data-inventory-module] .inv-hero-card--green,
+  [data-inventory-module] .inv-hero-card--purple,
   [data-inventory-module] .inv-hero-card--blue {
     background: var(--inv-primary);
   }
@@ -88,25 +88,25 @@ export const inventoryFoundationCss = `
     margin: 6px 0 8px;
     font-size: clamp(24px, 6vw, 34px);
     line-height: 1.12;
-    font-weight: 950;
+    font-weight: 600;
   }
 
   [data-inventory-module] .inv-hero-card p {
     margin: 0;
     max-width: 52ch;
-    color: rgba(255, 255, 255, 0.9);
+    color: rgba(254, 248, 242, 0.9);
     font-size: 14px;
     line-height: 1.65;
-    font-weight: 700;
+    font-weight: 400;
   }
 
   [data-inventory-module] .inv-kicker {
     display: inline-flex;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.14);
+    background: rgba(254, 248, 242, 0.16);
     padding: 5px 10px;
     font-size: 12px;
-    font-weight: 900;
+    font-weight: 600;
   }
 
   [data-inventory-module] .inv-section-heading {
@@ -122,13 +122,13 @@ export const inventoryFoundationCss = `
     color: var(--inv-text);
     font-size: 17px;
     line-height: 1.3;
-    font-weight: 950;
+    font-weight: 600;
   }
 
   [data-inventory-module] .inv-section-heading span {
     color: var(--inv-text-muted);
     font-size: 12px;
-    font-weight: 850;
+    font-weight: 500;
     line-height: 1.45;
     text-align: left;
   }
@@ -146,19 +146,19 @@ export const inventoryFoundationCss = `
     border: 1px solid var(--inv-border);
     border-radius: var(--inv-radius-md);
     padding: 10px 12px;
-    background: #f8fafc;
+    background: var(--inv-surface-2);
   }
 
   [data-inventory-module] .inv-data-pairs span {
     color: var(--inv-text-muted);
     font-size: 12px;
-    font-weight: 800;
+    font-weight: 500;
   }
 
   [data-inventory-module] .inv-data-pairs strong {
     color: var(--inv-text);
     font-size: 13px;
-    font-weight: 950;
+    font-weight: 600;
     text-align: left;
   }
 
@@ -178,14 +178,14 @@ export const inventoryFoundationCss = `
     border: 1px solid var(--inv-border);
     border-radius: var(--inv-radius-md);
     padding: 11px 12px;
-    background: #fff;
+    background: var(--inv-card-bg);
   }
 
   [data-inventory-module] .inv-simple-list span {
     min-width: 0;
     color: var(--inv-text);
     font-size: 14px;
-    font-weight: 900;
+    font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -194,7 +194,7 @@ export const inventoryFoundationCss = `
   [data-inventory-module] .inv-simple-list strong {
     color: var(--inv-text-muted);
     font-size: 13px;
-    font-weight: 900;
+    font-weight: 500;
     white-space: nowrap;
   }
 
@@ -214,7 +214,7 @@ export const inventoryFoundationCss = `
     padding: 11px 14px;
     font: inherit;
     font-size: 14px;
-    font-weight: 900;
+    font-weight: 600;
     cursor: pointer;
     text-decoration: none;
     box-sizing: border-box;
@@ -223,13 +223,13 @@ export const inventoryFoundationCss = `
   [data-inventory-module] .inv-primary-button {
     border: 0;
     background: var(--inv-primary);
-    color: #fff;
-    box-shadow: 0 12px 24px rgba(36, 59, 87, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    color: var(--inv-on-accent);
+    box-shadow: var(--inv-shadow-glow);
   }
 
   [data-inventory-module] .inv-secondary-button {
     border: 1px solid var(--inv-border);
-    background: #fff;
+    background: var(--inv-card-bg);
     color: var(--inv-text);
   }
 
@@ -244,20 +244,20 @@ export const inventoryFoundationCss = `
     border-radius: var(--inv-radius-md);
     padding: 11px 13px;
     font-size: 13px;
-    font-weight: 850;
+    font-weight: 500;
     line-height: 1.5;
   }
 
   [data-inventory-module] .inv-alert--error {
-    border: 1px solid #fecaca;
-    background: #fef2f2;
-    color: #991b1b;
+    border: 1px solid var(--inv-danger-border);
+    background: var(--inv-danger-bg);
+    color: var(--inv-danger);
   }
 
   [data-inventory-module] .inv-alert--success {
-    border: 1px solid #bbf7d0;
-    background: #ecfdf5;
-    color: #166534;
+    border: 1px solid var(--inv-success-border);
+    background: var(--inv-success-bg);
+    color: var(--inv-success);
   }
 
   [data-inventory-module] .inv-mini-stepper {
@@ -269,26 +269,26 @@ export const inventoryFoundationCss = `
   [data-inventory-module] .inv-mini-step {
     min-height: 34px;
     border-radius: 999px;
-    background: #f1f5f9;
+    background: var(--inv-surface-2);
     color: var(--inv-text-muted);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     padding: 6px 8px;
     font-size: 12px;
-    font-weight: 900;
+    font-weight: 600;
     text-align: center;
   }
 
   [data-inventory-module] .inv-mini-step.is-current {
     background: var(--inv-primary);
-    color: #fff;
-    box-shadow: 0 8px 18px rgba(36, 59, 87, 0.18);
+    color: var(--inv-on-accent);
+    box-shadow: var(--inv-shadow-glow);
   }
 
   [data-inventory-module] .inv-mini-step.is-done {
-    background: #eaf2ff;
-    color: #3F619C;
+    background: var(--inv-success-bg);
+    color: var(--inv-accent);
   }
 
   [data-inventory-module] .inv-modal-backdrop {
@@ -297,7 +297,7 @@ export const inventoryFoundationCss = `
     /* Above the global BottomBar (z-index 100) so the modal is not covered or
        click-intercepted by the bottom navigation. */
     z-index: 210;
-    background: rgba(15, 23, 42, 0.42);
+    background: var(--inv-backdrop);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -308,8 +308,8 @@ export const inventoryFoundationCss = `
     width: 100%;
     max-width: 380px;
     border-radius: var(--inv-radius-lg);
-    background: #fff;
-    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.26);
+    background: var(--inv-card-bg);
+    box-shadow: var(--inv-shadow-overlay);
     padding: 18px;
     display: grid;
     gap: 10px;
@@ -319,7 +319,7 @@ export const inventoryFoundationCss = `
     margin: 0 0 4px;
     color: var(--inv-text);
     font-size: 18px;
-    font-weight: 950;
+    font-weight: 600;
     text-align: center;
   }
 
@@ -327,10 +327,10 @@ export const inventoryFoundationCss = `
     min-height: 46px;
     border-radius: var(--inv-radius-md);
     border: 1px solid var(--inv-border);
-    background: #fff;
+    background: var(--inv-card-bg);
     color: var(--inv-text);
     font: inherit;
-    font-weight: 900;
+    font-weight: 600;
     cursor: pointer;
   }
 
@@ -339,7 +339,7 @@ export const inventoryFoundationCss = `
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
     border-radius: var(--inv-radius-md);
-    background: #eef3f8;
+    background: var(--inv-surface-2);
     padding: 5px;
     border: 1px solid var(--inv-border);
   }
@@ -349,17 +349,17 @@ export const inventoryFoundationCss = `
     border-radius: 11px;
     border: 0;
     background: transparent;
-    color: #64748b;
+    color: var(--inv-text-muted);
     font: inherit;
     font-size: 13px;
-    font-weight: 900;
+    font-weight: 600;
     cursor: pointer;
   }
 
   [data-inventory-module] .inv-tabs-soft button.is-active {
     background: var(--inv-primary);
-    color: #fff;
-    box-shadow: 0 10px 20px rgba(36, 59, 87, 0.18), inset 0 1px 0 rgba(255,255,255,0.22);
+    color: var(--inv-on-accent);
+    box-shadow: var(--inv-shadow-glow);
   }
 
   [data-inventory-module] .inv-row-card-head {
@@ -377,7 +377,7 @@ export const inventoryFoundationCss = `
     margin: 8px 0 4px;
     color: var(--inv-text);
     font-size: 17px;
-    font-weight: 950;
+    font-weight: 600;
     line-height: 1.3;
   }
 
@@ -386,7 +386,7 @@ export const inventoryFoundationCss = `
     color: var(--inv-text-muted);
     font-size: 13px;
     line-height: 1.45;
-    font-weight: 750;
+    font-weight: 400;
   }
 
   [data-inventory-module] .inv-row-card-head .inv-secondary-button {
@@ -398,11 +398,11 @@ export const inventoryFoundationCss = `
     display: inline-flex;
     width: fit-content;
     border-radius: 999px;
-    background: #ecfdf5;
-    color: #166534;
+    background: var(--inv-success-bg);
+    color: var(--inv-success);
     padding: 5px 10px;
     font-size: 12px;
-    font-weight: 900;
+    font-weight: 600;
   }
 
   [data-inventory-module] .inv-receive-panel {
@@ -416,7 +416,7 @@ export const inventoryFoundationCss = `
   [data-inventory-module] .inv-receive-line {
     border: 1px solid var(--inv-border);
     border-radius: var(--inv-radius-md);
-    background: #f8fafc;
+    background: var(--inv-surface-2);
     padding: 12px;
     display: grid;
     gap: 10px;
@@ -426,7 +426,7 @@ export const inventoryFoundationCss = `
     display: block;
     color: var(--inv-text);
     font-size: 14px;
-    font-weight: 950;
+    font-weight: 600;
     line-height: 1.35;
   }
 
@@ -435,7 +435,7 @@ export const inventoryFoundationCss = `
     margin-top: 4px;
     color: var(--inv-text-muted);
     font-size: 12px;
-    font-weight: 800;
+    font-weight: 500;
   }
 
   [data-inventory-module] .inv-receive-line__controls {
@@ -444,20 +444,20 @@ export const inventoryFoundationCss = `
   }
 
   [data-inventory-module] .inv-receive-impact {
-    border: 1px solid #bbf7d0;
+    border: 1px solid var(--inv-success-border);
     border-radius: var(--inv-radius-md);
-    background: #f0fdf4;
-    color: #166534;
+    background: var(--inv-success-bg);
+    color: var(--inv-success);
     padding: 12px;
     font-size: 13px;
-    font-weight: 850;
+    font-weight: 500;
     line-height: 1.55;
   }
 
   [data-inventory-module] .inv-sale-line {
     border: 1px solid var(--inv-border);
     border-radius: var(--inv-radius-md);
-    background: #f8fafc;
+    background: var(--inv-surface-2);
     padding: 12px;
     display: grid;
     gap: 10px;
@@ -473,30 +473,30 @@ export const inventoryFoundationCss = `
   [data-inventory-module] .inv-sale-line__head strong {
     color: var(--inv-text);
     font-size: 14px;
-    font-weight: 950;
+    font-weight: 600;
   }
 
   [data-inventory-module] .inv-sale-line__head button {
     min-height: 34px;
     border-radius: 10px;
-    border: 1px solid #fecaca;
-    background: #fef2f2;
-    color: #991b1b;
+    border: 1px solid var(--inv-danger-border);
+    background: var(--inv-danger-bg);
+    color: var(--inv-danger);
     font: inherit;
     font-size: 12px;
-    font-weight: 900;
+    font-weight: 600;
     cursor: pointer;
     padding: 6px 10px;
   }
 
   [data-inventory-module] .inv-sale-line__stock {
     border-radius: 12px;
-    background: #fff;
+    background: var(--inv-card-bg);
     border: 1px solid var(--inv-border);
     color: var(--inv-text-muted);
     padding: 10px 12px;
     font-size: 13px;
-    font-weight: 850;
+    font-weight: 500;
     line-height: 1.45;
   }
 
@@ -509,17 +509,18 @@ export const inventoryFoundationCss = `
     border-radius: var(--inv-radius-button);
     border: none;
     background: var(--inv-primary);
-    color: #fff;
+    color: var(--inv-on-accent);
     font-size: 15px;
-    font-weight: 900;
+    font-weight: 600;
     font-family: inherit;
     cursor: pointer;
-    box-shadow: 0 12px 24px rgba(36, 59, 87, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    box-shadow: var(--inv-shadow-glow);
     box-sizing: border-box;
   }
 
   [data-inventory-module] .inv-btn-primary:disabled {
-    background: #cbd5e1;
+    background: var(--inv-surface-2);
+    color: var(--inv-text-muted);
     box-shadow: none;
     cursor: not-allowed;
   }
@@ -539,7 +540,7 @@ export const inventoryFoundationCss = `
     background: var(--inv-card-bg);
     color: var(--inv-text);
     font-size: 14px;
-    font-weight: 800;
+    font-weight: 600;
     font-family: inherit;
     cursor: pointer;
     box-sizing: border-box;
@@ -550,7 +551,7 @@ export const inventoryFoundationCss = `
     background: transparent;
     color: var(--inv-text-muted);
     font-size: 14px;
-    font-weight: 800;
+    font-weight: 600;
     font-family: inherit;
     cursor: pointer;
     padding: 8px 4px;
@@ -573,7 +574,7 @@ export const inventoryFoundationCss = `
     background: transparent;
     color: var(--inv-accent);
     font-size: 13px;
-    font-weight: 900;
+    font-weight: 600;
     font-family: inherit;
     cursor: pointer;
     padding: 4px 0;
@@ -584,7 +585,7 @@ export const inventoryFoundationCss = `
   [data-inventory-module] .inv-field-label {
     display: block;
     font-size: 12px;
-    font-weight: 800;
+    font-weight: 600;
     color: var(--inv-text-muted);
     margin-bottom: 6px;
   }
@@ -599,7 +600,7 @@ export const inventoryFoundationCss = `
     background: var(--inv-card-bg);
     color: var(--inv-text);
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 500;
     font-family: inherit;
     box-sizing: border-box;
     outline: none;
@@ -608,7 +609,7 @@ export const inventoryFoundationCss = `
   [data-inventory-module] .inv-field-input:focus,
   [data-inventory-module] .inv-field-select:focus {
     border-color: var(--inv-accent);
-    box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
+    box-shadow: 0 0 0 3px var(--inv-ring);
   }
 
   [data-inventory-module] .inv-list {
@@ -631,7 +632,7 @@ export const inventoryFoundationCss = `
     border: 1px solid var(--inv-border);
     border-radius: var(--inv-radius-md);
     background: var(--inv-card-bg);
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+    box-shadow: var(--inv-shadow);
     box-sizing: border-box;
     text-align: right;
     font-family: inherit;
@@ -640,8 +641,8 @@ export const inventoryFoundationCss = `
   }
 
   [data-inventory-module] .inv-list-row:hover {
-    border-color: #cbd5e1;
-    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+    border-color: var(--inv-border-hover);
+    box-shadow: var(--inv-shadow-card-hover);
   }
 
   [data-inventory-module] .inv-state-panel {
@@ -665,7 +666,7 @@ export const inventoryFoundationCss = `
     margin: 0;
     color: var(--inv-text);
     font-size: 17px;
-    font-weight: 950;
+    font-weight: 600;
     line-height: 1.35;
   }
 
@@ -673,7 +674,7 @@ export const inventoryFoundationCss = `
     margin-top: 8px;
     color: var(--inv-text-muted);
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 400;
     line-height: 1.6;
   }
 
@@ -683,15 +684,15 @@ export const inventoryFoundationCss = `
 
   [data-inventory-module] .inv-state-panel__title {
     font-size: 15px;
-    font-weight: 900;
+    font-weight: 600;
     color: var(--inv-text);
     margin: 0 0 8px;
   }
 
   [data-inventory-module] .inv-state-panel--error {
-    border-color: #fecaca !important;
-    background: #fef2f2 !important;
-    color: #991b1b;
+    border-color: var(--inv-danger-border) !important;
+    background: var(--inv-danger-bg) !important;
+    color: var(--inv-danger);
     text-align: right;
   }
 
@@ -699,30 +700,30 @@ export const inventoryFoundationCss = `
     padding: 10px 14px;
     border-radius: 12px;
     font-size: 13px;
-    font-weight: 800;
+    font-weight: 500;
     line-height: 1.45;
   }
 
   [data-inventory-module] .inv-notice--success {
-    background: #ecfdf5;
-    border: 1px solid #bbf7d0;
-    color: var(--inv-accent-dark);
+    background: var(--inv-success-bg);
+    border: 1px solid var(--inv-success-border);
+    color: var(--inv-success);
   }
 
   [data-inventory-module] .inv-notice--danger {
-    background: #fef2f2;
-    border: 1px solid #fecaca;
-    color: #991b1b;
+    background: var(--inv-danger-bg);
+    border: 1px solid var(--inv-danger-border);
+    color: var(--inv-danger);
   }
 
   [data-inventory-module] .inv-subheader-bar {
     position: sticky;
     top: 0;
     z-index: 40;
-    background: rgba(240, 244, 248, 0.92);
+    background: rgba(254, 248, 242, 0.92);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+    border-bottom: 1px solid var(--inv-border);
     padding: 10px 0;
   }
 
@@ -740,7 +741,7 @@ export const inventoryFoundationCss = `
   }
 
   [data-inventory-module] .inv-subheader-title {
-    font-weight: 950;
+    font-weight: 600;
     font-size: clamp(17px, 2.5vw, 20px);
     color: var(--inv-text);
     text-align: center;
@@ -763,12 +764,12 @@ export const inventoryFoundationCss = `
     cursor: pointer;
     padding: 0 12px;
     font-size: 14px;
-    font-weight: 900;
+    font-weight: 600;
     color: var(--inv-text);
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+    box-shadow: var(--inv-shadow);
     font-family: inherit;
   }
 
@@ -779,12 +780,12 @@ export const inventoryFoundationCss = `
     left: 0;
     right: 0;
     z-index: 50;
-    background: rgba(255, 255, 255, 0.97);
+    background: var(--inv-card-bg);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     border-top: 1px solid var(--inv-border);
     padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px));
-    box-shadow: 0 -4px 24px rgba(15, 23, 42, 0.06);
+    box-shadow: var(--inv-shadow-card-hover);
   }
 
   [data-inventory-module] .inv-main-shell {

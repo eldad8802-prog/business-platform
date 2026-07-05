@@ -79,14 +79,14 @@ export default function InventoryItemImageEditor({
   return (
     <div
       style={{
-        border: "1px solid #e5e7eb",
-        borderRadius: "12px",
-        background: "#ffffff",
+        border: "1px solid var(--inv-border)",
+        borderRadius: "16px",
+        background: "var(--inv-card-bg)",
         padding: "16px",
         marginBottom: "16px",
       }}
     >
-      <div style={{ fontSize: "16px", fontWeight: 700, marginBottom: "12px" }}>
+      <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "12px", color: "var(--inv-text)" }}>
         תמונת פריט
       </div>
 
@@ -95,8 +95,8 @@ export default function InventoryItemImageEditor({
           width: "100%",
           minHeight: "220px",
           borderRadius: "12px",
-          border: "1px dashed #d1d5db",
-          background: "#f9fafb",
+          border: "1px dashed var(--inv-border-hover)",
+          background: "var(--inv-surface-2)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -118,7 +118,7 @@ export default function InventoryItemImageEditor({
         ) : (
           <div
             style={{
-              color: "#6b7280",
+              color: "var(--inv-text-muted)",
               fontSize: "14px",
               textAlign: "center",
               padding: "20px",
@@ -147,7 +147,7 @@ export default function InventoryItemImageEditor({
             width: "100%",
             minHeight: "44px",
             borderRadius: "10px",
-            border: "1px solid #d1d5db",
+            border: "1px solid var(--inv-border-hover)",
             padding: "10px 12px",
             fontSize: "14px",
             outline: "none",
@@ -170,8 +170,8 @@ export default function InventoryItemImageEditor({
               padding: "0 14px",
               borderRadius: "10px",
               border: "none",
-              background: "#111827",
-              color: "#ffffff",
+              background: "var(--inv-primary)",
+              color: "var(--inv-on-accent)",
               cursor: saving ? "not-allowed" : "pointer",
               opacity: saving ? 0.7 : 1,
             }}
@@ -190,8 +190,8 @@ export default function InventoryItemImageEditor({
               minHeight: "42px",
               padding: "0 14px",
               borderRadius: "10px",
-              border: "1px solid #d1d5db",
-              background: "#ffffff",
+              border: "1px solid var(--inv-border-hover)",
+              background: "var(--inv-card-bg)",
               cursor: "pointer",
             }}
           >
@@ -204,9 +204,9 @@ export default function InventoryItemImageEditor({
             style={{
               marginTop: "4px",
               borderRadius: "10px",
-              background: "#ecfdf5",
-              border: "1px solid #a7f3d0",
-              color: "#065f46",
+              background: "var(--inv-success-bg)",
+              border: "1px solid var(--inv-success-border)",
+              color: "var(--inv-success)",
               padding: "10px 12px",
               fontSize: "13px",
             }}
@@ -220,9 +220,9 @@ export default function InventoryItemImageEditor({
             style={{
               marginTop: "4px",
               borderRadius: "10px",
-              background: "#fef2f2",
-              border: "1px solid #fecaca",
-              color: "#b91c1c",
+              background: "var(--inv-danger-bg)",
+              border: "1px solid var(--inv-danger-border)",
+              color: "var(--inv-danger)",
               padding: "10px 12px",
               fontSize: "13px",
             }}

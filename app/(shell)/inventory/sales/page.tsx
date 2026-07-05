@@ -50,7 +50,7 @@ export default function InventorySalesPage() {
       <div className="inv-rows">
         <InventoryRow
           thumb={<span style={{ fontSize: 22 }}>🧾</span>}
-          thumbBg="#e0edff"
+          thumbBg="var(--inv-info-bg)"
           title="דווח מכירה ידנית"
           meta="בחירת מוצרים וכמויות — יופחת מהמלאי"
           href="/inventory/sales/create"
@@ -75,7 +75,7 @@ export default function InventorySalesPage() {
             <InventoryRow
               key={match.id}
               thumb={<span style={{ fontSize: 22 }}>🧾</span>}
-              thumbBg="#e0edff"
+              thumbBg="var(--inv-info-bg)"
               title={match.metadata.name || match.externalSaleId}
               meta={
                 <>

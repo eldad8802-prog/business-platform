@@ -135,7 +135,7 @@ export default function MovementModal({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(15, 23, 42, 0.45)",
+        background: "var(--inv-backdrop)",
         zIndex: 200,
         display: "flex",
         alignItems: "center",
@@ -149,15 +149,15 @@ export default function MovementModal({
           width: "100%",
           maxWidth: "440px",
           borderRadius: "22px",
-          background: "#ffffff",
-          boxShadow: "0 20px 50px rgba(15, 23, 42, 0.2)",
+          background: "var(--inv-card-bg)",
+          boxShadow: "var(--inv-shadow-overlay)",
           overflow: "hidden",
         }}
       >
         <div
           style={{
             padding: "18px 18px 12px 18px",
-            borderBottom: "1px solid #f1f5f9",
+            borderBottom: "1px solid var(--inv-surface-2)",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
@@ -165,11 +165,11 @@ export default function MovementModal({
           }}
         >
           <div>
-            <div style={{ fontSize: "17px", fontWeight: 800, color: "#111827" }}>
+            <div style={{ fontSize: "17px", fontWeight: 600, color: "var(--inv-text)" }}>
               {mode === "ADD" ? "הוספת מלאי" : "הפחתת מלאי"}
             </div>
 
-            <div style={{ marginTop: "4px", fontSize: "13px", color: "#6b7280" }}>
+            <div style={{ marginTop: "4px", fontSize: "13px", color: "var(--inv-text-muted)" }}>
               {itemName}
             </div>
           </div>
@@ -182,8 +182,8 @@ export default function MovementModal({
               width: "36px",
               height: "36px",
               borderRadius: "10px",
-              border: "1px solid #e5e7eb",
-              background: "#f9fafb",
+              border: "1px solid var(--inv-border)",
+              background: "var(--inv-surface-2)",
               cursor: loading ? "not-allowed" : "pointer",
               fontSize: "18px",
               lineHeight: 1,
@@ -197,7 +197,7 @@ export default function MovementModal({
 
         <div style={{ padding: "18px", display: "flex", flexDirection: "column", gap: "14px" }}>
           <div>
-            <label htmlFor="movement-quantity" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
+            <label htmlFor="movement-quantity" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 600, color: "var(--inv-text)" }}>
               כמות
             </label>
 
@@ -217,16 +217,16 @@ export default function MovementModal({
                 minHeight: "46px",
                 padding: "10px 12px",
                 borderRadius: "12px",
-                border: "1px solid #d1d5db",
+                border: "1px solid var(--inv-border-hover)",
                 fontSize: "14px",
-                background: loading ? "#f9fafb" : "#ffffff",
+                background: loading ? "var(--inv-surface-2)" : "var(--inv-card-bg)",
                 boxSizing: "border-box",
               }}
             />
           </div>
 
           <div>
-            <label htmlFor="movement-reason" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
+            <label htmlFor="movement-reason" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 600, color: "var(--inv-text)" }}>
               סיבה
             </label>
 
@@ -243,9 +243,9 @@ export default function MovementModal({
                 minHeight: "46px",
                 padding: "10px 12px",
                 borderRadius: "12px",
-                border: "1px solid #d1d5db",
+                border: "1px solid var(--inv-border-hover)",
                 fontSize: "14px",
-                background: loading ? "#f9fafb" : "#ffffff",
+                background: loading ? "var(--inv-surface-2)" : "var(--inv-card-bg)",
                 boxSizing: "border-box",
               }}
             >
@@ -258,7 +258,7 @@ export default function MovementModal({
           </div>
 
           <div>
-            <label htmlFor="movement-note" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
+            <label htmlFor="movement-note" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 600, color: "var(--inv-text)" }}>
               הערה
             </label>
 
@@ -274,16 +274,16 @@ export default function MovementModal({
                 minHeight: "46px",
                 padding: "10px 12px",
                 borderRadius: "12px",
-                border: "1px solid #d1d5db",
+                border: "1px solid var(--inv-border-hover)",
                 fontSize: "14px",
-                background: loading ? "#f9fafb" : "#ffffff",
+                background: loading ? "var(--inv-surface-2)" : "var(--inv-card-bg)",
                 boxSizing: "border-box",
               }}
             />
           </div>
 
           {error && (
-            <div style={{ color: "#b91c1c", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "12px", padding: "10px 12px", fontSize: "13px", lineHeight: 1.5 }}>
+            <div style={{ color: "var(--inv-danger)", background: "var(--inv-danger-bg)", border: "1px solid var(--inv-danger-border)", borderRadius: "12px", padding: "10px 12px", fontSize: "13px", lineHeight: 1.5 }}>
               {error}
             </div>
           )}
@@ -298,12 +298,12 @@ export default function MovementModal({
                 minHeight: "46px",
                 padding: "10px 14px",
                 borderRadius: "12px",
-                background: "#ffffff",
-                color: "#111827",
-                border: "1px solid #d1d5db",
+                background: "var(--inv-card-bg)",
+                color: "var(--inv-text)",
+                border: "1px solid var(--inv-border-hover)",
                 cursor: loading ? "not-allowed" : "pointer",
                 fontSize: "14px",
-                fontWeight: 700,
+                fontWeight: 600,
                 opacity: loading ? 0.6 : 1,
               }}
             >
@@ -319,12 +319,12 @@ export default function MovementModal({
                 minHeight: "46px",
                 padding: "10px 14px",
                 borderRadius: "12px",
-                background: mode === "ADD" ? "#059669" : "#dc2626",
-                color: "#ffffff",
+                background: mode === "ADD" ? "var(--inv-success)" : "var(--inv-danger)",
+                color: "var(--inv-on-accent)",
                 border: "none",
                 cursor: loading ? "not-allowed" : "pointer",
                 fontSize: "14px",
-                fontWeight: 800,
+                fontWeight: 600,
                 opacity: loading ? 0.75 : 1,
               }}
             >

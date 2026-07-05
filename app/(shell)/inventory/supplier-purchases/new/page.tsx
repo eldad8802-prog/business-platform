@@ -100,7 +100,7 @@ export default function NewSupplierPurchaseSelectPage() {
             const inCart = order[item.id] ?? 0;
             return (
               <div key={item.id} className="inv-row" style={{ cursor: "default" }}>
-                <span className="inv-row__thumb" style={{ background: "var(--inv-surface, #f5f7f9)" }} aria-hidden>
+                <span className="inv-row__thumb" style={{ background: "var(--inv-surface)" }} aria-hidden>
                   <span style={{ fontSize: 26 }}>{getProductEmoji(item.name, getCategoryName(item))}</span>
                 </span>
                 <span className="inv-row__mid">
@@ -118,7 +118,7 @@ export default function NewSupplierPurchaseSelectPage() {
                     onClick={() => quickAddItem(item)}
                     aria-label={`הוסף ${item.name}`}
                   >
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden><path d="M12 5v14M5 12h14" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" /></svg>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden><path d="M12 5v14M5 12h14" stroke="var(--inv-on-accent)" strokeWidth="2.4" strokeLinecap="round" /></svg>
                   </button>
                 </span>
               </div>
