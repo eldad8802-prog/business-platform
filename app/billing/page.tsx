@@ -400,7 +400,7 @@ export default function BillingHubPage() {
                 flex: "0 1 264px",
               }}
             >
-              + צור מסמך
+              + צור חשבונית
             </button>
             <button
               className="billing-action-button"
