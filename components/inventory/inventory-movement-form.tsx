@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { dangerActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
+import { dangerActionStyle, glassActionStyle, primaryActionStyle } from "@/components/inventory/inventory-tokens";
 import { createInventoryMovement } from "@/lib/api/inventory";
 
 type Props = {
@@ -105,18 +105,18 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
   return (
     <section
       style={{
-        border: "1px solid #e5e7eb",
-        borderRadius: "18px",
-        background: "#ffffff",
+        border: "1px solid var(--inv-border)",
+        borderRadius: "16px",
+        background: "var(--inv-card-bg)",
         padding: "18px",
-        boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
+        boxShadow: "var(--inv-shadow)",
       }}
     >
-      <div style={{ fontWeight: 800, marginBottom: "6px", fontSize: "16px", color: "#111827" }}>
+      <div style={{ fontWeight: 600, marginBottom: "6px", fontSize: "16px", color: "var(--inv-text)" }}>
         עדכון מלאי
       </div>
 
-      <div style={{ fontSize: "13px", color: "#6b7280", lineHeight: 1.5, marginBottom: "14px" }}>
+      <div style={{ fontSize: "13px", color: "var(--inv-text-muted)", lineHeight: 1.5, marginBottom: "14px" }}>
         כל שינוי כאן נשמר כתנועת מלאי מסודרת ומתועד בהיסטוריה.
       </div>
 
@@ -132,7 +132,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
             flex: 1,
             minHeight: "44px",
             padding: "9px 12px",
-            fontWeight: 800,
+            fontWeight: 600,
           }}
         >
           הוספת מלאי
@@ -149,7 +149,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
             flex: 1,
             minHeight: "44px",
             padding: "9px 12px",
-            fontWeight: 800,
+            fontWeight: 600,
           }}
         >
           הפחתת מלאי
@@ -158,7 +158,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
 
       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
         <div>
-          <label htmlFor="inventory-movement-quantity" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
+          <label htmlFor="inventory-movement-quantity" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 600, color: "var(--inv-text)" }}>
             כמות
           </label>
 
@@ -180,16 +180,16 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
               minHeight: "46px",
               padding: "10px 12px",
               borderRadius: "12px",
-              border: "1px solid #d1d5db",
+              border: "1px solid var(--inv-border)",
               fontSize: "14px",
-              background: loading ? "#f9fafb" : "#ffffff",
+              background: loading ? "var(--inv-surface-2)" : "var(--inv-card-bg)",
               boxSizing: "border-box",
             }}
           />
         </div>
 
         <div>
-          <label htmlFor="inventory-movement-reason" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
+          <label htmlFor="inventory-movement-reason" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 600, color: "var(--inv-text)" }}>
             סיבה
           </label>
 
@@ -207,9 +207,9 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
               minHeight: "46px",
               padding: "10px 12px",
               borderRadius: "12px",
-              border: "1px solid #d1d5db",
+              border: "1px solid var(--inv-border)",
               fontSize: "14px",
-              background: loading ? "#f9fafb" : "#ffffff",
+              background: loading ? "var(--inv-surface-2)" : "var(--inv-card-bg)",
               boxSizing: "border-box",
             }}
           >
@@ -222,7 +222,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
         </div>
 
         <div>
-          <label htmlFor="inventory-movement-note" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 700, color: "#111827" }}>
+          <label htmlFor="inventory-movement-note" style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: 600, color: "var(--inv-text)" }}>
             הערה
           </label>
 
@@ -241,22 +241,22 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
               minHeight: "46px",
               padding: "10px 12px",
               borderRadius: "12px",
-              border: "1px solid #d1d5db",
+              border: "1px solid var(--inv-border)",
               fontSize: "14px",
-              background: loading ? "#f9fafb" : "#ffffff",
+              background: loading ? "var(--inv-surface-2)" : "var(--inv-card-bg)",
               boxSizing: "border-box",
             }}
           />
         </div>
 
         {error && (
-          <div style={{ color: "#b91c1c", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "12px", padding: "10px 12px", fontSize: "13px", lineHeight: 1.5 }}>
+          <div style={{ color: "var(--inv-danger)", background: "var(--inv-danger-bg)", border: "1px solid var(--inv-danger-border)", borderRadius: "12px", padding: "10px 12px", fontSize: "13px", lineHeight: 1.5 }}>
             {error}
           </div>
         )}
 
         {successText && (
-          <div style={{ color: "#166534", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "12px", padding: "10px 12px", fontSize: "13px", lineHeight: 1.5 }}>
+          <div style={{ color: "var(--inv-success)", background: "var(--inv-success-bg)", border: "1px solid var(--inv-success-border)", borderRadius: "12px", padding: "10px 12px", fontSize: "13px", lineHeight: 1.5 }}>
             {successText}
           </div>
         )}
@@ -271,7 +271,7 @@ export default function InventoryMovementForm({ itemId, onSuccess }: Props) {
             minHeight: "46px",
             padding: "10px 14px",
             fontSize: "14px",
-            fontWeight: 800,
+            fontWeight: 600,
           }}
         >
           {loading ? "שומר/ת..." : "עדכן מלאי"}

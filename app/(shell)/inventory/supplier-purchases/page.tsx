@@ -196,7 +196,7 @@ export default function SupplierPurchasesHubPage() {
               <InventoryRow
                 key={order.id}
                 thumb={<span style={{ fontSize: 26 }} aria-hidden>🚚</span>}
-                thumbBg="var(--inv-surface, #f5f7f9)"
+                thumbBg="var(--inv-surface)"
                 title={
                   <>
                     <bdi>{order.supplierName || "הזמנה ללא ספק"}</bdi>

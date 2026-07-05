@@ -44,9 +44,9 @@ export function OrderWizardAlerts({
       {hasLocalDraft && !hasUnsavedWork ? (
         <section
           className="owz-state-card"
-          style={{ borderColor: "#bfdbfe", background: "#eff6ff", color: "#3F619C" }}
+          style={{ borderColor: "var(--inv-info-border)", background: "var(--inv-info-bg)", color: "var(--inv-info-ink)" }}
         >
-          <div style={{ fontWeight: 900, marginBottom: 10 }}>
+          <div style={{ fontWeight: 600, marginBottom: 10 }}>
             יש הזמנה שנשמרה להמשך.
           </div>
           <div
@@ -65,7 +65,7 @@ export function OrderWizardAlerts({
       {error ? (
         <div
           className="owz-state-card"
-          style={{ borderColor: "#fecaca", background: "#fef2f2", color: "#991b1b" }}
+          style={{ borderColor: "var(--inv-danger-border)", background: "var(--inv-danger-bg)", color: "var(--inv-danger)" }}
         >
           {error}
         </div>
@@ -74,7 +74,7 @@ export function OrderWizardAlerts({
       {success ? (
         <div
           className="owz-state-card"
-          style={{ borderColor: "#bbf7d0", background: "#f0fdf4", color: "#166534" }}
+          style={{ borderColor: "var(--inv-success-border)", background: "var(--inv-success-bg)", color: "var(--inv-success)" }}
         >
           {success}
         </div>

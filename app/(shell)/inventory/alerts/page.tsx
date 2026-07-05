@@ -41,13 +41,13 @@ type Alert = {
 type Category = "all" | "stock" | "anomaly" | "pos";
 
 const TYPE_META: Record<AlertType, { title: string; emoji: string; thumbBg: string; badge: string; tone: BadgeTone; category: Exclude<Category, "all"> }> = {
-  CRITICAL_STOCK: { title: "מלאי קריטי", emoji: "⚠️", thumbBg: "#fee2e2", badge: "קריטי", tone: "critical", category: "stock" },
-  LOW_STOCK: { title: "מלאי נמוך", emoji: "📉", thumbBg: "#fef3c7", badge: "נמוך", tone: "low", category: "stock" },
-  SUSPICIOUS_CORRECTION: { title: "תיקון ספירה חריג", emoji: "🔍", thumbBg: "#ede9fe", badge: "לבדיקה", tone: "purple", category: "anomaly" },
-  UNMATCHED_POS_PRODUCT: { title: "מכירת POS לא מזוהה", emoji: "🧾", thumbBg: "#e0edff", badge: "POS", tone: "info", category: "pos" },
+  CRITICAL_STOCK: { title: "מלאי קריטי", emoji: "⚠️", thumbBg: "var(--inv-danger-bg)", badge: "קריטי", tone: "critical", category: "stock" },
+  LOW_STOCK: { title: "מלאי נמוך", emoji: "📉", thumbBg: "var(--inv-warning-bg)", badge: "נמוך", tone: "low", category: "stock" },
+  SUSPICIOUS_CORRECTION: { title: "תיקון ספירה חריג", emoji: "🔍", thumbBg: "var(--inv-success-bg)", badge: "לבדיקה", tone: "purple", category: "anomaly" },
+  UNMATCHED_POS_PRODUCT: { title: "מכירת POS לא מזוהה", emoji: "🧾", thumbBg: "var(--inv-info-bg)", badge: "POS", tone: "info", category: "pos" },
 };
 
-const FALLBACK_META = { title: "התראה", emoji: "🔔", thumbBg: "var(--inv-surface, #f5f7f9)", badge: "התראה", tone: "neutral" as BadgeTone, category: "stock" as const };
+const FALLBACK_META = { title: "התראה", emoji: "🔔", thumbBg: "var(--inv-surface)", badge: "התראה", tone: "neutral" as BadgeTone, category: "stock" as const };
 
 function metaForType(type: string) {
   return TYPE_META[type as AlertType] ?? FALLBACK_META;
@@ -88,7 +88,7 @@ function ResolveButton({ onClick, busy }: { onClick: () => void; busy: boolean }
       aria-label="סמן כטופל"
       style={{
         width: 34, height: 34, borderRadius: "50%", border: 0, flexShrink: 0,
-        background: "#dcfce7", color: "#166534", cursor: busy ? "default" : "pointer",
+        background: "var(--inv-success-bg)", color: "var(--inv-success)", cursor: busy ? "default" : "pointer",
         display: "inline-flex", alignItems: "center", justifyContent: "center", opacity: busy ? 0.5 : 1,
       }}
     >

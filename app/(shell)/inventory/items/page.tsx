@@ -40,9 +40,9 @@ const UNIT_SHORT: Record<string, string> = {
 };
 
 const TONE_DOTS: Record<StockTone, string> = {
-  critical: "#ef4444",
-  low: "#f59e0b",
-  ok: "#22c55e",
+  critical: "var(--inv-danger)",
+  low: "var(--inv-warning)",
+  ok: "var(--inv-success)",
 };
 
 function safeImage(imageUrl?: string | null) {
@@ -213,7 +213,7 @@ function InventoryItemsListPageContent() {
               boxShadow: "var(--inv-shadow)",
               padding: "12px 14px",
               color: "var(--inv-text)",
-              fontWeight: 700,
+              fontWeight: 600,
               fontSize: 14,
             }}
           >
@@ -221,7 +221,7 @@ function InventoryItemsListPageContent() {
             <span style={{ flex: 1, minWidth: 0 }}>
               <bdi>{inboxCounts.drafts}</bdi> מוצרים זוהו אוטומטית · ממתינים לאישור
             </span>
-            <span style={{ color: "var(--inv-accent)", fontWeight: 800, flexShrink: 0 }}>אישור ›</span>
+            <span style={{ color: "var(--inv-accent)", fontWeight: 600, flexShrink: 0 }}>אישור ›</span>
           </Link>
         </div>
       ) : null}

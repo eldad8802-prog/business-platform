@@ -89,12 +89,12 @@ export function InventoryBrandLogo({ size = "md" }: { size?: "sm" | "md" }) {
           width: iconSize,
           height: iconSize,
           borderRadius: 10,
-          background: "linear-gradient(135deg, #10b981, #059669)",
-          color: "#fff",
+          background: "var(--inv-primary)",
+          color: "var(--inv-on-accent)",
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          boxShadow: "0 4px 12px rgba(16, 185, 129, 0.35)",
+          boxShadow: "var(--inv-shadow-glow)",
         }}
       >
         <IconBox />
@@ -102,7 +102,7 @@ export function InventoryBrandLogo({ size = "md" }: { size?: "sm" | "md" }) {
       <span
         style={{
           fontSize: size === "sm" ? 16 : 20,
-          fontWeight: 950,
+          fontWeight: 600,
           color: inventoryTheme.text,
           letterSpacing: "-0.02em",
         }}
@@ -184,7 +184,7 @@ export function InventoryAppHeader({
               justifyContent: "center",
               cursor: "pointer",
               color: inventoryTheme.textMuted,
-              boxShadow: "0 2px 8px rgba(15, 23, 42, 0.04)",
+              boxShadow: "var(--inv-shadow)",
             }}
           >
             <IconBell />
@@ -198,9 +198,9 @@ export function InventoryAppHeader({
                   height: 18,
                   borderRadius: 999,
                   background: inventoryTheme.danger,
-                  color: "#fff",
+                  color: "var(--inv-on-accent)",
                   fontSize: 10,
-                  fontWeight: 900,
+                  fontWeight: 600,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -218,9 +218,9 @@ export function InventoryAppHeader({
               width: 40,
               height: 40,
               borderRadius: 999,
-              background: "linear-gradient(135deg, #e2e8f0, #cbd5e1)",
+              background: "var(--inv-surface-2)",
               border: `2px solid ${inventoryTheme.cardBg}`,
-              boxShadow: "0 2px 8px rgba(15,23,42,0.08)",
+              boxShadow: "var(--inv-shadow)",
               flexShrink: 0,
             }}
           />
@@ -322,7 +322,7 @@ export function InventoryFlowStepper({
                     style={{
                       flex: 1,
                       height: 2,
-                      background: isDone ? inventoryTheme.accent : "#e2e8f0",
+                      background: isDone ? inventoryTheme.accent : "var(--inv-border)",
                       marginBottom: 18,
                     }}
                   />
@@ -339,18 +339,18 @@ export function InventoryFlowStepper({
                     alignItems: "center",
                     justifyContent: "center",
                     fontSize: 12,
-                    fontWeight: 900,
+                    fontWeight: 600,
                     background: isActive
                       ? inventoryTheme.primaryBtn
                       : isDone
                         ? inventoryTheme.accent
-                        : "#f1f5f9",
-                    color: isActive || isDone ? "#fff" : inventoryTheme.textMuted,
+                        : "var(--inv-surface-2)",
+                    color: isActive || isDone ? "var(--inv-on-accent)" : inventoryTheme.textMuted,
                     border: isActive
                       ? `2px solid ${inventoryTheme.primaryBtn}`
                       : "2px solid transparent",
                     boxShadow: isActive
-                      ? "0 4px 12px rgba(91, 91, 214, 0.35)"
+                      ? "var(--inv-shadow-glow)"
                       : "none",
                   }}
                 >
@@ -361,7 +361,7 @@ export function InventoryFlowStepper({
                     style={{
                       flex: 1,
                       height: 2,
-                      background: isDone ? inventoryTheme.accent : "#e2e8f0",
+                      background: isDone ? inventoryTheme.accent : "var(--inv-border)",
                       marginBottom: 18,
                     }}
                   />
@@ -372,7 +372,7 @@ export function InventoryFlowStepper({
               <span
                 style={{
                   fontSize: 10,
-                  fontWeight: isActive ? 900 : 700,
+                  fontWeight: isActive ? 600 : 600,
                   color: isActive ? inventoryTheme.primaryBtn : inventoryTheme.textMuted,
                   textAlign: "center",
                   lineHeight: 1.3,
@@ -446,11 +446,11 @@ function inboxItemsFromCounts(counts: InventoryInboxCounts): InboxItem[] {
 }
 
 const inboxToneBg: Record<InboxItem["tone"], string> = {
-  danger: "#fef2f2",
-  warning: "#fff7ed",
-  purple: "#f5f3ff",
-  info: "#eff6ff",
-  neutral: "#f8fafc",
+  danger: "var(--inv-danger-bg)",
+  warning: "var(--inv-warning-bg)",
+  purple: "var(--inv-success-bg)",
+  info: "var(--inv-info-bg)",
+  neutral: "var(--inv-surface-2)",
 };
 
 export function InventoryInboxSidebar({
@@ -478,7 +478,7 @@ export function InventoryInboxSidebar({
           padding: "14px 16px",
           borderBottom: `1px solid ${inventoryTheme.cardBorder}`,
           fontSize: 15,
-          fontWeight: 950,
+          fontWeight: 600,
           color: inventoryTheme.text,
         }}
       >
@@ -502,7 +502,7 @@ export function InventoryInboxSidebar({
                 padding: "12px 16px",
                 textAlign: "right",
                 fontSize: 13,
-                fontWeight: 700,
+                fontWeight: 600,
                 color: inventoryTheme.text,
               }}
             >
@@ -528,9 +528,9 @@ export function InventoryInboxSidebar({
                   minWidth: 26,
                   height: 26,
                   borderRadius: 999,
-                  background: "#e2e8f0",
+                  background: "var(--inv-border)",
                   fontSize: 12,
-                  fontWeight: 900,
+                  fontWeight: 600,
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -553,9 +553,9 @@ export function InventoryInboxSidebar({
             borderRadius: 12,
             border: "none",
             background: inventoryTheme.primaryBtn,
-            color: "#fff",
+            color: "var(--inv-on-accent)",
             fontSize: 14,
-            fontWeight: 900,
+            fontWeight: 600,
             cursor: "pointer",
           }}
         >
@@ -689,7 +689,7 @@ export const inventoryShellCss = `
   .inv-greeting-title {
     margin: 0;
     font-size: 28px;
-    font-weight: 950;
+    font-weight: 600;
     color: ${inventoryTheme.text};
     line-height: 1.15;
     letter-spacing: -0.03em;
@@ -699,7 +699,7 @@ export const inventoryShellCss = `
     margin: 8px 0 0;
     font-size: 15px;
     color: ${inventoryTheme.textMuted};
-    font-weight: 700;
+    font-weight: 600;
   }
 
   .inv-greeting-business {
@@ -712,22 +712,22 @@ export const inventoryShellCss = `
     border: 1px solid ${inventoryTheme.cardBorder};
     background: ${inventoryTheme.cardBg};
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 600;
     color: ${inventoryTheme.text};
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    box-shadow: var(--inv-shadow);
   }
 
   .inv-greeting-business__label {
     color: ${inventoryTheme.textMuted};
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: 0.02em;
   }
 
   .inv-greeting-business__select {
     border: none;
     background: transparent;
-    font-weight: 700;
+    font-weight: 600;
     font-size: 13px;
     color: ${inventoryTheme.text};
     cursor: pointer;

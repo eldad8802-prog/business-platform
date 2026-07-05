@@ -53,9 +53,9 @@ function bestMatch(pending: InventoryPendingMatchDTO, items: InventoryItemDTO[])
 }
 
 const THUMB_BG: Record<ConfidenceLevel, string> = {
-  high: "#dcfce7",
-  mid: "#fef3c7",
-  low: "#fee2e2",
+  high: "var(--inv-success-bg)",
+  mid: "var(--inv-warning-bg)",
+  low: "var(--inv-danger-bg)",
 };
 
 function formatWhen(value?: string) {

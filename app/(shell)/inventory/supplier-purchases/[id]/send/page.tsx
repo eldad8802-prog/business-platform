@@ -265,7 +265,7 @@ export default function SupplierPurchaseSendPage() {
               <div className="inv-dcard__top">
                 <span
                   className="inv-row__thumb"
-                  style={{ background: "var(--inv-surface, #f5f7f9)", width: 46, height: 46, fontSize: 22 }}
+                  style={{ background: "var(--inv-surface)", width: 46, height: 46, fontSize: 22 }}
                   aria-hidden
                 >
                   🚚

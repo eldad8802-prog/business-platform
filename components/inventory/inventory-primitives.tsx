@@ -537,9 +537,9 @@ export type StockTone = "ok" | "critical" | "low";
 
 /** Converged stock palette (matches StatusPill/StockBar and the mockup). */
 const STOCK_PALETTE: Record<StockTone, { bg: string; ink: string; bar: string }> = {
-  ok: { bg: "#dcfce7", ink: "#166534", bar: "#22c55e" },
-  critical: { bg: "#fee2e2", ink: "#991b1b", bar: "#ef4444" },
-  low: { bg: "#fef3c7", ink: "#92400e", bar: "#f59e0b" },
+  ok: { bg: "var(--inv-success-bg)", ink: "var(--inv-success)", bar: "var(--inv-success)" },
+  critical: { bg: "var(--inv-danger-bg)", ink: "var(--inv-danger)", bar: "var(--inv-danger)" },
+  low: { bg: "var(--inv-warning-bg)", ink: "var(--inv-warning-ink)", bar: "var(--inv-warning)" },
 };
 
 export function stockPalette(tone: StockTone) {
@@ -609,7 +609,7 @@ export function StockStatusBlock({
             background: p.bg,
             color: p.ink,
             fontSize: 11.5,
-            fontWeight: 700,
+            fontWeight: 600,
             whiteSpace: "nowrap",
           }}
         >
@@ -694,7 +694,7 @@ export function InventoryBadge({ tone, children }: { tone: BadgeTone; children: 
         background: s.iconBg,
         color: s.color,
         fontSize: 11.5,
-        fontWeight: 700,
+        fontWeight: 600,
         whiteSpace: "nowrap",
       }}
     >
@@ -729,7 +729,7 @@ export function InventoryRow({
 }) {
   const body = (
     <>
-      <span className="inv-row__thumb" style={{ background: thumbBg ?? "var(--inv-surface, #f5f7f9)" }} aria-hidden>
+      <span className="inv-row__thumb" style={{ background: thumbBg ?? "var(--inv-surface)" }} aria-hidden>
         {thumb}
       </span>
       <span className="inv-row__mid">
@@ -958,7 +958,7 @@ export function InventoryOrderLine({
       {thumb !== undefined ? (
         <span
           className="inv-row__thumb"
-          style={{ background: thumbBg ?? "var(--inv-surface, #f5f7f9)", width: 48, height: 48, fontSize: 22 }}
+          style={{ background: thumbBg ?? "var(--inv-surface)", width: 48, height: 48, fontSize: 22 }}
           aria-hidden
         >
           {thumb}

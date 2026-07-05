@@ -47,7 +47,7 @@ const UNIT_OPTIONS = [
   { value: "BOX", label: "מארז" },
 ];
 
-const THUMB_BG: Record<ConfidenceLevel, string> = { high: "#dcfce7", mid: "#fef3c7", low: "#fee2e2" };
+const THUMB_BG: Record<ConfidenceLevel, string> = { high: "var(--inv-success-bg)", mid: "var(--inv-warning-bg)", low: "var(--inv-danger-bg)" };
 
 function safeImage(imageUrl?: string | null) {
   return imageUrl && !imageUrl.includes("example.com") ? imageUrl : null;

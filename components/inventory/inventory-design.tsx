@@ -12,7 +12,7 @@ import {
   InventoryHeader,
   type InventoryHeaderAction as InventoryHeaderActionType,
 } from "@/components/inventory/inventory-primitives";
-import { glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
+import { glassActionStyle, primaryActionStyle } from "@/components/inventory/inventory-tokens";
 
 export const inventoryTheme = inventoryTokenTheme;
 
@@ -124,7 +124,7 @@ export function AttentionCard({
         gap: inventorySpacing.sm,
         minHeight: 118,
         width: "100%",
-        boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
+        boxShadow: inventoryTheme.cardShadow,
         fontFamily: "inherit",
       }}
     >
@@ -142,13 +142,13 @@ export function AttentionCard({
       >
         {icon}
       </div>
-      <div style={{ fontSize: 30, fontWeight: 950, color: t.color, lineHeight: 1 }}>
+      <div style={{ fontSize: 30, fontWeight: 600, color: t.color, lineHeight: 1 }}>
         {count}
       </div>
-      <div style={{ fontSize: 13, fontWeight: 800, color: t.color, lineHeight: 1.35 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: t.color, lineHeight: 1.35 }}>
         {label}
       </div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: inventoryTheme.textMuted }}>
+      <div style={{ fontSize: 11, fontWeight: 500, color: inventoryTheme.textMuted }}>
         {unitLabel}
       </div>
     </button>
@@ -181,7 +181,7 @@ export function QuickActionTile({
           ? `2px solid ${inventoryTheme.accent}`
           : `1px solid ${inventoryTheme.cardBorder}`,
         borderRadius: inventoryRadius.lg,
-        background: outline ? "#eff6ff" : inventoryTheme.cardBg,
+        background: outline ? inventoryToneStyles.success.bg : inventoryTheme.cardBg,
         padding: `${inventorySpacing.lg}px ${inventorySpacing.sm}px`,
         cursor: "pointer",
         display: "flex",
@@ -189,7 +189,7 @@ export function QuickActionTile({
         alignItems: "center",
         gap: 10,
         minHeight: 102,
-        boxShadow: "0 4px 12px rgba(15, 23, 42, 0.04)",
+        boxShadow: inventoryTheme.cardShadow,
         fontFamily: "inherit",
       }}
     >
@@ -210,7 +210,7 @@ export function QuickActionTile({
       <span
         style={{
           fontSize: 12,
-          fontWeight: 800,
+          fontWeight: 600,
           color: inventoryTheme.text,
           lineHeight: 1.3,
           textAlign: "center",
@@ -237,8 +237,8 @@ export function SectionHeader({
 }) {
   const badgeStyle =
     badgeTone === "danger"
-      ? { background: "#fee2e2", color: inventoryTheme.danger }
-      : { background: "#ede9fe", color: inventoryTheme.purple };
+      ? { background: inventoryToneStyles.danger.bg, color: inventoryTheme.danger }
+      : { background: inventoryToneStyles.purple.bg, color: inventoryTheme.purple };
 
   return (
     <RowBetween>
@@ -248,7 +248,7 @@ export function SectionHeader({
           style={{
             margin: 0,
             fontSize: 16,
-            fontWeight: 900,
+            fontWeight: 600,
             color: inventoryTheme.text,
           }}
         >
@@ -258,7 +258,7 @@ export function SectionHeader({
           <span
             style={{
               fontSize: 11,
-              fontWeight: 900,
+              fontWeight: 600,
               padding: "3px 8px",
               borderRadius: 999,
               ...badgeStyle,
@@ -282,10 +282,10 @@ export function StatusPill({
 }) {
   const styles =
     tone === "ok"
-      ? { bg: "#dcfce7", color: "#166534" }
+      ? { bg: inventoryToneStyles.success.bg, color: inventoryToneStyles.success.color }
       : tone === "critical"
-        ? { bg: "#fee2e2", color: "#991b1b" }
-        : { bg: "#fef3c7", color: "#92400e" };
+        ? { bg: inventoryToneStyles.danger.bg, color: inventoryToneStyles.danger.color }
+        : { bg: inventoryToneStyles.warning.bg, color: inventoryToneStyles.warning.color };
 
   return (
     <span
@@ -296,7 +296,7 @@ export function StatusPill({
         background: styles.bg,
         color: styles.color,
         fontSize: 11,
-        fontWeight: 900,
+        fontWeight: 600,
         whiteSpace: "nowrap",
       }}
     >
@@ -307,7 +307,11 @@ export function StatusPill({
 
 export function StockBar({ ratio, tone }: { ratio: number; tone: "ok" | "critical" | "low" }) {
   const color =
-    tone === "ok" ? "#22c55e" : tone === "critical" ? "#ef4444" : "#f59e0b";
+    tone === "ok"
+      ? inventoryTheme.successBtn
+      : tone === "critical"
+        ? inventoryTheme.danger
+        : inventoryTheme.warning;
   const pct = Math.max(0, Math.min(100, ratio * 100));
 
   return (
@@ -315,7 +319,7 @@ export function StockBar({ ratio, tone }: { ratio: number; tone: "ok" | "critica
       style={{
         height: 6,
         borderRadius: 999,
-        background: "#e2e8f0",
+        background: inventoryTheme.surface,
         overflow: "hidden",
         minWidth: 72,
       }}
@@ -355,7 +359,7 @@ export function PrimaryButton({
         ...primaryActionStyle({ disabled, fullWidth, height: 52 }),
         width: fullWidth ? "100%" : undefined,
         fontSize: 15,
-        fontWeight: 900,
+        fontWeight: 600,
       }}
     >
       {children}
@@ -381,7 +385,7 @@ export function SecondaryButton({
         ...glassActionStyle({ disabled, height: 44 }),
         minHeight: 44,
         fontSize: 14,
-        fontWeight: 800,
+        fontWeight: 600,
       }}
     >
       {children}
@@ -442,7 +446,7 @@ export function InventoryStatePanel({
           color: palette.title,
           fontSize: 17,
           lineHeight: 1.35,
-          fontWeight: 950,
+          fontWeight: 600,
         }}
       >
         {title}
@@ -454,7 +458,7 @@ export function InventoryStatePanel({
             color: inventoryTheme.textMuted,
             fontSize: 14,
             lineHeight: 1.6,
-            fontWeight: 700,
+            fontWeight: 400,
           }}
         >
           {children}
@@ -482,7 +486,7 @@ export function InventorySkeletonBlock({
             height,
             borderRadius: inventoryRadius.lg,
             background:
-              "linear-gradient(90deg, rgba(229,231,235,0.65), rgba(245,246,248,0.92), rgba(229,231,235,0.65))",
+              "linear-gradient(90deg, rgba(246,236,221,0.65), rgba(253,244,235,0.92), rgba(246,236,221,0.65))",
             backgroundSize: "220% 100%",
           }}
         />
@@ -775,9 +779,9 @@ export const inventoryResponsiveCss = `
     left: 0;
     right: 0;
     z-index: 50;
-    background: rgba(255,255,255,0.96);
+    background: rgba(254, 248, 242, 0.96);
     backdrop-filter: blur(12px);
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--inv-border);
     padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
   }
   .inv-main-shell { padding-bottom: 32px; }
@@ -834,23 +838,23 @@ const introToneStyles: Record<
 > = {
   accent: {
     stageColor: inventoryTheme.accent,
-    bg: "#ecfdf5",
-    border: "#bbf7d0",
+    bg: inventoryToneStyles.success.bg,
+    border: inventoryToneStyles.success.border,
   },
   primary: {
-    stageColor: inventoryTheme.primaryBtn,
-    bg: "#eef2ff",
-    border: "#c7d2fe",
+    stageColor: inventoryTheme.accent,
+    bg: inventoryToneStyles.info.bg,
+    border: inventoryToneStyles.info.border,
   },
   warning: {
     stageColor: inventoryTheme.warning,
-    bg: "#fff7ed",
-    border: "#fed7aa",
+    bg: inventoryToneStyles.warning.bg,
+    border: inventoryToneStyles.warning.border,
   },
   info: {
     stageColor: inventoryTheme.info,
-    bg: "#eff6ff",
-    border: "#bfdbfe",
+    bg: inventoryToneStyles.info.bg,
+    border: inventoryToneStyles.info.border,
   },
 };
 
@@ -915,7 +919,7 @@ export function PageIntro({
         <div
           style={{
             fontSize: 12,
-            fontWeight: 900,
+            fontWeight: 600,
             color: palette.stageColor,
             marginBottom: 8,
           }}
@@ -928,7 +932,7 @@ export function PageIntro({
           margin: 0,
           fontSize: 22,
           lineHeight: 1.25,
-          fontWeight: 950,
+          fontWeight: 600,
           color: inventoryTheme.text,
         }}
       >
@@ -959,7 +963,7 @@ export function PageIntro({
             <div
               key={stat.label}
               style={{
-                borderRadius: 14,
+                borderRadius: 12,
                 padding: 14,
                 background: inventoryTheme.cardBg,
                 border: `1px solid ${inventoryTheme.cardBorder}`,
@@ -969,7 +973,7 @@ export function PageIntro({
                 style={{
                   fontSize: 12,
                   color: inventoryTheme.textMuted,
-                  fontWeight: 800,
+                  fontWeight: 500,
                 }}
               >
                 {stat.label}
@@ -977,7 +981,7 @@ export function PageIntro({
               <div
                 style={{
                   fontSize: 28,
-                  fontWeight: 950,
+                  fontWeight: 600,
                   marginTop: 4,
                   color: inventoryTheme.text,
                 }}
@@ -1015,9 +1019,9 @@ export function HubActionCard({
           textAlign: "right",
           cursor: "pointer",
           border: accent
-            ? `1px solid ${inventoryTheme.primaryBtn}`
+            ? `1px solid ${inventoryTheme.accent}`
             : `1px solid ${inventoryTheme.cardBorder}`,
-          background: accent ? "#eef2ff" : inventoryTheme.cardBg,
+          background: accent ? inventoryToneStyles.success.bg : inventoryTheme.cardBg,
         }),
         display: "flex",
         flexDirection: "column",
@@ -1031,7 +1035,7 @@ export function HubActionCard({
           alignItems: "center",
           gap: 10,
           fontSize: 17,
-          fontWeight: 950,
+          fontWeight: 600,
           color: inventoryTheme.text,
         }}
       >
@@ -1040,7 +1044,7 @@ export function HubActionCard({
             width: 36,
             height: 36,
             borderRadius: 12,
-            background: accent ? "#e0e7ff" : "#f1f5f9",
+            background: accent ? inventoryToneStyles.success.bg : inventoryTheme.surface,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -1076,23 +1080,23 @@ export function NoticeBanner({
   const styles =
     tone === "success"
       ? {
-          border: "#bbf7d0",
-          bg: "#f0fdf4",
-          color: "#166534",
-          btn: "#166534",
+          border: inventoryToneStyles.success.border,
+          bg: inventoryToneStyles.success.bg,
+          color: inventoryToneStyles.success.color,
+          btn: inventoryTheme.successBtn,
         }
       : tone === "info"
         ? {
-            border: "#bfdbfe",
-            bg: "#eff6ff",
-            color: "#3F619C",
-            btn: "#3F619C",
+            border: inventoryToneStyles.info.border,
+            bg: inventoryToneStyles.info.bg,
+            color: inventoryToneStyles.info.color,
+            btn: inventoryTheme.info,
           }
         : {
-            border: "#fecaca",
-            bg: "#fef2f2",
-            color: "#991b1b",
-            btn: "#991b1b",
+            border: inventoryToneStyles.danger.border,
+            bg: inventoryToneStyles.danger.bg,
+            color: inventoryToneStyles.danger.color,
+            btn: inventoryTheme.danger,
           };
 
   return (
@@ -1113,10 +1117,10 @@ export function NoticeBanner({
             marginTop: 10,
             border: "none",
             background: styles.btn,
-            color: "#fff",
+            color: "var(--inv-on-accent)",
             borderRadius: 10,
             padding: "8px 12px",
-            fontWeight: 800,
+            fontWeight: 600,
             cursor: "pointer",
           }}
         >
@@ -1150,7 +1154,7 @@ export function inventoryFieldStyle(disabled?: boolean): CSSProperties {
     borderRadius: 12,
     border: `1px solid ${inventoryTheme.cardBorder}`,
     fontSize: 14,
-    background: disabled ? "#f8fafc" : inventoryTheme.cardBg,
+    background: disabled ? inventoryTheme.surface : inventoryTheme.cardBg,
     boxSizing: "border-box",
     outline: "none",
   };

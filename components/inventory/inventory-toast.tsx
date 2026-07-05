@@ -31,9 +31,9 @@ inventoryToast.error = (message: string) => inventoryToast(message, "error");
 inventoryToast.info = (message: string) => inventoryToast(message, "info");
 
 const TONE: Record<ToastType, { bg: string; border: string; ink: string; icon: string }> = {
-  success: { bg: "#ecfdf5", border: "#bbf7d0", ink: "#166534", icon: "✓" },
-  error: { bg: "#fef2f2", border: "#fecaca", ink: "#991b1b", icon: "!" },
-  info: { bg: "#eff6ff", border: "#bfdbfe", ink: "#1e40af", icon: "i" },
+  success: { bg: "var(--inv-success-bg)", border: "var(--inv-success-border)", ink: "var(--inv-success)", icon: "✓" },
+  error: { bg: "var(--inv-danger-bg)", border: "var(--inv-danger-border)", ink: "var(--inv-danger)", icon: "!" },
+  info: { bg: "var(--inv-info-bg)", border: "var(--inv-info-border)", ink: "var(--inv-info-ink)", icon: "i" },
 };
 
 export function InventoryToastHost() {
@@ -96,8 +96,8 @@ export function InventoryToastHost() {
               borderRadius: 14,
               padding: "11px 15px",
               fontSize: 14,
-              fontWeight: 800,
-              boxShadow: "0 10px 30px rgba(15, 23, 42, 0.14)",
+              fontWeight: 600,
+              boxShadow: "var(--inv-shadow)",
             }}
           >
             <span
@@ -113,7 +113,7 @@ export function InventoryToastHost() {
                 alignItems: "center",
                 justifyContent: "center",
                 fontSize: 12,
-                fontWeight: 900,
+                fontWeight: 600,
               }}
             >
               {tone.icon}

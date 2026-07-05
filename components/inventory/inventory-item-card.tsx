@@ -64,15 +64,15 @@ export default function InventoryItemCard({ id, name, imageUrl }: Props) {
     <div
       onClick={handleClick}
       style={{
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--inv-border)",
         borderRadius: "16px",
         overflow: "hidden",
-        background: "#ffffff",
+        background: "var(--inv-card-bg)",
         cursor: "pointer",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
-        boxShadow: "0 4px 12px rgba(0,0,0,0.04)",
+        boxShadow: "var(--inv-shadow)",
       }}
     >
       {/* תמונה */}
@@ -80,7 +80,7 @@ export default function InventoryItemCard({ id, name, imageUrl }: Props) {
         style={{
           width: "100%",
           height: "140px",
-          background: "#f3f4f6",
+          background: "var(--inv-surface-2)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -97,7 +97,7 @@ export default function InventoryItemCard({ id, name, imageUrl }: Props) {
             }}
           />
         ) : (
-          <span style={{ color: "#9ca3af", fontSize: "12px" }}>
+          <span style={{ color: "var(--inv-text-tertiary)", fontSize: "12px" }}>
             אין תמונה
           </span>
         )}
@@ -119,7 +119,7 @@ export default function InventoryItemCard({ id, name, imageUrl }: Props) {
       <div
         style={{
           display: "flex",
-          borderTop: "1px solid #f1f5f9",
+          borderTop: "1px solid var(--inv-surface-2)",
         }}
       >
         <button
@@ -129,8 +129,8 @@ export default function InventoryItemCard({ id, name, imageUrl }: Props) {
             flex: 1,
             padding: "10px",
             border: "none",
-            background: "#fee2e2",
-            color: "#b91c1c",
+            background: "var(--inv-danger-bg)",
+            color: "var(--inv-danger)",
             fontSize: "18px",
             cursor: "pointer",
           }}
@@ -145,8 +145,8 @@ export default function InventoryItemCard({ id, name, imageUrl }: Props) {
             flex: 1,
             padding: "10px",
             border: "none",
-            background: "#dcfce7",
-            color: "#15803d",
+            background: "var(--inv-success-bg)",
+            color: "var(--inv-success)",
             fontSize: "18px",
             cursor: "pointer",
           }}

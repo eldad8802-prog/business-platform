@@ -105,11 +105,11 @@ export default function SupplierCsvImportPage() {
             minHeight: 120,
             border: "1.5px dashed var(--inv-border)",
             borderRadius: "var(--inv-radius-md)",
-            background: "var(--inv-surface, #f5f7f9)",
+            background: "var(--inv-surface)",
             color: "var(--inv-text-muted)",
             fontFamily: "inherit",
             fontSize: 14,
-            fontWeight: 700,
+            fontWeight: 600,
             cursor: "pointer",
             display: "flex",
             flexDirection: "column",
@@ -120,7 +120,7 @@ export default function SupplierCsvImportPage() {
         >
           {file ? (
             <>
-              <span style={{ fontWeight: 900, color: "var(--inv-text)" }}>{file.name}</span>
+              <span style={{ fontWeight: 600, color: "var(--inv-text)" }}>{file.name}</span>
               <span style={{ fontSize: 13 }}>לחצו לבחירת קובץ אחר</span>
             </>
           ) : (
@@ -155,16 +155,16 @@ export default function SupplierCsvImportPage() {
           <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
             <div className="inv-alert inv-alert--success">
               הייבוא הושלם בהצלחה
-              <div style={{ marginTop: 8, fontWeight: 700, fontSize: 13 }}>
+              <div style={{ marginTop: 8, fontWeight: 600, fontSize: 13 }}>
                 {preview != null ? <>נפרסו {preview.ordersParsed} הזמנות · </> : null}
                 נוצרו {draftsCreated.length} טיוטות · דולגו {skippedOrders.length} · לא תקינות {invalidOrders.length}
               </div>
             </div>
 
             {warnings.length > 0 ? (
-              <div className="inv-alert" style={{ border: "1px solid var(--inv-warning)", background: "#fffbeb", color: "#92400e" }}>
-                <div style={{ marginBottom: 8, fontWeight: 900 }}>אזהרות</div>
-                <ul style={{ margin: 0, paddingInlineStart: 20, fontWeight: 700, fontSize: 13 }}>
+              <div className="inv-alert" style={{ border: "1px solid var(--inv-warning)", background: "var(--inv-warning-bg)", color: "var(--inv-warning-ink)" }}>
+                <div style={{ marginBottom: 8, fontWeight: 600 }}>אזהרות</div>
+                <ul style={{ margin: 0, paddingInlineStart: 20, fontWeight: 600, fontSize: 13 }}>
                   {warnings.map((w, i) => (
                     <li key={i}>{w}</li>
                   ))}
@@ -174,7 +174,7 @@ export default function SupplierCsvImportPage() {
 
             {invalidOrders.length > 0 ? (
               <div style={{ background: "var(--inv-card-bg)", border: "1px solid var(--inv-border)", borderRadius: 12, padding: 14, boxShadow: "var(--inv-shadow)" }}>
-                <div style={{ fontWeight: 900, marginBottom: 8 }}>שורות לא תקינות ({invalidOrders.length})</div>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>שורות לא תקינות ({invalidOrders.length})</div>
                 <ul style={{ margin: 0, paddingInlineStart: 20, fontSize: 13, color: "var(--inv-text-muted)", lineHeight: 1.6 }}>
                   {invalidOrders.map((row, i) => (
                     <li key={i}>

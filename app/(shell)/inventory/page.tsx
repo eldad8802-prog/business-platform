@@ -35,27 +35,27 @@ const homeCss = `
 [data-inventory-home] .inv-hm { width: 100%; max-width: 560px; margin: 0 auto; padding: 14px clamp(16px,4vw,20px) 48px; box-sizing: border-box; }
 
 [data-inventory-home] .inv-hm-head { display: flex; align-items: center; gap: 12px; padding: 8px 0 2px; }
-[data-inventory-home] .inv-hm-head h1 { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.4px; }
+[data-inventory-home] .inv-hm-head h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.4px; }
 [data-inventory-home] .inv-hm-grow { flex: 1; }
-[data-inventory-home] .inv-hm-scan { width: 42px; height: 42px; border-radius: 50%; border: 0; background: var(--inv-primary); color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 6px 16px rgba(36,59,87,0.20); }
+[data-inventory-home] .inv-hm-scan { width: 42px; height: 42px; border-radius: 50%; border: 0; background: var(--inv-primary); color: var(--inv-on-accent); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: var(--inv-shadow); }
 [data-inventory-home] .inv-hm-greet { font-size: 14px; font-weight: 600; color: var(--inv-text-muted); padding: 0 2px; margin-top: -2px; }
 
 [data-inventory-home] .inv-hm-tiles { display: flex; gap: 11px; padding: 16px 0 4px; }
 [data-inventory-home] .inv-hm-tile { flex: 1; min-width: 0; border: 0; border-radius: 14px; padding: 13px 14px; text-align: start; cursor: pointer; font-family: inherit; display: flex; flex-direction: column; align-items: flex-start; }
-[data-inventory-home] .inv-hm-tile__n { font-size: 23px; font-weight: 800; line-height: 1; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
-[data-inventory-home] .inv-hm-tile__l { font-size: 12.5px; font-weight: 700; margin-top: 5px; }
+[data-inventory-home] .inv-hm-tile__n { font-size: 23px; font-weight: 600; line-height: 1; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
+[data-inventory-home] .inv-hm-tile__l { font-size: 12.5px; font-weight: 600; margin-top: 5px; }
 
 [data-inventory-home] .inv-hm-sechead { display: flex; align-items: center; justify-content: space-between; padding: 22px 2px 11px; }
-[data-inventory-home] .inv-hm-sechead h2 { margin: 0; font-size: 19px; font-weight: 800; }
-[data-inventory-home] .inv-hm-sechead a { font-size: 13.5px; font-weight: 700; color: var(--inv-accent); cursor: pointer; }
+[data-inventory-home] .inv-hm-sechead h2 { margin: 0; font-size: 19px; font-weight: 600; }
+[data-inventory-home] .inv-hm-sechead a { font-size: 13.5px; font-weight: 600; color: var(--inv-accent); cursor: pointer; }
 
 [data-inventory-home] .inv-hm-qgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-[data-inventory-home] .inv-hm-qtile { border: 0; border-radius: 14px; background: #EBEEF3; padding: 15px; display: flex; align-items: center; justify-content: flex-start; gap: 12px; cursor: pointer; font-family: inherit; transition: background 120ms ease; }
-[data-inventory-home] .inv-hm-qtile:hover { background: #E2E7EE; }
-[data-inventory-home] .inv-hm-qtile__t { font-size: 15.5px; font-weight: 700; color: var(--inv-text); }
-[data-inventory-home] .inv-hm-qtile__i { width: 44px; height: 44px; border-radius: 12px; background: #fff; box-shadow: 0 3px 10px rgba(15,23,41,0.06); display: inline-flex; align-items: center; justify-content: center; color: var(--inv-accent); flex-shrink: 0; }
+[data-inventory-home] .inv-hm-qtile { border: 0; border-radius: 14px; background: var(--inv-surface-2); padding: 15px; display: flex; align-items: center; justify-content: flex-start; gap: 12px; cursor: pointer; font-family: inherit; transition: background 120ms ease; }
+[data-inventory-home] .inv-hm-qtile:hover { background: var(--inv-border); }
+[data-inventory-home] .inv-hm-qtile__t { font-size: 15.5px; font-weight: 600; color: var(--inv-text); }
+[data-inventory-home] .inv-hm-qtile__i { width: 44px; height: 44px; border-radius: 12px; background: var(--inv-card-bg); box-shadow: var(--inv-shadow); display: inline-flex; align-items: center; justify-content: center; color: var(--inv-accent); flex-shrink: 0; }
 
-[data-inventory-home] .inv-hm-empty { padding: 20px 12px; text-align: center; color: var(--inv-text-muted); font-size: 14px; font-weight: 700; border: 1px solid var(--inv-border); border-radius: var(--inv-radius-lg); background: var(--inv-card-bg); }
+[data-inventory-home] .inv-hm-empty { padding: 20px 12px; text-align: center; color: var(--inv-text-muted); font-size: 14px; font-weight: 400; border: 1px solid var(--inv-border); border-radius: var(--inv-radius-lg); background: var(--inv-card-bg); }
 `;
 
 export default function InventoryHomePage() {
@@ -132,7 +132,7 @@ export default function InventoryHomePage() {
   const lowPal = stockPalette("low");
   // When a status count is 0 there is nothing wrong — show a calm neutral tile
   // instead of a red/amber one, so an empty state never reads as a false alert.
-  const neutralBg = "#EBEEF3";
+  const neutralBg = "var(--inv-surface-2)";
   const neutralInk = "var(--inv-text-muted)";
 
   const tiles = [
@@ -243,7 +243,7 @@ function InventorySkeleton() {
   return (
     <div style={{ display: "grid", gap: 8 }}>
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="inv-skeleton-block" style={{ height: 72, borderRadius: 14, background: "linear-gradient(90deg, rgba(229,231,235,0.65), rgba(245,246,248,0.92), rgba(229,231,235,0.65))", backgroundSize: "220% 100%" }} />
+        <div key={i} className="inv-skeleton-block" style={{ height: 72, borderRadius: 14, background: "linear-gradient(90deg, rgba(246,236,221,0.65), rgba(253,244,235,0.92), rgba(246,236,221,0.65))", backgroundSize: "220% 100%" }} />
       ))}
     </div>
   );

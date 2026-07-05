@@ -15,9 +15,9 @@ import { getProductEmoji } from "@/lib/inventory/product-emoji";
 import { createInventorySale, getInventoryItems, type InventoryItemDTO } from "@/lib/api/inventory";
 
 const STOCK_BG: Record<"ok" | "low" | "critical", string> = {
-  ok: "#dcfce7",
-  low: "#fef3c7",
-  critical: "#fee2e2",
+  ok: "var(--inv-success-bg)",
+  low: "var(--inv-warning-bg)",
+  critical: "var(--inv-danger-bg)",
 };
 
 export default function CreateInventorySalePage() {
