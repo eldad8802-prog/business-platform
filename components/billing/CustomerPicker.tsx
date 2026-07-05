@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
+import { glassActionStyle, primaryActionStyle, TOKEN } from "@/lib/design/billing-theme";
 
 export type BillingCustomerRow = {
   id: number;
@@ -155,8 +155,8 @@ export function CustomerPicker({
   return (
     <div ref={wrapRef} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>
-          למי המסמך מיועד? <span style={{ color: "#ef4444" }}>*</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: TOKEN.ink.secondary }}>
+          למי המסמך מיועד? <span style={{ color: TOKEN.semantic.urgent.ink }}>*</span>
         </span>
         <div style={{ position: "relative" }}>
           <input
@@ -179,9 +179,9 @@ export function CustomerPicker({
             style={{
               padding: "10px 12px",
               borderRadius: 10,
-              border: "1px solid #cbd5e1",
+              border: `1px solid ${TOKEN.border.hover}`,
               fontSize: 14,
-              color: "#0f172a",
+              color: TOKEN.ink.primary,
               width: "100%",
               boxSizing: "border-box",
             }}
@@ -198,18 +198,18 @@ export function CustomerPicker({
                 marginTop: 4,
                 maxHeight: 240,
                 overflowY: "auto",
-                background: "#ffffff",
-                border: "1px solid #e2e8f0",
+                background: TOKEN.surface.card,
+                border: `1px solid ${TOKEN.border.DEFAULT}`,
                 borderRadius: 10,
-                boxShadow: "0 10px 28px rgba(15,23,42,0.12)",
+                boxShadow: TOKEN.shadow.floating,
               }}
             >
               {loading ? (
-                <div style={{ padding: 12, fontSize: 13, color: "#64748b" }}>
+                <div style={{ padding: 12, fontSize: 13, color: TOKEN.ink.muted }}>
                   טוען…
                 </div>
               ) : results.length === 0 ? (
-                <div style={{ padding: 12, fontSize: 13, color: "#64748b" }}>
+                <div style={{ padding: 12, fontSize: 13, color: TOKEN.ink.muted }}>
                   לא נמצאו לקוחות. השתמש בשם חופשי או צור לקוח חדש.
                 </div>
               ) : (
@@ -225,18 +225,18 @@ export function CustomerPicker({
                       textAlign: "right",
                       padding: "10px 12px",
                       border: "none",
-                      borderBottom: "1px solid #f1f5f9",
+                      borderBottom: `1px solid ${TOKEN.surface.inset}`,
                       background:
-                        linkedCustomerId === row.id ? "#f0fdf4" : "#ffffff",
+                        linkedCustomerId === row.id ? TOKEN.semantic.success.bg : TOKEN.surface.card,
                       cursor: "pointer",
                       fontSize: 14,
                     }}
                   >
-                    <div style={{ fontWeight: 600, color: "#0f172a" }}>
+                    <div style={{ fontWeight: 600, color: TOKEN.ink.primary }}>
                       {row.name}
                     </div>
                     {row.phone ? (
-                      <div style={{ fontSize: 12, color: "#64748b" }}>
+                      <div style={{ fontSize: 12, color: TOKEN.ink.muted }}>
                         {row.phone}
                       </div>
                     ) : null}
@@ -249,11 +249,11 @@ export function CustomerPicker({
       </label>
 
       {linkedCustomerId ? (
-        <div style={{ fontSize: 12, color: "#166534", fontWeight: 600 }}>
+        <div style={{ fontSize: 12, color: TOKEN.semantic.success.ink, fontWeight: 600 }}>
           נשמר כלקוח קיים (#{linkedCustomerId})
         </div>
       ) : (
-        <div style={{ fontSize: 12, color: "#64748b" }}>
+        <div style={{ fontSize: 12, color: TOKEN.ink.muted }}>
           אפשר לבחור לקוח קיים או לכתוב שם חדש כפי שיופיע במסמך.
         </div>
       )}
@@ -278,8 +278,8 @@ export function CustomerPicker({
           style={{
             padding: 12,
             borderRadius: 10,
-            border: "1px solid #e2e8f0",
-            background: "#fafafa",
+            border: `1px solid ${TOKEN.border.DEFAULT}`,
+            background: TOKEN.surface.inset,
             display: "grid",
             gap: 8,
           }}
@@ -293,7 +293,7 @@ export function CustomerPicker({
             style={{
               padding: "8px 10px",
               borderRadius: 8,
-              border: "1px solid #cbd5e1",
+              border: `1px solid ${TOKEN.border.hover}`,
               fontSize: 14,
             }}
           />
@@ -307,12 +307,12 @@ export function CustomerPicker({
             style={{
               padding: "8px 10px",
               borderRadius: 8,
-              border: "1px solid #cbd5e1",
+              border: `1px solid ${TOKEN.border.hover}`,
               fontSize: 14,
             }}
           />
           {quickErr ? (
-            <div style={{ fontSize: 12, color: "#b91c1c" }}>{quickErr}</div>
+            <div style={{ fontSize: 12, color: TOKEN.semantic.urgent.ink }}>{quickErr}</div>
           ) : null}
           <button
             type="button"

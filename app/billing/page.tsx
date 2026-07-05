@@ -10,8 +10,8 @@ import {
   emptyInvoiceIdentityForm,
   type InvoiceProfileFormState,
 } from "@/components/billing/BusinessIdentitySetupForm";
-import { TOKEN } from "@/lib/design/tokens";
-import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
+import { TOKEN } from "@/lib/design/billing-theme";
+import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/billing-theme";
 
 type BillingStatus = "DRAFT" | "PENDING_REVIEW" | "ISSUED";
 
@@ -54,10 +54,10 @@ const STATUS_STYLE: Record<
   BillingStatus | "QUOTE",
   { bg: string; fg: string; border: string }
 > = {
-  DRAFT: { bg: "#eff6ff", fg: "#3F619C", border: "#dbeafe" },
-  PENDING_REVIEW: { bg: "#fff7ed", fg: "#d97706", border: "#fed7aa" },
-  ISSUED: { bg: "#ecfdf5", fg: "#16a34a", border: "#bbf7d0" },
-  QUOTE: { bg: "#f3e8ff", fg: "#7c3aed", border: "#e9d5ff" },
+  DRAFT: { bg: TOKEN.semantic.info.bg, fg: TOKEN.semantic.info.ink, border: TOKEN.semantic.info.border },
+  PENDING_REVIEW: { bg: TOKEN.semantic.attention.bg, fg: TOKEN.semantic.attention.ink, border: TOKEN.semantic.attention.border },
+  ISSUED: { bg: TOKEN.semantic.success.bg, fg: TOKEN.semantic.success.ink, border: TOKEN.semantic.success.border },
+  QUOTE: { bg: TOKEN.semantic.info.bg, fg: TOKEN.semantic.info.ink, border: TOKEN.semantic.info.border },
 };
 
 const DOCUMENT_TYPE_LABEL: Record<string, string> = {
@@ -311,12 +311,12 @@ export default function BillingHubPage() {
   }
 
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: "#ffffff" }}>
+    <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.card }}>
       <header
         className="billing-hub-header"
         style={{
-          background: "#ffffff",
-          borderBottom: "1px solid #edf2f7",
+          background: TOKEN.surface.card,
+          borderBottom: `1px solid ${TOKEN.border.DEFAULT}`,
           minHeight: 64,
           display: "flex",
           alignItems: "center",
@@ -333,7 +333,7 @@ export default function BillingHubPage() {
           style={{
             ...glassActionStyle({ height: 40 }),
             fontSize: 14,
-            fontWeight: 900,
+            fontWeight: 600,
             padding: "0 12px",
             lineHeight: 1,
           }}
@@ -363,14 +363,14 @@ export default function BillingHubPage() {
             display: "grid",
             gap: 18,
             padding: "6px 0 18px",
-            borderBottom: "1px solid #edf2f7",
+            borderBottom: `1px solid ${TOKEN.border.DEFAULT}`,
           }}
         >
           <div>
-            <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a" }}>
+            <div style={{ fontSize: 18, fontWeight: 600, color: TOKEN.ink.primary }}>
               מה עושים עכשיו?!
             </div>
-            <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>
+            <div style={{ fontSize: 13, color: TOKEN.ink.muted, marginTop: 4 }}>
               צרו מסמך חדש או המשיכו עבודה קיימת מול לקוח.
             </div>
           </div>
@@ -394,13 +394,13 @@ export default function BillingHubPage() {
                 ...primaryActionStyle({ height: 48 }),
                 padding: "12px 18px",
                 fontSize: 14,
-                fontWeight: 800,
+                fontWeight: 600,
                 whiteSpace: "nowrap",
                 minHeight: 48,
                 flex: "0 1 264px",
               }}
             >
-              + צור מסמך
+              + צור חשבונית
             </button>
             <button
               className="billing-action-button"
@@ -410,7 +410,7 @@ export default function BillingHubPage() {
                 ...glassActionStyle({ height: 48 }),
                 padding: "12px 18px",
                 fontSize: 14,
-                fontWeight: 800,
+                fontWeight: 600,
                 whiteSpace: "nowrap",
                 minHeight: 48,
                 flex: "0 1 264px",
@@ -423,7 +423,7 @@ export default function BillingHubPage() {
 
         {latestDraft ? (
           <section style={{ display: "grid", gap: 8 }}>
-            <div style={{ fontSize: 14, fontWeight: 900, color: "#0f172a" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: TOKEN.ink.primary }}>
               המשך עבודה
             </div>
             <ContinueDraftCard doc={latestDraft} />
@@ -448,8 +448,8 @@ export default function BillingHubPage() {
               <details
                 className="billing-utility-details"
                 style={{
-                  background: "#ffffff",
-                  border: "1px solid #e5e7eb",
+                  background: TOKEN.surface.card,
+                  border: `1px solid ${TOKEN.border.DEFAULT}`,
                   borderRadius: 12,
                   padding: "8px 12px",
                   flex: "1 1 230px",
@@ -459,8 +459,8 @@ export default function BillingHubPage() {
                   style={{
                     cursor: "pointer",
                     fontSize: 13,
-                    fontWeight: 800,
-                    color: "#64748b",
+                    fontWeight: 600,
+                    color: TOKEN.ink.muted,
                   }}
                 >
                   פרטי העסק במסמכים
@@ -475,8 +475,8 @@ export default function BillingHubPage() {
               <details
                 className="billing-utility-details"
                 style={{
-                  background: "#ffffff",
-                  border: "1px solid #e5e7eb",
+                  background: TOKEN.surface.card,
+                  border: `1px solid ${TOKEN.border.DEFAULT}`,
                   borderRadius: 12,
                   padding: "8px 12px",
                   flex: "1 1 230px",
@@ -486,8 +486,8 @@ export default function BillingHubPage() {
                   style={{
                     cursor: "pointer",
                     fontSize: 13,
-                    fontWeight: 800,
-                    color: "#64748b",
+                    fontWeight: 600,
+                    color: TOKEN.ink.muted,
                   }}
                 >
                   סקירה קצרה
@@ -516,8 +516,8 @@ export default function BillingHubPage() {
             style={{
               display: "grid",
               gap: 10,
-              background: "#ffffff",
-              border: "1px solid #edf2f7",
+              background: TOKEN.surface.card,
+              border: `1px solid ${TOKEN.border.DEFAULT}`,
               borderRadius: 12,
               padding: 12,
             }}
@@ -534,7 +534,7 @@ export default function BillingHubPage() {
                   transform: "translateY(-50%)",
                   fontSize: 15,
                   pointerEvents: "none",
-                  color: "#94a3b8",
+                  color: TOKEN.ink.meta,
                   lineHeight: 1,
                 }}
               >
@@ -551,7 +551,7 @@ export default function BillingHubPage() {
                   paddingTop: 10,
                   paddingBottom: 10,
                   borderRadius: 10,
-                  border: "1px solid #e2e8f0",
+                  border: `1px solid ${TOKEN.border.DEFAULT}`,
                   fontSize: 14,
                   width: "100%",
                   boxSizing: "border-box",
@@ -577,7 +577,7 @@ export default function BillingHubPage() {
                       ...chipActionStyle(active),
                       padding: "7px 14px",
                       fontSize: 13,
-                      fontWeight: active ? 700 : 500,
+                      fontWeight: active ? 600 : 500,
                       minHeight: 36,
                       lineHeight: 1,
                       whiteSpace: "nowrap",
@@ -609,8 +609,8 @@ export default function BillingHubPage() {
           <section
             className="billing-archive"
             style={{
-              background: "#ffffff",
-              border: "1px solid #edf2f7",
+              background: TOKEN.surface.card,
+              border: `1px solid ${TOKEN.border.DEFAULT}`,
               borderRadius: 8,
               overflowX: "hidden",
               overflowY: "hidden",
@@ -621,17 +621,17 @@ export default function BillingHubPage() {
               className="billing-archive-title-row"
               style={{
                 padding: "11px 14px",
-                borderBottom: "1px solid #edf2f7",
+                borderBottom: `1px solid ${TOKEN.border.DEFAULT}`,
                 display: "flex",
                 justifyContent: "space-between",
                 gap: 12,
                 alignItems: "baseline",
               }}
             >
-              <div style={{ fontSize: 16, fontWeight: 900, color: "#0f172a" }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: TOKEN.ink.primary }}>
                 מסמכים אחרונים ({Math.min(visibleDocsCount, docs.length)} מתוך {docs.length})
               </div>
-              <div style={{ fontSize: 12, color: "#94a3b8" }}>
+              <div style={{ fontSize: 12, color: TOKEN.ink.meta }}>
                 ארכיון מסמכים
               </div>
             </div>
@@ -645,11 +645,11 @@ export default function BillingHubPage() {
                 gap: 12,
                 alignItems: "center",
                 padding: "9px 14px",
-                borderBottom: "1px solid #eef2f7",
-                background: "#ffffff",
-                color: "#475569",
+                borderBottom: `1px solid ${TOKEN.border.DEFAULT}`,
+                background: TOKEN.surface.card,
+                color: TOKEN.ink.secondary,
                 fontSize: 11,
-                fontWeight: 900,
+                fontWeight: 600,
                 whiteSpace: "nowrap",
               }}
             >
@@ -677,7 +677,7 @@ export default function BillingHubPage() {
               ))}
             </ul>
             {hasMoreVisibleDocs ? (
-              <div style={{ padding: 10, borderTop: "1px solid #f1f5f9" }}>
+              <div style={{ padding: 10, borderTop: `1px solid ${TOKEN.border.DEFAULT}` }}>
                 <button
                   className="billing-load-more-button"
                   type="button"
@@ -688,7 +688,7 @@ export default function BillingHubPage() {
                     width: "100%",
                     padding: "11px 16px",
                     fontSize: 14,
-                    fontWeight: 700,
+                    fontWeight: 600,
                     cursor: loadingMore ? "wait" : "pointer",
                   }}
                 >
@@ -813,7 +813,7 @@ export default function BillingHubPage() {
             grid-column: 1 / -1;
             justify-self: stretch;
             padding-top: 10px;
-            border-top: 1px solid #f1f5f9;
+            border-top: 1px solid ${TOKEN.border.DEFAULT};
             text-align: center;
           }
 
@@ -824,7 +824,7 @@ export default function BillingHubPage() {
           .billing-active-record-amount {
             grid-column: 2 !important;
             border-right: 0 !important;
-            border-top: 1px solid #edf2f7 !important;
+            border-top: 1px solid ${TOKEN.border.DEFAULT} !important;
             padding: 12px 18px !important;
             justify-items: start !important;
           }
@@ -926,7 +926,7 @@ function IdentityGateModal({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(15, 23, 42, 0.5)",
+        background: "rgba(70, 50, 30, 0.5)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -941,10 +941,10 @@ function IdentityGateModal({
           maxWidth: 440,
           maxHeight: "calc(100dvh - 32px)",
           overflowY: "auto",
-          background: "#ffffff",
+          background: TOKEN.surface.card,
           borderRadius: 16,
           padding: 20,
-          boxShadow: "0 12px 40px rgba(0,0,0,0.2)",
+          boxShadow: TOKEN.shadow.floating,
         }}
       >
         <h2
@@ -952,13 +952,13 @@ function IdentityGateModal({
           style={{
             margin: "0 0 8px",
             fontSize: 17,
-            fontWeight: 800,
-            color: "#0f172a",
+            fontWeight: 600,
+            color: TOKEN.ink.primary,
           }}
         >
           הגדרת זהות העסק
         </h2>
-        <p style={{ margin: "0 0 14px", fontSize: 13, color: "#475569" }}>
+        <p style={{ margin: "0 0 14px", fontSize: 13, color: TOKEN.ink.secondary }}>
           צריך רק להשלים את פרטי העסק שיופיעו במסמך הראשון.
         </p>
         <BusinessIdentitySetupForm form={form} onChange={onFormChange} />
@@ -967,8 +967,8 @@ function IdentityGateModal({
             role="alert"
             style={{
               marginTop: 12,
-              background: "#fef2f2",
-              color: "#991b1b",
+              background: TOKEN.semantic.urgent.bg,
+              color: TOKEN.semantic.urgent.ink,
               padding: "8px 10px",
               borderRadius: 8,
               fontSize: 13,
@@ -1006,7 +1006,7 @@ function IdentityGateModal({
               ...primaryActionStyle({ disabled: saving, height: 42 }),
               padding: "9px 16px",
               fontSize: 13,
-              fontWeight: 700,
+              fontWeight: 600,
             }}
           >
             {saving ? "שומר…" : "שמור והמשך"}
@@ -1142,7 +1142,7 @@ function CreateDraftModal({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(15, 23, 42, 0.45)",
+        background: "rgba(70, 50, 30, 0.45)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -1157,19 +1157,19 @@ function CreateDraftModal({
           maxWidth: 480,
           maxHeight: "calc(100dvh - 32px)",
           overflowY: "auto",
-          background: "#ffffff",
+          background: TOKEN.surface.card,
           borderRadius: 18,
           padding: 20,
           display: "flex",
           flexDirection: "column",
           gap: 14,
-          boxShadow: "0 10px 40px rgba(0, 0, 0, 0.18)",
+          boxShadow: TOKEN.shadow.floating,
         }}
       >
         <section
           style={{
-            background: isQuote ? "#f8fafc" : "#f0fdf4",
-            border: isQuote ? "1px solid #e2e8f0" : "1px solid #bbf7d0",
+            background: isQuote ? TOKEN.surface.inset : TOKEN.semantic.success.bg,
+            border: isQuote ? `1px solid ${TOKEN.border.DEFAULT}` : `1px solid ${TOKEN.semantic.success.border}`,
             borderRadius: 16,
             padding: 16,
             display: "flex",
@@ -1180,8 +1180,8 @@ function CreateDraftModal({
           <h2
             style={{
               fontSize: 18,
-              fontWeight: 800,
-              color: isQuote ? "#0f172a" : "#166534",
+              fontWeight: 600,
+              color: isQuote ? TOKEN.ink.primary : TOKEN.semantic.success.ink,
               margin: 0,
             }}
           >
@@ -1190,7 +1190,7 @@ function CreateDraftModal({
           <p
             style={{
               fontSize: 13,
-              color: "#475569",
+              color: TOKEN.ink.secondary,
               margin: 0,
               lineHeight: 1.55,
             }}
@@ -1203,12 +1203,12 @@ function CreateDraftModal({
               marginTop: 6,
               paddingTop: 10,
               borderTop: isQuote
-                ? "1px solid #e2e8f0"
-                : "1px solid rgba(22, 101, 52, 0.18)",
+                ? `1px solid ${TOKEN.border.DEFAULT}`
+                : `1px solid ${TOKEN.semantic.success.border}`,
               fontSize: 12,
-              color: isQuote ? "#475569" : "#065f46",
+              color: isQuote ? TOKEN.ink.secondary : TOKEN.semantic.success.ink,
               lineHeight: 1.5,
-              fontWeight: 700,
+              fontWeight: 600,
             }}
           >
             {isQuote
@@ -1222,7 +1222,7 @@ function CreateDraftModal({
             style={{
               fontSize: 13,
               fontWeight: 600,
-              color: "#334155",
+              color: TOKEN.ink.secondary,
             }}
           >
             לקוח קיים
@@ -1244,7 +1244,7 @@ function CreateDraftModal({
             style={{
               padding: "10px 12px",
               borderRadius: 10,
-              border: "1px solid #cbd5e1",
+              border: `1px solid ${TOKEN.border.hover}`,
               fontSize: 14,
               width: "100%",
               boxSizing: "border-box",
@@ -1265,7 +1265,7 @@ function CreateDraftModal({
             style={{
               fontSize: 13,
               fontWeight: 600,
-              color: "#334155",
+              color: TOKEN.ink.secondary,
             }}
           >
             או שם לקוח חדש
@@ -1290,16 +1290,16 @@ function CreateDraftModal({
             style={{
               padding: "10px 12px",
               borderRadius: 10,
-              border: "1px solid #cbd5e1",
-              background: submitting ? "#f8fafc" : "#ffffff",
+              border: `1px solid ${TOKEN.border.hover}`,
+              background: submitting ? TOKEN.surface.inset : TOKEN.surface.card,
               fontSize: 14,
-              color: "#0f172a",
+              color: TOKEN.ink.primary,
               outline: "none",
               width: "100%",
               boxSizing: "border-box",
             }}
           />
-          <span style={{ fontSize: 12, color: "#64748b", lineHeight: 1.5 }}>
+          <span style={{ fontSize: 12, color: TOKEN.ink.muted, lineHeight: 1.5 }}>
             השם יופיע במסמך כפי שייכתב כאן.
           </span>
         </label>
@@ -1308,9 +1308,9 @@ function CreateDraftModal({
           <div
             role="alert"
             style={{
-              background: "#fef2f2",
-              border: "1px solid #fecaca",
-              color: "#991b1b",
+              background: TOKEN.semantic.urgent.bg,
+              border: `1px solid ${TOKEN.semantic.urgent.border}`,
+              color: TOKEN.semantic.urgent.ink,
               borderRadius: 10,
               padding: "8px 12px",
               fontSize: 13,
@@ -1375,16 +1375,16 @@ function SummaryPill({ label, count }: { label: string; count: number }) {
         gap: 5,
         padding: "4px 10px",
         borderRadius: 999,
-        background: "#f8fafc",
-        border: "1px solid #e2e8f0",
+        background: TOKEN.surface.inset,
+        border: `1px solid ${TOKEN.border.DEFAULT}`,
         fontSize: 12,
-        color: "#334155",
+        color: TOKEN.ink.secondary,
         fontWeight: 600,
         whiteSpace: "nowrap",
       }}
     >
-      <span style={{ color: "#94a3b8", fontWeight: 400 }}>{label}</span>
-      <span style={{ fontWeight: 800, color: "#0f172a" }}>{count}</span>
+      <span style={{ color: TOKEN.ink.meta, fontWeight: 400 }}>{label}</span>
+      <span style={{ fontWeight: 600, color: TOKEN.ink.primary }}>{count}</span>
     </div>
   );
 }
@@ -1409,11 +1409,10 @@ function DocumentsSkeleton() {
           style={{
             height: 88,
             borderRadius: 14,
-            background:
-              "linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 50%, #f1f5f9 100%)",
+            background: `linear-gradient(90deg, ${TOKEN.surface.inset} 0%, ${TOKEN.border.DEFAULT} 50%, ${TOKEN.surface.inset} 100%)`,
             backgroundSize: "200% 100%",
             animation: "billing-skeleton 1.2s ease-in-out infinite",
-            border: "1px solid #e2e8f0",
+            border: `1px solid ${TOKEN.border.DEFAULT}`,
           }}
         />
       ))}
@@ -1438,9 +1437,9 @@ function ErrorBanner({
     <div
       role="alert"
       style={{
-        background: "#fef2f2",
-        border: "1px solid #fecaca",
-        color: "#991b1b",
+        background: TOKEN.semantic.urgent.bg,
+        border: `1px solid ${TOKEN.semantic.urgent.border}`,
+        color: TOKEN.semantic.urgent.ink,
         borderRadius: 12,
         padding: 16,
         display: "flex",
@@ -1448,7 +1447,7 @@ function ErrorBanner({
         gap: 12,
       }}
     >
-      <div style={{ fontWeight: 700, fontSize: 15 }}>שגיאה בטעינת המסמכים</div>
+      <div style={{ fontWeight: 600, fontSize: 15 }}>שגיאה בטעינת המסמכים</div>
       <div style={{ fontSize: 14, lineHeight: 1.5 }}>{message}</div>
       <button
         type="button"
@@ -1485,15 +1484,15 @@ function EmptyState({
   return (
     <div
       style={{
-        background: "#ffffff",
-        border: "1px dashed #cbd5e1",
+        background: TOKEN.surface.card,
+        border: `1px dashed ${TOKEN.border.hover}`,
         borderRadius: 14,
         padding: "32px 16px",
         textAlign: "center",
-        color: "#475569",
+        color: TOKEN.ink.secondary,
       }}
     >
-      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>
+      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
         אין עדיין מסמכים להצגה
       </div>
       <div style={{ fontSize: 14, lineHeight: 1.5 }}>{subtitle}</div>
@@ -1514,7 +1513,7 @@ function EmptyState({
               ...primaryActionStyle({ height: 42 }),
               padding: "10px 16px",
               fontSize: 14,
-              fontWeight: 700,
+              fontWeight: 600,
             }}
           >
             התחל מסמך ללקוח
@@ -1527,7 +1526,7 @@ function EmptyState({
               ...glassActionStyle({ height: 42 }),
               padding: "10px 16px",
               fontSize: 14,
-              fontWeight: 700,
+              fontWeight: 600,
             }}
           >
             נקה סינון
@@ -1552,15 +1551,15 @@ function ContinueDraftCard({ doc }: { doc: BillingDocumentListItem }) {
         display: "grid",
         gridTemplateColumns: "4px minmax(0, 1fr) minmax(150px, 190px)",
         gap: 0,
-        border: "1px solid #dbeafe",
-        background: "#ffffff",
+        border: `1px solid ${TOKEN.semantic.info.border}`,
+        background: TOKEN.surface.card,
         borderRadius: 6,
         overflow: "hidden",
         textDecoration: "none",
         color: "inherit",
       }}
     >
-      <div style={{ background: "#3F619C" }} aria-hidden="true" />
+      <div style={{ background: TOKEN.semantic.info.ink }} aria-hidden="true" />
       <div className="billing-active-record-main" style={{ display: "grid", gap: 10, padding: "16px 18px" }}>
         <div
           style={{
@@ -1572,13 +1571,13 @@ function ContinueDraftCard({ doc }: { doc: BillingDocumentListItem }) {
           }}
         >
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12, fontWeight: 900, color: "#3F619C" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: TOKEN.semantic.info.ink }}>
               טיוטה
             </div>
-            <div style={{ fontSize: 16, fontWeight: 950, color: "#0f172a", marginTop: 4 }}>
+            <div style={{ fontSize: 16, fontWeight: 600, color: TOKEN.ink.primary, marginTop: 4 }}>
               {typeLabel} # {number}
             </div>
-            <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>
+            <div style={{ fontSize: 12, color: TOKEN.ink.muted, marginTop: 3 }}>
               לקוח: {customer}
             </div>
           </div>
@@ -1590,14 +1589,14 @@ function ContinueDraftCard({ doc }: { doc: BillingDocumentListItem }) {
             gap: 12,
             alignItems: "center",
             flexWrap: "wrap",
-            borderTop: "1px solid #edf2f7",
+            borderTop: `1px solid ${TOKEN.border.DEFAULT}`,
             paddingTop: 8,
           }}
         >
-          <div style={{ fontSize: 12, color: "#94a3b8" }}>
+          <div style={{ fontSize: 12, color: TOKEN.ink.meta }}>
             עודכן לאחרונה לפי רשומת המסמך
           </div>
-          <div style={{ fontSize: 13, fontWeight: 900, color: "#3F619C" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: TOKEN.semantic.info.ink }}>
             פתח והמשך
           </div>
         </div>
@@ -1605,7 +1604,7 @@ function ContinueDraftCard({ doc }: { doc: BillingDocumentListItem }) {
       <div
         className="billing-active-record-amount"
         style={{
-          borderRight: "1px solid #edf2f7",
+          borderRight: `1px solid ${TOKEN.border.DEFAULT}`,
           padding: "18px 20px",
           display: "grid",
           alignContent: "center",
@@ -1613,14 +1612,14 @@ function ContinueDraftCard({ doc }: { doc: BillingDocumentListItem }) {
           gap: 5,
         }}
       >
-        <div style={{ fontSize: 11, color: "#64748b", fontWeight: 800 }}>
+        <div style={{ fontSize: 11, color: TOKEN.ink.muted, fontWeight: 600 }}>
           סכום
         </div>
         <div
           style={{
             fontSize: 17,
-            fontWeight: 950,
-            color: "#0f172a",
+            fontWeight: 600,
+            color: TOKEN.ink.primary,
             fontVariantNumeric: "tabular-nums",
             whiteSpace: "nowrap",
           }}
@@ -1675,8 +1674,8 @@ function DocumentCard({
           padding: "0 14px",
           textDecoration: "none",
           color: "inherit",
-          background: "#ffffff",
-          borderBottom: hasDivider ? "1px solid #f1f5f9" : "none",
+          background: TOKEN.surface.card,
+          borderBottom: hasDivider ? `1px solid ${TOKEN.border.DEFAULT}` : "none",
           boxShadow: "none",
           boxSizing: "border-box",
         }}
@@ -1684,25 +1683,25 @@ function DocumentCard({
         <div style={{ minWidth: 0 }}>
           <div
             style={{
-              color: "#0f172a",
+              color: TOKEN.ink.primary,
               fontSize: 12,
-              fontWeight: 900,
+              fontWeight: 600,
               fontVariantNumeric: "tabular-nums",
               whiteSpace: "nowrap",
             }}
           >
             {date}
           </div>
-          <div style={{ color: "#94a3b8", fontSize: 11, marginTop: 2 }}>
+          <div style={{ color: TOKEN.ink.meta, fontSize: 11, marginTop: 2 }}>
             {status === "ISSUED" ? "הופק" : status === "PENDING_REVIEW" ? "נשלח לאישור" : "עודכן"}
           </div>
         </div>
 
         <div
           style={{
-            color: "#0f172a",
+            color: TOKEN.ink.primary,
             fontSize: 12,
-            fontWeight: 900,
+            fontWeight: 600,
             fontVariantNumeric: "tabular-nums",
             whiteSpace: "nowrap",
           }}
@@ -1712,7 +1711,7 @@ function DocumentCard({
 
         <div
           style={{
-            color: "#475569",
+            color: TOKEN.ink.secondary,
             fontSize: 12,
             display: "flex",
             alignItems: "center",
@@ -1721,7 +1720,7 @@ function DocumentCard({
             whiteSpace: "nowrap",
           }}
         >
-          <span aria-hidden="true" style={{ color: "#64748b" }}>
+          <span aria-hidden="true" style={{ color: TOKEN.ink.muted }}>
             ◰
           </span>
           <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -1730,11 +1729,11 @@ function DocumentCard({
         </div>
 
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 900, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: TOKEN.ink.primary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {customer}
           </div>
           {isConverted || pdfIssue ? (
-            <div style={{ fontSize: 11, color: pdfIssue ? "#991b1b" : "#15803d", marginTop: 2, fontWeight: 700 }}>
+            <div style={{ fontSize: 11, color: pdfIssue ? TOKEN.semantic.urgent.ink : TOKEN.semantic.success.ink, marginTop: 2, fontWeight: 600 }}>
               {pdfIssue ? "צריך טיפול ב־PDF" : "הומרה לחשבונית"}
             </div>
           ) : null}
@@ -1743,8 +1742,8 @@ function DocumentCard({
         <div
           style={{
             fontSize: 13,
-            fontWeight: 900,
-            color: "#0f172a",
+            fontWeight: 600,
+            color: TOKEN.ink.primary,
             fontVariantNumeric: "tabular-nums",
             whiteSpace: "nowrap",
           }}
@@ -1760,11 +1759,11 @@ function DocumentCard({
               gap: 6,
               padding: "5px 10px",
               borderRadius: 999,
-              border: `1px solid ${statusStyle?.border ?? "#e2e8f0"}`,
-              background: statusStyle?.bg ?? "#f8fafc",
-              color: statusStyle?.fg ?? "#334155",
+              border: `1px solid ${statusStyle?.border ?? TOKEN.border.DEFAULT}`,
+              background: statusStyle?.bg ?? TOKEN.surface.inset,
+              color: statusStyle?.fg ?? TOKEN.ink.secondary,
               fontSize: 12,
-              fontWeight: 900,
+              fontWeight: 600,
               whiteSpace: "nowrap",
             }}
           >
@@ -1774,7 +1773,7 @@ function DocumentCard({
                 width: 6,
                 height: 6,
                 borderRadius: 999,
-                background: statusStyle?.fg ?? "#334155",
+                background: statusStyle?.fg ?? TOKEN.ink.secondary,
               }}
             />
             {lifecycleLabel}
@@ -1783,9 +1782,9 @@ function DocumentCard({
 
         <div
           style={{
-            color: "#1e3a5f",
+            color: TOKEN.brand.mid,
             fontSize: 12,
-            fontWeight: 900,
+            fontWeight: 600,
             whiteSpace: "nowrap",
           }}
         >

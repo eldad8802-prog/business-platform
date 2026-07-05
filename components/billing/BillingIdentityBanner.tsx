@@ -12,7 +12,7 @@ import {
   type BillingBusinessKind,
 } from "@/lib/billing/business-identity";
 import { parseBillingPdfTemplateStyle } from "@/lib/billing/billing-pdf-template-style";
-import { primaryActionStyle } from "@/lib/design/action-styles";
+import { primaryActionStyle, TOKEN } from "@/lib/design/billing-theme";
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
@@ -159,11 +159,11 @@ export function BillingIdentityBanner({
       <div
         style={{
           borderRadius: 14,
-          border: "1px solid #e2e8f0",
-          background: "#fff",
+          border: `1px solid ${TOKEN.border.DEFAULT}`,
+          background: TOKEN.surface.card,
           padding: "14px 16px",
           fontSize: 13,
-          color: "#94a3b8",
+          color: TOKEN.ink.meta,
         }}
       >
         טוען פרטי עסק…
@@ -188,8 +188,8 @@ export function BillingIdentityBanner({
       <section
         style={{
           borderRadius: 14,
-          border: "1px solid #e2e8f0",
-          background: "#fff",
+          border: `1px solid ${TOKEN.border.DEFAULT}`,
+          background: TOKEN.surface.card,
           padding: "12px 16px",
           display: "flex",
           alignItems: "center",
@@ -204,11 +204,11 @@ export function BillingIdentityBanner({
             borderRadius: "50%",
             overflow: "hidden",
             flexShrink: 0,
-            background: hasLogo ? "#f8fafc" : "#0f172a",
+            background: hasLogo ? TOKEN.surface.inset : TOKEN.ink.primary,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            border: "1px solid #e2e8f0",
+            border: `1px solid ${TOKEN.border.DEFAULT}`,
           }}
         >
           {hasLogo ? (
@@ -225,8 +225,8 @@ export function BillingIdentityBanner({
             <span
               style={{
                 fontSize: 14,
-                fontWeight: 700,
-                color: "#fff",
+                fontWeight: 600,
+                color: TOKEN.ink.inverse,
                 letterSpacing: 0.5,
               }}
             >
@@ -237,9 +237,9 @@ export function BillingIdentityBanner({
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
-              fontWeight: 700,
+              fontWeight: 600,
               fontSize: 14,
-              color: "#0f172a",
+              color: TOKEN.ink.primary,
               marginBottom: 2,
             }}
           >
@@ -248,7 +248,7 @@ export function BillingIdentityBanner({
           <div
             style={{
               fontSize: 12,
-              color: "#64748b",
+              color: TOKEN.ink.muted,
               display: "flex",
               flexWrap: "wrap",
               gap: 8,
@@ -259,12 +259,12 @@ export function BillingIdentityBanner({
             {mini.billingTaxId ? (
               <span style={{ direction: "ltr" }}>ע.מ./ח.פ. {mini.billingTaxId}</span>
             ) : (
-              <span style={{ color: "#b45309", fontWeight: 600 }}>
+              <span style={{ color: TOKEN.semantic.attention.ink, fontWeight: 600 }}>
                 חסר מזהה מס
               </span>
             )}
           </div>
-          <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: TOKEN.ink.meta, marginTop: 4 }}>
             פרטי העסק נשמרים כדי שהמסמכים ללקוחות ייראו אמינים ועקביים.
           </div>
         </div>
@@ -273,11 +273,11 @@ export function BillingIdentityBanner({
           style={{
             padding: "7px 14px",
             borderRadius: 8,
-            border: "1px solid #cbd5e1",
-            background: "#fff",
+            border: `1px solid ${TOKEN.border.hover}`,
+            background: TOKEN.surface.card,
             fontSize: 13,
             fontWeight: 600,
-            color: "#0f172a",
+            color: TOKEN.ink.primary,
             textDecoration: "none",
             flexShrink: 0,
           }}
@@ -292,24 +292,24 @@ export function BillingIdentityBanner({
     <section
       style={{
         borderRadius: 14,
-        border: "1px solid #bae6fd",
-        background: "linear-gradient(135deg, #f0f9ff 0%, #ffffff 55%)",
+        border: `1px solid ${TOKEN.semantic.info.border}`,
+        background: `linear-gradient(135deg, ${TOKEN.semantic.info.bg} 0%, ${TOKEN.surface.card} 55%)`,
         overflow: "hidden",
       }}
     >
       <div
         style={{
           padding: "14px 16px",
-          borderBottom: "1px solid #e0f2fe",
+          borderBottom: `1px solid ${TOKEN.semantic.info.border}`,
         }}
       >
-        <div style={{ fontSize: 15, fontWeight: 800, color: "#0c4a6e" }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: TOKEN.semantic.info.ink }}>
           כדי להתחיל צריך רק את פרטי העסק שיופיעו במסמך
         </div>
-        <p style={{ margin: "8px 0 0", fontSize: 13, color: "#0369a1" }}>
+        <p style={{ margin: "8px 0 0", fontSize: 13, color: TOKEN.semantic.info.ink }}>
           מלאו את הפרטים הבסיסיים עכשיו. מראה המסמך והעדפות נוספות אפשר לדייק
           בהמשך דרך{" "}
-          <Link href="/business" style={{ fontWeight: 700, color: "#0c4a6e" }}>
+          <Link href="/business" style={{ fontWeight: 600, color: TOKEN.semantic.info.ink }}>
             העסק שלי
           </Link>
           .
@@ -323,8 +323,8 @@ export function BillingIdentityBanner({
           <div
             role="alert"
             style={{
-              background: "#fef2f2",
-              color: "#991b1b",
+              background: TOKEN.semantic.urgent.bg,
+              color: TOKEN.semantic.urgent.ink,
               padding: "8px 10px",
               borderRadius: 8,
               fontSize: 13,
@@ -343,14 +343,14 @@ export function BillingIdentityBanner({
               ...primaryActionStyle({ disabled: saving, height: 40 }),
               padding: "9px 20px",
               fontSize: 13,
-              fontWeight: 700,
+              fontWeight: 600,
             }}
           >
             {saving ? "שומר…" : "שמור והמשך למסמכים"}
           </button>
         </div>
         {savedOk ? (
-          <div style={{ fontSize: 13, color: "#166534", fontWeight: 600 }}>
+          <div style={{ fontSize: 13, color: TOKEN.semantic.success.ink, fontWeight: 600 }}>
             נשמר. אפשר להמשיך ליצירת מסמכים.
           </div>
         ) : null}
