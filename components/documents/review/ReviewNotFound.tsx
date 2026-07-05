@@ -1,4 +1,4 @@
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 import { basePageStyle, mainStyle, primaryDarkButton, reviewCard } from "./review-ui";
 
 export default function ReviewNotFound({ onBack }: { onBack: () => void }) {

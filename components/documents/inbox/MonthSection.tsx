@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 export function formatMonthHeading(ym: string): string {
   const [year, month] = ym.split("-").map(Number);

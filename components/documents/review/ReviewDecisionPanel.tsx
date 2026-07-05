@@ -11,7 +11,7 @@ import ReviewImpactBox from "./ReviewImpactBox";
 import ReviewPreviewFallback from "./ReviewPreviewFallback";
 import ReviewTrustSummary from "./ReviewTrustSummary";
 import { orangePill, reviewCard, reviewSoftPanel } from "./review-ui";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 export type ReviewDecisionPanelProps = {
   reviewMode: "financial" | "document";

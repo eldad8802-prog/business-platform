@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useAccessibleDialog } from "@/components/ui/accessibility";
 import {
   buildDocumentDownloadName,
   fetchDocumentFileBlob,
 } from "@/lib/documents/file-access";
 import { getPreviewKind } from "@/lib/documents/review/preview";
-import { TOKEN } from "@/lib/design/tokens";
-import { glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
+import { TOKEN } from "@/lib/design/documents-theme";
+import { glassActionStyle, primaryActionStyle } from "@/lib/design/documents-theme";
 
 type Status = "loading" | "ready" | "error";
 
@@ -65,13 +66,13 @@ export default function DocumentFilePreviewOverlay({
     };
   }, [documentId]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  // WP1 A-11 via the shared A-18 primitive: role/aria-modal, focus trap + restore,
+  // Escape, background inert, scroll lock — all inherited, no hand-rolling.
+  const { dialogProps, backdropProps } = useAccessibleDialog({
+    open: true,
+    onClose,
+    ariaLabel: "תצוגת מסמך מקור",
+  });
 
   const kind = getPreviewKind("", mimeType);
 
@@ -92,15 +93,9 @@ export default function DocumentFilePreviewOverlay({
       dir="rtl"
       className="documents-file-overlay"
       style={overlayStyle}
-      onClick={onClose}
+      {...backdropProps}
     >
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-label="תצוגת מסמך מקור"
-        style={dialogStyle}
-        onClick={(e) => e.stopPropagation()}
-      >
+      <section {...dialogProps} style={dialogStyle}>
         <header style={headerStyle}>
           <div style={titleStyle} title={title}>
             {title}
@@ -169,7 +164,7 @@ const overlayStyle = {
   position: "fixed" as const,
   inset: 0,
   zIndex: 2147483600,
-  background: "rgba(15, 23, 42, 0.55)",
+  background: "rgba(70, 50, 30, 0.45)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",

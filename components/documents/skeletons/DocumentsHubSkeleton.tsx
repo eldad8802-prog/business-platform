@@ -5,7 +5,7 @@ import {
   documentsShellCard,
   skeletonBar,
 } from "./skeleton-primitives";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 export default function DocumentsHubSkeleton() {
   return (

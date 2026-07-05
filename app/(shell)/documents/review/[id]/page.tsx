@@ -16,7 +16,7 @@ import {
 } from "@/components/documents/review/review-lazy";
 import ReviewNotFound from "@/components/documents/review/ReviewNotFound";
 import { basePageStyle, mainStyle } from "@/components/documents/review/review-ui";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 import { errorMessage } from "@/lib/documents/review/format";
 import { buildExtractionMeta } from "@/lib/documents/review/meta";
 import { getPreviewKind } from "@/lib/documents/review/preview";
@@ -85,21 +85,20 @@ export default function ReviewPage() {
     category: "general",
   });
 
-  const loadDocument = useCallback(
-    async (opts?: { quiet?: boolean }) => {
-      const quiet = opts?.quiet ?? false;
+  useEffect(() => {
+    if (!id) return;
+
+    const load = async () => {
       try {
-        if (!quiet) {
-          setPageLoading(true);
-          if (blobUrlRef.current) {
-            URL.revokeObjectURL(blobUrlRef.current);
-            blobUrlRef.current = null;
-          }
-          setFileBlobUrl(null);
-          setFileStatus("idle");
-        }
+        setPageLoading(true);
         setError(null);
         setPreviewFailed(false);
+        if (blobUrlRef.current) {
+          URL.revokeObjectURL(blobUrlRef.current);
+          blobUrlRef.current = null;
+        }
+        setFileBlobUrl(null);
+        setFileStatus("idle");
 
         if (!authHeader) {
           throw new Error("כדי לבדוק מסמך צריך להתחבר מחדש.");
@@ -107,7 +106,6 @@ export default function ReviewPage() {
 
         const res = await fetch(`/api/documents/${id}`, {
           headers: { authorization: authHeader },
-          cache: "no-store",
         });
         const json = (await res.json()) as GetDocumentResponse;
 
@@ -136,7 +134,7 @@ export default function ReviewPage() {
           category: String(json.extracted?.category || "general"),
         });
 
-        const pid = json.outputProfile?.profileId ?? "unknown_review";
+        const pid = json.outputProfile.profileId;
 
         const draftAmount =
           typeof json.extracted?.amount === "number" ? json.extracted.amount : null;
@@ -160,79 +158,12 @@ export default function ReviewPage() {
       } catch (e: unknown) {
         setError(errorMessage(e, "שגיאה בטעינת המסמך"));
       } finally {
-        if (!quiet) setPageLoading(false);
+        setPageLoading(false);
       }
-    },
-    [authHeader, id]
-  );
-
-  useEffect(() => {
-    if (!id) return;
-    void loadDocument();
-  }, [id, loadDocument]);
-
-  // Guards against a document stuck in "processing" (e.g. Phase 2 was killed
-  // mid-OCR): after a while we surface a manual "retry" so the user is never
-  // trapped on a spinner with no way forward.
-  const [processingStale, setProcessingStale] = useState(false);
-
-  // While Phase 2 (OCR + extraction) is still running, poll until the document
-  // leaves "processing"; then quietly reload to populate the extracted fields.
-  useEffect(() => {
-    if (!id || !authHeader) return;
-    if (document?.status !== "processing") return;
-
-    let cancelled = false;
-    let ticks = 0;
-    const timer = setInterval(async () => {
-      ticks += 1;
-      if (ticks >= 24 && !cancelled) setProcessingStale(true); // ~60s
-      try {
-        const res = await fetch(`/api/documents/${id}`, {
-          headers: { authorization: authHeader },
-          cache: "no-store",
-        });
-        const json = (await res.json()) as GetDocumentResponse;
-        if (cancelled || !res.ok || "error" in json) return;
-        if (json.document.status !== "processing") {
-          void loadDocument({ quiet: true });
-        }
-      } catch {
-        // transient — keep polling
-      }
-    }, 2500);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
     };
-  }, [id, authHeader, document?.status, loadDocument]);
 
-  const reprocess = useCallback(async () => {
-    if (!authHeader) {
-      setError("כדי לעבד מחדש צריך להתחבר מחדש.");
-      return;
-    }
-    try {
-      setLoading(true);
-      setError(null);
-      setProcessingStale(false);
-      const res = await fetch(`/api/documents/${id}/process`, {
-        method: "POST",
-        headers: { authorization: authHeader },
-      });
-      const json = await res.json();
-      if (!res.ok || !json?.success) {
-        throw new Error(json?.error || "לא הצלחנו לעבד מחדש את המסמך");
-      }
-      // Reflect the move back to "processing"; the poll effect resumes from there.
-      await loadDocument({ quiet: true });
-    } catch (e: unknown) {
-      setError(errorMessage(e, "שגיאה בעיבוד מחדש"));
-    } finally {
-      setLoading(false);
-    }
-  }, [authHeader, id, loadDocument]);
+    void load();
+  }, [id, authHeader]);
 
   useEffect(() => {
     if (!document || !authHeader || !id) {
@@ -490,19 +421,6 @@ export default function ReviewPage() {
     return <ReviewNotFound onBack={() => router.push("/documents")} />;
   }
 
-  if (document.status === "processing" || document.status === "failed") {
-    return (
-      <ProcessingReviewScreen
-        status={document.status}
-        stale={document.status === "processing" && processingStale}
-        loading={loading}
-        error={error}
-        onRetry={reprocess}
-        onBack={() => router.push("/documents")}
-      />
-    );
-  }
-
   return (
     <div dir="rtl" style={basePageStyle()}>
       <main style={mainStyle()}>
@@ -706,98 +624,6 @@ function BackChevronIcon() {
   );
 }
 
-/**
- * Shown while Phase 2 (OCR + extraction) is still running, or after it failed.
- * The upload lands here in ~1-2s (Phase 1) instead of after the full ~30s, so
- * the user always has a clear "we've got your file, it's being processed" state
- * — with a retry when processing failed.
- */
-function ProcessingReviewScreen({
-  status,
-  stale,
-  loading,
-  error,
-  onRetry,
-  onBack,
-}: {
-  status: "processing" | "failed";
-  stale: boolean;
-  loading: boolean;
-  error: string | null;
-  onRetry: () => void;
-  onBack: () => void;
-}) {
-  const isFailed = status === "failed";
-  // A failed doc always offers retry; a "processing" doc only once it looks
-  // stuck, so the normal fast path stays a clean spinner with no noise.
-  const showRetry = isFailed || stale;
-  return (
-    <div dir="rtl" style={basePageStyle()}>
-      <style>{`@keyframes documents-processing-spin{to{transform:rotate(360deg)}}`}</style>
-      <main style={mainStyle()}>
-        <section style={reviewTopBarStyle}>
-          <button type="button" onClick={onBack} style={reviewBackButtonStyle}>
-            <BackChevronIcon />
-            חזרה למסמכים
-          </button>
-          <div style={reviewTopTitleWrapStyle}>
-            <div style={reviewTopTitleStyle}>אימות מסמך</div>
-            <div style={reviewTopMetaStyle}>בדיקה, תיקון ואישור במקום אחד</div>
-          </div>
-          <div style={reviewTopStatusStyle}>{isFailed ? "נכשל" : "בעיבוד"}</div>
-        </section>
-
-        <section style={processingPanelStyle}>
-          <div
-            style={{
-              ...processingIconStyle,
-              color: isFailed ? TOKEN.semantic.urgent.ink : TOKEN.brand.mid,
-            }}
-            aria-hidden
-          >
-            {isFailed ? (
-              <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M12 9v4m0 4h.01M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"
-                  stroke="currentColor"
-                  strokeWidth="1.9"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            ) : (
-              <span style={processingSpinnerStyle} />
-            )}
-          </div>
-          <h2 style={processingTitleStyle}>
-            {isFailed ? "עיבוד המסמך נכשל" : "מעבד את המסמך…"}
-          </h2>
-          <p style={processingTextStyle}>
-            {isFailed
-              ? "הקובץ נשמר אך העיבוד לא הושלם. אפשר לנסות שוב — לא צריך להעלות מחדש."
-              : stale
-                ? "העיבוד נמשך יותר מהצפוי. הקובץ נשמר בכל מקרה — אפשר להמתין עוד או לנסות שוב."
-                : "הקובץ נשמר ואנחנו מזהים את הפרטים. זה ייקח כמה שניות והמסך יתעדכן לבד."}
-          </p>
-
-          {error ? <div style={processingErrorStyle}>{error}</div> : null}
-
-          {showRetry ? (
-            <button
-              type="button"
-              onClick={onRetry}
-              disabled={loading}
-              style={{ ...processingRetryStyle, opacity: loading ? 0.6 : 1 }}
-            >
-              {loading ? "מנסה שוב…" : "נסה שוב"}
-            </button>
-          ) : null}
-        </section>
-      </main>
-    </div>
-  );
-}
-
 const reviewTopBarStyle = {
   marginTop: 18,
   border: `1px solid ${TOKEN.border.DEFAULT}`,
@@ -852,89 +678,14 @@ const reviewTopStatusStyle = {
   color: TOKEN.ink.secondary,
   padding: "7px 12px",
   fontSize: 12,
-  fontWeight: 900,
-} as const;
-
-const processingPanelStyle = {
-  marginTop: 18,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.modal,
-  background: TOKEN.surface.card,
-  boxShadow: TOKEN.shadow.elevated,
-  padding: "34px 22px",
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  textAlign: "center",
-  gap: 12,
-} as const;
-
-const processingIconStyle = {
-  width: 64,
-  height: 64,
-  borderRadius: TOKEN.radius.pill,
-  background: TOKEN.surface.inset,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-} as const;
-
-const processingSpinnerStyle = {
-  width: 30,
-  height: 30,
-  borderRadius: TOKEN.radius.pill,
-  border: `4px solid ${TOKEN.brand.softBorder}`,
-  borderTopColor: TOKEN.brand.mid,
-  display: "inline-block",
-  animation: "documents-processing-spin 0.8s linear infinite",
-} as const;
-
-const processingTitleStyle = {
-  margin: 0,
-  color: TOKEN.ink.primary,
-  fontSize: TOKEN.font.display,
-  fontWeight: TOKEN.weight.bold,
-} as const;
-
-const processingTextStyle = {
-  margin: 0,
-  maxWidth: 420,
-  color: TOKEN.ink.muted,
-  fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.semibold,
-  lineHeight: 1.6,
-} as const;
-
-const processingErrorStyle = {
-  marginTop: 4,
-  width: "100%",
-  border: `1px solid ${TOKEN.semantic.urgent.border}`,
-  borderRadius: TOKEN.radius.card,
-  background: TOKEN.semantic.urgent.bgSoft,
-  color: TOKEN.semantic.urgent.ink,
-  padding: TOKEN.space.md,
-  fontSize: TOKEN.font.meta,
-  fontWeight: TOKEN.weight.bold,
-} as const;
-
-const processingRetryStyle = {
-  marginTop: 6,
-  minHeight: 48,
-  border: "none",
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.brand.gradient,
-  color: TOKEN.ink.inverse,
-  padding: "0 26px",
-  fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
+  fontWeight: 600,
 } as const;
 
 const reviewOverlayStyle = {
   position: "fixed",
   inset: 0,
   zIndex: 2147483000,
-  background: "rgba(15, 23, 42, 0.28)",
+  background: "rgba(70, 50, 30, 0.28)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",

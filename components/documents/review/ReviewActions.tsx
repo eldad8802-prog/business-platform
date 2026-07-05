@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReviewMode } from "@/lib/documents/review/types";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 import { primaryDarkButton, secondaryButton } from "./review-ui";
 
 export type ReviewActionsProps = {

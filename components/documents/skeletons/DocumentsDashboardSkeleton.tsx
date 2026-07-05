@@ -1,7 +1,7 @@
 "use client";
 
 import { card, cardSubText, cardTitle, iconWrap, metricTile } from "@/app/(shell)/documents/ui";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 import {
   SkeletonBlock,
   skeletonBar,

@@ -1,5 +1,5 @@
 import ReviewExtractedDetailRow from "./ReviewExtractedDetailRow";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 export default function ReviewAiExtractedCard({
   vendorDisplay,

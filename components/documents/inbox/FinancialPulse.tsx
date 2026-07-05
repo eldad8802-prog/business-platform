@@ -1,7 +1,7 @@
 "use client";
 
 import type { InboxFinancialPulse } from "@/lib/documents/inbox-types";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 function fmtMoney(n: number) {
   return `₪${n.toLocaleString("he-IL", { maximumFractionDigits: 2 })}`;
@@ -24,7 +24,7 @@ function StatCell({
         flex: "1 1 70px",
         minWidth: 0,
         padding: "10px 14px",
-        borderLeft: "1px solid rgba(15, 23, 42, 0.06)",
+        borderLeft: "1px solid rgba(120, 88, 52, 0.12)",
       }}
     >
       <div

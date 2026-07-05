@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import DocumentsInboxScreen from "@/components/documents/inbox/DocumentsInboxScreen";
 import InboxSkeleton from "@/components/documents/inbox/InboxSkeleton";
 import DocumentsHeader from "@/components/documents/DocumentsHeader";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 import { pageMain } from "../ui";
 
 export default function DocumentsInboxPage() {

@@ -100,5 +100,5 @@ select {
  * and inline styles win over a class selector, so we don't fight it here.
  */
 .dz-datefield:focus-within {
-  box-shadow: 0 0 0 3px rgba(46, 82, 127, 0.18);
+  box-shadow: 0 0 0 3px rgba(36, 105, 102, 0.22);
 }

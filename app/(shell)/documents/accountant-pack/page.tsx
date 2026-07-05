@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CATEGORIES } from "@/lib/constants/categories";
 import { fetchDocumentsHubSummary } from "@/lib/documents/fetch-inbox";
-import { TOKEN } from "@/lib/design/tokens";
-import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
+import { TOKEN } from "@/lib/design/documents-theme";
+import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/documents-theme";
 
 type PeriodType = "month" | "quarter" | "year";
 

@@ -5,7 +5,7 @@ import {
   documentsShellCard,
   skeletonBar,
 } from "@/components/documents/skeletons/skeleton-primitives";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 export default function InboxSkeleton() {
   return (

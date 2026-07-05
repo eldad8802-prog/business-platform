@@ -1,5 +1,5 @@
-import { TOKEN } from "@/lib/design/tokens";
-import { glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
+import { TOKEN } from "@/lib/design/documents-theme";
+import { glassActionStyle, primaryActionStyle } from "@/lib/design/documents-theme";
 
 export function basePageStyle() {
   return {

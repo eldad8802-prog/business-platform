@@ -1,5 +1,5 @@
 import ReviewTrustChecklistItem from "./ReviewTrustChecklistItem";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 export default function ReviewImpactBox({ approvalImpact }: { approvalImpact: string }) {
   return (

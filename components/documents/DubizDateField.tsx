@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 export type DubizDateFieldProps = {
   /** "date" for a full day picker, "month" for a month/year picker. */

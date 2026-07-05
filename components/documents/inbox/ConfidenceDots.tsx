@@ -1,7 +1,7 @@
 "use client";
 
 import type { InboxConfidenceDots } from "@/lib/documents/inbox-types";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 const DOT_COLOR: Record<
   InboxConfidenceDots[keyof InboxConfidenceDots],
@@ -39,7 +39,7 @@ function Dot({
         background: `${DOT_COLOR[level]}14`,
         border: `1px solid ${DOT_COLOR[level]}33`,
         fontSize: 11,
-        fontWeight: 700,
+        fontWeight: 600,
         color: DOT_COLOR[level],
         whiteSpace: "nowrap",
       }}

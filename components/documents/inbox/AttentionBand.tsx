@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 const BAND: CSSProperties = {
   borderRadius: TOKEN.radius.card,
@@ -10,7 +10,7 @@ const BAND: CSSProperties = {
   border: `1px solid ${TOKEN.semantic.attention.border}`,
   color: TOKEN.semantic.attention.ink,
   fontSize: 13,
-  fontWeight: 800,
+  fontWeight: 600,
   lineHeight: 1.5,
 };
 
