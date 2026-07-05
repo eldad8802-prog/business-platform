@@ -7,7 +7,7 @@ import {
   BILLING_PDF_TEMPLATE_STYLE_HINTS_HE,
   BILLING_PDF_TEMPLATE_STYLE_LABELS_HE,
 } from "@/lib/billing/billing-pdf-template-style";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/billing-theme";
 
 function MiniPreview({ style }: { style: BillingPdfTemplateStyle }) {
   const commonBox: CSSProperties = {
@@ -113,14 +113,14 @@ export function BillingDocumentStylePicker({
         <div
           style={{
             fontSize: 13,
-            fontWeight: 700,
-            color: "#0f172a",
+            fontWeight: 600,
+            color: TOKEN.ink.primary,
             marginBottom: 4,
           }}
         >
           סגנון המסמך ללקוח
         </div>
-        <p style={{ margin: 0, fontSize: 12, color: "#64748b", lineHeight: 1.45 }}>
+        <p style={{ margin: 0, fontSize: 12, color: TOKEN.ink.muted, lineHeight: 1.45 }}>
           בחירה זו תשמש מסמכים חדשים בלבד. אפשר לשנות אותה בהמשך בלי להשפיע על
           מסמכים שכבר הופקו.
         </p>
@@ -155,10 +155,10 @@ export function BillingDocumentStylePicker({
               }}
             >
               <MiniPreview style={style} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: selected ? TOKEN.ink.inverse : "#0f172a" }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: selected ? TOKEN.ink.inverse : TOKEN.ink.primary }}>
                 {BILLING_PDF_TEMPLATE_STYLE_LABELS_HE[style]}
               </span>
-              <span style={{ fontSize: 11, color: selected ? "rgba(255,255,255,0.78)" : "#64748b", lineHeight: 1.35 }}>
+              <span style={{ fontSize: 11, color: selected ? "rgba(254, 248, 242, 0.78)" : TOKEN.ink.muted, lineHeight: 1.35 }}>
                 {BILLING_PDF_TEMPLATE_STYLE_HINTS_HE[style]}
               </span>
             </button>

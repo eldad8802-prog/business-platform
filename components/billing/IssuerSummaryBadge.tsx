@@ -6,6 +6,7 @@ import {
   BILLING_BUSINESS_KIND_LABELS,
   type BillingBusinessKind,
 } from "@/lib/billing/business-identity";
+import { TOKEN } from "@/lib/design/billing-theme";
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
@@ -62,11 +63,11 @@ export function IssuerSummaryBadge() {
         aria-busy="true"
         style={{
           borderRadius: 10,
-          border: "1px solid #e2e8f0",
-          background: "#f8fafc",
+          border: `1px solid ${TOKEN.border.DEFAULT}`,
+          background: TOKEN.surface.inset,
           padding: "10px 14px",
           fontSize: 13,
-          color: "#94a3b8",
+          color: TOKEN.ink.meta,
         }}
       >
         בודקים את פרטי העסק למסמך…
@@ -81,8 +82,8 @@ export function IssuerSummaryBadge() {
       <div
         style={{
           borderRadius: 10,
-          border: "1px solid #fde68a",
-          background: "#fffbeb",
+          border: `1px solid ${TOKEN.semantic.attention.border}`,
+          background: TOKEN.semantic.attention.bg,
           padding: "10px 14px",
           display: "flex",
           alignItems: "center",
@@ -90,7 +91,7 @@ export function IssuerSummaryBadge() {
           gap: 8,
         }}
       >
-        <span style={{ fontSize: 13, color: "#92400e" }}>
+        <span style={{ fontSize: 13, color: TOKEN.semantic.attention.ink }}>
           פרטי העסק למסמכים עדיין לא הוגדרו
         </span>
         <Link
@@ -98,7 +99,7 @@ export function IssuerSummaryBadge() {
           style={{
             fontSize: 13,
             fontWeight: 600,
-            color: "#b45309",
+            color: TOKEN.semantic.attention.ink,
             textDecoration: "none",
             whiteSpace: "nowrap",
           }}
@@ -117,8 +118,8 @@ export function IssuerSummaryBadge() {
     <div
       style={{
         borderRadius: 10,
-        border: "1px solid #e2e8f0",
-        background: "#f8fafc",
+        border: `1px solid ${TOKEN.border.DEFAULT}`,
+        background: TOKEN.surface.inset,
         padding: "10px 14px",
         display: "flex",
         alignItems: "center",
@@ -132,11 +133,11 @@ export function IssuerSummaryBadge() {
           borderRadius: 6,
           overflow: "hidden",
           flexShrink: 0,
-          background: hasLogo ? "#f1f5f9" : "#0f172a",
+          background: hasLogo ? TOKEN.surface.inset : TOKEN.ink.primary,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          border: "1px solid #e2e8f0",
+          border: `1px solid ${TOKEN.border.DEFAULT}`,
         }}
       >
         {hasLogo ? (
@@ -146,19 +147,19 @@ export function IssuerSummaryBadge() {
             style={{ width: "100%", height: "100%", objectFit: "contain" }}
           />
         ) : (
-          <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", userSelect: "none" }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: TOKEN.ink.inverse, userSelect: "none" }}>
             {initials}
           </span>
         )}
       </div>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: TOKEN.ink.primary }}>
           {data.billingLegalName || "שם העסק לא הוגדר"}
         </div>
         {data.billingBusinessKind &&
         BILLING_BUSINESS_KIND_LABELS[data.billingBusinessKind as BillingBusinessKind] ? (
-          <div style={{ fontSize: 11, color: "#64748b" }}>
+          <div style={{ fontSize: 11, color: TOKEN.ink.muted }}>
             {
               BILLING_BUSINESS_KIND_LABELS[
                 data.billingBusinessKind as BillingBusinessKind
@@ -167,11 +168,11 @@ export function IssuerSummaryBadge() {
           </div>
         ) : null}
         {hasTaxId ? (
-          <div style={{ fontSize: 11, color: "#64748b", direction: "ltr", textAlign: "right" }}>
+          <div style={{ fontSize: 11, color: TOKEN.ink.muted, direction: "ltr", textAlign: "right" }}>
             ע.מ. / ח.פ. {data.billingTaxId}
           </div>
         ) : (
-          <div style={{ fontSize: 11, color: "#b45309", fontWeight: 600 }}>
+          <div style={{ fontSize: 11, color: TOKEN.semantic.attention.ink, fontWeight: 600 }}>
             מספר עוסק לא הוגדר
           </div>
         )}
@@ -182,7 +183,7 @@ export function IssuerSummaryBadge() {
         style={{
           fontSize: 12,
           fontWeight: 600,
-          color: "#475569",
+          color: TOKEN.ink.secondary,
           textDecoration: "none",
           whiteSpace: "nowrap",
           flexShrink: 0,

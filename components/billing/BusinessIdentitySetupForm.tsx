@@ -10,6 +10,7 @@ import {
   type BillingPdfTemplateStyle,
 } from "@/lib/billing/billing-pdf-template-style";
 import { BillingDocumentStylePicker } from "@/components/billing/BillingDocumentStylePicker";
+import { TOKEN } from "@/lib/design/billing-theme";
 
 export type InvoiceProfileFormState = {
   billingLegalName: string | null;
@@ -48,7 +49,7 @@ function Field({
 }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      <span style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: TOKEN.ink.secondary }}>
         {label}
       </span>
       {multiline ? (
@@ -60,7 +61,7 @@ function Field({
           style={{
             padding: "7px 10px",
             borderRadius: 8,
-            border: "1px solid #cbd5e1",
+            border: `1px solid ${TOKEN.border.hover}`,
             fontSize: 13,
             resize: "vertical",
             fontFamily: "inherit",
@@ -75,14 +76,14 @@ function Field({
           style={{
             padding: "7px 10px",
             borderRadius: 8,
-            border: "1px solid #cbd5e1",
+            border: `1px solid ${TOKEN.border.hover}`,
             fontSize: 13,
             fontFamily: "inherit",
           }}
         />
       )}
       {hint ? (
-        <span style={{ fontSize: 11, color: "#94a3b8" }}>{hint}</span>
+        <span style={{ fontSize: 11, color: TOKEN.ink.meta }}>{hint}</span>
       ) : null}
     </label>
   );
@@ -118,7 +119,7 @@ export function BusinessIdentitySetupForm({
       </div>
 
       <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: TOKEN.ink.secondary }}>
           סוג עסק
         </span>
         <select
@@ -132,10 +133,10 @@ export function BusinessIdentitySetupForm({
           style={{
             padding: "8px 10px",
             borderRadius: 8,
-            border: "1px solid #cbd5e1",
+            border: `1px solid ${TOKEN.border.hover}`,
             fontSize: 13,
             fontFamily: "inherit",
-            background: "#fff",
+            background: TOKEN.surface.card,
           }}
         >
           <option value="">בחרו…</option>
@@ -179,18 +180,18 @@ export function BusinessIdentitySetupForm({
       <div style={{ gridColumn: "1 / -1" }}>
         <details
           style={{
-            border: "1px solid #e2e8f0",
+            border: `1px solid ${TOKEN.border.DEFAULT}`,
             borderRadius: 10,
             padding: "10px 12px",
-            background: "#f8fafc",
+            background: TOKEN.surface.inset,
           }}
         >
           <summary
             style={{
               cursor: "pointer",
               fontSize: 13,
-              fontWeight: 700,
-              color: "#334155",
+              fontWeight: 600,
+              color: TOKEN.ink.secondary,
             }}
           >
             מראה המסמך (אפשר לדייק בהמשך)
