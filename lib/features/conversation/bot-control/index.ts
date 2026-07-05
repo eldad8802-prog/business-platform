@@ -1,12 +1,15 @@
 export {
   BOT_BOUNDARY_OPTIONS,
   BOT_CONTROL_RULES_VERSION,
+  BOT_FORBIDDEN_OPTIONS,
   BOT_WORK_MODE_OPTIONS,
   BOT_WORK_MODE_OPTIONS_ACTIVE,
   DEFAULT_BOT_BOUNDARIES,
+  DEFAULT_BOT_FORBIDDEN,
   HUMAN_TAKEOVER_OUTCOME_REASON,
   defaultBotControlHandoffRules,
   evaluateBoundaryHandoff,
+  evaluateForbiddenHandoff,
   isHumanTakeoverConversation,
   parseBotControlHandoffRules,
   resolveBotWorkMode,
@@ -15,6 +18,7 @@ export {
   shouldOfferAutoReplySuggestions,
   type BotBoundaryPresets,
   type BotControlHandoffRules,
+  type BotForbiddenPresets,
   type BotWorkMode,
   type BoundaryHandoffEvaluation,
 } from "./bot-control";

@@ -16,6 +16,7 @@ import {
   type BotPriority,
   type BotSaleStyle,
   type BotTone,
+  type BotTrait,
   type BotVerbosity,
 } from "./bot-profile";
 import { coerceKnowledge, type BotKnowledge, type FaqItem } from "./bot-knowledge";
@@ -39,6 +40,8 @@ export type BotComposeContext = {
   voice: { tone: BotTone | null; languages: BotLanguage[] };
   /** Used mechanically by the 9D closing template (length only). */
   personalityVerbosity: BotVerbosity | null;
+  /** Owner-selected personality traits (consumed by the LLM-draft prompt). */
+  personalityTraits: BotTrait[];
   /** 9C — present only when the knowledge capability is armed. */
   knowledge?: BotComposeKnowledge;
   /** The inbound customer text, for conservative knowledge matching. */
@@ -67,6 +70,7 @@ export function buildBotComposeContext(input: {
       languages: profile.voice?.languages ?? [],
     },
     personalityVerbosity: profile.personality?.verbosity ?? null,
+    personalityTraits: profile.personality?.traits ?? [],
   };
   if (input.knowledge !== undefined) {
     const k: BotKnowledge = coerceKnowledge(input.knowledge);

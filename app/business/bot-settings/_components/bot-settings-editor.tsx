@@ -7,10 +7,12 @@ import {
   BOT_BOUNDARY_OPTIONS,
   BOT_WORK_MODE_OPTIONS_ACTIVE,
   DEFAULT_BOT_BOUNDARIES,
+  DEFAULT_BOT_FORBIDDEN,
   parseBotControlHandoffRules,
   resolveBotWorkMode,
   settingsPatchForWorkMode,
   type BotBoundaryPresets,
+  type BotForbiddenPresets,
   type BotWorkMode,
 } from "@/lib/features/conversation/bot-control";
 import {
@@ -138,6 +140,9 @@ export function useBotSettingsEditorState() {
   const [boundaries, setBoundaries] = useState<BotBoundaryPresets>({
     ...DEFAULT_BOT_BOUNDARIES,
   });
+  const [forbidden, setForbidden] = useState<BotForbiddenPresets>({
+    ...DEFAULT_BOT_FORBIDDEN,
+  });
 
   const parsedQuestions = useMemo(() => {
     return questionsLines
@@ -192,6 +197,7 @@ export function useBotSettingsEditorState() {
       });
       setWorkMode(resolved === "AUTO_OPENING_FUTURE" ? "SMART_DRAFTS" : resolved);
       setBoundaries(rules.boundaries ?? { ...DEFAULT_BOT_BOUNDARIES });
+      setForbidden(rules.forbidden ?? { ...DEFAULT_BOT_FORBIDDEN });
       setWelcomeMessage(s.welcomeMessage ?? "");
       setQuestionsLines(questionsJsonToLines(s.questions));
       setFinalAction(normalizeFinalAction(s.finalAction));
@@ -248,6 +254,7 @@ export function useBotSettingsEditorState() {
       version: 1,
       workMode,
       boundaries,
+      forbidden,
     });
 
     const payload: Record<string, unknown> = {
@@ -326,6 +333,8 @@ export function useBotSettingsEditorState() {
     setWorkMode,
     boundaries,
     setBoundaries,
+    forbidden,
+    setForbidden,
     parsedQuestions,
     finalActionLabels,
     finalActionPreviewText,

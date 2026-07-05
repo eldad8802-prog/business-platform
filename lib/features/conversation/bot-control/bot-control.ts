@@ -15,10 +15,25 @@ export type BotBoundaryPresets = {
   lowConfidence: boolean;
 };
 
+/**
+ * Forbidden-topic presets ("מה אסור") — owner-defined topics the bot must NEVER
+ * answer on its own. Stored inside `BusinessBotSettings.handoffRules.forbidden`
+ * (JSON, no migration). Default all-false = opt-in → no enforcement until the
+ * owner turns a rule on. Enforced by `evaluateForbiddenHandoff` via the
+ * canonical Guardrails: touching a forbidden topic hands off to the owner.
+ */
+export type BotForbiddenPresets = {
+  commitPrice: boolean;
+  promiseAvailability: boolean;
+  professionalAdvice: boolean;
+  giveDiscounts: boolean;
+};
+
 export type BotControlHandoffRules = {
   version?: number;
   workMode?: BotWorkMode;
   boundaries?: BotBoundaryPresets;
+  forbidden?: BotForbiddenPresets;
 };
 
 export const BOT_CONTROL_RULES_VERSION = 1;
@@ -34,6 +49,63 @@ export const DEFAULT_BOT_BOUNDARIES: BotBoundaryPresets = {
   afterMessageCountThreshold: 8,
   lowConfidence: true,
 };
+
+/** Opt-in — nothing is forbidden until the owner turns it on. */
+export const DEFAULT_BOT_FORBIDDEN: BotForbiddenPresets = {
+  commitPrice: false,
+  promiseAvailability: false,
+  professionalAdvice: false,
+  giveDiscounts: false,
+};
+
+const FORBIDDEN_PRICE_KEYWORDS = [
+  "מחיר",
+  "כמה עולה",
+  "כמה זה",
+  "עולה",
+  "עלות",
+  "תעריף",
+  "מחירון",
+  "₪",
+  'ש"ח',
+  "שקל",
+];
+
+const FORBIDDEN_AVAILABILITY_KEYWORDS = [
+  "זמין",
+  "זמינות",
+  "פנוי",
+  "מתי",
+  "תור",
+  "להזמין",
+  "תאריך",
+  "שעה",
+];
+
+const FORBIDDEN_ADVICE_KEYWORDS = [
+  "מומלץ",
+  "ממליץ",
+  "להמליץ",
+  "כדאי",
+  "עדיף",
+  "תמליץ",
+  "המלצה",
+  "ייעוץ",
+  "מה לעשות",
+  "מה עדיף",
+  "שווה",
+];
+
+const FORBIDDEN_DISCOUNT_KEYWORDS = [
+  "הנחה",
+  "הנחות",
+  "מבצע",
+  "זול",
+  "הוזלה",
+  "קופון",
+  "להוזיל",
+  "דיל",
+];
 
 const ANGRY_KEYWORDS = [
   "כועס",
@@ -63,6 +135,32 @@ export function defaultBotControlHandoffRules(): BotControlHandoffRules {
     version: BOT_CONTROL_RULES_VERSION,
     workMode: "SMART_DRAFTS",
     boundaries: { ...DEFAULT_BOT_BOUNDARIES },
+    forbidden: { ...DEFAULT_BOT_FORBIDDEN },
+  };
+}
+
+function parseForbiddenPresets(raw: unknown): BotForbiddenPresets {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_BOT_FORBIDDEN };
+  }
+  const f = raw as Record<string, unknown>;
+  return {
+    commitPrice:
+      typeof f.commitPrice === "boolean"
+        ? f.commitPrice
+        : DEFAULT_BOT_FORBIDDEN.commitPrice,
+    promiseAvailability:
+      typeof f.promiseAvailability === "boolean"
+        ? f.promiseAvailability
+        : DEFAULT_BOT_FORBIDDEN.promiseAvailability,
+    professionalAdvice:
+      typeof f.professionalAdvice === "boolean"
+        ? f.professionalAdvice
+        : DEFAULT_BOT_FORBIDDEN.professionalAdvice,
+    giveDiscounts:
+      typeof f.giveDiscounts === "boolean"
+        ? f.giveDiscounts
+        : DEFAULT_BOT_FORBIDDEN.giveDiscounts,
   };
 }
 
@@ -121,6 +219,7 @@ export function parseBotControlHandoffRules(raw: unknown): BotControlHandoffRule
       typeof o.version === "number" ? o.version : BOT_CONTROL_RULES_VERSION,
     workMode,
     boundaries,
+    forbidden: parseForbiddenPresets(o.forbidden),
   };
 }
 
@@ -130,8 +229,14 @@ export function resolveBotWorkMode(params: {
   handoffRules: unknown;
 }): BotWorkMode {
   const rules = parseBotControlHandoffRules(params.handoffRules);
-  if (rules.workMode) return rules.workMode;
+  // `enabled` is the master gate and the single source of truth for "is the bot
+  // working at all". A disabled bot is ALWAYS MANUAL, regardless of a stale
+  // `handoffRules.workMode` (e.g. a row created by `activate` with enabled:false
+  // and no handoffRules, where the parser would otherwise default to
+  // SMART_DRAFTS). This keeps the STARTER and AUTO draft gates consistent —
+  // neither fires while the bot is off.
   if (!params.enabled) return "MANUAL";
+  if (rules.workMode) return rules.workMode;
   if (params.showDraftSuggestionsInInbox) return "SMART_DRAFTS";
   return "MANUAL";
 }
@@ -260,6 +365,81 @@ export function evaluateBoundaryHandoff(params: {
 
   return { shouldHandoff: false, reason: null };
 }
+
+/**
+ * Evaluate owner-defined forbidden topics ("מה אסור"). CONSERVATIVE by design:
+ * a keyword/intent brush with a forbidden topic hands off to the owner rather
+ * than let the bot answer. No LLM. A safe false-positive (extra handoff) is
+ * preferred over the bot responding where it must not. Escalates only — an
+ * empty/all-false `forbidden` returns no handoff (no-op).
+ */
+export function evaluateForbiddenHandoff(params: {
+  forbidden: BotForbiddenPresets;
+  intent: string;
+  messageText: string;
+}): BoundaryHandoffEvaluation {
+  const text = normalizeForMatch(params.messageText);
+  const intent = normalizeForMatch(params.intent);
+
+  if (
+    params.forbidden.commitPrice &&
+    (intent === "price" || includesAnyKeyword(text, FORBIDDEN_PRICE_KEYWORDS))
+  ) {
+    return { shouldHandoff: true, reason: "forbidden.commit_price" };
+  }
+
+  if (
+    params.forbidden.promiseAvailability &&
+    (intent === "availability" ||
+      intent === "booking" ||
+      includesAnyKeyword(text, FORBIDDEN_AVAILABILITY_KEYWORDS))
+  ) {
+    return { shouldHandoff: true, reason: "forbidden.promise_availability" };
+  }
+
+  if (
+    params.forbidden.professionalAdvice &&
+    includesAnyKeyword(text, FORBIDDEN_ADVICE_KEYWORDS)
+  ) {
+    return { shouldHandoff: true, reason: "forbidden.professional_advice" };
+  }
+
+  if (
+    params.forbidden.giveDiscounts &&
+    includesAnyKeyword(text, FORBIDDEN_DISCOUNT_KEYWORDS)
+  ) {
+    return { shouldHandoff: true, reason: "forbidden.give_discounts" };
+  }
+
+  return { shouldHandoff: false, reason: null };
+}
+
+export const BOT_FORBIDDEN_OPTIONS: ReadonlyArray<{
+  key: keyof BotForbiddenPresets;
+  label: string;
+  hint: string;
+}> = [
+  {
+    key: "commitPrice",
+    label: "להתחייב למחיר",
+    hint: "כשהלקוח שואל על מחיר — הבוט יעביר אליך במקום לנקוב במחיר",
+  },
+  {
+    key: "promiseAvailability",
+    label: "להבטיח זמינות",
+    hint: "כשהלקוח שואל על זמינות או תור — הבוט יעביר אליך",
+  },
+  {
+    key: "professionalAdvice",
+    label: "לתת ייעוץ מקצועי",
+    hint: "כשהלקוח מבקש המלצה או ייעוץ — הבוט יעביר אליך",
+  },
+  {
+    key: "giveDiscounts",
+    label: "לתת הנחות",
+    hint: "כשהלקוח שואל על הנחה או מבצע — הבוט יעביר אליך",
+  },
+];
 
 export const BOT_WORK_MODE_OPTIONS: ReadonlyArray<{
   id: BotWorkMode;

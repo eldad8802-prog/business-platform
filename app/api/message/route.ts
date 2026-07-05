@@ -7,7 +7,7 @@ import { getSuggestionMode } from "@/lib/decision/get-suggestion-mode";
 import { applyMessageEvent } from "@/lib/conversation-state/conversation-state.service";
 import { getCurrentUser } from "@/lib/auth";
 import { sendWhatsAppTextForBusiness } from "@/lib/services/integrations/whatsapp/outbound-send.service";
-import { runBotPolicyEngine } from "@/lib/features/conversation/bot-policy";
+import { evaluateBotGuardrails } from "@/lib/features/conversation/guardrails";
 import {
   isHumanTakeoverConversation,
   resolveBotWorkMode,
@@ -26,6 +26,18 @@ import {
   planStarterBotReply,
 } from "@/lib/features/conversation/starter-bot";
 import type { StarterBotSettingsSnapshot } from "@/lib/features/conversation/starter-bot";
+import {
+  isBotComposeContextEnabled,
+  isBotComposeGoalsApproachEnabled,
+  isBotComposeKnowledgeEnabled,
+  isBotComposeShadowEnabled,
+  isBotVoiceComposeEnabled,
+  loadBotComposeContext,
+} from "@/lib/services/conversation/bot-compose-context.service";
+import {
+  defaultBotLlmDraftRunnerDeps,
+  maybeCreateBotLlmDraft,
+} from "@/lib/services/conversation/bot-llm-draft-runner.service";
 
 type StageLabel = "early" | "middle" | "closing" | string | null | undefined;
 
@@ -381,6 +393,11 @@ export async function POST(req: Request) {
 
     const humanTakeover = isHumanTakeoverConversation(conversation.outcomeReason);
     let botRow: BotSettingsObserveRow | null = null;
+    // Canonical Guardrails handoff flag — lifted to the handler scope so the AUTO
+    // suggestions gate (further down, outside the policy try) reads the SAME
+    // decision the STARTER path uses. Default false → if the policy block never
+    // runs, AUTO behaviour is unchanged.
+    let botRequiresHandoff = false;
 
     try {
       try {
@@ -437,7 +454,7 @@ export async function POST(req: Request) {
         console.warn("inbound message count failed:", countErr);
       }
 
-      const policy = runBotPolicyEngine({
+      const policy = evaluateBotGuardrails({
         message: messageSnapshot,
         analysis: analysisSnapshot,
         conversation: conversationSnapshot,
@@ -445,7 +462,17 @@ export async function POST(req: Request) {
         handoffRules: botRow?.handoffRules,
         inboundMessageCount,
         humanTakeover,
+        // Context-aware forbidden check: recent messages so a short reply that
+        // continues a forbidden thread ("כן" after a price question) is caught.
+        context: {
+          recentMessages: previousMessages.map((m) => ({
+            direction: m.direction as "INBOUND" | "OUTBOUND",
+            contentText: m.contentText,
+            createdAt: m.createdAt,
+          })),
+        },
       });
+      botRequiresHandoff = policy.requiresHandoff;
 
       console.log("[bot-policy observe]", {
         conversationId: conversation.id,
@@ -509,7 +536,7 @@ export async function POST(req: Request) {
               handoffRules: botRow.handoffRules,
             };
 
-            const starterDraft = planStarterBotReply({
+            const plannerInput = {
               settings: plannerSettings,
               conversation: {
                 id: conversation.id,
@@ -520,7 +547,59 @@ export async function POST(req: Request) {
                 stage: analysis.stage,
               },
               nextQuestionIndex: derivedNextQuestionIndex,
-            });
+            };
+
+            // Stage 9 (flag-gated, default OFF → byte-identical to before):
+            // mirror of the shared inbound pipeline so BOTH inbound paths honour
+            // the Builder compose-context (voice 9B / knowledge 9C / goals 9D)
+            // identically once armed. With all flags OFF the draft is unchanged.
+            // Never touches the draft-only gate, send path, or any settings.
+            let starterDraft = planStarterBotReply(plannerInput);
+            if (isBotComposeContextEnabled()) {
+              try {
+                const voiceArmed = isBotVoiceComposeEnabled();
+                const knowledgeArmed = isBotComposeKnowledgeEnabled();
+                const goalsApproachArmed = isBotComposeGoalsApproachEnabled();
+                const composeContext = await loadBotComposeContext(
+                  user.businessId,
+                  {
+                    includeVoice: voiceArmed,
+                    includeKnowledge: knowledgeArmed,
+                    includeGoalsApproach: goalsApproachArmed,
+                  }
+                );
+                if (
+                  composeContext &&
+                  (voiceArmed || knowledgeArmed || goalsApproachArmed)
+                ) {
+                  const contextForPlanner = {
+                    ...composeContext,
+                    customerMessageText: message.contentText ?? undefined,
+                  };
+                  const newDraft = planStarterBotReply(
+                    plannerInput,
+                    contextForPlanner
+                  );
+                  if (isBotComposeShadowEnabled()) {
+                    // Dev-safe shadow log (no message text / PII) — observe only.
+                    console.info("[message-route] compose-shadow", {
+                      conversationId: conversation.id,
+                      businessId: user.businessId,
+                      changed: newDraft.replyText !== starterDraft.replyText,
+                      oldLength: starterDraft.replyText.length,
+                      newLength: newDraft.replyText.length,
+                    });
+                  } else {
+                    starterDraft = newDraft;
+                  }
+                }
+              } catch (composeErr) {
+                console.warn(
+                  "[message-route] compose-context failed (ignored):",
+                  composeErr
+                );
+              }
+            }
 
             const starterBotTerminalDraft =
               starterDraft.replyKind === "COMPLETE" ||
@@ -628,10 +707,13 @@ export async function POST(req: Request) {
         })
       : ("MANUAL" as const);
 
-    const offerAutoSuggestions = shouldOfferAutoReplySuggestions({
-      workMode: workModeForSuggestions,
-      humanTakeover,
-    });
+    // AUTO suggestions must also pass the canonical Guardrails: when the bot must
+    // hand off to the owner, NO engine (STARTER or AUTO) drafts a reply.
+    const offerAutoSuggestions =
+      shouldOfferAutoReplySuggestions({
+        workMode: workModeForSuggestions,
+        humanTakeover,
+      }) && !botRequiresHandoff;
 
     const generatedSuggestions = offerAutoSuggestions
       ? await generateReplySuggestions(message, analysis, contextMessages)
@@ -650,6 +732,43 @@ export async function POST(req: Request) {
     } else if (mode === "MINIMAL") {
       suggestions = [];
       shouldGenerate = false;
+    }
+
+    // Stage 4 (flag-gated, DEFAULT OFF → byte-identical): first LLM reply DRAFT
+    // via the SHARED runner — identical to the WhatsApp webhook pipeline path.
+    // Draft-only, never sent; pre + post Guardrails inside the runner.
+    const llmDraftOutcome = await maybeCreateBotLlmDraft(
+      {
+        businessId: user.businessId,
+        conversationId: conversation.id,
+        messageId: message.id,
+        offerAutoSuggestions,
+        humanTakeover,
+        botRow,
+        message: {
+          direction: message.direction,
+          senderType: message.senderType,
+          contentText: message.contentText,
+        },
+        analysis: { intent: analysis.intent, stage: analysis.stage },
+        conversation: {
+          status: conversation.status,
+          currentStage: conversation.currentStage,
+        },
+        recentMessages: previousMessages.map((m) => ({
+          direction: m.direction as "INBOUND" | "OUTBOUND",
+          contentText: m.contentText,
+          createdAt: m.createdAt,
+        })),
+      },
+      defaultBotLlmDraftRunnerDeps()
+    );
+    if (llmDraftOutcome.status !== "skipped") {
+      console.info("[message-route] LLM_DRAFT_OUTCOME", {
+        conversationId: conversation.id,
+        businessId: user.businessId,
+        ...llmDraftOutcome,
+      });
     }
 
     return NextResponse.json(
