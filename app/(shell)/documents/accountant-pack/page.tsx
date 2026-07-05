@@ -61,6 +61,13 @@ export default function AccountantPackPage() {
     []
   );
   const periodLabel = type === "month" ? currentMonthLabel(period) : period;
+  const selectedCategoriesLabel =
+    categories.length === 0
+      ? "כל הקטגוריות"
+      : visibleCategories
+          .filter((category) => categories.includes(category.value))
+          .map((category) => category.label)
+          .join(" · ");
 
   function toggleCategory(value: string) {
     setCategories((current) =>
@@ -148,6 +155,7 @@ export default function AccountantPackPage() {
               type={type === "month" ? "month" : "text"}
               placeholder={type === "quarter" ? "2026-Q2" : "2026"}
               aria-label="תקופה"
+              className={type === "month" ? "dz-native-date" : undefined}
               style={periodInputStyle}
             />
           </label>
@@ -176,6 +184,23 @@ export default function AccountantPackPage() {
                 {category.label}
               </button>
             ))}
+          </div>
+        </section>
+
+        <section style={{ marginTop: 18 }}>
+          <div style={labelStyle}>מה ייכלל בחבילה</div>
+          <div style={summaryCardStyle}>
+            <div style={summaryRowStyle}>
+              <span style={summaryKeyStyle}>תקופה</span>
+              <span style={summaryValStyle}>{periodLabel}</span>
+            </div>
+            <div style={{ ...summaryRowStyle, borderBottom: "none" }}>
+              <span style={summaryKeyStyle}>קטגוריות</span>
+              <span style={summaryValStyle}>{selectedCategoriesLabel}</span>
+            </div>
+            <p style={summaryHintStyle}>
+              החבילה תיאסף מתוך המסמכים המאושרים בלבד ותורד כקובץ ZIP מוכן להעברה לרו״ח.
+            </p>
           </div>
         </section>
 
@@ -317,6 +342,7 @@ const periodFieldStyle = {
 } as const;
 
 const periodInputStyle = {
+  position: "relative",
   width: "100%",
   border: "none",
   outline: "none",
@@ -351,6 +377,45 @@ const chipActiveStyle = {
   minHeight: 36,
   padding: "0 12px",
   fontSize: TOKEN.font.body,
+} as const;
+
+const summaryCardStyle = {
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.card,
+  background: TOKEN.surface.card,
+  boxShadow: TOKEN.shadow.elevated,
+  padding: "4px 16px 14px",
+} as const;
+
+const summaryRowStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  padding: "12px 0",
+  borderBottom: `1px solid ${TOKEN.border.DEFAULT}`,
+} as const;
+
+const summaryKeyStyle = {
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.semibold,
+} as const;
+
+const summaryValStyle = {
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+  textAlign: "left" as const,
+  minWidth: 0,
+} as const;
+
+const summaryHintStyle = {
+  margin: "12px 0 0",
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.semibold,
+  lineHeight: 1.6,
 } as const;
 
 const blockerStyle = {

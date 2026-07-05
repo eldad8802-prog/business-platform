@@ -27,6 +27,7 @@ import {
 import { CATEGORY_MAP } from "@/lib/constants/categories";
 import { TOKEN } from "@/lib/design/tokens";
 import DocumentsDashboardSkeleton from "@/components/documents/skeletons/DocumentsDashboardSkeleton";
+import DubizDateField from "@/components/documents/DubizDateField";
 
 type Report = {
   totalIncome: number;
@@ -44,14 +45,14 @@ const cardHeaderRow = {
 };
 
 const metricLabel = {
-  fontSize: 12,
+  fontSize: TOKEN.font.meta,
   color: TOKEN.ink.muted,
-  fontWeight: 800,
+  fontWeight: TOKEN.weight.semibold,
 };
 
 const metricValue = {
-  fontSize: 22,
-  fontWeight: 950,
+  fontSize: TOKEN.font.hero,
+  fontWeight: TOKEN.weight.bold,
   color: TOKEN.ink.primary,
   lineHeight: 1.2,
 };
@@ -75,12 +76,12 @@ const periodChipRow = {
 
 const periodChip = (active: boolean) => ({
   padding: "8px 14px",
-  borderRadius: 999,
+  borderRadius: TOKEN.radius.pill,
   border: active ? `1px solid ${TOKEN.brand.mid}` : `1px solid ${TOKEN.border.DEFAULT}`,
   background: active ? TOKEN.brand.gradient : TOKEN.surface.card,
   color: active ? TOKEN.ink.inverse : TOKEN.ink.primary,
-  fontWeight: 900,
-  fontSize: 13,
+  fontWeight: TOKEN.weight.bold,
+  fontSize: TOKEN.font.meta,
   cursor: "pointer",
 });
 
@@ -94,8 +95,8 @@ const breakdownRow = {
 };
 
 const breakdownLabel = {
-  fontSize: 14,
-  fontWeight: 800,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.semibold,
   color: TOKEN.ink.primary,
   whiteSpace: "nowrap" as const,
   overflow: "hidden",
@@ -103,15 +104,15 @@ const breakdownLabel = {
 };
 
 const breakdownValue = {
-  fontSize: 14,
-  fontWeight: 950,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
   color: TOKEN.ink.primary,
   whiteSpace: "nowrap" as const,
 };
 
 const breakdownPercent = {
-  fontSize: 12,
-  fontWeight: 800,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.semibold,
   color: TOKEN.ink.muted,
   whiteSpace: "nowrap" as const,
 };
@@ -248,16 +249,23 @@ export default function Dashboard() {
     <div dir="rtl" style={{ minHeight: "100vh", background: TOKEN.surface.page }}>
       <main style={{ ...pageMain, maxWidth: 760 }}>
         <section style={{ textAlign: "center", padding: "4px 0 2px" }}>
-          <h1 style={{ margin: 0, color: TOKEN.ink.primary, fontSize: 28, fontWeight: 950 }}>
+          <h1
+            style={{
+              margin: 0,
+              color: TOKEN.ink.primary,
+              fontSize: TOKEN.font.hero,
+              fontWeight: TOKEN.weight.bold,
+            }}
+          >
             דוחות פיננסיים
           </h1>
           <p
             style={{
               margin: "6px 0 0",
               color: TOKEN.ink.muted,
-              fontSize: 14,
+              fontSize: TOKEN.font.body,
               lineHeight: 1.6,
-              fontWeight: 800,
+              fontWeight: TOKEN.weight.semibold,
             }}
           >
             תמונת מצב לפי המסמכים שכבר אושרו.
@@ -273,20 +281,11 @@ export default function Dashboard() {
             <div style={cardTitle}>תקופה</div>
           </div>
 
-          <input
+          <DubizDateField
             type="month"
+            ariaLabel="בחירת חודש לדוח"
             value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            style={{
-              width: "100%",
-              padding: 12,
-              borderRadius: 14,
-              border: `1px solid ${TOKEN.border.DEFAULT}`,
-              background: TOKEN.surface.card,
-              color: TOKEN.ink.primary,
-              fontSize: 16,
-              boxSizing: "border-box",
-            }}
+            onChange={(value) => setMonth(value)}
           />
 
           <div style={periodChipRow}>

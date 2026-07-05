@@ -2,6 +2,37 @@
 
 import { reviewCard } from "./review-ui";
 import { TOKEN } from "@/lib/design/tokens";
+import { glassActionStyle } from "@/lib/design/action-styles";
+
+const toolbarStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  marginBottom: 14,
+} as const;
+
+const openFullButtonStyle = {
+  ...glassActionStyle({ height: 36 }),
+  padding: "8px 12px",
+  fontSize: TOKEN.font.meta,
+  textDecoration: "none",
+} as const;
+
+function ExternalIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden>
+      <path
+        d="M14 4h6v6M20 4l-8 8M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
 
 export type ReviewDocumentPreviewProps = {
   showPreviewFallback: boolean;
@@ -18,17 +49,31 @@ export default function ReviewDocumentPreview({
   fileBlobUrl,
   onPreviewFailed,
 }: ReviewDocumentPreviewProps) {
+  const canOpenFull = !showPreviewFallback && !!fileBlobUrl;
+
   return (
     <section style={reviewCard}>
-      <div
-        style={{
-          fontWeight: TOKEN.weight.bold,
-          color: TOKEN.ink.primary,
-          fontSize: TOKEN.font.title,
-          marginBottom: 14,
-        }}
-      >
-        תצוגת מסמך
+      <div style={toolbarStyle}>
+        <div
+          style={{
+            fontWeight: TOKEN.weight.bold,
+            color: TOKEN.ink.primary,
+            fontSize: TOKEN.font.title,
+          }}
+        >
+          תצוגת מסמך
+        </div>
+        {canOpenFull ? (
+          <a
+            href={fileBlobUrl as string}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={openFullButtonStyle}
+          >
+            <ExternalIcon />
+            פתח במסך מלא
+          </a>
+        ) : null}
       </div>
 
       {showPreviewFallback ? (
