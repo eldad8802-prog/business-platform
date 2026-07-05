@@ -25,6 +25,22 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+// Friendly Hebrew copy for the whitelisted error codes the Gmail OAuth callback
+// (app/api/integrations/gmail/callback) redirects back with on failure.
+function gmailCallbackErrorMessage(code: string): string {
+  switch (code) {
+    case "google_access_denied":
+      return "החיבור בוטל מול Google. אפשר לנסות שוב.";
+    case "gmail_state_invalid":
+      return "משהו נקטע באמצע החיבור ל-Gmail. נסה להתחבר שוב.";
+    case "gmail_token_exchange_failed":
+      return "לא הצלחנו להשלים את החיבור מול Google. נסה שוב עוד רגע.";
+    case "gmail_callback_failed":
+    default:
+      return "החיבור ל-Gmail לא הושלם. נסה שוב.";
+  }
+}
+
 function formatSentAt(raw: string | null): string {
   if (!raw) return "";
   const date = new Date(raw);
@@ -43,6 +59,7 @@ export default function EmailDocumentsPage() {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     void Promise.resolve().then(() => {
@@ -53,6 +70,29 @@ export default function EmailDocumentsPage() {
         return;
       }
       setAuthHeader(`Bearer ${token}`);
+    });
+  }, []);
+
+  // The Gmail OAuth callback redirects the browser back here with ?connected=1
+  // on success or ?error=<code> on failure (it never renders raw JSON). Turn
+  // that flag into a friendly toast, then strip the query so a refresh doesn't
+  // replay it. The status fetch below independently confirms the real health.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const connectedFlag = params.get("connected");
+    const errorFlag = params.get("error");
+    if (!connectedFlag && !errorFlag) return;
+
+    // Defer the state update out of the synchronous effect body (same pattern as
+    // the mount effect above) to avoid cascading renders.
+    void Promise.resolve().then(() => {
+      if (connectedFlag === "1") {
+        setNotice("חשבון ה-Gmail חובר בהצלחה. סורק מיילים אחרונים...");
+      } else if (errorFlag) {
+        setError(gmailCallbackErrorMessage(errorFlag));
+      }
+      window.history.replaceState({}, "", "/documents/email");
     });
   }, []);
 
@@ -257,6 +297,8 @@ export default function EmailDocumentsPage() {
           {connected ? <CheckIcon /> : <WarningIcon />}
           {connected ? `מחובר: ${emailAddress || "Gmail"}` : "Gmail לא מחובר"}
         </section>
+
+        {notice ? <div style={noticeStyle}>{notice}</div> : null}
 
         {!connected ? (
           <button type="button" onClick={() => void startConnect()} style={connectButtonStyle}>
@@ -588,6 +630,13 @@ const errorStyle = {
   border: `1px solid ${TOKEN.semantic.urgent.border}`,
   background: TOKEN.semantic.urgent.bgSoft,
   color: TOKEN.semantic.urgent.ink,
+} as const;
+
+const noticeStyle = {
+  ...emptyStyle,
+  border: `1px solid ${TOKEN.semantic.success.border}`,
+  background: TOKEN.semantic.success.bgSoft,
+  color: TOKEN.semantic.success.ink,
 } as const;
 
 const scanButtonStyle = {
