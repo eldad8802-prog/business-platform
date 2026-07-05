@@ -39,19 +39,23 @@ import { getContextMessages } from "@/lib/conversation-context/get-context-messa
 import { getSuggestionMode } from "@/lib/decision/get-suggestion-mode";
 import { applyMessageEvent } from "@/lib/conversation-state/conversation-state.service";
 import {
-  runBotPolicyEngine,
   type BotPolicyAnalysisSnapshot,
   type BotPolicyConversationSnapshot,
   type BotPolicyEngineResult,
   type BotPolicyMessageSnapshot,
   type BotPolicySettingsSnapshot,
 } from "@/lib/features/conversation/bot-policy";
+import { evaluateBotGuardrails } from "@/lib/features/conversation/guardrails";
 import {
   isHumanTakeoverConversation,
   resolveBotWorkMode,
   shouldOfferAutoReplySuggestions,
   shouldOfferStarterBotDrafts,
 } from "@/lib/features/conversation/bot-control";
+import {
+  defaultBotLlmDraftRunnerDeps,
+  maybeCreateBotLlmDraft,
+} from "@/lib/services/conversation/bot-llm-draft-runner.service";
 import {
   deriveStarterBotNextQuestionIndex,
   isStarterBotFlowCompletedSent,
@@ -319,7 +323,9 @@ export async function runInboundMessagePipeline(
       );
     }
 
-    const policy = runBotPolicyEngine({
+    // Canonical Guardrails — the single enforcement point. STARTER (below) and
+    // AUTO suggestions (step 8) both read this ONE decision.
+    const policy = evaluateBotGuardrails({
       message: messageSnapshot,
       analysis: analysisSnapshot,
       conversation: conversationSnapshot,
@@ -327,6 +333,15 @@ export async function runInboundMessagePipeline(
       handoffRules: botRow?.handoffRules,
       inboundMessageCount,
       humanTakeover,
+      // Context-aware forbidden check: recent messages so a short reply that
+      // continues a forbidden thread ("כן" after a price question) is caught.
+      context: {
+        recentMessages: previousMessages.map((m) => ({
+          direction: m.direction as "INBOUND" | "OUTBOUND",
+          contentText: m.contentText,
+          createdAt: m.createdAt,
+        })),
+      },
     });
     policyDecision = policy.decision;
 
@@ -538,10 +553,15 @@ export async function runInboundMessagePipeline(
       })
     : ("MANUAL" as const);
 
-  const offerAutoSuggestions = shouldOfferAutoReplySuggestions({
-    workMode: workModeForSuggestions,
-    humanTakeover,
-  });
+  // AUTO suggestions must also pass the canonical Guardrails: when the bot must
+  // hand off to the owner, NO engine (STARTER or AUTO) drafts a reply.
+  // `policyDecision` is the handler-scoped mirror of the Guardrails decision
+  // (HANDOFF_REQUIRED ⇔ requiresHandoff).
+  const offerAutoSuggestions =
+    shouldOfferAutoReplySuggestions({
+      workMode: workModeForSuggestions,
+      humanTakeover,
+    }) && policyDecision !== "HANDOFF_REQUIRED";
 
   const generatedSuggestions = offerAutoSuggestions
     ? await generateReplySuggestions(labelledMessage, analysis, contextMessages)
@@ -560,6 +580,43 @@ export async function runInboundMessagePipeline(
   } else if (mode === "MINIMAL") {
     suggestions = [];
     shouldGenerate = false;
+  }
+
+  // Stage 4 (flag-gated, DEFAULT OFF → byte-identical to before): first LLM reply
+  // DRAFT via the SHARED runner — identical to the `/api/message` inline path.
+  // Draft-only, never sent; pre + post Guardrails inside the runner.
+  const llmDraftOutcome = await maybeCreateBotLlmDraft(
+    {
+      businessId,
+      conversationId: conversation.id,
+      messageId: labelledMessage.id,
+      offerAutoSuggestions,
+      humanTakeover,
+      botRow,
+      message: {
+        direction: labelledMessage.direction,
+        senderType: labelledMessage.senderType,
+        contentText: labelledMessage.contentText,
+      },
+      analysis: { intent: analysis.intent, stage: analysis.stage },
+      conversation: {
+        status: conversation.status,
+        currentStage: conversation.currentStage,
+      },
+      recentMessages: previousMessages.map((m) => ({
+        direction: m.direction as "INBOUND" | "OUTBOUND",
+        contentText: m.contentText,
+        createdAt: m.createdAt,
+      })),
+    },
+    defaultBotLlmDraftRunnerDeps()
+  );
+  if (llmDraftOutcome.status !== "skipped") {
+    console.info("[inbound-pipeline] LLM_DRAFT_OUTCOME", {
+      conversationId: conversation.id,
+      businessId,
+      ...llmDraftOutcome,
+    });
   }
 
   return {

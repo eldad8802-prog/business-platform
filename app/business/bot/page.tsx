@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { TOKEN } from "@/lib/design/tokens";
-import { BOT_BOUNDARY_OPTIONS, BOT_WORK_MODE_OPTIONS_ACTIVE, settingsPatchForWorkMode, type BotBoundaryPresets } from "@/lib/features/conversation/bot-control";
+import { BOT_BOUNDARY_OPTIONS, BOT_FORBIDDEN_OPTIONS, BOT_WORK_MODE_OPTIONS_ACTIVE, settingsPatchForWorkMode, type BotBoundaryPresets, type BotForbiddenPresets } from "@/lib/features/conversation/bot-control";
 import { FINAL_ACTION_OPTIONS as FINAL_ACTIONS, type FinalAction } from "@/lib/features/conversation/final-action";
 import { BOT_AUDIENCE_OPTIONS, BOT_INITIATIVE_OPTIONS, BOT_LANGUAGE_OPTIONS, BOT_PRIORITY_OPTIONS, BOT_SALE_STYLE_OPTIONS, BOT_TONE_OPTIONS, BOT_TRAIT_OPTIONS, BOT_VERBOSITY_OPTIONS, LEARNING_TYPE_LABELS, MAX_FAQ_ITEMS, MEMORY_TOGGLE_OPTIONS, emptyMemoryPolicy, type BotApproachConfig, type BotAudienceTag, type BotInitiativeLevel, type BotLanguage, type BotMemoryPolicy, type BotPersonalityConfig, type BotPriority, type BotSaleStyle, type BotTone, type BotTrait, type BotVerbosity, type BotVoiceConfig, type FaqItem, type LearningType, type MemoryToggleKey } from "@/lib/features/bot";
 import { BUILDER_SHELL_MAX_WIDTH, BuilderTextAreaField, BuilderTextField, ChoiceRow, GuardNote, Stepper, StickyActionBar, ToggleRow, areaPanelStyle } from "../bot-settings/_components/bot-builder-area-ui";
@@ -124,7 +124,7 @@ function Editor({ area, settings, goals, memory, profile, knowledge, learning }:
   if (area === "knowledge") return <KnowledgeEditor settings={settings} knowledge={knowledge} />;
   if (area === "allowed") return <AllowedEditor settings={settings} />;
   if (area === "autonomy") return <AutonomyEditor settings={settings} />;
-  if (area === "forbidden") return <ForbiddenEditor />;
+  if (area === "forbidden") return <ForbiddenEditor settings={settings} />;
   if (area === "handoff") return <HandoffEditor settings={settings} />;
   if (area === "memory") return <MemoryEditor memory={memory} />;
   return <LearningEditor learning={learning} />;
@@ -167,8 +167,10 @@ function AutonomyEditor({ settings }: { settings: ReturnType<typeof useBotSettin
   if (settings.loading) return <LoadingLine />;
   return <><section style={{ ...areaPanelStyle, padding: "16px 0" }}><div style={{ margin: "0 18px 14px" }}><h2 style={sectionTitle}>מצב עבודה</h2><p style={sectionHint}>בחר אם הבוט כבוי, או מכין טיוטות שאתה מאשר ושולח.</p></div><div style={{ margin: "0 18px" }}><WorkModeControls settings={settings} /></div><div style={{ display: "grid", gap: 10, margin: "16px 18px 0" }}><Level n="1" title="ידני - אני עונה בעצמי" active={settings.workMode === "MANUAL"} soon={false} /><Level n="2" title="טיוטות חכמות - הבוט מכין, אני שולח" active={settings.workMode !== "MANUAL"} soon={false} /><Level n="3" title="מבצע אחרי אישור" active={false} soon /><Level n="4" title="מבצע לבד" active={false} soon /></div></section><GuardNote>אזור מה אסור ומתי מעביר תמיד גוברים - העצמאות בתוך הגבולות שלך.</GuardNote><StickyActionBar onSave={() => void settings.handleSave()} saving={settings.saving} saved={settings.savedOk} error={settings.error} saveLabel="שמור" /></>;
 }
-function ForbiddenEditor() {
-  return <><section style={areaPanelStyle}>{["להתחייב למחיר", "להבטיח זמינות", "לתת ייעוץ מקצועי", "לתת הנחות"].map((label) => <ForbiddenToggleRow key={label} label={label} />)}</section><GuardNote>אזור זה עדיין בפיתוח. כרגע הבוט תמיד מכין טיוטה בלבד - אתה שולח, ולכן הוא לא יכול להתחייב בעצמו.</GuardNote><div style={{ height: 24 }} /></>;
+function ForbiddenEditor({ settings }: { settings: ReturnType<typeof useBotSettingsEditorState> }) {
+  if (settings.loading) return <LoadingLine />;
+  function setForbid(key: keyof BotForbiddenPresets, checked: boolean) { settings.setForbidden((f) => ({ ...f, [key]: checked })); }
+  return <><section style={areaPanelStyle}>{BOT_FORBIDDEN_OPTIONS.map((opt) => <ToggleRow key={opt.key} label={opt.label} hint={opt.hint} checked={settings.forbidden[opt.key] === true} onChange={(next) => setForbid(opt.key, next)} />)}</section><GuardNote>כשמסמנים איסור, הבוט לא יענה בנושא הזה - הוא יעביר אליך את השיחה במקום לנחש.</GuardNote><StickyActionBar onSave={() => void settings.handleSave()} saving={settings.saving} saved={settings.savedOk} error={settings.error} saveLabel="שמור" /></>;
 }
 function HandoffEditor({ settings }: { settings: ReturnType<typeof useBotSettingsEditorState> }) {
   if (settings.loading) return <LoadingLine />;
@@ -222,7 +224,6 @@ function useLearningState() {
   async function act(id: number, action: "adopt" | "dismiss") { setBusyId(id); setError(null); try { const res = await fetch(`/api/business/bot/learning-suggestions/${id}/${action}`, { method: "POST", headers: { Authorization: "Bearer " + getAuthToken() } }); if (!res.ok) throw new Error(); setItems((cur) => cur.filter((s) => s.id !== id)); } catch { setError("הפעולה נכשלה"); } finally { setBusyId(null); } }
   return { loading, error, busyId, items, act };
 }
-function ForbiddenToggleRow({ label }: { label: string }) { return <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderTop: "1px solid " + TOKEN.border.DEFAULT, opacity: 0.72 }}><div style={{ flex: 1, fontSize: TOKEN.font.body, fontWeight: TOKEN.weight.semibold, color: TOKEN.ink.primary }}>{label}</div><span aria-hidden style={{ width: 46, height: 27, borderRadius: TOKEN.radius.pill, background: TOKEN.semantic.urgent.accent, position: "relative", flexShrink: 0 }}><span style={{ position: "absolute", top: 3, right: 3, width: 21, height: 21, borderRadius: TOKEN.radius.pill, background: TOKEN.surface.card, boxShadow: TOKEN.shadow.elevated }} /></span></div>; }
 
 const inputStyle: CSSProperties = { width: "100%", border: "1px solid " + TOKEN.border.DEFAULT, borderRadius: TOKEN.radius.input, background: TOKEN.surface.inset, padding: "11px 13px", color: TOKEN.ink.primary, fontFamily: "inherit", fontSize: TOKEN.font.body, lineHeight: 1.5, outline: "none", boxSizing: "border-box" };
 const addButtonStyle: CSSProperties = { margin: "2px 18px 0", width: "calc(100% - 36px)", border: "1.5px dashed " + TOKEN.border.hover, borderRadius: TOKEN.radius.input, padding: 13, background: "transparent", color: TOKEN.brand.mid, fontFamily: "inherit", fontWeight: TOKEN.weight.bold, fontSize: TOKEN.font.body, cursor: "pointer" };
