@@ -1,15 +1,16 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Heebo } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+// Heebo is the official Dubiz typeface (Design System v1). It is Hebrew-first
+// (full Hebrew + Latin coverage by Oded Ezer), unlike Geist which has no Hebrew
+// and left all Hebrew UI text falling back to a system font. Loaded once here
+// as --font-heebo and inherited app-wide; weights 300-600 per the DS.
+const heebo = Heebo({
+  subsets: ["hebrew", "latin"],
+  weight: ["300", "400", "500", "600"],
+  variable: "--font-heebo",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -32,7 +33,7 @@ export default function RootLayout({
     <html
       lang="he"
       dir="rtl"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${heebo.variable} h-full antialiased`}
     >
       <body className="min-h-screen w-full overflow-x-hidden flex flex-col">
         {children}
