@@ -192,32 +192,44 @@ export async function POST(
         // The row is still keyed/found by the raw `vendorName` (no rekey/merge);
         // the normalized key is recorded for per-vendor analysis and a future
         // rekey. See docs/documents-learning-mechanism-architecture-v1.md §5.
-        const vendorNameNormalized =
-          normalizeVendorForLearning(vendorName).normalizedKey;
-        await prisma.vendorLearning.upsert({
-          where: {
-            businessId_vendorName: {
+        //
+        // Best-effort / never-throws: vendor learning is non-critical, so any
+        // failure here — including schema drift where `vendorNameNormalized`
+        // does not exist yet during a code-before-migration window — must NEVER
+        // fail the approval. Mirrors recordExtractionSnapshot.
+        try {
+          const vendorNameNormalized =
+            normalizeVendorForLearning(vendorName).normalizedKey;
+          await prisma.vendorLearning.upsert({
+            where: {
+              businessId_vendorName: {
+                businessId: user.businessId,
+                vendorName,
+              },
+            },
+            update: {
+              usageCount: { increment: 1 },
+              category,
+              confidence: { increment: 0.02 },
+              lastUsedAt: new Date(),
+              vendorNameNormalized,
+            },
+            create: {
               businessId: user.businessId,
               vendorName,
+              vendorNameNormalized,
+              category,
+              confidence: 0.8,
+              usageCount: 1,
+              isGlobal: false,
             },
-          },
-          update: {
-            usageCount: { increment: 1 },
-            category,
-            confidence: { increment: 0.02 },
-            lastUsedAt: new Date(),
-            vendorNameNormalized,
-          },
-          create: {
-            businessId: user.businessId,
-            vendorName,
-            vendorNameNormalized,
-            category,
-            confidence: 0.8,
-            usageCount: 1,
-            isGlobal: false,
-          },
-        });
+          });
+        } catch (vendorLearningError) {
+          console.error(
+            "[approve] vendorLearning.upsert failed (non-fatal):",
+            vendorLearningError
+          );
+        }
       }
     }
 
