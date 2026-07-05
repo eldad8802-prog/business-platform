@@ -198,6 +198,47 @@ export const TOKEN = {
     homeGoColor: "#2E527F",
   },
 
+  /**
+   * Dubiz Design System v1 — the warm cream/teal visual language extracted from
+   * the Collection reference (docs Dubiz Design System v1). Additive: features
+   * migrate onto this palette one at a time; the Secretary is the first.
+   * Values are the DS source-of-truth — do not invent or alter them.
+   */
+  dsv1: {
+    canvas: "#FEF8F2",
+    card: "#FDF4EB",
+    surface2: "#F6ECDD",
+    ink: "#2D2B28",
+    muted: "#777067",
+    tertiary: "#A79C8D",
+    line: "#E9DDD0",
+    accent: "#246966",
+    gradient: "linear-gradient(115deg, #246966 0%, #2C7C79 52%, #3D9C9A 100%)",
+    gradientHover: "linear-gradient(115deg, #2A7370 0%, #348C89 52%, #49AEAC 100%)",
+    onAccent: "#FEF8F2",
+    success: "#246966",
+    successBg: "rgba(36, 105, 102, 0.10)",
+    warning: "#B88755",
+    warningInk: "#8A6238",
+    warningBg: "rgba(184, 135, 85, 0.12)",
+    error: "#B85C3F",
+    errorBg: "rgba(184, 92, 63, 0.10)",
+    info: "#3D9C9A",
+    infoInk: "#2A6E6B",
+    infoBg: "rgba(61, 156, 154, 0.12)",
+    ring: "rgba(36, 105, 102, 0.22)",
+    backdrop: "rgba(70, 50, 30, 0.35)",
+    shadowCard: "0 1px 2px rgba(88, 62, 38, 0.05), 0 8px 22px rgba(120, 88, 52, 0.06)",
+    shadowCardHover: "0 1px 2px rgba(88, 62, 38, 0.06), 0 12px 28px rgba(120, 88, 52, 0.10)",
+    shadowGlow: "0 6px 18px rgba(36, 105, 102, 0.28)",
+    shadowGlowHover: "0 6px 18px rgba(36, 105, 102, 0.38)",
+    shadowOverlay: "0 20px 60px rgba(70, 50, 30, 0.18)",
+    homeWash:
+      "linear-gradient(180deg, rgba(254, 248, 242, 0.92) 0%, rgba(253, 244, 235, 0.98) 42%, #FDF4EB 100%)",
+    radius: { field: 12, button: 14, card: 16, dialog: 20, sheet: 24, pill: 999 },
+    weight: { light: 300, regular: 400, medium: 500, semibold: 600 },
+  },
+
   /** Strict radius scale — 5 values only. */
   radius: {
     chip: 6,

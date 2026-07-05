@@ -2,7 +2,18 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Heebo } from "next/font/google";
 import { TOKEN } from "@/lib/design/tokens";
+
+// Dubiz Design System v1 mandates Heebo (weights 300–600). Loaded here and
+// exposed as --font-heebo, scoped to the secretary via the wrapper below so the
+// rest of the app (still on Geist) is untouched. Presentation only.
+const heebo = Heebo({
+  subsets: ["hebrew", "latin"],
+  weight: ["300", "400", "500", "600"],
+  variable: "--font-heebo",
+  display: "swap",
+});
 import {
   completeObligation,
   createObligation,
@@ -81,9 +92,11 @@ export default function SecretaryPage() {
   // Suspense boundary — wrap the inner client screen so `next build` can
   // prerender the route (the skeleton is the natural fallback).
   return (
-    <Suspense fallback={<SecretaryHomeSkeleton />}>
-      <SecretaryPageInner />
-    </Suspense>
+    <div className={heebo.variable}>
+      <Suspense fallback={<SecretaryHomeSkeleton />}>
+        <SecretaryPageInner />
+      </Suspense>
+    </div>
   );
 }
 
@@ -337,8 +350,8 @@ function SecretaryPageInner() {
   return (
     <main dir="rtl" style={errorPageStyle}>
       <section style={errorCardStyle}>
-        <h1 style={{ margin: 0, fontSize: 22 }}>רגע, משהו בבדיקה נתקע.</h1>
-        <p style={{ margin: "10px 0 0", color: TOKEN.ink.muted, lineHeight: 1.6 }}>
+        <h1 style={{ margin: 0, fontSize: TOKEN.font.display, fontWeight: DS.weight.semibold, color: DS.ink }}>רגע, משהו בבדיקה נתקע.</h1>
+        <p style={{ margin: "10px 0 0", color: DS.muted, lineHeight: 1.6 }}>
           {state.message}
         </p>
         <button
@@ -356,18 +369,21 @@ function SecretaryPageInner() {
   );
 }
 
+// Design System v1 (warm cream / teal) for the page-level flash + error states.
+const DS = TOKEN.dsv1;
+
 const flashStyle = {
   position: "fixed" as const,
   zIndex: 80,
   right: 18,
   bottom: 92,
   maxWidth: 360,
-  borderRadius: 16,
+  borderRadius: DS.radius.card,
   padding: "12px 14px",
-  background: TOKEN.semantic.success.bgSoft,
-  color: TOKEN.semantic.success.ink,
-  boxShadow: TOKEN.shadow.floating,
-  fontWeight: 800,
+  background: DS.successBg,
+  color: DS.success,
+  boxShadow: DS.shadowCard,
+  fontWeight: DS.weight.semibold,
 };
 
 const errorPageStyle = {
@@ -375,30 +391,30 @@ const errorPageStyle = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  background: TOKEN.surface.page,
+  background: DS.canvas,
   padding: 20,
   boxSizing: "border-box" as const,
 };
 
 const errorCardStyle = {
   width: "min(100%, 520px)",
-  borderRadius: 24,
-  background: TOKEN.surface.card,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: DS.radius.dialog,
+  background: DS.card,
+  border: `1px solid ${DS.line}`,
   padding: 22,
-  boxShadow: TOKEN.shadow.floating,
+  boxShadow: DS.shadowOverlay,
 };
 
 const retryButtonStyle = {
   marginTop: 16,
   minHeight: 48,
   border: 0,
-  borderRadius: 16,
+  borderRadius: DS.radius.button,
   padding: "0 18px",
-  background: TOKEN.brand.gradient,
-  color: TOKEN.ink.inverse,
+  background: DS.gradient,
+  color: DS.onAccent,
   font: "inherit",
-  fontWeight: 800,
+  fontWeight: DS.weight.semibold,
   cursor: "pointer",
 };
 
