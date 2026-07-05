@@ -3,6 +3,7 @@
 import { CATEGORIES } from "@/lib/constants/categories";
 import type { Direction, EditableField, ReviewDraft } from "@/lib/documents/review/types";
 import { TOKEN } from "@/lib/design/tokens";
+import DubizDateField from "@/components/documents/DubizDateField";
 import { primaryDarkButton, reviewInput, secondaryButton } from "./review-ui";
 
 export type ReviewFieldEditorProps = {
@@ -48,16 +49,16 @@ export default function ReviewFieldEditor({
       ) : null}
 
       {editField === "date" ? (
-        <input
+        <DubizDateField
           type="date"
+          ariaLabel="תאריך המסמך"
           value={draft.date ? draft.date.slice(0, 10) : ""}
-          onChange={(e) =>
+          onChange={(value) =>
             onDraftChange((d) => ({
               ...d,
-              date: e.target.value ? new Date(e.target.value).toISOString() : null,
+              date: value ? new Date(value).toISOString() : null,
             }))
           }
-          style={reviewInput}
         />
       ) : null}
 
@@ -81,7 +82,10 @@ export default function ReviewFieldEditor({
       ) : null}
 
       {editField === "category" ? (
-        <div style={{ display: "grid", gap: 8, maxHeight: 320, overflow: "auto" }}>
+        <div
+          className="dz-scroll"
+          style={{ display: "grid", gap: 8, maxHeight: 320, overflow: "auto", padding: 2 }}
+        >
           {CATEGORIES.map((c) => (
             <button
               key={c.value}

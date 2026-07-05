@@ -43,3 +43,62 @@ input,
 select {
   font: inherit;
 }
+
+/* --- Dubiz UI primitives (design-system anchor layer) --- */
+
+/*
+ * Thin, restrained scrollbar for scroll areas inside cards/modals, so we never
+ * expose the raw Windows/Chrome scrollbar inside a Dubiz surface.
+ */
+.dz-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+.dz-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.dz-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.dz-scroll::-webkit-scrollbar-thumb:hover {
+  background: #b3c0d1;
+  background-clip: padding-box;
+}
+.dz-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/*
+ * De-native a `type="date"` / `type="month"` field: the field is styled by
+ * Dubiz tokens at the call site and gets its own calendar glyph, so we make the
+ * browser's native picker indicator fill the field (click anywhere to open) but
+ * become invisible, and remove the raw spin/clear controls.
+ */
+.dz-native-date::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+.dz-native-date::-webkit-inner-spin-button,
+.dz-native-date::-webkit-clear-button {
+  display: none;
+  -webkit-appearance: none;
+}
+
+/*
+ * Clear, consistent keyboard focus for the de-natived date fields. Only a ring
+ * (box-shadow) is used: the field's own border is set inline at the call site,
+ * and inline styles win over a class selector, so we don't fight it here.
+ */
+.dz-datefield:focus-within {
+  box-shadow: 0 0 0 3px rgba(46, 82, 127, 0.18);
+}
