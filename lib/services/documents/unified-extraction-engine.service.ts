@@ -221,6 +221,10 @@ export type UnifiedDocumentIntelligenceResult = {
   dateConfidence: ConfidenceLabel;
   categoryConfidence: ConfidenceLabel;
   documentType: DocumentType;
+  // Engine confidence in the routing (documentType) decision. Already produced
+  // by detectDocumentType; exposed here so the learning ledger can capture it
+  // (Gap 3 — see docs/documents-learning-mechanism-architecture-v1.md §5).
+  documentTypeConfidence: ConfidenceLabel;
   isFinancial: boolean;
   guardrailRoute: DocumentGuardrailRoute;
   searchableText: string;
@@ -749,6 +753,7 @@ export async function runUnifiedDocumentIntelligence(params: {
     dateConfidence: decision.dateConfidence,
     categoryConfidence: categoryResult.confidence,
     documentType: typeDetection.documentType,
+    documentTypeConfidence: typeDetection.confidence,
     isFinancial: typeDetection.isFinancial,
     guardrailRoute: guardrail.route,
     searchableText: normalized.searchableText,

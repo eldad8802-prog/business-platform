@@ -201,7 +201,7 @@ function buildSliceDecisionRows(input: {
     amountRow,
     legacyRow("vendor.extracted", "documents", "extraction", e.vendorName, e.vendorConfidence),
     legacyRow("date.extracted", "documents", "extraction", e.date, e.dateConfidence),
-    legacyRow("documentType.extracted", "documents", "extraction", e.documentType, null),
+    legacyRow("documentType.extracted", "documents", "extraction", e.documentType, e.documentTypeConfidence),
     // Business layer — interpretation (still produced by the legacy monolith today).
     legacyRow("direction.interpreted", "business", "interpretation", e.direction, null),
     legacyRow("category.classified", "business", "classification", e.category, e.categoryConfidence),
@@ -216,16 +216,28 @@ function buildSliceDecisionRows(input: {
  * `geometry` is optional: channels without it (e.g. email/whatsapp) record
  * legacy-only field decisions and no evidence.
  */
+/** Truthful record of how the extraction step resolved (Gap 1). */
+export type ExtractionOutcome = "ok" | "empty_ocr" | "extraction_failed";
+
 export async function recordExtractionSnapshot(input: {
   documentId: number;
   businessId: number;
   sourceChannel: string;
   ocrText: string | null;
-  extracted: UnifiedDocumentIntelligenceResult;
+  /**
+   * The engine belief. `null` when there was NO usable extraction (empty OCR or
+   * an extraction failure) — such documents are still recorded so the learning
+   * ledger sees failures too, removing survivorship bias (Gap 1).
+   */
+  extracted: UnifiedDocumentIntelligenceResult | null;
   geometry?: OcrGeometryResult | null;
+  /** How extraction resolved. Defaults to "ok" when `extracted` is present. */
+  extractionOutcome?: ExtractionOutcome;
 }): Promise<void> {
   try {
     const e = input.extracted;
+    const extractionOutcome: ExtractionOutcome =
+      input.extractionOutcome ?? (e ? "ok" : "extraction_failed");
     const geometry = input.geometry ?? null;
     const geometryAvailable = geometry?.geometryAvailable ?? false;
     const ocrGeometryHash = hashGeometry(geometry);
@@ -246,50 +258,62 @@ export async function recordExtractionSnapshot(input: {
         ocrVersion: OCR_VERSION,
         ocrTextHash: hashOcrText(input.ocrText),
 
-        // Memory Scope (raw — verbatim)
-        vendorName: e.vendorName ?? null,
-        documentType: e.documentType ? String(e.documentType) : null,
-        direction: e.direction ? String(e.direction) : null,
+        // Gap 1 — truthful extraction outcome (records failures too).
+        extractionOutcome,
+
+        // Memory Scope (raw — verbatim; null when there was no extraction)
+        vendorName: e?.vendorName ?? null,
+        documentType: e?.documentType ? String(e.documentType) : null,
+        direction: e?.direction ? String(e.direction) : null,
 
         // Engine belief
-        amount: e.amount ?? null,
-        date: e.date ?? null,
-        category: e.category ?? null,
-        confidenceScore: e.confidence ?? null,
-        amountConfidence: e.amountConfidence ? String(e.amountConfidence) : null,
-        vendorConfidence: e.vendorConfidence ? String(e.vendorConfidence) : null,
-        dateConfidence: e.dateConfidence ? String(e.dateConfidence) : null,
-        categoryConfidence: e.categoryConfidence ? String(e.categoryConfidence) : null,
-        isFinancial: e.isFinancial ?? null,
-        amountEligible: e.amountEligible ?? null,
-        financialEvidenceLevel: e.financialEvidenceLevel
+        amount: e?.amount ?? null,
+        date: e?.date ?? null,
+        category: e?.category ?? null,
+        confidenceScore: e?.confidence ?? null,
+        amountConfidence: e?.amountConfidence ? String(e.amountConfidence) : null,
+        vendorConfidence: e?.vendorConfidence ? String(e.vendorConfidence) : null,
+        dateConfidence: e?.dateConfidence ? String(e.dateConfidence) : null,
+        categoryConfidence: e?.categoryConfidence ? String(e.categoryConfidence) : null,
+        // Gap 3 — engine confidence in the routing (documentType) decision.
+        documentTypeConfidence: e?.documentTypeConfidence
+          ? String(e.documentTypeConfidence)
+          : null,
+        isFinancial: e?.isFinancial ?? null,
+        amountEligible: e?.amountEligible ?? null,
+        financialEvidenceLevel: e?.financialEvidenceLevel
           ? String(e.financialEvidenceLevel)
           : null,
-        guardrailRoute: e.guardrailRoute ? String(e.guardrailRoute) : null,
+        guardrailRoute: e?.guardrailRoute ? String(e.guardrailRoute) : null,
 
         // General Decision Ledger — structural (slice) provenance.
         sliceEngineVersion: SLICE_ENGINE_VERSION,
         ocrGeometryHash,
         geometryAvailable: geometry ? geometryAvailable : null,
 
-        rawResult: jsonSafe(e) as object,
+        // rawResult is NON-nullable; for no-extraction rows record the outcome
+        // itself so the column always holds valid JSON.
+        rawResult: (e ? jsonSafe(e) : { extractionOutcome }) as object,
       },
     });
 
-    // Six per-field decisions (general contract). Isolated so a failure here
-    // never blocks the snapshot/evidence.
-    try {
-      await prisma.sliceDecision.createMany({
-        data: buildSliceDecisionRows({
-          snapshotId: snapshot.id,
-          documentId: input.documentId,
-          businessId: input.businessId,
-          extracted: e,
-          amountSlice,
-        }),
-      });
-    } catch (err) {
-      console.error("[correction-ledger] sliceDecision.createMany failed:", err);
+    // Six per-field decisions (general contract) — only when there was an
+    // extraction. A no-extraction snapshot has no field beliefs to decompose.
+    // Isolated so a failure here never blocks the snapshot/evidence.
+    if (e) {
+      try {
+        await prisma.sliceDecision.createMany({
+          data: buildSliceDecisionRows({
+            snapshotId: snapshot.id,
+            documentId: input.documentId,
+            businessId: input.businessId,
+            extracted: e,
+            amountSlice,
+          }),
+        });
+      } catch (err) {
+        console.error("[correction-ledger] sliceDecision.createMany failed:", err);
+      }
     }
 
     // Heavy shared evidence (Tier 2 geometry + Tier 3 frozen reasoning blob).
@@ -322,6 +346,11 @@ type BeliefShape = {
   date: Date | null;
   category: string | null;
   direction: string | null;
+  // Gap 3 — verdict pipe for the routing decision. Belief is optional today;
+  // a human documentType verdict awaits a small UI affordance (until then the
+  // verdict resolves to "not-submitted"). The engine's documentType belief is
+  // always available on ExtractionSnapshot.documentType (joinable by documentId).
+  documentType?: string | null;
 } | null;
 
 type FinalShape = {
@@ -330,6 +359,7 @@ type FinalShape = {
   date?: string | null;
   category?: string | null;
   direction?: string | null;
+  documentType?: string | null;
 };
 
 type FieldVerdict =
@@ -344,6 +374,7 @@ const VERDICT_FIELDS = [
   "date",
   "category",
   "direction",
+  "documentType",
 ] as const;
 
 function serialize(value: unknown): unknown {

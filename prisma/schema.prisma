@@ -1274,6 +1274,11 @@ model VendorLearning {
   id         Int      @id @default(autoincrement())
   businessId Int
   vendorName String
+  // Stable grouping key derived from vendorName (normalizeVendorForLearning),
+  // captured ALONGSIDE the raw name. Additive — the unique key stays on the raw
+  // vendorName; a rekey/merge onto the normalized key is deferred (Gap 2, see
+  // docs/documents-learning-mechanism-architecture-v1.md §5).
+  vendorNameNormalized String?
   category   String
   usageCount Int      @default(1)
   lastUsedAt DateTime @default(now())
@@ -1283,6 +1288,7 @@ model VendorLearning {
 
   @@unique([businessId, vendorName])
   @@index([vendorName])
+  @@index([businessId, vendorNameNormalized])
 }
 
 // =============================================================================
@@ -1336,6 +1342,15 @@ model ExtractionSnapshot {
   sliceEngineVersion String?
   ocrGeometryHash    String?
   geometryAvailable  Boolean?
+
+  // Learning capture gaps (additive, nullable) — see
+  // docs/documents-learning-mechanism-architecture-v1.md §5.
+  // extractionOutcome: ok | empty_ocr | extraction_failed — captures failed /
+  //   no-extraction docs too, removing survivorship bias (Gap 1).
+  // documentTypeConfidence: engine confidence in the routing (documentType)
+  //   decision (Gap 3).
+  extractionOutcome      String?
+  documentTypeConfidence String?
 
   // Full, lossless engine result (forward-compatible provenance)
   rawResult Json
