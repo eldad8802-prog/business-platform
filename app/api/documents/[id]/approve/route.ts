@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { resolveDocumentOutputProfile } from "@/lib/services/documents/output-profile-resolver.service";
 import { recordReviewEvent } from "@/lib/services/documents/ledger/correction-ledger.service";
+import { normalizeVendorForLearning } from "@/lib/services/documents/vendor-normalization.service";
 
 export async function POST(
   req: Request,
@@ -187,6 +188,12 @@ export async function POST(
       // Vendor learning only when we actually create/update a financial record,
       // and only on first approval — avoids usageCount inflation on duplicate approve/retry.
       if (!wasAlreadyApproved) {
+        // Gap 2 — capture a stable normalized vendor key ALONGSIDE the raw name.
+        // The row is still keyed/found by the raw `vendorName` (no rekey/merge);
+        // the normalized key is recorded for per-vendor analysis and a future
+        // rekey. See docs/documents-learning-mechanism-architecture-v1.md §5.
+        const vendorNameNormalized =
+          normalizeVendorForLearning(vendorName).normalizedKey;
         await prisma.vendorLearning.upsert({
           where: {
             businessId_vendorName: {
@@ -199,10 +206,12 @@ export async function POST(
             category,
             confidence: { increment: 0.02 },
             lastUsedAt: new Date(),
+            vendorNameNormalized,
           },
           create: {
             businessId: user.businessId,
             vendorName,
+            vendorNameNormalized,
             category,
             confidence: 0.8,
             usageCount: 1,

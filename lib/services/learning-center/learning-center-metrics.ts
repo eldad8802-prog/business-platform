@@ -32,13 +32,19 @@ import type {
 
 const AMOUNT_FIELD = "amount.extracted";
 
-/** ReviewEvent verdict field -> ledger fieldKey. documentType has no verdict yet. */
+/**
+ * ReviewEvent verdict field -> ledger fieldKey. `documentType` is wired through
+ * the verdict pipe (Gap 3): it records as "not-submitted" until a UI collects the
+ * human's documentType decision, at which point it flows here with no further
+ * change to the learning mechanism.
+ */
 export const REVIEW_FIELD_TO_FIELDKEY: Record<string, string> = {
   amount: "amount.extracted",
   vendorName: "vendor.extracted",
   date: "date.extracted",
   category: "category.classified",
   direction: "direction.interpreted",
+  documentType: "documentType.extracted",
 };
 
 const FIELDKEY_TO_REVIEW_FIELD: Record<string, string> = Object.fromEntries(

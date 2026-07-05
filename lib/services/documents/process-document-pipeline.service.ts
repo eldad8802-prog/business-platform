@@ -137,6 +137,15 @@ export async function processDocumentPipeline(
       },
     });
 
+    // Gap 1 — truthful extraction outcome, captured for EVERY document (incl.
+    // failures) so the learning ledger never suffers survivorship bias. See
+    // docs/documents-learning-mechanism-architecture-v1.md §5.
+    const extractionOutcome = extracted
+      ? "ok"
+      : rawText
+        ? "extraction_failed"
+        : "empty_ocr";
+
     if (extracted) {
       // upsert (not create): a retry may already have an ExtractedData row.
       await prisma.extractedData.upsert({
@@ -165,17 +174,20 @@ export async function processDocumentPipeline(
           confidenceScore: extracted.confidence,
         },
       });
-
-      // Phase 1A Correction Ledger — additive, write-only, never throws.
-      await recordExtractionSnapshot({
-        documentId,
-        businessId,
-        sourceChannel: input.sourceChannel,
-        ocrText: rawText,
-        extracted,
-        geometry: ledgerGeometry,
-      });
     }
+
+    // Phase 1A Correction Ledger — additive, write-only, never throws. Recorded
+    // for EVERY document: a no-extraction doc (empty OCR / extraction failure)
+    // lands as a snapshot tagged with its outcome instead of vanishing (Gap 1).
+    await recordExtractionSnapshot({
+      documentId,
+      businessId,
+      sourceChannel: input.sourceChannel,
+      ocrText: rawText,
+      extracted,
+      geometry: ledgerGeometry,
+      extractionOutcome,
+    });
 
     await recordProductUsageEvent({
       businessId,

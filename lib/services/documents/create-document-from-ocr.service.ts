@@ -58,6 +58,8 @@ export async function createDocumentFromOcrText(params: {
     sourceChannel: params.source,
     ocrText: params.ocrText,
     extracted,
+    // This path always runs extraction to a result (Gap 1 parity).
+    extractionOutcome: "ok",
   });
 
   return {
