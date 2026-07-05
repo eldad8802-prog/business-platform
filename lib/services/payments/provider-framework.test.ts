@@ -38,12 +38,17 @@ async function main() {
   // === catalog / registry ===================================================
   {
     const cat = listProviderDescriptors();
-    assert.deepEqual(cat.map((d) => d.key).sort(), ["CARDCOM", "TRANZILA"]);
+    assert.deepEqual(cat.map((d) => d.key).sort(), ["CARDCOM", "PAYPAL", "TRANZILA"]);
 
     const cc = getProviderDescriptor("CARDCOM");
     const tz = getProviderDescriptor("TRANZILA");
+    const pp = getProviderDescriptor("PAYPAL");
     assert.equal(cc?.capabilities.verification, true); // GetLpResult
     assert.equal(tz?.capabilities.verification, false); // signal-only
+    assert.equal(pp?.capabilities.verification, true); // Orders GET + capture
+    // PayPal creds come from server env → no credential fields to collect.
+    assert.equal(pp?.credentialFields.length, 0);
+    assert.equal(isSupportedProvider("PAYPAL"), true);
     assert.equal(getProviderDescriptor("NOPE"), null);
     assert.equal(isSupportedProvider("cardcom".toUpperCase()), true);
 

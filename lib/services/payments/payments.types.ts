@@ -13,7 +13,7 @@
  * these unions and Prisma enums — the values are identical by construction.
  */
 
-export type PaymentProvider = "TRANZILA" | "CARDCOM";
+export type PaymentProvider = "TRANZILA" | "CARDCOM" | "PAYPAL";
 
 export type PaymentRequestStatus =
   | "PENDING"
@@ -258,6 +258,27 @@ export interface PaymentStore {
     businessId: number,
     options?: ListPaymentRequestsOptions
   ): Promise<PaymentRequestRecord[]>;
+
+  /**
+   * List a business's requests across MANY statuses at once, newest-first.
+   * Read-only; powers the collection workspace working-set + history reads.
+   */
+  listPaymentRequestsByStatuses(
+    businessId: number,
+    statuses: PaymentRequestStatus[],
+    options?: { limit?: number }
+  ): Promise<PaymentRequestRecord[]>;
+
+  /**
+   * Sum + count of VERIFIED collections (status PAID) whose `paidAt` falls in
+   * [from, to). Read-only aggregation for the "collected this month" figure —
+   * PAID is verified truth (Authority), so this never counts an unverified ask.
+   */
+  sumPaidBetween(
+    businessId: number,
+    from: Date,
+    to: Date
+  ): Promise<{ amount: string; count: number }>;
 
   createTransaction(
     row: CreateTransactionRow

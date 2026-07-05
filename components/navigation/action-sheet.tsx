@@ -28,7 +28,7 @@ const QUICK_ACTIONS: {
     | "payments";
 }[] = [
   { label: "המזכירה", href: "/secretary", icon: "secretary" },
-  { label: "סליקה", href: "/payments", icon: "payments" },
+  { label: "גבייה", href: "/payments", icon: "payments" },
   { label: "העלאת מסמך", href: "/documents/upload", icon: "upload" },
   { label: "חשבונית חדשה", href: "/billing", icon: "invoice" },
   { label: "שיחה חדשה", href: "/inbox", icon: "chat" },

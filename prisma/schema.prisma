@@ -2685,6 +2685,7 @@ model PaymentAuditEvent {
 enum PaymentProvider {
   TRANZILA
   CARDCOM
+  PAYPAL
 }
 
 enum PaymentRequestStatus {
