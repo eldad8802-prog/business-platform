@@ -2,18 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Heebo } from "next/font/google";
 import { TOKEN } from "@/lib/design/tokens";
-
-// Dubiz Design System v1 mandates Heebo (weights 300–600). Loaded here and
-// exposed as --font-heebo, scoped to the secretary via the wrapper below so the
-// rest of the app (still on Geist) is untouched. Presentation only.
-const heebo = Heebo({
-  subsets: ["hebrew", "latin"],
-  weight: ["300", "400", "500", "600"],
-  variable: "--font-heebo",
-  display: "swap",
-});
 import {
   completeObligation,
   createObligation,
@@ -92,11 +81,9 @@ export default function SecretaryPage() {
   // Suspense boundary — wrap the inner client screen so `next build` can
   // prerender the route (the skeleton is the natural fallback).
   return (
-    <div className={heebo.variable}>
-      <Suspense fallback={<SecretaryHomeSkeleton />}>
-        <SecretaryPageInner />
-      </Suspense>
-    </div>
+    <Suspense fallback={<SecretaryHomeSkeleton />}>
+      <SecretaryPageInner />
+    </Suspense>
   );
 }
 
