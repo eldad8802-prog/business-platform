@@ -11,10 +11,12 @@ import type { PaymentProviderAdapter } from "./payment-provider.types";
 import type { ProviderDescriptor } from "./provider-descriptor.types";
 import { tranzilaProvider, tranzilaDescriptor } from "./tranzila/tranzila.provider";
 import { cardComProvider, cardComDescriptor } from "./cardcom/cardcom.provider";
+import { payPalProvider, payPalDescriptor } from "./paypal/paypal.provider";
 
 const REGISTRY: Record<PaymentProvider, PaymentProviderAdapter> = {
   TRANZILA: tranzilaProvider,
   CARDCOM: cardComProvider,
+  PAYPAL: payPalProvider,
 };
 
 /**
@@ -26,6 +28,7 @@ const REGISTRY: Record<PaymentProvider, PaymentProviderAdapter> = {
 const DESCRIPTORS: Record<PaymentProvider, ProviderDescriptor> = {
   TRANZILA: tranzilaDescriptor,
   CARDCOM: cardComDescriptor,
+  PAYPAL: payPalDescriptor,
 };
 
 export class UnknownPaymentProviderError extends Error {

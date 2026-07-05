@@ -29,7 +29,7 @@ import {
 
 const W = TOKEN.warm;
 
-type ProviderKey = "TRANZILA" | "CARDCOM";
+type ProviderKey = "TRANZILA" | "CARDCOM" | "PAYPAL";
 
 type PublicConnection = {
   provider: string;
@@ -41,6 +41,7 @@ type PublicConnection = {
 const PROVIDER_LABEL: Record<ProviderKey, string> = {
   TRANZILA: "Tranzila",
   CARDCOM: "CardCom",
+  PAYPAL: "PayPal",
 };
 
 function getAuthToken(): string | null {
@@ -109,7 +110,12 @@ export function PaymentConnectionCard() {
 
     let path: string;
     let payload: Record<string, unknown>;
-    if (provider === "TRANZILA") {
+    if (provider === "PAYPAL") {
+      // Sandbox: PayPal credentials come from server env; the connection is an
+      // activation flag. Uses the generic descriptor-driven connection route.
+      path = "/api/payments/connections";
+      payload = { provider: "PAYPAL", merchantId: merchantId.trim() };
+    } else if (provider === "TRANZILA") {
       if (!secret) {
         setError("יש להזין מפתח / Secret.");
         return;
@@ -280,6 +286,7 @@ export function PaymentConnectionCard() {
               >
                 <option value="TRANZILA">Tranzila</option>
                 <option value="CARDCOM">CardCom</option>
+                <option value="PAYPAL">PayPal (sandbox)</option>
               </select>
             </WarmField>
 
@@ -287,7 +294,9 @@ export function PaymentConnectionCard() {
               label={
                 provider === "CARDCOM"
                   ? "מספר מסוף (Terminal Number)"
-                  : "מזהה מסוף (Merchant ID)"
+                  : provider === "PAYPAL"
+                    ? "תווית הפעלה (sandbox)"
+                    : "מזהה מסוף (Merchant ID)"
               }
             >
               <input
@@ -297,12 +306,21 @@ export function PaymentConnectionCard() {
                 autoComplete="off"
                 style={warmInputStyle()}
                 placeholder={
-                  provider === "CARDCOM" ? "terminal number" : "terminal / merchant id"
+                  provider === "CARDCOM"
+                    ? "terminal number"
+                    : provider === "PAYPAL"
+                      ? "למשל: sandbox"
+                      : "terminal / merchant id"
                 }
               />
             </WarmField>
 
-            {provider === "TRANZILA" ? (
+            {provider === "PAYPAL" ? (
+              <p style={{ fontSize: 12, color: W.muted, lineHeight: 1.55, margin: "0 2px 4px" }}>
+                אישורי-הסליקה של PayPal מגיעים מהשרת (sandbox env). כאן רק מפעילים
+                את PayPal כספק פעיל לבדיקות.
+              </p>
+            ) : provider === "TRANZILA" ? (
               <WarmField label="מפתח / Secret">
                 <input
                   type="password"
