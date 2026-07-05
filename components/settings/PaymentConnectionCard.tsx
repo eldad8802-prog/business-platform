@@ -1,9 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { TOKEN } from "@/lib/design/tokens";
+import {
+  WarmButton,
+  WarmCard,
+  WarmField,
+  WarmPill,
+  warmInputStyle,
+} from "@/components/ui/warm/warm-primitives";
 
 /**
- * Payment-provider connection UI (P1.3 + I4).
+ * Payment-provider connection UI (P1.3 + I4) — warm design language.
  *
  * Connects a clearing provider (Tranzila or CardCom) from Settings → Connections
  * using the existing payments API:
@@ -11,10 +19,15 @@ import { useCallback, useEffect, useState } from "react";
  *   POST /api/payments/connections/tranzila  → save/update Tranzila
  *   POST /api/payments/connections/cardcom   → save/update CardCom
  *
- * All secret fields are write-only: sent on submit, never read back. The
- * server's public connection shape carries no credential material. No live
- * provider calls, no disconnect.
+ * This is the TECHNICAL settings screen — both providers stay visible here
+ * (Tranzila is not hidden). The business-facing warm surfaces are CardCom-first
+ * elsewhere. All secret fields are write-only; no live provider calls.
+ *
+ * States: connected · not-connected · error (error CTA doubles as reconnect).
+ * Styling only — logic unchanged.
  */
+
+const W = TOKEN.warm;
 
 type ProviderKey = "TRANZILA" | "CARDCOM";
 
@@ -150,21 +163,34 @@ export function PaymentConnectionCard() {
     }
   }
 
+  const submitLabel = submitting
+    ? "שומר…"
+    : error
+      ? "התחבר מחדש"
+      : anyConnected
+        ? "עדכן חיבור"
+        : "חבר ספק";
+
   return (
-    <section className="rounded-[24px] bg-white p-4 shadow-sm" dir="rtl">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-bold text-gray-900">סליקה</h2>
+    <WarmCard style={{ direction: "rtl" } as React.CSSProperties}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <h2 style={{ fontSize: 15, fontWeight: TOKEN.weight.semibold, color: W.ink }}>
+          גבייה
+        </h2>
         {anyConnected ? (
-          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
-            מחובר
-          </span>
+          <WarmPill tone="verified">מחובר</WarmPill>
         ) : (
-          <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-500">
-            לא מחובר
-          </span>
+          <WarmPill tone="waiting">לא מחובר</WarmPill>
         )}
       </div>
-      <p className="mt-1 text-xs leading-5 text-gray-500">
+      <p style={{ marginTop: 4, fontSize: 12, lineHeight: 1.55, color: W.muted }}>
         חיבור ספק סליקה חיצוני. דוביז אינה שומרת פרטי כרטיס — התשלום מתבצע אצל
         הספק.
       </p>
@@ -172,7 +198,15 @@ export function PaymentConnectionCard() {
       {error ? (
         <div
           role="alert"
-          className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700"
+          style={{
+            marginTop: 12,
+            borderRadius: W.radius.control,
+            background: W.status.late.bg,
+            color: W.status.late.ink,
+            padding: "8px 12px",
+            fontSize: 12,
+            lineHeight: 1.55,
+          }}
         >
           {error}
         </div>
@@ -181,28 +215,40 @@ export function PaymentConnectionCard() {
       {notice ? (
         <div
           role="status"
-          className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-700"
+          style={{
+            marginTop: 12,
+            borderRadius: W.radius.control,
+            background: W.status.verified.bg,
+            color: W.status.verified.ink,
+            padding: "8px 12px",
+            fontSize: 12,
+            lineHeight: 1.55,
+          }}
         >
           {notice}
         </div>
       ) : null}
 
       {loading ? (
-        <p className="mt-4 text-xs text-gray-400">טוען…</p>
+        <p style={{ marginTop: 16, fontSize: 12, color: W.muted2 }}>טוען…</p>
       ) : (
-        <div className="mt-4 flex flex-col gap-4">
+        <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 16 }}>
           {anyConnected ? (
-            <div className="flex flex-col gap-2">
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {activeConnections.map((c) => (
                 <div
                   key={c.provider}
-                  className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3"
+                  style={{
+                    borderRadius: W.radius.control,
+                    border: `1px solid ${W.line}`,
+                    background: W.surface2,
+                    padding: "12px 14px",
+                  }}
                 >
-                  <div className="text-sm font-bold text-gray-900">
-                    {PROVIDER_LABEL[c.provider as ProviderKey] ?? c.provider}{" "}
-                    מחובר
+                  <div style={{ fontSize: 14, fontWeight: TOKEN.weight.semibold, color: W.ink }}>
+                    {PROVIDER_LABEL[c.provider as ProviderKey] ?? c.provider} מחובר
                   </div>
-                  <div className="mt-1 text-xs text-gray-600">
+                  <div style={{ marginTop: 2, fontSize: 12, color: W.muted }}>
                     מספר מסוף: {c.merchantId ?? "—"}
                   </div>
                 </div>
@@ -210,13 +256,19 @@ export function PaymentConnectionCard() {
             </div>
           ) : null}
 
-          <div className="flex flex-col gap-3">
-            <div className="text-xs font-semibold text-gray-500">
+          <div>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: TOKEN.weight.semibold,
+                color: W.muted,
+                marginBottom: 12,
+              }}
+            >
               {anyConnected ? "הוסף / עדכן חיבור" : "חבר ספק סליקה"}
             </div>
 
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-semibold text-gray-700">ספק</span>
+            <WarmField label="ספק">
               <select
                 value={provider}
                 onChange={(e) => {
@@ -224,85 +276,80 @@ export function PaymentConnectionCard() {
                   resetSecrets();
                   setError(null);
                 }}
-                className="min-h-11 rounded-xl border border-gray-300 px-3 text-sm text-gray-900"
+                style={warmInputStyle()}
               >
                 <option value="TRANZILA">Tranzila</option>
                 <option value="CARDCOM">CardCom</option>
               </select>
-            </label>
+            </WarmField>
 
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-semibold text-gray-700">
-                {provider === "CARDCOM"
+            <WarmField
+              label={
+                provider === "CARDCOM"
                   ? "מספר מסוף (Terminal Number)"
-                  : "מזהה מסוף (Merchant ID)"}
-              </span>
+                  : "מזהה מסוף (Merchant ID)"
+              }
+            >
               <input
                 type="text"
                 value={merchantId}
                 onChange={(e) => setMerchantId(e.target.value)}
                 autoComplete="off"
-                className="min-h-11 rounded-xl border border-gray-300 px-3 text-sm text-gray-900"
-                placeholder={provider === "CARDCOM" ? "terminal number" : "terminal / merchant id"}
+                style={warmInputStyle()}
+                placeholder={
+                  provider === "CARDCOM" ? "terminal number" : "terminal / merchant id"
+                }
               />
-            </label>
+            </WarmField>
 
             {provider === "TRANZILA" ? (
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-semibold text-gray-700">
-                  מפתח / Secret
-                </span>
+              <WarmField label="מפתח / Secret">
                 <input
                   type="password"
                   value={secret}
                   onChange={(e) => setSecret(e.target.value)}
                   autoComplete="new-password"
-                  className="min-h-11 rounded-xl border border-gray-300 px-3 text-sm text-gray-900"
+                  style={warmInputStyle()}
                   placeholder="לא יוצג לאחר השמירה"
                 />
-              </label>
+              </WarmField>
             ) : (
               <>
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold text-gray-700">
-                    API Name
-                  </span>
+                <WarmField label="API Name">
                   <input
                     type="text"
                     value={apiName}
                     onChange={(e) => setApiName(e.target.value)}
                     autoComplete="off"
-                    className="min-h-11 rounded-xl border border-gray-300 px-3 text-sm text-gray-900"
+                    style={warmInputStyle()}
                     placeholder="api name"
                   />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold text-gray-700">
-                    API Password
-                  </span>
+                </WarmField>
+                <WarmField label="API Password">
                   <input
                     type="password"
                     value={apiPassword}
                     onChange={(e) => setApiPassword(e.target.value)}
                     autoComplete="new-password"
-                    className="min-h-11 rounded-xl border border-gray-300 px-3 text-sm text-gray-900"
+                    style={warmInputStyle()}
                     placeholder="לא יוצג לאחר השמירה"
                   />
-                </label>
+                </WarmField>
               </>
             )}
 
-            <button
-              type="button"
+            <WarmButton
+              variant="primary"
+              fullWidth
+              height={48}
               onClick={() => void handleSubmit()}
               disabled={submitting}
-              className="min-h-11 rounded-2xl bg-gray-900 px-4 text-sm font-bold text-white disabled:opacity-50"
             >
-              {submitting ? "שומר…" : "חבר ספק"}
-            </button>
+              {submitLabel}
+            </WarmButton>
           </div>
         </div>
       )}
-    </section>
+    </WarmCard>
   );
 }

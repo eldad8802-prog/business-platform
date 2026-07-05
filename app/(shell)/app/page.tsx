@@ -262,6 +262,32 @@ function AllToolsEntry({ onClick }: { onClick: () => void }) {
   );
 }
 
+/**
+ * TEMPORARY — QA shortcut to the new Collection Workspace (/payments).
+ * Matches the home card design language (white · rounded-[24px] · shadow-sm ·
+ * RTL · icon tile · arrow). NOT a server-driven quick action; no new logic, no
+ * backend. Remove or relocate after Collection QA is approved.
+ */
+function TempCollectionQaCard() {
+  return (
+    <Link
+      href="/payments"
+      className="mb-5 flex items-center justify-between rounded-[24px] bg-white px-4 py-4 text-right shadow-sm transition active:scale-[0.99]"
+    >
+      <div className="flex items-center gap-3">
+        <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f8f6f1] text-2xl">
+          💰
+        </div>
+        <div>
+          <p className="text-sm font-bold text-gray-900">גבייה</p>
+          <p className="mt-1 text-xs text-gray-500">מרכז הגבייה — זמני לבדיקות QA</p>
+        </div>
+      </div>
+      <div className="text-xl text-gray-500">←</div>
+    </Link>
+  );
+}
+
 function BusinessSnapshotCard({
   businessSnapshot,
 }: {
@@ -490,6 +516,8 @@ function HomePage() {
             heroAction={data.heroAction}
             onPrimaryClick={handleHeroClick}
           />
+
+          <TempCollectionQaCard />
 
           <section className="mb-5">
             <div className="mb-3 flex items-center justify-between">

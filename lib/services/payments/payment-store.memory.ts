@@ -188,6 +188,33 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
         .map((r) => ({ ...r }));
     },
 
+    async listPaymentRequestsByStatuses(businessId, statuses, options) {
+      const set = new Set<string>(statuses);
+      return requests
+        .filter((r) => r.businessId === businessId && set.has(r.status))
+        .sort(
+          (a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id - a.id
+        )
+        .slice(0, options?.limit ?? 500)
+        .map((r) => ({ ...r }));
+    },
+
+    async sumPaidBetween(businessId, from, to) {
+      const paid = requests.filter(
+        (r) =>
+          r.businessId === businessId &&
+          r.status === "PAID" &&
+          r.paidAt != null &&
+          r.paidAt.getTime() >= from.getTime() &&
+          r.paidAt.getTime() < to.getTime()
+      );
+      const amount = paid.reduce((sum, r) => sum + Number(r.amount), 0);
+      return {
+        amount: (Math.round(amount * 100) / 100).toFixed(2),
+        count: paid.length,
+      };
+    },
+
     async createTransaction(row: CreateTransactionRow) {
       const record: PaymentTransactionRecord = {
         id: ++transactionSeq,

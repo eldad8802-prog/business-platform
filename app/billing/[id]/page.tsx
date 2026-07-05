@@ -4040,7 +4040,7 @@ function CollectionsSection({ doc }: { doc: BillingDocumentDetail }) {
         setError(
           data && typeof data.error === "string"
             ? data.error
-            : "לא הצלחנו ליצור בקשת תשלום."
+            : "לא הצלחנו ליצור קישור תשלום."
         );
         return;
       }
@@ -4050,9 +4050,9 @@ function CollectionsSection({ doc }: { doc: BillingDocumentDetail }) {
         return;
       }
       setRequest(view);
-      setNotice("בקשת תשלום נוצרה.");
+      setNotice("קישור התשלום מוכן.");
     } catch {
-      setError("לא הצלחנו ליצור בקשת תשלום.");
+      setError("לא הצלחנו ליצור קישור תשלום.");
     } finally {
       setCreating(false);
     }
@@ -4200,7 +4200,7 @@ function CollectionsSection({ doc }: { doc: BillingDocumentDetail }) {
             fontWeight: 800,
           }}
         >
-          {creating ? "יוצר בקשת תשלום…" : "שלח לתשלום"}
+          {creating ? "מכין קישור תשלום…" : "שלח לתשלום"}
         </button>
       )}
     </section>

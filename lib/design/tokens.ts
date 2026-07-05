@@ -295,6 +295,54 @@ export const TOKEN = {
     base: "150ms ease-out",
     slow: "250ms ease-out",
   },
+
+  /**
+   * Warm palette (Collection / Payments) — ADDITIVE, isolated set.
+   * Seeds the warm "collection secretary" language: cream surfaces, teal brand
+   * gradient, clay/brown/teal status signals. Deliberately separate from
+   * `brand`/`action`/`secretary` (the cool navy set) — the two coexist until a
+   * governed brand migration. Never mix warm + cool tokens in one surface.
+   * Weights here stay ≤600 (no 700) per the warm UI-language doc.
+   */
+  warm: {
+    canvas: "#FEF8F2",
+    surface: "#FDF4EB",
+    surface2: "#F6ECDD",
+    ink: "#2D2B28",
+    muted: "#777067",
+    muted2: "#A79C8D",
+    line: "#E9DDD0",
+    tealDeep: "#246966",
+    teal: "#3D9C9A",
+    tealLight: "#9BE4E3",
+    brown: "#B88755",
+    brownLight: "#D7B48A",
+    clay: "#B85C3F",
+    /** Brand gradient — weighted so white text stays legible (deep-teal body, light-teal tail). */
+    grad: "linear-gradient(115deg, #246966 0%, #2C7C79 52%, #3D9C9A 100%)",
+    gradHover: "linear-gradient(115deg, #2A7370 0%, #348C89 52%, #49AEAC 100%)",
+    shadow: "0 1px 2px rgba(88, 62, 38, 0.05), 0 8px 22px rgba(120, 88, 52, 0.06)",
+    shadowHover: "0 1px 2px rgba(88, 62, 38, 0.06), 0 12px 28px rgba(120, 88, 52, 0.10)",
+    glow: "0 6px 18px rgba(36, 105, 102, 0.28)",
+    glowHover: "0 10px 26px rgba(36, 105, 102, 0.38)",
+    /** Warm radii — softer than the cool set. */
+    radius: { card: 16, control: 12, cta: 14, pill: 999 },
+    /**
+     * Truth/status signals — warm, derived from the palette (never cool).
+     * Only two states are real in v1 (waiting · verified); partial is framed
+     * (Billing-owned), late is a derived timing signal.
+     */
+    status: {
+      /** באיחור */
+      late: { ink: "#B85C3F", bg: "rgba(184, 92, 63, 0.10)" },
+      /** נגבה ואומת */
+      verified: { ink: "#246966", bg: "rgba(36, 105, 102, 0.10)" },
+      /** שולם חלקית */
+      partial: { ink: "#B88755", bg: "rgba(184, 135, 85, 0.12)" },
+      /** ממתין */
+      waiting: { ink: "#777067", bg: "#F6ECDD" },
+    },
+  },
 } as const;
 
 export type Token = typeof TOKEN;

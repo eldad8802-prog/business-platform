@@ -7,6 +7,11 @@ import type {
   PaymentRequestRecord,
   PaymentTransactionRecord,
 } from "./payments.types";
+import type { CollectionViewState } from "./collection-view";
+import type {
+  CollectionItemView,
+  CollectionWorkspaceResult,
+} from "./collection-workspace.service";
 
 export interface PaymentRequestApi {
   id: number;
@@ -120,5 +125,60 @@ export function toPaymentRequestDetailApi(detail: {
     request: toPaymentRequestListItemApi(detail.request),
     transactions: detail.transactions.map(toPaymentTransactionApi),
     audit: detail.audit.map(toPaymentAuditEventApi),
+  };
+}
+
+// --- Collection Workspace read model --------------------------------------
+// Business language only. Exposes a derived semantic `state`
+// (waiting/verified/failed/expired/cancelled) + Hebrew label — NEVER the raw
+// DB status enum (PENDING/PAID/…), per the product-language rule.
+
+const COLLECTION_STATE_LABEL: Record<CollectionViewState, string> = {
+  waiting: "ממתין לתשלום",
+  verified: "נגבה ואומת",
+  failed: "התשלום לא הושלם",
+  expired: "פג תוקף",
+  cancelled: "הגבייה בוטלה",
+};
+
+export interface CollectionItemApi {
+  id: number;
+  description: string | null;
+  amount: string;
+  currency: string;
+  /** Semantic, UI-safe state — not the raw DB status. */
+  state: CollectionViewState;
+  /** Business-Hebrew label for the state. */
+  stateLabel: string;
+  provider: string;
+  paymentUrl: string | null;
+  createdAt: string;
+  paidAt: string | null;
+  expiresAt: string | null;
+}
+
+export interface CollectionWorkspaceApi {
+  summary: {
+    pending: { amount: string; count: number };
+    collectedThisMonth: { amount: string; count: number };
+    expired: { amount: string; count: number };
+  };
+  attention: CollectionItemApi[];
+  active: CollectionItemApi[];
+  history: CollectionItemApi[];
+}
+
+function toCollectionItemApi(item: CollectionItemView): CollectionItemApi {
+  return { ...item, stateLabel: COLLECTION_STATE_LABEL[item.state] };
+}
+
+export function toCollectionWorkspaceApi(
+  result: CollectionWorkspaceResult
+): CollectionWorkspaceApi {
+  return {
+    summary: result.summary,
+    attention: result.attention.map(toCollectionItemApi),
+    active: result.active.map(toCollectionItemApi),
+    history: result.history.map(toCollectionItemApi),
   };
 }

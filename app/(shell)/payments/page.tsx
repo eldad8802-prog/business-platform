@@ -1,251 +1,361 @@
 "use client";
 
 /**
- * Standalone Payments (סליקה) — create a payment request WITHOUT any invoice,
- * tax document, receipt, or fiscal numbering.
+ * Collection Workspace — the main collection screen ("מרכז הגבייה").
  *
- * The form collects only amount / currency / description and POSTs to the
- * generic /api/payments/requests endpoint WITHOUT a billingDocumentId — the
- * backend already treats a request with no billingDocumentId as standalone.
- * On success we redirect the browser to the provider's hosted checkout URL.
+ * SINGLE source of truth: GET /api/payments/collection-workspace (real,
+ * read-only). No mock, no local data, no Billing, no client-side joins.
  *
- * Deliberately no BillingDocument, no Tax Authority flow, no customer capture.
- * Provider is chosen by the business's single active connection (same as the
- * existing invoice→payment flow); this screen sends no provider hint.
+ * Four layers (spec-locked): daily sentence · restrained money strip ·
+ * attention · active · quiet history. Two truth states only (waiting/verified)
+ * + honest lifecycle labels. No aging/late, no partial, no "deposited",
+ * no forecast — none of those have a source of truth.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { TOKEN } from "@/lib/design/tokens";
+import {
+  WarmButton,
+  WarmCard,
+  WarmPill,
+  type WarmPillTone,
+} from "@/components/ui/warm/warm-primitives";
 
-const BRAND = "#3F619C";
-const CURRENCIES = ["ILS", "USD", "EUR"] as const;
-type Currency = (typeof CURRENCIES)[number];
+const W = TOKEN.warm;
 
-type SubmitState =
-  | { status: "idle" }
-  | { status: "submitting" }
-  | { status: "redirecting" }
-  | { status: "error"; message: string };
+type CollectionState =
+  | "waiting"
+  | "verified"
+  | "failed"
+  | "expired"
+  | "cancelled";
 
-export default function StandalonePaymentsPage() {
+type Figure = { amount: string; count: number };
+type Item = {
+  id: number;
+  description: string | null;
+  amount: string;
+  currency: string;
+  state: CollectionState;
+  stateLabel: string;
+};
+type WorkspaceApi = {
+  summary: { pending: Figure; collectedThisMonth: Figure; expired: Figure };
+  attention: Item[];
+  active: Item[];
+  history: Item[];
+};
+
+type LoadState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ready"; ws: WorkspaceApi };
+
+function getAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("token");
+}
+
+function money(amount: string, currency = "ILS"): string {
+  const n = Number(amount);
+  const sym =
+    currency === "ILS" ? "₪" : currency === "USD" ? "$" : currency === "EUR" ? "€" : "";
+  if (!Number.isFinite(n)) return `${sym}${amount}`;
+  return `${sym}${n.toLocaleString("he-IL")}`;
+}
+
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "בוקר טוב";
+  if (h < 18) return "צהריים טובים";
+  return "ערב טוב";
+}
+
+function dailySentence(ws: WorkspaceApi): { lead: string; soft: string } {
+  const open = ws.active.length + ws.attention.length;
+  if (open === 0) return { lead: "אין כרגע גביות פתוחות.", soft: "" };
+  const openPhrase =
+    open === 1 ? "יש לך גבייה אחת פתוחה." : `יש לך ${open} גביות פתוחות.`;
+  if (ws.attention.length > 0) {
+    const soft =
+      ws.attention.length === 1
+        ? "אחת דורשת טיפול, השאר מתקדמות כרגיל."
+        : `${ws.attention.length} דורשות טיפול, השאר מתקדמות כרגיל.`;
+    return { lead: openPhrase, soft };
+  }
+  return { lead: openPhrase, soft: "כולן מתקדמות כרגיל." };
+}
+
+function toneFor(state: CollectionState): WarmPillTone {
+  if (state === "verified") return "verified";
+  if (state === "failed" || state === "expired") return "late";
+  return "waiting"; // waiting, cancelled
+}
+
+export default function CollectionWorkspacePage() {
   const router = useRouter();
-  const [amount, setAmount] = useState("");
-  const [currency, setCurrency] = useState<Currency>("ILS");
-  const [description, setDescription] = useState("");
-  const [submit, setSubmit] = useState<SubmitState>({ status: "idle" });
+  const [state, setState] = useState<LoadState>({ status: "loading" });
 
-  useEffect(() => {
-    const token =
-      typeof window !== "undefined" ? window.localStorage.getItem("token") : null;
-    if (!token) router.replace("/login");
-  }, [router]);
-
-  const amountValue = Number(amount);
-  const amountValid = Number.isFinite(amountValue) && amountValue > 0;
-  const busy = submit.status === "submitting" || submit.status === "redirecting";
-
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!amountValid || busy) return;
-
-    const token =
-      typeof window !== "undefined" ? window.localStorage.getItem("token") : null;
+  const load = useCallback(async () => {
+    setState({ status: "loading" });
+    const token = getAuthToken();
     if (!token) {
       router.replace("/login");
       return;
     }
-
-    setSubmit({ status: "submitting" });
     try {
-      const res = await fetch("/api/payments/requests", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        // No billingDocumentId — this is a standalone request.
-        body: JSON.stringify({
-          amount,
-          currency,
-          description: description.trim() ? description.trim() : undefined,
-        }),
+      const res = await fetch("/api/payments/collection-workspace", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
       });
-
-      const data = (await res.json().catch(() => ({}))) as {
-        paymentUrl?: string | null;
-        error?: string;
-        message?: string;
-      };
-
       if (!res.ok) {
-        throw new Error(
-          data.error || data.message || "לא הצלחתי ליצור בקשת תשלום"
-        );
+        setState({ status: "error" });
+        return;
       }
-      if (!data.paymentUrl) {
-        throw new Error("הבקשה נוצרה אך לא התקבל קישור תשלום");
-      }
-
-      setSubmit({ status: "redirecting" });
-      window.location.href = data.paymentUrl;
-    } catch (error) {
-      setSubmit({
-        status: "error",
-        message:
-          error instanceof Error ? error.message : "אירעה שגיאה בלתי צפויה",
-      });
+      const ws = (await res.json()) as WorkspaceApi;
+      setState({ status: "ready", ws });
+    } catch {
+      setState({ status: "error" });
     }
-  }
+  }, [router]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   return (
-    <div
-      dir="rtl"
-      style={{
-        minHeight: "100%",
-        background: "#ffffff",
-        padding: "24px 18px 40px",
-      }}
-    >
+    <div dir="rtl" style={{ minHeight: "100%", background: W.canvas, padding: "22px 20px 40px" }}>
       <div style={{ maxWidth: 440, margin: "0 auto" }}>
-        <header style={{ marginBottom: 20 }}>
-          <h1
-            style={{
-              margin: 0,
-              fontSize: 24,
-              fontWeight: 850,
-              color: "#0f172a",
-              letterSpacing: "-0.02em",
-            }}
-          >
-            סליקה
+        <header style={{ marginBottom: 18 }}>
+          <h1 style={{ fontSize: 17, fontWeight: TOKEN.weight.semibold, color: W.ink }}>
+            מרכז הגבייה
           </h1>
-          <p
-            style={{
-              margin: "6px 0 0",
-              fontSize: 14,
-              lineHeight: 1.5,
-              color: "#64748b",
-            }}
-          >
-            יצירת בקשת תשלום מהירה — ללא חשבונית וללא מסמך מס.
-          </p>
         </header>
 
-        <form onSubmit={onSubmit} style={{ display: "grid", gap: 16 }}>
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={labelStyle}>סכום</span>
-            <input
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-              required
-              style={inputStyle}
-            />
-          </label>
-
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={labelStyle}>מטבע</span>
-            <select
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value as Currency)}
-              style={inputStyle}
-            >
-              {CURRENCIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={labelStyle}>תיאור (אופציונלי)</span>
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="למשל: תשלום עבור שירות"
-              maxLength={200}
-              style={inputStyle}
-            />
-          </label>
-
-          {submit.status === "error" ? (
-            <p
-              role="alert"
-              style={{
-                margin: 0,
-                fontSize: 13,
-                fontWeight: 600,
-                color: "#b91c1c",
-                background: "rgba(185, 28, 28, 0.07)",
-                borderRadius: 12,
-                padding: "10px 12px",
-              }}
-            >
-              {submit.message}
-            </p>
-          ) : null}
-
-          <button
-            type="submit"
-            disabled={!amountValid || busy}
-            style={{
-              minHeight: 52,
-              borderRadius: 14,
-              border: "none",
-              background: !amountValid || busy ? "#9db4d4" : BRAND,
-              color: "#ffffff",
-              fontSize: 16,
-              fontWeight: 800,
-              cursor: !amountValid || busy ? "default" : "pointer",
-              transition: "background 0.15s ease",
-              touchAction: "manipulation",
-            }}
-          >
-            {submit.status === "submitting"
-              ? "יוצר בקשה…"
-              : submit.status === "redirecting"
-                ? "מעביר לתשלום…"
-                : "צור קישור תשלום"}
-          </button>
-
-          <p
-            style={{
-              margin: 0,
-              fontSize: 12,
-              lineHeight: 1.5,
-              color: "#94a3b8",
-              textAlign: "center",
-            }}
-          >
-            לאחר היצירה תועבר לעמוד הסליקה המאובטח של ספק הסליקה שלך.
+        {state.status === "loading" ? (
+          <p style={{ fontSize: 13, color: W.muted2, textAlign: "center", marginTop: 40 }}>
+            טוען…
           </p>
-        </form>
+        ) : state.status === "error" ? (
+          <WarmCard style={{ textAlign: "center" } as React.CSSProperties}>
+            <p style={{ fontSize: 14, color: W.muted, lineHeight: 1.6 }}>
+              לא הצלחנו לטעון את מרכז הגבייה.
+            </p>
+            <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
+              <WarmButton variant="secondary" height={44} onClick={() => void load()}>
+                נסה שוב
+              </WarmButton>
+            </div>
+          </WarmCard>
+        ) : (
+          <WorkspaceBody
+            ws={state.ws}
+            onOpen={(id) => router.push(`/payments/${id}`)}
+            onCreate={() => router.push("/payments/new")}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-const labelStyle: React.CSSProperties = {
-  fontSize: 13,
-  fontWeight: 700,
-  color: "#334155",
-};
+function WorkspaceBody({
+  ws,
+  onOpen,
+  onCreate,
+}: {
+  ws: WorkspaceApi;
+  onOpen: (id: number) => void;
+  onCreate: () => void;
+}) {
+  const daily = dailySentence(ws);
+  const showMoney =
+    ws.summary.pending.count > 0 ||
+    ws.summary.collectedThisMonth.count > 0 ||
+    ws.summary.expired.count > 0;
 
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  minHeight: 48,
-  borderRadius: 12,
-  border: "1px solid rgba(148, 163, 184, 0.5)",
-  background: "#ffffff",
-  padding: "0 14px",
-  fontSize: 16,
-  color: "#0f172a",
-  outline: "none",
-  boxSizing: "border-box",
-};
+  return (
+    <>
+      {/* Layer 1 — daily sentence (voice, not KPI) */}
+      <div style={{ padding: "6px 0 4px", marginBottom: showMoney ? 22 : 20 }}>
+        <div style={{ fontSize: 12, fontWeight: TOKEN.weight.medium, color: W.muted2, marginBottom: 8 }}>
+          {greeting()}
+        </div>
+        <div style={{ fontSize: 20, fontWeight: TOKEN.weight.semibold, lineHeight: 1.5, letterSpacing: "-0.3px", color: W.ink }}>
+          {daily.lead} {daily.soft ? <span style={{ color: W.muted }}>{daily.soft}</span> : null}
+        </div>
+      </div>
+
+      {/* Layer 2 — restrained money strip (objective only) */}
+      {showMoney ? (
+        <div
+          style={{
+            display: "flex",
+            borderTop: `1px solid ${W.line}`,
+            borderBottom: `1px solid ${W.line}`,
+            marginBottom: 26,
+          }}
+        >
+          <MoneyCell label="ממתין" value={money(ws.summary.pending.amount)} />
+          <MoneyCell label="נגבה החודש" value={money(ws.summary.collectedThisMonth.amount)} tone="done" />
+          {ws.summary.expired.count > 0 ? (
+            <MoneyCell label="פג תוקף" value={money(ws.summary.expired.amount)} tone="late" />
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* One primary action — קבל תשלום (→ existing standalone create) */}
+      <WarmButton variant="primary" fullWidth height={48} onClick={onCreate} style={{ marginBottom: 28 }}>
+        קבל תשלום
+      </WarmButton>
+
+      {/* Layer 3 — attention (failed + expired) */}
+      {ws.attention.length > 0 ? (
+        <Section title="דורש טיפול" count={ws.attention.length}>
+          {ws.attention.map((item) => (
+            <CollectionRow key={item.id} item={item} onClick={() => onOpen(item.id)} />
+          ))}
+        </Section>
+      ) : null}
+
+      {/* Layer 4 — active (waiting) */}
+      {ws.active.length > 0 ? (
+        <Section title="בעבודה" count={ws.active.length}>
+          {ws.active.map((item) => (
+            <CollectionRow key={item.id} item={item} onClick={() => onOpen(item.id)} />
+          ))}
+        </Section>
+      ) : null}
+
+      {/* Layer 5 — quiet history (verified + cancelled), read-only */}
+      {ws.history.length > 0 ? (
+        <Section title="הושלמו">
+          {ws.history.map((item) => (
+            <CollectionRow key={item.id} item={item} onClick={() => onOpen(item.id)} muted />
+          ))}
+        </Section>
+      ) : null}
+
+      {ws.attention.length === 0 && ws.active.length === 0 && ws.history.length === 0 ? (
+        <p style={{ fontSize: 13, color: W.muted, textAlign: "center", marginTop: 8, lineHeight: 1.6 }}>
+          כשתתחיל לגבות, הגביות שלך יופיעו כאן.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function MoneyCell({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "done" | "late";
+}) {
+  const color = tone === "done" ? W.status.verified.ink : tone === "late" ? W.status.late.ink : W.ink;
+  return (
+    <div style={{ flex: 1, padding: "14px 4px", textAlign: "center", borderRight: `1px solid ${W.line}` }}>
+      <div style={{ fontSize: 15, fontWeight: TOKEN.weight.semibold, color, fontVariantNumeric: "tabular-nums" }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 12, color: W.muted, marginTop: 4 }}>{label}</div>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <span style={{ fontSize: 12, fontWeight: TOKEN.weight.semibold, color: W.muted, letterSpacing: "0.2px" }}>
+          {title}
+        </span>
+        {count != null ? (
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: TOKEN.weight.semibold,
+              color: W.muted,
+              background: W.surface2,
+              borderRadius: W.radius.pill,
+              padding: "1px 8px",
+            }}
+          >
+            {count}
+          </span>
+        ) : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function CollectionRow({
+  item,
+  onClick,
+  muted = false,
+}: {
+  item: Item;
+  onClick: () => void;
+  muted?: boolean;
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      style={{ cursor: "pointer", marginBottom: 10 }}
+    >
+      <WarmCard interactive padding={14}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div
+              style={{
+                fontSize: 15,
+                fontWeight: muted ? TOKEN.weight.medium : TOKEN.weight.semibold,
+                color: muted ? "#5A544C" : W.ink,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {item.description || "גבייה"}
+            </div>
+          </div>
+          <div style={{ textAlign: "left", flexShrink: 0 }}>
+            <div
+              style={{
+                fontSize: 15,
+                fontWeight: muted ? TOKEN.weight.medium : TOKEN.weight.semibold,
+                color: muted ? "#5A544C" : W.ink,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {money(item.amount, item.currency)}
+            </div>
+            <div style={{ marginTop: 6, display: "flex", justifyContent: "flex-end" }}>
+              <WarmPill tone={toneFor(item.state)}>{item.stateLabel}</WarmPill>
+            </div>
+          </div>
+        </div>
+      </WarmCard>
+    </div>
+  );
+}

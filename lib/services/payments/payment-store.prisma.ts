@@ -294,6 +294,27 @@ export function createPaymentPrismaStore(): PaymentStore {
       return rows.map(toRequestRecord);
     },
 
+    async listPaymentRequestsByStatuses(businessId, statuses, options) {
+      const rows = await prisma.paymentRequest.findMany({
+        where: { businessId, status: { in: statuses } },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: options?.limit ?? 500,
+      });
+      return rows.map(toRequestRecord);
+    },
+
+    async sumPaidBetween(businessId, from, to) {
+      const agg = await prisma.paymentRequest.aggregate({
+        where: { businessId, status: "PAID", paidAt: { gte: from, lt: to } },
+        _sum: { amount: true },
+        _count: { _all: true },
+      });
+      return {
+        amount: (agg._sum.amount ?? new Prisma.Decimal(0)).toString(),
+        count: agg._count._all,
+      };
+    },
+
     async createTransaction(row: CreateTransactionRow) {
       const created = await prisma.paymentTransaction.create({
         data: {
