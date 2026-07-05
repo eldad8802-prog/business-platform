@@ -147,64 +147,67 @@ export const SECRETARY_HOME_DEMO_MODELS: Record<SecretaryHomeState, SecretaryHom
 type SecretaryVars = CSSProperties & Record<`--sec-${string}`, string>;
 
 export function secretaryVars(): SecretaryVars {
-  const t = TOKEN.secretary;
+  // Dubiz Design System v1 — warm cream / teal. The secretary CSS module is
+  // 100% var-driven, so mapping every --sec-* here re-skins the whole feature
+  // onto the DS in one place. Values come from the token system (TOKEN.dsv1);
+  // scoped to the secretary so global tokens used elsewhere stay untouched.
+  const d = TOKEN.dsv1;
   return {
-    "--sec-ink": t.ink,
-    "--sec-muted": t.muted,
-    "--sec-line": t.line,
-    "--sec-canvas": t.canvas,
-    "--sec-surface": t.surface,
-    "--sec-surface-2": t.surface2,
-    "--sec-action": t.action,
-    // Align the secretary's hero + primary gradient to the canonical Dubiz
-    // brand line (same gradient the Documents hub uses) for cross-feature
-    // consistency, instead of a slightly-off local navy.
-    "--sec-grad": TOKEN.brand.gradient,
-    "--sec-brand": t.brand,
-    "--sec-brand-shadow": t.brandShadow,
-    "--sec-primary-shadow": t.primaryShadow,
-    "--sec-focus-shadow": t.focusShadow,
-    "--sec-hi": t.hi,
-    "--sec-hi-bg": t.hiBg,
-    "--sec-hi-ink": t.hiInk,
-    "--sec-md": t.md,
-    "--sec-md-bg": t.mdBg,
-    "--sec-md-ink": t.mdInk,
-    "--sec-lo": t.lo,
-    "--sec-lo-bg": t.loBg,
-    "--sec-lo-ink": t.loInk,
-    "--sec-urgent": TOKEN.semantic.urgent.border,
-    "--sec-urgent-bg": TOKEN.semantic.urgent.bg,
-    "--sec-urgent-ink": TOKEN.semantic.urgent.ink,
-    "--sec-info-bg": t.infoBg,
-    "--sec-info-ink": t.infoInk,
-    "--sec-calm": t.calm,
-    "--sec-calm-bg": t.calmBg,
-    "--sec-calm-ink": t.calmInk,
-    "--sec-purple": t.purple,
-    "--sec-purple-bg": t.purpleBg,
-    "--sec-purple-ink": t.purpleInk,
-    "--sec-neutral-text": t.neutralText,
-    "--sec-soft-icon": t.softIcon,
-    "--sec-selected-border": t.selectedBorder,
-    "--sec-dashed-border": t.dashedBorder,
-    "--sec-sheet-dim": t.sheetDim,
-    "--sec-active-ring": t.activeRing,
-    "--sec-home-wash": t.homeWash,
-    "--sec-home-shadow-soft": t.homeShadowSoft,
-    "--sec-home-shadow-lift": t.homeShadowLift,
-    "--sec-home-go-color": t.homeGoColor,
-    "--sec-action-primary-bg": TOKEN.brand.gradient,
-    "--sec-action-primary-color": t.canvas,
+    "--sec-font": "var(--font-heebo), 'Heebo', 'Assistant', system-ui, sans-serif",
+    "--sec-ink": d.ink,
+    "--sec-muted": d.muted,
+    "--sec-line": d.line,
+    "--sec-canvas": d.card,
+    "--sec-surface": d.canvas,
+    "--sec-surface-2": d.surface2,
+    "--sec-action": d.accent,
+    "--sec-grad": d.gradient,
+    "--sec-brand": d.accent,
+    "--sec-brand-shadow": d.shadowGlow,
+    "--sec-primary-shadow": d.shadowGlow,
+    "--sec-focus-shadow": d.shadowCard,
+    "--sec-hi": d.success,
+    "--sec-hi-bg": d.successBg,
+    "--sec-hi-ink": d.success,
+    "--sec-md": d.warning,
+    "--sec-md-bg": d.warningBg,
+    "--sec-md-ink": d.warningInk,
+    "--sec-lo": d.error,
+    "--sec-lo-bg": d.errorBg,
+    "--sec-lo-ink": d.error,
+    "--sec-urgent": d.error,
+    "--sec-urgent-bg": d.errorBg,
+    "--sec-urgent-ink": d.error,
+    "--sec-info-bg": d.infoBg,
+    "--sec-info-ink": d.infoInk,
+    "--sec-calm": d.info,
+    "--sec-calm-bg": d.infoBg,
+    "--sec-calm-ink": d.infoInk,
+    // DS has no purple — fold the old purple tone onto the DS info (light teal).
+    "--sec-purple": d.info,
+    "--sec-purple-bg": d.infoBg,
+    "--sec-purple-ink": d.infoInk,
+    "--sec-neutral-text": d.muted,
+    "--sec-soft-icon": d.surface2,
+    "--sec-selected-border": d.accent,
+    "--sec-dashed-border": d.line,
+    "--sec-sheet-dim": d.backdrop,
+    "--sec-active-ring": d.ring,
+    "--sec-home-wash": d.homeWash,
+    "--sec-home-shadow-soft": d.shadowCard,
+    "--sec-home-shadow-lift": d.shadowCardHover,
+    "--sec-home-go-color": d.accent,
+    "--sec-action-primary-bg": d.gradient,
+    "--sec-action-primary-color": d.onAccent,
     "--sec-action-primary-border": "0",
-    "--sec-action-primary-shadow": t.primaryShadow,
-    "--sec-action-glass-bg": TOKEN.action.glass.background,
-    "--sec-action-glass-color": TOKEN.action.glass.color,
-    "--sec-action-glass-border": TOKEN.action.glass.border,
-    "--sec-action-glass-shadow": TOKEN.action.glass.shadow,
-    "--sec-radius-button": `${TOKEN.radius.button}px`,
+    "--sec-action-primary-shadow": d.shadowGlow,
+    "--sec-action-glass-bg": d.card,
+    "--sec-action-glass-color": d.ink,
+    "--sec-action-glass-border": `1px solid ${d.line}`,
+    "--sec-action-glass-shadow": "0 1px 2px rgba(88, 62, 38, 0.05)",
+    "--sec-radius-button": `${d.radius.button}px`,
     "--sec-font-body": `${TOKEN.font.body}px`,
-    "--sec-weight-bold": `${TOKEN.weight.bold}`,
+    "--sec-weight-bold": `${d.weight.semibold}`,
   };
 }
 
@@ -1687,7 +1690,7 @@ function LoopResult({ mode, obligation }: { mode: "met" | "snooze" | "release" |
   const echoMeta =
     mode === "created" ? `אזכיר: ${reminder}` :
     mode === "snooze" ? "אזכיר שוב בקרוב" :
-    mode === "met" ? (nextDate ? `התשלום הבא: ${nextDate}` : "שולם ונסגר") :
+    mode === "met" ? (nextDate ? `התשלום הבא: ${nextDate}` : "טופל ונסגר") :
     recurrenceText(obligation?.recurrence ?? "NONE");
   return <section className={resultClass}><div className={badgeClass}>✓</div><h2>{config.title}</h2><p>{config.body}</p>{obligation && mode !== "release" ? <section className={echoClass}><span>{emojiForObligation(obligation)}</span><div><strong>{name}</strong><small>{echoMeta}</small></div><b>{amount}</b></section> : null}<div className={styles.loopFoot}><PrimaryLink href={mode === "created" ? screenHref("capture") : "/secretary?today=1"}>{config.primary}</PrimaryLink>{config.secondary ? <GhostLink href="/secretary">{config.secondary}</GhostLink> : null}</div></section>;
 }
