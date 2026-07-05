@@ -1,4 +1,4 @@
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 export default function ReviewExtractedDetailRow({
   icon,

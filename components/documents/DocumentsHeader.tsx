@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import type { CSSProperties } from "react";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 type DocumentsHeaderProps = {
   title: string;
@@ -92,7 +92,8 @@ const backBtnStyle: CSSProperties = {
   width: 40,
   height: 40,
   padding: 0,
-  borderRadius: TOKEN.radius.button,
+  // DS toolbar icon-buttons (back/close) are round.
+  borderRadius: TOKEN.radius.pill,
   border: `1px solid ${TOKEN.border.DEFAULT}`,
   background: TOKEN.surface.card,
   color: TOKEN.brand.mid,

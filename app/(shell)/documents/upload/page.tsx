@@ -2,8 +2,8 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { TOKEN } from "@/lib/design/tokens";
-import { glassActionStyle } from "@/lib/design/action-styles";
+import { TOKEN } from "@/lib/design/documents-theme";
+import { glassActionStyle } from "@/lib/design/documents-theme";
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -47,7 +47,6 @@ export default function DocumentsUploadPage() {
 
   return (
     <div dir="rtl" style={pageStyle}>
-      <style>{`@keyframes documents-processing-spin{to{transform:rotate(360deg)}}`}</style>
       <main style={mainStyle}>
         <header style={headStyle}>
           <button type="button" onClick={() => router.push("/documents")} style={backButtonStyle}>
@@ -96,12 +95,12 @@ export default function DocumentsUploadPage() {
 
         {processingName ? (
           <>
-            <div style={labelStyle}>מעלה כעת</div>
+            <div style={labelStyle}>בעיבוד כעת</div>
             <div style={processingStyle}>
               <span style={spinnerStyle} aria-hidden />
               <div style={{ minWidth: 0 }}>
                 <div style={processingTitleStyle}>{processingName}</div>
-                <div style={processingMetaStyle}>מעלה את הקובץ ומכין אותו לעיבוד...</div>
+                <div style={processingMetaStyle}>מריץ OCR וחילוץ נתונים...</div>
               </div>
             </div>
           </>
@@ -239,7 +238,6 @@ const spinnerStyle = {
   border: `3px solid ${TOKEN.brand.softBorder}`,
   borderTopColor: TOKEN.brand.mid,
   flexShrink: 0,
-  animation: "documents-processing-spin 0.8s linear infinite",
 } as const;
 
 const processingTitleStyle = {

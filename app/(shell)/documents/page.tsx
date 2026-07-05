@@ -6,8 +6,8 @@ import {
   fetchDocumentsHubSummary,
   type DocumentsHubSnapshot,
 } from "@/lib/documents/fetch-inbox";
-import { TOKEN } from "@/lib/design/tokens";
-import { glassActionStyle } from "@/lib/design/action-styles";
+import { TOKEN } from "@/lib/design/documents-theme";
+import { glassActionStyle } from "@/lib/design/documents-theme";
 
 type LoadState =
   | { status: "loading" }
@@ -149,13 +149,6 @@ export default function DocumentsHome() {
           style={{ display: "none" }}
           onChange={(e) => void uploadDocument(e.target.files?.[0])}
         />
-
-        {uploading ? (
-          <div style={uploadingToastStyle} role="status" aria-live="polite">
-            <span style={uploadingSpinnerStyle} aria-hidden />
-            <span>מעלה את הקובץ…</span>
-          </div>
-        ) : null}
 
         <header style={hubHeaderStyle}>
           <h1 style={hubTitleStyle}>מסמכים</h1>
@@ -585,38 +578,7 @@ function ChevronLeftIcon() {
   );
 }
 
-const uploadingToastStyle = {
-  position: "fixed" as const,
-  left: "50%",
-  bottom: 96,
-  transform: "translateX(-50%)",
-  zIndex: 2147483000,
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 10,
-  maxWidth: "calc(100% - 28px)",
-  borderRadius: TOKEN.radius.pill,
-  background: TOKEN.ink.primary,
-  color: TOKEN.ink.inverse,
-  padding: "12px 20px",
-  boxShadow: TOKEN.shadow.floating,
-  fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-};
-
-const uploadingSpinnerStyle = {
-  width: 18,
-  height: 18,
-  borderRadius: TOKEN.radius.pill,
-  border: "3px solid rgba(255,255,255,0.35)",
-  borderTopColor: TOKEN.ink.inverse,
-  display: "inline-block",
-  animation: "documents-processing-spin 0.8s linear infinite",
-};
-
 const documentsHomeCss = `
-  @keyframes documents-processing-spin { to { transform: rotate(360deg); } }
-
   .documents-home input::placeholder {
     color: ${TOKEN.ink.muted};
     opacity: 1;

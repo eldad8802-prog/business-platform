@@ -25,7 +25,7 @@ import {
   secondaryBtn,
 } from "../ui";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 import DocumentsDashboardSkeleton from "@/components/documents/skeletons/DocumentsDashboardSkeleton";
 import DubizDateField from "@/components/documents/DubizDateField";
 
@@ -411,7 +411,7 @@ export default function Dashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke={TOKEN.border.DEFAULT} />
                   <XAxis
                     dataKey="name"
-                    tick={{ fill: TOKEN.ink.secondary, fontSize: 13, fontWeight: 700 }}
+                    tick={{ fill: TOKEN.ink.secondary, fontSize: 13, fontWeight: 600 }}
                   />
                   <YAxis
                     tick={{ fill: TOKEN.ink.muted, fontSize: 12 }}

@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useDocumentsInbox } from "@/hooks/useDocumentsInbox";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
-import { TOKEN } from "@/lib/design/tokens";
-import { glassActionStyle } from "@/lib/design/action-styles";
+import { TOKEN } from "@/lib/design/documents-theme";
+import { glassActionStyle } from "@/lib/design/documents-theme";
 import DocumentCard from "./DocumentCard";
-import ProcessingCard from "./ProcessingCard";
 import InboxEmptyState from "./InboxEmptyState";
 import InboxSkeleton from "./InboxSkeleton";
 import MonthSection from "./MonthSection";
@@ -33,31 +32,11 @@ export default function DocumentsInboxScreen({
   authToken: string | null;
 }) {
   const router = useRouter();
-  const {
-    scope,
-    items,
-    pagination,
-    loading,
-    loadingMore,
-    error,
-    refetch,
-    refetchQuiet,
-    loadMore,
-  } = useDocumentsInbox(authToken);
+  const { scope, items, pagination, loading, loadingMore, error, refetch, loadMore } =
+    useDocumentsInbox(authToken);
 
   const pendingItems = useMemo(
     () => items.filter((item) => item.status === "needs_review"),
-    [items]
-  );
-  // In-flight uploads (two-phase): appear immediately after Phase 1, before OCR
-  // finishes. Newest first, above the verification queue.
-  const processingItems = useMemo(
-    () =>
-      items
-        .filter(
-          (item) => item.status === "processing" || item.status === "failed"
-        )
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     [items]
   );
   const monthKeys = useMemo(
@@ -65,25 +44,10 @@ export default function DocumentsInboxScreen({
     [pendingItems]
   );
 
-  // Poll while any document is still processing so it flips to "ready" on its
-  // own. Quiet refetch = no skeleton flash. Stops once nothing is in-flight.
-  const hasProcessing = useMemo(
-    () => processingItems.some((item) => item.status === "processing"),
-    [processingItems]
-  );
-  useEffect(() => {
-    if (!hasProcessing) return;
-    const timer = setInterval(() => {
-      void refetchQuiet();
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [hasProcessing, refetchQuiet]);
-
   const displayError = error === "Server error" ? "שגיאת שרת" : error;
 
   return (
     <div dir="rtl" style={pageStyle}>
-      <style>{`@keyframes documents-processing-spin{to{transform:rotate(360deg)}}`}</style>
       <main style={mainStyle}>
         <header style={headStyle}>
           <button
@@ -118,20 +82,6 @@ export default function DocumentsInboxScreen({
 
         {!loading && !error ? (
           <>
-            {processingItems.length > 0 ? (
-              <section style={processingSectionStyle}>
-                <div style={processingHeadingStyle}>בהעלאה</div>
-                {processingItems.map((item) => (
-                  <ProcessingCard
-                    key={item.documentId}
-                    item={item}
-                    authToken={authToken}
-                    onRetried={() => void refetchQuiet()}
-                  />
-                ))}
-              </section>
-            ) : null}
-
             <section style={bandStyle}>
               <WarningIcon />
               <span>{pendingItems.length.toLocaleString("he-IL")}</span>
@@ -257,19 +207,6 @@ const listStyle = {
   display: "flex",
   flexDirection: "column",
   gap: 18,
-} as const;
-
-const processingSectionStyle = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 10,
-  marginBottom: 18,
-} as const;
-
-const processingHeadingStyle = {
-  color: TOKEN.ink.secondary,
-  fontSize: TOKEN.font.meta,
-  fontWeight: TOKEN.weight.bold,
 } as const;
 
 const errorStyle = {

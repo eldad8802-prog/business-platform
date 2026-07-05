@@ -1,5 +1,5 @@
 import type { ReviewState } from "@/lib/documents/review/types";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 export default function ReviewHero({ state }: { state: ReviewState }) {
   return (
@@ -22,7 +22,7 @@ export default function ReviewHero({ state }: { state: ReviewState }) {
           color: TOKEN.ink.muted,
           fontSize: 18,
           lineHeight: 1.6,
-          fontWeight: 700,
+          fontWeight: 600,
           maxWidth: 560,
         }}
       >

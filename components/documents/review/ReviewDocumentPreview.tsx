@@ -1,8 +1,8 @@
 "use client";
 
 import { reviewCard } from "./review-ui";
-import { TOKEN } from "@/lib/design/tokens";
-import { glassActionStyle } from "@/lib/design/action-styles";
+import { TOKEN } from "@/lib/design/documents-theme";
+import { glassActionStyle } from "@/lib/design/documents-theme";
 
 const toolbarStyle = {
   display: "flex",

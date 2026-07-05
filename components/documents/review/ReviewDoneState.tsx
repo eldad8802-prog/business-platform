@@ -2,7 +2,7 @@
 
 import ReviewOutcomeRow from "./ReviewOutcomeRow";
 import { primaryDarkButton, reviewCard, secondaryButton } from "./review-ui";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 export type ReviewDoneStateProps = {
   approvedAs: "financial" | "document" | null;

@@ -8,7 +8,7 @@ import type {
   ReviewMode,
 } from "@/lib/documents/review/types";
 import { formatAmountDisplay, formatDateShort } from "@/lib/documents/review/format";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 import {
   firstMissingFinancialField,
   hasNonEmptyText,
@@ -118,7 +118,7 @@ export default function ReviewSummarySection({
           background: isFinancial ? TOKEN.semantic.success.bgSoft : TOKEN.surface.inset,
           borderColor: isFinancial ? TOKEN.semantic.success.border : TOKEN.border.DEFAULT,
           fontSize: 14,
-          fontWeight: 800,
+          fontWeight: 600,
           lineHeight: 1.6,
         }}
       >

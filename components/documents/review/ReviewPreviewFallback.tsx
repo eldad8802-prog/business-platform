@@ -1,4 +1,4 @@
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 export default function ReviewPreviewFallback({
   vendorDisplay,
@@ -19,7 +19,7 @@ export default function ReviewPreviewFallback({
           textAlign: "center",
           color: TOKEN.ink.muted,
           fontSize: 13,
-          fontWeight: 800,
+          fontWeight: 600,
           marginTop: 8,
         }}
       >
@@ -34,7 +34,7 @@ export default function ReviewPreviewFallback({
           padding: 18,
           color: TOKEN.ink.muted,
           fontSize: 14,
-          fontWeight: 800,
+          fontWeight: 600,
           lineHeight: 1.6,
         }}
       >

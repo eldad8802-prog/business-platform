@@ -1,10 +1,23 @@
-import { TOKEN } from "@/lib/design/tokens";
-import { glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
+import { TOKEN } from "@/lib/design/documents-theme";
+import { glassActionStyle, primaryActionStyle } from "@/lib/design/documents-theme";
 
 export const layout = {
   minHeight: "100vh",
   background: TOKEN.surface.page,
   color: TOKEN.ink.primary,
+  // DS v1 font — cascades to the whole Documents feature (the layout wraps every
+  // documents route and exposes --font-heebo). The stack is only a fallback for
+  // the brief moment before the web font loads.
+  fontFamily:
+    "var(--font-heebo), 'Heebo', 'Assistant', system-ui, -apple-system, sans-serif",
+  // Root-cause guard for Hebrew glyph collision: Heebo is loaded only at weights
+  // 300–600 (DS v1 forbids 700+). Any text that requests a heavier weight — an
+  // explicit 700/800/900 OR a UA-default bold on <strong>/<h1>–<h6> — would make
+  // the browser SYNTHESIZE bold by smearing glyphs wider, which overlaps Hebrew
+  // letters (e.g. the ג in "גם" riding onto the ם). `none` disables that faux
+  // bold feature-wide, so a missing weight renders with the nearest real Heebo
+  // face (600) instead of a collided smear. Inherited → covers every descendant.
+  fontSynthesis: "none",
 };
 
 export const header = {
@@ -34,6 +47,8 @@ export const backBtn = {
   ...glassActionStyle({ height: 40 }),
   width: 40,
   height: 40,
+  // DS toolbar icon-buttons (back/close) are round.
+  borderRadius: TOKEN.radius.pill,
   fontSize: 18,
   padding: 0,
 };

@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
-import { TOKEN } from "@/lib/design/tokens";
-import { chipActionStyle, glassActionStyle } from "@/lib/design/action-styles";
+import { TOKEN } from "@/lib/design/documents-theme";
+import { chipActionStyle, glassActionStyle } from "@/lib/design/documents-theme";
 
 type SearchResultDocument = {
   status?: string | null;

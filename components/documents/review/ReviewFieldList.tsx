@@ -8,7 +8,7 @@ import type {
   TrafficLevel,
 } from "@/lib/documents/review/types";
 import { formatAmountDisplay, formatDateShort } from "@/lib/documents/review/format";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 import { hasNonEmptyText, isValidPositiveAmount } from "@/lib/documents/review/validation";
 import ReviewFieldRow from "./ReviewFieldRow";
 

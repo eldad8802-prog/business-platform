@@ -1,5 +1,5 @@
 import type { TrustLevel } from "@/lib/documents/review/types";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 import ReviewReliabilityScale from "./ReviewReliabilityScale";
 import ReviewTrustChecklistItem from "./ReviewTrustChecklistItem";
 

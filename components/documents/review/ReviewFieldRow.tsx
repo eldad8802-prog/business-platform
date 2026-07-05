@@ -1,5 +1,5 @@
 import { editPillBtn } from "@/app/(shell)/documents/ui";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 import { TRAFFIC_CONFIG } from "@/lib/documents/review/traffic";
 import type { TrafficLevel } from "@/lib/documents/review/types";
 
@@ -65,7 +65,7 @@ export default function ReviewFieldRow({
                 flexShrink: 0,
               }}
             />
-            <span style={{ fontSize: 12, fontWeight: 800, color: cfg.captionColor }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: cfg.captionColor }}>
               {cfg.caption}
             </span>
           </div>

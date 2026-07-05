@@ -9,8 +9,8 @@ import {
   type GmailDiscoveryAttachment,
   type ScoredAttachment,
 } from "@/lib/services/email-import/scoring";
-import { TOKEN } from "@/lib/design/tokens";
-import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
+import { TOKEN } from "@/lib/design/documents-theme";
+import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/documents-theme";
 
 type GmailStatusResponse =
   | { error: string }

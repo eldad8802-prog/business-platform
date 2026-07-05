@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 import ConfidenceDots from "./ConfidenceDots";
 
 function fmtMoney(n: number) {

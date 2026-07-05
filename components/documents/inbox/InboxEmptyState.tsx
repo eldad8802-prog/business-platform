@@ -1,6 +1,6 @@
 "use client";
 
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 
 export type InboxEmptyVariant =
   | "no_documents_month"

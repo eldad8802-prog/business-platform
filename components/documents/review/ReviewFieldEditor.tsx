@@ -2,7 +2,7 @@
 
 import { CATEGORIES } from "@/lib/constants/categories";
 import type { Direction, EditableField, ReviewDraft } from "@/lib/documents/review/types";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/documents-theme";
 import DubizDateField from "@/components/documents/DubizDateField";
 import { primaryDarkButton, reviewInput, secondaryButton } from "./review-ui";
 
