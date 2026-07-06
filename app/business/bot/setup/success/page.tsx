@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/bot-theme";
 import { BUILDER_SHELL_MAX_WIDTH } from "../../../bot-settings/_components/bot-builder-area-ui";
 
 type ActivationApplied = {
@@ -215,7 +215,7 @@ const pageStyle: CSSProperties = { minHeight: "100dvh", background: TOKEN.surfac
 const shellStyle: CSSProperties = { width: "100%", maxWidth: BUILDER_SHELL_MAX_WIDTH, minHeight: "100dvh", background: TOKEN.surface.card, display: "flex", flexDirection: "column", overflowX: "hidden", boxSizing: "border-box" };
 const bodyStyle: CSSProperties = { flex: 1, overflowY: "auto", padding: "0 22px 30px", display: "flex", flexDirection: "column", boxSizing: "border-box" };
 const heroStyle: CSSProperties = { textAlign: "center", padding: "18px 0 4px" };
-const checkStyle: CSSProperties = { width: 78, height: 78, borderRadius: TOKEN.radius.pill, background: TOKEN.semantic.success.bg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", boxShadow: "0 0 0 8px rgba(16, 185, 129, 0.14)" };
+const checkStyle: CSSProperties = { width: 78, height: 78, borderRadius: TOKEN.radius.pill, background: TOKEN.semantic.success.bg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", boxShadow: "0 0 0 8px rgba(36, 105, 102, 0.14)" };
 const titleStyle: CSSProperties = { margin: "0 0 8px", fontSize: TOKEN.font.hero, fontWeight: TOKEN.weight.bold, color: TOKEN.ink.primary, letterSpacing: 0, lineHeight: 1.25 };
 const subtitleStyle: CSSProperties = { margin: 0, color: TOKEN.ink.muted, fontSize: TOKEN.font.body, fontWeight: TOKEN.weight.semibold, lineHeight: 1.55 };
 const botNameStyle: CSSProperties = { color: TOKEN.semantic.info.ink, fontWeight: TOKEN.weight.bold };
