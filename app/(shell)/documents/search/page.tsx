@@ -182,7 +182,11 @@ export default function DocumentsSearchPage() {
 
         <section style={resultsStyle}>
           {results.map((item) => (
-            <SearchRow key={item.id} item={item} />
+            <SearchRow
+              key={item.id}
+              item={item}
+              onOpen={() => router.push(`/documents/review/${item.documentId}`)}
+            />
           ))}
         </section>
       </main>
@@ -203,12 +207,17 @@ function Header({ onBack }: { onBack: () => void }) {
   );
 }
 
-function SearchRow({ item }: { item: SearchResult }) {
+function SearchRow({ item, onOpen }: { item: SearchResult; onOpen: () => void }) {
   const category = CATEGORY_MAP[item.category] || item.category || "כללי";
   const isIncome = item.direction === "income";
 
   return (
-    <article style={rowStyle}>
+    <button
+      type="button"
+      onClick={onOpen}
+      style={rowStyle}
+      aria-label={`פתח מסמך: ${item.vendorName || "ללא ספק"}`}
+    >
       <div style={thumbStyle} aria-hidden>
         {item.document?.mimeType?.includes("image") ? <ImageIcon /> : <FileTextIcon />}
       </div>
@@ -230,7 +239,7 @@ function SearchRow({ item }: { item: SearchResult }) {
         </div>
         <span style={approvedPillStyle}>אומת</span>
       </div>
-    </article>
+    </button>
   );
 }
 
@@ -367,6 +376,7 @@ const resultsStyle = {
 
 const rowStyle = {
   minHeight: 82,
+  width: "100%",
   border: `1px solid ${TOKEN.border.DEFAULT}`,
   borderRadius: TOKEN.radius.card,
   background: TOKEN.surface.card,
@@ -375,6 +385,10 @@ const rowStyle = {
   display: "flex",
   alignItems: "center",
   gap: 12,
+  font: "inherit",
+  color: "inherit",
+  textAlign: "right",
+  cursor: "pointer",
 } as const;
 
 const thumbStyle = {
