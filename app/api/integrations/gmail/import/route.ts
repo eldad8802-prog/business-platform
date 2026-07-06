@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getGmailAccessTokenForBusiness } from "@/lib/services/integrations/gmail/gmail-auth.service";
+import { isGmailConnectionOwnedByBusiness } from "@/lib/services/integrations/gmail/gmail-connection.service";
 import { GmailReauthRequiredError } from "@/lib/services/integrations/gmail/gmail-errors";
 import { fetchGmailAttachmentBytes } from "@/lib/services/integrations/gmail/gmail-attachment-fetch.service";
 import { checkEmailImportDedup } from "@/lib/services/integrations/gmail/email-import-dedup.service";
@@ -66,6 +67,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
+    // Optional account selection. When provided it must be a valid, owned Gmail
+    // connection; otherwise we fall back to the first connected account
+    // (unchanged single-account behavior).
+    let requestedConnectionId: number | undefined;
+    const rawConnectionId = (json as { connectionId?: unknown }).connectionId;
+    if (rawConnectionId != null) {
+      const parsed =
+        typeof rawConnectionId === "number" ? rawConnectionId : Number(rawConnectionId);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        return NextResponse.json({ error: "connectionId לא תקין" }, { status: 400 });
+      }
+      const owned = await isGmailConnectionOwnedByBusiness({
+        businessId: user.businessId,
+        connectionId: parsed,
+      });
+      if (!owned) {
+        return NextResponse.json({ error: "החשבון לא נמצא" }, { status: 404 });
+      }
+      requestedConnectionId = parsed;
+    }
+
     const body: ImportRequestBody = {
       messageId: safeString(json.messageId),
       attachmentId: safeString(json.attachmentId),
@@ -120,6 +142,7 @@ export async function POST(req: NextRequest) {
 
     const { connectionId, accessToken } = await getGmailAccessTokenForBusiness({
       businessId: user.businessId,
+      connectionId: requestedConnectionId,
     });
 
     const { bytes, sizeBytes } = await fetchGmailAttachmentBytes({
