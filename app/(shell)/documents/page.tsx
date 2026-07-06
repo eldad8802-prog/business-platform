@@ -18,6 +18,34 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+// Vercel serverless functions reject request bodies larger than ~4.5MB at the
+// platform edge (before our handler runs), returning a non-JSON 413. Keep the
+// client cap safely below that, allowing headroom for multipart overhead.
+const MAX_CLIENT_UPLOAD_BYTES = 4 * 1024 * 1024; // 4MB
+const OVERSIZE_MESSAGE =
+  "הקובץ גדול מדי (עד 4MB). נסה קובץ קטן יותר או צלם באיכות נמוכה יותר.";
+
+function isJsonResponse(res: Response): boolean {
+  return (res.headers.get("content-type") || "").includes("application/json");
+}
+
+async function uploadFailureMessage(res: Response): Promise<string> {
+  // 413 (incl. Vercel's FUNCTION_PAYLOAD_TOO_LARGE, which is text/plain) means
+  // the file exceeded the size limit. Do NOT read the body — it may not be JSON.
+  if (res.status === 413) return OVERSIZE_MESSAGE;
+
+  // Otherwise surface an app-provided JSON error if present; never the raw body.
+  if (isJsonResponse(res)) {
+    try {
+      const data = (await res.json()) as { error?: string };
+      if (typeof data?.error === "string" && data.error) return data.error;
+    } catch {
+      // fall through to the generic message
+    }
+  }
+  return "אירעה שגיאה בהעלאת המסמך. נסה שוב.";
+}
+
 function formatMoney(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "-";
   try {
@@ -93,6 +121,14 @@ export default function DocumentsHome() {
       return;
     }
 
+    // Block oversized files up front with a clear message, instead of letting
+    // Vercel reject the request body at the edge with a non-JSON 413 that the
+    // client cannot parse.
+    if (file.size > MAX_CLIENT_UPLOAD_BYTES) {
+      setUploadError(OVERSIZE_MESSAGE);
+      return;
+    }
+
     setUploading(true);
     setUploadError("");
 
@@ -108,8 +144,19 @@ export default function DocumentsHome() {
         },
       });
 
+      // Never call res.json() blindly: an error response can carry a non-JSON
+      // body (e.g. Vercel's text/plain 413 "FUNCTION_PAYLOAD_TOO_LARGE"), and
+      // parsing it would throw a raw, user-hostile SyntaxError. Resolve the
+      // failure to a friendly Hebrew message first.
+      if (!res.ok) {
+        throw new Error(await uploadFailureMessage(res));
+      }
+      if (!isJsonResponse(res)) {
+        throw new Error("אירעה שגיאה בהעלאת המסמך. נסה שוב.");
+      }
+
       const data = await res.json();
-      if (!res.ok || !data?.documentId) {
+      if (!data?.documentId) {
         throw new Error(data?.error || "Upload failed");
       }
 
