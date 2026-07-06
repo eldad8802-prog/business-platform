@@ -182,7 +182,15 @@ export default function DocumentsSearchPage() {
 
         <section style={resultsStyle}>
           {results.map((item) => (
-            <SearchRow key={item.id} item={item} />
+            <SearchRow
+              key={item.id}
+              item={item}
+              onOpen={
+                Number.isFinite(item.documentId)
+                  ? () => router.push(`/documents/review/${item.documentId}`)
+                  : undefined
+              }
+            />
           ))}
         </section>
       </main>
@@ -203,12 +211,12 @@ function Header({ onBack }: { onBack: () => void }) {
   );
 }
 
-function SearchRow({ item }: { item: SearchResult }) {
+function SearchRow({ item, onOpen }: { item: SearchResult; onOpen?: () => void }) {
   const category = CATEGORY_MAP[item.category] || item.category || "כללי";
   const isIncome = item.direction === "income";
 
-  return (
-    <article style={rowStyle}>
+  const content = (
+    <>
       <div style={thumbStyle} aria-hidden>
         {item.document?.mimeType?.includes("image") ? <ImageIcon /> : <FileTextIcon />}
       </div>
@@ -230,7 +238,24 @@ function SearchRow({ item }: { item: SearchResult }) {
         </div>
         <span style={approvedPillStyle}>אומת</span>
       </div>
-    </article>
+    </>
+  );
+
+  // Without a valid documentId there is nowhere to open, so render a
+  // non-interactive row rather than link to /documents/review/undefined.
+  if (!onOpen) {
+    return <div style={rowStaticStyle}>{content}</div>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      style={rowStyle}
+      aria-label={`פתח מסמך: ${item.vendorName || "ללא ספק"}`}
+    >
+      {content}
+    </button>
   );
 }
 
@@ -367,6 +392,7 @@ const resultsStyle = {
 
 const rowStyle = {
   minHeight: 82,
+  width: "100%",
   border: `1px solid ${TOKEN.border.DEFAULT}`,
   borderRadius: TOKEN.radius.card,
   background: TOKEN.surface.card,
@@ -375,7 +401,14 @@ const rowStyle = {
   display: "flex",
   alignItems: "center",
   gap: 12,
+  font: "inherit",
+  color: "inherit",
+  textAlign: "right",
+  cursor: "pointer",
 } as const;
+
+// Same visual row, but non-interactive (used when a result has no documentId).
+const rowStaticStyle = { ...rowStyle, cursor: "default" } as const;
 
 const thumbStyle = {
   width: 48,
