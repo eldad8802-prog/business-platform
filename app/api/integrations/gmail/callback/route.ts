@@ -40,7 +40,8 @@ type CallbackErrorCode =
   | "google_access_denied"
   | "gmail_state_invalid"
   | "gmail_token_exchange_failed"
-  | "gmail_callback_failed";
+  | "gmail_callback_failed"
+  | "max_accounts";
 
 function redirectToEmail(
   req: NextRequest,
@@ -135,6 +136,23 @@ export async function GET(req: NextRequest) {
 
     const scopes = String(tokens.scope || "").trim();
     const scopesToStore = scopes || "openid email profile https://www.googleapis.com/auth/gmail.readonly";
+
+    // Enforce a maximum of two *connected* Gmail accounts per business.
+    // Reconnecting an already-connected account is always allowed (it updates
+    // in place); a brand-new account is blocked once two are already connected.
+    const existingConnections = await prisma.emailConnection.findMany({
+      where: { businessId, provider: "gmail" },
+      select: { emailAddress: true, status: true },
+    });
+    const isAlreadyConnected = existingConnections.some(
+      (c) => c.emailAddress === userInfo.email && c.status === "connected"
+    );
+    const connectedCount = existingConnections.filter(
+      (c) => c.status === "connected"
+    ).length;
+    if (!isAlreadyConnected && connectedCount >= 2) {
+      return redirectError(req, "max_accounts");
+    }
 
     const connection = await prisma.emailConnection.upsert({
       where: {

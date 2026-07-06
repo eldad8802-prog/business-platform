@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const connection = await prisma.emailConnection.findFirst({
+    const connections = await prisma.emailConnection.findMany({
       where: {
         businessId: user.businessId,
         provider: "gmail",
@@ -25,23 +25,22 @@ export async function GET(req: NextRequest) {
       orderBy: { id: "desc" },
     });
 
-    if (!connection || connection.status !== "connected") {
-      return NextResponse.json({
-        success: true,
-        connected: false,
-      });
-    }
+    // Backward-compatible summary fields: the first still-connected account.
+    // IntegrationStatusCards and the current single-account import flow read
+    // `connected` / `emailAddress`; the new `connections` array powers the
+    // multi-account management UI.
+    const primary = connections.find((c) => c.status === "connected") ?? null;
 
     return NextResponse.json({
       success: true,
-      connected: true,
-      emailAddress: connection.emailAddress,
-      status: connection.status,
-      lastSyncedAt: connection.lastSyncedAt,
+      connected: Boolean(primary),
+      emailAddress: primary?.emailAddress ?? undefined,
+      status: primary?.status,
+      lastSyncedAt: primary?.lastSyncedAt,
+      connections,
     });
   } catch (error) {
     console.error("GMAIL_STATUS_ERROR:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
-
