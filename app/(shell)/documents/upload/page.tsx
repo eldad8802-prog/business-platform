@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { glassActionStyle } from "@/lib/design/documents-theme";
+import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -49,10 +50,7 @@ export default function DocumentsUploadPage() {
     <div dir="rtl" style={pageStyle}>
       <main style={mainStyle}>
         <header style={headStyle}>
-          <button type="button" onClick={() => router.push("/documents")} style={backButtonStyle}>
-            <BackChevronIcon />
-            חזרה
-          </button>
+          <DocumentsBackButton onClick={() => router.push("/documents")} />
           <h1 style={titleStyle}>העלאת קובץ</h1>
           <div aria-hidden style={{ width: 52 }} />
         </header>
@@ -120,14 +118,6 @@ function UploadIcon() {
   );
 }
 
-function BackChevronIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-      <path d="m9 6 6 6-6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </svg>
-  );
-}
-
 function CameraIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden>
@@ -153,18 +143,10 @@ const mainStyle = {
 
 const headStyle = {
   display: "grid",
-  gridTemplateColumns: "52px 1fr 52px",
+  gridTemplateColumns: "auto 1fr 52px",
   alignItems: "center",
   gap: 10,
   marginBottom: 14,
-} as const;
-
-const backButtonStyle = {
-  ...glassActionStyle({ height: 40 }),
-  width: 40,
-  height: 40,
-  fontSize: 0,
-  padding: 0,
 } as const;
 
 const titleStyle = {

@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { CATEGORIES } from "@/lib/constants/categories";
 import { fetchDocumentsHubSummary } from "@/lib/documents/fetch-inbox";
 import { TOKEN } from "@/lib/design/documents-theme";
-import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/documents-theme";
+import { chipActionStyle, primaryActionStyle } from "@/lib/design/documents-theme";
+import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 
 type PeriodType = "month" | "quarter" | "year";
 
@@ -116,15 +117,7 @@ export default function AccountantPackPage() {
     <div dir="rtl" style={pageStyle}>
       <main style={mainStyle}>
         <header style={headStyle}>
-          <button
-            type="button"
-            onClick={() => router.push("/documents")}
-            style={backButtonStyle}
-            aria-label="חזרה"
-          >
-            <BackChevronIcon />
-            חזרה
-          </button>
+          <DocumentsBackButton onClick={() => router.push("/documents")} />
           <h1 style={titleStyle}>חבילת רו״ח</h1>
           <div aria-hidden style={{ width: 52 }} />
         </header>
@@ -243,14 +236,6 @@ function CalendarIcon() {
   );
 }
 
-function BackChevronIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-      <path d="m9 6 6 6-6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </svg>
-  );
-}
-
 function WarningIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
@@ -275,18 +260,10 @@ const mainStyle = {
 
 const headStyle = {
   display: "grid",
-  gridTemplateColumns: "52px 1fr 52px",
+  gridTemplateColumns: "auto 1fr 52px",
   alignItems: "center",
   gap: 10,
   marginBottom: 20,
-} as const;
-
-const backButtonStyle = {
-  ...glassActionStyle({ height: 40 }),
-  width: 40,
-  height: 40,
-  fontSize: 0,
-  padding: 0,
 } as const;
 
 const titleStyle = {

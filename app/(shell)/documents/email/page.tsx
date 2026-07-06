@@ -11,6 +11,7 @@ import {
 } from "@/lib/services/email-import/scoring";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/documents-theme";
+import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 
 type GmailStatusResponse =
   | { error: string }
@@ -394,10 +395,7 @@ export default function EmailDocumentsPage() {
 function Header({ onBack }: { onBack: () => void }) {
   return (
     <header style={headStyle}>
-      <button type="button" onClick={onBack} style={backButtonStyle}>
-        <BackChevronIcon />
-        חזרה
-      </button>
+      <DocumentsBackButton onClick={onBack} />
       <h1 style={titleStyle}>קליטה מ-Gmail</h1>
       <div aria-hidden style={{ width: 52 }} />
     </header>
@@ -420,14 +418,6 @@ function WarningIcon() {
   );
 }
 
-function BackChevronIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-      <path d="m9 6 6 6-6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </svg>
-  );
-}
-
 const pageStyle = {
   minHeight: "100vh",
   background: TOKEN.surface.page,
@@ -444,18 +434,10 @@ const mainStyle = {
 
 const headStyle = {
   display: "grid",
-  gridTemplateColumns: "52px 1fr 52px",
+  gridTemplateColumns: "auto 1fr 52px",
   alignItems: "center",
   gap: 10,
   marginBottom: 14,
-} as const;
-
-const backButtonStyle = {
-  ...glassActionStyle({ height: 40 }),
-  width: 40,
-  height: 40,
-  fontSize: 0,
-  padding: 0,
 } as const;
 
 const titleStyle = {

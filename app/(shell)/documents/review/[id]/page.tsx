@@ -15,6 +15,7 @@ import {
   ReviewFieldEditorLazy,
 } from "@/components/documents/review/review-lazy";
 import ReviewNotFound from "@/components/documents/review/ReviewNotFound";
+import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 import { basePageStyle, mainStyle } from "@/components/documents/review/review-ui";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { errorMessage } from "@/lib/documents/review/format";
@@ -507,14 +508,7 @@ export default function ReviewPage() {
     <div dir="rtl" style={basePageStyle()}>
       <main style={mainStyle()}>
         <section style={reviewTopBarStyle}>
-          <button
-            type="button"
-            onClick={() => router.push("/documents")}
-            style={reviewBackButtonStyle}
-          >
-            <BackChevronIcon />
-            חזרה למסמכים
-          </button>
+          <DocumentsBackButton onClick={() => router.push("/documents")} />
           <div style={reviewTopTitleWrapStyle}>
             <div style={reviewTopTitleStyle}>אימות מסמך</div>
             <div style={reviewTopMetaStyle}>בדיקה, תיקון ואישור במקום אחד</div>
@@ -698,14 +692,6 @@ function ReviewOverlayShell({
   );
 }
 
-function BackChevronIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="m9 6 6 6-6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 const reviewTopBarStyle = {
   marginTop: 18,
   border: `1px solid ${TOKEN.border.DEFAULT}`,
@@ -717,22 +703,6 @@ const reviewTopBarStyle = {
   gridTemplateColumns: "minmax(120px, auto) minmax(0, 1fr) auto",
   gap: 14,
   alignItems: "center",
-} as const;
-
-const reviewBackButtonStyle = {
-  width: 40,
-  height: 40,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  borderRadius: TOKEN.radius.button,
-  background: TOKEN.surface.card,
-  color: TOKEN.brand.mid,
-  fontSize: 0,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 0,
 } as const;
 
 const reviewTopTitleWrapStyle = {
@@ -793,10 +763,7 @@ function ProcessingReviewScreen({
       <style>{`@keyframes documents-processing-spin{to{transform:rotate(360deg)}}`}</style>
       <main style={mainStyle()}>
         <section style={reviewTopBarStyle}>
-          <button type="button" onClick={onBack} style={reviewBackButtonStyle}>
-            <BackChevronIcon />
-            חזרה למסמכים
-          </button>
+          <DocumentsBackButton onClick={onBack} />
           <div style={reviewTopTitleWrapStyle}>
             <div style={reviewTopTitleStyle}>אימות מסמך</div>
             <div style={reviewTopMetaStyle}>בדיקה, תיקון ואישור במקום אחד</div>
