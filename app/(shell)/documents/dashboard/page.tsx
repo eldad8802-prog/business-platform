@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 import {
   Bar,
   BarChart,
@@ -248,6 +249,9 @@ export default function Dashboard() {
   return (
     <div dir="rtl" style={{ minHeight: "100vh", background: TOKEN.surface.page }}>
       <main style={{ ...pageMain, maxWidth: 760 }}>
+        <div style={{ marginBottom: 12 }}>
+          <DocumentsBackButton onClick={() => router.push("/documents")} />
+        </div>
         <section style={{ textAlign: "center", padding: "4px 0 2px" }}>
           <h1
             style={{

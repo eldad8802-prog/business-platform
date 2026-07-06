@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
 import { TOKEN } from "@/lib/design/documents-theme";
-import { chipActionStyle, glassActionStyle } from "@/lib/design/documents-theme";
+import { chipActionStyle } from "@/lib/design/documents-theme";
+import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 
 type SearchResultDocument = {
   status?: string | null;
@@ -201,10 +202,7 @@ export default function DocumentsSearchPage() {
 function Header({ onBack }: { onBack: () => void }) {
   return (
     <header style={headStyle}>
-      <button type="button" onClick={onBack} style={backButtonStyle} aria-label="חזרה">
-        <BackChevronIcon />
-        חזרה
-      </button>
+      <DocumentsBackButton onClick={onBack} />
       <h1 style={titleStyle}>חיפוש מסמכים</h1>
       <div aria-hidden style={{ width: 52 }} />
     </header>
@@ -268,14 +266,6 @@ function SearchIcon() {
   );
 }
 
-function BackChevronIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-      <path d="m9 6 6 6-6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </svg>
-  );
-}
-
 function FileTextIcon() {
   return (
     <svg width="25" height="25" viewBox="0 0 24 24" aria-hidden>
@@ -310,18 +300,10 @@ const mainStyle = {
 
 const headStyle = {
   display: "grid",
-  gridTemplateColumns: "52px 1fr 52px",
+  gridTemplateColumns: "auto 1fr 52px",
   alignItems: "center",
   gap: 10,
   marginBottom: 14,
-} as const;
-
-const backButtonStyle = {
-  ...glassActionStyle({ height: 40 }),
-  width: 40,
-  height: 40,
-  fontSize: 0,
-  padding: 0,
 } as const;
 
 const titleStyle = {
