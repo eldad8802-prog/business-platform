@@ -27,25 +27,35 @@ export default function ReviewFieldEditor({
   return (
     <section style={{ width: "100%" }}>
       {editField === "amount" ? (
-        <input
-          type="number"
-          value={draft.amount ?? ""}
-          onChange={(e) =>
-            onDraftChange((d) => ({
-              ...d,
-              amount: e.target.value === "" ? null : Number(e.target.value),
-            }))
-          }
-          style={reviewInput}
-        />
+        <div style={fieldWrapStyle}>
+          <input
+            type="number"
+            value={draft.amount ?? ""}
+            onChange={(e) =>
+              onDraftChange((d) => ({
+                ...d,
+                amount: e.target.value === "" ? null : Number(e.target.value),
+              }))
+            }
+            style={inputWithClearStyle}
+          />
+          {draft.amount != null ? (
+            <ClearFieldButton onClick={() => onDraftChange((d) => ({ ...d, amount: null }))} />
+          ) : null}
+        </div>
       ) : null}
 
       {editField === "vendorName" ? (
-        <input
-          value={draft.vendorName}
-          onChange={(e) => onDraftChange((d) => ({ ...d, vendorName: e.target.value }))}
-          style={reviewInput}
-        />
+        <div style={fieldWrapStyle}>
+          <input
+            value={draft.vendorName}
+            onChange={(e) => onDraftChange((d) => ({ ...d, vendorName: e.target.value }))}
+            style={inputWithClearStyle}
+          />
+          {draft.vendorName ? (
+            <ClearFieldButton onClick={() => onDraftChange((d) => ({ ...d, vendorName: "" }))} />
+          ) : null}
+        </div>
       ) : null}
 
       {editField === "date" ? (
@@ -111,6 +121,46 @@ export default function ReviewFieldEditor({
         </button>
       </div>
     </section>
+  );
+}
+
+const fieldWrapStyle = { position: "relative" as const, width: "100%" };
+
+const inputWithClearStyle = { ...reviewInput, paddingLeft: 46 } as const;
+
+function ClearFieldButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label="נקה שדה"
+      onClick={onClick}
+      style={{
+        position: "absolute",
+        left: 8,
+        top: "50%",
+        transform: "translateY(-50%)",
+        width: 34,
+        height: 34,
+        borderRadius: 999,
+        border: "none",
+        background: TOKEN.surface.inset,
+        color: TOKEN.ink.muted,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: "pointer",
+        padding: 0,
+      }}
+    >
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden focusable="false">
+        <path
+          d="M3.5 3.5 10.5 10.5M10.5 3.5 3.5 10.5"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </svg>
+    </button>
   );
 }
 
