@@ -45,6 +45,20 @@ type ScannerFormats = ComponentProps<typeof Scanner>["formats"];
 /** Same code within this window (continuous mode) is treated as one sighting. */
 const RESCAN_COOLDOWN_MS = 1400;
 
+/**
+ * Short, gentle haptic pulse on a successful camera scan — in addition to the
+ * existing beep. No-op on browsers without the Vibration API, so it never
+ * breaks unsupported devices/desktops.
+ */
+function vibrateOnScan() {
+  if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return;
+  try {
+    navigator.vibrate(50);
+  } catch {
+    // best-effort feedback only — ignore any failure
+  }
+}
+
 export type BarcodeScannerStatus = {
   text: string;
   tone?: "success" | "error" | "info";
@@ -99,6 +113,7 @@ function BarcodeScannerBody({
       if (mode === "single") {
         if (lockedRef.current) return;
         lockedRef.current = true;
+        if (!fromManual) vibrateOnScan();
         onDetected(code);
         return;
       }
@@ -114,6 +129,7 @@ function BarcodeScannerBody({
       }
       lastCodeRef.current = code;
       lastTimeRef.current = now;
+      if (!fromManual) vibrateOnScan();
       onDetected(code);
     },
     [mode, onDetected]
@@ -164,41 +180,48 @@ function BarcodeScannerBody({
           flexDirection: "column",
         }}
       >
-        {/* Header */}
+        {/* Header — labeled "חזרה" control on the start (right in RTL) that
+            closes the overlay back to the previous screen. */}
         <div
           style={{
             padding: "16px 18px 12px",
             borderBottom: "1px solid var(--inv-surface-2)",
             display: "flex",
-            justifyContent: "space-between",
             alignItems: "center",
             gap: 12,
           }}
         >
-          <div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="חזרה"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              minHeight: 36,
+              padding: "6px 12px 6px 10px",
+              borderRadius: 10,
+              border: "1px solid var(--inv-border)",
+              background: "var(--inv-surface-2)",
+              color: "var(--inv-text)",
+              cursor: "pointer",
+              fontSize: 14,
+              fontWeight: 600,
+              flexShrink: 0,
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            חזרה
+          </button>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 17, fontWeight: 600, color: "var(--inv-text)" }}>{title}</div>
             {hint ? (
               <div style={{ marginTop: 4, fontSize: 13, color: "var(--inv-text-muted)" }}>{hint}</div>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="סגירת חלון"
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 10,
-              border: "1px solid var(--inv-border)",
-              background: "var(--inv-surface-2)",
-              cursor: "pointer",
-              fontSize: 18,
-              lineHeight: 1,
-              flexShrink: 0,
-            }}
-          >
-            ×
-          </button>
         </div>
 
         {/* Camera or manual body */}

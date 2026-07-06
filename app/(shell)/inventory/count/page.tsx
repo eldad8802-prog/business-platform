@@ -49,6 +49,9 @@ export default function InventoryCountPage() {
   const [scanStatus, setScanStatus] = useState<BarcodeScannerStatus | null>(null);
   // Counted quantities keyed by itemId.
   const [counts, setCounts] = useState<Record<number, number>>({});
+  // Row currently being typed into — lets the field hold a temporary empty value
+  // while editing without losing the committed count.
+  const [draft, setDraft] = useState<{ id: number; value: string } | null>(null);
 
   const byBarcode = useMemo(() => {
     const map = new Map<string, InventoryItemDTO>();
@@ -109,16 +112,25 @@ export default function InventoryCountPage() {
     });
   }
 
+  // + / − step the count; − stops at 0 (never removes — × is the only remove).
   function adjustCount(itemId: number, delta: number) {
-    setCounts((prev) => {
-      const next = (prev[itemId] ?? 0) + delta;
-      if (next <= 0) {
-        const rest = { ...prev };
-        delete rest[itemId];
-        return rest;
-      }
-      return { ...prev, [itemId]: next };
-    });
+    setCounts((prev) => ({
+      ...prev,
+      [itemId]: Math.max(0, (prev[itemId] ?? 0) + delta),
+    }));
+  }
+
+  // Direct set from the editable field. 0 is a valid counted value and is kept.
+  function setCountTo(itemId: number, value: number) {
+    const clamped = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+    setCounts((prev) => ({ ...prev, [itemId]: clamped }));
+  }
+
+  function commitDraft() {
+    if (!draft) return;
+    const parsed = draft.value.trim() === "" ? 0 : Number(draft.value);
+    setCountTo(draft.id, parsed);
+    setDraft(null);
   }
 
   function removeCount(itemId: number) {
@@ -127,6 +139,7 @@ export default function InventoryCountPage() {
       delete rest[itemId];
       return rest;
     });
+    setDraft((d) => (d?.id === itemId ? null : d));
   }
 
   const countedRows = useMemo(
@@ -180,7 +193,7 @@ export default function InventoryCountPage() {
   }
 
   return (
-    <InventorySubPage title="ספירת מלאי" backHref="/inventory">
+    <InventorySubPage title="ספירת מלאי" backHref="/inventory" backText="חזרה">
       <div style={{ padding: "0 clamp(16px,3.5vw,28px)", display: "flex", flexDirection: "column", gap: 14 }}>
         <button
           type="button"
@@ -267,9 +280,38 @@ export default function InventoryCountPage() {
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                     <button type="button" aria-label="הפחתה" onClick={() => adjustCount(item.id, -1)} style={stepBtnStyle}>−</button>
-                    <span style={{ minWidth: 28, textAlign: "center", fontWeight: 700, fontSize: 16, fontVariantNumeric: "tabular-nums" }}>
-                      {counted}
-                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      aria-label={`כמות שנספרה — ${item.name}`}
+                      value={draft?.id === item.id ? draft.value : String(counted)}
+                      onFocus={() => setDraft({ id: item.id, value: String(counted) })}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (/^\d*$/.test(v)) setDraft({ id: item.id, value: v });
+                      }}
+                      onBlur={commitDraft}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          (e.target as HTMLInputElement).blur();
+                        }
+                      }}
+                      style={{
+                        width: 46,
+                        minHeight: 32,
+                        textAlign: "center",
+                        fontWeight: 700,
+                        fontSize: 16,
+                        fontVariantNumeric: "tabular-nums",
+                        borderRadius: 8,
+                        border: "1px solid var(--inv-border-hover)",
+                        background: "var(--inv-card-bg)",
+                        color: "var(--inv-text)",
+                        padding: "2px 4px",
+                        boxSizing: "border-box",
+                      }}
+                    />
                     <button type="button" aria-label="הוספה" onClick={() => adjustCount(item.id, 1)} style={stepBtnStyle}>+</button>
                     <button type="button" aria-label="הסרה" onClick={() => removeCount(item.id)} style={{ ...stepBtnStyle, color: "var(--inv-danger)" }}>×</button>
                   </div>

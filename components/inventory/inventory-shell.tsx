@@ -577,6 +577,7 @@ export function InventorySubPage({
   title,
   variant = "page",
   backHref,
+  backText,
   sub,
   headerAction,
   progressLabel,
@@ -591,6 +592,8 @@ export function InventorySubPage({
   /** Page variant only. */
   backHref?: string;
   backLabel?: string;
+  /** Opt-in: labeled back control (chevron + this text) instead of icon-only. */
+  backText?: string;
   /** Hub variant subtitle line under the title. */
   sub?: ReactNode;
   /** Trailing header action (e.g. the "+" new-item button). */
@@ -618,7 +621,7 @@ export function InventorySubPage({
       {variant === "hub" ? (
         <InventorySubheader title={title} showBack={false} action={headerAction} />
       ) : (
-        <InventorySubheader title={title} backHref={backHref} action={headerAction} />
+        <InventorySubheader title={title} backHref={backHref} backText={backText} action={headerAction} />
       )}
       {variant === "hub" && sub ? <div className="inv-hd__sub">{sub}</div> : null}
       <div className="inv-subpage-body">

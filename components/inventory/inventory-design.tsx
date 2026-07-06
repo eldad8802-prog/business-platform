@@ -869,6 +869,7 @@ export function InventorySubheader({
   showBack = true,
   backHref,
   onBack,
+  backText,
   action,
 }: {
   title: string;
@@ -876,6 +877,9 @@ export function InventorySubheader({
   backHref?: string;
   /** @deprecated chevron has no text label; kept so callers don't break. */
   backLabel?: string;
+  /** Opt-in: render a labeled back control (chevron + this text) instead of the
+   *  icon-only chevron. Only set by callers that explicitly want a text label. */
+  backText?: string;
   onBack?: () => void;
   action?: InventoryHeaderActionType | null;
 }) {
@@ -886,7 +890,7 @@ export function InventorySubheader({
     <InventoryHeader
       title={title}
       variant="page"
-      back={{ href: backHref, onBack }}
+      back={{ href: backHref, onBack, label: backText }}
       action={action}
     />
   );
