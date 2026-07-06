@@ -42,3 +42,22 @@ export async function disconnectGmailConnection(params: {
 
   return updated;
 }
+
+/**
+ * Ownership guard: true iff `connectionId` is a Gmail connection that belongs to
+ * `businessId`. Used by sync/import to validate a caller-supplied connectionId
+ * before selecting an account, so one business can never scan/import from
+ * another business's connection.
+ */
+export async function isGmailConnectionOwnedByBusiness(params: {
+  businessId: number;
+  connectionId: number;
+}): Promise<boolean> {
+  const { businessId, connectionId } = params;
+  if (!Number.isInteger(connectionId) || connectionId <= 0) return false;
+  const conn = await prisma.emailConnection.findFirst({
+    where: { id: connectionId, businessId, provider: "gmail" },
+    select: { id: true },
+  });
+  return Boolean(conn);
+}
