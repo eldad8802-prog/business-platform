@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/bot-theme";
 import {
   BOT_AUDIENCE_OPTIONS,
   BOT_INITIATIVE_OPTIONS,

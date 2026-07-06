@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/bot-theme";
 import { LEARNING_TYPE_LABELS, type LearningType } from "@/lib/features/bot";
 import { AreaHeader, BUILDER_SHELL_MAX_WIDTH, GuardNote } from "./bot-builder-area-ui";
 

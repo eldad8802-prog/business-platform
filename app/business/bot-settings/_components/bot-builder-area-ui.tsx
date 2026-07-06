@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/bot-theme";
 
 export const BUILDER_SHELL_MAX_WIDTH = 560;
 

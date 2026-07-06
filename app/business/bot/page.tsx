@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/bot-theme";
 import { BOT_BOUNDARY_OPTIONS, BOT_FORBIDDEN_OPTIONS, BOT_WORK_MODE_OPTIONS_ACTIVE, settingsPatchForWorkMode, type BotBoundaryPresets, type BotForbiddenPresets } from "@/lib/features/conversation/bot-control";
 import { FINAL_ACTION_OPTIONS as FINAL_ACTIONS, type FinalAction } from "@/lib/features/conversation/final-action";
 import { BOT_AUDIENCE_OPTIONS, BOT_INITIATIVE_OPTIONS, BOT_LANGUAGE_OPTIONS, BOT_PRIORITY_OPTIONS, BOT_SALE_STYLE_OPTIONS, BOT_TONE_OPTIONS, BOT_TRAIT_OPTIONS, BOT_VERBOSITY_OPTIONS, LEARNING_TYPE_LABELS, MAX_FAQ_ITEMS, MEMORY_TOGGLE_OPTIONS, emptyMemoryPolicy, type BotApproachConfig, type BotAudienceTag, type BotInitiativeLevel, type BotLanguage, type BotMemoryPolicy, type BotPersonalityConfig, type BotPriority, type BotSaleStyle, type BotTone, type BotTrait, type BotVerbosity, type BotVoiceConfig, type FaqItem, type LearningType, type MemoryToggleKey } from "@/lib/features/bot";

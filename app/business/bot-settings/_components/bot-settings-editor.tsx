@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/bot-theme";
 import { isValidProductLinkUrl } from "@/lib/inbox-view/product-link-capability";
 import {
   BOT_BOUNDARY_OPTIONS,

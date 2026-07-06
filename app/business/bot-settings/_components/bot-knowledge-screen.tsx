@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import { TOKEN } from "@/lib/design/tokens";
+import { TOKEN } from "@/lib/design/bot-theme";
 import { MAX_FAQ_ITEMS, type FaqItem } from "@/lib/features/bot";
 import {
   AreaHeader,
