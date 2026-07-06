@@ -155,7 +155,7 @@ export default function InventoryHomePage() {
 
   const quickActions: Array<{ t: string; icon: ReactNode; onClick: () => void }> = [
     { t: "מוצר חדש", icon: <IconPlus />, onClick: () => router.push("/inventory/items/create") },
-    { t: "ספירת מלאי", icon: <IconClipboard />, onClick: () => router.push("/inventory/items") },
+    { t: "ספירת מלאי", icon: <IconClipboard />, onClick: () => router.push("/inventory/count") },
     { t: "הזמנה מספק", icon: <IconTruck />, onClick: () => router.push("/inventory/supplier-purchases/new") },
     { t: "קבלת סחורה", icon: <IconReceive />, onClick: () => router.push("/inventory/supplier-purchases/pending") },
   ];
