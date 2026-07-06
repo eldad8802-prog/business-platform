@@ -185,7 +185,11 @@ export default function DocumentsSearchPage() {
             <SearchRow
               key={item.id}
               item={item}
-              onOpen={() => router.push(`/documents/review/${item.documentId}`)}
+              onOpen={
+                Number.isFinite(item.documentId)
+                  ? () => router.push(`/documents/review/${item.documentId}`)
+                  : undefined
+              }
             />
           ))}
         </section>
@@ -207,17 +211,12 @@ function Header({ onBack }: { onBack: () => void }) {
   );
 }
 
-function SearchRow({ item, onOpen }: { item: SearchResult; onOpen: () => void }) {
+function SearchRow({ item, onOpen }: { item: SearchResult; onOpen?: () => void }) {
   const category = CATEGORY_MAP[item.category] || item.category || "כללי";
   const isIncome = item.direction === "income";
 
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      style={rowStyle}
-      aria-label={`פתח מסמך: ${item.vendorName || "ללא ספק"}`}
-    >
+  const content = (
+    <>
       <div style={thumbStyle} aria-hidden>
         {item.document?.mimeType?.includes("image") ? <ImageIcon /> : <FileTextIcon />}
       </div>
@@ -239,6 +238,23 @@ function SearchRow({ item, onOpen }: { item: SearchResult; onOpen: () => void })
         </div>
         <span style={approvedPillStyle}>אומת</span>
       </div>
+    </>
+  );
+
+  // Without a valid documentId there is nowhere to open, so render a
+  // non-interactive row rather than link to /documents/review/undefined.
+  if (!onOpen) {
+    return <div style={rowStaticStyle}>{content}</div>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      style={rowStyle}
+      aria-label={`פתח מסמך: ${item.vendorName || "ללא ספק"}`}
+    >
+      {content}
     </button>
   );
 }
@@ -390,6 +406,9 @@ const rowStyle = {
   textAlign: "right",
   cursor: "pointer",
 } as const;
+
+// Same visual row, but non-interactive (used when a result has no documentId).
+const rowStaticStyle = { ...rowStyle, cursor: "default" } as const;
 
 const thumbStyle = {
   width: 48,
