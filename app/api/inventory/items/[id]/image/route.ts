@@ -63,7 +63,13 @@ export async function POST(request: NextRequest) {
     });
   } catch (err: any) {
     if (err instanceof StorageConfigError) {
-      return NextResponse.json({ error: err.message }, { status: 503 });
+      // Log the full internal detail server-side only; never leak env var names,
+      // storage provider names, or other infrastructure details to the client.
+      console.error("Inventory item image upload — storage config error:", err);
+      return NextResponse.json(
+        { error: "לא ניתן להעלות תמונת מוצר כרגע. נסה שוב מאוחר יותר." },
+        { status: 503 }
+      );
     }
 
     if (err.message === "UNAUTHORIZED") {
