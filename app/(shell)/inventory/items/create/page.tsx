@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import { SegmentedControl, SaveBar } from "@/components/inventory/inventory-design";
+import { IconScan } from "@/components/inventory/inventory-primitives";
+import BarcodeScanner from "@/components/inventory/barcode-scanner";
 import {
   createInventoryCategory,
   createInventoryItem,
@@ -11,6 +14,7 @@ import {
   getInventoryItems,
   uploadInventoryItemImage,
   type InventoryCategoryDTO,
+  type InventoryItemDTO,
 } from "@/lib/api/inventory";
 import { inventoryTextKey, normalizeInventoryText } from "@/lib/inventory/normalize";
 import { inventoryToast } from "@/components/inventory/inventory-toast";
@@ -47,6 +51,11 @@ export default function CreateInventoryItemPage() {
   const [categories, setCategories] = useState<InventoryCategoryDTO[]>([]);
   const [categoryName, setCategoryName] = useState("");
   const [supplierOptions, setSupplierOptions] = useState<string[]>([]);
+  // Loaded items power both the supplier autocomplete and barcode duplicate
+  // detection when scanning while creating a product.
+  const [items, setItems] = useState<InventoryItemDTO[]>([]);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [duplicateItem, setDuplicateItem] = useState<InventoryItemDTO | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -89,6 +98,7 @@ export default function CreateInventoryItemPage() {
         ]);
         if (!isMounted) return;
         setCategories(result);
+        setItems(Array.isArray(items) ? items : []);
         const uniqueSuppliers = new Map<string, string>();
         for (const item of items) {
           const normalized = normalizeInventoryText(item.supplierName);
@@ -196,6 +206,22 @@ export default function CreateInventoryItemPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleScanDetected(code: string) {
+    const scanned = code.trim();
+    setScannerOpen(false);
+    if (!scanned) return;
+    const existing = items.find((it) => (it.barcode || "").trim() === scanned);
+    if (existing) {
+      // Duplicate barcode — don't autofill into a new product; surface the
+      // existing item and offer to open it instead of creating a duplicate.
+      setDuplicateItem(existing);
+      return;
+    }
+    setDuplicateItem(null);
+    setBarcode(scanned);
+    inventoryToast.success("הברקוד נוסף");
   }
 
   return (
@@ -324,13 +350,63 @@ export default function CreateInventoryItemPage() {
 
         <div className="inv-field">
           <div className="inv-field__lab">ברקוד</div>
-          <input className="inv-input" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="סרוק או הקלד" />
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              className="inv-input"
+              value={barcode}
+              onChange={(e) => { setBarcode(e.target.value); if (duplicateItem) setDuplicateItem(null); }}
+              placeholder="סרוק או הקלד"
+              style={{ flex: 1 }}
+            />
+            <button
+              type="button"
+              onClick={() => { setDuplicateItem(null); setScannerOpen(true); }}
+              aria-label="סריקת ברקוד"
+              style={{
+                flexShrink: 0,
+                minWidth: 46,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: "var(--inv-radius-md)",
+                border: "1px solid var(--inv-border-hover)",
+                background: "var(--inv-surface-2)",
+                color: "var(--inv-accent)",
+                cursor: "pointer",
+              }}
+            >
+              <IconScan />
+            </button>
+          </div>
+          {duplicateItem ? (
+            <div
+              className="inv-alert inv-alert--error"
+              style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}
+            >
+              <span>המוצר כבר קיים במלאי: <b>{duplicateItem.name}</b></span>
+              <Link
+                href={`/inventory/items/${duplicateItem.id}`}
+                style={{ color: "var(--inv-accent)", fontWeight: 600, textDecoration: "none" }}
+              >
+                מעבר למוצר הקיים ›
+              </Link>
+            </div>
+          ) : null}
         </div>
 
         {error ? <div className="inv-alert inv-alert--error" style={{ marginTop: 16 }}>{error}</div> : null}
       </div>
 
       <SaveBar label={loading ? "שומר…" : "שמירת מוצר"} onClick={() => void handleSubmit()} disabled={loading} />
+
+      <BarcodeScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onDetected={handleScanDetected}
+        mode="single"
+        title="סריקת ברקוד למוצר"
+        hint="כוונו את המצלמה לברקוד המוצר"
+      />
     </InventorySubPage>
   );
 }

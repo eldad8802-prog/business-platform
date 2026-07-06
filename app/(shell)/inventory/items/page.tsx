@@ -2,8 +2,10 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
+import BarcodeScanner from "@/components/inventory/barcode-scanner";
+import { inventoryToast } from "@/components/inventory/inventory-toast";
 import { useInventoryInboxCounts } from "@/components/inventory/use-inventory-inbox-counts";
 import {
   getStockTone,
@@ -67,9 +69,11 @@ function itemCaption(item: InventoryItemDTO): string | undefined {
 }
 
 function InventoryItemsListPageContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { counts: inboxCounts } = useInventoryInboxCounts();
   const [items, setItems] = useState<InventoryItemDTO[]>([]);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [query, setQuery] = useState(() => searchParams.get("q") || "");
   const statusParam = searchParams.get("status") || "";
   const missingDataMode = statusParam === "missing-data";
@@ -147,6 +151,24 @@ function InventoryItemsListPageContent() {
     return () => window.clearTimeout(timer);
   }, []);
 
+  function handleScanDetected(code: string) {
+    const scanned = code.trim();
+    setScannerOpen(false);
+    if (!scanned) return;
+    const matches = items.filter((it) => (it.barcode || "").trim() === scanned);
+    if (matches.length === 1) {
+      router.push(`/inventory/items/${matches[0].id}`);
+      return;
+    }
+    if (matches.length === 0) {
+      // Keep the existing text search untouched; just report no match.
+      inventoryToast.error("לא נמצא מוצר עם הברקוד הזה");
+      return;
+    }
+    // More than one match (rare) — fall back to filtering the list by the code.
+    setQuery(scanned);
+  }
+
   const sub = (
     <>
       {items.length} מוצרים
@@ -171,6 +193,16 @@ function InventoryItemsListPageContent() {
         value={query}
         onChange={setQuery}
         placeholder="חיפוש לפי שם, מק״ט או ברקוד"
+        onScan={() => setScannerOpen(true)}
+      />
+
+      <BarcodeScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onDetected={handleScanDetected}
+        mode="single"
+        title="סריקת ברקוד"
+        hint="כוונו את המצלמה לברקוד המוצר"
       />
 
       {missingDataMode ? (
