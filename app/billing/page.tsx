@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import BackButton from "@/components/ui/back-button";
 import { parseBillingPdfTemplateStyle } from "@/lib/billing/billing-pdf-template-style";
 import { BillingIdentityBanner } from "@/components/billing/BillingIdentityBanner";
 import {
@@ -326,20 +327,7 @@ export default function BillingHubPage() {
           boxSizing: "border-box",
         }}
       >
-        <button
-          type="button"
-          onClick={() => router.push("/tools")}
-          aria-label="חזרה"
-          style={{
-            ...glassActionStyle({ height: 40 }),
-            fontSize: 14,
-            fontWeight: 600,
-            padding: "0 12px",
-            lineHeight: 1,
-          }}
-        >
-          חזרה
-        </button>
+        <BackButton href="/tools" />
       </header>
 
       <main
@@ -1146,7 +1134,7 @@ function CreateDraftModal({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        zIndex: 100,
+        zIndex: 130,
         padding: 16,
       }}
     >

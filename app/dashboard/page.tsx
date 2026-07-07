@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import BackButton from "@/components/ui/back-button";
 import {
   PieChart,
   Pie,
@@ -61,6 +62,9 @@ export default function Dashboard() {
 
   return (
     <div style={{ maxWidth: 500, margin: "0 auto", padding: 20 }}>
+      <div style={{ marginBottom: 16 }}>
+        <BackButton />
+      </div>
       <h1>📊 Dashboard</h1>
 
       {/* Filters */}

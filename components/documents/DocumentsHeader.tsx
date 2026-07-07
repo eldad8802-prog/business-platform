@@ -1,8 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import type { CSSProperties } from "react";
 import { TOKEN } from "@/lib/design/documents-theme";
+import BackButton from "@/components/ui/back-button";
 
 type DocumentsHeaderProps = {
   title: string;
@@ -17,29 +17,12 @@ export default function DocumentsHeader({
   onBack,
   showBack = true,
 }: DocumentsHeaderProps) {
-  const router = useRouter();
-
-  const handleBack = () => {
-    if (onBack) {
-      onBack();
-      return;
-    }
-    router.back();
-  };
-
   return (
     <div dir="rtl" style={wrapperStyle}>
       {/* Right side in RTL = first DOM child of the grid */}
       <div style={{ ...sideStyle, justifyContent: "flex-start" }}>
         {showBack ? (
-          <button
-            type="button"
-            onClick={handleBack}
-            aria-label={backLabel}
-            style={backBtnStyle}
-          >
-            <BackChevronIcon />
-          </button>
+          <BackButton onClick={onBack} label={backLabel} />
         ) : (
           <div style={spacerStyle} />
         )}
@@ -63,7 +46,7 @@ const wrapperStyle: CSSProperties = {
   borderBottom: `1px solid ${TOKEN.border.DEFAULT}`,
   padding: "10px 16px",
   display: "grid",
-  gridTemplateColumns: "72px 1fr 72px",
+  gridTemplateColumns: "auto 1fr auto",
   alignItems: "center",
   gap: 8,
 };
@@ -87,35 +70,3 @@ const titleStyle: CSSProperties = {
   overflow: "hidden",
   textOverflow: "ellipsis",
 };
-
-const backBtnStyle: CSSProperties = {
-  width: 40,
-  height: 40,
-  padding: 0,
-  // DS toolbar icon-buttons (back/close) are round.
-  borderRadius: TOKEN.radius.pill,
-  border: `1px solid ${TOKEN.border.DEFAULT}`,
-  background: TOKEN.surface.card,
-  color: TOKEN.brand.mid,
-  fontSize: TOKEN.font.body,
-  fontWeight: TOKEN.weight.bold,
-  cursor: "pointer",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-};
-
-function BackChevronIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-      <path
-        d="m9 6 6 6-6 6"
-        stroke="currentColor"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-    </svg>
-  );
-}

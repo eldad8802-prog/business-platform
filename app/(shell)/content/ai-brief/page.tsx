@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import ProgressBar from "@/components/ProgressBar";
+import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
 
 type StoredAsset = {
@@ -97,10 +98,6 @@ export default function AIBriefPage() {
     return goalText.trim().length >= 10;
   }, [goalText]);
 
-  function handleBack() {
-    router.back();
-  }
-
   function handleFilesChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || []);
 
@@ -142,9 +139,7 @@ export default function AIBriefPage() {
     <div style={pageStyle}>
       <div style={shellStyle}>
         <div style={topBarStyle}>
-          <button type="button" onClick={handleBack} style={backButtonStyle}>
-            חזרה
-          </button>
+          <BackButton />
 
           <div style={topBarTitleStyle}>הנחיה למערכת</div>
 
@@ -288,19 +283,6 @@ const topBarTitleStyle: React.CSSProperties = {
 
 const topBarSpacerStyle: React.CSSProperties = {
   width: 68,
-};
-
-const backButtonStyle: React.CSSProperties = {
-  minWidth: 68,
-  height: 38,
-  borderRadius: 12,
-  border: "1px solid #e5e7eb",
-  background: "#ffffff",
-  color: "#111827",
-  fontSize: 14,
-  fontWeight: 700,
-  cursor: "pointer",
-  boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
 };
 
 const contentAreaStyle: React.CSSProperties = {

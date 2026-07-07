@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { inventoryToneStyles } from "@/components/inventory/inventory-tokens";
+import BackButton from "@/components/ui/back-button";
 
 /* ============================================================= icons === */
 
@@ -131,38 +132,9 @@ export function InventoryHeader({
 
   return (
     <header className="inv-hd inv-hd--page">
-      {back?.label ? (
-        // Opt-in labeled back control (chevron + text), start-aligned (right in
-        // RTL). Only callers that pass a label get text; every existing caller
-        // keeps the icon-only chevron below, unchanged.
-        <button
-          type="button"
-          onClick={handleBack}
-          aria-label="חזרה"
-          title="חזרה"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            minHeight: 36,
-            padding: "6px 12px 6px 10px",
-            borderRadius: 10,
-            border: "1px solid var(--inv-border)",
-            background: "var(--inv-surface-2)",
-            color: "var(--inv-text)",
-            cursor: "pointer",
-            fontSize: 14,
-            fontWeight: 600,
-          }}
-        >
-          <IconChevronStart />
-          <span>{back.label}</span>
-        </button>
-      ) : (
-        <button type="button" className="inv-iconbtn" onClick={handleBack} aria-label="חזרה" title="חזרה">
-          <IconChevronStart />
-        </button>
-      )}
+      {/* Canonical app-wide back control (chevron + "חזרה"), start-aligned
+          (right in RTL). Callers may override the text via back.label. */}
+      <BackButton onClick={handleBack} label={back?.label ?? "חזרה"} />
       <h1 className="inv-hd__title-page">{title}</h1>
       {actionBtn ?? <span className="inv-iconbtn inv-iconbtn--ghost" aria-hidden />}
     </header>

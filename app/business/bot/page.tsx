@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { TOKEN } from "@/lib/design/bot-theme";
+import BackButton from "@/components/ui/back-button";
+import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
 import { BOT_BOUNDARY_OPTIONS, BOT_FORBIDDEN_OPTIONS, BOT_WORK_MODE_OPTIONS_ACTIVE, settingsPatchForWorkMode, type BotBoundaryPresets, type BotForbiddenPresets } from "@/lib/features/conversation/bot-control";
 import { FINAL_ACTION_OPTIONS as FINAL_ACTIONS, type FinalAction } from "@/lib/features/conversation/final-action";
 import { BOT_AUDIENCE_OPTIONS, BOT_INITIATIVE_OPTIONS, BOT_LANGUAGE_OPTIONS, BOT_PRIORITY_OPTIONS, BOT_SALE_STYLE_OPTIONS, BOT_TONE_OPTIONS, BOT_TRAIT_OPTIONS, BOT_VERBOSITY_OPTIONS, LEARNING_TYPE_LABELS, MAX_FAQ_ITEMS, MEMORY_TOGGLE_OPTIONS, emptyMemoryPolicy, type BotApproachConfig, type BotAudienceTag, type BotInitiativeLevel, type BotLanguage, type BotMemoryPolicy, type BotPersonalityConfig, type BotPriority, type BotSaleStyle, type BotTone, type BotTrait, type BotVerbosity, type BotVoiceConfig, type FaqItem, type LearningType, type MemoryToggleKey } from "@/lib/features/bot";
@@ -43,6 +45,9 @@ function statusText(s: Status) { return s === "live" ? "חי" : s === "saved" ? 
 function areaSummary(id: AreaId, p: HubPayload | null) { const s = p?.signals; if (id === "goal") return s?.goalsCount ? String(s.goalsCount) + " מטרות" : "טרם נבחרו מטרות"; if (id === "conversation") return s?.questionsCount ? String(s.questionsCount) + " שאלות" : "אין שאלות עדיין"; if (id === "voice") return s?.welcomeOk ? "הודעת פתיחה קיימת" : "חסרה הודעת פתיחה"; if (id === "allowed") return s?.finishOk ? "פעולת סיום מוגדרת" : "בחר פעולת סיום"; if (id === "autonomy") return s?.workModeManual ? "רמה 1 · ידני" : "רמה 2 · טיוטות חכמות"; if (id === "learning") return s?.learningCount ? String(s.learningCount) + " הצעות" : "אין הצעות כרגע"; if (id === "knowledge") return s?.productLinkOk || s?.knowledgeOk ? "ידע נשמר" : "אפשר להוסיף ידע"; if (id === "personality") return s?.personalityOk ? "אופי נשמר" : "אפשר לבחור אופי"; if (id === "approach") return s?.approachOk ? "גישה נשמרה" : "אפשר להגדיר גישה"; return AREAS[id].desc; }
 
 export default function BusinessBotHubPage() {
+  // Bot builder opens full-screen setting sheets with their own controls — hide
+  // the app's fixed bottom nav so it never floats over them.
+  useHideShellChrome(true);
   const settings = useBotSettingsEditorState();
   const goals = useGoalsState();
   const memory = useMemoryPolicyState();
@@ -97,7 +102,7 @@ export default function BusinessBotHubPage() {
 
   return <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}><main style={shellStyle}>
     <div style={{ paddingBottom: 44 }}>
-      <header style={{ padding: "18px 18px 4px" }}><h1 style={{ margin: 0, color: TOKEN.ink.primary, fontSize: TOKEN.font.hero, fontWeight: TOKEN.weight.bold }}>הבוט שלי</h1></header>
+      <header style={{ padding: "18px 18px 4px", display: "flex", alignItems: "center", gap: 12 }}><BackButton /><h1 style={{ margin: 0, color: TOKEN.ink.primary, fontSize: TOKEN.font.hero, fontWeight: TOKEN.weight.bold }}>הבוט שלי</h1></header>
       <p style={{ margin: 0, padding: "0 18px", color: TOKEN.ink.muted, fontSize: TOKEN.font.body, fontWeight: TOKEN.weight.semibold, lineHeight: 1.55 }}>בנוי בדיוק לעסק שלך. אפשר לשנות כל דבר, מתי שתרצה.</p>
       {loading ? <p style={{ margin: "14px 18px", color: TOKEN.ink.meta }}>טוען...</p> : null}{error ? <p style={{ margin: "14px 18px", color: TOKEN.semantic.urgent.ink }}>{error}</p> : null}
       <section style={heroStyle}><div style={heroIconStyle}><BotIcon /></div><div style={{ minWidth: 0, flex: 1 }}><div style={{ fontSize: TOKEN.font.display, fontWeight: TOKEN.weight.bold, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{botName}</div><div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 7, fontSize: TOKEN.font.meta, opacity: 0.92 }}><span style={{ width: 7, height: 7, borderRadius: TOKEN.radius.pill, background: TOKEN.semantic.success.accent }} />{botStatus}</div></div></section>

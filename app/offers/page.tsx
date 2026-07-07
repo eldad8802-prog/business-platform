@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
+import BackButton from "@/components/ui/back-button";
 
 type Offer = {
   id: number;
@@ -118,6 +119,9 @@ export default function OffersPage() {
 
   return (
     <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ marginBottom: 16 }}>
+        <BackButton />
+      </div>
       <div
         style={{
           display: "flex",

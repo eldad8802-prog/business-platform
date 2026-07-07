@@ -2,6 +2,7 @@ import { Component, useEffect, useState, type CSSProperties, type FormEvent, typ
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
+import BackButton from "@/components/ui/back-button";
 import type {
   CreateObligationInput,
   ObligationApi,
@@ -374,10 +375,7 @@ export function SecretaryScreen({
 function BackControl({ fallbackHref }: { fallbackHref: string }) {
   const router = useRouter();
   return (
-    <button
-      type="button"
-      className={styles.backButton}
-      aria-label="חזרה למסך הקודם"
+    <BackButton
       onClick={() => {
         if (typeof window !== "undefined" && window.history.length > 1) {
           router.back();
@@ -385,9 +383,7 @@ function BackControl({ fallbackHref }: { fallbackHref: string }) {
           router.push(fallbackHref);
         }
       }}
-    >
-      חזרה
-    </button>
+    />
   );
 }
 

@@ -11,6 +11,8 @@ import {
 } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import BackButton from "@/components/ui/back-button";
+import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
 import { CustomerPicker } from "@/components/billing/CustomerPicker";
 import { IssuerSummaryBadge } from "@/components/billing/IssuerSummaryBadge";
 import { glassActionStyle, primaryActionStyle, TOKEN } from "@/lib/design/billing-theme";
@@ -281,6 +283,9 @@ function resolveServerLineForDraft(
 }
 
 export default function BillingDocumentWorkspacePage() {
+  // Focused invoice editor with its own sticky action bar — hide the app's
+  // fixed bottom nav here so it never covers the save/issue controls.
+  useHideShellChrome(true);
   const params = useParams<{ id: string }>();
   const id = params?.id || "";
   const router = useRouter();
@@ -1001,32 +1006,7 @@ export default function BillingDocumentWorkspacePage() {
             marginBottom: 16,
           }}
         >
-          <Link
-            href="/billing"
-            onClick={(event) => {
-              event.preventDefault();
-              requestNavigation("/billing");
-            }}
-            aria-label="חזרה"
-            style={{
-              minHeight: 40,
-              flexShrink: 0,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: 12,
-              background: TOKEN.surface.card,
-              border: `1px solid ${TOKEN.border.DEFAULT}`,
-              textDecoration: "none",
-              color: TOKEN.ink.primary,
-              padding: "0 12px",
-              fontSize: 14,
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-            }}
-          >
-            חזרה
-          </Link>
+          <BackButton onClick={() => requestNavigation("/billing")} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <h1
               style={{

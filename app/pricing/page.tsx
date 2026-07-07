@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
 import { chipActionStyle, glassActionStyle, iconActionStyle, primaryActionStyle } from "@/lib/design/action-styles";
+import BackButton from "@/components/ui/back-button";
 
 type PricingItem = {
   id: number;
@@ -116,20 +117,6 @@ const marketStatusText = (status: string | undefined) => {
   return null;
 };
 
-function BackIcon() {
-  // RTL: "back" points to the right.
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="m9 6 6 6-6 6"
-        stroke="currentColor"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
 
 function ChevronIcon() {
   return (
@@ -700,11 +687,7 @@ export default function PricingPage() {
           <>
             {calculateView !== "loading" && calculateView !== "save_success" ? (
               <div style={detailHeadStyle}>
-                <button
-                  type="button"
-                  aria-label="חזרה"
-                  style={iconBtnStyle}
-                  className="pricing-pressable"
+                <BackButton
                   onClick={() => {
                     if (calculateView === "result") {
                       setCalculateView("form");
@@ -712,9 +695,7 @@ export default function PricingPage() {
                     }
                     openCatalog();
                   }}
-                >
-                  <BackIcon />
-                </button>
+                />
                 <div style={detailTitleStyle}>
                   {calculateView === "result" ? "תוצאת תמחור" : "חישוב מחיר"}
                   <small style={detailSubStyle}>{selectedItem.name}</small>
@@ -1020,11 +1001,7 @@ export default function PricingPage() {
         {activePanel === "create" && createView === "wizard" && (
           <>
             <div style={detailHeadStyle}>
-              <button
-                type="button"
-                aria-label="חזרה"
-                style={iconBtnStyle}
-                className="pricing-pressable"
+              <BackButton
                 onClick={() => {
                   if (createStep > 1) {
                     setCreateStep(1);
@@ -1032,9 +1009,7 @@ export default function PricingPage() {
                   }
                   openCatalog();
                 }}
-              >
-                <BackIcon />
-              </button>
+              />
               <div style={detailTitleStyle}>פריט חדש</div>
               <div style={iconBtnSpacerStyle} />
             </div>
@@ -1488,10 +1463,6 @@ const detailHeadStyle: CSSProperties = {
   alignItems: "center",
   gap: TOKEN.space.sm,
   padding: `${TOKEN.space.md}px ${TOKEN.space.lg}px ${TOKEN.space.xs}px`,
-};
-
-const iconBtnStyle: CSSProperties = {
-  ...iconActionStyle(false),
 };
 
 const iconBtnSpacerStyle: CSSProperties = {
