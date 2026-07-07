@@ -1,5 +1,7 @@
 "use client";
 
+import { TOKEN } from "@/lib/design/tokens";
+
 type PrimaryActionCardProps = {
   title: string;
   description: string;
@@ -40,15 +42,14 @@ const styles: Record<string, React.CSSProperties> = {
     border: "none",
     borderRadius: 24,
     padding: 20,
-    background:
-      "linear-gradient(135deg, #0f172a 0%, #1f3b2f 55%, #355c47 100%)",
+    background: TOKEN.action.primary.background,
     color: "#ffffff",
     cursor: "pointer",
     display: "flex",
     flexDirection: "column",
     gap: 18,
     textAlign: "right",
-    boxShadow: "0 18px 40px rgba(15, 23, 42, 0.16)",
+    boxShadow: TOKEN.action.primary.shadow,
   },
   content: {
     display: "flex",

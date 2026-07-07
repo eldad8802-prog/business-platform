@@ -18,7 +18,9 @@ export function primaryActionStyle({
     width: fullWidth ? "100%" : undefined,
     minHeight: height,
     padding: "10px 18px",
-    borderRadius: TOKEN.radius.button,
+    // Pill radius for the turquoise primary CTA (glass/soft-glow direction).
+    // Secondary (glass) and danger keep the standard button radius below.
+    borderRadius: TOKEN.radius.pill,
     border: disabled ? "1px solid transparent" : TOKEN.action.primary.border,
     background: disabled ? disabledPrimary : TOKEN.action.primary.background,
     color: TOKEN.action.primary.color,

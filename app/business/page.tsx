@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/ui/page-header";
+import { TOKEN } from "@/lib/design/tokens";
 import { parseBillingPdfTemplateStyle } from "@/lib/billing/billing-pdf-template-style";
 import {
   BusinessIdentitySetupForm,
@@ -327,7 +328,7 @@ export default function BusinessProfilePage() {
                     ? "#94a3b8"
                     : savedOk
                       ? "#166534"
-                      : "#0f172a",
+                      : TOKEN.action.primary.background,
                   color: "#fff",
                   fontSize: 15,
                   fontWeight: 700,

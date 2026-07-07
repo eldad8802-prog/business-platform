@@ -91,7 +91,7 @@ export function WhatsAppConnectCard() {
           minHeight: 48,
           border: "none",
           borderRadius: TOKEN.radius.input,
-          background: TOKEN.ink.primary,
+          background: TOKEN.action.primary.background,
           color: TOKEN.ink.inverse,
           fontSize: TOKEN.font.title,
           fontWeight: TOKEN.weight.bold,

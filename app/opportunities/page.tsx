@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { TOKEN } from "@/lib/design/tokens";
 import BackButton from "@/components/ui/back-button";
 
 type DealStatus = "NEW" | "ACCEPTED" | "DISMISSED";
@@ -402,7 +403,7 @@ export default function OpportunitiesPage() {
 
   const primaryButtonStyle: React.CSSProperties = {
     border: "none",
-    background: "#0f172a",
+    background: TOKEN.action.primary.background,
     color: "#ffffff",
     borderRadius: 14,
     padding: "12px 16px",

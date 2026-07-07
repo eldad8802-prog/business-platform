@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { TOKEN } from "@/lib/design/tokens";
 import { useRouter } from "next/navigation";
 import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
 import { mapContentArchetypeToGoalAngle } from "@/lib/content/content-archetype-map";
-import { TOKEN } from "@/lib/design/tokens";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -428,13 +428,13 @@ const ctaButtonStyle = (hasText: boolean): React.CSSProperties => ({
   height: 52,
   borderRadius: 16,
   border: "none",
-  background: "#0f172a",
+  background: TOKEN.action.primary.background,
   color: "#ffffff",
   fontSize: 16,
   fontWeight: 800,
   cursor: "pointer",
   boxShadow: hasText
-    ? "0 12px 28px rgba(15,23,42,0.28)"
-    : "0 8px 20px rgba(15,23,42,0.16)",
+    ? TOKEN.action.primary.shadow
+    : TOKEN.action.primary.shadow,
   transition: "box-shadow 0.2s ease",
 });

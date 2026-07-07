@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { TOKEN } from "@/lib/design/tokens";
 
 type RegisterErrors = {
   name?: string;
@@ -429,13 +430,13 @@ export default function RegisterPage() {
     borderRadius: 14,
     border: "1px solid #111827",
     background: loading
-      ? "linear-gradient(135deg, #374151 0%, #1f2937 100%)"
-      : "linear-gradient(135deg, #111827 0%, #1f2937 100%)",
+      ? TOKEN.action.primary.background
+      : TOKEN.action.primary.background,
     color: "#ffffff",
     cursor: loading ? "not-allowed" : "pointer",
     fontWeight: 800,
     fontSize: 15,
-    boxShadow: "0 12px 30px rgba(17, 24, 39, 0.18)",
+    boxShadow: TOKEN.action.primary.shadow,
     opacity: isSubmitDisabled ? 0.85 : 1,
   };
 

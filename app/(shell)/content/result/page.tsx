@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { TOKEN } from "@/lib/design/tokens";
 import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
-import { TOKEN } from "@/lib/design/tokens";
 
 type RenderOutput = {
   renderId?: string;
@@ -1153,12 +1153,12 @@ const primaryButtonStyle: React.CSSProperties = {
   height: 48,
   borderRadius: 14,
   border: "none",
-  background: "#111827",
+  background: TOKEN.action.primary.background,
   color: "#ffffff",
   fontSize: 15,
   fontWeight: 800,
   cursor: "pointer",
-  boxShadow: "0 10px 24px rgba(17,24,39,0.18)",
+  boxShadow: TOKEN.action.primary.shadow,
 };
 
 const secondaryButtonStyle: React.CSSProperties = {

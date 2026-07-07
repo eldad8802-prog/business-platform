@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { TOKEN } from "@/lib/design/tokens";
 import { useRouter } from "next/navigation";
 import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
-import { TOKEN } from "@/lib/design/tokens";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -556,11 +556,11 @@ const ctaButtonStyle = (enabled: boolean): React.CSSProperties => ({
   height: 52,
   borderRadius: 16,
   border: "none",
-  background: enabled ? "#0f172a" : "#cbd5e1",
+  background: enabled ? TOKEN.action.primary.background : "#cbd5e1",
   color: "#ffffff",
   fontSize: 16,
   fontWeight: 800,
   cursor: enabled ? "pointer" : "not-allowed",
-  boxShadow: enabled ? "0 12px 28px rgba(15,23,42,0.22)" : "none",
+  boxShadow: enabled ? TOKEN.action.primary.shadow : "none",
   transition: "background 0.15s ease, box-shadow 0.15s ease",
 });

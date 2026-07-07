@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { TOKEN } from "@/lib/design/tokens";
 import { useRouter } from "next/navigation";
 import BackButton from "@/components/ui/back-button";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
-import { TOKEN } from "@/lib/design/tokens";
 
 type ContentFlow = {
   mode?: "ai" | "camera" | "voice";
@@ -594,7 +594,7 @@ const errorBackButtonStyle: React.CSSProperties = {
   paddingInline: 20,
   borderRadius: 12,
   border: "none",
-  background: "#111827",
+  background: TOKEN.action.primary.background,
   color: "#ffffff",
   fontSize: 14,
   fontWeight: 700,

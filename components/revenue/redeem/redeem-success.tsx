@@ -1,3 +1,5 @@
+import { TOKEN } from "@/lib/design/tokens";
+
 type Props = {
   result: any;
   onReset: () => void;
@@ -33,7 +35,7 @@ export default function RedeemSuccess({ result, onReset }: Props) {
         style={{
           padding: "12px 16px",
           borderRadius: 12,
-          background: "#111827",
+          background: TOKEN.action.primary.background,
           color: "#fff",
           cursor: "pointer",
         }}

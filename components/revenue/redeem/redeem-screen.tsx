@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import RedeemScanner from "./redeem-scanner";
+import { TOKEN } from "@/lib/design/tokens";
 
 type FlowState = "scan" | "idle" | "validating" | "success" | "error";
 
@@ -95,7 +96,7 @@ function InlineRedeemInput({
           padding: "14px",
           borderRadius: 12,
           border: "none",
-          background: "#111827",
+          background: TOKEN.action.primary.background,
           color: "#ffffff",
           fontWeight: 700,
           fontSize: 16,
@@ -264,7 +265,7 @@ function InlineRedeemSuccess({ result, onReset }: SuccessProps) {
           padding: "12px 16px",
           borderRadius: 12,
           border: "none",
-          background: "#111827",
+          background: TOKEN.action.primary.background,
           color: "#ffffff",
           fontWeight: 700,
           cursor: "pointer",
@@ -322,7 +323,7 @@ function InlineRedeemError({ message, onRetry, onManual }: ErrorProps) {
           padding: "12px 16px",
           borderRadius: 12,
           border: "none",
-          background: "#111827",
+          background: TOKEN.action.primary.background,
           color: "#ffffff",
           fontWeight: 700,
           cursor: "pointer",

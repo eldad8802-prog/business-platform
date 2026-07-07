@@ -1,5 +1,7 @@
 "use client";
 
+import { TOKEN } from "@/lib/design/tokens";
+
 type Props = {
   situation: string | null;
   goal: string | null;
@@ -129,7 +131,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "14px",
     borderRadius: 14,
     border: "none",
-    background: "#111827",
+    background: TOKEN.action.primary.background,
     color: "#ffffff",
     fontWeight: 800,
     cursor: "pointer",

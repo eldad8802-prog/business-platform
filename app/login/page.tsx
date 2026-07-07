@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { TOKEN } from "@/lib/design/tokens";
+import { DubizLogo } from "@/components/ui/dubiz-logo";
 
 type LoginErrors = {
   email?: string;
@@ -331,13 +333,13 @@ export default function LoginPage() {
     borderRadius: 14,
     border: "1px solid #111827",
     background: loading
-      ? "linear-gradient(135deg, #374151 0%, #1f2937 100%)"
-      : "linear-gradient(135deg, #111827 0%, #1f2937 100%)",
+      ? TOKEN.action.primary.background
+      : TOKEN.action.primary.background,
     color: "#ffffff",
     cursor: loading ? "not-allowed" : "pointer",
     fontWeight: 800,
     fontSize: 15,
-    boxShadow: "0 12px 30px rgba(17, 24, 39, 0.18)",
+    boxShadow: TOKEN.action.primary.shadow,
     opacity: isSubmitDisabled ? 0.85 : 1,
   };
 
@@ -405,6 +407,10 @@ export default function LoginPage() {
     <div style={pageStyle}>
       <div style={cardStyle}>
         <div style={headerStyle}>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+            <DubizLogo height={38} priority />
+          </div>
+
           <div style={badgeStyle}>
             <span>🔐</span>
             <span>כניסה מאובטחת למערכת</span>

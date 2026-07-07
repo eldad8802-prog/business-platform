@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { TOKEN } from "@/lib/design/tokens";
 import { useRouter } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
 import type {
@@ -235,7 +236,7 @@ export default function CouponDisplay({
               padding: "14px 16px",
               borderRadius: 16,
               border: "none",
-              background: "#111827",
+              background: TOKEN.action.primary.background,
               color: "#ffffff",
               fontWeight: 700,
               cursor: "pointer",

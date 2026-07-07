@@ -1,3 +1,5 @@
+import { TOKEN } from "@/lib/design/tokens";
+
 type IssueEmptyStateProps = {
   title: string;
   description: string;
@@ -52,7 +54,7 @@ export default function IssueEmptyState({
             padding: "12px 16px",
             borderRadius: 14,
             border: "none",
-            background: "#111827",
+            background: TOKEN.action.primary.background,
             color: "#ffffff",
             fontWeight: 700,
             cursor: "pointer",

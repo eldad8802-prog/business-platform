@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { TOKEN } from "@/lib/design/tokens";
 
 const categoryOptions = [
   {
@@ -332,7 +333,7 @@ export default function OnboardingPage() {
               padding: "14px 16px",
               borderRadius: 12,
               border: "1px solid #111827",
-              background: "#111827",
+              background: TOKEN.action.primary.background,
               color: "#ffffff",
               cursor: loading ? "not-allowed" : "pointer",
               fontWeight: 700,

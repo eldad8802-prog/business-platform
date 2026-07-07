@@ -12,6 +12,7 @@ import {
   fetchOffers,
   createCoupon,
 } from "@/lib/revenue/issue/issue.helpers";
+import { TOKEN } from "@/lib/design/tokens";
 
 import type {
   IssueFlowState,
@@ -184,7 +185,7 @@ export default function IssueScreen() {
                 padding: "14px 16px",
                 borderRadius: 16,
                 border: "none",
-                background: "#111827",
+                background: TOKEN.action.primary.background,
                 color: "#ffffff",
                 fontWeight: 800,
                 cursor: "pointer",
