@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Heebo } from "next/font/google";
 import "./globals.css";
+import { AccessibilityFab } from "@/components/ui/accessibility/accessibility-fab";
 
 // Heebo is the official Dubiz typeface (Design System v1). It is Hebrew-first
 // (full Hebrew + Latin coverage by Oded Ezer), unlike Geist which has no Hebrew
@@ -37,6 +38,7 @@ export default function RootLayout({
     >
       <body className="min-h-screen w-full overflow-x-hidden flex flex-col">
         {children}
+        <AccessibilityFab />
       </body>
     </html>
   );

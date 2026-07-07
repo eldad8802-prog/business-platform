@@ -35,10 +35,15 @@ export const TOKEN = {
     light: "#6F91BE",
     /** Middle tone — interactive links, active text, icon accents on white (AA on white). */
     mid: "#2E527F",
-    /** Primary action / active gradient (navy → light, matches reference). */
-    gradient: "linear-gradient(135deg, #132944 0%, #274A72 48%, #6F91BE 100%)",
-    /** Hover — darken the navy side, deepen the light side slightly. */
-    gradientHover: "linear-gradient(135deg, #0E2037 0%, #203F64 48%, #5E82B2 100%)",
+    /**
+     * Primary action / active gradient — the Dubiz turquoise CTA (deep teal →
+     * bright aqua, left-to-right per the reference). White text stays legible on
+     * the deep-teal body. The warm DS v1 teal (`dsv1`/`warm`) is a separate,
+     * governed identity and is intentionally left untouched.
+     */
+    gradient: "linear-gradient(90deg, #0F6F68 0%, #2EAAA2 55%, #8FE3DA 100%)",
+    /** Hover — brighten each stop slightly for a livelier press-ready state. */
+    gradientHover: "linear-gradient(90deg, #147D74 0%, #35BDB4 55%, #A6EDE4 100%)",
     /** Soft tinted fill for active/selected surfaces on white. */
     soft: "#EEF3F9",
     /** Border for active/selected surfaces and soft chips. */
@@ -61,13 +66,16 @@ export const TOKEN = {
   },
 
   action: {
+    // Turquoise CTA — the primary action fill for every token-driven primary
+    // button. Shares the exact gradient with `brand.gradient`. The soft turquoise
+    // glow + inset top highlight give the requested glass/soft-glow feel.
     primary: {
-      background: "linear-gradient(135deg, #132944 0%, #274A72 48%, #6F91BE 100%)",
-      backgroundHover: "linear-gradient(135deg, #0E2037 0%, #203F64 48%, #5E82B2 100%)",
+      background: "linear-gradient(90deg, #0F6F68 0%, #2EAAA2 55%, #8FE3DA 100%)",
+      backgroundHover: "linear-gradient(90deg, #147D74 0%, #35BDB4 55%, #A6EDE4 100%)",
       color: "#FFFFFF",
-      border: "1px solid rgba(255, 255, 255, 0.22)",
-      shadow: "0 14px 30px rgba(19, 41, 68, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.28)",
-      shadowSoft: "0 10px 22px rgba(19, 41, 68, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.24)",
+      border: "1px solid rgba(255, 255, 255, 0.30)",
+      shadow: "0 18px 38px rgba(46, 170, 162, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.30)",
+      shadowSoft: "0 12px 26px rgba(46, 170, 162, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.24)",
     },
     glass: {
       background: "rgba(255, 255, 255, 0.78)",
