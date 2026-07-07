@@ -391,15 +391,20 @@ export default function LoginPage() {
     fontFamily: "inherit",
   };
 
+  // Boot check (validating an existing session before redirecting to /app).
+  // Render the brand intro's cream ground — no card, no "טוען..." — so a
+  // logged-in entry is cream from the first paint and flows seamlessly into the
+  // /app bear intro with no separate loading screen.
   if (bootLoading) {
     return (
-      <div style={pageStyle}>
-        <div style={cardStyle}>
-          <div style={{ padding: 28, textAlign: "center", color: "#111827" }}>
-            טוען...
-          </div>
-        </div>
-      </div>
+      <div
+        aria-hidden="true"
+        style={{
+          minHeight: "100dvh",
+          background:
+            "radial-gradient(circle at 50% 38%, #FDFBF6 0%, #F5EFE2 58%, #EDE4D3 100%)",
+        }}
+      />
     );
   }
 
