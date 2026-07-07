@@ -6,6 +6,7 @@ import { TOKEN } from "@/lib/design/tokens";
 import { useWhatsAppConnection } from "@/components/whatsapp/use-whatsapp-connection";
 import { WhatsAppConnectInvitation } from "@/components/whatsapp/WhatsAppConnectInvitation";
 import { WhatsAppConnectedCard } from "@/components/whatsapp/WhatsAppConnectedCard";
+import { WhatsAppMetaDataPrivacySection } from "@/components/whatsapp/WhatsAppMetaDataPrivacySection";
 
 /**
  * Dedicated WhatsApp settings screen.
@@ -45,6 +46,10 @@ export default function WhatsAppSettingsPage() {
         ) : (
           <WhatsAppConnectInvitation onConnected={refresh} />
         )}
+
+        <div style={{ marginTop: 16 }}>
+          <WhatsAppMetaDataPrivacySection onChanged={refresh} />
+        </div>
       </main>
     </div>
   );
