@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { TOKEN } from "@/lib/design/tokens";
 import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import ProgressBar from "@/components/ProgressBar";
@@ -531,12 +532,12 @@ const nextButtonStyle = (enabled: boolean): React.CSSProperties => ({
   height: 48,
   borderRadius: 14,
   border: "none",
-  background: enabled ? "#111827" : "#9ca3af",
+  background: enabled ? TOKEN.action.primary.background : "#9ca3af",
   color: "#ffffff",
   fontSize: 15,
   fontWeight: 800,
   cursor: enabled ? "pointer" : "not-allowed",
-  boxShadow: enabled ? "0 10px 24px rgba(17,24,39,0.18)" : "none",
+  boxShadow: enabled ? TOKEN.action.primary.shadow : "none",
 });
 
 const loadingWrapStyle: React.CSSProperties = {

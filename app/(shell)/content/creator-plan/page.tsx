@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { TOKEN } from "@/lib/design/tokens";
 import { useRouter } from "next/navigation";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
@@ -1154,12 +1155,12 @@ const ctaButtonStyle = (enabled: boolean): React.CSSProperties => ({
   height: 54,
   borderRadius: 16,
   border: "none",
-  background: enabled ? "#0f172a" : "#cbd5e1",
+  background: enabled ? TOKEN.action.primary.background : "#cbd5e1",
   color: "#ffffff",
   fontSize: 16,
   fontWeight: 800,
   cursor: enabled ? "pointer" : "not-allowed",
-  boxShadow: enabled ? "0 12px 32px rgba(15,23,42,0.26)" : "none",
+  boxShadow: enabled ? TOKEN.action.primary.shadow : "none",
   transition: "background 0.15s ease, box-shadow 0.15s ease",
   letterSpacing: "-0.01em",
 });

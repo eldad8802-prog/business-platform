@@ -22,6 +22,9 @@ import { useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "dubiz.a11y.prefs.v1";
 
+// Base distance from the bottom edge when no bottom-nav bar is present.
+const BASE_BOTTOM = 20;
+
 // The new Dubiz turquoise CTA gradient — kept in sync with the brand primary.
 const TURQUOISE_GRADIENT =
   "linear-gradient(90deg, #0F6F68 0%, #2EAAA2 55%, #8FE3DA 100%)";
@@ -70,6 +73,10 @@ export function AccessibilityFab() {
   // returns defaults; the trigger + closed panel don't depend on prefs, so the
   // client reading localStorage here never causes a hydration mismatch.
   const [prefs, setPrefs] = useState<Prefs>(readPrefs);
+  // Distance from the bottom edge — raised above the shell bottom-nav when it is
+  // present so the FAB never overlaps it. Measured from the live DOM so it adapts
+  // to the bar mounting/unmounting (e.g. full-screen surfaces hide it).
+  const [bottomInset, setBottomInset] = useState(BASE_BOTTOM);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -84,13 +91,61 @@ export function AccessibilityFab() {
     }
   }, [prefs]);
 
-  // Close on Escape and on outside-click; restore focus to the trigger.
+  // Keep the FAB clear of the fixed bottom navigation bar. We measure the bar
+  // (it tags itself `data-component="shell-bottom-bar"`) and sit above it; when
+  // it's absent (login, corporate, or a full-screen surface that hides it), the
+  // FAB drops to the base offset. Re-measures on resize and on DOM mutations.
+  useEffect(() => {
+    const measure = () => {
+      const bar = document.querySelector<HTMLElement>(
+        '[data-component="shell-bottom-bar"]'
+      );
+      const barH = bar?.offsetHeight ?? 0;
+      setBottomInset(barH > 0 ? barH + 12 : BASE_BOTTOM);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const mo = new MutationObserver(measure);
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      window.removeEventListener("resize", measure);
+      mo.disconnect();
+    };
+  }, []);
+
+  // Close on Escape / outside-click; move focus into the panel on open, keep it
+  // trapped inside (Tab cycles), and restore it to the trigger on close.
   useEffect(() => {
     if (!open) return;
+    const closeAndRestore = () => {
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    const focusables = () =>
+      Array.from(
+        panelRef.current?.querySelectorAll<HTMLElement>(
+          'button, [href], [tabindex]:not([tabindex="-1"])'
+        ) ?? []
+      ).filter((el) => !el.hasAttribute("disabled"));
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setOpen(false);
-        triggerRef.current?.focus();
+        e.preventDefault();
+        closeAndRestore();
+        return;
+      }
+      if (e.key === "Tab") {
+        const items = focusables();
+        if (items.length === 0) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        const activeEl = document.activeElement as HTMLElement | null;
+        if (e.shiftKey && activeEl === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && activeEl === last) {
+          e.preventDefault();
+          first.focus();
+        }
       }
     };
     const onClick = (e: MouseEvent) => {
@@ -104,9 +159,12 @@ export function AccessibilityFab() {
         setOpen(false);
       }
     };
+    // Move focus into the panel after it renders.
+    const raf = requestAnimationFrame(() => focusables()[0]?.focus());
     document.addEventListener("keydown", onKey);
     document.addEventListener("mousedown", onClick);
     return () => {
+      cancelAnimationFrame(raf);
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("mousedown", onClick);
     };
@@ -146,9 +204,9 @@ export function AccessibilityFab() {
         onClick={() => setOpen((v) => !v)}
         style={{
           position: "fixed",
-          bottom: 20,
+          bottom: bottomInset,
           insetInlineEnd: 20,
-          zIndex: 2147482000,
+          zIndex: 101,
           width: 54,
           height: 54,
           borderRadius: 999,
@@ -198,9 +256,9 @@ export function AccessibilityFab() {
           dir="rtl"
           style={{
             position: "fixed",
-            bottom: 86,
+            bottom: bottomInset + 66,
             insetInlineEnd: 20,
-            zIndex: 2147482000,
+            zIndex: 101,
             width: 288,
             maxWidth: "calc(100vw - 40px)",
             background: "#ffffff",

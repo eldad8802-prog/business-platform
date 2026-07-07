@@ -1,3 +1,5 @@
+import { TOKEN } from "@/lib/design/tokens";
+
 type Props = {
   message: string;
   onRetry: () => void;
@@ -42,7 +44,7 @@ export default function RedeemError({ message, onRetry }: Props) {
           padding: "12px 16px",
           borderRadius: 12,
           border: "none",
-          background: "#111827",
+          background: TOKEN.action.primary.background,
           color: "#ffffff",
           fontWeight: 700,
           cursor: "pointer",

@@ -1,3 +1,5 @@
+import { TOKEN } from "@/lib/design/tokens";
+
 type Props = {
   value: string;
   onChange: (val: string) => void;
@@ -52,7 +54,7 @@ export default function RedeemInput({
           padding: "14px",
           borderRadius: 12,
           border: "none",
-          background: "#111827",
+          background: TOKEN.action.primary.background,
           color: "#ffffff",
           fontWeight: 700,
           fontSize: 16,
