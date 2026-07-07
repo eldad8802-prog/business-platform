@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import BackButton from "@/components/ui/back-button";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
-import { TOKEN } from "@/lib/design/tokens";
 
 export type GoalId = "leads" | "exposure" | "trust" | "sales" | "brand";
 export type PlatformId = "instagram" | "tiktok" | "facebook" | "unknown";

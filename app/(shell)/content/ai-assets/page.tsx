@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import BackButton from "@/components/ui/back-button";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
-import { TOKEN } from "@/lib/design/tokens";
 
 type ContentFlow = {
   mode?: "ai" | "camera" | "voice";

@@ -7,7 +7,6 @@ import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
 import { mapContentArchetypeToGoalAngle } from "@/lib/content/content-archetype-map";
-import { TOKEN } from "@/lib/design/tokens";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

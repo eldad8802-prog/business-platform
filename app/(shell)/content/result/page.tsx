@@ -7,7 +7,6 @@ import Header from "@/components/Header";
 import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
-import { TOKEN } from "@/lib/design/tokens";
 
 type RenderOutput = {
   renderId?: string;

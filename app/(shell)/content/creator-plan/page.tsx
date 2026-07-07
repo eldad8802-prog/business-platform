@@ -7,7 +7,6 @@ import ProgressBar from "@/components/ProgressBar";
 import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
 import type { ContentInsightAnswer } from "@/lib/features/content/question-engine/types";
-import { TOKEN } from "@/lib/design/tokens";
 
 // ── Types (unchanged) ─────────────────────────────────────────────────────────
 
