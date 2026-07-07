@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
+import { DubizLogo } from "@/components/ui/dubiz-logo";
 
 type LoginErrors = {
   email?: string;
@@ -406,6 +407,10 @@ export default function LoginPage() {
     <div style={pageStyle}>
       <div style={cardStyle}>
         <div style={headerStyle}>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+            <DubizLogo height={38} priority />
+          </div>
+
           <div style={badgeStyle}>
             <span>🔐</span>
             <span>כניסה מאובטחת למערכת</span>
