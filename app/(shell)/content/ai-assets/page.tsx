@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import BackButton from "@/components/ui/back-button";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { TOKEN } from "@/lib/design/tokens";
 
 type ContentFlow = {
   mode?: "ai" | "camera" | "voice";
@@ -266,17 +268,11 @@ export default function AiAssetsPage() {
     setError("לא הצלחנו לאתר את נתוני הסרטון. חזרו לבחור כיוון מחדש.");
   }, [flow, result, hasValidPayload]);
 
-  function handleBack() {
-    router.back();
-  }
-
   return (
     <div style={pageStyle}>
       <div style={shellStyle}>
         <div style={topBarStyle}>
-          <button type="button" onClick={handleBack} style={backButtonStyle}>
-            חזרה
-          </button>
+          <BackButton />
 
           <div style={topBarTitleStyle}>מכינים את הסרטון</div>
 
@@ -405,19 +401,6 @@ const topBarTitleStyle: React.CSSProperties = {
 
 const topBarSpacerStyle: React.CSSProperties = {
   width: 68,
-};
-
-const backButtonStyle: React.CSSProperties = {
-  minWidth: 68,
-  height: 38,
-  borderRadius: 12,
-  border: "1px solid #e5e7eb",
-  background: "#ffffff",
-  color: "#111827",
-  fontSize: 14,
-  fontWeight: 700,
-  cursor: "pointer",
-  boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
 };
 
 const contentAreaStyle: React.CSSProperties = {

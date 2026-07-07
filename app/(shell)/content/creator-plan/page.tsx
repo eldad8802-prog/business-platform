@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import ProgressBar from "@/components/ProgressBar";
+import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
 import type { ContentInsightAnswer } from "@/lib/features/content/question-engine/types";
+import { TOKEN } from "@/lib/design/tokens";
 
 // ── Types (unchanged) ─────────────────────────────────────────────────────────
 
@@ -329,10 +331,6 @@ export default function CreatorPlanPage() {
   }, [flow]);
 
   // ── Handlers (unchanged) ────────────────────────────────────────────────────
-  function handleBack() {
-    router.back();
-  }
-
   function handleSelectVariant(id: string) {
     setSelectedVariantId(id);
   }
@@ -382,9 +380,7 @@ export default function CreatorPlanPage() {
       <div style={shellStyle}>
         {/* Top bar */}
         <div style={topBarStyle}>
-          <button type="button" onClick={handleBack} style={backButtonStyle}>
-            חזרה
-          </button>
+          <BackButton />
           <div style={{ flex: 1 }} />
         </div>
 
@@ -674,19 +670,6 @@ const topBarStyle: React.CSSProperties = {
   alignItems: "center",
   paddingTop: 12,
   paddingBottom: 4,
-};
-
-const backButtonStyle: React.CSSProperties = {
-  minWidth: 72,
-  height: 40,
-  borderRadius: 12,
-  border: "1px solid #e5e7eb",
-  background: "#ffffff",
-  color: "#111827",
-  fontSize: 14,
-  fontWeight: 700,
-  cursor: "pointer",
-  boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
 };
 
 const contentAreaStyle: React.CSSProperties = {

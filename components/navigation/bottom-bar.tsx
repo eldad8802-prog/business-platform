@@ -43,33 +43,29 @@ export function BottomBar() {
   const [actionSheetOpen, setActionSheetOpen] = useState(false);
   const [fabPressed, setFabPressed] = useState(false);
   const chromeHidden = useShellChromeHidden();
-  const inDocuments = pathname === "/documents" || pathname.startsWith("/documents/");
 
   // A full-screen surface (e.g. a secretary sub-screen/modal) has requested the
   // shell chrome be hidden so its bottom CTA is not covered by the fixed bar.
   if (chromeHidden) return null;
 
-  const tabs: TabDef[] = inDocuments
-    ? [
-        { key: "accountant", label: "רו״ח", href: "/documents/accountant-pack", icon: IconAccountant },
-        { key: "docs", label: "מסמכים", href: "/documents", icon: IconDocs },
-        { key: "search", label: "חיפוש", href: "/documents/search", icon: IconSearch },
-        { key: "profile", label: "פרופיל", href: "/settings", icon: IconProfile },
-      ]
-    : [
-        { key: "home", label: "בית", href: "/", icon: IconHome },
-        { key: "chats", label: "שיחות", href: "/inbox", icon: IconChat },
-        { key: "docs", label: "מסמכים", href: "/documents", icon: IconDocs },
-        { key: "more", label: "עוד", href: "/settings", icon: IconMore },
-      ];
+  // Fixed, uniform navigation on every screen the bar appears on — no per-screen
+  // variants. Settings is intentionally NOT here (reached from the home screen).
+  const tabs: TabDef[] = [
+    { key: "home", label: "בית", href: "/", icon: IconHome },
+    { key: "chats", label: "שיחות", href: "/inbox", icon: IconChat },
+    { key: "docs", label: "מסמכים", href: "/documents", icon: IconDocs },
+    { key: "inventory", label: "מלאי", href: "/inventory", icon: IconInventory },
+  ];
 
-  // Unified Dubiz brand active state across every section of the app.
-  const activeColor = "#3F619C";
-  const activeBg = "rgba(63, 97, 156, 0.10)";
-  const activeRing = "rgba(63, 97, 156, 0.22)";
-  const fabBackground = "linear-gradient(90deg, #243B57 0%, #9DB4D4 100%)";
+  // Unified Dubiz active state across every section of the app — the Documents
+  // feature teal (DS v1 accent #246966), so the whole app shares one language.
+  const activeColor = "#246966";
+  const activeBg = "rgba(36, 105, 102, 0.10)";
+  const activeRing = "rgba(36, 105, 102, 0.22)";
+  const fabBackground =
+    "linear-gradient(115deg, #246966 0%, #2C7C79 52%, #3D9C9A 100%)";
   const fabShadow =
-    "0 10px 28px rgba(36, 59, 87, 0.34), 0 2px 8px rgba(15, 23, 42, 0.12)";
+    "0 10px 28px rgba(36, 105, 102, 0.34), 0 2px 8px rgba(15, 23, 42, 0.12)";
 
   return (
     <>
@@ -91,16 +87,15 @@ export function BottomBar() {
           justifyContent: "space-between",
           gap: 6,
           paddingTop: NAV_TOP_PAD,
-          paddingLeft: inDocuments ? 14 : 8,
-          paddingRight: inDocuments ? 14 : 8,
+          paddingLeft: 8,
+          paddingRight: 8,
           paddingBottom: `calc(${NAV_BOTTOM_PAD}px + env(safe-area-inset-bottom, 0px))`,
-          background: inDocuments ? "rgba(255, 255, 255, 0.94)" : "rgba(255, 255, 255, 0.76)",
+          background: "rgba(255, 255, 255, 0.76)",
           backdropFilter: "blur(18px) saturate(160%)",
           WebkitBackdropFilter: "blur(18px) saturate(160%)",
-          borderTop: inDocuments ? "1px solid #e1e8f4" : "1px solid rgba(15, 23, 42, 0.06)",
-          boxShadow: inDocuments
-            ? "0 -12px 34px rgba(13, 27, 61, 0.08)"
-            : "0 1px 0 rgba(255, 255, 255, 0.65) inset, 0 -6px 28px rgba(15, 23, 42, 0.045)",
+          borderTop: "1px solid rgba(15, 23, 42, 0.06)",
+          boxShadow:
+            "0 1px 0 rgba(255, 255, 255, 0.65) inset, 0 -6px 28px rgba(15, 23, 42, 0.045)",
           WebkitTapHighlightColor: "transparent",
           height: "fit-content",
           maxHeight: "132px",
@@ -111,7 +106,9 @@ export function BottomBar() {
           href={tabs[0].href}
           label={tabs[0].label}
           icon={tabs[0].icon}
-          active={isActive(pathname, tabs[0].href)}
+          // Home links to "/" but the authenticated home renders at "/app"
+          // (via redirect), so treat both as the active home route.
+          active={isActive(pathname, tabs[0].href) || pathname === "/app"}
           activeColor={activeColor}
           activeBg={activeBg}
           activeRing={activeRing}
@@ -120,13 +117,7 @@ export function BottomBar() {
           href={tabs[1].href}
           label={tabs[1].label}
           icon={tabs[1].icon}
-          active={
-            inDocuments
-              ? pathname === "/documents" ||
-                pathname.startsWith("/documents/review") ||
-                pathname.startsWith("/documents/inbox")
-              : isActive(pathname, tabs[1].href)
-          }
+          active={isActive(pathname, tabs[1].href)}
           activeColor={activeColor}
           activeBg={activeBg}
           activeRing={activeRing}
@@ -147,7 +138,7 @@ export function BottomBar() {
         >
           <button
             type="button"
-            aria-label={inDocuments ? "הוסף מסמך" : "פעולות מהירות"}
+            aria-label="פעולות מהירות"
             aria-expanded={actionSheetOpen}
             onClick={() => setActionSheetOpen(true)}
             onPointerDown={() => setFabPressed(true)}
@@ -167,9 +158,7 @@ export function BottomBar() {
               fontWeight: 300,
               lineHeight: 1,
               boxShadow: fabPressed
-                ? inDocuments
-                  ? "0 4px 14px rgba(7, 91, 255, 0.25)"
-                  : "0 4px 14px rgba(15, 118, 110, 0.35)"
+                ? "0 4px 14px rgba(36, 105, 102, 0.35)"
                 : fabShadow,
               display: "flex",
               alignItems: "center",
@@ -354,53 +343,15 @@ function IconDocs({ active }: { active: boolean }) {
   );
 }
 
-function IconMore({ active }: { active: boolean }) {
-  const r = active ? 2.1 : 1.85;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="6" cy="12" r={r} fill="currentColor" />
-      <circle cx="12" cy="12" r={r} fill="currentColor" />
-      <circle cx="18" cy="12" r={r} fill="currentColor" />
-    </svg>
-  );
-}
-
-function IconSearch({ active }: { active: boolean }) {
+function IconInventory({ active }: { active: boolean }) {
   const w = active ? 2.25 : 2;
   return (
     <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
-        d="M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z"
+        d="M21 8 12 3 3 8v8l9 5 9-5V8zM3 8l9 5 9-5M12 13v8"
         stroke="currentColor"
         strokeWidth={w}
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function IconProfile({ active }: { active: boolean }) {
-  const w = active ? 2.25 : 2;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10z"
-        stroke="currentColor"
-        strokeWidth={w}
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function IconAccountant({ active }: { active: boolean }) {
-  const w = active ? 2.25 : 2;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M4 19V5M9 19v-7M14 19V9M19 19V4"
-        stroke="currentColor"
-        strokeWidth={w}
+        strokeLinejoin="round"
         strokeLinecap="round"
       />
     </svg>

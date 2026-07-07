@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import BackButton from "@/components/ui/back-button";
 
 type Props = {
   title: string;
@@ -15,17 +15,6 @@ export default function PageHeader({
   backHref,
   backLabel = "חזרה",
 }: Props) {
-  const router = useRouter();
-
-  function handleBack() {
-    if (!showBack) return;
-    if (typeof backHref === "string" && backHref.trim()) {
-      router.push(backHref);
-      return;
-    }
-    router.back();
-  }
-
   return (
     <div
       style={{
@@ -60,29 +49,16 @@ export default function PageHeader({
       </div>
 
       {showBack ? (
-        <button
-          type="button"
-          onClick={handleBack}
+        <div
           style={{
             position: "absolute",
             right: 16,
             top: "50%",
             transform: "translateY(-50%)",
-            height: 40,
-            borderRadius: 12,
-            border: "1px solid #e5e7eb",
-            background: "#ffffff",
-            cursor: "pointer",
-            padding: "0 12px",
-            fontSize: 14,
-            fontWeight: 900,
-            color: "#111827",
-            lineHeight: 1,
-            whiteSpace: "nowrap",
           }}
         >
-          {backLabel}
-        </button>
+          <BackButton href={backHref} label={backLabel} />
+        </div>
       ) : null}
     </div>
   );

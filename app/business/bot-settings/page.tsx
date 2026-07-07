@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import PageHeader from "@/components/ui/page-header";
+import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
 import { TOKEN } from "@/lib/design/bot-theme";
 import { isValidProductLinkUrl } from "@/lib/inbox-view/product-link-capability";
 import {
@@ -77,6 +78,9 @@ function normalizeFinalAction(value: string | null): FinalActionValue {
 }
 
 export default function BusinessBotSettingsPage() {
+  // Focused bot builder with its own sticky action bars — hide the app's fixed
+  // bottom nav so it never overlaps the save controls.
+  useHideShellChrome(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

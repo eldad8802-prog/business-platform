@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import BackButton from "@/components/ui/back-button";
 
 export default function SearchPage() {
   const [query, setQuery] = useState("");
@@ -19,6 +20,9 @@ export default function SearchPage() {
 
   return (
     <div style={{ padding: 40 }}>
+      <div style={{ marginBottom: 16 }}>
+        <BackButton />
+      </div>
       <h1>🔍 Search Documents</h1>
 
       <input

@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
+import BackButton from "@/components/ui/back-button";
 import {
   WarmButton,
   WarmCard,
@@ -158,26 +159,7 @@ export default function CollectionDetailPage() {
           }}
         >
           <h1 style={{ fontSize: 17, fontWeight: TOKEN.weight.semibold, color: W.ink }}>גבייה</h1>
-          <button
-            type="button"
-            aria-label="חזרה"
-            onClick={() => router.back()}
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: "50%",
-              background: W.surface,
-              border: `1px solid ${W.line}`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-            }}
-          >
-            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={W.muted} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="M9 6l6 6-6 6" />
-            </svg>
-          </button>
+          <BackButton />
         </header>
 
         {state.status === "loading" ? (

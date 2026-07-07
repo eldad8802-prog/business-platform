@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import BackButton from "@/components/ui/back-button";
 import type { InboxItemViewModel } from "@/lib/inbox-view/inbox-item.types";
 import { INBOX_SURFACE } from "@/components/inbox/inbox-ui-tokens";
 import { resolveConversationDisplayTitle } from "@/lib/inbox-view/conversation-display-title";
@@ -515,24 +516,7 @@ export function ConversationView(props: {
             }}
           >
             {isMobile && onBack ? (
-              <button
-                type="button"
-                onClick={onBack}
-                aria-label="חזרה לשיחות"
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 999,
-                  border: "none",
-                  background: "transparent",
-                  color: "#64748b",
-                  fontSize: 20,
-                  cursor: "pointer",
-                  flexShrink: 0,
-                }}
-              >
-                →
-              </button>
+              <BackButton onClick={onBack} label="חזרה לשיחות" />
             ) : null}
 
             <div style={{ position: "relative", flexShrink: 0 }}>
