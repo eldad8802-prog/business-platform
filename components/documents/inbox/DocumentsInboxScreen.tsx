@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
-import { useRouter } from "next/navigation";
 import { useDocumentsInbox } from "@/hooks/useDocumentsInbox";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { glassActionStyle } from "@/lib/design/documents-theme";
+import BackButton from "@/components/ui/back-button";
 import DocumentCard from "./DocumentCard";
 import InboxEmptyState from "./InboxEmptyState";
 import InboxSkeleton from "./InboxSkeleton";
@@ -31,7 +31,6 @@ export default function DocumentsInboxScreen({
 }: {
   authToken: string | null;
 }) {
-  const router = useRouter();
   const { scope, items, pagination, loading, loadingMore, error, refetch, loadMore } =
     useDocumentsInbox(authToken);
 
@@ -50,15 +49,7 @@ export default function DocumentsInboxScreen({
     <div dir="rtl" style={pageStyle}>
       <main style={mainStyle}>
         <header style={headStyle}>
-          <button
-            type="button"
-            onClick={() => router.push("/documents")}
-            style={backButtonStyle}
-            aria-label="חזרה למסמכים"
-          >
-            <BackChevronIcon />
-            חזרה
-          </button>
+          <BackButton href="/documents" />
           <div style={{ minWidth: 0, textAlign: "center" }}>
             <h1 style={titleStyle}>תור אימות</h1>
             <div style={subtitleStyle}>{monthLabel(scope?.month)}</div>
@@ -125,14 +116,6 @@ export default function DocumentsInboxScreen({
   );
 }
 
-function BackChevronIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="m9 6 6 6-6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 function WarningIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -157,18 +140,10 @@ const mainStyle = {
 
 const headStyle = {
   display: "grid",
-  gridTemplateColumns: "52px 1fr 52px",
+  gridTemplateColumns: "auto 1fr 52px",
   alignItems: "center",
   gap: 10,
   marginBottom: 14,
-} as const;
-
-const backButtonStyle = {
-  ...glassActionStyle({ height: 40 }),
-  width: 40,
-  height: 40,
-  fontSize: 0,
-  padding: 0,
 } as const;
 
 const titleStyle = {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import BackButton from "@/components/ui/back-button";
 
 type HeaderProps = {
   title: string;
@@ -11,23 +11,11 @@ export default function Header({
   title,
   showBack = true,
 }: HeaderProps) {
-  const router = useRouter();
-
   return (
     <div style={header}>
       {/* צד ימין - חזרה */}
       <div style={side}>
-        {showBack ? (
-          <button
-            onClick={() => router.back()}
-            style={backBtn}
-            aria-label="חזרה"
-          >
-            ←
-          </button>
-        ) : (
-          <div style={placeholder} />
-        )}
+        {showBack ? <BackButton /> : <div style={placeholder} />}
       </div>
 
       {/* מרכז */}
@@ -55,7 +43,7 @@ const header = {
 };
 
 const side = {
-  width: 60,
+  minWidth: 88,
   display: "flex",
   alignItems: "center",
   justifyContent: "flex-end",
@@ -64,16 +52,6 @@ const side = {
 const placeholder = {
   width: 44,
   height: 44,
-};
-
-const backBtn = {
-  width: 44,
-  height: 44,
-  borderRadius: 12,
-  border: "1px solid #e5e7eb",
-  background: "#fff",
-  fontSize: 22,
-  cursor: "pointer",
 };
 
 const titleStyle = {

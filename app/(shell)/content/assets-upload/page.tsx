@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import { useRouter } from "next/navigation";
 import ProgressBar from "@/components/ProgressBar";
+import BackButton from "@/components/ui/back-button";
 import { baseStyles } from "@/lib/styles/baseStyles";
 
 type Shot = {
@@ -76,10 +77,6 @@ export default function AssetsUploadPage() {
     return uploadedCount > 0;
   }, [uploadedCount]);
 
-  function handleBack() {
-    router.push("/content/shot-direction");
-  }
-
   async function handleFileChange(index: number, file: File | null) {
     if (!file) return;
 
@@ -143,9 +140,7 @@ export default function AssetsUploadPage() {
     <div style={pageStyle}>
       <div style={shellStyle}>
         <div style={topBarStyle}>
-          <button type="button" onClick={handleBack} style={backButtonStyle}>
-            חזרה
-          </button>
+          <BackButton href="/content/shot-direction" />
 
           <div style={topBarTitleStyle}>מחברים את מה שצילמתם</div>
 
@@ -304,19 +299,6 @@ const topBarTitleStyle: React.CSSProperties = {
 
 const topBarSpacerStyle: React.CSSProperties = {
   width: 68,
-};
-
-const backButtonStyle: React.CSSProperties = {
-  minWidth: 68,
-  height: 38,
-  borderRadius: 12,
-  border: "1px solid #e5e7eb",
-  background: "#ffffff",
-  color: "#111827",
-  fontSize: 14,
-  fontWeight: 700,
-  cursor: "pointer",
-  boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
 };
 
 const contentAreaStyle: React.CSSProperties = {

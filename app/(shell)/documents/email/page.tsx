@@ -13,6 +13,13 @@ import { TOKEN } from "@/lib/design/documents-theme";
 import { chipActionStyle, glassActionStyle, primaryActionStyle } from "@/lib/design/documents-theme";
 import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 
+type GmailConnectionSummary = {
+  id: number;
+  emailAddress: string;
+  status: string;
+  lastSyncedAt?: string | null;
+};
+
 type GmailStatusResponse =
   | { error: string }
   | {
@@ -20,6 +27,7 @@ type GmailStatusResponse =
       connected: boolean;
       emailAddress?: string;
       lastSyncedAt?: string | null;
+      connections?: GmailConnectionSummary[];
     };
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -36,6 +44,8 @@ function gmailCallbackErrorMessage(code: string): string {
       return "משהו נקטע באמצע החיבור ל-Gmail. נסה להתחבר שוב.";
     case "gmail_token_exchange_failed":
       return "לא הצלחנו להשלים את החיבור מול Google. נסה שוב עוד רגע.";
+    case "max_accounts":
+      return "אפשר לחבר עד שני חשבונות Gmail. כדי לחבר חשבון אחר, נתק חשבון קיים.";
     case "gmail_callback_failed":
     default:
       return "החיבור ל-Gmail לא הושלם. נסה שוב.";
@@ -55,6 +65,10 @@ export default function EmailDocumentsPage() {
   const [authHeader, setAuthHeader] = useState<string | null>(null);
   const [connected, setConnected] = useState<boolean | null>(null);
   const [emailAddress, setEmailAddress] = useState("");
+  const [connections, setConnections] = useState<GmailConnectionSummary[]>([]);
+  const [confirmingId, setConfirmingId] = useState<number | null>(null);
+  const [disconnectingId, setDisconnectingId] = useState<number | null>(null);
+  const [selectedConnectionId, setSelectedConnectionId] = useState<number | null>(null);
   const [attachments, setAttachments] = useState<GmailDiscoveryAttachment[]>([]);
   const [statusByKey, setStatusByKey] = useState<Record<string, EmailAttachmentUiStatus>>({});
   const [loading, setLoading] = useState(false);
@@ -111,7 +125,11 @@ export default function EmailDocumentsPage() {
         }
         setConnected(Boolean(data.connected));
         setEmailAddress(data.emailAddress || "");
-        if (data.connected) void runScan(10, authHeader);
+        const conns = Array.isArray(data.connections) ? data.connections : [];
+        setConnections(conns);
+        const primaryConnected = conns.find((c) => c.status === "connected") ?? null;
+        setSelectedConnectionId(primaryConnected?.id ?? null);
+        if (data.connected) void runScan(10, authHeader, primaryConnected?.id ?? undefined);
       } catch {
         setConnected(false);
       }
@@ -160,15 +178,53 @@ export default function EmailDocumentsPage() {
     }
   }
 
-  async function runScan(maxMessages: number, header = authHeader) {
+  async function disconnectAccount(connectionId: number) {
+    if (!authHeader) return;
+    setDisconnectingId(connectionId);
+    setError("");
+    try {
+      const response = await fetch("/api/integrations/gmail/disconnect", {
+        method: "POST",
+        headers: { authorization: authHeader, "content-type": "application/json" },
+        body: JSON.stringify({ connectionId }),
+      });
+      if (!response.ok) {
+        throw new Error("לא הצלחנו לנתק את החשבון. נסה שוב.");
+      }
+      const next = connections.map((c) =>
+        c.id === connectionId ? { ...c, status: "revoked" } : c
+      );
+      setConnections(next);
+      const stillConnected = next.some((c) => c.status === "connected");
+      setConnected(stillConnected);
+      if (!stillConnected) {
+        setEmailAddress("");
+        setAttachments([]);
+        setStatusByKey({});
+      }
+      setNotice("החשבון נותק.");
+    } catch (err) {
+      setError(errorMessage(err, "שגיאה בניתוק החשבון"));
+    } finally {
+      setDisconnectingId(null);
+      setConfirmingId(null);
+    }
+  }
+
+  async function runScan(
+    maxMessages: number,
+    header = authHeader,
+    connectionId: number | undefined = selectedConnectionId ?? undefined
+  ) {
     if (!header) return;
     try {
       setLoading(true);
       setError("");
-      const response = await fetch(
-        `/api/integrations/gmail/sync?maxMessages=${encodeURIComponent(String(maxMessages))}`,
-        { headers: { authorization: header } }
-      );
+      const params = new URLSearchParams({ maxMessages: String(maxMessages) });
+      if (connectionId != null) params.set("connectionId", String(connectionId));
+      const response = await fetch(`/api/integrations/gmail/sync?${params.toString()}`, {
+        headers: { authorization: header },
+      });
       const data = await response.json();
       if (response.status === 409 || data?.needsReconnect) {
         // Token is no longer usable (key rotated / refresh revoked). Reflect the
@@ -216,6 +272,7 @@ export default function EmailDocumentsPage() {
           fromEmail: attachment.fromEmail,
           subject: attachment.subject,
           sentAt: attachment.sentAt,
+          ...(selectedConnectionId != null ? { connectionId: selectedConnectionId } : {}),
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -278,6 +335,9 @@ export default function EmailDocumentsPage() {
     );
   }
 
+  const connectedAccounts = connections.filter((c) => c.status === "connected");
+  const canConnectAnother = connectedAccounts.length >= 1 && connectedAccounts.length < 2;
+
   return (
     <div dir="rtl" style={pageStyle}>
       <main style={mainStyle}>
@@ -298,6 +358,91 @@ export default function EmailDocumentsPage() {
           {connected ? <CheckIcon /> : <WarningIcon />}
           {connected ? `מחובר: ${emailAddress || "Gmail"}` : "Gmail לא מחובר"}
         </section>
+
+        {connections.length > 0 ? (
+          <section style={accountsCardStyle}>
+            <div style={accountsTitleStyle}>חשבונות Gmail</div>
+            {connections.map((c) => (
+              <div key={c.id} style={accountRowStyle}>
+                <div style={accountEmailStyle}>{c.emailAddress}</div>
+                <span
+                  style={
+                    c.status === "connected"
+                      ? accountBadgeConnectedStyle
+                      : accountBadgeRevokedStyle
+                  }
+                >
+                  {c.status === "connected" ? "מחובר" : "מנותק"}
+                </span>
+                {c.status === "connected" ? (
+                  confirmingId === c.id ? (
+                    <span style={confirmWrapStyle}>
+                      <button
+                        type="button"
+                        style={confirmYesStyle}
+                        disabled={disconnectingId === c.id}
+                        onClick={() => void disconnectAccount(c.id)}
+                      >
+                        {disconnectingId === c.id ? "מנתק…" : "אשר ניתוק"}
+                      </button>
+                      <button
+                        type="button"
+                        style={confirmNoStyle}
+                        onClick={() => setConfirmingId(null)}
+                      >
+                        בטל
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      style={disconnectBtnStyle}
+                      onClick={() => setConfirmingId(c.id)}
+                    >
+                      נתק
+                    </button>
+                  )
+                ) : null}
+              </div>
+            ))}
+            {canConnectAnother ? (
+              <button
+                type="button"
+                onClick={() => void startConnect()}
+                style={connectAnotherBtnStyle}
+              >
+                חבר חשבון נוסף
+              </button>
+            ) : null}
+          </section>
+        ) : null}
+
+        {connectedAccounts.length >= 2 ? (
+          <section style={selectorCardStyle}>
+            <div style={selectorLabelStyle}>סרוק וייבא מתוך</div>
+            <div style={selectorChipsStyle}>
+              {connectedAccounts.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  style={
+                    selectedConnectionId === c.id
+                      ? selectorChipActiveStyle
+                      : selectorChipStyle
+                  }
+                  aria-pressed={selectedConnectionId === c.id}
+                  disabled={loading}
+                  onClick={() => {
+                    setSelectedConnectionId(c.id);
+                    void runScan(10, authHeader, c.id);
+                  }}
+                >
+                  {c.emailAddress}
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {notice ? <div style={noticeStyle}>{notice}</div> : null}
 
@@ -465,6 +610,162 @@ const connectButtonStyle = {
   minHeight: 52,
   marginTop: 12,
   fontSize: TOKEN.font.body,
+} as const;
+
+const accountsCardStyle = {
+  marginTop: 12,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  background: TOKEN.surface.card,
+  borderRadius: TOKEN.radius.card,
+  boxShadow: TOKEN.shadow.elevated,
+  padding: 14,
+} as const;
+
+const accountsTitleStyle = {
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+  marginBottom: 10,
+} as const;
+
+const accountRowStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  padding: "8px 0",
+  flexWrap: "wrap" as const,
+} as const;
+
+const accountEmailStyle = {
+  flex: 1,
+  minWidth: 0,
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.semibold,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap" as const,
+} as const;
+
+const accountBadgeBaseStyle = {
+  borderRadius: TOKEN.radius.pill,
+  padding: "3px 9px",
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.bold,
+  flexShrink: 0,
+} as const;
+
+const accountBadgeConnectedStyle = {
+  ...accountBadgeBaseStyle,
+  background: TOKEN.semantic.success.bgSoft,
+  color: TOKEN.semantic.success.ink,
+} as const;
+
+const accountBadgeRevokedStyle = {
+  ...accountBadgeBaseStyle,
+  background: TOKEN.surface.inset,
+  color: TOKEN.ink.muted,
+} as const;
+
+const disconnectBtnStyle = {
+  minHeight: 36,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.button,
+  background: TOKEN.surface.card,
+  color: TOKEN.ink.secondary,
+  padding: "0 14px",
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.bold,
+  cursor: "pointer",
+  flexShrink: 0,
+} as const;
+
+const confirmWrapStyle = {
+  display: "flex",
+  gap: 6,
+  flexShrink: 0,
+} as const;
+
+const confirmYesStyle = {
+  minHeight: 36,
+  border: "none",
+  borderRadius: TOKEN.radius.button,
+  background: TOKEN.semantic.urgent.ink,
+  color: TOKEN.ink.inverse,
+  padding: "0 12px",
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.bold,
+  cursor: "pointer",
+} as const;
+
+const confirmNoStyle = {
+  minHeight: 36,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.button,
+  background: TOKEN.surface.card,
+  color: TOKEN.ink.secondary,
+  padding: "0 12px",
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.bold,
+  cursor: "pointer",
+} as const;
+
+const connectAnotherBtnStyle = {
+  marginTop: 10,
+  minHeight: 40,
+  width: "100%",
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.button,
+  background: TOKEN.surface.card,
+  color: TOKEN.brand.mid,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+  cursor: "pointer",
+} as const;
+
+const selectorCardStyle = {
+  marginTop: 12,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  background: TOKEN.surface.card,
+  borderRadius: TOKEN.radius.card,
+  boxShadow: TOKEN.shadow.elevated,
+  padding: 14,
+} as const;
+
+const selectorLabelStyle = {
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.bold,
+  marginBottom: 8,
+} as const;
+
+const selectorChipsStyle = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap" as const,
+} as const;
+
+const selectorChipStyle = {
+  minHeight: 38,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.pill,
+  background: TOKEN.surface.card,
+  color: TOKEN.ink.primary,
+  padding: "0 14px",
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.bold,
+  cursor: "pointer",
+  maxWidth: "100%",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap" as const,
+} as const;
+
+const selectorChipActiveStyle = {
+  ...selectorChipStyle,
+  border: `1px solid ${TOKEN.brand.softBorder}`,
+  background: TOKEN.brand.soft,
+  color: TOKEN.brand.mid,
 } as const;
 
 const subStyle = {

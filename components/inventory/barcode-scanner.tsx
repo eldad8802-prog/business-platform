@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState, type ComponentProps } from "react";
 import { Scanner } from "@yudiel/react-qr-scanner";
 import { useModalDismiss } from "@/components/inventory/use-modal-dismiss";
+import BackButton from "@/components/ui/back-button";
 
 /**
  * Shared inventory barcode scanner.
@@ -191,31 +192,7 @@ function BarcodeScannerBody({
             gap: 12,
           }}
         >
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="חזרה"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              minHeight: 36,
-              padding: "6px 12px 6px 10px",
-              borderRadius: 10,
-              border: "1px solid var(--inv-border)",
-              background: "var(--inv-surface-2)",
-              color: "var(--inv-text)",
-              cursor: "pointer",
-              fontSize: 14,
-              fontWeight: 600,
-              flexShrink: 0,
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            חזרה
-          </button>
+          <BackButton onClick={onClose} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 17, fontWeight: 600, color: "var(--inv-text)" }}>{title}</div>
             {hint ? (

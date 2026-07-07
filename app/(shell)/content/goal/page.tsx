@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import { useRouter } from "next/navigation";
+import BackButton from "@/components/ui/back-button";
 import ProgressBar from "@/components/ProgressBar";
 import { baseStyles } from "@/lib/styles/baseStyles";
+import { TOKEN } from "@/lib/design/tokens";
 
 export type GoalId = "leads" | "exposure" | "trust" | "sales" | "brand";
 export type PlatformId = "instagram" | "tiktok" | "facebook" | "unknown";
@@ -147,13 +149,7 @@ export default function GoalPage() {
 
       <div style={shellStyle}>
         <div style={topBarStyle}>
-          <button
-            type="button"
-            onClick={() => router.back()}
-            style={backButtonStyle}
-          >
-            חזרה
-          </button>
+          <BackButton />
           <div style={{ flex: 1 }} />
         </div>
 
@@ -263,19 +259,6 @@ const topBarStyle: React.CSSProperties = {
   alignItems: "center",
   paddingTop: 12,
   paddingBottom: 4,
-};
-
-const backButtonStyle: React.CSSProperties = {
-  minWidth: 72,
-  height: 40,
-  borderRadius: 12,
-  border: "1px solid #e5e7eb",
-  background: "#ffffff",
-  color: "#111827",
-  fontSize: 14,
-  fontWeight: 700,
-  cursor: "pointer",
-  boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
 };
 
 const contentAreaStyle: React.CSSProperties = {

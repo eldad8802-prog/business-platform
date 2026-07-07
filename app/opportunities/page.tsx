@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
-import { useRouter } from "next/navigation";
+import BackButton from "@/components/ui/back-button";
 
 type DealStatus = "NEW" | "ACCEPTED" | "DISMISSED";
 type DealActionType = "SEND_LEAD" | "COUPON" | "REFERRAL";
@@ -25,8 +25,6 @@ type CollaborationDeal = {
 };
 
 export default function OpportunitiesPage() {
-  const router = useRouter();
-
   const [deals, setDeals] = useState<CollaborationDeal[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -427,11 +425,6 @@ export default function OpportunitiesPage() {
     minWidth: 100,
   };
 
-  const mutedButtonStyle: React.CSSProperties = {
-    ...secondaryButtonStyle,
-    background: "#f8fafc",
-  };
-
   const emptyStyle: React.CSSProperties = {
     background: "#ffffff",
     borderRadius: 22,
@@ -516,13 +509,7 @@ export default function OpportunitiesPage() {
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => router.push("/app")}
-              style={mutedButtonStyle}
-            >
-              חזרה לבית
-            </button>
+            <BackButton href="/app" label="חזרה לבית" />
           </div>
 
           <div style={summaryRowStyle}>

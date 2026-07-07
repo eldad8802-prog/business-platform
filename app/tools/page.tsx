@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import BackButton from "@/components/ui/back-button";
 
 type ToolItem = {
   key: string;
@@ -107,13 +108,7 @@ function ToolsHeader({ onBack }: { onBack: () => void }) {
   return (
     <header className="mb-5 rounded-3xl bg-white px-4 py-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
-        <button
-          onClick={onBack}
-          className="flex h-11 min-w-[44px] items-center justify-center rounded-2xl border border-gray-200 px-3 text-sm font-medium text-gray-700"
-          aria-label="חזרה"
-        >
-          →
-        </button>
+        <BackButton onClick={onBack} />
 
         <div className="flex-1 text-center">
           <p className="text-base font-bold text-gray-900">כל הכלים</p>

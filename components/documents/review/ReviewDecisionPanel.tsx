@@ -5,7 +5,6 @@ import type { PreviewView } from "@/lib/documents/review/preview-visibility";
 import type { ReviewFieldListProps } from "./ReviewFieldList";
 import ReviewActions from "./ReviewActions";
 import type { ReviewActionsProps } from "./ReviewActions";
-import ReviewAiExtractedCard from "./ReviewAiExtractedCard";
 import ReviewFieldList from "./ReviewFieldList";
 import ReviewImpactBox from "./ReviewImpactBox";
 import ReviewPreviewFallback from "./ReviewPreviewFallback";
@@ -156,13 +155,6 @@ export default function ReviewDecisionPanel({
         </div>
 
         <div style={{ display: "grid", gap: 14, order: 1 }}>
-          <ReviewAiExtractedCard
-            vendorDisplay={vendorDisplay}
-            amountDisplay={amountDisplay}
-            dateDisplay={dateDisplay}
-            categoryDisplay={categoryDisplay}
-            directionDisplay={directionDisplay}
-          />
           <ReviewImpactBox approvalImpact={approvalImpact} />
         </div>
       </div>
