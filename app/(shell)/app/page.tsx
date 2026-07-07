@@ -7,6 +7,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { GlobalBusinessAvatar } from "@/components/business/GlobalBusinessAvatar";
+import { DubizIntroOverlay } from "@/components/brand/dubiz-intro-overlay";
 
 type HeroAction = {
   actionKey: string;
@@ -544,7 +545,16 @@ function HomePage() {
     );
   }
 
-  return body;
+  // The brand intro overlay REPLACES the old skeleton on first authenticated
+  // entry per session. It renders on top, plays in parallel with /api/home, and
+  // fades out only once the animation has finished AND the page has settled
+  // (appReady). It self-limits to once/session and respects reduced-motion.
+  return (
+    <>
+      <DubizIntroOverlay appReady={sessionReady && !loading} />
+      {body}
+    </>
+  );
 }
 
 export default HomePage;
