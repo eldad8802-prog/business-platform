@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>קופונים — כל המסכים</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --gutter:20px; --r-card:16px; --r-ctl:12px; --r-cta:14px; --r-pill:999px;
+    --canvas:#FEF8F2; --surface:#FDF4EB; --surface-2:#F6ECDD;
+    --ink:#2D2B28; --muted:#777067; --muted-2:#A79C8D; --line:#E9DDD0;
+    --teal-deep:#246966; --teal:#3D9C9A; --brown:#B88755; --clay:#B85C3F;
+    --grad:linear-gradient(115deg,#246966 0%,#2C7C79 52%,#3D9C9A 100%);
+    --grad-hover:linear-gradient(115deg,#2A7370 0%,#348C89 52%,#49AEAC 100%);
+    --glow:0 6px 18px rgba(36,105,102,.28); --glow-hover:0 10px 26px rgba(36,105,102,.38);
+    --shadow:0 1px 2px rgba(88,62,38,.05), 0 8px 22px rgba(120,88,52,.06);
+    --shadow-hover:0 1px 2px rgba(88,62,38,.06), 0 12px 28px rgba(120,88,52,.10);
+    --wa:#1FA855; --coral:#E67E3A; --violet:#8A6FBE; --amber:#BE8B3C;
+    --tk-teal:linear-gradient(135deg,#1F7D6F,#3DB0A6);
+    --tk-orange:linear-gradient(135deg,#E67E3A,#F2A65C);
+    --tk-purple:linear-gradient(135deg,#6E52A6,#9179C4); --tk-pink:linear-gradient(135deg,#C24D80,#E483AA);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  b{font-weight:600}
+  body{font-family:'Heebo',system-ui,sans-serif;background:#E7DCCF;color:var(--ink);padding:34px 26px 60px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .doc-title{text-align:center;font-weight:600;font-size:23px;color:var(--ink);letter-spacing:-.4px}
+  .doc-sub{text-align:center;font-size:13px;color:var(--muted);margin:4px 0 30px}
+  .zone{margin-bottom:14px}
+  .zone-h{display:flex;align-items:center;gap:10px;margin:26px 4px 20px}
+  .zone-h .n{font-size:15px;font-weight:600;color:var(--teal-deep);background:#F3EFE7;border:1px solid var(--line);border-radius:var(--r-pill);padding:5px 14px}
+  .zone-h .d{font-size:12.5px;color:var(--muted)}
+  .grid-frames{display:flex;flex-wrap:wrap;gap:40px 28px;align-items:flex-start}
+
+  .frame{width:390px}
+  .cap{margin-bottom:10px;padding:0 2px}
+  .cap .t{font-weight:600;font-size:14px}
+  .cap .d{font-size:12px;color:var(--muted);margin-top:2px}
+  .tag{display:inline-block;font-size:10px;font-weight:600;padding:1px 8px;border-radius:var(--r-pill);margin-right:5px}
+  .tag.real{color:var(--teal-deep);background:rgba(36,105,102,.08)}
+  .tag.fut{color:var(--brown);background:rgba(184,135,85,.10)}
+  .tag.nc{color:var(--muted);background:var(--surface-2)}
+
+  .phone{background:var(--canvas);border-radius:22px;overflow:hidden;box-shadow:0 16px 40px rgba(70,50,30,.14);min-height:720px;display:flex;flex-direction:column;position:relative}
+  .hdr{display:flex;align-items:center;justify-content:space-between;padding:20px var(--gutter) 8px}
+  .hdr h1{font-size:17px;font-weight:600;letter-spacing:-.2px}
+  .ib{width:36px;height:36px;border-radius:50%;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .ib svg{width:16px;height:16px;stroke:var(--muted);fill:none;stroke-width:1.9}
+  .body{flex:1;padding:8px var(--gutter) 22px;display:flex;flex-direction:column}
+
+  /* buttons */
+  .btn{width:100%;border:none;border-radius:var(--r-cta);font-family:inherit;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:background .28s,box-shadow .28s,transform .2s}
+  .btn svg{width:18px;height:18px}
+  .btn.primary{height:50px;background:var(--grad);color:#fff;font-size:15px;box-shadow:var(--glow)}
+  .btn.primary:hover{background:var(--grad-hover);box-shadow:var(--glow-hover);transform:translateY(-1px)}
+  .btn.wa{height:48px;background:var(--wa);color:#fff;font-size:15px}
+  .btn.sec{height:44px;background:var(--surface);color:var(--ink);border:1px solid var(--line);font-size:14px}
+  .row2{display:flex;gap:10px}.row2 .btn{width:auto;flex:1}
+  .mt8{margin-top:8px}.mt10{margin-top:10px}.mt12{margin-top:12px}.mt16{margin-top:16px}.spring{flex:1}
+
+  /* ============ MARKETPLACE ============ */
+  .mkt-h{padding:2px var(--gutter) 4px}
+  .mkt-h .k{font-size:12.5px;font-weight:500;color:var(--muted-2);margin-bottom:3px}
+  .mkt-h h2{font-size:22px;font-weight:600;letter-spacing:-.4px}
+  .search{display:flex;align-items:center;gap:10px;height:46px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-ctl);padding:0 14px;margin:12px 0}
+  .search svg{width:17px;height:17px;stroke:var(--muted-2);fill:none;stroke-width:1.9}
+  .search span{font-size:14px;color:var(--muted-2)}
+  .filters{display:flex;gap:9px;margin-bottom:22px;overflow:hidden}
+  .fchip{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;flex-shrink:0;border:1px solid var(--line);border-radius:var(--r-pill);background:var(--surface);font-size:12.5px;font-weight:600;color:var(--ink)}
+  .fchip.on{border-color:var(--teal);background:rgba(36,105,102,.06);color:var(--teal-deep)}
+  .fchip svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.9}
+  .fchip .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  .dot.food{background:var(--coral)} .dot.beauty{background:var(--violet)} .dot.health{background:var(--teal)}
+  .eyebrow{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.2px;margin:0 2px 14px}
+  .eyebrow .ey-dot{display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--coral);margin-left:7px;vertical-align:middle}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 12px}
+  .hrow{margin-bottom:22px}
+  .hstrip{display:flex;gap:12px;overflow-x:auto;padding:2px var(--gutter);margin:0 calc(var(--gutter)*-1)}
+  .hstrip{scrollbar-width:thin;scrollbar-color:var(--muted-2) transparent}
+  .hstrip::-webkit-scrollbar{height:7px}
+  .hstrip::-webkit-scrollbar-thumb{background:var(--muted-2);border-radius:4px}
+  .hstrip::-webkit-scrollbar-track{background:transparent}
+  .hstrip .ticket{flex:0 0 156px}
+  .hstrip .ticket .benefit{font-size:13px;min-height:34px}
+  .hstrip .ticket .in{padding:12px 11px}
+
+  .ticket{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--shadow);text-align:start}
+  .ticket .top{height:72px;border-radius:15px 15px 0 0;overflow:hidden;display:flex;align-items:center;justify-content:center;position:relative}
+  .ticket.teal .top{background:var(--tk-teal)} .ticket.orange .top{background:var(--tk-orange)} .ticket.purple .top{background:var(--tk-purple)} .ticket.pink .top{background:var(--tk-pink)}
+  .ticket .top .cat{width:25px;height:25px;stroke:#fff;fill:none;stroke-width:1.7;opacity:.95}
+  .ticket .dist{position:absolute;top:8px;right:8px;font-size:10px;font-weight:600;color:#fff;background:rgba(255,255,255,.22);border-radius:var(--r-pill);padding:2px 8px}
+  .ticket .notch{position:absolute;top:66px;width:12px;height:12px;border-radius:50%;background:var(--canvas);border:1px solid var(--line)}
+  .ticket .notch.l{left:-6px}.ticket .notch.r{right:-6px}
+  .ticket .dash{position:absolute;top:71px;left:24px;right:9px;border-top:2px dashed var(--line)}
+  .ticket .sc{position:absolute;top:65px;left:5px;width:13px;height:13px;color:var(--muted-2);stroke:currentColor;fill:none;stroke-width:1.6;background:var(--surface);border-radius:50%}
+  .ticket .in{padding:13px 12px}
+  .ticket .biz{font-size:11px;font-weight:500;color:var(--muted)}
+  .ticket .benefit{font-size:14px;font-weight:600;letter-spacing:-.2px;line-height:1.3;margin-top:3px;min-height:36px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .ticket .valid{font-size:10.5px;color:var(--muted-2);margin-top:7px}
+
+  .fab{position:absolute;bottom:24px;left:var(--gutter);height:50px;padding:0 20px 0 16px;border:none;border-radius:var(--r-pill);background:var(--grad);color:#fff;font-family:inherit;font-size:15px;font-weight:600;display:flex;align-items:center;gap:9px;box-shadow:var(--glow)}
+  .fab svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:2.2;stroke-linecap:round}
+  .fab .bt{position:absolute;top:-9px;right:8px;font-size:9px;font-weight:600;color:var(--brown);background:#FBF3E7;border:1px solid var(--line);border-radius:var(--r-pill);padding:1px 7px}
+
+  /* ============ PUBLIC COUPON PAGE ============ */
+  .pubhero{padding:22px 18px;color:#fff;display:flex;align-items:center;gap:14px}
+  .pubhero.teal{background:var(--tk-teal)}
+  .pubhero .logo{width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:19px;flex-shrink:0}
+  .pubhero .bn{font-size:17px;font-weight:600}
+  .pubhero .bc{font-size:12.5px;opacity:.9;margin-top:2px;display:flex;align-items:center;gap:5px}
+  .pubhero .bc svg{width:12px;height:12px;stroke:#fff;fill:none;stroke-width:2}
+  .pubbody{padding:20px var(--gutter) 0}
+  .pubbody .bt{font-size:21px;font-weight:600;letter-spacing:-.3px;line-height:1.3}
+  .pubbody .desc{font-size:14px;color:var(--muted);margin-top:8px;line-height:1.55}
+  .facts{margin:18px 0 0;display:flex;flex-direction:column}
+  .fact{display:flex;align-items:center;gap:11px;padding:11px 0;border-top:1px solid var(--line);font-size:13.5px}
+  .fact:last-child{border-bottom:1px solid var(--line)}
+  .fact svg{width:17px;height:17px;stroke:var(--teal-deep);fill:none;stroke-width:1.8;flex-shrink:0}
+  .fact.a2 svg{stroke:var(--coral)} .fact.a3 svg{stroke:var(--amber)} .fact.a4 svg{stroke:var(--wa)}
+  .fact .v{color:var(--ink)} .fact .v b{font-weight:600}
+  .qty{display:flex;align-items:center;gap:10px;margin-top:16px;font-size:12.5px;color:var(--muted)}
+  .qty .bar{flex:1;height:6px;border-radius:4px;background:var(--surface-2);overflow:hidden}
+  .qty .bar i{display:block;height:100%;width:24%;background:var(--brown)}
+  .terms{font-size:12px;color:var(--muted-2);margin-top:16px;line-height:1.5}
+  .pubcta{padding:16px var(--gutter) 20px;margin-top:14px;border-top:1px solid var(--line);background:var(--canvas)}
+  /* published moment — owner sees the real public page */
+  .pub-banner{text-align:center;padding:6px 0 18px}
+  .pub-banner .chk{width:50px;height:50px;border-radius:50%;background:rgba(36,105,102,.1);display:flex;align-items:center;justify-content:center;margin:0 auto 12px}
+  .pub-banner .chk svg{width:25px;height:25px;stroke:var(--teal-deep);fill:none;stroke-width:2.4}
+  .pub-banner .pt{font-size:20px;font-weight:600;letter-spacing:-.2px}
+  .pub-banner .ps{font-size:13.5px;color:var(--muted);margin-top:6px}
+  .livepage{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--surface);box-shadow:var(--shadow)}
+  .livepage .lh{background:var(--tk-teal);color:#fff;padding:15px 16px;display:flex;align-items:center;gap:12px}
+  .livepage .lh .logo{width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:17px;flex-shrink:0}
+  .livepage .lh .bn{font-size:15px;font-weight:600}
+  .livepage .lh .bc{font-size:11.5px;opacity:.9;margin-top:1px;display:flex;align-items:center;gap:4px}
+  .livepage .lh .bc svg{width:11px;height:11px;stroke:#fff;fill:none;stroke-width:2}
+  .livepage .lb{padding:16px}
+  .livepage .lbt{font-size:18px;font-weight:600;letter-spacing:-.2px}
+  .livepage .ldesc{font-size:13px;color:var(--muted);margin-top:6px;line-height:1.5}
+  .livepage .lfacts{margin-top:12px}
+  .livepage .lfact{display:flex;align-items:center;gap:9px;padding:8px 0;border-top:1px solid var(--line);font-size:12.5px}
+  .livepage .lfact svg{width:15px;height:15px;fill:none;stroke-width:1.8;stroke:var(--teal-deep)}
+  .livepage .lfact.a2 svg{stroke:var(--coral)} .livepage .lfact.a3 svg{stroke:var(--amber)}
+  .livepage .lcta{margin-top:14px;height:46px;border-radius:14px;background:var(--grad);color:#fff;font-weight:600;font-size:14.5px;display:flex;align-items:center;justify-content:center;box-shadow:var(--glow)}
+  .owner-foot{margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}
+  .owner-foot .tomine{text-align:center;margin-top:14px;font-size:14px;font-weight:600;color:var(--teal-deep);cursor:pointer}
+
+  /* ============ PERSONAL COUPON ============ */
+  .pc-top{text-align:center;padding:6px 0 18px}
+  .pc-top .t{font-size:19px;font-weight:600;letter-spacing:-.2px}
+  .pc-top .s{font-size:13px;color:var(--muted);margin-top:5px}
+  .pcoupon{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--shadow);overflow:hidden;position:relative}
+  .pcoupon .ph{padding:16px 18px;color:#fff;text-align:center}
+  .pcoupon.teal .ph{background:var(--tk-teal)}
+  .pcoupon .ph .bn{font-size:13px;font-weight:500;opacity:.92}
+  .pcoupon .ph .bt{font-size:17px;font-weight:600;margin-top:2px}
+  .pcoupon .qr{padding:22px 18px 10px;text-align:center}
+  .pcoupon .qr .box{width:168px;height:168px;margin:0 auto;background:#fff;border:1px solid var(--line);border-radius:14px;display:flex;align-items:center;justify-content:center}
+  .pcoupon .qr .box svg{width:140px;height:140px}
+  .pcoupon .code{text-align:center;font-size:15px;font-weight:600;letter-spacing:2px;color:var(--ink);padding:2px 0 4px}
+  .pcoupon .code span{font-size:11px;font-weight:500;letter-spacing:0;color:var(--muted-2);display:block;margin-bottom:3px}
+  .pcoupon .pv{text-align:center;font-size:12px;color:var(--muted);padding:6px 0 18px}
+  .instruct{display:flex;align-items:center;justify-content:center;gap:8px;margin:18px 0 4px;font-size:14.5px;font-weight:600;color:var(--teal-deep)}
+  .instruct svg{width:18px;height:18px;stroke:var(--teal-deep);fill:none;stroke-width:2}
+  .pterms{text-align:center;font-size:12px;color:var(--muted-2);margin-bottom:16px}
+
+  /* states */
+  .state{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);padding:20px 16px;box-shadow:var(--shadow);text-align:center;margin-bottom:14px}
+  .state .ic{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px}
+  .state .ic svg{width:22px;height:22px;fill:none;stroke-width:2}
+  .state.exp .ic{background:var(--surface-2)} .state.exp .ic svg{stroke:var(--muted)}
+  .state.out .ic{background:rgba(184,135,85,.12)} .state.out .ic svg{stroke:var(--brown)}
+  .state.red .ic{background:rgba(36,105,102,.1)} .state.red .ic svg{stroke:var(--teal-deep)}
+  .state .t{font-size:15px;font-weight:600}
+  .state .s{font-size:12.5px;color:var(--muted);margin-top:4px}
+
+  /* flow bits */
+  .intro{margin:14px 0 24px}
+  .intro .eye{font-size:13px;font-weight:500;color:var(--muted-2);margin-bottom:9px}
+  .intro .q{font-size:21px;font-weight:600;line-height:1.38;letter-spacing:-.35px;max-width:19ch}
+  .choices{display:flex;flex-direction:column;gap:12px}
+  .choice{display:flex;align-items:center;gap:14px;width:100%;text-align:start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);padding:16px 18px;box-shadow:var(--shadow);font-family:inherit;cursor:pointer}
+  .choice .ic{width:40px;height:40px;border-radius:11px;background:var(--surface-2);flex-shrink:0;display:flex;align-items:center;justify-content:center}
+  .choice .ic svg{width:20px;height:20px;stroke:var(--teal-deep);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .choice .t{font-size:15.5px;font-weight:600;letter-spacing:-.2px;line-height:1.35}
+  .choice .why{font-size:13px;color:var(--muted);margin-top:4px;line-height:1.5}
+  .more{margin-top:14px;text-align:center;font-size:13px;font-weight:500;color:var(--muted)}
+  .field label{display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin:0 2px 8px}
+  .input{width:100%;min-height:52px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-ctl);padding:14px;font-size:15px;color:var(--muted-2);font-weight:400}
+  .params{margin-top:22px}
+  .param{display:flex;align-items:center;justify-content:space-between;padding:12px 2px;border-top:1px solid var(--line)}
+  .param .l{font-size:13.5px;color:var(--muted)} .param .v{font-size:13.5px;font-weight:600}
+  .param .ed{font-size:12.5px;font-weight:600;color:var(--teal-deep);margin-right:10px}
+  .rcoupon{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);padding:18px;box-shadow:var(--shadow);text-align:center;margin-bottom:16px}
+  .rcoupon .nm{font-size:16px;font-weight:600} .rcoupon .bf{font-size:13px;color:var(--muted);margin-top:3px}
+  .rcoupon .qr{width:128px;height:128px;margin:15px auto 12px;background:#fff;border:1px solid var(--line);border-radius:12px;display:flex;align-items:center;justify-content:center}
+  .rcoupon .qr svg{width:100px;height:100px}
+  .rcoupon .pill{font-size:11.5px;font-weight:600;color:var(--teal-deep);background:rgba(36,105,102,.08);border-radius:var(--r-pill);padding:2px 10px}
+
+  /* discovery — featured + ribbons */
+  .feat{position:relative;border-radius:var(--r-card);overflow:hidden;box-shadow:var(--shadow);margin-bottom:20px;background:var(--tk-teal);color:#fff;padding:18px 18px 16px}
+  .feat .lbl{font-size:10.5px;font-weight:600;background:rgba(255,255,255,.22);border-radius:var(--r-pill);padding:3px 11px;display:inline-flex;align-items:center;gap:5px}
+  .feat .lbl svg{width:12px;height:12px;stroke:#fff;fill:none;stroke-width:2}
+  .feat .bn{font-size:12.5px;opacity:.92;margin-top:14px}
+  .feat .bt{font-size:20px;font-weight:600;letter-spacing:-.3px;margin-top:2px}
+  .feat .meta{font-size:12px;opacity:.92;margin-top:12px;display:flex;gap:14px}
+  .feat .meta span{display:inline-flex;align-items:center;gap:5px}
+  .feat .meta svg{width:12px;height:12px;stroke:#fff;fill:none;stroke-width:2}
+  .ribbon{position:absolute;top:8px;left:8px;font-size:9.5px;font-weight:600;color:#fff;background:var(--coral);border-radius:var(--r-pill);padding:2px 8px;z-index:3}
+  .ribbon.hot{background:var(--clay)}
+  /* launch preview — connect worlds */
+  .preview{margin-top:22px;padding-top:20px;border-top:1px solid var(--line)}
+  .preview .lbl{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:11px;display:flex;align-items:center;gap:7px}
+  .preview .lbl svg{width:15px;height:15px;stroke:var(--teal-deep);fill:none;stroke-width:1.9}
+  .pvcard{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface)}
+  .pvcard .ph{background:var(--tk-teal);color:#fff;padding:12px 14px}
+  .pvcard .ph .b1{font-size:11.5px;opacity:.9} .pvcard .ph .b2{font-size:15px;font-weight:600;margin-top:1px}
+  .pvcard .bd{padding:11px 14px;display:flex;align-items:center;justify-content:space-between}
+  .pvcard .bd .g{font-size:12px;color:var(--muted)}
+  .pvcard .bd .cta{font-size:11.5px;font-weight:600;color:#fff;background:var(--grad);border-radius:var(--r-pill);padding:6px 13px}
+  .preview .view{text-align:center;margin-top:12px;font-size:13px;font-weight:600;color:var(--teal-deep);cursor:pointer}
+  /* more-value sub-forms */
+  .subhint{font-size:12.5px;color:var(--muted);margin:-8px 2px 14px}
+  .subopts{display:flex;flex-direction:column;gap:10px;margin-bottom:18px}
+  .subopt{display:flex;align-items:center;gap:13px;padding:13px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);cursor:pointer;text-align:start;font-family:inherit;transition:.15s}
+  .subopt:hover{border-color:var(--muted-2)}
+  .subopt.sel{border-color:var(--teal);background:rgba(36,105,102,.05)}
+  .subopt .si{width:36px;height:36px;border-radius:10px;background:var(--surface-2);flex-shrink:0;display:flex;align-items:center;justify-content:center}
+  .subopt.sel .si{background:rgba(36,105,102,.1)}
+  .subopt .si svg{width:19px;height:19px;stroke:var(--teal-deep);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .subopt .stx{flex:1}
+  .subopt .st{font-size:14.5px;font-weight:600}
+  .subopt .sh{font-size:12px;color:var(--muted);margin-top:2px}
+  .subopt .chk{width:20px;height:20px;border-radius:50%;background:var(--teal-deep);display:none;align-items:center;justify-content:center;flex-shrink:0}
+  .subopt.sel .chk{display:flex}
+  .subopt .chk svg{width:12px;height:12px;stroke:#fff;fill:none;stroke-width:3}
+  /* benefit builder (universal 'what customer gets') */
+  .live{margin:6px 0 24px}
+  .live .lab{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:10px}
+  .live .lab .dot{width:7px;height:7px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 3px rgba(61,156,154,.18)}
+  .live .lcard{border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden;box-shadow:var(--shadow);background:var(--surface)}
+  .live .strip{background:var(--tk-teal);color:#fff;padding:11px 16px;font-size:12.5px;font-weight:500}
+  .live .cbody{padding:16px}
+  .live .sentence{font-size:19px;font-weight:600;letter-spacing:-.3px;line-height:1.35}
+  .live .sub{font-size:12.5px;color:var(--muted);margin-top:9px}
+  .bsec{margin-bottom:22px}
+  .bsec .bsh{font-size:13px;font-weight:600;color:var(--ink);margin:0 2px 12px}
+  .bsec .bsh .hint{font-weight:400;color:var(--muted-2)}
+  .bchips{display:flex;flex-wrap:wrap;gap:9px}
+  .bchip{height:42px;display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--surface);border-radius:var(--r-ctl);padding:0 15px;font-size:14px;font-weight:600;color:var(--ink);cursor:pointer;transition:.15s}
+  .bchip:hover{border-color:var(--muted-2)}
+  .bchip.sel,.bchip.on{border-color:var(--teal);background:rgba(36,105,102,.06);color:var(--teal-deep)}
+  .bchip svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8}
+  .bchip .x{width:16px;height:16px;border-radius:50%;background:var(--teal-deep);display:none;align-items:center;justify-content:center}
+  .bchip.on .x{display:inline-flex}
+  .bchip .x svg{width:10px;height:10px;stroke:#fff;stroke-width:3}
+  .reveal{margin-top:12px;padding:14px;background:var(--surface-2);border-radius:var(--r-ctl);border:1px solid var(--line)}
+  .reveal .rl{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:9px}
+  .numrow{display:flex;align-items:center;gap:10px}
+  .numbox{flex:1;height:52px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-ctl);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:600}
+  .numrow .unit{font-size:18px;font-weight:600;color:var(--muted)}
+  .input.filled{color:var(--ink);font-weight:500}
+  .editrow{display:flex;align-items:center;justify-content:space-between;margin:0 2px 8px}
+  .editrow .auto{font-size:11.5px;font-weight:600;color:var(--teal-deep);background:rgba(36,105,102,.08);border-radius:var(--r-pill);padding:2px 9px}
+  .addlink{display:inline-flex;align-items:center;gap:6px;margin-top:11px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer}
+  .addlink svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+  <div class="doc-title">קופונים — כל המסכים</div>
+  <div class="doc-sub">מרקטפלייס ציבורי · עמוד קופון · קופון אישי · פלואו יצירה — קו עיצוב אחד</div>
+
+  <!-- ============ ZONE 1 ============ -->
+  <div class="zone-h"><span class="n">מרקטפלייס ציבורי</span><span class="d">Discovery + Redemption · כל משתמש רואה</span></div>
+  <div class="grid-frames">
+
+    <!-- 1 · MARKETPLACE -->
+    <div class="frame">
+      <div class="cap"><div class="t">1 · מרקטפלייס (בית)<span class="tag real">6 מומלצים · אמיתי</span><span class="tag nc">עיר/תחום: needs-confirm</span></div>
+        <div class="d">מרחב גילוי · חיפוש · סינון · "צור קופון" לבעלי עסק.</div></div>
+      <div class="phone">
+        <div class="mkt-h" style="padding-top:22px"><div class="k">גלה הטבות סביבך</div><h2>הטבות קרוב אליך</h2></div>
+        <div class="body" style="padding-top:0;padding-bottom:110px">
+          <div class="search"><svg viewBox="0 0 24 24" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><span>חיפוש הטבה, עסק או תחום</span></div>
+          <div class="filters">
+            <button class="fchip on"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6 7-11a7 7 0 00-14 0c0 5 7 11 7 11z"/><circle cx="12" cy="10" r="2.4"/></svg> תל אביב</button>
+            <button class="fchip"><span class="dot food"></span>אוכל</button>
+            <button class="fchip"><span class="dot beauty"></span>יופי</button>
+            <button class="fchip"><span class="dot health"></span>בריאות</button>
+          </div>
+          <div class="hrow">
+            <div class="eyebrow"><span class="ey-dot"></span>קרוב אליך</div>
+            <div class="hstrip">
+              <button class="ticket teal"><div class="top"><span class="dist">0.4 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13v6a4 4 0 01-4 4H8a4 4 0 01-4-4z"/><path d="M17 9h2a2 2 0 010 4h-2"/><path d="M7 4v2M11 4v2"/></svg></div><span class="notch l"></span><span class="notch r"></span><span class="dash"></span><svg class="sc" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg><div class="in"><div class="biz">קפה נחמה</div><div class="benefit">קפה + מאפה מתנה</div><div class="valid">תקף עד 20.7</div></div></button>
+              <button class="ticket orange"><div class="top"><span class="dist">0.8 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 4l3 8-3 8-3-8z"/></svg></div><span class="notch l"></span><span class="notch r"></span><span class="dash"></span><svg class="sc" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg><div class="in"><div class="biz">פיצה רומא</div><div class="benefit">1+1 על משפחתית</div><div class="valid">תקף עד 15.7</div></div></button>
+              <button class="ticket purple"><div class="top"><span class="dist">0.9 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l8-8 8 8-8 8z"/><circle cx="9" cy="9" r="1.3"/></svg></div><span class="notch l"></span><span class="notch r"></span><span class="dash"></span><svg class="sc" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg><div class="in"><div class="biz">סושי יוקו</div><div class="benefit">רול מתנה בהזמנה</div><div class="valid">תקף שבוע</div></div></button>
+              <button class="ticket pink"><div class="top"><span class="dist">1.1 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.4L18 9l-4.2 1.6L12 15l-1.8-4.4L6 9z"/></svg></div><span class="notch l"></span><span class="notch r"></span><span class="dash"></span><svg class="sc" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg><div class="in"><div class="biz">מספרת דנה</div><div class="benefit">20% על תספורת</div><div class="valid">תקף שבועיים</div></div></button>
+              <button class="ticket teal"><div class="top"><span class="dist">1.3 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="9" width="16" height="11" rx="1"/><path d="M4 13h16M12 9v11M12 9c-1-3-5-3-5 0M12 9c1-3 5-3 5 0"/></svg></div><span class="notch l"></span><span class="notch r"></span><span class="dash"></span><svg class="sc" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg><div class="in"><div class="biz">בר לואי</div><div class="benefit">כוס יין ראשונה עלינו</div><div class="valid">תקף שבועיים</div></div></button>
+            </div>
+          </div>
+
+          <div class="hrow">
+            <div class="eyebrow"><span class="ey-dot" style="background:var(--violet)"></span>הכי מבוקשים</div>
+            <div class="hstrip">
+              <button class="ticket orange"><div class="top"><span class="dist">0.8 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 4l3 8-3 8-3-8z"/></svg></div><span class="notch l"></span><span class="notch r"></span><span class="dash"></span><svg class="sc" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg><div class="in"><div class="biz">פיצה רומא</div><div class="benefit">1+1 על משפחתית</div><div class="valid">תקף עד 15.7</div></div></button>
+              <button class="ticket purple"><div class="top"><span class="dist">0.4 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13v6a4 4 0 01-4 4H8a4 4 0 01-4-4z"/><path d="M17 9h2a2 2 0 010 4h-2"/><path d="M7 4v2M11 4v2"/></svg></div><span class="notch l"></span><span class="notch r"></span><span class="dash"></span><svg class="sc" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg><div class="in"><div class="biz">קפה נחמה</div><div class="benefit">קפה + מאפה מתנה</div><div class="valid">תקף עד 20.7</div></div></button>
+              <button class="ticket pink"><div class="top"><span class="dist">1.5 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="9" width="16" height="11" rx="1"/><path d="M4 13h16M12 9v11M12 9c-1-3-5-3-5 0M12 9c1-3 5-3 5 0"/></svg></div><span class="notch l"></span><span class="notch r"></span><span class="dash"></span><svg class="sc" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg><div class="in"><div class="biz">חנות הפרחים</div><div class="benefit">זר קטן מתנה בקנייה</div><div class="valid">תקף שבוע</div></div></button>
+              <button class="ticket teal"><div class="top"><span class="dist">2.0 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h4l2 5 4-10 2 5h4"/></svg></div><span class="notch l"></span><span class="notch r"></span><span class="dash"></span><svg class="sc" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg><div class="in"><div class="biz">חדר כושר פיט</div><div class="benefit">שבוע ניסיון חינם</div><div class="valid">תקף חודש</div></div></button>
+            </div>
+          </div>
+
+          <div class="hrow">
+            <div class="eyebrow"><span class="ey-dot" style="background:var(--clay)"></span>אוזלים במהרה</div>
+            <div class="hstrip">
+              <button class="ticket orange"><div class="top"><span class="ribbon hot">אוזל</span><span class="dist">3.0 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M14 7l3 3-7 7-3-3z"/><path d="M17 10l2-2a2.8 2.8 0 00-4-4l-2 2"/></svg></div><span class="notch l"></span><span class="notch r"></span><span class="dash"></span><svg class="sc" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg><div class="in"><div class="biz">מוסך אבי</div><div class="benefit">בדיקת חורף חינם</div><div class="valid">תקף עד 12.7</div></div></button>
+              <button class="ticket purple"><div class="top"><span class="ribbon hot">אוזל</span><span class="dist">2.3 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h4l2 5 4-10 2 5h4"/></svg></div><span class="notch l"></span><span class="notch r"></span><span class="dash"></span><svg class="sc" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg><div class="in"><div class="biz">קליניקת ריאה</div><div class="benefit">ייעוץ ראשון חינם</div><div class="valid">תקף עד 13.7</div></div></button>
+              <button class="ticket pink"><div class="top"><span class="ribbon hot">אוזל</span><span class="dist">1.1 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.4L18 9l-4.2 1.6L12 15l-1.8-4.4L6 9z"/></svg></div><span class="notch l"></span><span class="notch r"></span><span class="dash"></span><svg class="sc" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg><div class="in"><div class="biz">מספרת דנה</div><div class="benefit">20% על תספורת</div><div class="valid">תקף עד 14.7</div></div></button>
+              <button class="ticket teal"><div class="top"><span class="dist">1.3 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="9" width="16" height="11" rx="1"/><path d="M4 13h16M12 9v11M12 9c-1-3-5-3-5 0M12 9c1-3 5-3 5 0"/></svg></div><span class="notch l"></span><span class="notch r"></span><span class="dash"></span><svg class="sc" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg><div class="in"><div class="biz">בר לואי</div><div class="benefit">כוס יין ראשונה עלינו</div><div class="valid">תקף עד 15.7</div></div></button>
+            </div>
+          </div>
+        </div>
+        <button class="fab"><span class="bt">בעלי עסק</span><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> צור קופון</button>
+      </div>
+    </div>
+
+    <!-- 2 · PUBLIC COUPON PAGE -->
+    <div class="frame">
+      <div class="cap"><div class="t">2 · עמוד קופון ציבורי<span class="tag fut">"קבל קופון": מודל עתידי</span><span class="tag nc">פרטי עסק: needs-confirm</span></div>
+        <div class="d">3 שאלות: מה ההטבה · איפה/מתי · איך מקבלים. פעולה אחת.</div></div>
+      <div class="phone">
+        <div class="hdr" style="position:absolute;top:0;right:0;left:0;padding-top:16px;z-index:2">
+          <button class="ib" aria-label="שיתוף" style="background:rgba(255,255,255,.2);border-color:transparent"><svg viewBox="0 0 24 24" stroke="#fff" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7"/><path d="M12 3v13M8 7l4-4 4 4"/></svg></button>
+          <button class="ib" aria-label="חזרה" style="background:rgba(255,255,255,.2);border-color:transparent"><svg viewBox="0 0 24 24" stroke="#fff" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
+        </div>
+        <div class="pubhero teal" style="padding-top:60px">
+          <div class="logo">נ</div>
+          <div><div class="bn">קפה נחמה</div><div class="bc"><svg viewBox="0 0 24 24"><path d="M12 21s7-6 7-11a7 7 0 00-14 0c0 5 7 11 7 11z"/><circle cx="12" cy="10" r="2.2"/></svg> דיזנגוף, תל אביב</div></div>
+        </div>
+        <div class="body" style="padding-top:0;padding-bottom:0">
+          <div class="pubbody">
+            <div class="bt">קפה + מאפה מתנה</div>
+            <div class="desc">קנה קפה, וקבל מאפה טרי מהמאפייה שלנו — מתנה. הצטרפות מהירה, בלי כפל מבצעים.</div>
+            <div class="facts">
+              <div class="fact a1"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><div class="v">תקף עד <b>20.7</b></div></div>
+              <div class="fact a2"><svg viewBox="0 0 24 24"><path d="M12 21s7-6 7-11a7 7 0 00-14 0c0 5 7 11 7 11z"/><circle cx="12" cy="10" r="2.4"/></svg><div class="v">דיזנגוף 120, תל אביב</div></div>
+              <div class="fact a3"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><div class="v">א׳–ה׳ 8:00–18:00</div></div>
+              <div class="fact a4"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 00-8.6 15l-1.4 5 5.1-1.3A10 10 0 1012 2z"/></svg><div class="v">שלח הודעה בוואטסאפ</div></div>
+            </div>
+            <div class="qty"><span>נותרו <b style="color:var(--brown)">12</b> מתוך 50</span><div class="bar"><i></i></div></div>
+            <div class="terms">תנאי שימוש: קופון אחד ללקוח · בתיאום מראש · לא ניתן לכפל עם מבצעים אחרים.</div>
+          </div>
+          <div class="spring"></div>
+          <div class="pubcta">
+            <button class="btn primary">קבל קופון</button>
+            <div class="row2 mt10"><button class="btn sec"><svg viewBox="0 0 24 24" fill="var(--wa)" stroke="none"><path d="M12 2a10 10 0 00-8.6 15l-1.4 5 5.1-1.3A10 10 0 1012 2z"/></svg> שתף</button><button class="btn sec">העתק קישור</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3 · PERSONAL COUPON -->
+    <div class="frame">
+      <div class="cap"><div class="t">3 · קופון אישי (אחרי הנפקה)<span class="tag fut">QR ייחודי פר-משתמש: עתידי</span></div>
+        <div class="d">QR חד-פעמי + קוד גיבוי · "הצג בבית העסק". בלי audit/counters.</div></div>
+      <div class="phone">
+        <div class="hdr"><h1>הקופון שלך</h1><button class="ib" aria-label="סגירה"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>
+        <div class="body">
+          <div class="pc-top"><div class="t">הקופון מוכן 🎉</div><div class="s">הצג אותו בבית העסק כדי לממש.</div></div>
+          <div class="pcoupon teal">
+            <div class="ph"><div class="bn">קפה נחמה</div><div class="bt">קפה + מאפה מתנה</div></div>
+            <div class="qr"><div class="box"><svg viewBox="0 0 100 100" shape-rendering="crispEdges" fill="#2D2B28"><rect x="0" y="0" width="26" height="26"/><rect x="6" y="6" width="14" height="14" fill="#fff"/><rect x="10" y="10" width="6" height="6"/><rect x="74" y="0" width="26" height="26"/><rect x="80" y="6" width="14" height="14" fill="#fff"/><rect x="84" y="10" width="6" height="6"/><rect x="0" y="74" width="26" height="26"/><rect x="6" y="80" width="14" height="14" fill="#fff"/><rect x="10" y="84" width="6" height="6"/><rect x="36" y="6" width="6" height="6"/><rect x="48" y="0" width="6" height="12"/><rect x="62" y="6" width="6" height="6"/><rect x="6" y="36" width="6" height="6"/><rect x="18" y="44" width="6" height="6"/><rect x="42" y="40" width="8" height="8"/><rect x="58" y="36" width="6" height="6"/><rect x="70" y="48" width="6" height="6"/><rect x="86" y="40" width="6" height="6"/><rect x="40" y="58" width="6" height="6"/><rect x="54" y="66" width="6" height="6"/><rect x="66" y="60" width="6" height="6"/><rect x="80" y="70" width="6" height="6"/><rect x="42" y="78" width="6" height="6"/><rect x="56" y="88" width="6" height="6"/><rect x="70" y="82" width="6" height="6"/><rect x="88" y="82" width="6" height="6"/></svg></div></div>
+            <div class="code"><span>קוד לגיבוי</span>8F2K · 9QX4</div>
+            <div class="pv">תקף עד 20.7 · קופון אחד ללקוח, לשימוש חד-פעמי</div>
+          </div>
+          <div class="instruct"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg> הצג את הקופון בבית העסק</div>
+          <div class="row2 mt16"><button class="btn wa"><svg viewBox="0 0 24 24" fill="#fff" stroke="none"><path d="M12 2a10 10 0 00-8.6 15l-1.4 5 5.1-1.3A10 10 0 1012 2z"/></svg> שתף</button><button class="btn sec">שמור לתמונות</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3b · STATES -->
+    <div class="frame">
+      <div class="cap"><div class="t">מצבי עמוד הקופון<span class="tag fut">מכסה/אזל: עתידי</span></div>
+        <div class="d">פג תוקף · אזל · מומש — במקום כפתור "קבל קופון".</div></div>
+      <div class="phone">
+        <div class="hdr"><h1>מצבים</h1><button class="ib"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button></div>
+        <div class="body">
+          <div class="state exp"><div class="ic"><svg viewBox="0 0 24 24" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><div class="t">ההטבה הסתיימה</div><div class="s">התוקף עבר — לא ניתן לקבל קופון.</div></div>
+          <div class="state out"><div class="ic"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div><div class="t">כל הקופונים מומשו</div><div class="s">נותרו 0 מתוך 50 — ההטבה אזלה.</div></div>
+          <div class="state red"><div class="ic"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg></div><div class="t">הקופון מומש</div><div class="s">כבר השתמשת בקופון הזה — אין שימוש חוזר.</div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============ ZONE 2 ============ -->
+  <div class="zone-h"><span class="n">פלואו יצירה — בעל עסק</span><span class="d">Business Creation Flow · נעול (מטרה→כיוון→ערך→מוכן)</span></div>
+  <div class="grid-frames">
+
+    <!-- 4 · GOAL -->
+    <div class="frame">
+      <div class="cap"><div class="t">4 · מטרה<span class="tag fut">הכוונה · לא נשמר</span></div><div class="d">5 מטרות נעולות · אין מסלול חלופי · פותח ממנו.</div></div>
+      <div class="phone">
+        <div class="hdr"><h1>קופון חדש</h1><button class="ib"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>
+        <div class="body">
+          <div class="intro"><div class="eye">בוא נחשוב על זה יחד</div><div class="q">מה תרצה שהקופון יעזור לך לעשות?</div></div>
+          <div class="choices">
+            <button class="choice"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="10" cy="8" r="3.4"/><path d="M4 20a6 6 0 0112 0"/><path d="M19 7v6M16 10h6"/></svg></span><span class="t">להביא לקוחות חדשים</span></button>
+            <button class="choice"><span class="ic"><svg viewBox="0 0 24 24"><path d="M9 14l-4-4 4-4"/><path d="M5 10h9a5 5 0 015 5v1"/></svg></span><span class="t">להחזיר לקוחות שלא חזרו</span></button>
+            <button class="choice"><span class="ic"><svg viewBox="0 0 24 24"><path d="M6 9h12l-1 10a1 1 0 01-1 1H8a1 1 0 01-1-1z"/><path d="M9 9V7a3 3 0 016 0v2"/><path d="M12 17v-4M10 15l2-2 2 2"/></svg></span><span class="t">להגדיל את הרכישה / סל הקנייה</span></button>
+            <button class="choice"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.4L18 9l-4.2 1.6L12 15l-1.8-4.4L6 9z"/></svg></span><span class="t">לקדם מוצר או שירות שלא נמכר מספיק</span></button>
+            <button class="choice"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-9a3.9 3.9 0 017-2.5A3.9 3.9 0 0119 11c0 4.6-7 9-7 9z"/></svg></span><span class="t">לתגמל או לפנק לקוחות</span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5 · DIRECTION -->
+    <div class="frame">
+      <div class="cap"><div class="t">5 · כיוון<span class="tag fut">הכוונה · לא נשמר</span></div><div class="d">מכוונת-לא-מחליטה · "למה מתאים" · בלי מספרים.</div></div>
+      <div class="phone">
+        <div class="hdr"><h1>קופון חדש</h1><button class="ib"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button></div>
+        <div class="body">
+          <div class="intro"><div class="eye">כדי שיגיעו לקוחות חדשים</div><div class="q">איזו הטבה בדרך כלל עוזרת לזה?</div></div>
+          <div class="choices">
+            <button class="choice" style="display:block"><span class="t" style="display:block">הנחה</span><span class="why">מורידה את המחסום לנסות אותך בפעם הראשונה.</span></button>
+            <button class="choice" style="display:block"><span class="t" style="display:block">מתנה קטנה</span><span class="why">נותנת סיבה להיכנס, בלי להוזיל את מה שאתה מוכר.</span></button>
+          </div>
+          <div class="more">הראה עוד דרכים ›</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6 · WHAT CUSTOMER GETS — universal benefit builder -->
+    <div class="frame">
+      <div class="cap"><div class="t">6 · מה הלקוח מקבל — Builder אוניברסלי<span class="tag real">createOffer · המשפט</span></div><div class="d">עיצוב סביב משפט · תצוגה חיה · Builder חכם · לכל תחום עסק.</div></div>
+      <div class="phone">
+        <div class="hdr"><h1>קופון חדש</h1><button class="ib"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button></div>
+        <div class="body">
+          <div class="live">
+            <div class="lab"><span class="dot"></span>כך הלקוח יראה · מתעדכן חי</div>
+            <div class="lcard"><div class="strip">העסק שלך</div><div class="cbody"><div class="sentence">20% הנחה על כל העסק</div><div class="sub">תקף שבועיים · פעם אחת ללקוח</div></div></div>
+          </div>
+          <div class="bsec"><div class="bsh">מה הלקוח מקבל?</div>
+            <div class="bchips"><button class="bchip sel">אחוז הנחה</button><button class="bchip">סכום הנחה</button><button class="bchip">מחיר מיוחד</button><button class="bchip">מוצר במתנה</button><button class="bchip">שירות במתנה</button><button class="bchip">יותר תמורה</button><button class="bchip">אחר</button></div>
+            <div class="reveal"><div class="rl">כמה אחוז?</div><div class="numrow"><div class="numbox">20</div><span class="unit">%</span></div></div>
+          </div>
+          <div class="bsec"><div class="bsh">על מה זה חל?</div>
+            <div class="bchips"><button class="bchip sel">כל העסק</button><button class="bchip">מוצר מסוים</button><button class="bchip">שירות מסוים</button><button class="bchip">קטגוריה</button><button class="bchip">בחירה ידנית</button></div>
+          </div>
+          <div class="bsec"><div class="editrow"><div class="bsh" style="margin:0">איך זה ייקרא ללקוח</div><span class="auto">נכתב אוטומטית · ניתן לשינוי</span></div>
+            <div class="input filled">20% הנחה על כל העסק</div>
+            <div class="addlink"><svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> הוסף תיאור קצר (לא חובה)</div>
+          </div>
+          <div class="bsec"><div class="bsh">תנאים <span class="hint">· רק החשוב</span></div>
+            <div class="bchips"><button class="bchip on"><span class="x"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>פעם אחת ללקוח</button><button class="bchip">מינימום רכישה</button><button class="bchip">לקוחות חדשים</button><button class="bchip">סניף מסוים</button><button class="bchip sel">תוקף: שבועיים <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button></div>
+          </div>
+          <button class="btn primary" style="margin-top:6px">צור את הקופון</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7 · PUBLISHED — real public page, owner's loop close -->
+    <div class="frame">
+      <div class="cap"><div class="t">7 · הקופון שלך פורסם<span class="tag real">סגירת מעגל</span><span class="tag fut">שיתוף-קישור: מודל עתידי</span></div><div class="d">רגע הפרסום · העמוד הציבורי האמיתי כפי שהלקוחות רואים אותו.</div></div>
+      <div class="phone">
+        <div class="hdr"><h1></h1><button class="ib"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>
+        <div class="body">
+          <div class="pub-banner">
+            <div class="chk"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div>
+            <div class="pt">הקופון שלך פורסם 🎉</div>
+            <div class="ps">כך הלקוחות שלך רואים אותו:</div>
+          </div>
+          <div class="livepage">
+            <div class="lh"><div class="logo">נ</div><div><div class="bn">קפה נחמה</div><div class="bc"><svg viewBox="0 0 24 24"><path d="M12 21s7-6 7-11a7 7 0 00-14 0c0 5 7 11 7 11z"/><circle cx="12" cy="10" r="2.2"/></svg> דיזנגוף, תל אביב</div></div></div>
+            <div class="lb">
+              <div class="lbt">הנחה על הביקור הראשון</div>
+              <div class="ldesc">בואו להתרשם — הנחה מיוחדת על הביקור הראשון שלכם אצלנו. בלי כפל מבצעים.</div>
+              <div class="lfacts">
+                <div class="lfact a1"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg> תקף שבועיים</div>
+                <div class="lfact a2"><svg viewBox="0 0 24 24"><path d="M12 21s7-6 7-11a7 7 0 00-14 0c0 5 7 11 7 11z"/><circle cx="12" cy="10" r="2.4"/></svg> דיזנגוף 120, תל אביב</div>
+                <div class="lfact a3"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> א׳–ה׳ 8:00–18:00</div>
+              </div>
+              <div class="lcta">קבל קופון</div>
+            </div>
+          </div>
+          <div class="owner-foot">
+            <button class="btn wa"><svg viewBox="0 0 24 24" fill="#fff" stroke="none"><path d="M12 2a10 10 0 00-8.6 15l-1.4 5 5.1-1.3A10 10 0 1012 2z"/></svg> שתף את הקופון</button>
+            <button class="btn sec mt10">העתק קישור</button>
+            <div class="tomine">לקופונים שלי ›</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+<script>
+document.querySelectorAll('.hstrip').forEach(function(strip){
+  strip.addEventListener('wheel', function(e){
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { strip.scrollLeft -= e.deltaY; e.preventDefault(); }
+  }, {passive:false});
+});
+</script>
+</body>
+</html>

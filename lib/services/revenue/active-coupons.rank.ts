@@ -7,7 +7,17 @@ export type ActiveCouponCard = {
     name: string;
     city?: string;
     address?: string;
+    phone?: string;
+    category?: string;
+    subCategory?: string;
+    businessModel?: string;
+    /** Public opening hours (free text) — display-only when present. */
+    openingHours?: string;
   };
+  /** Distance from the caller's point (km) — set only when a `near` point + business geo exist. Geo itself is never exposed. */
+  distanceKm?: number;
+  /** Human display distance (e.g. "1.2 ק״מ"). */
+  distanceLabel?: string;
   offer: {
     id: number;
     title: string;
@@ -15,6 +25,8 @@ export type ActiveCouponCard = {
     description: string | null;
     imageUrl?: string | null;
   };
+  /** Derived demand signal — total redemptions of the issuing business (no schema). */
+  redemptionCount?: number;
 };
 
 function safeLen(value: unknown): number {

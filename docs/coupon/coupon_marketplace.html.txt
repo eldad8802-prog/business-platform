@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>מרקטפלייס הקופונים — כרטיסי קופון</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --gutter:20px; --r-card:16px; --r-ctl:12px; --r-pill:999px;
+    --canvas:#FEF8F2; --surface:#FDF4EB; --surface-2:#F6ECDD;
+    --ink:#2D2B28; --muted:#777067; --muted-2:#A79C8D; --line:#E9DDD0;
+    --teal-deep:#246966; --teal:#3D9C9A; --brown:#B88755;
+    --grad:linear-gradient(115deg,#246966 0%,#2C7C79 52%,#3D9C9A 100%);
+    --grad-hover:linear-gradient(115deg,#2A7370 0%,#348C89 52%,#49AEAC 100%);
+    --glow:0 6px 18px rgba(36,105,102,.28); --glow-hover:0 10px 26px rgba(36,105,102,.38);
+    --shadow:0 1px 2px rgba(88,62,38,.05), 0 8px 22px rgba(120,88,52,.06);
+    --shadow-hover:0 1px 2px rgba(88,62,38,.06), 0 12px 28px rgba(120,88,52,.10);
+    /* marketplace coupon color themes (vibrant zone) */
+    --tk-teal:linear-gradient(135deg,#1F7D6F,#3DB0A6);
+    --tk-orange:linear-gradient(135deg,#E67E3A,#F2A65C);
+    --tk-purple:linear-gradient(135deg,#6E52A6,#9179C4); --tk-pink:linear-gradient(135deg,#C24D80,#E483AA);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{font-family:'Heebo',system-ui,-apple-system,sans-serif;background:#EDE2D6;color:var(--ink);
+    display:flex;justify-content:center;padding:24px 0;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .phone{width:390px;min-height:844px;background:var(--canvas);position:relative;overflow:hidden;
+    display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(70,50,30,.18)}
+
+  .header{padding:22px var(--gutter) 6px}
+  .header .k{font-size:12.5px;font-weight:500;color:var(--muted-2);margin-bottom:3px}
+  .header h1{font-size:22px;font-weight:600;letter-spacing:-.4px}
+
+  .scroll{flex:1;overflow-y:auto;padding:12px var(--gutter) 120px}
+
+  .search{display:flex;align-items:center;gap:10px;height:48px;background:var(--surface);
+    border:1px solid var(--line);border-radius:var(--r-ctl);padding:0 14px;margin-bottom:14px}
+  .search svg{width:18px;height:18px;stroke:var(--muted-2);fill:none;stroke-width:1.9;flex-shrink:0}
+  .search span{font-size:14.5px;color:var(--muted-2)}
+
+  .filters{display:flex;gap:9px;margin-bottom:26px;overflow-x:auto;padding-bottom:2px}
+  .filters::-webkit-scrollbar{display:none}
+  .fchip{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 13px;flex-shrink:0;
+    border:1px solid var(--line);border-radius:var(--r-pill);background:var(--surface);
+    font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;transition:.15s}
+  .fchip:hover{border-color:var(--muted-2)}
+  .fchip.on{border-color:var(--teal);background:rgba(36,105,102,.06);color:var(--teal-deep)}
+  .fchip svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.9}
+  .fchip .chev{width:12px;stroke:var(--muted-2)}
+
+  .eyebrow{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.2px;margin:0 2px 16px}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 12px}
+
+  /* ---- coupon ticket ---- */
+  .ticket{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);
+    box-shadow:var(--shadow);cursor:pointer;text-align:start;transition:box-shadow .16s,transform .16s}
+  .ticket:hover{box-shadow:var(--shadow-hover);transform:translateY(-1px)}
+  .ticket .top{height:76px;border-radius:15px 15px 0 0;overflow:hidden;position:relative;
+    display:flex;align-items:center;justify-content:center}
+  .ticket.teal   .top{background:var(--tk-teal)}
+  .ticket.orange .top{background:var(--tk-orange)}
+  .ticket.purple .top{background:var(--tk-purple)} .ticket.pink .top{background:var(--tk-pink)}
+  .ticket .top .cat{width:26px;height:26px;stroke:#fff;fill:none;stroke-width:1.7;opacity:.95}
+  .ticket .dist{position:absolute;top:8px;right:8px;font-size:10.5px;font-weight:600;color:#fff;
+    background:rgba(255,255,255,.22);border-radius:var(--r-pill);padding:2px 9px;backdrop-filter:blur(2px)}
+
+  /* perforation */
+  .ticket .notch{position:absolute;top:70px;width:12px;height:12px;border-radius:50%;
+    background:var(--canvas);border:1px solid var(--line)}
+  .ticket .notch.l{left:-6px}
+  .ticket .notch.r{right:-6px}
+  .ticket .dash{position:absolute;top:75px;left:24px;right:9px;border-top:2px dashed var(--line)}
+  .ticket .scissors{position:absolute;top:69px;left:5px;width:14px;height:14px;color:var(--muted-2);
+    stroke:currentColor;fill:none;stroke-width:1.6;background:var(--surface);border-radius:50%}
+
+  .ticket .in{padding:14px 13px 14px}
+  .ticket .biz{font-size:11.5px;font-weight:500;color:var(--muted)}
+  .ticket .benefit{font-size:14.5px;font-weight:600;letter-spacing:-.2px;line-height:1.3;margin-top:3px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:38px}
+  .ticket .valid{font-size:11px;color:var(--muted-2);margin-top:8px}
+
+  .fab{position:absolute;bottom:26px;left:var(--gutter);height:52px;padding:0 22px 0 18px;border:none;
+    border-radius:var(--r-pill);background:var(--grad);color:#fff;font-family:inherit;font-size:15px;font-weight:600;
+    display:flex;align-items:center;gap:9px;cursor:pointer;box-shadow:var(--glow);transition:background .28s,box-shadow .28s,transform .2s}
+  .fab:hover{background:var(--grad-hover);box-shadow:var(--glow-hover);transform:translateY(-1px)}
+  .fab svg{width:19px;height:19px;stroke:#fff;fill:none;stroke-width:2.2;stroke-linecap:round}
+  .fab .tag{position:absolute;top:-9px;right:8px;font-size:9px;font-weight:600;color:var(--brown);
+    background:#FBF3E7;border:1px solid var(--line);border-radius:var(--r-pill);padding:1px 7px}
+
+  :focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+  <div class="phone">
+
+    <div class="header">
+      <div class="k">גלה הטבות סביבך</div>
+      <h1>הטבות קרוב אליך</h1>
+    </div>
+
+    <div class="scroll">
+
+      <div class="search">
+        <svg viewBox="0 0 24 24" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+        <span>חיפוש הטבה, עסק או תחום</span>
+      </div>
+
+      <div class="filters">
+        <button class="fchip on"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6 7-11a7 7 0 00-14 0c0 5 7 11 7 11z"/><circle cx="12" cy="10" r="2.4"/></svg> תל אביב <svg class="chev" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+        <button class="fchip">כל התחומים <svg class="chev" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+        <button class="fchip">אוכל</button>
+        <button class="fchip">יופי</button>
+        <button class="fchip">בריאות</button>
+      </div>
+
+      <div class="eyebrow">מומלצים קרוב אליך</div>
+
+      <div class="grid">
+
+        <button class="ticket teal">
+          <div class="top"><span class="dist">0.4 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13v6a4 4 0 01-4 4H8a4 4 0 01-4-4z"/><path d="M17 9h2a2 2 0 010 4h-2"/><path d="M7 4v2M11 4v2"/></svg></div>
+          <span class="notch l"></span><span class="notch r"></span><span class="dash"></span>
+          <svg class="scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg>
+          <div class="in"><div class="biz">קפה נחמה</div><div class="benefit">קפה + מאפה מתנה</div><div class="valid">תקף עד 20.7</div></div>
+        </button>
+
+        <button class="ticket orange">
+          <div class="top"><span class="dist">1.1 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.4L18 9l-4.2 1.6L12 15l-1.8-4.4L6 9l4.2-1.6z"/></svg></div>
+          <span class="notch l"></span><span class="notch r"></span><span class="dash"></span>
+          <svg class="scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg>
+          <div class="in"><div class="biz">מספרת דנה</div><div class="benefit">20% על תספורת ראשונה</div><div class="valid">תקף שבועיים</div></div>
+        </button>
+
+        <button class="ticket purple">
+          <div class="top"><span class="dist">0.8 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 4l3 8-3 8-3-8z"/></svg></div>
+          <span class="notch l"></span><span class="notch r"></span><span class="dash"></span>
+          <svg class="scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg>
+          <div class="in"><div class="biz">פיצה רומא</div><div class="benefit">1+1 על משפחתית</div><div class="valid">תקף עד 15.7</div></div>
+        </button>
+
+        <button class="ticket pink">
+          <div class="top"><span class="dist">2.3 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h4l2 5 4-10 2 5h4"/></svg></div>
+          <span class="notch l"></span><span class="notch r"></span><span class="dash"></span>
+          <svg class="scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg>
+          <div class="in"><div class="biz">קליניקת ריאה</div><div class="benefit">ייעוץ ראשון ללא עלות</div><div class="valid">תקף חודש</div></div>
+        </button>
+
+        <button class="ticket teal">
+          <div class="top"><span class="dist">1.5 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="3"/><path d="M12 12v9M9 16l-3-2M15 16l3-2M12 6c0-2 1.5-3 3-3M12 6c0-2-1.5-3-3-3"/></svg></div>
+          <span class="notch l"></span><span class="notch r"></span><span class="dash"></span>
+          <svg class="scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg>
+          <div class="in"><div class="biz">חנות הפרחים</div><div class="benefit">זר קטן מתנה בקנייה</div><div class="valid">תקף שבוע</div></div>
+        </button>
+
+        <button class="ticket orange">
+          <div class="top"><span class="dist">3.0 ק״מ</span><svg class="cat" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M14 7l3 3-7 7-3-3z"/><path d="M17 10l2-2a2.8 2.8 0 00-4-4l-2 2"/><path d="M7 17l-2 2"/></svg></div>
+          <span class="notch l"></span><span class="notch r"></span><span class="dash"></span>
+          <svg class="scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8 7.5L20 17M8 16.5L20 7"/></svg>
+          <div class="in"><div class="biz">מוסך אבי</div><div class="benefit">בדיקת חורף ללא עלות</div><div class="valid">תקף עד 31.7</div></div>
+        </button>
+
+      </div>
+    </div>
+
+    <button class="fab">
+      <span class="tag">בעלי עסק</span>
+      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      צור קופון
+    </button>
+
+  </div>
+</body>
+</html>
