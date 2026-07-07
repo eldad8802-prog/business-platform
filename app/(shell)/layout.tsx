@@ -3,15 +3,14 @@ import { ShellChrome } from "@/components/navigation/shell-chrome";
 
 /**
  * Preboot no-flash script for the brand intro. Runs before first paint on a full
- * /app document load: if the user is authenticated and the intro hasn't shown
- * this session, it paints a full-screen cream backdrop immediately — so the very
- * first paint is the intro's cream ground, never a white flash or the old
- * skeleton. The React <DubizIntroOverlay> then takes over and removes it.
- * Purely visual; reads no state it doesn't already own (token existence only).
+ * /app document load: if the user is authenticated it hides the shell and paints
+ * the cream ground immediately — so the very first paint is the intro's cream,
+ * never a white flash or the old "טוען…" / skeleton. The React <DubizIntroOverlay>
+ * then takes over. Plays on every entry (full load); a 22s safety reveals the
+ * shell if the overlay never mounts. Reads only token existence.
  */
 const INTRO_PREBOOT = `(function(){try{
 if(location.pathname!=='/app')return;
-if(sessionStorage.getItem('dubiz.intro.v1'))return;
 if(!localStorage.getItem('token'))return;
 var r=document.documentElement;
 r.setAttribute('data-dubiz-intro','1');

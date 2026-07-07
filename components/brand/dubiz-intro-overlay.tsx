@@ -15,12 +15,12 @@ import { DubizBearIntro } from "./dubiz-bear-intro";
  * - Finishes naturally if the app is ready early; holds the crisp logo if the
  *   app is ready late; fades out only when BOTH the animation is done AND the
  *   app has settled (`appReady`). Safety auto-dismiss so it never traps.
- * - Once per session (sessionStorage). Internal navigations never replay it.
+ * - Once per full page load (module flag). Plays on every real entry (refresh /
+ *   reopen / login); client-side navigations back to /app never replay it.
  * - Respects prefers-reduced-motion (static logo, no animation).
  * - Fixed overlay → zero layout shift; opacity fade → no reflow.
  */
 
-const FLAG = "dubiz.intro.v1";
 const PREBOOT_ID = "dubiz-intro-preboot";
 const REDUCE_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -38,12 +38,16 @@ const getReduced = () =>
     ? window.matchMedia(REDUCE_QUERY).matches
     : false;
 
+// Plays once per full page load (fresh JS context). A client-side navigation
+// back to /app keeps this true → no replay; a real entry (refresh / reopen /
+// login) is a fresh document load → fresh context → plays again.
+let played = false;
+
 function decidePlay(): boolean {
   if (typeof window === "undefined") return false;
+  if (played) return false;
   try {
-    if (sessionStorage.getItem(FLAG)) return false;      // already shown this session
-    if (!localStorage.getItem("token")) return false;    // authenticated entry only
-    return true;
+    return !!localStorage.getItem("token"); // authenticated entry only
   } catch {
     return false;
   }
@@ -71,7 +75,7 @@ export function DubizIntroOverlay({ appReady }: { appReady: boolean }) {
     setAnimDone(true);
   };
 
-  // Take over from the preboot backdrop + claim the once-per-session flag.
+  // Take over from the preboot backdrop + claim the per-load flag.
   useEffect(() => {
     if (!mounted) return;
     const pre = document.getElementById(PREBOOT_ID);
@@ -81,7 +85,7 @@ export function DubizIntroOverlay({ appReady }: { appReady: boolean }) {
       pre?.remove();
       return;
     }
-    try { sessionStorage.setItem(FLAG, "1"); } catch { /* private mode — plays once anyway */ }
+    played = true;
     // Remove the preboot layer on the next frame, once our cream overlay is painted.
     // The shell stays hidden (data-dubiz-intro) beneath us until the fade begins.
     const id = requestAnimationFrame(() => pre?.remove());
