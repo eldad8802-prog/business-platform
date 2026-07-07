@@ -269,6 +269,25 @@ export async function disconnectByBusinessId(
 }
 
 /**
+ * Owner-initiated Meta data deletion. Removes only the per-business
+ * WhatsAppConnection row, which contains the encrypted token parts and Meta
+ * identifiers. Conversation/customer/message history lives in separate tables
+ * and is intentionally untouched.
+ */
+export async function deleteMetaDataByBusinessId(
+  businessId: number
+): Promise<{ deleted: boolean }> {
+  if (!Number.isInteger(businessId) || businessId <= 0) {
+    return { deleted: false };
+  }
+
+  const result = await prisma.whatsAppConnection.deleteMany({
+    where: { businessId },
+  });
+  return { deleted: result.count > 0 };
+}
+
+/**
  * Marks the connection as broken on Meta's side. Called by the outbound
  * send path when Graph returns a 401/403 indicating token revocation.
  * Token columns are wiped in the same step.
