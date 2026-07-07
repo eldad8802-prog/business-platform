@@ -62,18 +62,20 @@ function getIcon(icon: string) {
   }
 }
 
+// The pre-session bootstrap paint. Rendered as the intro's cream ground (no
+// text) so the brand entry never shows a "טוען…" flash — even for a frame,
+// before the overlay/preboot takes over. On the rare no-token "stuck" path the
+// fallback button below still appears over it.
 function HomeAuthBootstrap() {
   return (
-    <main className="pointer-events-none min-h-screen bg-[#f8f6f1] text-[#1f2937]">
-      <div className="pointer-events-none mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center px-4 sm:max-w-2xl sm:px-6">
-        <p
-          className="pointer-events-auto text-center text-sm text-gray-500"
-          dir="rtl"
-        >
-          טוען…
-        </p>
-      </div>
-    </main>
+    <main
+      aria-hidden="true"
+      className="min-h-screen"
+      style={{
+        background:
+          "radial-gradient(circle at 50% 38%, #FDFBF6 0%, #F5EFE2 58%, #EDE4D3 100%)",
+      }}
+    />
   );
 }
 
