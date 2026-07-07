@@ -19,6 +19,11 @@ export type PublicCouponDetailsDTO = {
   business: {
     id: number;
     name: string;
+    city?: string;
+    address?: string;
+    phone?: string;
+    category?: string;
+    openingHours?: string;
   };
 };
 
@@ -51,6 +56,15 @@ export async function getPublicCouponDetails(
         select: {
           id: true,
           name: true,
+          profile: {
+            select: {
+              category: true,
+              city: true,
+              openingHours: true,
+              billingAddress: true,
+              billingPhone: true,
+            },
+          },
         },
       },
     },
@@ -78,6 +92,11 @@ export async function getPublicCouponDetails(
     business: {
       id: coupon.issuingBusiness.id,
       name: coupon.issuingBusiness.name,
+      city: coupon.issuingBusiness.profile?.city ?? undefined,
+      address: coupon.issuingBusiness.profile?.billingAddress ?? undefined,
+      phone: coupon.issuingBusiness.profile?.billingPhone ?? undefined,
+      category: coupon.issuingBusiness.profile?.category ?? undefined,
+      openingHours: coupon.issuingBusiness.profile?.openingHours ?? undefined,
     },
   };
 }

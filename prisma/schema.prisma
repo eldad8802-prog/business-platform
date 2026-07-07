@@ -336,6 +336,13 @@ model BusinessProfile {
   category                String?
   subCategory             String?
   businessModel           String?
+  /// Public discovery — city name (display + future city filter). Nullable, additive.
+  city                    String?
+  /// Public discovery — geo for FUTURE distance/near-me (C3). Stored only; not yet computed on.
+  latitude                Float?
+  longitude               Float?
+  /// Public discovery — free-text opening hours (e.g. "א׳-ה׳ 9:00-18:00"). Display-only when present.
+  openingHours            String?
   /// Legal / display name on tax invoices (falls back to Business.name when empty)
   billingLegalName        String?
   /// EXEMPT_DEALER | AUTHORIZED_DEALER | LTD_COMPANY — Israeli business registration category

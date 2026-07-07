@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>מה הלקוח מקבל — Builder אוניברסלי</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --gutter:20px; --r-card:16px; --r-ctl:12px; --r-cta:14px; --r-pill:999px;
+    --canvas:#FEF8F2; --surface:#FDF4EB; --surface-2:#F6ECDD;
+    --ink:#2D2B28; --muted:#777067; --muted-2:#A79C8D; --line:#E9DDD0;
+    --teal-deep:#246966; --teal:#3D9C9A;
+    --grad:linear-gradient(115deg,#246966 0%,#2C7C79 52%,#3D9C9A 100%);
+    --grad-hover:linear-gradient(115deg,#2A7370 0%,#348C89 52%,#49AEAC 100%);
+    --tk-teal:linear-gradient(135deg,#1F7D6F,#3DB0A6);
+    --glow:0 6px 18px rgba(36,105,102,.28); --glow-hover:0 10px 26px rgba(36,105,102,.38);
+    --shadow:0 1px 2px rgba(88,62,38,.05), 0 8px 22px rgba(120,88,52,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  b{font-weight:600}
+  body{font-family:'Heebo',system-ui,sans-serif;background:#EDE2D6;color:var(--ink);display:flex;justify-content:center;padding:24px 0;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .phone{width:390px;min-height:900px;background:var(--canvas);position:relative;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(70,50,30,.18)}
+  .hdr{display:flex;align-items:center;justify-content:space-between;padding:20px var(--gutter) 8px}
+  .hdr h1{font-size:17px;font-weight:600;letter-spacing:-.2px}
+  .ib{width:36px;height:36px;border-radius:50%;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .ib svg{width:16px;height:16px;stroke:var(--muted);fill:none;stroke-width:1.9}
+  .scroll{flex:1;overflow-y:auto;padding:6px var(--gutter) 96px}
+
+  /* live preview (the sentence, as customer sees) */
+  .live{margin:8px 0 26px}
+  .live .lab{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:10px}
+  .live .lab .dot{width:7px;height:7px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 3px rgba(61,156,154,.18)}
+  .live .card{border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden;box-shadow:var(--shadow);background:var(--surface)}
+  .live .strip{background:var(--tk-teal);color:#fff;padding:11px 16px;font-size:12.5px;font-weight:500;opacity:.97}
+  .live .cbody{padding:16px}
+  .live .sentence{font-size:19px;font-weight:600;letter-spacing:-.3px;line-height:1.35}
+  .live .sub{font-size:12.5px;color:var(--muted);margin-top:9px}
+
+  .sec{margin-bottom:24px}
+  .sec .sh{font-size:13px;font-weight:600;color:var(--ink);margin:0 2px 12px}
+  .sec .hint{font-size:12px;font-weight:400;color:var(--muted-2)}
+
+  .chips{display:flex;flex-wrap:wrap;gap:9px}
+  .chip{height:42px;display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--surface);border-radius:var(--r-ctl);padding:0 15px;font-size:14px;font-weight:600;color:var(--ink);cursor:pointer;transition:.15s}
+  .chip:hover{border-color:var(--muted-2)}
+  .chip.sel{border-color:var(--teal);background:rgba(36,105,102,.06);color:var(--teal-deep)}
+  .chip svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8}
+  .chip .x{width:16px;height:16px;border-radius:50%;background:var(--teal-deep);display:none;align-items:center;justify-content:center}
+  .chip.on .x{display:inline-flex}
+  .chip.on{border-color:var(--teal);background:rgba(36,105,102,.06);color:var(--teal-deep)}
+  .chip .x svg{width:10px;height:10px;stroke:#fff;stroke-width:3}
+
+  /* contextual field revealed by a choice */
+  .reveal{margin-top:12px;padding:14px;background:var(--surface-2);border-radius:var(--r-ctl);border:1px solid var(--line)}
+  .reveal .rl{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:9px}
+  .numrow{display:flex;align-items:center;gap:10px}
+  .numbox{flex:1;height:52px;background:var(--canvas);border:1px solid var(--line);border-radius:var(--r-ctl);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:600}
+  .numrow .unit{font-size:18px;font-weight:600;color:var(--muted)}
+
+  .input{width:100%;min-height:50px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-ctl);padding:13px 14px;font-size:15px;color:var(--ink);font-weight:500}
+  .input.ghost{color:var(--muted-2);font-weight:400}
+  .editrow{display:flex;align-items:center;justify-content:space-between;margin:0 2px 8px}
+  .editrow .sh{margin:0}
+  .editrow .auto{font-size:11.5px;font-weight:600;color:var(--teal-deep);background:rgba(36,105,102,.08);border-radius:var(--r-pill);padding:2px 9px}
+  .addlink{display:inline-flex;align-items:center;gap:6px;margin-top:11px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer}
+  .addlink svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2}
+
+  .cta{position:absolute;bottom:0;left:0;right:0;padding:14px var(--gutter) 18px;background:linear-gradient(to top,var(--canvas) 72%,transparent);border-top:1px solid var(--line)}
+  .btn{width:100%;height:50px;border:none;border-radius:var(--r-cta);background:var(--grad);color:#fff;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;box-shadow:var(--glow);transition:background .28s,box-shadow .28s,transform .2s}
+  .btn:hover{background:var(--grad-hover);box-shadow:var(--glow-hover);transform:translateY(-1px)}
+  :focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="hdr"><h1>קופון חדש</h1><button class="ib" aria-label="חזרה"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button></div>
+
+    <div class="scroll">
+
+      <!-- LIVE PREVIEW — the sentence, as the customer sees it -->
+      <div class="live">
+        <div class="lab"><span class="dot"></span>כך הלקוח יראה · מתעדכן חי</div>
+        <div class="card">
+          <div class="strip">העסק שלך</div>
+          <div class="cbody">
+            <div class="sentence">20% הנחה על כל העסק</div>
+            <div class="sub">תקף שבועיים · פעם אחת ללקוח</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 1 · what the customer gets (smart builder) -->
+      <div class="sec">
+        <div class="sh">מה הלקוח מקבל?</div>
+        <div class="chips">
+          <button class="chip sel">אחוז הנחה</button>
+          <button class="chip">סכום הנחה</button>
+          <button class="chip">מחיר מיוחד</button>
+          <button class="chip">מוצר במתנה</button>
+          <button class="chip">שירות במתנה</button>
+          <button class="chip">יותר תמורה</button>
+          <button class="chip">אחר</button>
+        </div>
+        <div class="reveal">
+          <div class="rl">כמה אחוז?</div>
+          <div class="numrow"><div class="numbox">20</div><span class="unit">%</span></div>
+        </div>
+      </div>
+
+      <!-- 2 · what it applies to -->
+      <div class="sec">
+        <div class="sh">על מה זה חל?</div>
+        <div class="chips">
+          <button class="chip sel">כל העסק</button>
+          <button class="chip">מוצר מסוים</button>
+          <button class="chip">שירות מסוים</button>
+          <button class="chip">קטגוריה</button>
+          <button class="chip">בחירה ידנית</button>
+        </div>
+      </div>
+
+      <!-- 3 · the title (auto-composed, editable) + optional description -->
+      <div class="sec">
+        <div class="editrow"><div class="sh">איך זה ייקרא ללקוח</div><span class="auto">נכתב אוטומטית · ניתן לשינוי</span></div>
+        <div class="input">20% הנחה על כל העסק</div>
+        <div class="addlink"><svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> הוסף תיאור קצר (לא חובה)</div>
+      </div>
+
+      <!-- 4 · basic conditions (only what matters) -->
+      <div class="sec">
+        <div class="sh">תנאים <span class="hint">· רק החשוב</span></div>
+        <div class="chips">
+          <button class="chip on"><span class="x"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></span>פעם אחת ללקוח</button>
+          <button class="chip">מינימום רכישה</button>
+          <button class="chip">לקוחות חדשים</button>
+          <button class="chip">סניף מסוים</button>
+          <button class="chip sel">תוקף: שבועיים <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="cta"><button class="btn">צור את הקופון</button></div>
+  </div>
+</body>
+</html>

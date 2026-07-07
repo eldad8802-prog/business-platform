@@ -19,6 +19,17 @@ body {
   overflow-x: hidden;
 }
 
+/* Hide horizontal scrollbars on coupon discovery strips (still scrollable). */
+.dz-noscrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.dz-noscrollbar::-webkit-scrollbar {
+  display: none !important;
+  height: 0 !important;
+  width: 0 !important;
+}
+
 * {
   box-sizing: border-box;
 }
