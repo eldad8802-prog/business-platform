@@ -75,9 +75,15 @@ export function DubizIntroOverlay({ appReady }: { appReady: boolean }) {
   useEffect(() => {
     if (!mounted) return;
     const pre = document.getElementById(PREBOOT_ID);
-    if (!play) { pre?.remove(); return; }
+    if (!play) {
+      // Not playing → reveal the shell immediately and drop the preboot layer.
+      try { document.documentElement.removeAttribute("data-dubiz-intro"); } catch { /* noop */ }
+      pre?.remove();
+      return;
+    }
     try { sessionStorage.setItem(FLAG, "1"); } catch { /* private mode — plays once anyway */ }
     // Remove the preboot layer on the next frame, once our cream overlay is painted.
+    // The shell stays hidden (data-dubiz-intro) beneath us until the fade begins.
     const id = requestAnimationFrame(() => pre?.remove());
     return () => cancelAnimationFrame(id);
   }, [mounted, play]);
@@ -107,6 +113,20 @@ export function DubizIntroOverlay({ appReady }: { appReady: boolean }) {
 
   // Derived: begin the fade only when the animation is done AND the app settled.
   const fading = play && mounted && animDone && appReady;
+
+  // Reveal the shell content exactly when the fade begins, so the overlay
+  // crossfades to the (now visible) home. Until then it stays hidden by the
+  // preboot, so the old "טוען…" / skeleton can never flash — even for a frame.
+  useEffect(() => {
+    if (fading) {
+      try { document.documentElement.removeAttribute("data-dubiz-intro"); } catch { /* noop */ }
+    }
+  }, [fading]);
+
+  // Safety: if this ever unmounts without fading, make sure the shell is visible.
+  useEffect(() => () => {
+    try { document.documentElement.removeAttribute("data-dubiz-intro"); } catch { /* noop */ }
+  }, []);
 
   // After the fade completes, unmount entirely.
   useEffect(() => {
