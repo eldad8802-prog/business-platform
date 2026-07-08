@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
+import SmartBackButton from "@/components/ui/smart-back-button";
 
 type PublicCouponDetailsDTO = {
   coupon: {
@@ -54,7 +55,6 @@ function statusLabel(status: PublicCouponDetailsDTO["coupon"]["status"]) {
 }
 
 export default function RevenueCouponDetailsPage() {
-  const router = useRouter();
   const params = useParams<{ id: string }>();
   const publicId = params?.id || "";
 
@@ -181,13 +181,7 @@ export default function RevenueCouponDetailsPage() {
               {error || "לא הצלחנו לטעון את פרטי הקופון"}
             </div>
             <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                onClick={() => router.push("/revenue")}
-                className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold"
-              >
-                חזרה
-              </button>
+              <SmartBackButton fallbackHref="/revenue" />
               <button
                 type="button"
                 onClick={loadDetails}
@@ -412,13 +406,7 @@ export default function RevenueCouponDetailsPage() {
     <main className="min-h-screen bg-[#f8f6f1] px-4 pb-10 pt-4 text-[#1f2937]">
       <div className="mx-auto w-full max-w-md sm:max-w-2xl lg:max-w-4xl">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => router.push("/revenue")}
-            className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700"
-          >
-            חזרה
-          </button>
+          <SmartBackButton fallbackHref="/revenue" />
 
           <span
             className={`rounded-full px-3 py-1 text-xs font-semibold ${badge.className}`}

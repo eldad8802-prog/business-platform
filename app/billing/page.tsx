@@ -499,6 +499,26 @@ export default function BillingHubPage() {
             ) : null}
           </div>
 
+          {/* #9: open receivables — issued invoices the customer still owes.
+              Read-only derivation over Billing data (no new source of truth). */}
+          <Link
+            href="/billing/receivables"
+            className="billing-utility-details"
+            style={{
+              display: "block",
+              background: TOKEN.surface.card,
+              border: `1px solid ${TOKEN.border.DEFAULT}`,
+              borderRadius: 12,
+              padding: "10px 12px",
+              fontSize: 13,
+              fontWeight: 600,
+              color: TOKEN.ink.muted,
+              textDecoration: "none",
+            }}
+          >
+            חובות פתוחים ללקוחות (חשבוניות שטרם נגבו) ›
+          </Link>
+
           <section
             className="billing-search-panel"
             style={{

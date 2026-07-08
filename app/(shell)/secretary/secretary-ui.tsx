@@ -1,4 +1,4 @@
-import { Component, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { Component, useEffect, useState, type CSSProperties, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { TOKEN } from "@/lib/design/tokens";
@@ -1440,11 +1440,28 @@ function CaptureField({ label, children }: { label: string; children: ReactNode 
   return <label className={styles.captureField}><span>{label}</span>{children}</label>;
 }
 
+/**
+ * Open the native date picker on click. On desktop an opacity:0 <input type="date">
+ * only opens its picker when the (invisible) calendar indicator is clicked, so a tap
+ * on the field body just focuses it and nothing appears. showPicker() forces it open
+ * within the user gesture; mobile keeps working (tap already opens the OS picker).
+ */
+function openNativeDatePicker(event: ReactMouseEvent<HTMLInputElement>) {
+  const el = event.currentTarget;
+  if (typeof el.showPicker === "function") {
+    try {
+      el.showPicker();
+    } catch {
+      // Not allowed (e.g. cross-origin) or unsupported — native focus/typing still works.
+    }
+  }
+}
+
 function CaptureDateInput({ label, value, fallback, onChange }: { label: string; value: string; fallback: string; onChange: (value: string) => void }) {
   // The native date input sits as a full-size transparent overlay above the
-  // styled display, so a tap on the field opens the OS date picker natively
-  // (the reliable, cross-browser behaviour used elsewhere in the app) instead
-  // of depending on showPicker() against a hidden input.
+  // styled display; a tap opens the OS date picker on mobile, and the onClick
+  // showPicker() below makes it open on desktop too (where a tap otherwise only
+  // focuses the field).
   return (
     <CaptureField label={label}>
       <div className={styles.captureDateField}>
@@ -1456,6 +1473,7 @@ function CaptureDateInput({ label, value, fallback, onChange }: { label: string;
           className={styles.captureDateOverlay}
           type="date"
           value={value}
+          onClick={openNativeDatePicker}
           onChange={(event) => onChange(event.target.value)}
           aria-label={label}
         />
@@ -1765,6 +1783,7 @@ function RemindScreen({ obligation, onSnooze }: { obligation: ObligationApi | nu
               type="date"
               min={minDate}
               value={customDate}
+              onClick={openNativeDatePicker}
               onChange={(event) => { const v = event.target.value; setCustomDate(v); if (v) { setChoiceKey("custom"); setError(null); } }}
               aria-label="בחירת תאריך לתזכורת"
             />

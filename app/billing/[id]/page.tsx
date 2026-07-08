@@ -3966,6 +3966,11 @@ function CollectionsSection({ doc }: { doc: BillingDocumentDetail }) {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // #10: right after an invoice is issued we proactively SUGGEST opening a
+  // collection request (prefilled from the invoice). It stays a suggestion —
+  // declining ("לא עכשיו") just collapses it to a plain action; nothing is
+  // created automatically.
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
 
   const loadExisting = useCallback(async () => {
     setLoading(true);
@@ -4165,7 +4170,7 @@ function CollectionsSection({ doc }: { doc: BillingDocumentDetail }) {
             העתק קישור
           </button>
         </div>
-      ) : (
+      ) : suggestionDismissed ? (
         <button
           type="button"
           onClick={() => void handleCreate()}
@@ -4182,6 +4187,40 @@ function CollectionsSection({ doc }: { doc: BillingDocumentDetail }) {
         >
           {creating ? "מכין קישור תשלום…" : "שלח לתשלום"}
         </button>
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: TOKEN.ink.secondary }}>
+            נפתחה חשבונית — לפתוח בקשת גבייה ללקוח? הסכום ופרטי הלקוח יילקחו מהחשבונית.
+          </p>
+          <button
+            type="button"
+            onClick={() => void handleCreate()}
+            disabled={creating}
+            style={{
+              ...primaryActionStyle({
+                disabled: creating,
+                fullWidth: true,
+                height: 48,
+              }),
+              fontSize: 15,
+              fontWeight: 600,
+            }}
+          >
+            {creating ? "מכין קישור תשלום…" : "כן, פתח בקשת גבייה"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSuggestionDismissed(true)}
+            disabled={creating}
+            style={{
+              ...glassActionStyle({ disabled: creating, fullWidth: true, height: 44 }),
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            לא עכשיו
+          </button>
+        </div>
       )}
     </section>
   );
