@@ -370,30 +370,70 @@ export async function issueBillingDocument(
       );
     }
 
-    if (doc.lines.length === 0) {
-      throw new ValidationError(
-        "Cannot issue a document with no lines"
-      );
-    }
+    // Totals integrity is validated per document shape, then a single
+    // `totals` value feeds the snapshot/audit. Invoices, quotes and credit
+    // notes recompute from goods lines. A pure RECEIPT (קבלה) legitimately has
+    // no goods lines — it is a payment acknowledgment whose total is the sum of
+    // its payment lines — so it is validated against those instead. This keeps
+    // ONE issuance engine (numbering, immutable snapshot, audit) rather than a
+    // parallel receipt path, and leaves invoice issuance byte-identical.
+    let totals: {
+      subtotalAmount: Prisma.Decimal;
+      vatAmount: Prisma.Decimal;
+      totalAmount: Prisma.Decimal;
+    };
 
-    const recomputed = recomputeAll(
-      doc.lines.map((line) => ({
-        description: line.description,
-        quantity: line.quantity,
-        unitPrice: line.unitPrice,
-        vatRatePercent: line.vatRatePercent,
-        lineIndex: line.lineIndex,
-      }))
-    );
-
-    if (
-      !recomputed.totals.subtotalAmount.equals(doc.subtotalAmount) ||
-      !recomputed.totals.vatAmount.equals(doc.vatAmount) ||
-      !recomputed.totals.totalAmount.equals(doc.totalAmount)
-    ) {
-      throw new ValidationError(
-        "Document totals are inconsistent with line items"
+    if (doc.documentType === BillingDocumentType.RECEIPT) {
+      const payments = await tx.billingReceiptPayment.findMany({
+        where: { billingDocumentId: doc.id },
+        select: { amount: true },
+      });
+      if (payments.length === 0) {
+        throw new ValidationError(
+          "Cannot issue a receipt with no payment lines"
+        );
+      }
+      const paymentsSum = payments.reduce(
+        (acc, p) => acc.plus(p.amount),
+        new Prisma.Decimal(0)
       );
+      if (!paymentsSum.equals(doc.totalAmount)) {
+        throw new ValidationError(
+          "Receipt total is inconsistent with its payment lines"
+        );
+      }
+      // A receipt carries no VAT breakdown of its own (VAT lives on the invoice).
+      totals = {
+        subtotalAmount: doc.subtotalAmount,
+        vatAmount: doc.vatAmount,
+        totalAmount: doc.totalAmount,
+      };
+    } else {
+      if (doc.lines.length === 0) {
+        throw new ValidationError("Cannot issue a document with no lines");
+      }
+
+      const recomputed = recomputeAll(
+        doc.lines.map((line) => ({
+          description: line.description,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          vatRatePercent: line.vatRatePercent,
+          lineIndex: line.lineIndex,
+        }))
+      );
+
+      if (
+        !recomputed.totals.subtotalAmount.equals(doc.subtotalAmount) ||
+        !recomputed.totals.vatAmount.equals(doc.vatAmount) ||
+        !recomputed.totals.totalAmount.equals(doc.totalAmount)
+      ) {
+        throw new ValidationError(
+          "Document totals are inconsistent with line items"
+        );
+      }
+
+      totals = recomputed.totals;
     }
 
     if (doc.documentType === BillingDocumentType.CREDIT_NOTE) {
@@ -410,7 +450,7 @@ export async function issueBillingDocument(
       await assertCreditAmountWithinRemaining(tx, {
         businessId: input.businessId,
         sourceBillingDocumentId: doc.referenceDocumentId,
-        creditTotalAmount: recomputed.totals.totalAmount,
+        creditTotalAmount: totals.totalAmount,
         currency: doc.currency,
       });
     }
@@ -499,7 +539,7 @@ export async function issueBillingDocument(
       documentNumberFormatted,
       issuedAt,
       actorUserId: input.actorUserId,
-      totals: recomputed.totals,
+      totals,
     });
     const legalSnapshotHash = hashIssuedSnapshot(snapshot);
 
@@ -542,11 +582,19 @@ export async function issueBillingDocument(
       eventType:
         issued.documentType === BillingDocumentType.CREDIT_NOTE
           ? "BILLING_CREDIT_NOTE_ISSUED"
-          : "BILLING_DOC_ISSUED",
+          : issued.documentType === BillingDocumentType.RECEIPT
+            ? "BILLING_RECEIPT_ISSUED"
+            : issued.documentType === BillingDocumentType.TAX_INVOICE_RECEIPT
+              ? "BILLING_TAX_INVOICE_RECEIPT_ISSUED"
+              : "BILLING_DOC_ISSUED",
       summary:
         issued.documentType === BillingDocumentType.CREDIT_NOTE
           ? "Credit note issued"
-          : "Billing document issued",
+          : issued.documentType === BillingDocumentType.RECEIPT
+            ? "Receipt issued"
+            : issued.documentType === BillingDocumentType.TAX_INVOICE_RECEIPT
+              ? "Tax invoice-receipt issued"
+              : "Billing document issued",
       metadata: {
         documentId: issued.id,
         documentType: issued.documentType,
@@ -558,9 +606,9 @@ export async function issueBillingDocument(
         customerId: issued.customerId,
         referenceDocumentId: issued.referenceDocumentId,
         sourceInvoiceId: issued.referenceDocumentId,
-        subtotalAmount: recomputed.totals.subtotalAmount.toString(),
-        vatAmount: recomputed.totals.vatAmount.toString(),
-        totalAmount: recomputed.totals.totalAmount.toString(),
+        subtotalAmount: totals.subtotalAmount.toString(),
+        vatAmount: totals.vatAmount.toString(),
+        totalAmount: totals.totalAmount.toString(),
         currency: issued.currency,
         lineCount: issued.lines.length,
         snapshotSchemaVersion: SNAPSHOT_SCHEMA_VERSION,
@@ -573,7 +621,7 @@ export async function issueBillingDocument(
       issued,
       documentNumber,
       documentNumberFormatted,
-      totals: recomputed.totals,
+      totals,
     };
   });
 
