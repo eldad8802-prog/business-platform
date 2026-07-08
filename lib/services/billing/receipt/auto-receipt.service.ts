@@ -29,12 +29,14 @@ import { prisma } from "@/lib/prisma";
 import {
   BillingDocumentStatus,
   BillingDocumentType,
+  DeliveryChannel,
   PaymentMethod,
 } from "@prisma/client";
 import { createReceiptDraft } from "./billing-receipt-draft.service";
 import { setReceiptAllocations } from "./billing-payment-allocation.service";
 import { issueBillingDocument } from "../billing-issue.service";
 import { createBillingAuditEventBestEffort } from "../billing-audit.service";
+import { recordPendingDelivery } from "@/lib/services/delivery/delivery-attempt.service";
 
 export interface VerifiedPaymentSettlement {
   businessId: number;
@@ -46,7 +48,13 @@ export interface VerifiedPaymentSettlement {
 }
 
 export type AutoReceiptResult =
-  | { status: "issued"; receiptId: number; allocated: boolean; deliveryReady: boolean }
+  | {
+      status: "issued";
+      receiptId: number;
+      allocated: boolean;
+      deliveryReady: boolean;
+      deliveryRecorded: boolean;
+    }
   | { status: "skipped"; reason: string; receiptId?: number };
 
 export async function issueAutoReceiptForVerifiedPayment(
@@ -191,10 +199,27 @@ export async function issueAutoReceiptForVerifiedPayment(
     occurredAt: e.occurredAt,
   });
 
+  // 8. Delivery connection point — record the intent to deliver as durable
+  // state (DeliveryAttempt, the single source of truth). Idempotent and
+  // best-effort: no sender exists yet, so this stays PENDING for a future
+  // sender; a failure here must never affect the issued receipt.
+  let deliveryRecorded = false;
+  if (recipientEmail) {
+    const deliveryId = await recordPendingDelivery({
+      businessId: e.businessId,
+      documentType: BillingDocumentType.RECEIPT,
+      documentId: issued.id,
+      channel: DeliveryChannel.EMAIL,
+      recipient: recipientEmail,
+    });
+    deliveryRecorded = deliveryId !== null;
+  }
+
   return {
     status: "issued",
     receiptId: issued.id,
     allocated,
     deliveryReady: Boolean(recipientEmail),
+    deliveryRecorded,
   };
 }

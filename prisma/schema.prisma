@@ -155,6 +155,7 @@ model Business {
   paymentAuditEvents        PaymentAuditEvent[]
   billingNumberSequences    BillingDocumentNumberSequence[]
   billingPaymentAllocations BillingPaymentAllocation[]
+  deliveryAttempts          DeliveryAttempt[]
   profile                   BusinessProfile?
   botSettings               BusinessBotSettings?
   bot                       BusinessBot?
@@ -1945,6 +1946,40 @@ model BillingPaymentAllocation {
   @@index([businessId, receiptDocumentId])
 }
 
+/// Single source of truth AND attempt history for delivering a document (e.g. an
+/// auto-issued receipt) to a recipient over a channel. Deliberately ONE table:
+/// there is no queue / retry engine / routing engine yet, so a DeliveryIntent
+/// layer would be premature. The DB-level unique on (documentType, documentId,
+/// channel, recipient) makes recording idempotent — one row per destination,
+/// holding the latest status + attemptCount + timestamps. If a real Outbox/Queue
+/// is built later, an Intent layer can be added on top without breaking this.
+/// documentType/documentId are a polymorphic reference (not FK-bound) so any
+/// document type can be delivered.
+model DeliveryAttempt {
+  id                Int             @id @default(autoincrement())
+  businessId        Int
+  documentType      String
+  documentId        Int
+  channel           DeliveryChannel
+  recipient         String
+  status            DeliveryStatus  @default(PENDING)
+  provider          String?
+  providerMessageId String?
+  errorCode         String?
+  errorMessage      String?
+  attemptCount      Int             @default(0)
+  sentAt            DateTime?
+  lastAttemptAt     DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  business          Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([documentType, documentId, channel, recipient])
+  @@index([businessId, status])
+  @@index([businessId, documentType, documentId])
+  @@index([status, lastAttemptAt])
+}
+
 model FinancialEvent {
   id                Int                      @id @default(autoincrement())
   businessId        Int
@@ -2442,6 +2477,17 @@ enum BillingDocumentType {
   CREDIT_NOTE
   RECEIPT
   TAX_INVOICE_RECEIPT
+}
+
+enum DeliveryChannel {
+  EMAIL
+  WHATSAPP
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
 }
 
 enum PaymentMethod {
