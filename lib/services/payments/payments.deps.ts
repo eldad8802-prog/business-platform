@@ -9,6 +9,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { ensurePaymentPostedEvent } from "@/lib/services/financial-events/financial-event.service";
+import { issueAutoReceiptForVerifiedPayment } from "@/lib/services/billing/receipt/auto-receipt.service";
 import {
   decryptPaymentCredential,
   encryptPaymentCredential,
@@ -61,6 +62,7 @@ export function paymentWebhookDeps(): ProcessWebhookDeps {
     // Financial Control projection: verified PAID -> FinancialEvent(PAYMENT).
     // Best-effort and idempotent on the transaction id; never breaks the flow.
     onVerifiedPaid: async (e) => {
+      // (a) Financial Control projection: verified PAID -> FinancialEvent(PAYMENT).
       try {
         await prisma.$transaction((tx) =>
           ensurePaymentPostedEvent(tx, {
@@ -74,6 +76,21 @@ export function paymentWebhookDeps(): ProcessWebhookDeps {
         );
       } catch (err) {
         console.error("onVerifiedPaid (FinancialEvent PAYMENT) error:", err);
+      }
+
+      // (b) #12: auto-issue a receipt for the settled invoice. Independent and
+      // best-effort — idempotent on the settlement, never breaks the payment flow.
+      try {
+        await issueAutoReceiptForVerifiedPayment({
+          businessId: e.businessId,
+          paymentRequestId: e.paymentRequestId,
+          transactionId: e.transactionId,
+          amount: e.amount,
+          currency: e.currency,
+          occurredAt: e.occurredAt,
+        });
+      } catch (err) {
+        console.error("onVerifiedPaid (auto-receipt) error:", err);
       }
     },
   };
