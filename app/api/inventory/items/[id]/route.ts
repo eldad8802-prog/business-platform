@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { InventoryUnitType } from "@prisma/client";
+import { InventoryUnitType, InventoryMovementReason } from "@prisma/client";
 import { getInventoryAuthenticatedUserBasic as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
   InventoryError,
@@ -293,6 +293,66 @@ export async function PATCH(request: NextRequest) {
       success: true,
       item: updatedItem,
     });
+  } catch (error) {
+    return handleError(error);
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const user = await getAuthenticatedUser(request);
+    const itemId = parseItemIdFromRequest(request);
+
+    const existingItem = await prisma.inventoryItem.findFirst({
+      where: {
+        id: itemId,
+        businessId: user.businessId,
+      },
+    });
+
+    if (!existingItem) {
+      throw new InventoryNotFoundError("Inventory item not found");
+    }
+
+    // An item that took part in receiving, ordering, POS mapping, or any stock
+    // movement beyond its INITIAL_STOCK seed carries inventory truth we must not
+    // erase (a hard delete would also be blocked by ReceivingLine's onDelete:
+    // Restrict FK). In that case we archive it — it leaves the active inventory
+    // list but its history stays intact and auditable. Only a fresh/mistaken
+    // item with no real activity is removed permanently.
+    const [receivingLines, purchaseOrderLines, posMappings, realMovements] =
+      await Promise.all([
+        prisma.receivingLine.count({ where: { itemId } }),
+        prisma.purchaseOrderLine.count({ where: { itemId } }),
+        prisma.pOSProductMapping.count({ where: { itemId } }),
+        prisma.inventoryMovement.count({
+          where: {
+            itemId,
+            reason: { not: InventoryMovementReason.INITIAL_STOCK },
+          },
+        }),
+      ]);
+
+    const isInUse =
+      receivingLines > 0 ||
+      purchaseOrderLines > 0 ||
+      posMappings > 0 ||
+      realMovements > 0;
+
+    if (isInUse) {
+      await prisma.inventoryItem.update({
+        where: { id: itemId },
+        data: { isActive: false },
+      });
+
+      return NextResponse.json({ success: true, archived: true });
+    }
+
+    // No real activity: remove permanently. Cascading FKs clear the lone
+    // INITIAL_STOCK seed movement and any open alerts.
+    await prisma.inventoryItem.delete({ where: { id: itemId } });
+
+    return NextResponse.json({ success: true, deleted: true });
   } catch (error) {
     return handleError(error);
   }

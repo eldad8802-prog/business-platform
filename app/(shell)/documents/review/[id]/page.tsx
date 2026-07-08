@@ -66,6 +66,8 @@ export default function ReviewPage() {
   const [showFieldDetails, setShowFieldDetails] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [documentOnlyConfirmOpen, setDocumentOnlyConfirmOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [nextPendingDocumentId, setNextPendingDocumentId] = useState<number | null>(null);
 
   const [document, setDocument] = useState<ApiDocument | null>(null);
@@ -428,6 +430,31 @@ export default function ReviewPage() {
     }
   }, [authHeader, draft, id, refreshNextPendingDocument]);
 
+  const deleteDocument = useCallback(async () => {
+    if (!authHeader) {
+      setError("כדי למחוק צריך להתחבר מחדש.");
+      return;
+    }
+    try {
+      setDeleting(true);
+      setError(null);
+      const res = await fetch(`/api/documents/${id}`, {
+        method: "DELETE",
+        headers: { authorization: authHeader },
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || "לא הצלחנו למחוק את המסמך");
+      }
+      // The document is gone — return to the inbox, which reloads fresh.
+      router.push("/documents/inbox");
+    } catch (e: unknown) {
+      setDeleting(false);
+      setDeleteConfirmOpen(false);
+      setError(errorMessage(e, "שגיאה במחיקת המסמך"));
+    }
+  }, [authHeader, id, router]);
+
   const previewReady = fileStatus === "ready" && !!fileBlobUrl;
   const previewLoading = fileStatus === "loading";
   const previewKind = getPreviewKind(fileBlobUrl || "", document?.mimeType);
@@ -483,6 +510,37 @@ export default function ReviewPage() {
     void approveFinancial();
   }, [reviewMode, isUnknown, draft, approveFinancial]);
 
+  const deleteConfirmOverlay = deleteConfirmOpen ? (
+    <ReviewOverlayShell
+      title="מחיקת מסמך"
+      onClose={() => {
+        if (!deleting) setDeleteConfirmOpen(false);
+      }}
+    >
+      <p style={confirmTextStyle}>
+        למחוק את המסמך לצמיתות? אם המסמך כבר אושר, גם הרישום הכספי שנוצר ממנו יימחק. לא ניתן לשחזר את הפעולה.
+      </p>
+      <div style={confirmActionGridStyle}>
+        <button
+          type="button"
+          disabled={deleting}
+          style={reviewConfirmSecondaryStyle}
+          onClick={() => setDeleteConfirmOpen(false)}
+        >
+          ביטול
+        </button>
+        <button
+          type="button"
+          disabled={deleting}
+          style={reviewDeletePrimaryStyle(deleting)}
+          onClick={() => void deleteDocument()}
+        >
+          {deleting ? "מוחק…" : "מחק מסמך"}
+        </button>
+      </div>
+    </ReviewOverlayShell>
+  ) : null;
+
   if (pageLoading) {
     return <DocumentsReviewSkeleton />;
   }
@@ -493,14 +551,18 @@ export default function ReviewPage() {
 
   if (document.status === "processing" || document.status === "failed") {
     return (
-      <ProcessingReviewScreen
-        status={document.status}
-        stale={document.status === "processing" && processingStale}
-        loading={loading}
-        error={error}
-        onRetry={reprocess}
-        onBack={() => router.push("/documents")}
-      />
+      <>
+        <ProcessingReviewScreen
+          status={document.status}
+          stale={document.status === "processing" && processingStale}
+          loading={loading}
+          error={error}
+          onRetry={reprocess}
+          onBack={() => router.push("/documents")}
+          onDelete={() => setDeleteConfirmOpen(true)}
+        />
+        {deleteConfirmOverlay}
+      </>
     );
   }
 
@@ -513,8 +575,19 @@ export default function ReviewPage() {
             <div style={reviewTopTitleStyle}>אימות מסמך</div>
             <div style={reviewTopMetaStyle}>בדיקה, תיקון ואישור במקום אחד</div>
           </div>
-          <div style={reviewTopStatusStyle}>
-            {state === "done" ? "הושלם" : "בתהליך"}
+          <div style={reviewTopRightStyle}>
+            <div style={reviewTopStatusStyle}>
+              {state === "done" ? "הושלם" : "בתהליך"}
+            </div>
+            <button
+              type="button"
+              aria-label="מחק מסמך"
+              title="מחק מסמך"
+              onClick={() => setDeleteConfirmOpen(true)}
+              style={reviewTopDeleteStyle}
+            >
+              <TrashIcon />
+            </button>
           </div>
         </section>
         <ReviewHero state={state} />
@@ -645,6 +718,8 @@ export default function ReviewPage() {
             </div>
           </ReviewOverlayShell>
         ) : null}
+
+        {deleteConfirmOverlay}
       </main>
       <style jsx global>{`
         @media (max-width: 640px) {
@@ -733,6 +808,41 @@ const reviewTopStatusStyle = {
   fontWeight: 600,
 } as const;
 
+const reviewTopRightStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  gap: 8,
+} as const;
+
+const reviewTopDeleteStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: 38,
+  height: 38,
+  flexShrink: 0,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.button,
+  background: TOKEN.surface.card,
+  color: TOKEN.semantic.urgent.ink,
+  cursor: "pointer",
+} as const;
+
+function TrashIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7M10 11v6M14 11v6"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /**
  * Shown while Phase 2 (OCR + extraction) is still running, or after it failed.
  * Restores the two-phase review behavior removed in the design migration: the
@@ -746,6 +856,7 @@ function ProcessingReviewScreen({
   error,
   onRetry,
   onBack,
+  onDelete,
 }: {
   status: "processing" | "failed";
   stale: boolean;
@@ -753,6 +864,7 @@ function ProcessingReviewScreen({
   error: string | null;
   onRetry: () => void;
   onBack: () => void;
+  onDelete: () => void;
 }) {
   const isFailed = status === "failed";
   // A failed doc always offers retry; a "processing" doc only once it looks
@@ -768,7 +880,18 @@ function ProcessingReviewScreen({
             <div style={reviewTopTitleStyle}>אימות מסמך</div>
             <div style={reviewTopMetaStyle}>בדיקה, תיקון ואישור במקום אחד</div>
           </div>
-          <div style={reviewTopStatusStyle}>{isFailed ? "נכשל" : "בעיבוד"}</div>
+          <div style={reviewTopRightStyle}>
+            <div style={reviewTopStatusStyle}>{isFailed ? "נכשל" : "בעיבוד"}</div>
+            <button
+              type="button"
+              aria-label="מחק מסמך"
+              title="מחק מסמך"
+              onClick={onDelete}
+              style={reviewTopDeleteStyle}
+            >
+              <TrashIcon />
+            </button>
+          </div>
         </section>
 
         <section style={processingPanelStyle}>
@@ -977,6 +1100,18 @@ const reviewConfirmPrimaryStyle = (loading: boolean) =>
     border: "none",
     borderRadius: TOKEN.radius.button,
     background: loading ? TOKEN.ink.disabled : TOKEN.brand.gradient,
+    color: TOKEN.ink.inverse,
+    fontSize: TOKEN.font.body,
+    fontWeight: TOKEN.weight.bold,
+    cursor: loading ? "not-allowed" : "pointer",
+  }) as const;
+
+const reviewDeletePrimaryStyle = (loading: boolean) =>
+  ({
+    minHeight: 50,
+    border: "none",
+    borderRadius: TOKEN.radius.button,
+    background: loading ? TOKEN.ink.disabled : TOKEN.semantic.urgent.ink,
     color: TOKEN.ink.inverse,
     fontSize: TOKEN.font.body,
     fontWeight: TOKEN.weight.bold,
