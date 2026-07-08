@@ -208,6 +208,45 @@ async function getPostedReceivedByLine(
   );
 }
 
+/**
+ * Latest actual receiving date per purchase-order line — the posted-at time of
+ * the most recent POSTED receiving session that touched the line (falling back
+ * to that session's createdAt). Used for order→receipt traceability.
+ */
+async function getLastReceivedAtByLine(
+  tx: QueryClient,
+  purchaseOrderLineIds: number[]
+) {
+  if (purchaseOrderLineIds.length === 0) {
+    return new Map<number, Date>();
+  }
+
+  const rows = await tx.receivingLine.findMany({
+    where: {
+      purchaseOrderLineId: { in: purchaseOrderLineIds },
+      receivingSession: {
+        status: ReceivingSessionStatus.POSTED,
+      },
+    },
+    select: {
+      purchaseOrderLineId: true,
+      receivingSession: { select: { postedAt: true, createdAt: true } },
+    },
+  });
+
+  const map = new Map<number, Date>();
+  for (const row of rows) {
+    const at = row.receivingSession.postedAt ?? row.receivingSession.createdAt;
+    if (!at) continue;
+    const prev = map.get(row.purchaseOrderLineId);
+    if (!prev || at.getTime() > prev.getTime()) {
+      map.set(row.purchaseOrderLineId, at);
+    }
+  }
+
+  return map;
+}
+
 function getClosedShortQty(line: {
   remainingDecision: PurchaseOrderLineRemainingDecision | null;
   remainingDecisionQty: number | null;
@@ -229,22 +268,25 @@ async function withPurchaseOrderLineQuantities<
     }>;
   }
 >(tx: QueryClient, purchaseOrder: T) {
-  const receivedByLine = await getPostedReceivedByLine(
-    tx,
-    purchaseOrder.lines.map((line) => line.id)
-  );
+  const lineIds = purchaseOrder.lines.map((line) => line.id);
+  const [receivedByLine, lastReceivedAtByLine] = await Promise.all([
+    getPostedReceivedByLine(tx, lineIds),
+    getLastReceivedAtByLine(tx, lineIds),
+  ]);
 
   return {
     ...purchaseOrder,
     lines: purchaseOrder.lines.map((line) => {
       const receivedQty = receivedByLine.get(line.id) ?? 0;
       const closedShortQty = getClosedShortQty(line);
+      const lastReceivedAt = lastReceivedAtByLine.get(line.id) ?? null;
 
       return {
         ...line,
         receivedQty,
         closedShortQty,
         openQty: line.orderedQty - receivedQty - closedShortQty,
+        lastReceivedAt,
       };
     }),
   };

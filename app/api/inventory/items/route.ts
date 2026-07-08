@@ -148,6 +148,7 @@ export async function GET(request: NextRequest) {
     const items = await prisma.inventoryItem.findMany({
       where: {
         businessId: user.businessId,
+        isActive: true,
       },
       include: {
         category: true, // 🔥 חדש

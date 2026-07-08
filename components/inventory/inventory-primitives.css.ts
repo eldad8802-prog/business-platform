@@ -437,6 +437,27 @@ export const inventoryPrimitivesCss = `
     box-shadow: 0 6px 18px rgba(184, 92, 63, 0.28);
   }
 
+  /* ===== destructive action (delete item) ===== */
+  [data-inventory-module] .inv-danger-zone {
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--inv-border);
+  }
+  [data-inventory-module] .inv-btn-danger {
+    min-height: 48px;
+    padding: 0 18px;
+    border-radius: var(--inv-radius-button);
+    border: 1px solid var(--inv-danger);
+    background: transparent;
+    color: var(--inv-danger);
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  [data-inventory-module] .inv-btn-danger:disabled { opacity: 0.6; cursor: default; }
+  [data-inventory-module] .inv-btn-danger--full { width: 100%; }
+
   /* ===== order/cart/receiving line (mockup .oline) ===== */
   [data-inventory-module] .inv-olines {
     width: 100%;

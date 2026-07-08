@@ -323,6 +323,34 @@ export async function updateInventoryItem(
   return responseData.item;
 }
 
+/**
+ * Delete an inventory item. Returns whether it was permanently removed
+ * (`deleted`) or archived because it has real stock history (`archived`).
+ */
+export async function deleteInventoryItem(
+  id: number
+): Promise<{ deleted?: boolean; archived?: boolean }> {
+  const res = await fetchWithTimeout(`/api/inventory/items/${id}`, {
+    method: "DELETE",
+    headers: buildHeaders(),
+  });
+
+  if (res.status === 401) {
+    throw new Error("UNAUTHORIZED");
+  }
+
+  if (res.status === 404) {
+    throw new Error("NOT_FOUND");
+  }
+
+  if (!res.ok) {
+    const responseData = await res.json().catch(() => null);
+    throw new Error(responseData?.error || "Failed to delete inventory item");
+  }
+
+  return res.json();
+}
+
 export async function uploadInventoryItemImage(itemId: number, file: File) {
   const token =
     typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -484,6 +512,10 @@ export type PurchaseOrderLineDTO = {
   closedShortQty?: number;
   openQty?: number;
   remainingDecision?: string | null;
+  /** Per-line expected receipt date (ISO). */
+  expectedAt?: string | null;
+  /** Latest actual receiving date for this line (ISO), null if not yet received. */
+  lastReceivedAt?: string | null;
 };
 
 export type PurchaseOrderDTO = {

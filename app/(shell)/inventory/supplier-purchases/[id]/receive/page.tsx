@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import {
@@ -32,6 +32,22 @@ const UNIT_SHORT: Record<string, string> = {
   ML: "מ״ל",
 };
 
+const PO_STATUS_LABEL: Record<string, string> = {
+  DRAFT: "טיוטה",
+  CONFIRMED: "מאושרת",
+  SENT: "נשלחה",
+  AWAITING_DELIVERY: "ממתינה לאספקה",
+  CLOSED: "סגורה",
+  CANCELLED: "בוטלה",
+};
+
+function fmtTraceDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("he-IL", { day: "numeric", month: "long", year: "numeric" });
+}
+
 export default function ReceivingPage() {
   const router = useRouter();
   const params = useParams();
@@ -40,6 +56,7 @@ export default function ReceivingPage() {
   const [po, setPo] = useState<PurchaseOrderDTO | null>(null);
   const [received, setReceived] = useState<Record<number, number>>({});
   const [decisions, setDecisions] = useState<Record<number, Decision>>({});
+  const [openDetails, setOpenDetails] = useState<Record<number, boolean>>({});
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -187,8 +204,38 @@ export default function ReceivingPage() {
                     />
                   }
                   extra={
-                    short ? (
-                      <div style={{ width: "100%" }}>
+                    <div style={{ width: "100%", display: "grid", gap: 10 }}>
+                      <button
+                        type="button"
+                        className="inv-dchip"
+                        style={{ justifySelf: "start" }}
+                        aria-expanded={openDetails[line.id] ? true : false}
+                        onClick={() => setOpenDetails((o) => ({ ...o, [line.id]: !o[line.id] }))}
+                      >
+                        {openDetails[line.id] ? "הסתר פרטי הזמנה" : "פרטי הזמנה ומעקב"}
+                      </button>
+
+                      {openDetails[line.id] && po ? (
+                        <div style={traceStyle}>
+                          <TraceRow label="הזמנה" value={`#${po.externalOrderId || po.id}`} />
+                          <TraceRow label="ספק" value={po.supplierName || "—"} />
+                          <TraceRow label="סטטוס" value={PO_STATUS_LABEL[po.status] || po.status} />
+                          <TraceRow label="כמות שהוזמנה" value={`${line.orderedQty}${unit ? ` ${unit}` : ""}`} />
+                          {line.unitCost != null ? <TraceRow label="עלות ליחידה" value={`₪${line.unitCost.toLocaleString("he-IL")}`} /> : null}
+                          {line.sku ? <TraceRow label="מק״ט" value={line.sku} /> : null}
+                          {line.barcode ? <TraceRow label="ברקוד" value={line.barcode} /> : null}
+                          <div style={traceDividerStyle} />
+                          <TraceRow label="תאריך יצירת ההזמנה" value={fmtTraceDate(po.createdAt)} />
+                          <TraceRow label="תאריך שליחת ההזמנה" value={fmtTraceDate(po.orderDate)} />
+                          <TraceRow label="תאריך צפוי לקבלה" value={fmtTraceDate(line.expectedAt)} />
+                          <TraceRow
+                            label="תאריך קליטה בפועל"
+                            value={line.lastReceivedAt ? fmtTraceDate(line.lastReceivedAt) : "טרם נקלט"}
+                          />
+                        </div>
+                      ) : null}
+
+                      {short ? (
                         <DecisionChips
                           choices={[
                             { label: "להשאיר פתוח", primary: decisions[line.id] === "KEEP_OPEN", onClick: () => setDecisions((d) => ({ ...d, [line.id]: "KEEP_OPEN" })) },
@@ -196,8 +243,8 @@ export default function ReceivingPage() {
                             { label: "לסגור בחוסר", primary: decisions[line.id] === "CLOSED_SHORT", onClick: () => setDecisions((d) => ({ ...d, [line.id]: "CLOSED_SHORT" })) },
                           ]}
                         />
-                      </div>
-                    ) : undefined
+                      ) : null}
+                    </div>
                   }
                 />
               );
@@ -232,3 +279,49 @@ export default function ReceivingPage() {
     </InventorySubPage>
   );
 }
+
+function TraceRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={traceRowStyle}>
+      <span style={traceLabelStyle}>{label}</span>
+      <span style={traceValueStyle} dir="auto">{value}</span>
+    </div>
+  );
+}
+
+const traceStyle: CSSProperties = {
+  display: "grid",
+  gap: 8,
+  padding: "12px 14px",
+  borderRadius: 12,
+  border: "1px solid var(--inv-border)",
+  background: "var(--inv-surface)",
+};
+
+const traceRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  justifyContent: "space-between",
+  gap: 12,
+};
+
+const traceLabelStyle: CSSProperties = {
+  color: "var(--inv-text-muted)",
+  fontSize: 13,
+  fontWeight: 600,
+  flexShrink: 0,
+};
+
+const traceValueStyle: CSSProperties = {
+  color: "var(--inv-text)",
+  fontSize: 14,
+  fontWeight: 700,
+  textAlign: "left",
+  minWidth: 0,
+};
+
+const traceDividerStyle: CSSProperties = {
+  height: 1,
+  background: "var(--inv-border)",
+  margin: "2px 0",
+};

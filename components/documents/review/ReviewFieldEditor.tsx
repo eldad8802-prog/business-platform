@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { CATEGORIES } from "@/lib/constants/categories";
 import type { Direction, EditableField, ReviewDraft } from "@/lib/documents/review/types";
 import { TOKEN } from "@/lib/design/documents-theme";
@@ -24,6 +25,22 @@ export default function ReviewFieldEditor({
   onConfirm,
   onCancel,
 }: ReviewFieldEditorProps) {
+  const [newCategory, setNewCategory] = useState("");
+
+  // A category the user typed that isn't one of the predefined ones. It is
+  // stored as-is on the document (the approve route accepts any category
+  // string), so custom categories persist and display by their own name.
+  const isCustomCategory = Boolean(
+    draft.category && !CATEGORIES.some((c) => c.value === draft.category)
+  );
+
+  const applyNewCategory = () => {
+    const value = newCategory.trim();
+    if (!value) return;
+    onDraftChange((d) => ({ ...d, category: value }));
+    setNewCategory("");
+  };
+
   return (
     <section style={{ width: "100%" }}>
       {editField === "amount" ? (
@@ -92,20 +109,59 @@ export default function ReviewFieldEditor({
       ) : null}
 
       {editField === "category" ? (
-        <div
-          className="dz-scroll"
-          style={{ display: "grid", gap: 8, maxHeight: 320, overflow: "auto", padding: 2 }}
-        >
-          {CATEGORIES.map((c) => (
-            <button
-              key={c.value}
-              type="button"
-              style={categoryButtonStyle(draft.category === c.value)}
-              onClick={() => onDraftChange((d) => ({ ...d, category: c.value }))}
-            >
-              {c.label}
-            </button>
-          ))}
+        <div style={{ display: "grid", gap: 12 }}>
+          <div
+            className="dz-scroll"
+            style={{ display: "grid", gap: 8, maxHeight: 280, overflow: "auto", padding: 2 }}
+          >
+            {CATEGORIES.map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                style={categoryButtonStyle(draft.category === c.value)}
+                onClick={() => onDraftChange((d) => ({ ...d, category: c.value }))}
+              >
+                {c.label}
+              </button>
+            ))}
+            {isCustomCategory ? (
+              <button
+                type="button"
+                style={categoryButtonStyle(true)}
+                onClick={() => undefined}
+                aria-pressed
+              >
+                {draft.category}
+              </button>
+            ) : null}
+          </div>
+
+          <div style={addCategoryWrapStyle}>
+            <div style={addCategoryLabelStyle}>לא מצאת קטגוריה מתאימה? צור חדשה</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    applyNewCategory();
+                  }
+                }}
+                placeholder="שם קטגוריה חדשה"
+                aria-label="שם קטגוריה חדשה"
+                style={{ ...reviewInput, flex: 1 }}
+              />
+              <button
+                type="button"
+                disabled={!newCategory.trim()}
+                style={addCategoryButtonStyle(!newCategory.trim())}
+                onClick={applyNewCategory}
+              >
+                הוסף
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -162,6 +218,34 @@ function ClearFieldButton({ onClick }: { onClick: () => void }) {
       </svg>
     </button>
   );
+}
+
+const addCategoryWrapStyle = {
+  borderTop: `1px solid ${TOKEN.border.DEFAULT}`,
+  paddingTop: 12,
+  display: "grid",
+  gap: 8,
+} as const;
+
+const addCategoryLabelStyle = {
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.semibold,
+} as const;
+
+function addCategoryButtonStyle(disabled: boolean) {
+  return {
+    minHeight: 44,
+    padding: "0 18px",
+    flexShrink: 0,
+    borderRadius: TOKEN.radius.button,
+    border: "none",
+    background: disabled ? TOKEN.ink.disabled : TOKEN.brand.gradient,
+    color: TOKEN.ink.inverse,
+    fontWeight: TOKEN.weight.bold,
+    fontSize: TOKEN.font.body,
+    cursor: disabled ? "not-allowed" : "pointer",
+  } as const;
 }
 
 function categoryButtonStyle(active: boolean) {

@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { createPortal } from "react-dom";
 import {
   createInventoryCategory,
+  deleteInventoryItem,
   getInventoryCategories,
   getInventoryItemById,
   getInventoryMovementsByItemId,
@@ -39,6 +40,7 @@ import {
   BottomSheet,
   SegmentedControl,
   SheetActions,
+  ConfirmModal,
   InventoryStatePanel,
   IconEdit,
   IconChevronStart,
@@ -97,6 +99,8 @@ export default function ProductDetailView({
   const [editing, setEditing] = useState(false);
   const [resolvingAlertId, setResolvingAlertId] = useState<number | null>(null);
   const [movementKind, setMovementKind] = useState<"IN" | "OUT" | "ADJUSTMENT" | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<
     Partial<Record<"name" | "minimumQuantity" | "reorderPoint", string>>
   >({});
@@ -237,6 +241,25 @@ export default function ProductDetailView({
       setError(getErrorMessage(err, "שגיאה בסגירת ההתראה"));
     } finally {
       setResolvingAlertId(null);
+    }
+  }
+
+  async function handleDelete() {
+    if (!item || deleting) return;
+    try {
+      setDeleting(true);
+      setError(null);
+      const result = await deleteInventoryItem(item.id);
+      inventoryToast.success(result.archived ? "המוצר הועבר לארכיון" : "המוצר נמחק");
+      // Leave the detail view via a full navigation so the (client-side) list
+      // refetches and the item is gone from the active inventory — works the
+      // same whether we arrived as an intercepting sheet or a canonical page.
+      window.location.href = "/inventory/items";
+    } catch (err: unknown) {
+      setConfirmingDelete(false);
+      setError(getErrorMessage(err, "שגיאה במחיקת המוצר"));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -430,6 +453,11 @@ export default function ProductDetailView({
             </div>
             <div className="inv-field"><div className="inv-field__lab">מק״ט</div><input className="inv-input" value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} /></div>
             <div className="inv-field"><div className="inv-field__lab">ברקוד</div><input className="inv-input" value={form.barcode} onChange={(e) => setForm((f) => ({ ...f, barcode: e.target.value }))} /></div>
+            <div className="inv-danger-zone">
+              <button type="button" className="inv-btn-danger inv-btn-danger--full" onClick={() => setConfirmingDelete(true)} disabled={deleting}>
+                מחיקת מוצר
+              </button>
+            </div>
           </BottomSheet>
             </div>,
             document.body
@@ -447,6 +475,23 @@ export default function ProductDetailView({
             onSuccess={() => loadItemData({ silent: true })}
           />
         ) : null}
+
+        {confirmingDelete && typeof document !== "undefined"
+          ? createPortal(
+              <div data-inventory-module>
+                <ConfirmModal
+                  title="מחיקת מוצר"
+                  body={<>למחוק את &quot;{item.name}&quot;? אם קיימת לפריט היסטוריית תנועות או קליטות הוא יועבר לארכיון כדי לשמור על ההיסטוריה, אחרת יימחק לצמיתות.</>}
+                  confirmLabel={deleting ? "מוחק…" : "מחק"}
+                  onConfirm={() => void handleDelete()}
+                  onCancel={() => { if (!deleting) setConfirmingDelete(false); }}
+                  danger
+                  confirmDisabled={deleting}
+                />
+              </div>,
+              document.body
+            )
+          : null}
       </div>
     );
   }
