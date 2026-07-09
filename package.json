@@ -15,6 +15,7 @@
     "verify:whatsapp-webhook-pr2": "npx tsx lib/services/integrations/whatsapp/webhook-pr2.routing.test.ts",
     "verify:whatsapp-webhook-pr3": "npx tsx lib/services/integrations/whatsapp/webhook-pr3.media.test.ts",
     "verify:whatsapp-webhook-pr4": "npx tsx lib/services/integrations/whatsapp/webhook-pr4.intake.test.ts",
+    "verify:gmail-token-revoke": "npx tsx lib/services/integrations/gmail/gmail-token-revoke.verify.test.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
