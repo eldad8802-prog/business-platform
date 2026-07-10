@@ -1,6 +1,6 @@
 # Google OAuth Verification Submission Package (Reconstructed from Verified Implementation)
 
-_This document was reconstructed from the verified implementation, production validation, published privacy policy, Google Cloud configuration, and approved design decisions. It is not presented as a verbatim recovery of a previously stored document. From this point forward, this document becomes the canonical source of truth for the Google OAuth Verification submission._
+_This document was reconstructed from the verified implementation, production validation, published privacy policy, Google Cloud configuration, and approved design decisions. It is not presented as a verbatim recovery of a previously stored document. Following final approval, this document will become the canonical source of truth for the Google OAuth Verification submission._
 
 ## 1. Scope Justification (gmail.readonly)
 
