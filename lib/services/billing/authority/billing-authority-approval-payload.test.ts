@@ -7,6 +7,9 @@
 import type { BillingIssuedSnapshotV1 } from "@/lib/services/billing/pdf/billing-pdf-template";
 import type {
   InvoiceApprovalSuccessResponse,
+  InvoiceApprovalValidationErrorResponse,
+  InvoiceApprovalNotAcceptableResponse,
+  InvoiceApprovalServerErrorResponse,
 } from "@/lib/services/billing/authority/billing-authority-approval.types";
 import {
   buildInvoiceApprovalPayload,
@@ -118,7 +121,7 @@ function errorCodes(r: ReturnType<typeof buildInvoiceApprovalPayload>): Approval
 // ---------------------------------------------------------------------------
 ok("map TAX_INVOICE → 305", APPROVAL_DOCUMENT_TYPE_CODE.TAX_INVOICE === 305);
 ok("map TAX_INVOICE_RECEIPT → 320", APPROVAL_DOCUMENT_TYPE_CODE.TAX_INVOICE_RECEIPT === 320);
-ok("map CREDIT_NOTE → 330", APPROVAL_DOCUMENT_TYPE_CODE.CREDIT_NOTE === 330);
+ok("map has no CREDIT_NOTE (blocked pending evidence)", APPROVAL_DOCUMENT_TYPE_CODE.CREDIT_NOTE === undefined);
 ok("map has no QUOTE / RECEIPT", APPROVAL_DOCUMENT_TYPE_CODE.QUOTE === undefined && APPROVAL_DOCUMENT_TYPE_CODE.RECEIPT === undefined);
 
 // ---------------------------------------------------------------------------
@@ -156,11 +159,12 @@ ok("map has no QUOTE / RECEIPT", APPROVAL_DOCUMENT_TYPE_CODE.QUOTE === undefined
   ok("TAX_INVOICE_RECEIPT → 320", r.ok && r.payload.invoice_type === 320, errorCodes(r));
 }
 
-// CREDIT_NOTE: mapping is mechanical (330). Sign/semantics are UNVERIFIED and
-// intentionally not asserted here (flagged as a discovered blocker).
+// CREDIT_NOTE is intentionally NOT activated in the allocation builder
+// (insufficient evidence: official 01/2025 is silent on 330; sign unverified).
+// It must be rejected as unsupported until a regulatory + contract decision.
 {
   const r = buildInvoiceApprovalPayload(input({ snapshot: snapshot({ type: "CREDIT_NOTE" }) }));
-  ok("CREDIT_NOTE resolves to 330 structurally (sign NOT asserted)", r.ok && r.payload.invoice_type === 330, errorCodes(r));
+  ok("CREDIT_NOTE rejected as unsupported", !r.ok && errorCodes(r).includes("UNSUPPORTED_DOCUMENT_TYPE"), errorCodes(r));
 }
 
 // Multiple VAT rates across lines.
@@ -253,6 +257,24 @@ ok("amount out of safe range", (() => { const r = buildInvoiceApprovalPayload(in
   ok("confirmation_number holds 26-digit string", success.confirmation_number !== null && success.confirmation_number.length === 26);
   const nullConf: InvoiceApprovalSuccessResponse = { status: 200, message: "pending", confirmation_number: null, approved: false };
   ok("confirmation_number nullable", nullConf.confirmation_number === null);
+}
+
+// Response contract shapes (400 nests errors under message.errors; 406/500 carry error_id).
+{
+  const e400: InvoiceApprovalValidationErrorResponse = {
+    status: 400,
+    message: { errors: [{ code: 434, message: "Invoice date is too old for approval", param: "invoice_date", location: "request" }] },
+    confirmation_number: "0",
+    approved: false,
+  };
+  ok("400 message.errors nested (code=number, param, location)", e400.message.errors[0].code === 434 && e400.message.errors[0].param === "invoice_date" && e400.message.errors[0].location === "request");
+  ok("400 approved=false + confirmation_number string", e400.approved === false && e400.confirmation_number === "0");
+
+  const e406: InvoiceApprovalNotAcceptableResponse = { status: 406, message: "Not Acceptable", error_id: "20240718181618323199093572" };
+  ok("406 message + error_id", e406.message === "Not Acceptable" && e406.error_id === "20240718181618323199093572");
+
+  const e500: InvoiceApprovalServerErrorResponse = { status: 500, message: "Internal error server", error_id: "20240718181618323199093572" };
+  ok("500 message + error_id", e500.status === 500 && e500.message === "Internal error server" && e500.error_id !== null);
 }
 
 if (failed > 0) {

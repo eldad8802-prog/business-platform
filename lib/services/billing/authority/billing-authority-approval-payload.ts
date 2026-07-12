@@ -22,24 +22,26 @@ import type {
 } from "@/lib/services/billing/authority/billing-authority-approval.types";
 
 /**
- * Dubiz document type → ITA allocation HsbSug code.
+ * Dubiz document type → ITA allocation HsbSug code (ACTIVE domain mapping).
  *
- * Only the document types Dubiz actually issues AND that the official 01/2025
- * instruction lists for allocation are mapped. Any other type resolves to
- * `undefined` here and is rejected by the builder as UNSUPPORTED_DOCUMENT_TYPE.
+ * Any type absent here resolves to `undefined` and is rejected by the builder
+ * as UNSUPPORTED_DOCUMENT_TYPE.
  *
- * Evidence (official 01/2025):
- *   305 = חשבונית מס, 320 = חשבונית מס / קבלה, 330 = חשבונית מס זיכוי.
- *
- * NOTE (flagged in PR report): Dubiz's own readiness logic currently returns
- * NOT_REQUIRED for CREDIT_NOTE, so 330 is presently unreachable via issue-time
- * readiness. The mapping is included per the explicit contract table, but the
- * builder does not assert credit-note amount SIGN semantics (unverified).
+ * CREDIT_NOTE (code 330) is deliberately EXCLUDED. 330 is a valid OpenAPI
+ * invoice_type value, but activating it is blocked pending evidence:
+ *  - The official מע"מ 01/2025 instruction does not mention credit notes /
+ *    זיכוי / 330 at all — it addresses חשבונית מס only.
+ *  - The supplied OpenAPI facts list 330 as a code but do not establish that a
+ *    credit note requires an allocation request, nor the header-amount sign
+ *    (`minimum`) rules for a credit payload.
+ *  - Dubiz stores credit-note amounts as POSITIVE and its (currently unwired)
+ *    readiness returns NOT_REQUIRED for CREDIT_NOTE.
+ * Until a regulatory + contract decision, credit notes are not submitted here.
+ * readiness.ts is intentionally left unchanged.
  */
 export const APPROVAL_DOCUMENT_TYPE_CODE: Readonly<Record<string, number>> = {
   [BillingDocumentType.TAX_INVOICE]: 305,
   [BillingDocumentType.TAX_INVOICE_RECEIPT]: 320,
-  [BillingDocumentType.CREDIT_NOTE]: 330,
 };
 
 export const MAX_INVOICE_ID_LENGTH = 50;
