@@ -12,6 +12,21 @@ import { BrainError } from "./brain-error";
 import { canonicalize } from "./canonical-serialize";
 import { sealObservation } from "./observation-identity";
 import type { ObservationContent } from "./observation.types";
+import {
+  conceptId,
+  conceptVersion,
+  cotSchemaVersion,
+  engineEpochId,
+  executionPolicyVersion,
+  translatorName,
+  translatorVersionTag,
+} from "./versioning.types";
+import { parseSnapshotDigest } from "./registry/registry-snapshot";
+import { buildConceptRegistry } from "./registry/concept-registry";
+import { SEED_CONCEPTS } from "./registry/seed/concepts.seed";
+
+// A real snapshot digest (branded values are only minted by buildSnapshot).
+const SNAP_DIGEST = buildConceptRegistry(SEED_CONCEPTS).snapshot.digest;
 
 // --- fixture ---------------------------------------------------------------
 
@@ -24,7 +39,7 @@ function content(overrides: Partial<ObservationContent> = {}): ObservationConten
       sourceRecordId: "doc-42",
       emittedObservationIndex: 0,
     },
-    concept: { conceptId: "invoice.amount", conceptVersion: "1" },
+    concept: { conceptId: conceptId("invoice.amount"), conceptVersion: conceptVersion("1") },
     referent: {
       referentType: "COMMITMENT",
       identityBinding: {
@@ -47,11 +62,14 @@ function content(overrides: Partial<ObservationContent> = {}): ObservationConten
     coverage: { tier: "T1_COVERED", scopeRef: "doc-42" },
     confidenceBasis: {},
     context: {
-      engineEpoch: { epochId: "epoch-1" },
-      cotSchemaVersion: "c0-1.2",
-      translatorVersion: { translatorName: "documents-normalize", version: "1.0.0" },
-      conceptRegistrySnapshot: "snap-a",
-      executionPolicyVersion: "policy-1",
+      engineEpoch: { epochId: engineEpochId("epoch-1") },
+      cotSchemaVersion: cotSchemaVersion("c0-1.2"),
+      translatorVersion: {
+        translatorName: translatorName("documents-normalize"),
+        version: translatorVersionTag("1.0.0"),
+      },
+      conceptRegistrySnapshot: SNAP_DIGEST,
+      executionPolicyVersion: executionPolicyVersion("policy-1"),
     },
   };
   return { ...base, ...overrides };
@@ -76,7 +94,7 @@ const base = sealObservation(content());
 // Changing CONTEXT (epoch) → same source slot, new content, new account.
 const epochBump = sealObservation(
   content({
-    context: { ...content().context, engineEpoch: { epochId: "epoch-2" } },
+    context: { ...content().context, engineEpoch: { epochId: engineEpochId("epoch-2") } },
   })
 );
 assert.equal(base.sourceObservationId, epochBump.sourceObservationId);
@@ -98,7 +116,10 @@ const translatorBump = sealObservation(
   content({
     context: {
       ...content().context,
-      translatorVersion: { translatorName: "documents-normalize", version: "2.0.0" },
+      translatorVersion: {
+        translatorName: translatorName("documents-normalize"),
+        version: translatorVersionTag("2.0.0"),
+      },
     },
   })
 );
@@ -211,5 +232,58 @@ assert.equal(
 assert.ok(base.sourceObservationId.startsWith("src_"));
 assert.ok(base.observationAccountId.startsWith("acc_"));
 assert.ok(base.canonicalHash.startsWith("sha256:"));
+
+// --- GOLDEN VECTOR: C0 observation identity --------------------------------
+// Hard-coded expected values, NOT recomputed by the code under test. Any silent
+// change to canonical serialization, field inclusion, or an identity formula
+// breaks these on purpose. Regenerate ONLY via an explicit, reviewed change.
+const GOLDEN_DIGEST = parseSnapshotDigest("regsnap:concept:sha256:" + "0".repeat(64));
+const goldenContent: ObservationContent = {
+  tenant: { businessId: 1 },
+  source: {
+    featureDomain: "documents",
+    sourceModel: "Document",
+    sourceRecordId: "doc-golden",
+    emittedObservationIndex: 0,
+  },
+  concept: { conceptId: conceptId("invoice.amount"), conceptVersion: conceptVersion("1") },
+  referent: {
+    referentType: "COMMITMENT",
+    identityBinding: {
+      kind: "RESOLVED",
+      entityType: "BillingDocument",
+      entityId: 7,
+      resolutionMethod: "DETERMINISTIC_EXACT",
+    },
+  },
+  value: { scale: "RATIO", datum: 1234, unit: "ILS" },
+  mode: "MEASURE",
+  eventTime: { kind: "INSTANT", at: "2026-07-01T00:00:00.000Z" },
+  observationTime: { at: "2026-07-02T09:00:00.000Z" },
+  provenance: { realityTier: "tier-observed", authentication: "AUTHENTICATED", channel: "gmail" },
+  completeness: { kind: "COMPLETE" },
+  coverage: { tier: "T1_COVERED", scopeRef: "doc-golden" },
+  confidenceBasis: {},
+  context: {
+    engineEpoch: { epochId: engineEpochId("epoch-1") },
+    cotSchemaVersion: cotSchemaVersion("c0-1.2"),
+    translatorVersion: {
+      translatorName: translatorName("documents-normalize"),
+      version: translatorVersionTag("1.0.0"),
+    },
+    conceptRegistrySnapshot: GOLDEN_DIGEST,
+    executionPolicyVersion: executionPolicyVersion("policy-1"),
+  },
+};
+const EXPECTED_SOURCE_OBSERVATION_ID =
+  "src_b9f11aaf0cee99d7399c90f33425189da4c0359a199fa42d0b8f3e3773aa396b";
+const EXPECTED_CANONICAL_HASH =
+  "sha256:6b437134262b1defded2048c5016dba6142947612b0472079c532a6ee1791e5c";
+const EXPECTED_OBSERVATION_ACCOUNT_ID =
+  "acc_5a53a7964d83c971f70f12a919d2eeabaab66f4e83fb4601c3a7466a38fa439b";
+const goldenSealed = sealObservation(goldenContent);
+assert.equal(goldenSealed.sourceObservationId, EXPECTED_SOURCE_OBSERVATION_ID);
+assert.equal(goldenSealed.canonicalHash, EXPECTED_CANONICAL_HASH);
+assert.equal(goldenSealed.observationAccountId, EXPECTED_OBSERVATION_ACCOUNT_ID);
 
 console.log("C0 observation-identity tests: OK");

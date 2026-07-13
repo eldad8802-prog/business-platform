@@ -16,7 +16,13 @@ export type BrainErrorCode =
   /** A CanonicalObservation failed a structural invariant. */
   | "INVALID_OBSERVATION"
   /** A recomputed identity did not match the one carried on the record. */
-  | "IDENTITY_MISMATCH";
+  | "IDENTITY_MISMATCH"
+  /** A branded versioning/identity value was empty or malformed. */
+  | "INVALID_VERSIONING_ID"
+  /** Two registry entries share the same identity key with identical content. */
+  | "REGISTRY_DUPLICATE_ENTRY"
+  /** The same (id,version) key was presented with a DIFFERENT definition. */
+  | "REGISTRY_IMMUTABLE_VIOLATION";
 
 export class BrainError extends Error {
   readonly code: BrainErrorCode;

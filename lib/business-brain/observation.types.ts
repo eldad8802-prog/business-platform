@@ -26,6 +26,18 @@
  * and call sealObservation() (observation-identity.ts) to obtain a COT.
  */
 
+import type {
+  ConceptId,
+  ConceptVersion,
+  CotSchemaVersion,
+  EngineEpochId,
+  ExecutionPolicyVersion,
+  ReferentSubtype,
+  RegistrySnapshotDigest,
+  TranslatorName,
+  TranslatorVersionTag,
+} from "./versioning.types";
+
 // ── Identity (branded strings; content-derived, see observation-identity.ts) ──
 
 /** Logical Source Identity — "which source slot in the world". Stable across
@@ -62,8 +74,8 @@ export interface Value {
 /** A pinned world-concept reference. conceptVersion MUST exist in the
  *  ExecutionContext's conceptRegistrySnapshot (validated during Normalize). */
 export interface BusinessConceptVersion {
-  conceptId: string;
-  conceptVersion: string;
+  conceptId: ConceptId;
+  conceptVersion: ConceptVersion;
 }
 
 // ── Referent + Identity binding (Reality-Graph anchor) ────────────────────────
@@ -95,7 +107,7 @@ export type IdentityBinding =
 
 export interface Referent {
   referentType: ReferentType;
-  referentSubtype?: string;
+  referentSubtype?: ReferentSubtype;
   identityBinding: IdentityBinding;
 }
 
@@ -203,22 +215,22 @@ export interface ConfidenceBasis {
 // ── Execution Context (the pinned run identity) ───────────────────────────────
 
 export interface EngineEpoch {
-  epochId: string;
+  epochId: EngineEpochId;
 }
 
 export interface TranslatorVersion {
   /** STABLE name — a source-identity input (version-independent). */
-  translatorName: string;
+  translatorName: TranslatorName;
   /** Content-affecting version — part of canonicalHash, not sourceObservationId. */
-  version: string;
+  version: TranslatorVersionTag;
 }
 
 export interface ExecutionContext {
   engineEpoch: EngineEpoch;
-  cotSchemaVersion: string;
+  cotSchemaVersion: CotSchemaVersion;
   translatorVersion: TranslatorVersion;
-  conceptRegistrySnapshot: string;
-  executionPolicyVersion: string;
+  conceptRegistrySnapshot: RegistrySnapshotDigest;
+  executionPolicyVersion: ExecutionPolicyVersion;
 }
 
 // ── Source anchor + tenant (inputs to sourceObservationId) ────────────────────
