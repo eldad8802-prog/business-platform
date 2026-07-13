@@ -12,13 +12,9 @@ import { buildSnapshot, type RegistrySnapshot } from "./registry-snapshot";
 import { canonicalize } from "../canonical-serialize";
 import type { ConceptId, ReferentSubtype } from "../versioning.types";
 import type { ReferentType } from "../observation.types";
+import type { CoverageState, SensorState } from "../coverage.types";
 
-export type CoverageState = "FULL" | "PARTIAL" | "UNCOVERED";
-
-export interface SensorState {
-  sensorId: string;
-  declared: "ACTIVE" | "INACTIVE" | "UNKNOWN"; // static declaration — no liveness
-}
+export type { CoverageState, SensorState } from "../coverage.types";
 
 export interface CoverageKey {
   referentType: ReferentType;

@@ -1,0 +1,232 @@
+/**
+ * Father Engine — C0 / PR3. Fixture Translator — TEST ONLY.
+ *
+ * Deterministically maps a scenario payload to Projections. It emits Business
+ * Concepts (conceptId), assigns emittedObservationIndex, carries OCR/LLM runId via
+ * provenance, and derives causeRef as an ORIGINATING-ACTION CORRELATION label (not
+ * a causal claim) for sibling projections of one source action. No DB / no SoT.
+ */
+
+import {
+  conceptId,
+  conceptVersion,
+  translatorName,
+  translatorVersionTag,
+} from "../../versioning.types";
+import type { RawInput, Translator, TranslatorProjection } from "../translator.interface";
+
+export type FixtureScenario =
+  | { kind: "happy" }
+  | { kind: "free-text-id"; label: string }
+  | { kind: "unresolved-id" }
+  | { kind: "partial"; missing: string[] }
+  | { kind: "inference"; runId: string; datum: number }
+  | { kind: "value-shape-mismatch" }
+  | { kind: "missing-field" }
+  | { kind: "fan-out" }
+  | { kind: "custom-concept"; conceptId: string; requestedConceptVersion?: string }
+  | { kind: "process-chain"; instanceId: string }
+  | { kind: "bad-reality-tier" }
+  | { kind: "channel-laundering" }
+  | { kind: "field-provenance" }
+  | { kind: "declared-uncovered" }
+  | { kind: "missing-coverage" }
+  | { kind: "sensor-inactive" };
+
+const FIXTURE_TRANSLATOR_NAME = "documents-normalize";
+const FIXTURE_TRANSLATOR_VERSION = "1.0.0";
+
+function base(input: RawInput): TranslatorProjection {
+  return {
+    emittedObservationIndex: 0,
+    conceptId: conceptId("SalesCommitment"),
+    referentDraft: {
+      referentType: "COMMITMENT",
+      identity: {
+        kind: "RESOLVED",
+        entityType: "BillingDocument",
+        entityId: 100,
+        resolutionMethod: "DETERMINISTIC_EXACT",
+      },
+    },
+    value: { scale: "NOMINAL", datum: "established", unit: null },
+    mode: "EVENT",
+    eventTime: { kind: "INSTANT", at: "2026-07-01T00:00:00.000Z" },
+    provenanceDraft: {
+      realityTier: "tier-observed",
+      authentication: "AUTHENTICATED",
+      channel: input.ref.featureDomain,
+    },
+    completeness: { kind: "COMPLETE" },
+    sourceSensor: input.ref.featureDomain,
+  };
+}
+
+/** Correlation label shared by siblings of one originating source action. */
+function originatingCorrelation(input: RawInput): { note: string } {
+  return { note: `originating-action:${input.ref.sourceRecordId}` };
+}
+
+export function createDocumentsFixtureTranslator(): Translator {
+  return {
+    name: translatorName(FIXTURE_TRANSLATOR_NAME),
+    version: translatorVersionTag(FIXTURE_TRANSLATOR_VERSION),
+    translate(input: RawInput): readonly TranslatorProjection[] {
+      const s = input.payload as FixtureScenario;
+      const b = base(input);
+      switch (s.kind) {
+        case "happy":
+          return [b];
+
+        case "free-text-id":
+          return [
+            {
+              ...b,
+              referentDraft: {
+                referentType: "PARTY",
+                identity: { kind: "SIGNAL_ONLY", signalType: "free-text", signalValue: s.label },
+              },
+            },
+          ];
+
+        case "unresolved-id":
+          return [
+            {
+              ...b,
+              referentDraft: {
+                referentType: "PARTY",
+                identity: { kind: "UNRESOLVED", reason: "UNRESOLVED_IDENTITY" },
+              },
+            },
+          ];
+
+        case "partial":
+          return [{ ...b, completeness: { kind: "PARTIAL", missing: s.missing } }];
+
+        case "inference":
+          return [
+            {
+              ...b,
+              conceptId: conceptId("ResourceLevel"),
+              referentDraft: {
+                referentType: "RESOURCE",
+                identity: {
+                  kind: "RESOLVED",
+                  entityType: "InventoryItem",
+                  entityId: 200,
+                  resolutionMethod: "DETERMINISTIC_EXACT",
+                },
+              },
+              value: { scale: "RATIO", datum: s.datum, unit: "count" },
+              mode: "MEASURE",
+              provenanceDraft: {
+                realityTier: "tier-inferred",
+                authentication: "THIRD_PARTY",
+                channel: input.ref.featureDomain,
+                inference: {
+                  engine: "google-vision",
+                  engineVersion: "textDetection-v1",
+                  runId: s.runId,
+                  nonDeterministic: true,
+                },
+              },
+            },
+          ];
+
+        case "value-shape-mismatch":
+          // SalesCommitment expects EVENT/NOMINAL; emit MEASURE/RATIO.
+          return [{ ...b, value: { scale: "RATIO", datum: 5, unit: "ILS" }, mode: "MEASURE" }];
+
+        case "missing-field":
+          // ResourceLevel (MEASURE/RATIO/count) with a null datum → MISSING_REQUIRED_FIELD.
+          return [
+            {
+              ...b,
+              conceptId: conceptId("ResourceLevel"),
+              value: { scale: "RATIO", datum: null, unit: "count" },
+              mode: "MEASURE",
+            },
+          ];
+
+        case "fan-out": {
+          const corr = originatingCorrelation(input);
+          return [
+            { ...b, emittedObservationIndex: 0, causeRef: corr },
+            { ...b, emittedObservationIndex: 1, causeRef: corr },
+          ];
+        }
+
+        case "custom-concept":
+          return [
+            {
+              ...b,
+              conceptId: conceptId(s.conceptId),
+              ...(s.requestedConceptVersion !== undefined
+                ? { requestedConceptVersion: conceptVersion(s.requestedConceptVersion) }
+                : {}),
+            },
+          ];
+
+        case "process-chain":
+          return [
+            { ...b, processInstanceRef: { processType: "invoice-lifecycle", instanceId: s.instanceId } },
+          ];
+
+        case "bad-reality-tier":
+          return [
+            {
+              ...b,
+              provenanceDraft: { ...b.provenanceDraft, realityTier: "tier-nonexistent" },
+            },
+          ];
+
+        case "channel-laundering":
+          // Inference claim with an empty runId — origin cannot be laundered.
+          return [
+            {
+              ...b,
+              provenanceDraft: {
+                ...b.provenanceDraft,
+                realityTier: "tier-inferred",
+                inference: {
+                  engine: "google-vision",
+                  engineVersion: "textDetection-v1",
+                  runId: "",
+                  nonDeterministic: true,
+                },
+              },
+            },
+          ];
+
+        case "field-provenance":
+          return [
+            {
+              ...b,
+              provenanceDraft: {
+                ...b.provenanceDraft,
+                fieldProvenance: [
+                  { field: "amount", realityTier: "tier-observed", channel: input.ref.featureDomain },
+                ],
+              },
+            },
+          ];
+
+        case "declared-uncovered":
+          // hits an EXPLICIT UNCOVERED coverage entry → valid COT
+          return [{ ...b, sourceSensor: "declared-uncovered-sensor" }];
+
+        case "missing-coverage":
+          // no coverage entry for this sensor → typed rejection, no COT
+          return [{ ...b, sourceSensor: "unwired-sensor" }];
+
+        case "sensor-inactive":
+          return [{ ...b, sourceSensor: "inactive-sensor" }];
+
+        default: {
+          const _exhaustive: never = s;
+          return [_exhaustive];
+        }
+      }
+    },
+  };
+}

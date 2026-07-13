@@ -37,6 +37,7 @@ import type {
   TranslatorName,
   TranslatorVersionTag,
 } from "./versioning.types";
+import type { Coverage } from "./coverage.types";
 
 // ── Identity (branded strings; content-derived, see observation-identity.ts) ──
 
@@ -188,14 +189,10 @@ export type Completeness =
   | { kind: "PARTIAL"; missing: string[] }
   | { kind: "UNKNOWN"; reason: UnknownReason };
 
-export type CoverageTier = "T1_COVERED" | "T2_REACHABLE_BLOCKED" | "T3_BOUNDARY";
-
-/** Coverage over the scope this observation speaks about. Existence ≠ detectability;
- *  absence is informative only where coverage is T1, else the answer is Unknown. */
-export interface Coverage {
-  tier: CoverageTier;
-  scopeRef: string;
-}
+/** Coverage grounds are shared (see coverage.types.ts). The Observability
+ *  Ontology's T1/T2/T3 detectability class is a DIFFERENT axis, derived later —
+ *  it is deliberately not carried in the COT. */
+export type { Coverage } from "./coverage.types";
 
 // ── Confidence BASIS (grounds only — no computed values; see v1.1) ────────────
 

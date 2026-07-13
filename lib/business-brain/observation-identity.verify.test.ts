@@ -59,7 +59,12 @@ function content(overrides: Partial<ObservationContent> = {}): ObservationConten
       channel: "gmail",
     },
     completeness: { kind: "COMPLETE" },
-    coverage: { tier: "T1_COVERED", scopeRef: "doc-42" },
+    coverage: {
+      state: "FULL",
+      sensorState: { sensorId: "gmail", declared: "ACTIVE" },
+      absenceInformative: false,
+      scopeRef: "doc-42",
+    },
     confidenceBasis: {},
     context: {
       engineEpoch: { epochId: engineEpochId("epoch-1") },
@@ -262,7 +267,12 @@ const goldenContent: ObservationContent = {
   observationTime: { at: "2026-07-02T09:00:00.000Z" },
   provenance: { realityTier: "tier-observed", authentication: "AUTHENTICATED", channel: "gmail" },
   completeness: { kind: "COMPLETE" },
-  coverage: { tier: "T1_COVERED", scopeRef: "doc-golden" },
+  coverage: {
+    state: "FULL",
+    sensorState: { sensorId: "gmail", declared: "ACTIVE" },
+    absenceInformative: false,
+    scopeRef: "doc-golden",
+  },
   confidenceBasis: {},
   context: {
     engineEpoch: { epochId: engineEpochId("epoch-1") },
@@ -275,12 +285,16 @@ const goldenContent: ObservationContent = {
     executionPolicyVersion: executionPolicyVersion("policy-1"),
   },
 };
+// NOTE: sourceObservationId is UNCHANGED from the pre-Coverage-fix golden
+// (src_b9f11aaf…) — proving the source-identity formula is untouched. Only
+// canonicalHash + observationAccountId changed, solely because the Coverage
+// field content changed shape (T1/T2/T3 tier → FULL/PARTIAL/UNCOVERED grounds).
 const EXPECTED_SOURCE_OBSERVATION_ID =
   "src_b9f11aaf0cee99d7399c90f33425189da4c0359a199fa42d0b8f3e3773aa396b";
 const EXPECTED_CANONICAL_HASH =
-  "sha256:6b437134262b1defded2048c5016dba6142947612b0472079c532a6ee1791e5c";
+  "sha256:fa0af469296d05f0827fb0802392fb92cf4a21abafded3e397ff84f5ef015159";
 const EXPECTED_OBSERVATION_ACCOUNT_ID =
-  "acc_5a53a7964d83c971f70f12a919d2eeabaab66f4e83fb4601c3a7466a38fa439b";
+  "acc_d95caf5e63d79ccc55b2abd4ae2deb2a23b95a0ba0ed23b18cdd47397bf77e47";
 const goldenSealed = sealObservation(goldenContent);
 assert.equal(goldenSealed.sourceObservationId, EXPECTED_SOURCE_OBSERVATION_ID);
 assert.equal(goldenSealed.canonicalHash, EXPECTED_CANONICAL_HASH);
