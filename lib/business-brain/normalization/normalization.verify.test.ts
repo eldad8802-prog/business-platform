@@ -8,6 +8,7 @@
  * identity, typed rejections, idempotency, fan-out, and cross-tenant isolation.
  */
 import assert from "node:assert/strict";
+import { canonicalize } from "../canonical-serialize";
 import {
   conceptId,
   conceptVersion,
@@ -158,13 +159,18 @@ function run(
 
 function okAt(results: readonly NormalizationResult[], idx = 0) {
   const r = results[idx]!;
-  if (!r.ok) throw new Error(`expected ok, got failure: ${r.reason}`);
+  if (!r.ok) throw new Error(`expected ok, got failure: ${r.identity.reason}`);
   return r.observation;
 }
 function fail(results: readonly NormalizationResult[], reason: string) {
   const r = results[0]!;
   if (r.ok) throw new Error("expected failure, got ok");
-  assert.equal(r.reason, reason);
+  assert.equal(r.identity.reason, reason);
+}
+function failIdentity(results: readonly NormalizationResult[]) {
+  const r = results[0]!;
+  if (r.ok) throw new Error("expected failure, got ok");
+  return r.identity;
 }
 
 // --- happy path -------------------------------------------------------------
@@ -310,5 +316,45 @@ fail(run({ kind: "happy" }, undefined, mismatchedDeps), "SNAPSHOT_MISMATCH");
 const t1 = okAt(run({ kind: "happy" }, { businessId: 1 }));
 const t2 = okAt(run({ kind: "happy" }, { businessId: 2 }));
 assert.notEqual(t1.sourceObservationId, t2.sourceObservationId);
+
+// --- typed rejection identity fidelity -------------------------------------
+
+// same violation (BLANK_FIELD_PROVENANCE) at different fieldPaths → different identity
+const blank0 = failIdentity(run({ kind: "blank-field-provenance" }));
+const blank1 = failIdentity(run({ kind: "blank-field-provenance-second" }));
+assert.equal(blank0.reason, "CHANNEL_LAUNDERING");
+assert.equal(blank1.reason, "CHANNEL_LAUNDERING");
+assert.notEqual(canonicalize(blank0), canonicalize(blank1));
+
+// same invalid RealityTier at record vs field → different identity (location)
+const tierRecord = failIdentity(run({ kind: "bad-reality-tier" }));
+const tierField = failIdentity(run({ kind: "bad-field-tier" }));
+assert.equal(tierRecord.reason, "INVALID_REALITY_TIER");
+assert.equal(tierField.reason, "INVALID_REALITY_TIER");
+assert.notEqual(canonicalize(tierRecord), canonicalize(tierField));
+
+// CONCEPT_VERSION_AMBIGUOUS: reversed registry insertion order → SAME identity
+const overlapReversed = buildConceptRegistry([
+  def("Overlap", "2", "2026-01-01T00:00:00.000Z", null, EVENT_NOMINAL),
+  def("Overlap", "1", "2026-01-01T00:00:00.000Z", null, EVENT_NOMINAL),
+  def("SalesCommitment", "1", "2026-01-01T00:00:00.000Z", null, EVENT_NOMINAL),
+  def("ResourceLevel", "1", "2026-01-01T00:00:00.000Z", null, MEASURE_RATIO),
+  def("Timed", "1", "2026-01-01T00:00:00.000Z", "2026-06-01T00:00:00.000Z", EVENT_NOMINAL),
+  def("Timed", "2", "2026-06-01T00:00:00.000Z", null, EVENT_NOMINAL),
+]);
+// buildSnapshot sorts canonically → identical digest → same pinned context works
+assert.equal(overlapReversed.snapshot.digest, conceptRegistry.snapshot.digest);
+const ambA = failIdentity(run({ kind: "custom-concept", conceptId: "Overlap" }));
+const ambB = failIdentity(
+  run({ kind: "custom-concept", conceptId: "Overlap" }, undefined, {
+    ...deps,
+    conceptRegistry: overlapReversed,
+  })
+);
+assert.equal(ambA.reason, "CONCEPT_VERSION_AMBIGUOUS");
+if (ambA.reason === "CONCEPT_VERSION_AMBIGUOUS") {
+  assert.deepEqual(ambA.candidateVersions, ["1", "2"]); // sorted canonical
+}
+assert.equal(canonicalize(ambA), canonicalize(ambB)); // order-independent identity
 
 console.log("C0 normalization (PR3) tests: OK");

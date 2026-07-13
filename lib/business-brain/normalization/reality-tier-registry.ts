@@ -1,30 +1,52 @@
 /**
  * Father Engine — C0 / PR3. RealityTier boundary validation.
  *
- * normalize() depends on this INTERFACE, not on any fixed allow-list. The real
- * registry (the Evidence & Reality Constitution's tier vocabulary, off-main) is
- * injected later without touching normalize. No token is valid merely for being a
+ * normalize() depends on this INTERFACE, not on any fixed allow-list. A validator
+ * carries a versioned identity AND a content-derived digest, so replay can pin the
+ * vocabulary: the same vocabularyId with different content yields a different
+ * vocabularyDigest → a pinning failure. No token is valid merely for being a
  * string. There is NO ranking / precedence / ceiling here — validity only.
  */
 
+import { canonicalize, sha256Hex } from "../canonical-serialize";
+import { deepFreeze } from "../deep-freeze";
 import type { RealityTier } from "../observation.types";
+import {
+  realityTierVocabularyId,
+  type RealityTierVocabularyDigest,
+  type RealityTierVocabularyId,
+} from "../versioning.types";
 
 export interface RealityTierValidator {
-  isValid(tier: RealityTier): boolean;
+  readonly vocabularyId: RealityTierVocabularyId;
+  readonly vocabularyDigest: RealityTierVocabularyDigest;
+  isValid(value: RealityTier): boolean;
 }
 
 /**
- * TEST-ONLY fixture allow-list — NOT a canonical vocabulary and NOT a source of
- * truth. Exists solely so PR3 fixtures have valid tiers to normalize against.
+ * Build a validator from a token list. The vocabulary is canonicalised (sorted +
+ * de-duplicated + deep-frozen) and its digest is derived from that content.
  */
-const FIXTURE_TIERS: ReadonlySet<string> = new Set([
-  "tier-observed",
-  "tier-inferred",
-  "tier-declared",
-  "tier-self-asserted",
-  "tier-third-party",
-]);
+export function buildRealityTierValidator(
+  vocabularyId: RealityTierVocabularyId,
+  tokens: readonly string[]
+): RealityTierValidator {
+  const canonicalTokens = deepFreeze([...new Set(tokens)].sort());
+  const allow = new Set<string>(canonicalTokens);
+  const vocabularyDigest = ("realtiervocab:sha256:" +
+    sha256Hex(canonicalize(canonicalTokens))) as RealityTierVocabularyDigest;
+  return Object.freeze({
+    vocabularyId,
+    vocabularyDigest,
+    isValid: (value: RealityTier) => typeof value === "string" && allow.has(value),
+  });
+}
 
-export const fixtureRealityTierValidator: RealityTierValidator = {
-  isValid: (tier) => typeof tier === "string" && FIXTURE_TIERS.has(tier),
-};
+/**
+ * TEST-ONLY fixture vocabulary — NOT canonical and NOT a source of truth. Exists
+ * solely so PR3 fixtures have valid tiers to normalize against.
+ */
+export const fixtureRealityTierValidator: RealityTierValidator = buildRealityTierValidator(
+  realityTierVocabularyId("fixture-tiers@1"),
+  ["tier-observed", "tier-inferred", "tier-declared", "tier-self-asserted", "tier-third-party"]
+);

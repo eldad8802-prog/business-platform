@@ -15,6 +15,7 @@ import { sealObservation } from "../observation-identity";
 import type {
   ExecutionContext,
   ObservationContent,
+  ObservationTime,
   Provenance,
 } from "../observation.types";
 import type { Coverage } from "../coverage.types";
@@ -28,7 +29,7 @@ import { validateValueShape } from "./value-shape-validation";
 import { validateProvenance } from "./provenance-validation";
 import type { RawInput, Translator, TranslatorProjection } from "./translator.interface";
 import type {
-  NormalizationFailureReason,
+  NormalizationRejectionIdentity,
   NormalizationResult,
   SourceRef,
 } from "./normalization-result.types";
@@ -51,9 +52,12 @@ export function normalize(
     return [
       {
         ok: false,
-        reason: "SNAPSHOT_MISMATCH",
         source: { ref: input.ref },
-        details: `registry ${deps.conceptRegistry.snapshot.digest} != pinned ${deps.context.conceptRegistrySnapshot}`,
+        identity: {
+          reason: "SNAPSHOT_MISMATCH",
+          expectedSnapshot: deps.context.conceptRegistrySnapshot,
+          actualSnapshot: deps.conceptRegistry.snapshot.digest,
+        },
       },
     ];
   }
@@ -62,17 +66,20 @@ export function normalize(
 
 type VersionSelection =
   | { ok: true; definition: BusinessConceptDefinition }
-  | { ok: false; reason: NormalizationFailureReason; detail?: string };
+  | { ok: false; identity: NormalizationRejectionIdentity };
 
 function selectConceptVersion(
   projection: TranslatorProjection,
-  observationTimeIso: string,
+  observationTime: ObservationTime,
   registry: ConceptRegistry
 ): VersionSelection {
-  const versions = registry.listVersions(projection.conceptId);
-  if (versions.length === 0) return { ok: false, reason: "UNKNOWN_CONCEPT" };
+  const conceptId = projection.conceptId;
+  const versions = registry.listVersions(conceptId);
+  if (versions.length === 0) {
+    return { ok: false, identity: { reason: "UNKNOWN_CONCEPT", conceptId } };
+  }
 
-  const t = Date.parse(observationTimeIso);
+  const t = Date.parse(observationTime.at);
   const isEffective = (d: BusinessConceptDefinition): boolean => {
     const from = Date.parse(d.effectiveFrom);
     const to = d.effectiveTo ? Date.parse(d.effectiveTo) : Number.POSITIVE_INFINITY;
@@ -80,34 +87,52 @@ function selectConceptVersion(
   };
 
   // Explicit-version path — validate, never silently fall back.
-  if (projection.requestedConceptVersion !== undefined) {
-    const exact = versions.find(
-      (d) => d.conceptVersion === projection.requestedConceptVersion
-    );
-    if (!exact) return { ok: false, reason: "UNKNOWN_CONCEPT_VERSION" };
+  const requestedVersion = projection.requestedConceptVersion;
+  if (requestedVersion !== undefined) {
+    const exact = versions.find((d) => d.conceptVersion === requestedVersion);
+    if (!exact) {
+      return { ok: false, identity: { reason: "UNKNOWN_CONCEPT_VERSION", conceptId, requestedVersion } };
+    }
     if (!isEffective(exact)) {
-      return { ok: false, reason: "REQUESTED_CONCEPT_VERSION_NOT_EFFECTIVE" };
+      return {
+        ok: false,
+        identity: {
+          reason: "REQUESTED_CONCEPT_VERSION_NOT_EFFECTIVE",
+          conceptId,
+          requestedVersion,
+          observationTime,
+        },
+      };
     }
     return { ok: true, definition: exact };
   }
 
   // LIVE path — select the unique version effective at observationTime.
   const eligible = versions.filter(isEffective);
-  if (eligible.length === 0) return { ok: false, reason: "NO_EFFECTIVE_CONCEPT_VERSION" };
-  if (eligible.length > 1) return { ok: false, reason: "CONCEPT_VERSION_AMBIGUOUS" };
+  if (eligible.length === 0) {
+    return { ok: false, identity: { reason: "NO_EFFECTIVE_CONCEPT_VERSION", conceptId, observationTime } };
+  }
+  if (eligible.length > 1) {
+    // Canonical: sorted, de-duplicated — never insertion order.
+    const candidateVersions = [...new Set(eligible.map((d) => d.conceptVersion))].sort();
+    return {
+      ok: false,
+      identity: { reason: "CONCEPT_VERSION_AMBIGUOUS", conceptId, observationTime, candidateVersions },
+    };
+  }
   return { ok: true, definition: eligible[0]! };
 }
 
 function requiredFieldsPresent(
   projection: TranslatorProjection
-): { ok: true } | { ok: false; detail: string } {
+): { ok: true } | { ok: false; field: string } {
   const magnitude =
     projection.mode === "MEASURE" ||
     projection.value.scale === "INTERVAL" ||
     projection.value.scale === "RATIO" ||
     projection.value.scale === "CARDINAL";
   if (magnitude && (projection.value.datum === null || projection.value.datum === undefined)) {
-    return { ok: false, detail: "value.datum is required for a magnitude/MEASURE observation" };
+    return { ok: false, field: "value.datum" };
   }
   return { ok: true };
 }
@@ -159,24 +184,36 @@ function processProjection(
     emittedObservationIndex: projection.emittedObservationIndex,
   };
 
-  const selection = selectConceptVersion(
-    projection,
-    input.observationTime.at,
-    deps.conceptRegistry
-  );
+  const selection = selectConceptVersion(projection, input.observationTime, deps.conceptRegistry);
   if (!selection.ok) {
-    return { ok: false, reason: selection.reason, source, details: selection.detail };
+    return { ok: false, source, identity: selection.identity };
   }
   const def = selection.definition;
 
   const shapeCheck = validateValueShape(projection.value, projection.mode, def.valueShape);
   if (!shapeCheck.ok) {
-    return { ok: false, reason: "VALUE_SHAPE_MISMATCH", source, details: shapeCheck.detail };
+    return {
+      ok: false,
+      source,
+      identity: {
+        reason: "VALUE_SHAPE_MISMATCH",
+        expectedMode: shapeCheck.expectedMode,
+        expectedScale: shapeCheck.expectedScale,
+        expectedUnitDimension: shapeCheck.expectedUnitDimension,
+        actualMode: shapeCheck.actualMode,
+        actualScale: shapeCheck.actualScale,
+        actualUnit: shapeCheck.actualUnit,
+      },
+    };
   }
 
   const required = requiredFieldsPresent(projection);
   if (!required.ok) {
-    return { ok: false, reason: "MISSING_REQUIRED_FIELD", source, details: required.detail };
+    return {
+      ok: false,
+      source,
+      identity: { reason: "MISSING_REQUIRED_FIELD", field: required.field },
+    };
   }
 
   const provenance: Provenance = {
@@ -192,16 +229,15 @@ function processProjection(
   };
   const provCheck = validateProvenance(provenance, deps.realityTierValidator);
   if (!provCheck.ok) {
-    return { ok: false, reason: provCheck.reason, source, details: provCheck.detail };
+    return { ok: false, source, identity: provCheck.identity };
   }
 
   const coverageResolution = resolveCoverage(projection, def, deps.coverageRegistry);
   if (!coverageResolution.ok) {
     return {
       ok: false,
-      reason: "COVERAGE_ENTRY_MISSING",
       source,
-      details: `no coverage entry for ${JSON.stringify(coverageResolution.coverageKey)}`,
+      identity: { reason: "COVERAGE_ENTRY_MISSING", coverageKey: coverageResolution.coverageKey },
     };
   }
   const coverage = coverageResolution.coverage;

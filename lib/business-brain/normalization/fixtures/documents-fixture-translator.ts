@@ -27,7 +27,10 @@ export type FixtureScenario =
   | { kind: "custom-concept"; conceptId: string; requestedConceptVersion?: string }
   | { kind: "process-chain"; instanceId: string }
   | { kind: "bad-reality-tier" }
+  | { kind: "bad-field-tier" }
   | { kind: "channel-laundering" }
+  | { kind: "blank-field-provenance" }
+  | { kind: "blank-field-provenance-second" }
   | { kind: "field-provenance" }
   | { kind: "declared-uncovered" }
   | { kind: "missing-coverage" }
@@ -177,6 +180,47 @@ export function createDocumentsFixtureTranslator(): Translator {
             {
               ...b,
               provenanceDraft: { ...b.provenanceDraft, realityTier: "tier-nonexistent" },
+            },
+          ];
+
+        case "bad-field-tier":
+          // record tier valid; a FIELD tier is invalid → INVALID_REALITY_TIER @ FIELD
+          return [
+            {
+              ...b,
+              provenanceDraft: {
+                ...b.provenanceDraft,
+                fieldProvenance: [
+                  { field: "amount", realityTier: "tier-nonexistent", channel: input.ref.featureDomain },
+                ],
+              },
+            },
+          ];
+
+        case "blank-field-provenance":
+          // a field-provenance entry with a blank channel → CHANNEL_LAUNDERING @ [0]
+          return [
+            {
+              ...b,
+              provenanceDraft: {
+                ...b.provenanceDraft,
+                fieldProvenance: [{ field: "amount", realityTier: "tier-observed", channel: "" }],
+              },
+            },
+          ];
+
+        case "blank-field-provenance-second":
+          // same violation, different field position → CHANNEL_LAUNDERING @ [1]
+          return [
+            {
+              ...b,
+              provenanceDraft: {
+                ...b.provenanceDraft,
+                fieldProvenance: [
+                  { field: "amount", realityTier: "tier-observed", channel: "documents" },
+                  { field: "vendor", realityTier: "tier-observed", channel: "" },
+                ],
+              },
             },
           ];
 

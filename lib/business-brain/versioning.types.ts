@@ -42,6 +42,18 @@ export type RegistrySnapshotSchemaVersion = string & {
   readonly __brand: "RegistrySnapshotSchemaVersion";
 };
 
+/** Human name of a RealityTier vocabulary (e.g. "fixture-tiers@1"). */
+export type RealityTierVocabularyId = string & {
+  readonly __brand: "RealityTierVocabularyId";
+};
+
+/** Content-derived fingerprint of a RealityTier vocabulary — same id + different
+ *  content ⇒ different digest ⇒ pinning failure. Minted only from the canonical
+ *  vocabulary content (see normalization/reality-tier-registry.ts). */
+export type RealityTierVocabularyDigest = string & {
+  readonly __brand: "RealityTierVocabularyDigest";
+};
+
 // ── Validation ───────────────────────────────────────────────────────────────
 
 /** Reject empty, whitespace-only, or surrounding-whitespace values. Returns the
@@ -83,6 +95,8 @@ export const executionPolicyVersion = (v: string): ExecutionPolicyVersion =>
   requireClean("ExecutionPolicyVersion", v) as ExecutionPolicyVersion;
 export const referentSubtype = (v: string): ReferentSubtype =>
   requireClean("ReferentSubtype", v) as ReferentSubtype;
+export const realityTierVocabularyId = (v: string): RealityTierVocabularyId =>
+  requireClean("RealityTierVocabularyId", v) as RealityTierVocabularyId;
 export const registrySnapshotSchemaVersion = (v: string): RegistrySnapshotSchemaVersion =>
   requireClean("RegistrySnapshotSchemaVersion", v) as RegistrySnapshotSchemaVersion;
 
