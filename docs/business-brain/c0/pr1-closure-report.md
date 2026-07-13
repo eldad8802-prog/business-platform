@@ -76,12 +76,15 @@ of the `RealityTier` vocabulary. None of these are implemented in PR1 — PR1 is
 
 ## 5 · Known Deferred Items (PR2–PR4)
 
-- **PR2** — canonical-serialize hardening + expanded identity/edge tests.
-- **PR3** — fixture Translator + Normalize + `NormalizationResult`; **start of
-  `RealityTier` boundary validation** (the forward obligation from the RealityTier note).
-- **PR4** — Concept Registry + snapshot-pinning + (id,version) validation against a
-  locked snapshot; `ConfidencePolicy` (computed confidence, ceiling); execution of the
-  three Replay modes; `ExecutionContext` wiring.
+- **PR2** — Versioned Registries: Business Concept · Referent Taxonomy · Coverage ·
+  Translator · Engine Epoch, with stable snapshot pinning + `(id,version)` immutability
+  validation.
+- **PR3** — fixture Translator + Normalize + `NormalizationResult`; concept
+  version-selection-by-time; **start of `RealityTier` boundary validation** (the forward
+  obligation from the RealityTier note).
+- **PR4** — Replay Harness / Execution Modes: `HISTORICAL_REPLAY` vs
+  `REPROCESS_NEW_EPOCH`; `ConfidencePolicy` (computed confidence, ceiling);
+  `ExecutionContext` wiring.
 - **Cross-cutting** — `temporalBasis` at the Projection layer (D7); persistence schema;
   canonical Registry for `RealityTier` (its source of truth is off-main).
 
@@ -100,9 +103,9 @@ across a whole run, and no frozen inference outputs. These depend on Registry + 
 | Stage | Status |
 |---|---|
 | PR1 — Core Contracts | ✅ Complete |
-| PR2 — Serialization hardening + identity tests | Pending |
+| PR2 — Versioned Registries | Pending |
 | PR3 — Fixture Translator + Normalize | Pending |
-| PR4 — Registry + ConfidencePolicy + Replay modes | Pending |
+| PR4 — Replay Harness / Execution Modes | Pending |
 
 ## 8 · Lessons Learned (decisions that changed during PR1)
 
