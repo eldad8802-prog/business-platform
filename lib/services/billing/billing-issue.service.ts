@@ -170,13 +170,13 @@ function stableJsonStringify(value: unknown): string {
     .join(",")}}`;
 }
 
-function hashIssuedSnapshot(snapshot: IssuedSnapshot): string {
+export function hashIssuedSnapshot(snapshot: IssuedSnapshot): string {
   return createHash("sha256")
     .update(stableJsonStringify(snapshot))
     .digest("hex");
 }
 
-function buildIssuedSnapshot(args: {
+export function buildIssuedSnapshot(args: {
   document: BillingDocument;
   lines: BillingDocumentLine[];
   business: { id: number; name: string; profile: BusinessProfileForInvoice };
@@ -186,6 +186,7 @@ function buildIssuedSnapshot(args: {
     phone: string | null;
     email: string | null;
     city: string | null;
+    taxId: string | null;
   } | null;
   documentNumber: number;
   documentNumberFormatted: string;
@@ -239,7 +240,7 @@ function buildIssuedSnapshot(args: {
     id: customer?.id ?? null,
     name: customerNameSnapshot,
     legalName: null,
-    taxId: null,
+    taxId: customer?.taxId ?? null,
     phone: customer?.phone ?? null,
     email: customer?.email ?? null,
     city: customer?.city ?? null,
@@ -451,6 +452,7 @@ export async function issueBillingDocument(
           phone: string | null;
           email: string | null;
           city: string | null;
+          taxId: string | null;
         }
       | null = null;
 
@@ -463,6 +465,7 @@ export async function issueBillingDocument(
           phone: true,
           email: true,
           city: true,
+          taxId: true,
         },
       });
       if (customer) {
