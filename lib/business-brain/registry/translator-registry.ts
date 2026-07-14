@@ -8,11 +8,18 @@
  */
 
 import { buildSnapshot, type RegistrySnapshot } from "./registry-snapshot";
-import type { TranslatorName, TranslatorVersionTag } from "../versioning.types";
+import type {
+  TranslatorContractDigest,
+  TranslatorName,
+  TranslatorVersionTag,
+} from "../versioning.types";
 
 export interface TranslatorDefinition {
   translatorName: TranslatorName;
   version: TranslatorVersionTag;
+  /** Content-derived fingerprint of the translator's declared contract. Same
+   *  (name,version) with a different digest is a REGISTRY_IMMUTABLE_VIOLATION. */
+  translatorContractDigest: TranslatorContractDigest;
   semanticDefinition: string;
   effectiveFrom: string;
 }

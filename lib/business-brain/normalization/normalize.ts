@@ -33,6 +33,20 @@ import type {
   NormalizationResult,
   SourceRef,
 } from "./normalization-result.types";
+import {
+  normalizationPolicyVersion,
+  type NormalizationPolicyVersion,
+} from "../versioning.types";
+
+/**
+ * Pins the normalize() decision ruleset: concept-version selection + effective-time
+ * rules, value-shape validation, required-field rules, provenance structural
+ * validation, RealityTier boundary behaviour, coverage resolution behaviour, the
+ * failure-reason taxonomy, and rejection-identity construction. Bump on ANY change
+ * to these rules (replay pins it via ReplayDependencyContext).
+ */
+export const NORMALIZATION_POLICY_VERSION: NormalizationPolicyVersion =
+  normalizationPolicyVersion("normalize@1");
 
 export interface NormalizeDeps {
   translator: Translator;

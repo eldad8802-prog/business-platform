@@ -18,6 +18,7 @@ import {
   referentSubtype,
   translatorName,
   translatorVersionTag,
+  type TranslatorContractDigest,
 } from "../versioning.types";
 import { parseSnapshotDigest } from "./registry-snapshot";
 import {
@@ -190,6 +191,8 @@ const translators = buildTranslatorRegistry([
   {
     translatorName: translatorName("documents-normalize"),
     version: translatorVersionTag("1.0.0"),
+    translatorContractDigest: ("translatorcontract:sha256:" +
+      "0".repeat(64)) as TranslatorContractDigest,
     semanticDefinition: "maps documents to COT",
     effectiveFrom: "2026-07-01T00:00:00.000Z",
   },

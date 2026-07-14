@@ -54,6 +54,21 @@ export type RealityTierVocabularyDigest = string & {
   readonly __brand: "RealityTierVocabularyDigest";
 };
 
+/** Version pinning the normalize() decision RULESET (version selection, value-shape,
+ *  required-field, provenance, coverage resolution, failure-reason taxonomy). Bump on
+ *  any change to those rules. Separate from ExecutionPolicyVersion (which is broader
+ *  and forward-looking, e.g. ConfidencePolicy later). */
+export type NormalizationPolicyVersion = string & {
+  readonly __brand: "NormalizationPolicyVersion";
+};
+
+/** Content-derived fingerprint of a translator's DECLARED contract. Same name+version
+ *  with a different contract ⇒ different digest ⇒ pinning failure. Minted only from the
+ *  declared contract content. */
+export type TranslatorContractDigest = string & {
+  readonly __brand: "TranslatorContractDigest";
+};
+
 // ── Validation ───────────────────────────────────────────────────────────────
 
 /** Reject empty, whitespace-only, or surrounding-whitespace values. Returns the
@@ -97,6 +112,8 @@ export const referentSubtype = (v: string): ReferentSubtype =>
   requireClean("ReferentSubtype", v) as ReferentSubtype;
 export const realityTierVocabularyId = (v: string): RealityTierVocabularyId =>
   requireClean("RealityTierVocabularyId", v) as RealityTierVocabularyId;
+export const normalizationPolicyVersion = (v: string): NormalizationPolicyVersion =>
+  requireClean("NormalizationPolicyVersion", v) as NormalizationPolicyVersion;
 export const registrySnapshotSchemaVersion = (v: string): RegistrySnapshotSchemaVersion =>
   requireClean("RegistrySnapshotSchemaVersion", v) as RegistrySnapshotSchemaVersion;
 

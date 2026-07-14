@@ -12,7 +12,9 @@ import {
   conceptVersion,
   translatorName,
   translatorVersionTag,
+  type TranslatorContractDigest,
 } from "../../versioning.types";
+import { canonicalize, sha256Hex } from "../../canonical-serialize";
 import type { RawInput, Translator, TranslatorProjection } from "../translator.interface";
 
 export type FixtureScenario =
@@ -34,10 +36,29 @@ export type FixtureScenario =
   | { kind: "field-provenance" }
   | { kind: "declared-uncovered" }
   | { kind: "missing-coverage" }
-  | { kind: "sensor-inactive" };
+  | { kind: "sensor-inactive" }
+  | { kind: "event-interval" }
+  | { kind: "event-unknown" };
 
 const FIXTURE_TRANSLATOR_NAME = "documents-normalize";
 const FIXTURE_TRANSLATOR_VERSION = "1.0.0";
+
+/** The DECLARED contract of this translator — a canonical statement of what it
+ *  emits. Its digest is pinned by replay; changing it (without a version bump)
+ *  breaks pinning. `contractVariant` exists only to simulate drift in tests. */
+function declaredContract(contractVariant: string) {
+  return {
+    translatorName: FIXTURE_TRANSLATOR_NAME,
+    version: FIXTURE_TRANSLATOR_VERSION,
+    contractVariant,
+    emitsConcepts: ["SalesCommitment", "Communication", "ResourceLevel"],
+  };
+}
+
+function contractDigestOf(contractVariant: string): TranslatorContractDigest {
+  return ("translatorcontract:sha256:" +
+    sha256Hex(canonicalize(declaredContract(contractVariant)))) as TranslatorContractDigest;
+}
 
 function base(input: RawInput): TranslatorProjection {
   return {
@@ -70,10 +91,14 @@ function originatingCorrelation(input: RawInput): { note: string } {
   return { note: `originating-action:${input.ref.sourceRecordId}` };
 }
 
-export function createDocumentsFixtureTranslator(): Translator {
+export function createDocumentsFixtureTranslator(
+  opts: { contractVariant?: string } = {}
+): Translator {
+  const contractVariant = opts.contractVariant ?? "v1";
   return {
     name: translatorName(FIXTURE_TRANSLATOR_NAME),
     version: translatorVersionTag(FIXTURE_TRANSLATOR_VERSION),
+    contractDigest: contractDigestOf(contractVariant),
     translate(input: RawInput): readonly TranslatorProjection[] {
       const s = input.payload as FixtureScenario;
       const b = base(input);
@@ -265,6 +290,21 @@ export function createDocumentsFixtureTranslator(): Translator {
 
         case "sensor-inactive":
           return [{ ...b, sourceSensor: "inactive-sensor" }];
+
+        case "event-interval":
+          return [
+            {
+              ...b,
+              eventTime: {
+                kind: "INTERVAL",
+                from: "2026-07-02T00:00:00.000Z",
+                to: "2026-07-03T00:00:00.000Z",
+              },
+            },
+          ];
+
+        case "event-unknown":
+          return [{ ...b, eventTime: { kind: "UNKNOWN", reason: "NOT_OBSERVED" } }];
 
         default: {
           const _exhaustive: never = s;

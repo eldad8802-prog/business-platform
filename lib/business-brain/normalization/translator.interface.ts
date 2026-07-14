@@ -17,6 +17,7 @@ import type {
   ConceptId,
   ConceptVersion,
   ReferentSubtype,
+  TranslatorContractDigest,
   TranslatorName,
   TranslatorVersionTag,
 } from "../versioning.types";
@@ -86,5 +87,8 @@ export interface TranslatorProjection {
 export interface Translator {
   readonly name: TranslatorName;
   readonly version: TranslatorVersionTag;
+  /** Content-derived fingerprint of this translator's declared contract. A change
+   *  in behaviour/meaning MUST bump the version; the digest catches declared drift. */
+  readonly contractDigest: TranslatorContractDigest;
   translate(input: RawInput): readonly TranslatorProjection[];
 }
