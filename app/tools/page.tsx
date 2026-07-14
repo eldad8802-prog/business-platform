@@ -22,6 +22,14 @@ const TOOLS: ToolItem[] = [
     icon: "💬",
   },
   {
+    key: "customers",
+    title: "לקוחות",
+    description: "כרטיסי לקוח — פרטים, מסמכים, תשלומים ופעילות במקום אחד",
+    href: "/customers",
+    status: "active",
+    icon: "👥",
+  },
+  {
     key: "attention",
     title: "דורש תשומת לב",
     description: "תור טיפול: ריכוז שיחות שמחכות לפעולה עכשיו",
