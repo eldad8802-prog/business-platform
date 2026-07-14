@@ -16,6 +16,9 @@
     "verify:whatsapp-webhook-pr3": "npx tsx lib/services/integrations/whatsapp/webhook-pr3.media.test.ts",
     "verify:whatsapp-webhook-pr4": "npx tsx lib/services/integrations/whatsapp/webhook-pr4.intake.test.ts",
     "verify:gmail-token-revoke": "npx tsx lib/services/integrations/gmail/gmail-token-revoke.verify.test.ts",
+    "verify:crm-customer": "npx tsx lib/services/crm/customer.service.test.ts",
+    "verify:crm-customer-card": "npx tsx lib/services/crm/customer-card.read-model.test.ts",
+    "verify:crm-phone-format": "npx tsx lib/format/phone-display.test.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import { normalizeCustomerPhone } from "@/lib/services/integrations/whatsapp/phone";
+import { handleError } from "@/lib/handle-error";
+import { customerService } from "@/lib/services/crm/customer.service";
 
+/**
+ * Legacy endpoint — retained for existing callers. Delegates to the canonical
+ * `customerService` so phone normalization + validation match every other path.
+ * Response shapes are unchanged: POST → the created customer object (201);
+ * GET → the full customer array ordered by id asc.
+ */
 export async function POST(req: Request) {
   try {
     const user = await getCurrentUser(req);
@@ -12,31 +18,18 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    // Canonical-form phone is the platform's source of truth for Customer
-    // identity. `normalizeCustomerPhone` returns null for missing/invalid
-    // input — we intentionally persist null rather than the raw string when
-    // normalization fails, so the (businessId, phone) unique constraint
-    // remains meaningful over time.
-    const normalizedPhone = normalizeCustomerPhone(body.phone);
-
-    const customer = await prisma.customer.create({
-      data: {
-        businessId: user.businessId,
-        name: body.name,
-        phone: normalizedPhone,
-        email: body.email,
-        city: body.city,
-        notes: body.notes,
-      },
+    const customer = await customerService.createCustomer({
+      businessId: user.businessId,
+      name: body.name,
+      phone: body.phone ?? null,
+      email: body.email ?? null,
+      city: body.city ?? null,
+      notes: body.notes ?? null,
     });
 
     return NextResponse.json(customer, { status: 201 });
   } catch (error) {
-    console.error("ERROR creating customer:", error);
-    return NextResponse.json(
-      { error: "Failed to create customer" },
-      { status: 500 }
-    );
+    return handleError(error);
   }
 }
 
@@ -47,17 +40,13 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const customers = await prisma.customer.findMany({
-      where: { businessId: user.businessId },
-      orderBy: { id: "asc" },
+    const customers = await customerService.listCustomers({
+      businessId: user.businessId,
+      sort: "id-asc",
     });
 
-    return NextResponse.json(customers);
+    return NextResponse.json(customers, { status: 200 });
   } catch (error) {
-    console.error("ERROR fetching customers:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch customers" },
-      { status: 500 }
-    );
+    return handleError(error);
   }
 }
