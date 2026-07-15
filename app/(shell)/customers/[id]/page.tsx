@@ -16,6 +16,7 @@ import {
   redirectToLogin,
 } from "@/lib/client-session";
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
+import { NotesThread } from "@/components/crm/NotesThread";
 
 const TAX_ID_TYPE_LABEL: Record<string, string> = {
   AUTHORIZED_DEALER: "עוסק מורשה",
@@ -219,10 +220,12 @@ function CustomerCardView({ card }: { card: CustomerCard }) {
 
       {customer.notes && customer.notes.trim() ? (
         <div className="crm-note">
-          <div className="crm-note__label">הערה</div>
+          <div className="crm-note__label">הערה כללית</div>
           <div className="crm-note__body">{customer.notes}</div>
         </div>
       ) : null}
+
+      <NotesThread subjectType="CUSTOMER" subjectId={customer.id} />
 
       {card.billingDocuments.total > 0 ? (
         <BillingDocumentsSection section={card.billingDocuments} />

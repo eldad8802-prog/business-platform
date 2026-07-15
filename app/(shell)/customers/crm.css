@@ -432,3 +432,118 @@
   color: var(--crm-error);
   margin-top: 10px;
 }
+
+/* Notes thread */
+.crm-note-composer {
+  background: var(--crm-card);
+  border: 1px solid var(--crm-line);
+  border-radius: var(--crm-radius-card);
+  box-shadow: var(--crm-shadow-card);
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.crm-note-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--crm-canvas);
+  border: 1px solid var(--crm-line);
+  border-radius: var(--crm-radius-field);
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--crm-ink);
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+  min-height: 44px;
+}
+.crm-note-input:focus {
+  border-color: var(--crm-accent);
+  box-shadow: 0 0 0 3px var(--crm-ring);
+}
+.crm-note-composer__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+.crm-note-err {
+  font-size: 12px;
+  color: var(--crm-error);
+  min-width: 0;
+}
+.crm-note-empty {
+  font-size: 13px;
+  color: var(--crm-muted);
+  text-align: center;
+  padding: 18px 8px;
+  margin: 0;
+}
+.crm-note-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.crm-note-card {
+  background: var(--crm-card);
+  border: 1px solid var(--crm-line);
+  border-radius: var(--crm-radius-card);
+  box-shadow: var(--crm-shadow-card);
+  padding: 12px 14px;
+}
+.crm-note-card__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.crm-note-card__author {
+  font-size: 12px;
+  font-weight: var(--crm-w-semibold);
+  color: var(--crm-ink);
+}
+.crm-note-card__time {
+  font-size: 11px;
+  color: var(--crm-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.crm-note-card__body {
+  font-size: 14px;
+  color: var(--crm-ink);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.crm-note-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.crm-note-card__confirm {
+  font-size: 13px;
+  color: var(--crm-muted);
+}
+.crm-note-linkbtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: var(--crm-w-medium);
+  color: var(--crm-accent);
+  cursor: pointer;
+}
+.crm-note-linkbtn:hover {
+  text-decoration: underline;
+}
+.crm-note-linkbtn--danger {
+  color: var(--crm-error);
+}
+.crm-note-linkbtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  text-decoration: none;
+}
