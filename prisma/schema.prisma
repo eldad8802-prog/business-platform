@@ -214,6 +214,7 @@ model Business {
   paymentRequests             PaymentRequest[]
   businessObligations         BusinessObligation[]
   businessObligationOrientation BusinessObligationOrientation?
+  crmNotes                    CrmNote[]
 
   @@index([archivedAt])
 }
@@ -239,6 +240,33 @@ model User {
   appointmentsCreated Appointment[]
   archivedBusinesses                       Business[]                   @relation("BusinessArchivedBy")
   billingAuthorityConnectionsOauthAuthorized BillingAuthorityConnection[] @relation("BillingAuthorityOauthAuthorizedBy")
+  crmNotesCreated                          CrmNote[]
+}
+
+/// Generic CRM subject reference (see docs/dubiz-crm-foundation-spec-v1.md §2 / E1).
+/// Polymorphic by (subjectType, subjectId) — no FK to Customer/Supplier; existence
+/// and tenant-ownership are enforced by lib/services/crm/crm-subject.resolver.ts.
+enum CrmSubjectType {
+  CUSTOMER
+  SUPPLIER
+}
+
+/// Threaded, timestamped CRM note attachable to any subject. Distinct from the
+/// scalar Customer.notes / Supplier.notes "general note", which stay unchanged.
+model CrmNote {
+  id              Int            @id @default(autoincrement())
+  businessId      Int
+  subjectType     CrmSubjectType
+  subjectId       Int
+  body            String
+  createdByUserId Int?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  business        Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdByUser   User?          @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, subjectType, subjectId, createdAt])
+  @@index([createdByUserId])
 }
 
 /// Append-only product usage analytics (distinct from weekly `Usage` quota counters).
