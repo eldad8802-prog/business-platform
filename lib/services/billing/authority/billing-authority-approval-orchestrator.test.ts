@@ -122,11 +122,21 @@ async function main(): Promise<void> {
     ok("client called exactly once", s.calls.n === 1);
   }
 
-  // 3. HTTP 200 approved:false → not_approved.
+  // 3. HTTP 200 business-decision classification → decision_* / not_approved_unknown.
   {
-    const deps: ApprovalOrchestratorDeps = { buildPayload: spyBuilder({ ok: true, payload: VALID_PAYLOAD }).fn, sendApproval: spySend(success(false)).fn };
-    const r = await requestInvoiceApproval(baseInput(), deps);
-    ok("200 approved:false → not_approved", r.outcome === "not_approved" && r.confirmationNumber === "20240718181618323199093572");
+    const dr: ApprovalClientResult = { kind: "decision_required", httpStatus: 200, classification: "BUSINESS_DECISION", code: 460, message: "not approved", confirmationNumber: "0" };
+    const r = await requestInvoiceApproval(baseInput(), { buildPayload: spyBuilder({ ok: true, payload: VALID_PAYLOAD }).fn, sendApproval: spySend(dr).fn });
+    ok("460 → decision_required", r.outcome === "decision_required" && r.outcome === "decision_required" && r.code === 460);
+  }
+  {
+    const dar: ApprovalClientResult = { kind: "decision_already_reported", httpStatus: 200, classification: "BUSINESS_DECISION", code: 462, message: "already", confirmationNumber: "0" };
+    const r = await requestInvoiceApproval(baseInput(), { buildPayload: spyBuilder({ ok: true, payload: VALID_PAYLOAD }).fn, sendApproval: spySend(dar).fn });
+    ok("462 → decision_already_reported", r.outcome === "decision_already_reported");
+  }
+  {
+    const nau: ApprovalClientResult = { kind: "not_approved_unknown", httpStatus: 200, classification: "UNKNOWN", message: "opaque", confirmationNumber: "0" };
+    const r = await requestInvoiceApproval(baseInput(), { buildPayload: spyBuilder({ ok: true, payload: VALID_PAYLOAD }).fn, sendApproval: spySend(nau).fn });
+    ok("unknown → not_approved_unknown", r.outcome === "not_approved_unknown");
   }
 
   // 4. HTTP 400 → authority_validation_failed with errors.
