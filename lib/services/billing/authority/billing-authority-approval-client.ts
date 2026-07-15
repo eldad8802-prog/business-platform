@@ -10,6 +10,7 @@
  */
 
 import type { InvoiceApprovalRequest, InvoiceApprovalValidationErrorDetail } from "@/lib/services/billing/authority/billing-authority-approval.types";
+import { hasInvoiceApprovalErrors } from "@/lib/services/billing/authority/billing-authority-approval.types";
 import {
   buildInvoiceApprovalUrl,
   type AuthorityApprovalConfig,
@@ -100,6 +101,57 @@ function parseValidationErrors(
   });
 }
 
+/** First error entry with the given `location`, or null. */
+function firstApprovalError(
+  message: unknown,
+  location: string
+): InvoiceApprovalValidationErrorDetail | null {
+  if (!hasInvoiceApprovalErrors(message)) return null;
+  return message.errors.find((e) => e.location === location) ?? null;
+}
+
+/**
+ * Classifies a 200 + approved:false body. Only maps to a decision when a
+ * verified approval-location error code (460/461/462) is present; otherwise
+ * fail-closed to not_approved_unknown (never invents a decision).
+ */
+function classifyNotApproved(
+  status: number,
+  rec: Record<string, unknown>
+): ApprovalClientResult {
+  const confirmationNumber = asStringOrNull(rec.confirmation_number);
+  const approvalError = firstApprovalError(rec.message, "approval");
+  if (approvalError) {
+    if (approvalError.code === 460 || approvalError.code === 461) {
+      return {
+        kind: "decision_required",
+        httpStatus: status,
+        classification: "BUSINESS_DECISION",
+        code: approvalError.code,
+        message: approvalError.message,
+        confirmationNumber,
+      };
+    }
+    if (approvalError.code === 462) {
+      return {
+        kind: "decision_already_reported",
+        httpStatus: status,
+        classification: "BUSINESS_DECISION",
+        code: approvalError.code,
+        message: approvalError.message,
+        confirmationNumber,
+      };
+    }
+  }
+  return {
+    kind: "not_approved_unknown",
+    httpStatus: status,
+    classification: "UNKNOWN",
+    message: asStringOrNull(rec.message),
+    confirmationNumber,
+  };
+}
+
 /**
  * Maps an HTTP status + already-parsed JSON body to a typed result. Pure.
  * Documented statuses (200/400/406/5xx) become their contract responses;
@@ -112,16 +164,20 @@ export function parseApprovalResponse(
   const rec = asRecord(body);
 
   if (status === 200) {
-    return {
-      kind: "success",
-      httpStatus: status,
-      response: {
-        status,
-        message: asStringOrNull(rec.message) ?? "",
-        confirmation_number: asStringOrNull(rec.confirmation_number),
-        approved: rec.approved === true,
-      },
-    };
+    if (rec.approved === true) {
+      return {
+        kind: "success",
+        httpStatus: status,
+        response: {
+          status,
+          message: asStringOrNull(rec.message) ?? "",
+          confirmation_number: asStringOrNull(rec.confirmation_number),
+          approved: true,
+        },
+      };
+    }
+    // 200 + approved:false → business decision (460/461/462) or unknown.
+    return classifyNotApproved(status, rec);
   }
 
   if (status === 400) {

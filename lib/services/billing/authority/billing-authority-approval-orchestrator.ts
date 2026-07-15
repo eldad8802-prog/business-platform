@@ -51,7 +51,9 @@ export type RequestInvoiceApprovalInput = {
  */
 export type ApprovalDomainResult =
   | { outcome: "approved"; confirmationNumber: string | null }
-  | { outcome: "not_approved"; confirmationNumber: string | null; message: string }
+  | { outcome: "decision_required"; code: number; confirmationNumber: string | null; message: string | null }
+  | { outcome: "decision_already_reported"; code: number; confirmationNumber: string | null; message: string | null }
+  | { outcome: "not_approved_unknown"; confirmationNumber: string | null; message: string | null }
   | { outcome: "local_validation_failed"; errors: ApprovalPayloadValidationError[] }
   | { outcome: "authority_validation_failed"; errors: InvoiceApprovalValidationErrorDetail[] }
   | { outcome: "not_acceptable"; errorId: string | null; message: string | null }
@@ -72,13 +74,17 @@ export const defaultApprovalOrchestratorDeps: ApprovalOrchestratorDeps = {
 function mapClientResultToDomain(result: ApprovalClientResult): ApprovalDomainResult {
   switch (result.kind) {
     case "success":
+      // The client only emits `success` for approved:true (200+approved:false
+      // is split into decision_* / not_approved_unknown below).
       return result.response.approved
         ? { outcome: "approved", confirmationNumber: result.response.confirmation_number }
-        : {
-            outcome: "not_approved",
-            confirmationNumber: result.response.confirmation_number,
-            message: result.response.message,
-          };
+        : { outcome: "not_approved_unknown", confirmationNumber: result.response.confirmation_number, message: result.response.message };
+    case "decision_required":
+      return { outcome: "decision_required", code: result.code, confirmationNumber: result.confirmationNumber, message: result.message };
+    case "decision_already_reported":
+      return { outcome: "decision_already_reported", code: result.code, confirmationNumber: result.confirmationNumber, message: result.message };
+    case "not_approved_unknown":
+      return { outcome: "not_approved_unknown", confirmationNumber: result.confirmationNumber, message: result.message };
     case "validation_error":
       return { outcome: "authority_validation_failed", errors: result.response.message.errors };
     case "not_acceptable":

@@ -44,6 +44,32 @@ export type ApprovalClientResult =
       response: InvoiceApprovalValidationErrorResponse;
     }
   | {
+      // 200 + approved:false + errors[location="approval", code∈{460,461}].
+      kind: "decision_required";
+      httpStatus: number;
+      classification: ApprovalClientErrorClass; // BUSINESS_DECISION
+      code: number;
+      message: string | null;
+      confirmationNumber: string | null;
+    }
+  | {
+      // 200 + approved:false + errors[location="approval", code=462].
+      kind: "decision_already_reported";
+      httpStatus: number;
+      classification: ApprovalClientErrorClass; // BUSINESS_DECISION
+      code: number;
+      message: string | null;
+      confirmationNumber: string | null;
+    }
+  | {
+      // 200 + approved:false but no verified 460/461/462 approval error.
+      kind: "not_approved_unknown";
+      httpStatus: number;
+      classification: ApprovalClientErrorClass; // UNKNOWN
+      message: string | null;
+      confirmationNumber: string | null;
+    }
+  | {
       kind: "not_acceptable";
       httpStatus: number;
       classification: ApprovalClientErrorClass;

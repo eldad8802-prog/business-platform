@@ -69,6 +69,8 @@ export type ExecutionResult =
   | { outcome: "infrastructure_failed"; billingDocumentId: number; submissionId: number; errorCode: string; safeToRetry: SafeToRetry }
   | { outcome: "already_processed"; billingDocumentId: number; submissionId: number; status: BillingAuthoritySubmissionStatus; safeToRetry: false }
   | { outcome: "in_progress"; billingDocumentId: number; submissionId: number; safeToRetry: false }
+  | { outcome: "decision_required"; billingDocumentId: number; submissionId: number; code: number; errorCode: string; safeToRetry: false }
+  | { outcome: "decision_already_reported"; billingDocumentId: number; submissionId: number; code: number; errorCode: string; safeToRetry: false }
   | { outcome: "ambiguous_result"; billingDocumentId: number; submissionId: number; errorCode: string; safeToRetry: SafeToRetry };
 
 export type ExecuteAuthorityApprovalInput = {
@@ -339,10 +341,25 @@ export async function executeAuthorityApproval(
         const retryable = result.classification === "NETWORK" || result.classification === "TIMEOUT" || result.classification === "SERVER";
         return { outcome: "infrastructure_failed", billingDocumentId, submissionId: submission.id, errorCode, safeToRetry: retryable ? true : "manual" };
       }
-      case "not_approved": {
-        // 200 + approved:false — leave SUBMITTED via FAILED without declaring an
-        // unproven regulatory rejection. message/confirmation are NOT persisted
-        // (no free-form audit field without a schema change) — flagged.
+      case "decision_required": {
+        // Business rejection (460/461) requiring an authority decision. Do NOT
+        // persist a technical FAILED nor a terminal REJECTED — that would lose
+        // the business meaning and block a future Continue/Objection. The
+        // submission is left SUBMITTED (held). Persisting this as a distinct
+        // submission state needs a new HELD/DECISION_REQUIRED status — the next
+        // PR (out of scope here; see PR report).
+        return { outcome: "decision_required", billingDocumentId, submissionId: submission.id, code: result.code, errorCode: `AUTHORITY_DECISION_REQUIRED_${result.code}`, safeToRetry: false };
+      }
+      case "decision_already_reported": {
+        // 462 — a decision was already reported to the authority. Do not
+        // re-decide or overwrite local state; flag for reconciliation. The
+        // submission is left as-is.
+        return { outcome: "decision_already_reported", billingDocumentId, submissionId: submission.id, code: result.code, errorCode: "AUTHORITY_DECISION_ALREADY_REPORTED", safeToRetry: false };
+      }
+      case "not_approved_unknown": {
+        // approved:false with no verified 460/461/462 — fail-closed (no invented
+        // decision). Recorded as FAILED; message/confirmation not persisted (no
+        // free-form audit field without a schema change) — flagged.
         await persistFailed(deps, input, submission.id, "AUTHORITY_NOT_APPROVED_AMBIGUOUS");
         return { outcome: "ambiguous_result", billingDocumentId, submissionId: submission.id, errorCode: "AUTHORITY_NOT_APPROVED_AMBIGUOUS", safeToRetry: "manual" };
       }

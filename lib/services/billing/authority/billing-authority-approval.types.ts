@@ -107,12 +107,42 @@ export type InvoiceApprovalServerErrorResponse = {
 };
 
 /**
+ * 200 with `approved:false` and `confirmation_number:"0"` — a NOT-approved
+ * outcome. `message` is the SAME errors-object shape as a 400 (NOT a string),
+ * but at HTTP 200. The business decision code lives in `message.errors[].code`
+ * with `location:"approval"` (460/461 → decision required; 462 → already
+ * reported). This is why `InvoiceApprovalSuccessResponse.message: string` alone
+ * cannot represent a 200 response.
+ */
+export type InvoiceApprovalNotApprovedResponse = {
+  status: number;
+  message: { errors: InvoiceApprovalValidationErrorDetail[] };
+  confirmation_number: string | null;
+  approved: boolean;
+};
+
+/**
+ * Type guard: true when a response `message` is the errors-object shape
+ * (200-not-approved or 400), as opposed to a plain approved-string.
+ */
+export function hasInvoiceApprovalErrors(
+  message: unknown
+): message is { errors: InvoiceApprovalValidationErrorDetail[] } {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    Array.isArray((message as { errors?: unknown }).errors)
+  );
+}
+
+/**
  * Union of the documented responses. 401 / 403 are NOT part of this union:
  * they are undocumented infrastructural outcomes to be handled defensively at
  * the (future) transport layer, not modeled as contract responses here.
  */
 export type InvoiceApprovalResponse =
   | InvoiceApprovalSuccessResponse
+  | InvoiceApprovalNotApprovedResponse
   | InvoiceApprovalValidationErrorResponse
   | InvoiceApprovalNotAcceptableResponse
   | InvoiceApprovalServerErrorResponse;

@@ -155,8 +155,18 @@ async function main(): Promise<void> {
   }
 
   // ---- Pure parser + classification ----
-  ok("parseApprovalResponse 200", parseApprovalResponse(200, { status: 200, message: "ok", confirmation_number: null, approved: false }).kind === "success");
+  ok("parseApprovalResponse 200 approved:true → success", parseApprovalResponse(200, { status: 200, message: "Invoice approved", confirmation_number: "26digits", approved: true }).kind === "success");
   ok("parseApprovalResponse 400", parseApprovalResponse(400, { message: { errors: [] } }).kind === "validation_error");
+  // 200 + approved:false business-decision classification (460/461/462).
+  {
+    const body = (code: number) => ({ status: 200, approved: false, confirmation_number: "0", message: { errors: [{ code, message: "x", param: "p", location: "approval" }] } });
+    ok("460 → decision_required", (() => { const r = parseApprovalResponse(200, body(460)); return r.kind === "decision_required" && r.code === 460 && r.classification === "BUSINESS_DECISION"; })());
+    ok("461 → decision_required", parseApprovalResponse(200, body(461)).kind === "decision_required");
+    ok("462 → decision_already_reported", (() => { const r = parseApprovalResponse(200, body(462)); return r.kind === "decision_already_reported" && r.code === 462; })());
+    ok("unknown code → not_approved_unknown", parseApprovalResponse(200, body(999)).kind === "not_approved_unknown");
+    ok("approved:false no errors → not_approved_unknown", parseApprovalResponse(200, { status: 200, approved: false, confirmation_number: "0", message: "opaque" }).kind === "not_approved_unknown");
+    ok("wrong location → not_approved_unknown (fail-closed)", parseApprovalResponse(200, { status: 200, approved: false, confirmation_number: "0", message: { errors: [{ code: 460, message: "x", param: "p", location: "request" }] } }).kind === "not_approved_unknown");
+  }
   ok("classify 401 AUTHENTICATION", classifyHttpStatus(401) === "AUTHENTICATION");
   ok("classify 403 AUTHORIZATION", classifyHttpStatus(403) === "AUTHORIZATION");
   ok("classify 408 TIMEOUT", classifyHttpStatus(408) === "TIMEOUT");
