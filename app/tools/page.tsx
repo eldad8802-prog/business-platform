@@ -30,6 +30,14 @@ const TOOLS: ToolItem[] = [
     icon: "👥",
   },
   {
+    key: "suppliers",
+    title: "ספקים",
+    description: "כרטיסי ספק — פרטי קשר, זמני אספקה והערות במקום אחד",
+    href: "/suppliers",
+    status: "active",
+    icon: "🚚",
+  },
+  {
     key: "attention",
     title: "דורש תשומת לב",
     description: "תור טיפול: ריכוז שיחות שמחכות לפעולה עכשיו",
