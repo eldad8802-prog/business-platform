@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Heebo } from "next/font/google";
+import { Heebo, Rubik } from "next/font/google";
 import "./globals.css";
 import { AccessibilityFab } from "@/components/ui/accessibility/accessibility-fab";
 
@@ -11,6 +11,18 @@ const heebo = Heebo({
   subsets: ["hebrew", "latin"],
   weight: ["300", "400", "500", "600"],
   variable: "--font-heebo",
+  display: "swap",
+});
+
+// Rubik is the display companion for numerals and large headings on the home
+// screen (per the approved home mockup): it renders figures and the greeting /
+// day-state lines. Body copy stays Heebo — Rubik is exposed as --font-rubik and
+// opted into only where the design calls for it. Hebrew + Latin so numbers and
+// Hebrew headings share one voice.
+const rubik = Rubik({
+  subsets: ["hebrew", "latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-rubik",
   display: "swap",
 });
 
@@ -34,7 +46,7 @@ export default function RootLayout({
     <html
       lang="he"
       dir="rtl"
-      className={`${heebo.variable} h-full antialiased`}
+      className={`${heebo.variable} ${rubik.variable} h-full antialiased`}
     >
       <body className="min-h-screen w-full overflow-x-hidden flex flex-col">
         {children}

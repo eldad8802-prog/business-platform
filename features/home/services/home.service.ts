@@ -6,12 +6,13 @@ import { getHomeQuickActions } from "./home-shortcuts.service";
 type GetHomeDataInput = {
   businessName: string;
   businessId: number;
+  ownerName?: string;
 };
 
 export async function getHomeData(
   input: GetHomeDataInput
 ): Promise<HomeResponse> {
-  const { businessName, businessId } = input;
+  const { businessName, businessId, ownerName } = input;
 
   const signals = await getBusinessSignals({ businessId });
 
@@ -32,6 +33,7 @@ export async function getHomeData(
     businessSnapshot: {
       businessName,
       greeting: `שלום ${businessName}`,
+      ownerName: ownerName?.trim() || undefined,
     },
   };
 }
