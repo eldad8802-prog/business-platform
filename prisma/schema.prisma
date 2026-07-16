@@ -2528,6 +2528,10 @@ enum BillingAuthoritySubmissionStatus {
   APPROVED
   REJECTED
   FAILED
+  // Non-terminal. The authority withheld allocation for a substantive (business)
+  // reason (approval codes 460/461) and a user decision is required before the
+  // process can continue. Distinct from FAILED (technical) and REJECTED (terminal).
+  HELD
 }
 
 enum BillingAuthoritySubmissionChannel {

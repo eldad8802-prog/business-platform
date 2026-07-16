@@ -287,6 +287,15 @@ export function validateAuthorityTransition(
         };
       }
       break;
+    case "HOLD_FOR_DECISION":
+      if (input.from !== BillingAuthoritySubmissionStatus.SUBMITTED) {
+        return {
+          ok: false,
+          code: "AUTHORITY_HOLD_FORBIDDEN",
+          message: "Hold-for-decision is only allowed from SUBMITTED",
+        };
+      }
+      break;
     case "SCHEDULE_RETRY":
       if (
         input.from !== BillingAuthoritySubmissionStatus.FAILED ||

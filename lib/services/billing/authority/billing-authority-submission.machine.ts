@@ -21,10 +21,14 @@ const ALLOWED_AUTHORITY_SUBMISSION_TRANSITIONS: Record<
   NOT_REQUIRED: ["READY"],
   READY: ["PENDING", "SUBMITTED"],
   PENDING: ["SUBMITTED", "FAILED"],
-  SUBMITTED: ["APPROVED", "REJECTED", "FAILED"],
+  SUBMITTED: ["APPROVED", "REJECTED", "FAILED", "HELD"],
   APPROVED: [],
   REJECTED: [],
   FAILED: ["SUBMITTED"],
+  // Non-terminal, but no outbound transitions yet. The user-decision paths out
+  // of HELD (Continue / Objection / etc.) are a future PR. HELD is deliberately
+  // NOT in AUTHORITY_SUBMISSION_TERMINAL_STATUSES.
+  HELD: [],
 };
 
 /** Status-only transitions that emit audit without changing status. */
