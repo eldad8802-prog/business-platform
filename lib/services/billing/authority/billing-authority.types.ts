@@ -21,6 +21,7 @@ export const AUTHORITY_SUBMISSION_STATUSES = [
   "APPROVED",
   "REJECTED",
   "FAILED",
+  "HELD",
 ] as const satisfies readonly BillingAuthoritySubmissionStatus[];
 
 export const AUTHORITY_ELIGIBLE_DOCUMENT_TYPES = [
@@ -63,6 +64,10 @@ export type AuthorityTransitionKind =
   | "REJECT"
   | "FAIL"
   | "SCHEDULE_RETRY"
+  // Entering HELD: SUBMITTED → HELD when the authority withheld allocation for a
+  // business reason (460/461). Distinct from REPORT_HELD_DECISION, which records
+  // a user's decision being reported back to the authority (a later step).
+  | "HOLD_FOR_DECISION"
   | "REPORT_HELD_DECISION"
   | "EMERGENCY_ALLOCATE"
   | "EMERGENCY_SYNC";

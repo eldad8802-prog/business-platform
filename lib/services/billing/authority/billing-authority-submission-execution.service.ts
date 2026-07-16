@@ -44,12 +44,15 @@ import {
 } from "@/lib/services/billing/authority/billing-authority-approval-runtime-context.provider";
 import {
   AuthorityConditionalUpdateMissedError,
+  buildAuthorityHeldErrorCode,
   recordAuthorityApprovedTx,
   recordAuthorityFailedTx,
+  recordAuthorityHeldTx,
   recordAuthorityRejectedTx,
   recordAuthoritySubmissionAttemptTx,
   type RecordAuthorityApprovedTxInput,
   type RecordAuthorityFailedTxInput,
+  type RecordAuthorityHeldTxInput,
   type RecordAuthorityRejectedTxInput,
   type RecordAuthoritySubmissionAttemptInput,
 } from "@/lib/services/billing/authority/billing-authority-transition.service";
@@ -69,7 +72,7 @@ export type ExecutionResult =
   | { outcome: "infrastructure_failed"; billingDocumentId: number; submissionId: number; errorCode: string; safeToRetry: SafeToRetry }
   | { outcome: "already_processed"; billingDocumentId: number; submissionId: number; status: BillingAuthoritySubmissionStatus; safeToRetry: false }
   | { outcome: "in_progress"; billingDocumentId: number; submissionId: number; safeToRetry: false }
-  | { outcome: "decision_required"; billingDocumentId: number; submissionId: number; code: number; errorCode: string; safeToRetry: false }
+  | { outcome: "decision_required"; billingDocumentId: number; submissionId: number; code: number; errorCode: string; userActionRequired: true; safeToRetry: false }
   | { outcome: "decision_already_reported"; billingDocumentId: number; submissionId: number; code: number; errorCode: string; safeToRetry: false }
   | { outcome: "ambiguous_result"; billingDocumentId: number; submissionId: number; errorCode: string; safeToRetry: SafeToRetry };
 
@@ -106,6 +109,7 @@ export type SubmissionExecutionDeps = {
   recordApproved: (tx: Prisma.TransactionClient, input: RecordAuthorityApprovedTxInput) => Promise<unknown>;
   recordRejected: (tx: Prisma.TransactionClient, input: RecordAuthorityRejectedTxInput) => Promise<unknown>;
   recordFailed: (tx: Prisma.TransactionClient, input: RecordAuthorityFailedTxInput) => Promise<unknown>;
+  recordHeld: (tx: Prisma.TransactionClient, input: RecordAuthorityHeldTxInput) => Promise<unknown>;
 };
 
 function stableStringify(value: unknown): string {
@@ -145,6 +149,7 @@ export const defaultSubmissionExecutionDeps: SubmissionExecutionDeps = {
   recordApproved: recordAuthorityApprovedTx,
   recordRejected: recordAuthorityRejectedTx,
   recordFailed: recordAuthorityFailedTx,
+  recordHeld: recordAuthorityHeldTx,
 };
 
 function isPositiveInt(n: unknown): n is number {
@@ -342,13 +347,22 @@ export async function executeAuthorityApproval(
         return { outcome: "infrastructure_failed", billingDocumentId, submissionId: submission.id, errorCode, safeToRetry: retryable ? true : "manual" };
       }
       case "decision_required": {
-        // Business rejection (460/461) requiring an authority decision. Do NOT
-        // persist a technical FAILED nor a terminal REJECTED — that would lose
-        // the business meaning and block a future Continue/Objection. The
-        // submission is left SUBMITTED (held). Persisting this as a distinct
-        // submission state needs a new HELD/DECISION_REQUIRED status — the next
-        // PR (out of scope here; see PR report).
-        return { outcome: "decision_required", billingDocumentId, submissionId: submission.id, code: result.code, errorCode: `AUTHORITY_DECISION_REQUIRED_${result.code}`, safeToRetry: false };
+        // Business rejection (460/461) requiring a user decision. Persist
+        // SUBMITTED → HELD (non-terminal): NOT a technical FAILED, NOT a terminal
+        // REJECTED — either would lose the business meaning and block a future
+        // Continue/Objection. errorMessage is the sanitized canonical code only
+        // (no authority PII). The user-decision paths out of HELD are a future PR.
+        const errorCode = buildAuthorityHeldErrorCode(result.code);
+        await deps.runInTransaction((tx) =>
+          deps.recordHeld(tx, {
+            businessId, billingDocumentId,
+            heldAt: deps.now(),
+            authorityCode: result.code,
+            message: errorCode,
+            actorUserId,
+          }),
+        );
+        return { outcome: "decision_required", billingDocumentId, submissionId: submission.id, code: result.code, errorCode, userActionRequired: true, safeToRetry: false };
       }
       case "decision_already_reported": {
         // 462 — a decision was already reported to the authority. Do not

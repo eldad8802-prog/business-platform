@@ -11,14 +11,21 @@ import {
 } from "@prisma/client";
 import { ConflictError, ForbiddenError } from "@/lib/errors";
 import {
+  buildAuthorityHeldErrorCode,
   executeAuthorityTransitionTx,
   recordAuthorityApprovedTx,
   recordAuthorityFailedTx,
+  recordAuthorityHeldTx,
   recordAuthorityRejectedTx,
   recordAuthorityScheduleRetryTx,
   recordAuthoritySubmissionAttemptTx,
   type AuthoritySubmissionRow,
 } from "@/lib/services/billing/authority/billing-authority-transition.service";
+import {
+  canTransitionAuthoritySubmission,
+  isAuthoritySubmissionTerminalStatus,
+  isForbiddenAuthoritySubmissionTransition,
+} from "@/lib/services/billing/authority/billing-authority-submission.machine";
 
 let failed = 0;
 
@@ -57,6 +64,29 @@ const FAILED_AT = new Date("2026-06-06T11:20:00.000Z");
 const SCHEDULED_AT = new Date("2026-06-06T12:00:00.000Z");
 const NEXT_RETRY_AT = new Date("2026-06-06T18:00:00.000Z");
 const NEW_FAILED_AT = new Date("2026-06-07T09:30:00.000Z");
+const HELD_AT = new Date("2026-06-06T13:45:00.000Z");
+
+function heldInput(overrides: {
+  billingDocumentId: number;
+  authorityCode?: number;
+  message?: string;
+  authorityResponseHash?: string | null;
+}) {
+  return {
+    businessId: 1,
+    billingDocumentId: overrides.billingDocumentId,
+    heldAt: HELD_AT,
+    authorityCode: overrides.authorityCode ?? 460,
+    message:
+      overrides.message ??
+      buildAuthorityHeldErrorCode(overrides.authorityCode ?? 460),
+    authorityResponseHash:
+      overrides.authorityResponseHash === undefined
+        ? null
+        : overrides.authorityResponseHash,
+    actorUserId: 7,
+  };
+}
 
 function rejectionInput(overrides: {
   billingDocumentId: number;
@@ -1370,6 +1400,159 @@ async function runTests() {
         )
       );
     }
+  }
+
+  // ---- State machine: SUBMITTED → HELD, HELD non-terminal & dead-end ----
+  {
+    ok(
+      "state machine: SUBMITTED → HELD allowed",
+      canTransitionAuthoritySubmission("SUBMITTED", BillingAuthoritySubmissionStatus.HELD)
+    );
+    ok(
+      "state machine: READY → HELD forbidden",
+      isForbiddenAuthoritySubmissionTransition("READY", BillingAuthoritySubmissionStatus.HELD)
+    );
+    ok(
+      "state machine: FAILED → HELD forbidden",
+      isForbiddenAuthoritySubmissionTransition("FAILED", BillingAuthoritySubmissionStatus.HELD)
+    );
+    ok(
+      "state machine: APPROVED → HELD forbidden",
+      isForbiddenAuthoritySubmissionTransition("APPROVED", BillingAuthoritySubmissionStatus.HELD)
+    );
+    ok(
+      "state machine: REJECTED → HELD forbidden",
+      isForbiddenAuthoritySubmissionTransition("REJECTED", BillingAuthoritySubmissionStatus.HELD)
+    );
+    ok(
+      "state machine: HELD → SUBMITTED forbidden (no path out yet)",
+      isForbiddenAuthoritySubmissionTransition(
+        BillingAuthoritySubmissionStatus.HELD,
+        BillingAuthoritySubmissionStatus.SUBMITTED
+      )
+    );
+    ok(
+      "state machine: HELD is NOT terminal",
+      isAuthoritySubmissionTerminalStatus(BillingAuthoritySubmissionStatus.HELD) === false
+    );
+    ok(
+      "state machine: HELD is NOT classified as FAILED/APPROVED/REJECTED",
+      BillingAuthoritySubmissionStatus.HELD !== BillingAuthoritySubmissionStatus.FAILED &&
+        BillingAuthoritySubmissionStatus.HELD !== BillingAuthoritySubmissionStatus.APPROVED &&
+        BillingAuthoritySubmissionStatus.HELD !== BillingAuthoritySubmissionStatus.REJECTED
+    );
+  }
+
+  // ---- recordAuthorityHeldTx: SUBMITTED + 460 → HELD ----
+  {
+    const billingDocumentId = 940;
+    const submission = makeSubmission({
+      businessId: 1,
+      billingDocumentId,
+      status: BillingAuthoritySubmissionStatus.SUBMITTED,
+    });
+    const fake = makeFakeAuthorityDb({ submission });
+    const result = await recordAuthorityHeldTx(
+      fake.tx,
+      heldInput({ billingDocumentId, authorityCode: 460 })
+    );
+    ok("SUBMITTED + 460 → HELD APPLIED", result.outcome === "APPLIED" && result.toStatus === "HELD");
+    ok("HELD stores canonical errorCode", fake.getSubmission().errorCode === "AUTHORITY_DECISION_REQUIRED_460");
+    ok("HELD stores sanitized errorMessage", fake.getSubmission().errorMessage === "AUTHORITY_DECISION_REQUIRED_460");
+    // heldDecisionType / heldDecisionReportedAt are not part of SUBMISSION_SELECT
+    // (== null holds for both undefined and DB-null) — the point is the transition
+    // never writes a decision type / reported timestamp when entering HELD.
+    const heldRow = fake.getSubmission() as unknown as Record<string, unknown>;
+    ok("HELD does NOT set heldDecisionType", heldRow.heldDecisionType == null);
+    ok("HELD does NOT set heldDecisionReportedAt", heldRow.heldDecisionReportedAt == null);
+    ok("HELD does NOT set allocationNumber", fake.getSubmission().allocationNumber === null);
+    ok("HELD does NOT touch BillingDocument", fake.documentUpdateCalled() === false);
+    ok("HELD writes BILLING_AUTHORITY_HELD audit", fake.auditEvents.length === 1 && fake.auditEvents[0].eventType === "BILLING_AUTHORITY_HELD");
+  }
+
+  // ---- recordAuthorityHeldTx: SUBMITTED + 461 → HELD ----
+  {
+    const billingDocumentId = 941;
+    const submission = makeSubmission({
+      businessId: 1,
+      billingDocumentId,
+      status: BillingAuthoritySubmissionStatus.SUBMITTED,
+    });
+    const fake = makeFakeAuthorityDb({ submission });
+    const result = await recordAuthorityHeldTx(
+      fake.tx,
+      heldInput({ billingDocumentId, authorityCode: 461 })
+    );
+    ok("SUBMITTED + 461 → HELD APPLIED", result.outcome === "APPLIED" && result.toStatus === "HELD");
+    ok("HELD 461 stores canonical errorCode", fake.getSubmission().errorCode === "AUTHORITY_DECISION_REQUIRED_461");
+  }
+
+  // ---- recordAuthorityHeldTx: rejects non-hold codes ----
+  {
+    const billingDocumentId = 942;
+    const submission = makeSubmission({
+      businessId: 1,
+      billingDocumentId,
+      status: BillingAuthoritySubmissionStatus.SUBMITTED,
+    });
+    const fake = makeFakeAuthorityDb({ submission });
+    let threw = false;
+    try {
+      await recordAuthorityHeldTx(fake.tx, heldInput({ billingDocumentId, authorityCode: 462 }));
+    } catch {
+      threw = true;
+    }
+    ok("HELD rejects non-hold code 462 (ValidationError)", threw);
+    ok("HELD rejects non-hold code leaves status SUBMITTED", fake.getSubmission().status === "SUBMITTED");
+  }
+
+  // ---- recordAuthorityHeldTx: forbidden from non-SUBMITTED ----
+  {
+    for (const status of [
+      BillingAuthoritySubmissionStatus.READY,
+      BillingAuthoritySubmissionStatus.FAILED,
+      BillingAuthoritySubmissionStatus.APPROVED,
+      BillingAuthoritySubmissionStatus.REJECTED,
+    ] as const) {
+      const billingDocumentId = 950;
+      const submission = makeSubmission({ businessId: 1, billingDocumentId, status });
+      const fake = makeFakeAuthorityDb({ submission });
+      await expectForbidden(`${status} → HELD forbidden`, () =>
+        recordAuthorityHeldTx(fake.tx, heldInput({ billingDocumentId }))
+      );
+      ok(`${status} → HELD writes no audit`, fake.auditEvents.length === 0);
+    }
+  }
+
+  // ---- recordAuthorityHeldTx: identical replay → NOOP ----
+  {
+    const billingDocumentId = 960;
+    const submission = makeSubmission({
+      businessId: 1,
+      billingDocumentId,
+      status: BillingAuthoritySubmissionStatus.SUBMITTED,
+    });
+    const fake = makeFakeAuthorityDb({ submission });
+    await recordAuthorityHeldTx(fake.tx, heldInput({ billingDocumentId, authorityCode: 460 }));
+    const replay = await recordAuthorityHeldTx(fake.tx, heldInput({ billingDocumentId, authorityCode: 460 }));
+    ok("identical HELD replay → NOOP", replay.outcome === "NOOP");
+    ok("HELD replay writes no additional audit", fake.auditEvents.length === 1);
+  }
+
+  // ---- recordAuthorityHeldTx: conflicting replay → fail closed ----
+  {
+    const billingDocumentId = 961;
+    const submission = makeSubmission({
+      businessId: 1,
+      billingDocumentId,
+      status: BillingAuthoritySubmissionStatus.SUBMITTED,
+    });
+    const fake = makeFakeAuthorityDb({ submission });
+    await recordAuthorityHeldTx(fake.tx, heldInput({ billingDocumentId, authorityCode: 460 }));
+    await expectConflict("conflicting HELD replay (different code) → ConflictError", () =>
+      recordAuthorityHeldTx(fake.tx, heldInput({ billingDocumentId, authorityCode: 461 }))
+    );
+    ok("HELD conflict leaves stored errorCode unchanged", fake.getSubmission().errorCode === "AUTHORITY_DECISION_REQUIRED_460");
   }
 }
 

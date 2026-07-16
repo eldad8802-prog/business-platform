@@ -66,7 +66,7 @@ function okCtx(accounting = "12345678", apiBaseUrl = "https://x/shaam/tsandbox")
   return { ok: true, context: { accessToken: "SECRET_TOKEN", approvalConfig: { apiBaseUrl, apiVersion: "v2", timeoutMs: 15000 }, accountingSoftwareNumber: accounting, connectionId: 5, environment: ENV } };
 }
 
-type Spies = { load: number; ctx: number; forceRefresh: number; build: number; approve: number; recordAttempt: number; recordApproved: number; recordRejected: number; recordFailed: number };
+type Spies = { load: number; ctx: number; forceRefresh: number; build: number; approve: number; recordAttempt: number; recordApproved: number; recordRejected: number; recordFailed: number; recordHeld: number };
 type Cfg = {
   loaded?: LoadedDocumentSubmission | null;
   reloaded?: LoadedDocumentSubmission | null;
@@ -78,7 +78,7 @@ type Cfg = {
   env?: () => BillingAuthorityEnvironment;
 };
 function makeDeps(cfg: Cfg): { deps: SubmissionExecutionDeps; spies: Spies } {
-  const spies: Spies = { load: 0, ctx: 0, forceRefresh: 0, build: 0, approve: 0, recordAttempt: 0, recordApproved: 0, recordRejected: 0, recordFailed: 0 };
+  const spies: Spies = { load: 0, ctx: 0, forceRefresh: 0, build: 0, approve: 0, recordAttempt: 0, recordApproved: 0, recordRejected: 0, recordFailed: 0, recordHeld: 0 };
   const approvals = cfg.approvals ?? [{ outcome: "approved", confirmationNumber: "20240718181618323199093572" }];
   const deps: SubmissionExecutionDeps = {
     loadDocumentWithSubmission: async () => { spies.load += 1; return spies.load === 1 ? (cfg.loaded === undefined ? loaded() : cfg.loaded) : (cfg.reloaded === undefined ? (cfg.loaded === undefined ? loaded() : cfg.loaded) : cfg.reloaded); },
@@ -93,6 +93,7 @@ function makeDeps(cfg: Cfg): { deps: SubmissionExecutionDeps; spies: Spies } {
     recordApproved: async () => { spies.recordApproved += 1; return {}; },
     recordRejected: async () => { spies.recordRejected += 1; return {}; },
     recordFailed: async () => { spies.recordFailed += 1; return {}; },
+    recordHeld: async () => { spies.recordHeld += 1; return {}; },
   };
   return { deps, spies };
 }
@@ -132,9 +133,10 @@ async function main(): Promise<void> {
   { const { deps, spies } = makeDeps({ approvals: [{ outcome: "authority_validation_failed", errors: [{ code: 434, message: "old", param: "invoice_date", location: "request" }] }] }); const r = await executeAuthorityApproval(IN, deps); ok("400 → completed_rejected", r.outcome === "completed_rejected" && spies.recordRejected === 1); }
   { const { deps, spies } = makeDeps({ approvals: [{ outcome: "not_acceptable", errorId: "id", message: "Not Acceptable" }] }); const r = await executeAuthorityApproval(IN, deps); ok("406 → infrastructure_failed(FAILED)", r.outcome === "infrastructure_failed" && r.outcome === "infrastructure_failed" && r.errorCode === "AUTHORITY_NOT_ACCEPTABLE" && spies.recordFailed === 1); }
   { const { deps } = makeDeps({ approvals: [{ outcome: "infrastructure_failure", classification: "NETWORK", message: "x" }] }); const r = await executeAuthorityApproval(IN, deps); ok("network → infrastructure_failed retryable", r.outcome === "infrastructure_failed" && r.safeToRetry === true); }
-  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "not_approved_unknown", confirmationNumber: "0", message: "m" }] }); const r = await executeAuthorityApproval(IN, deps); ok("not_approved_unknown → ambiguous_result(FAILED)", r.outcome === "ambiguous_result" && r.errorCode === "AUTHORITY_NOT_APPROVED_AMBIGUOUS" && spies.recordFailed === 1); }
-  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "decision_required", code: 460, confirmationNumber: "0", message: "not approved" }] }); const r = await executeAuthorityApproval(IN, deps); ok("460 → decision_required, NO wrong persist (no recordFailed)", r.outcome === "decision_required" && r.outcome === "decision_required" && r.code === 460 && spies.recordFailed === 0); }
-  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "decision_already_reported", code: 462, confirmationNumber: "0", message: "already" }] }); const r = await executeAuthorityApproval(IN, deps); ok("462 → decision_already_reported, no re-decide (no recordFailed)", r.outcome === "decision_already_reported" && spies.recordFailed === 0); }
+  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "not_approved_unknown", confirmationNumber: "0", message: "m" }] }); const r = await executeAuthorityApproval(IN, deps); ok("not_approved_unknown → ambiguous_result(FAILED), not HELD", r.outcome === "ambiguous_result" && r.errorCode === "AUTHORITY_NOT_APPROVED_AMBIGUOUS" && spies.recordFailed === 1 && spies.recordHeld === 0); }
+  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "decision_required", code: 460, confirmationNumber: "0", message: "not approved" }] }); const r = await executeAuthorityApproval(IN, deps); ok("460 → decision_required, persisted HELD once (recordHeld=1), no FAILED/REJECTED", r.outcome === "decision_required" && r.outcome === "decision_required" && r.code === 460 && r.errorCode === "AUTHORITY_DECISION_REQUIRED_460" && r.userActionRequired === true && spies.recordHeld === 1 && spies.recordFailed === 0 && spies.recordRejected === 0); }
+  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "decision_required", code: 461, confirmationNumber: "0", message: "not approved" }] }); const r = await executeAuthorityApproval(IN, deps); ok("461 → decision_required, persisted HELD once (recordHeld=1)", r.outcome === "decision_required" && r.outcome === "decision_required" && r.code === 461 && spies.recordHeld === 1 && spies.recordFailed === 0); }
+  { const { deps, spies } = makeDeps({ approvals: [{ outcome: "decision_already_reported", code: 462, confirmationNumber: "0", message: "already" }] }); const r = await executeAuthorityApproval(IN, deps); ok("462 → decision_already_reported, NOT auto-held (no recordHeld/recordFailed)", r.outcome === "decision_already_reported" && spies.recordHeld === 0 && spies.recordFailed === 0); }
 
   // ---- 401 refresh-once ----
   {

@@ -1,0 +1,13 @@
+-- Expand-only: add HELD to the BillingAuthoritySubmissionStatus enum.
+-- Additive and safe — no existing rows or columns change. `ADD VALUE IF NOT
+-- EXISTS` is idempotent (Postgres 12+). HELD is a non-terminal state meaning the
+-- authority withheld allocation for a business reason (approval codes 460/461)
+-- and a user decision is required before continuing.
+--
+-- No data backfill: existing SUBMITTED rows are NOT converted to HELD — there is
+-- no evidence that any current row is decision-required, so conversion would be
+-- unfounded.
+--
+-- Rollback note: Postgres cannot DROP a value from an enum type; reverting would
+-- require recreating the type. This forward migration is expand-only by design.
+ALTER TYPE "BillingAuthoritySubmissionStatus" ADD VALUE IF NOT EXISTS 'HELD';

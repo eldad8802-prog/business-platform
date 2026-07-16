@@ -168,6 +168,41 @@ export type RecordAuthorityFailedTxResult = {
   auditWritten: boolean;
 };
 
+/** Authority approval codes that put a submission into HELD (business reason). */
+export const AUTHORITY_HELD_CODES = [460, 461] as const;
+export type AuthorityHeldCode = (typeof AUTHORITY_HELD_CODES)[number];
+
+/**
+ * Canonical form the persistence layer stores in `errorCode` for a held
+ * submission. Single source of truth — the execution service reuses this so the
+ * ExecutionResult code and the persisted code never diverge.
+ */
+export function buildAuthorityHeldErrorCode(code: number): string {
+  return `AUTHORITY_DECISION_REQUIRED_${code}`;
+}
+
+export type RecordAuthorityHeldTxInput = {
+  businessId: number;
+  billingDocumentId: number;
+  heldAt: Date;
+  /** Authority business-decision code (460 | 461). */
+  authorityCode: number;
+  /** Sanitized summary only — NO authority PII / tokens. Stored as errorMessage. */
+  message: string;
+  authorityResponseHash?: string | null;
+  actorUserId?: number | null;
+  occurredAt?: Date;
+};
+
+export type RecordAuthorityHeldTxResult = {
+  outcome: AuthorityRejectFailOutcome;
+  submission: AuthoritySubmissionRow;
+  fromStatus: BillingAuthoritySubmissionStatus;
+  toStatus: BillingAuthoritySubmissionStatus;
+  transitionKind: AuthorityTransitionKind | null;
+  auditWritten: boolean;
+};
+
 export type RecordAuthorityScheduleRetryTxInput = {
   businessId: number;
   billingDocumentId: number;
@@ -218,6 +253,12 @@ type CanonicalFailureFacts = {
 type CanonicalScheduleRetryFacts = {
   scheduledAt: Date;
   nextRetryAt: Date | null;
+};
+
+type CanonicalHeldFacts = {
+  errorCode: string;
+  errorMessage: string;
+  authorityResponseHash: string | null;
 };
 
 function toSubmissionContext(
@@ -455,6 +496,97 @@ export function failureFactsMatch(
       incoming.authorityResponseHash
     )
   );
+}
+
+function normalizeAuthorityHeldCode(code: number): AuthorityHeldCode {
+  if (!(AUTHORITY_HELD_CODES as readonly number[]).includes(code)) {
+    throw new ValidationError(
+      `authorityCode ${code} is not a hold-for-decision code (${AUTHORITY_HELD_CODES.join("/")})`
+    );
+  }
+  return code as AuthorityHeldCode;
+}
+
+function normalizeCanonicalHeldFacts(
+  input: RecordAuthorityHeldTxInput
+): CanonicalHeldFacts {
+  const code = normalizeAuthorityHeldCode(input.authorityCode);
+  return {
+    errorCode: buildAuthorityHeldErrorCode(code),
+    errorMessage: normalizeErrorMessage(input.message),
+    authorityResponseHash: input.authorityResponseHash ?? null,
+  };
+}
+
+export function storedHeldFacts(
+  submission: AuthoritySubmissionRow
+): CanonicalHeldFacts | null {
+  if (submission.status !== BillingAuthoritySubmissionStatus.HELD) {
+    return null;
+  }
+  const errorCode =
+    submission.errorCode === null ? null : normalizeErrorCode(submission.errorCode);
+  const errorMessage =
+    submission.errorMessage === null
+      ? null
+      : normalizeErrorMessage(submission.errorMessage);
+  if (errorCode === null || errorMessage === null) {
+    return null;
+  }
+  return {
+    errorCode,
+    errorMessage,
+    authorityResponseHash: submission.authorityResponseHash,
+  };
+}
+
+export function heldFactsMatch(
+  stored: CanonicalHeldFacts,
+  incoming: CanonicalHeldFacts
+): boolean {
+  return (
+    stored.errorCode === incoming.errorCode &&
+    stored.errorMessage === incoming.errorMessage &&
+    optionalStringMatches(
+      stored.authorityResponseHash,
+      incoming.authorityResponseHash
+    )
+  );
+}
+
+function assertHeldFactsConflict(
+  submission: AuthoritySubmissionRow,
+  incoming: CanonicalHeldFacts
+): void {
+  const stored = storedHeldFacts(submission);
+  if (stored === null) {
+    throw new ConflictError(
+      "AUTHORITY_HELD_FACT_CONFLICT",
+      "Held submission is missing canonical held facts"
+    );
+  }
+  if (!heldFactsMatch(stored, incoming)) {
+    throw new ConflictError(
+      "AUTHORITY_HELD_FACT_CONFLICT",
+      "Authority held facts conflict with the stored held submission"
+    );
+  }
+}
+
+function handleHeldIdempotencyGate(
+  submission: AuthoritySubmissionRow,
+  incoming: CanonicalHeldFacts
+): RecordAuthorityHeldTxResult {
+  assertHeldFactsConflict(submission, incoming);
+
+  return {
+    outcome: "NOOP",
+    submission,
+    fromStatus: submission.status,
+    toStatus: submission.status,
+    transitionKind: null,
+    auditWritten: false,
+  };
 }
 
 function normalizeCanonicalScheduleRetryFacts(
@@ -1308,6 +1440,101 @@ export async function recordAuthorityFailedTx(
     throw new ForbiddenError(
       "Authority failure conditional update missed and submission is not failed",
       "AUTHORITY_FAIL_FORBIDDEN"
+    );
+  }
+}
+
+/**
+ * Persists a hold-for-decision outcome (SUBMITTED → HELD) without document
+ * projection. The authority withheld allocation for a business reason (460/461)
+ * and a user decision is required before the process can continue.
+ *
+ * Stores the canonical `errorCode` (AUTHORITY_DECISION_REQUIRED_<code>) and a
+ * sanitized `errorMessage`. Does NOT touch `heldDecisionType` /
+ * `heldDecisionReportedAt` (no decision has been made yet) and does NOT store an
+ * allocation number. Idempotent on replay: identical facts → NOOP; conflicting
+ * facts → fail closed.
+ */
+export async function recordAuthorityHeldTx(
+  tx: Prisma.TransactionClient,
+  input: RecordAuthorityHeldTxInput
+): Promise<RecordAuthorityHeldTxResult> {
+  const incoming = normalizeCanonicalHeldFacts(input);
+  normalizeAuthorityTimestamp(input.heldAt, "heldAt");
+  let context = await loadAuthorityApprovalContext(
+    tx,
+    input.businessId,
+    input.billingDocumentId
+  );
+
+  if (context.submission.status === BillingAuthoritySubmissionStatus.HELD) {
+    return handleHeldIdempotencyGate(context.submission, incoming);
+  }
+
+  if (context.submission.status !== BillingAuthoritySubmissionStatus.SUBMITTED) {
+    throw new ForbiddenError(
+      "Authority hold-for-decision is only allowed from SUBMITTED",
+      "AUTHORITY_HOLD_FORBIDDEN"
+    );
+  }
+
+  const submissionUpdate: Prisma.BillingAuthoritySubmissionUpdateInput = {
+    status: BillingAuthoritySubmissionStatus.HELD,
+    errorCode: incoming.errorCode,
+    errorMessage: incoming.errorMessage,
+  };
+
+  if (input.authorityResponseHash !== undefined) {
+    submissionUpdate.authorityResponseHash = input.authorityResponseHash;
+  }
+
+  try {
+    const applied = await executeAuthorityTransitionTx(tx, {
+      businessId: input.businessId,
+      billingDocumentId: input.billingDocumentId,
+      kind: "HOLD_FOR_DECISION",
+      to: BillingAuthoritySubmissionStatus.HELD,
+      actorUserId: input.actorUserId,
+      occurredAt: input.occurredAt,
+      summary: "Authority hold-for-decision recorded",
+      metadata: {
+        heldAt: input.heldAt.toISOString(),
+        authorityCode: input.authorityCode,
+        errorCode: incoming.errorCode,
+        errorMessage: incoming.errorMessage,
+        authorityResponseHash: incoming.authorityResponseHash,
+        outcome: "APPLIED",
+      },
+      submissionUpdate,
+      requireCurrentStatus: BillingAuthoritySubmissionStatus.SUBMITTED,
+    });
+
+    return {
+      outcome: "APPLIED",
+      submission: applied.submission,
+      fromStatus: applied.fromStatus,
+      toStatus: applied.toStatus,
+      transitionKind: applied.transitionKind,
+      auditWritten: applied.auditWritten,
+    };
+  } catch (error) {
+    if (!(error instanceof AuthorityConditionalUpdateMissedError)) {
+      throw error;
+    }
+
+    context = await loadAuthorityApprovalContext(
+      tx,
+      input.businessId,
+      input.billingDocumentId
+    );
+
+    if (context.submission.status === BillingAuthoritySubmissionStatus.HELD) {
+      return handleHeldIdempotencyGate(context.submission, incoming);
+    }
+
+    throw new ForbiddenError(
+      "Authority hold-for-decision conditional update missed and submission is not held",
+      "AUTHORITY_HOLD_FORBIDDEN"
     );
   }
 }

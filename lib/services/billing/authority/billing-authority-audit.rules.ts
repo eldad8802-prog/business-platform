@@ -55,6 +55,11 @@ const TRANSITION_KIND_AUDIT: Record<
     transactional: true,
     requiresProjection: false,
   },
+  HOLD_FOR_DECISION: {
+    eventType: "BILLING_AUTHORITY_HELD",
+    transactional: true,
+    requiresProjection: false,
+  },
   REPORT_HELD_DECISION: {
     eventType: "BILLING_AUTHORITY_HELD_DECISION_REPORTED",
     transactional: true,
@@ -146,6 +151,12 @@ export function resolveAuthorityTransitionKind(input: {
   }
   if (to === BillingAuthoritySubmissionStatus.FAILED) {
     return "FAIL";
+  }
+  if (
+    from === BillingAuthoritySubmissionStatus.SUBMITTED &&
+    to === BillingAuthoritySubmissionStatus.HELD
+  ) {
+    return "HOLD_FOR_DECISION";
   }
   if (from === BillingAuthoritySubmissionStatus.SUBMITTED && from === to) {
     return "REPORT_HELD_DECISION";
