@@ -21,6 +21,8 @@
     "verify:crm-phone-format": "npx tsx lib/format/phone-display.test.ts",
     "verify:crm-subject": "npx tsx lib/services/crm/crm-subject.resolver.test.ts",
     "verify:crm-notes": "npx tsx lib/services/crm/crm-notes.service.test.ts",
+    "verify:crm-attachment-storage": "npx tsx lib/services/crm/crm-attachment-storage.test.ts",
+    "verify:crm-attachments": "npx tsx lib/services/crm/crm-attachments.service.test.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

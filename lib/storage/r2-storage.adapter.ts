@@ -6,16 +6,17 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import type {
-  GetObjectResult,
-  HeadObjectResult,
-  ObjectMetadata,
-  PutObjectInput,
-  PutObjectResult,
-  StorageConfig,
-  StorageDomain,
-  StorageService,
-  StorageVisibility,
+import {
+  STORAGE_DOMAINS,
+  type GetObjectResult,
+  type HeadObjectResult,
+  type ObjectMetadata,
+  type PutObjectInput,
+  type PutObjectResult,
+  type StorageConfig,
+  type StorageDomain,
+  type StorageService,
+  type StorageVisibility,
 } from "./types";
 import {
   StorageConfigError,
@@ -71,14 +72,8 @@ function buildPutMetadata(
 }
 
 function parseDomain(value: string | undefined): StorageDomain {
-  const domains: StorageDomain[] = [
-    "documents",
-    "billing",
-    "content",
-    "inventory",
-    "offers",
-  ];
-  if (value && domains.includes(value as StorageDomain)) {
+  // Derived from STORAGE_DOMAINS (single source of truth) — includes "crm".
+  if (value && (STORAGE_DOMAINS as readonly string[]).includes(value)) {
     return value as StorageDomain;
   }
   throw new StorageConfigError("Stored object metadata is missing a valid domain");

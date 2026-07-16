@@ -3,8 +3,12 @@ import { StorageKeyError } from "./storage.errors";
 
 const DOMAIN_SET = new Set<string>(STORAGE_DOMAINS);
 
-const STORAGE_KEY_PATTERN =
-  /^biz\/(\d+)\/(documents|billing|content|inventory|offers)\/(.+)$/;
+// Derived from STORAGE_DOMAINS (single source of truth) so a new domain — e.g.
+// "crm" — is recognized here without editing a second hardcoded list. The
+// trailing (.+) allows nested relative paths (e.g. crm/CUSTOMER/49/att-...pdf).
+const STORAGE_KEY_PATTERN = new RegExp(
+  `^biz/(\\d+)/(${STORAGE_DOMAINS.join("|")})/(.+)$`
+);
 
 export function normalizeStorageKey(key: string): string {
   const trimmed = key.trim().replace(/\\/g, "/");

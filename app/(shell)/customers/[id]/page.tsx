@@ -17,6 +17,7 @@ import {
 } from "@/lib/client-session";
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { NotesThread } from "@/components/crm/NotesThread";
+import { AttachmentList } from "@/components/crm/AttachmentList";
 
 const TAX_ID_TYPE_LABEL: Record<string, string> = {
   AUTHORIZED_DEALER: "עוסק מורשה",
@@ -226,6 +227,8 @@ function CustomerCardView({ card }: { card: CustomerCard }) {
       ) : null}
 
       <NotesThread subjectType="CUSTOMER" subjectId={customer.id} />
+
+      <AttachmentList subjectType="CUSTOMER" subjectId={customer.id} />
 
       {card.billingDocuments.total > 0 ? (
         <BillingDocumentsSection section={card.billingDocuments} />

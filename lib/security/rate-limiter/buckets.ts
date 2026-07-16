@@ -47,4 +47,16 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
     failMode: "open",
     rules: [{ scope: "business", limit: 120, windowSeconds: 60 }],
   },
+  // CRM attachment uploads (customer card, later supplier). A write path, so
+  // fail-CLOSED on a backend blip. Conservative — attachments are heavier and
+  // rarer than a chat message; keyed by user AND business.
+  CRM_ATTACHMENT_UPLOAD: {
+    failMode: "closed",
+    rules: [
+      { scope: "user", limit: 20, windowSeconds: 60 },
+      { scope: "user", limit: 100, windowSeconds: 60 * 60 },
+      { scope: "business", limit: 60, windowSeconds: 60 },
+      { scope: "business", limit: 500, windowSeconds: 24 * 60 * 60 },
+    ],
+  },
 };
