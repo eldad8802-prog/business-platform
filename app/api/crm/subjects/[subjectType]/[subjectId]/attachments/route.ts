@@ -5,6 +5,7 @@ import { ValidationError } from "@/lib/errors";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
 import { crmAttachmentsService } from "@/lib/services/crm/crm-attachments.service";
+import { MAX_ATTACHMENT_BYTES } from "@/lib/services/crm/crm-attachment-storage";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -59,6 +60,13 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       throw new ValidationError("ניתן להעלות קובץ אחד בכל פעם");
     }
     const file = files[0];
+
+    // Fast size gate on the declared size BEFORE buffering the whole file into
+    // memory — mirrors the Documents upload route. The service still validates
+    // the real byte length (authoritative; a spoofed file.size cannot pass it).
+    if (typeof file.size !== "number" || file.size > MAX_ATTACHMENT_BYTES) {
+      return NextResponse.json({ error: "הקובץ גדול מדי (עד 15MB)" }, { status: 413 });
+    }
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const attachment = await crmAttachmentsService.uploadAttachment({
