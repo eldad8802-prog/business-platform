@@ -45,6 +45,10 @@ import {
   writeAtomic,
 } from "@/lib/services/billing/pdf/billing-pdf-storage";
 import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
+import {
+  AUTHORITY_NOT_DELIVERABLE_CODE,
+  evaluateAuthorityDeliverability,
+} from "@/lib/services/billing/authority/billing-authority-delivery.rules";
 
 const RENDER_ERROR_MESSAGE_MAX = 500;
 
@@ -137,12 +141,21 @@ export async function getOrRenderBillingPdf(
       id: true,
       businessId: true,
       status: true,
+      documentType: true,
+      allocationNumber: true,
       documentNumberFormatted: true,
       issuedSnapshot: true,
       pdfRenderStatus: true,
       pdfStorageKey: true,
       pdfHash: true,
       pdfTemplateVersion: true,
+      authoritySubmission: {
+        select: {
+          status: true,
+          heldDecisionType: true,
+          heldDecisionReportedAt: true,
+        },
+      },
     },
   });
 
@@ -152,6 +165,28 @@ export async function getOrRenderBillingPdf(
 
   if (doc.status !== BillingDocumentStatus.ISSUED) {
     throw new ForbiddenError("PDF is available only for issued documents");
+  }
+
+  // ISSUED is necessary but NOT sufficient: when an authority allocation is
+  // required, the final PDF is deliverable only once it is granted. Fail-closed.
+  const deliverability = evaluateAuthorityDeliverability({
+    documentType: doc.documentType,
+    submissionStatus: doc.authoritySubmission?.status ?? null,
+    heldDecisionType: doc.authoritySubmission?.heldDecisionType ?? null,
+    heldDecisionReportedAt: doc.authoritySubmission?.heldDecisionReportedAt ?? null,
+    documentAllocationNumber: doc.allocationNumber,
+  });
+  if (!deliverability.deliverable) {
+    // Filtered log; the thrown message is generic (no authority PII).
+    console.error("billing-pdf: delivery blocked", {
+      billingDocumentId: doc.id,
+      businessId: input.businessId,
+      reason: deliverability.reason,
+    });
+    throw new ForbiddenError(
+      "Document is not yet approved for delivery",
+      AUTHORITY_NOT_DELIVERABLE_CODE
+    );
   }
 
   if (!doc.issuedSnapshot || typeof doc.issuedSnapshot !== "object") {

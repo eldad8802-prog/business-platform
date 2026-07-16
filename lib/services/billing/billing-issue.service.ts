@@ -1,9 +1,11 @@
 import {
+  BillingAuthoritySubmissionStatus,
   BillingDocument,
   BillingDocumentLine,
   BillingDocumentStatus,
   BillingDocumentType,
   BillingPdfRenderStatus,
+  CustomerTaxIdType,
   Prisma,
 } from "@prisma/client";
 import { createHash } from "crypto";
@@ -16,6 +18,19 @@ import {
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
 import { createBillingAuditEventTx } from "@/lib/services/billing/billing-audit.service";
+import {
+  createAuthoritySubmissionForIssuedDocumentTx,
+  type CreateAuthoritySubmissionAtIssueResult,
+} from "@/lib/services/billing/authority/billing-authority-issue.service";
+import {
+  executeAuthorityApproval,
+  type ExecutionResult,
+} from "@/lib/services/billing/authority/billing-authority-submission-execution.service";
+import {
+  AUTHORITY_ISSUE_NOT_REQUIRED,
+  mapExecutionResultToAuthorityOutcome,
+  type AuthorityIssueOutcome,
+} from "@/lib/services/billing/authority/billing-authority-issue-outcome";
 import {
   assertCanReferenceSourceInvoice,
   assertCreditAmountWithinRemaining,
@@ -311,9 +326,88 @@ export function buildIssuedSnapshot(args: {
   };
 }
 
+/** Result of issuance: the document plus the resolved authority outcome. */
+export type IssueBillingDocumentResult = {
+  document: BillingDocument & { lines: BillingDocumentLine[] };
+  authority: AuthorityIssueOutcome;
+};
+
+/** Injectable authority execution — swapped in tests; real path calls the Execution Service. */
+export type IssueAuthorityDeps = {
+  executeApproval: (input: {
+    businessId: number;
+    billingDocumentId: number;
+    actorUserId: number;
+  }) => Promise<ExecutionResult>;
+};
+
+export const defaultIssueAuthorityDeps: IssueAuthorityDeps = {
+  executeApproval: (input) => executeAuthorityApproval(input),
+};
+
+/**
+ * Post-commit authority resolution. MUST run only after the issue transaction
+ * has committed — it performs the external Approval HTTP call via the Execution
+ * Service (never inside a Prisma transaction).
+ *
+ * - No submission / NOT_REQUIRED → `not_required` (no HTTP).
+ * - READY → execute ONE approval attempt, map the result.
+ * - Any other status → defensive `in_progress` (no HTTP).
+ *
+ * A late/unexpected throw is contained: the document is already ISSUED and must
+ * NOT be reported as a failed issuance. It is surfaced as `execution_error`
+ * with a filtered code; nothing sensitive is logged.
+ */
+export async function resolveAuthorityOutcomeAfterIssue(
+  args: {
+    businessId: number;
+    billingDocumentId: number;
+    actorUserId: number;
+    submission: CreateAuthoritySubmissionAtIssueResult | null;
+  },
+  deps: IssueAuthorityDeps = defaultIssueAuthorityDeps
+): Promise<AuthorityIssueOutcome> {
+  const { submission } = args;
+
+  if (submission === null) {
+    return AUTHORITY_ISSUE_NOT_REQUIRED;
+  }
+  if (submission.status === BillingAuthoritySubmissionStatus.NOT_REQUIRED) {
+    return { status: "not_required", submissionId: submission.submissionId };
+  }
+  if (submission.status !== BillingAuthoritySubmissionStatus.READY) {
+    // Defensive: at issue time a submission is only ever READY or NOT_REQUIRED.
+    return { status: "in_progress", submissionId: submission.submissionId, safeToRetry: false };
+  }
+
+  try {
+    const result = await deps.executeApproval({
+      businessId: args.businessId,
+      billingDocumentId: args.billingDocumentId,
+      actorUserId: args.actorUserId,
+    });
+    return mapExecutionResultToAuthorityOutcome(result);
+  } catch {
+    // Filtered log only — no token / runtime context / payload / raw response.
+    console.error("billing-issue: authority approval threw after commit", {
+      businessId: args.businessId,
+      billingDocumentId: args.billingDocumentId,
+      submissionId: submission.submissionId,
+      errorCode: "AUTHORITY_EXECUTION_UNEXPECTED",
+    });
+    return {
+      status: "execution_error",
+      submissionId: submission.submissionId,
+      errorCode: "AUTHORITY_EXECUTION_UNEXPECTED",
+      safeToRetry: "manual",
+    };
+  }
+}
+
 export async function issueBillingDocument(
-  input: IssueBillingDocumentInput
-): Promise<BillingDocument & { lines: BillingDocumentLine[] }> {
+  input: IssueBillingDocumentInput,
+  authorityDeps: IssueAuthorityDeps = defaultIssueAuthorityDeps
+): Promise<IssueBillingDocumentResult> {
   if (!input.businessId || Number.isNaN(input.businessId)) {
     throw new UnauthorizedError();
   }
@@ -453,6 +547,7 @@ export async function issueBillingDocument(
           email: string | null;
           city: string | null;
           taxId: string | null;
+          taxIdType: CustomerTaxIdType | null;
         }
       | null = null;
 
@@ -466,6 +561,9 @@ export async function issueBillingDocument(
           email: true,
           city: true,
           taxId: true,
+          // Needed for authority readiness (licensed-dealer check). Not part of
+          // the issued snapshot; used only to evaluate submission readiness.
+          taxIdType: true,
         },
       });
       if (customer) {
@@ -572,11 +670,33 @@ export async function issueBillingDocument(
       occurredAt: issuedAt,
     });
 
+    // Atomic with issuance: create the authority submission (READY / NOT_REQUIRED)
+    // for the now-ISSUED document. Returns null for non-eligible document types.
+    // Any failure here rolls back the whole issue transaction (no ISSUED document
+    // without a resolved authority readiness when the type is relevant).
+    const authoritySubmission = await createAuthoritySubmissionForIssuedDocumentTx(
+      tx,
+      {
+        businessId: input.businessId,
+        billingDocumentId: issued.id,
+        actorUserId: input.actorUserId,
+        documentType: issued.documentType,
+        legalSnapshotHash,
+        vatAmount: recomputed.totals.vatAmount,
+        subtotalAmount: recomputed.totals.subtotalAmount,
+        currency: issued.currency,
+        customerTaxId: customerData?.taxId ?? null,
+        customerTaxIdType: customerData?.taxIdType ?? null,
+        issuedAt,
+      }
+    );
+
     return {
       issued,
       documentNumber,
       documentNumberFormatted,
       totals: recomputed.totals,
+      authoritySubmission,
     };
   });
 
@@ -603,5 +723,16 @@ export async function issueBillingDocument(
     },
   });
 
-  return result.issued;
+  // Post-commit ONLY: the external Approval call happens outside any transaction.
+  const authority = await resolveAuthorityOutcomeAfterIssue(
+    {
+      businessId: input.businessId,
+      billingDocumentId: result.issued.id,
+      actorUserId: input.actorUserId,
+      submission: result.authoritySubmission,
+    },
+    authorityDeps
+  );
+
+  return { document: result.issued, authority };
 }
