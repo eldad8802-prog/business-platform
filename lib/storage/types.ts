@@ -4,6 +4,7 @@ export const STORAGE_DOMAINS = [
   "content",
   "inventory",
   "offers",
+  "crm",
 ] as const;
 
 export type StorageDomain = (typeof STORAGE_DOMAINS)[number];

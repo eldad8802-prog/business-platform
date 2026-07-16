@@ -215,6 +215,7 @@ model Business {
   businessObligations         BusinessObligation[]
   businessObligationOrientation BusinessObligationOrientation?
   crmNotes                    CrmNote[]
+  crmAttachments              CrmAttachment[]
 
   @@index([archivedAt])
 }
@@ -241,6 +242,7 @@ model User {
   archivedBusinesses                       Business[]                   @relation("BusinessArchivedBy")
   billingAuthorityConnectionsOauthAuthorized BillingAuthorityConnection[] @relation("BillingAuthorityOauthAuthorizedBy")
   crmNotesCreated                          CrmNote[]
+  crmAttachmentsUploaded                   CrmAttachment[]
 }
 
 /// Generic CRM subject reference (see docs/dubiz-crm-foundation-spec-v1.md §2 / E1).
@@ -267,6 +269,28 @@ model CrmNote {
 
   @@index([businessId, subjectType, subjectId, createdAt])
   @@index([createdByUserId])
+}
+
+/// User-uploaded file attached to any CRM subject (Customer now, Supplier later).
+/// Distinct from the financial/OCR `Document` model — never merged with it. Bytes
+/// live in object storage (domain "crm", private); only metadata is stored here.
+model CrmAttachment {
+  id               Int            @id @default(autoincrement())
+  businessId       Int
+  subjectType      CrmSubjectType
+  subjectId        Int
+  storageKey       String
+  originalFileName String
+  mimeType         String
+  sizeBytes        Int
+  uploadedByUserId Int?
+  createdAt        DateTime       @default(now())
+  business         Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  uploadedByUser   User?          @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, storageKey])
+  @@index([businessId, subjectType, subjectId, createdAt])
+  @@index([uploadedByUserId])
 }
 
 /// Append-only product usage analytics (distinct from weekly `Usage` quota counters).
