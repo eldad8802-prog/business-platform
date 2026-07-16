@@ -4,10 +4,11 @@ import {
   useEffect,
   useState,
 } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { GlobalBusinessAvatar } from "@/components/business/GlobalBusinessAvatar";
 import { DubizIntroOverlay } from "@/components/brand/dubiz-intro-overlay";
+import {
+  HomeScreen,
+  type HomeView,
+} from "@/features/home/components/home-screen";
 
 type HeroAction = {
   actionKey: string;
@@ -29,6 +30,7 @@ type QuickAction = {
 type BusinessSnapshot = {
   businessName: string;
   greeting?: string;
+  ownerName?: string;
 };
 
 type HomeResponse = {
@@ -37,29 +39,45 @@ type HomeResponse = {
   businessSnapshot: BusinessSnapshot;
 };
 
-function getIcon(icon: string) {
-  switch (icon) {
-    case "chat":
-      return "💬";
-    case "video":
-      return "🎥";
-    case "tag":
-      return "🏷️";
-    case "users":
-      return "🤝";
-    case "bot":
-      return "🤖";
-    case "percent":
-      return "📈";
-    case "file":
-      return "📄";
-    case "spark":
-      return "✨";
-    case "secretary":
-      return "\u{1F464}";
-    default:
-      return "🧩";
-  }
+/**
+ * Time-of-day greeting, computed client-side from the user's own clock (a
+ * server hour would be the wrong timezone). Feeds "בוקר טוב, {name}".
+ */
+function greetingForHour(hour: number): string {
+  if (hour >= 5 && hour < 12) return "בוקר טוב";
+  if (hour >= 12 && hour < 17) return "צהריים טובים";
+  if (hour >= 17 && hour < 22) return "ערב טוב";
+  return "לילה טוב";
+}
+
+/**
+ * Builds the home view-model from the authenticated /api/home payload. Only the
+ * data we genuinely have is wired (owner/business name, greeting, navigation);
+ * the engine-backed sections (day-state, insights) are passed as null so the
+ * HomeScreen renders its honest empty states rather than fabricated numbers.
+ */
+function buildHomeView(data: HomeResponse): HomeView {
+  const ownerName =
+    data.businessSnapshot.ownerName?.trim().split(/\s+/)[0] ||
+    data.businessSnapshot.businessName?.trim().split(/\s+/)[0] ||
+    "";
+  const greeting = greetingForHour(new Date().getHours());
+
+  return {
+    secretary: {
+      label: "המזכירה שלך",
+      greeting: ownerName ? `${greeting}, ${ownerName}` : greeting,
+      message:
+        "אני עוקבת אחרי העסק בשבילך. כשיצוץ משהו שדורש תשומת לב — הוא יחכה לך כאן.",
+      ctaLabel: "למזכירה שלך",
+      ctaHref: "/secretary",
+    },
+    // No approved day-state / insights engine yet → honest empty states.
+    dayState: null,
+    insights: null,
+    notifications: { href: "/attention", hasUnread: false },
+    settingsHref: "/settings",
+  };
 }
 
 // The pre-session bootstrap paint. Rendered as the intro's cream ground (no
@@ -143,184 +161,9 @@ function HomeErrorState({
   );
 }
 
-function HomeHeader({
-  businessName,
-  onOpenTools,
-}: {
-  businessName: string;
-  onOpenTools: () => void;
-}) {
-  return (
-    <header className="mb-5 rounded-3xl bg-white px-4 py-4 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <button
-          onClick={onOpenTools}
-          className="flex h-11 min-w-[44px] items-center justify-center rounded-2xl border border-gray-200 px-3 text-sm font-medium text-gray-700"
-          aria-label="כל הכלים"
-        >
-          ☰
-        </button>
-
-        <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
-          <GlobalBusinessAvatar displayName={businessName || "העסק שלך"} />
-          <div className="min-w-0 text-center">
-            <p className="truncate text-base font-bold text-gray-900">
-              {businessName || "העסק שלך"}
-            </p>
-            <p className="mt-1 text-xs text-gray-500">דף הבית</p>
-          </div>
-        </div>
-
-        <Link
-          href="/settings"
-          className="flex h-11 min-w-[44px] items-center justify-center rounded-2xl border border-gray-200 px-3 text-sm text-gray-600"
-          aria-label="הגדרות מערכת"
-        >
-          ⚙️
-        </Link>
-      </div>
-    </header>
-  );
-}
-
-function HeroCard({
-  heroAction,
-  onPrimaryClick,
-}: {
-  heroAction: HeroAction;
-  onPrimaryClick: () => void;
-}) {
-  return (
-    <section className="mb-5 rounded-[28px] bg-white p-5 shadow-sm">
-      <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#eef7f2] text-2xl">
-        ✨
-      </div>
-
-      <h1 className="mb-2 text-2xl font-bold leading-tight text-gray-900">
-        {heroAction.title}
-      </h1>
-
-      <p className="mb-5 text-sm leading-6 text-gray-600">
-        {heroAction.description}
-      </p>
-
-      <button
-        onClick={onPrimaryClick}
-        className="w-full rounded-2xl bg-[#1f7a5a] px-4 py-3.5 text-sm font-semibold text-white transition active:scale-[0.99]"
-      >
-        {heroAction.ctaLabel}
-      </button>
-    </section>
-  );
-}
-
-function QuickActionCard({
-  action,
-  onClick,
-}: {
-  action: QuickAction;
-  onClick: () => void;
-}) {
-  const isSoon = action.status === "soon";
-
-  return (
-    <button
-      onClick={onClick}
-      className="relative min-h-[132px] rounded-[24px] bg-white p-4 text-right shadow-sm transition active:scale-[0.99]"
-    >
-      {isSoon && (
-        <span className="absolute left-3 top-3 rounded-full bg-[#f4ead0] px-2.5 py-1 text-[10px] font-semibold text-[#7a5a1f]">
-          בקרוב
-        </span>
-      )}
-
-      <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f8f6f1] text-2xl">
-        {getIcon(action.icon)}
-      </div>
-
-      <div className="text-sm font-bold text-gray-900">{action.title}</div>
-
-      <p className="mt-2 text-xs leading-5 text-gray-500">
-        {isSoon ? "יכולת שנמצאת בתכנון המערכת" : "כניסה מהירה לפעולה"}
-      </p>
-    </button>
-  );
-}
-
-function AllToolsEntry({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="mb-5 flex w-full items-center justify-between rounded-[24px] bg-white px-4 py-4 text-right shadow-sm transition active:scale-[0.99]"
-    >
-      <div>
-        <p className="text-sm font-bold text-gray-900">כל הכלים</p>
-        <p className="mt-1 text-xs text-gray-500">
-          מעבר לכל 8 הפיצ׳רים של המערכת
-        </p>
-      </div>
-
-      <div className="text-xl text-gray-500">←</div>
-    </button>
-  );
-}
-
-/**
- * TEMPORARY — QA shortcut to the new Collection Workspace (/payments).
- * Matches the home card design language (white · rounded-[24px] · shadow-sm ·
- * RTL · icon tile · arrow). NOT a server-driven quick action; no new logic, no
- * backend. Remove or relocate after Collection QA is approved.
- */
-function TempCollectionQaCard() {
-  return (
-    <Link
-      href="/payments"
-      className="mb-5 flex items-center justify-between rounded-[24px] bg-white px-4 py-4 text-right shadow-sm transition active:scale-[0.99]"
-    >
-      <div className="flex items-center gap-3">
-        <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f8f6f1] text-2xl">
-          💰
-        </div>
-        <div>
-          <p className="text-sm font-bold text-gray-900">גבייה</p>
-          <p className="mt-1 text-xs text-gray-500">מרכז הגבייה — זמני לבדיקות QA</p>
-        </div>
-      </div>
-      <div className="text-xl text-gray-500">←</div>
-    </Link>
-  );
-}
-
-function BusinessSnapshotCard({
-  businessSnapshot,
-}: {
-  businessSnapshot: BusinessSnapshot;
-}) {
-  return (
-    <section className="rounded-[24px] bg-white p-4 shadow-sm">
-      <p className="text-xs font-semibold text-gray-500">העסק שלך</p>
-      <p className="mt-2 text-lg font-bold text-gray-900">
-        {businessSnapshot.businessName}
-      </p>
-
-      {businessSnapshot.greeting ? (
-        <p className="mt-2 text-sm leading-6 text-gray-600">
-          {businessSnapshot.greeting}
-        </p>
-      ) : (
-        <p className="mt-2 text-sm leading-6 text-gray-600">
-          מקום אחד שמרכז עבורך את הפעולות החשובות של העסק.
-        </p>
-      )}
-    </section>
-  );
-}
-
 const HOME_FETCH_TIMEOUT_MS = 28_000;
 
 function HomePage() {
-  const router = useRouter();
-
   const [data, setData] = useState<HomeResponse | null>(null);
   /** Start true so we never flash HomeErrorState before the first /api/home attempt (token path). */
   const [loading, setLoading] = useState(true);
@@ -429,20 +272,6 @@ function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionReady, sessionToken, storageError]);
 
-  const handleHeroClick = () => {
-    if (!data?.heroAction?.ctaHref) return;
-    router.push(data.heroAction.ctaHref);
-  };
-
-  const handleQuickActionClick = (action: QuickAction) => {
-    if (!action.href) return;
-    router.push(action.href);
-  };
-
-  const handleOpenTools = () => {
-    router.push("/tools");
-  };
-
   const showLoginGate =
     sessionReady && (!sessionToken || storageError !== null);
 
@@ -507,44 +336,7 @@ function HomePage() {
       <HomeErrorState onRetry={loadHome} onReLogin={goReLogin} />
     );
   } else {
-    body = (
-      <main className="min-h-screen bg-[#f8f6f1] text-[#1f2937]">
-        <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-8 pt-4 sm:max-w-2xl sm:px-6 lg:max-w-4xl">
-          <HomeHeader
-            businessName={data.businessSnapshot.businessName}
-            onOpenTools={handleOpenTools}
-          />
-
-          <HeroCard
-            heroAction={data.heroAction}
-            onPrimaryClick={handleHeroClick}
-          />
-
-          <TempCollectionQaCard />
-
-          <section className="mb-5">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-bold text-gray-900">גישה מהירה</h2>
-              <span className="text-xs text-gray-500">3–4 כלים חשובים עכשיו</span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              {data.quickActions.map((action) => (
-                <QuickActionCard
-                  key={action.key}
-                  action={action}
-                  onClick={() => handleQuickActionClick(action)}
-                />
-              ))}
-            </div>
-          </section>
-
-          <AllToolsEntry onClick={handleOpenTools} />
-
-          <BusinessSnapshotCard businessSnapshot={data.businessSnapshot} />
-        </div>
-      </main>
-    );
+    body = <HomeScreen view={buildHomeView(data)} />;
   }
 
   // The brand intro overlay REPLACES the old skeleton on first authenticated

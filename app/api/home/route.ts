@@ -22,6 +22,7 @@ export async function GET(req: Request) {
     const homeData = await getHomeData({
       businessName: user.business?.name || "העסק שלך",
       businessId,
+      ownerName: user.name ?? undefined,
     });
 
     return NextResponse.json(homeData);

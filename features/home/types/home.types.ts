@@ -18,6 +18,12 @@ export type QuickAction = {
 export type BusinessSnapshot = {
   businessName: string;
   greeting?: string;
+  /**
+   * The signed-in owner's display name (User.name). Powers the personal home
+   * greeting ("בוקר טוב, {ownerName}"). Optional: users may have no name set,
+   * in which case the home falls back to the business name.
+   */
+  ownerName?: string;
 };
 
 export type HomeResponse = {
