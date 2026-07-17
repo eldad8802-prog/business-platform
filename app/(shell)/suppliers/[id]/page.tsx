@@ -14,6 +14,7 @@ import {
 } from "@/lib/client-session";
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { NotesThread } from "@/components/crm/NotesThread";
+import { AttachmentList } from "@/components/crm/AttachmentList";
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -195,6 +196,8 @@ function SupplierCardView({
       ) : null}
 
       <NotesThread subjectType="SUPPLIER" subjectId={supplier.id} />
+
+      <AttachmentList subjectType="SUPPLIER" subjectId={supplier.id} />
     </>
   );
 }
