@@ -13,6 +13,7 @@ import {
   redirectToLogin,
 } from "@/lib/client-session";
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
+import { NotesThread } from "@/components/crm/NotesThread";
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -192,6 +193,8 @@ function SupplierCardView({
           <div className="crm-note__body">{supplier.notes}</div>
         </div>
       ) : null}
+
+      <NotesThread subjectType="SUPPLIER" subjectId={supplier.id} />
     </>
   );
 }
