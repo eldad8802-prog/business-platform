@@ -22,6 +22,8 @@ import {
   shouldShowCollections,
   type PaymentRequestStatus,
 } from "@/lib/billing/collections-visibility";
+import { describeAuthorityIssueOutcome } from "@/lib/billing/authority-issue-display";
+import type { AuthorityIssueOutcome } from "@/lib/services/billing/authority/billing-authority-issue-outcome";
 
 type BillingStatus = "DRAFT" | "PENDING_REVIEW" | "ISSUED";
 
@@ -810,7 +812,23 @@ export default function BillingDocumentWorkspacePage() {
         } else if (action === "revert") {
           setLifecycleSuccess("המסמך הוחזר לטיוטה.");
         } else if (action === "issue") {
-          setLifecycleSuccess("המסמך הופק בהצלחה.");
+          // "Issued" and "allocation received" are DISTINCT states — never show a
+          // generic success just because the document status is ISSUED. Derive the
+          // message from the authority outcome; only a granted number (or a
+          // not-required document) is a green success — everything else surfaces
+          // as a non-success notice that needs handling.
+          const authority = data?.authority as AuthorityIssueOutcome | undefined;
+          if (authority) {
+            const view = describeAuthorityIssueOutcome(authority);
+            const message = `${view.title} — ${view.detail}`;
+            if (view.tone === "success" || view.tone === "info") {
+              setLifecycleSuccess(message);
+            } else {
+              setLifecycleError(message);
+            }
+          } else {
+            setLifecycleSuccess("המסמך הופק.");
+          }
           setIssueConfirmOpen(false);
         }
       } catch {

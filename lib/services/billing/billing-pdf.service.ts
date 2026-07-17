@@ -139,6 +139,10 @@ export async function getOrRenderBillingPdf(
       status: true,
       documentNumberFormatted: true,
       issuedSnapshot: true,
+      // Authority allocation number is granted AFTER the snapshot is frozen, so
+      // it is projected onto the live column — it must overlay the snapshot for
+      // display (the snapshot froze it as null at issue time).
+      allocationNumber: true,
       pdfRenderStatus: true,
       pdfStorageKey: true,
       pdfHash: true,
@@ -169,6 +173,16 @@ export async function getOrRenderBillingPdf(
     throw new ValidationError(
       err instanceof Error ? err.message : "Invalid issued snapshot"
     );
+  }
+
+  // Targeted authority overlay: the live allocation number (granted post-issue)
+  // overrides the frozen snapshot value for display ONLY. No other snapshot data
+  // is touched — amounts, customer, and line items stay exactly as frozen.
+  if (typeof doc.allocationNumber === "string" && doc.allocationNumber.trim().length > 0) {
+    snapshot = {
+      ...snapshot,
+      document: { ...snapshot.document, allocationNumber: doc.allocationNumber },
+    };
   }
 
   const documentNumberFormatted = doc.documentNumberFormatted;
