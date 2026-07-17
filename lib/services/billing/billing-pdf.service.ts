@@ -45,6 +45,10 @@ import {
   writeAtomic,
 } from "@/lib/services/billing/pdf/billing-pdf-storage";
 import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
+import {
+  AUTHORITY_NOT_DELIVERABLE_CODE,
+  evaluateAuthorityDeliverability,
+} from "@/lib/services/billing/authority/billing-authority-delivery.rules";
 
 const RENDER_ERROR_MESSAGE_MAX = 500;
 
@@ -137,8 +141,9 @@ export async function getOrRenderBillingPdf(
       id: true,
       businessId: true,
       status: true,
-      documentNumberFormatted: true,
+      documentType: true,
       issuedSnapshot: true,
+      documentNumberFormatted: true,
       // Authority allocation number is granted AFTER the snapshot is frozen, so
       // it is projected onto the live column — it must overlay the snapshot for
       // display (the snapshot froze it as null at issue time).
@@ -147,6 +152,15 @@ export async function getOrRenderBillingPdf(
       pdfStorageKey: true,
       pdfHash: true,
       pdfTemplateVersion: true,
+      // Delivery policy inputs (central guard). heldDecision* are loaded for the
+      // future PROCEED_WITHOUT_ALLOCATION path; they never unblock today.
+      authoritySubmission: {
+        select: {
+          status: true,
+          heldDecisionType: true,
+          heldDecisionReportedAt: true,
+        },
+      },
     },
   });
 
@@ -156,6 +170,30 @@ export async function getOrRenderBillingPdf(
 
   if (doc.status !== BillingDocumentStatus.ISSUED) {
     throw new ForbiddenError("PDF is available only for issued documents");
+  }
+
+  // Central delivery policy — the single choke point for the final invoice PDF.
+  // ISSUED is the accounting state, NOT "deliverable": a document that requires
+  // an allocation is deliverable only once it is APPROVED (with a number) or
+  // NOT_REQUIRED. Runs BEFORE the cache serve so a cached copy is blocked too.
+  const deliverability = evaluateAuthorityDeliverability({
+    documentType: doc.documentType,
+    submissionStatus: doc.authoritySubmission?.status ?? null,
+    heldDecisionType: doc.authoritySubmission?.heldDecisionType ?? null,
+    heldDecisionReportedAt: doc.authoritySubmission?.heldDecisionReportedAt ?? null,
+    documentAllocationNumber: doc.allocationNumber,
+  });
+  if (!deliverability.deliverable) {
+    // Filtered log; the thrown message is generic (no authority PII).
+    console.error("billing-pdf: final delivery blocked", {
+      billingDocumentId: doc.id,
+      businessId: input.businessId,
+      reason: deliverability.reason,
+    });
+    throw new ForbiddenError(
+      "החשבונית נרשמה, אך מספר ההקצאה טרם התקבל — לא ניתן למסור חשבונית סופית כעת",
+      AUTHORITY_NOT_DELIVERABLE_CODE
+    );
   }
 
   if (!doc.issuedSnapshot || typeof doc.issuedSnapshot !== "object") {
