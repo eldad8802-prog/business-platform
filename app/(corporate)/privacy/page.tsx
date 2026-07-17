@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { CorporateContainer } from "@/components/corporate/CorporateContainer";
 
 export const metadata: Metadata = {
@@ -266,6 +267,16 @@ export default function CorporatePrivacyPage() {
             באפשרותך לבקש את מחיקת המידע האישי שלך, בכפוף למגבלות ולחובות שמירה
             הנדרשים על פי דין או לצורך תפעול תקין של השירות. נטפל בבקשתך בהתאם
             לדין החל.
+          </p>
+          <p className="mt-3">
+            למחיקת נתוני החיבור ל-WhatsApp/Meta שנשמרים ב-Dubiz, ראו את{" "}
+            <Link
+              href="/data-deletion"
+              className="text-[var(--mkt-link)] underline"
+            >
+              עמוד מחיקת נתוני חיבור Meta
+            </Link>
+            .
           </p>
         </section>
 

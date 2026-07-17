@@ -95,6 +95,21 @@ export function WhatsAppMetaDataPrivacySection({
           >
             Dubiz שומרת רק את המידע הדרוש להפעלת החיבור ל-WhatsApp Business.
           </p>
+          <p
+            style={{
+              margin: "8px 0 0",
+              fontSize: TOKEN.font.meta,
+              fontWeight: TOKEN.weight.medium,
+              lineHeight: 1.55,
+            }}
+          >
+            <a
+              href="/data-deletion"
+              style={{ color: TOKEN.brand.mid, textDecoration: "underline" }}
+            >
+              מה נמחק ומה נשמר — מחיקת נתוני חיבור Meta
+            </a>
+          </p>
         </div>
       </div>
 
