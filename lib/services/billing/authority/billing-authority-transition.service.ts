@@ -2,6 +2,7 @@ import {
   BillingAuthoritySubmissionChannel,
   BillingAuthoritySubmissionStatus,
   BillingDocumentStatus,
+  BillingPdfRenderStatus,
   Prisma,
 } from "@prisma/client";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
@@ -683,6 +684,10 @@ function buildDocumentProjectionUpdate(
     allocationNumber: facts.allocationNumber,
     allocationApprovedAt: facts.approvedAt,
     isEmergencyAllocation: facts.isEmergencyAllocation,
+    // Invalidate any cached PDF: it was rendered before the allocation number
+    // existed. Forcing PENDING makes the next PDF request re-render WITH the
+    // number (never serve a stale cached copy that lacks it).
+    pdfRenderStatus: BillingPdfRenderStatus.PENDING,
   };
 }
 

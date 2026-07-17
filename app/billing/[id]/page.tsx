@@ -22,6 +22,8 @@ import {
   shouldShowCollections,
   type PaymentRequestStatus,
 } from "@/lib/billing/collections-visibility";
+import { describeAuthorityIssueOutcome } from "@/lib/billing/authority-issue-display";
+import type { AuthorityIssueOutcome } from "@/lib/services/billing/authority/billing-authority-issue-outcome";
 
 type BillingStatus = "DRAFT" | "PENDING_REVIEW" | "ISSUED";
 
@@ -810,7 +812,23 @@ export default function BillingDocumentWorkspacePage() {
         } else if (action === "revert") {
           setLifecycleSuccess("המסמך הוחזר לטיוטה.");
         } else if (action === "issue") {
-          setLifecycleSuccess("המסמך הופק בהצלחה.");
+          // "Issued" and "allocation received" are DISTINCT states — never show a
+          // generic success just because the document status is ISSUED. Derive the
+          // message from the authority outcome; only a granted number (or a
+          // not-required document) is a green success — everything else surfaces
+          // as a non-success notice that needs handling.
+          const authority = data?.authority as AuthorityIssueOutcome | undefined;
+          if (authority) {
+            const view = describeAuthorityIssueOutcome(authority);
+            const message = `${view.title} — ${view.detail}`;
+            if (view.tone === "success" || view.tone === "info") {
+              setLifecycleSuccess(message);
+            } else {
+              setLifecycleError(message);
+            }
+          } else {
+            setLifecycleSuccess("המסמך הופק.");
+          }
           setIssueConfirmOpen(false);
         }
       } catch {
@@ -3377,8 +3395,20 @@ function QuoteDraftHero({
       cache: "no-store",
     });
     if (!res.ok) {
-      const err = new Error(`PDF request failed (${res.status})`);
-      (err as Error & { status?: number }).status = res.status;
+      const err = new Error(`PDF request failed (${res.status})`) as Error & {
+        status?: number;
+        serverMessage?: string;
+      };
+      err.status = res.status;
+      // Capture the server's reason (e.g. the allocation-not-yet-received
+      // delivery block) so we can show it instead of a generic message.
+      try {
+        const data = await res.json();
+        if (data && typeof data.error === "string" && data.error.trim()) {
+          err.serverMessage = data.error.trim();
+        }
+      } catch {
+      }
       throw err;
     }
     return await res.blob();
@@ -3389,11 +3419,17 @@ function QuoteDraftHero({
       err && typeof err === "object" && "status" in err
         ? (err as { status?: number }).status
         : undefined;
+    const serverMessage =
+      err && typeof err === "object" && "serverMessage" in err
+        ? (err as { serverMessage?: string }).serverMessage
+        : undefined;
     if (status === 401) {
       return "נדרש להתחבר מחדש כדי לפתוח את המסמך.";
     }
     if (status === 403) {
-      return "אין הרשאה לפתוח את המסמך הזה.";
+      // A delivery block (allocation not yet received) carries a specific reason;
+      // surface it. Only fall back to the generic authorization message otherwise.
+      return serverMessage ?? "אין הרשאה לפתוח את המסמך הזה.";
     }
     if (status === 500) {
       return "הכנת המסמך לשיתוף נכשלה. נסו שוב.";
@@ -3673,8 +3709,20 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
       cache: "no-store",
     });
     if (!res.ok) {
-      const err = new Error(`PDF request failed (${res.status})`);
-      (err as Error & { status?: number }).status = res.status;
+      const err = new Error(`PDF request failed (${res.status})`) as Error & {
+        status?: number;
+        serverMessage?: string;
+      };
+      err.status = res.status;
+      // Capture the server's reason (e.g. the allocation-not-yet-received
+      // delivery block) so we can show it instead of a generic message.
+      try {
+        const data = await res.json();
+        if (data && typeof data.error === "string" && data.error.trim()) {
+          err.serverMessage = data.error.trim();
+        }
+      } catch {
+      }
       throw err;
     }
     return await res.blob();
@@ -3685,11 +3733,17 @@ function IssuedHero({ doc }: { doc: BillingDocumentDetail }) {
       err && typeof err === "object" && "status" in err
         ? (err as { status?: number }).status
         : undefined;
+    const serverMessage =
+      err && typeof err === "object" && "serverMessage" in err
+        ? (err as { serverMessage?: string }).serverMessage
+        : undefined;
     if (status === 401) {
       return "נדרש להתחבר מחדש כדי לפתוח את המסמך.";
     }
     if (status === 403) {
-      return "אין הרשאה לפתוח את המסמך הזה.";
+      // A delivery block (allocation not yet received) carries a specific reason;
+      // surface it. Only fall back to the generic authorization message otherwise.
+      return serverMessage ?? "אין הרשאה לפתוח את המסמך הזה.";
     }
     if (status === 500) {
       return "המסמך הופק, אבל ההכנה לשיתוף נכשלה. נסו שוב.";

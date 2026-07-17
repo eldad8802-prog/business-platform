@@ -164,6 +164,7 @@ type FakeDocument = {
   allocationNumber: string | null;
   allocationApprovedAt: Date | null;
   isEmergencyAllocation: boolean;
+  pdfRenderStatus: string | null;
 };
 
 type FakeAuditEvent = {
@@ -275,6 +276,7 @@ function makeFakeAuthorityDb(options: {
     allocationNumber: null,
     allocationApprovedAt: null,
     isEmergencyAllocation: false,
+    pdfRenderStatus: "RENDERED",
     ...options.document,
   };
 
@@ -401,6 +403,9 @@ function makeFakeAuthorityDb(options: {
         }
         if (args.data.allocationApprovedAt !== undefined) {
           document.allocationApprovedAt = args.data.allocationApprovedAt as Date | null;
+        }
+        if (args.data.pdfRenderStatus !== undefined) {
+          document.pdfRenderStatus = args.data.pdfRenderStatus as string | null;
         }
         if (args.data.isEmergencyAllocation !== undefined) {
           document.isEmergencyAllocation = args.data.isEmergencyAllocation as boolean;
@@ -695,6 +700,10 @@ async function runTests() {
     ok(
       "APPLIED projects document allocationNumber",
       fake.getDocument().allocationNumber === "123456789"
+    );
+    ok(
+      "APPLIED invalidates cached PDF (pdfRenderStatus → PENDING)",
+      fake.getDocument().pdfRenderStatus === "PENDING"
     );
     ok(
       "APPLIED projects document allocationApprovedAt",

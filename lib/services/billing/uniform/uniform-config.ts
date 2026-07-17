@@ -48,10 +48,10 @@ export type UniformSoftwareConfig = {
 export const SIMULATOR_SOFTWARE_CONFIG: UniformSoftwareConfig = {
   isSimulator: true,
   softwareRegistrationNumber: "00000001", // 1006 — SIMULATOR ONLY
-  softwareName: "DUBIZ", // 1007
+  softwareName: "דוביז Dubiz", // 1007 — software-house name accepted by the simulator
   softwareVersion: "1.0", // 1008
   vendorVatNumber: "515000123", // 1009 — SIMULATOR ONLY: valid check-digit test ע"מ (must NOT be zeroed); real vendor ע"מ after Form 513
-  vendorName: "DUBIZ", // 1010
+  vendorName: "נהרי אלדד", // 1010 — software vendor name accepted by the simulator
   compressionSoftwareName: "ZIP", // 1030
   softwareType: 2, // 1011 — multi-year
   accountingType: 0, // 1013 — not relevant (BD-1: document-only)

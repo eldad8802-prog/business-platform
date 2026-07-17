@@ -152,6 +152,50 @@ ok(
   }) === BillingAuthoritySubmissionStatus.NOT_REQUIRED
 );
 
+// ---- Exact date boundaries (Jerusalem calendar) ----
+ok(
+  "threshold: 2025-12-31 still 20K (not yet 10K)",
+  getAuthorityAllocationThresholdIls(invoiceDate("2025-12-31")) === AUTHORITY_THRESHOLD_2025_ILS
+);
+ok(
+  "threshold: 2026-01-01 = 10K",
+  getAuthorityAllocationThresholdIls(invoiceDate("2026-01-01")) === AUTHORITY_THRESHOLD_2026_H1_ILS
+);
+ok(
+  "threshold: 2026-05-31 still 10K (not yet 5K)",
+  getAuthorityAllocationThresholdIls(invoiceDate("2026-05-31")) === AUTHORITY_THRESHOLD_2026_H1_ILS
+);
+ok(
+  "threshold: 2026-06-01 = 5K",
+  getAuthorityAllocationThresholdIls(invoiceDate("2026-06-01")) === AUTHORITY_THRESHOLD_2026_H2_AND_LATER_ILS
+);
+
+// ---- Exact amount boundary: strictly below the threshold (before VAT) → NOT_REQUIRED ----
+ok(
+  "2025: subtotal 19,999.99 (< 20K) → NOT_REQUIRED",
+  evaluateAuthorityReadinessAtIssue({
+    ...licensedDealerBase,
+    invoiceDate: invoiceDate("2025-06-15"),
+    subtotalAmount: dec("19999.99"),
+  }) === BillingAuthoritySubmissionStatus.NOT_REQUIRED
+);
+ok(
+  "2026-H1: subtotal 9,999.99 (< 10K) → NOT_REQUIRED",
+  evaluateAuthorityReadinessAtIssue({
+    ...licensedDealerBase,
+    invoiceDate: invoiceDate("2026-03-15"),
+    subtotalAmount: dec("9999.99"),
+  }) === BillingAuthoritySubmissionStatus.NOT_REQUIRED
+);
+ok(
+  "2026-H2: subtotal 4,999.99 (< 5K) → NOT_REQUIRED",
+  evaluateAuthorityReadinessAtIssue({
+    ...licensedDealerBase,
+    invoiceDate: invoiceDate("2026-06-15"),
+    subtotalAmount: dec("4999.99"),
+  }) === BillingAuthoritySubmissionStatus.NOT_REQUIRED
+);
+
 if (failed > 0) {
   console.error(`\n${failed} test(s) failed`);
   process.exit(1);

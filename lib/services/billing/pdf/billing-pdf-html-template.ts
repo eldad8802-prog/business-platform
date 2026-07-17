@@ -715,6 +715,14 @@ export function buildBillingInvoiceHtml(
         <div class="k">${dyn("מס׳ מסמך", "label")}</div>
         <div class="v">${dyn(docNumber, "numeric")}</div>
       </div>
+      ${
+        document.allocationNumber
+          ? `<div class="kv kv--allocation">
+        <div class="k">${dyn("מספר הקצאה", "label")}</div>
+        <div class="v">${dyn(document.allocationNumber, "numeric")}</div>
+      </div>`
+          : ""
+      }
       <div class="kv">
         <div class="k">${dyn(dateRowLabel, "label")}</div>
         <div class="v">${dyn(issuedAtFormatted, "numeric")}</div>
