@@ -30,13 +30,17 @@ export async function POST(
     const { id } = await context.params;
     const billingDocumentId = parseBillingDocumentId(id);
 
-    const document = await issueBillingDocument({
+    // The document is issued internally inside a transaction; the authority
+    // (Approval) call runs post-commit and is reported alongside it. A post-commit
+    // authority failure does NOT turn this into an HTTP error — issuance succeeded.
+    // Consumers must not assume `200` means the final PDF is deliverable.
+    const { document, authority } = await issueBillingDocument({
       businessId: user.businessId,
       actorUserId: user.id,
       billingDocumentId,
     });
 
-    return NextResponse.json({ document }, { status: 200 });
+    return NextResponse.json({ document, authority }, { status: 200 });
   } catch (error) {
     return handleError(error);
   }

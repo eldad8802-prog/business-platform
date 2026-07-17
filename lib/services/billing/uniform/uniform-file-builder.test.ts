@@ -192,6 +192,8 @@ ok("A000 1003 עוסק", F(a000, 25, 9) === "515000123");
 ok("A000 1004 primaryId", F(a000, 34, 15) === PRIMARY);
 ok("A000 1005 &OF1.31&", F(a000, 49, 8) === "&OF1.31&");
 ok("A000 1006 reg (simulator)", F(a000, 57, 8) === "00000001");
+ok("A000 1007 software name (corrected)", F(a000, 65, 20).trim() === "דוביז Dubiz");
+ok("A000 1010 vendor name (corrected)", F(a000, 114, 20).trim() === "נהרי אלדד");
 ok("A000 1011 softwareType=2", F(a000, 134, 1) === "2");
 ok("A000 1013 accounting=0", F(a000, 185, 1) === "0");
 ok("A000 1024 period start", F(a000, 367, 8) === "20260601");
