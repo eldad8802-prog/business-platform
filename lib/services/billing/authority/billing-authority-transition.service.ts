@@ -1,4 +1,5 @@
 import {
+  BillingAuthorityDecisionType,
   BillingAuthoritySubmissionChannel,
   BillingAuthoritySubmissionStatus,
   BillingDocumentStatus,
@@ -1678,4 +1679,156 @@ export async function recordAuthorityScheduleRetryTx(
       "AUTHORITY_RETRY_FORBIDDEN"
     );
   }
+}
+
+/**
+ * Maps the three ITA decision actions to the existing BillingAuthorityDecisionType
+ * enum (Option A — no new submission statuses).
+ */
+export const HELD_DECISION_ACTION_TO_TYPE = {
+  Cancel: BillingAuthorityDecisionType.ABANDONED,
+  Continue: BillingAuthorityDecisionType.PROCEED_WITHOUT_ALLOCATION,
+  FurtherObjection: BillingAuthorityDecisionType.HEARING_REQUESTED,
+} as const;
+
+export type RecordAuthorityHeldDecisionTxInput = {
+  businessId: number;
+  billingDocumentId: number;
+  /** Already mapped from the action (ABANDONED | PROCEED_WITHOUT_ALLOCATION | HEARING_REQUESTED). */
+  decisionType: BillingAuthorityDecisionType;
+  /** Time the authority accepted the decision. */
+  reportedAt: Date;
+  actorUserId?: number | null;
+  /** Sanitized authority message (e.g. "Decision accepted") — never PII/tokens. */
+  authorityMessage?: string | null;
+  /** Request correlation id for the audit trail. */
+  correlationId?: string | null;
+  occurredAt?: Date;
+};
+
+export type RecordAuthorityHeldDecisionTxResult = {
+  outcome: "APPLIED" | "NOOP";
+  status: BillingAuthoritySubmissionStatus;
+  decisionType: BillingAuthorityDecisionType;
+  reportedAt: Date;
+  auditWritten: boolean;
+};
+
+/**
+ * Records an ACCEPTED held decision (Option A): the submission STAYS `HELD`, and
+ * the decision is captured in `heldDecisionType` + `heldDecisionReportedAt`.
+ *
+ * MUST be called only AFTER the authority confirmed acceptance. Atomic + guarded:
+ * the conditional update requires `status = HELD AND heldDecisionType IS NULL AND
+ * heldDecisionReportedAt IS NULL`, so two concurrent decisions cannot both win —
+ * the loser gets a conflict (reconciliation), never a silent overwrite. A replay
+ * of the SAME decision is idempotent (NOOP); a DIFFERENT decision conflicts.
+ */
+export async function recordAuthorityHeldDecisionTx(
+  tx: Prisma.TransactionClient,
+  input: RecordAuthorityHeldDecisionTxInput
+): Promise<RecordAuthorityHeldDecisionTxResult> {
+  normalizeAuthorityTimestamp(input.reportedAt, "reportedAt");
+
+  const existing = await tx.billingAuthoritySubmission.findFirst({
+    where: { billingDocumentId: input.billingDocumentId, businessId: input.businessId },
+    select: { id: true, status: true, heldDecisionType: true, heldDecisionReportedAt: true },
+  });
+  if (!existing) {
+    throw new NotFoundError("Billing authority submission not found for this document");
+  }
+
+  // A decision was already recorded → idempotent (same) or conflict (different).
+  if (existing.heldDecisionType !== null || existing.heldDecisionReportedAt !== null) {
+    if (
+      existing.heldDecisionType === input.decisionType &&
+      existing.heldDecisionReportedAt !== null
+    ) {
+      return {
+        outcome: "NOOP",
+        status: existing.status,
+        decisionType: input.decisionType,
+        reportedAt: existing.heldDecisionReportedAt,
+        auditWritten: false,
+      };
+    }
+    throw new ConflictError(
+      "AUTHORITY_HELD_DECISION_CONFLICT",
+      "A different held decision was already recorded for this submission"
+    );
+  }
+
+  if (existing.status !== BillingAuthoritySubmissionStatus.HELD) {
+    throw new ForbiddenError(
+      "Authority held decision is only allowed from HELD",
+      "AUTHORITY_HELD_DECISION_FORBIDDEN"
+    );
+  }
+
+  const updated = await tx.billingAuthoritySubmission.updateMany({
+    where: {
+      id: existing.id,
+      businessId: input.businessId,
+      status: BillingAuthoritySubmissionStatus.HELD,
+      heldDecisionType: null,
+      heldDecisionReportedAt: null,
+    },
+    data: {
+      heldDecisionType: input.decisionType,
+      heldDecisionReportedAt: input.reportedAt,
+    },
+  });
+
+  if (updated.count === 0) {
+    // Lost the race against a concurrent decision — never overwrite.
+    const after = await tx.billingAuthoritySubmission.findFirst({
+      where: { billingDocumentId: input.billingDocumentId, businessId: input.businessId },
+      select: { status: true, heldDecisionType: true, heldDecisionReportedAt: true },
+    });
+    if (
+      after &&
+      after.heldDecisionType === input.decisionType &&
+      after.heldDecisionReportedAt !== null
+    ) {
+      return {
+        outcome: "NOOP",
+        status: after.status,
+        decisionType: input.decisionType,
+        reportedAt: after.heldDecisionReportedAt,
+        auditWritten: false,
+      };
+    }
+    throw new ConflictError(
+      "AUTHORITY_HELD_DECISION_CONFLICT",
+      "Held decision conditional update missed (concurrent decision)"
+    );
+  }
+
+  await createBillingAuditEventTx(tx, {
+    businessId: input.businessId,
+    billingDocumentId: input.billingDocumentId,
+    actorUserId: input.actorUserId ?? null,
+    eventType: "BILLING_AUTHORITY_HELD_DECISION_REPORTED",
+    source: "SYSTEM",
+    summary: "Authority held decision reported",
+    metadata: {
+      billingDocumentId: input.billingDocumentId,
+      submissionId: existing.id,
+      transitionKind: "REPORT_HELD_DECISION",
+      decisionType: input.decisionType,
+      reportedAt: input.reportedAt.toISOString(),
+      authorityMessage: input.authorityMessage ?? null,
+      correlationId: input.correlationId ?? null,
+      outcome: "APPLIED",
+    },
+    occurredAt: input.occurredAt ?? input.reportedAt,
+  });
+
+  return {
+    outcome: "APPLIED",
+    status: BillingAuthoritySubmissionStatus.HELD,
+    decisionType: input.decisionType,
+    reportedAt: input.reportedAt,
+    auditWritten: true,
+  };
 }
