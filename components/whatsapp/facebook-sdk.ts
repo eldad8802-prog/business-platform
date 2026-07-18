@@ -64,6 +64,15 @@ function initOnce(config: EmbeddedSignupConfig): FacebookSdk {
 }
 
 /**
+ * Read-only accessor for the loader's real initialization state (whether
+ * `FB.init` has completed). Diagnostics must not infer init from `window.FB`
+ * alone — the SDK object can exist before `FB.init` ran. No behavior change.
+ */
+export function isFacebookSdkInitialized(): boolean {
+  return initialized;
+}
+
+/**
  * Loads + initializes the SDK and resolves with the global `FB` object.
  * Rejects on script load failure (network / blockers); the in-flight promise
  * is cleared on failure so a later retry can attempt a fresh load.

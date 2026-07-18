@@ -7,8 +7,14 @@
  * exercised here with fakes — no browser, no React, no network.
  */
 import assert from "node:assert/strict";
-import { createEmbeddedSignupController } from "./embedded-signup-controller";
-import type { EmbeddedSignupEnv } from "./embedded-signup-controller";
+import {
+  createEmbeddedSignupController,
+  isWaDiagEnabled,
+} from "./embedded-signup-controller";
+import type {
+  EmbeddedSignupDiag,
+  EmbeddedSignupEnv,
+} from "./embedded-signup-controller";
 import type { FacebookSdk, FbLoginResponse } from "./facebook-sdk";
 
 type LoginOpts = {
@@ -18,7 +24,9 @@ type LoginOpts = {
   extras: { featureType: string; sessionInfoVersion: string };
 };
 
-function makeHarness() {
+type DiagCall = { event: string; data: Record<string, unknown> };
+
+function makeHarness(opts?: { diag?: boolean }) {
   let loadCalls = 0;
   let loginCalls = 0;
   let lastLoginCb: ((r: FbLoginResponse) => void) | null = null;
@@ -69,10 +77,34 @@ function makeHarness() {
     timeoutMs: 60_000,
   };
 
+  // Recording fake diag (only when opts.diag). Fixed, secret-free snapshot.
+  const diagCalls: DiagCall[] = [];
+  let nowCounter = 1000;
+  if (opts?.diag) {
+    const fakeDiag: EmbeddedSignupDiag = {
+      log: (event, data) => diagCalls.push({ event, data: data ?? {} }),
+      snapshot: () => ({
+        windowFbExists: true,
+        sdkScriptExists: true,
+        sdkInitialized: true,
+        configIdPresent: true,
+        appIdPresent: true,
+        graphVersion: "v25.0",
+        timestamp: 111,
+      }),
+      isWindowFb: () => false,
+      now: () => nowCounter++,
+    };
+    env.diag = fakeDiag;
+  }
+
   const ctrl = createEmbeddedSignupController(env);
 
   return {
     ctrl,
+    diagCalls,
+    diagEvents: () => diagCalls.map((c) => c.event),
+    diagFind: (event: string) => diagCalls.find((c) => c.event === event),
     get loadCalls() {
       return loadCalls;
     },
@@ -253,6 +285,139 @@ async function main() {
     });
     assert.equal(h.ctrl.getState().phase, "launching", "activity keeps launching");
     assert.equal(h.timers.size, 1, "recovery timer re-armed on activity");
+  }
+
+  // ---- Diagnostics instrumentation (temporary, gated) ----
+
+  // D0) The gate is active ONLY for ?waDiag=1.
+  {
+    assert.equal(isWaDiagEnabled("?waDiag=1"), true);
+    assert.equal(isWaDiagEnabled("waDiag=1"), true);
+    assert.equal(isWaDiagEnabled("?waDiag=1&x=2"), true);
+    assert.equal(isWaDiagEnabled("?waDiag=0"), false);
+    assert.equal(isWaDiagEnabled("?other=1"), false);
+    assert.equal(isWaDiagEnabled(""), false);
+    assert.equal(isWaDiagEnabled(undefined), false);
+    assert.equal(isWaDiagEnabled(null), false);
+  }
+
+  // D1) With NO diag, nothing is logged and the flow is unchanged (the 10 tests
+  //     above already ran diag-off). Sanity: a diag-off harness exposes no calls.
+  {
+    const h = makeHarness(); // diag off
+    h.ctrl.preload();
+    await h.settleSdk();
+    h.ctrl.launch();
+    h.fireLogin({ authResponse: { code: "CODE123" } });
+    assert.equal(h.diagCalls.length, 0, "no diagnostics emitted when diag is off");
+    assert.equal(h.ctrl.getState().phase, "success", "flow unchanged when diag off");
+  }
+
+  // D2) With diag ON, the flow is IDENTICAL and the expected events are logged
+  //     with the exact fields, in order, up to a successful login.
+  {
+    const h = makeHarness({ diag: true });
+    h.ctrl.preload();
+    await h.settleSdk();
+    assert.ok(h.diagFind("preload_resolved"), "preload_resolved logged");
+
+    h.ctrl.launch();
+    const call = h.diagFind("fb_login_call");
+    assert.ok(call, "fb_login_call logged");
+    assert.deepEqual(
+      Object.keys(call!.data).sort(),
+      [
+        "appIdPresent",
+        "configIdPresent",
+        "graphVersion",
+        "hasLoginFn",
+        "hasReadyFb",
+        "phase",
+        "readyFbFromPreload",
+        "readyFbIsWindowFb",
+        "sdkInitialized",
+        "sdkScriptExists",
+        "timestamp",
+        "windowFbExists",
+      ],
+      "fb_login_call has exactly the allowed fields"
+    );
+    assert.equal(call!.data.phase, "launching");
+    assert.equal(call!.data.hasReadyFb, true);
+    assert.equal(call!.data.hasLoginFn, true);
+    assert.equal(call!.data.readyFbFromPreload, true);
+    assert.equal(call!.data.configIdPresent, true);
+    assert.equal(call!.data.appIdPresent, true);
+    // Flow unchanged: FB.login still called synchronously.
+    assert.equal(h.loginCalls, 1);
+    assert.equal(h.ctrl.getState().phase, "launching");
+
+    h.fireLogin({ authResponse: { code: "CODE123" }, status: "connected" });
+    const cb = h.diagFind("fb_login_callback");
+    assert.ok(cb, "fb_login_callback logged");
+    assert.deepEqual(
+      Object.keys(cb!.data).sort(),
+      ["hasAuthResponse", "hasCode", "hasResponse", "hasStatus"],
+      "fb_login_callback has only booleans"
+    );
+    assert.equal(cb!.data.hasCode, true);
+    assert.equal(cb!.data.hasResponse, true);
+    // Flow unchanged: success + timer cleared.
+    assert.equal(h.ctrl.getState().phase, "success");
+    assert.equal(h.timers.size, 0, "timer cleared on success (diag on)");
+  }
+
+  // D3) No secret values are ever emitted (App ID / Config ID / code).
+  {
+    const h = makeHarness({ diag: true });
+    h.ctrl.preload();
+    await h.settleSdk();
+    h.ctrl.launch();
+    h.postMessage({
+      type: "WA_EMBEDDED_SIGNUP",
+      event: "ERROR",
+      data: { phone_number_id: "PN_SECRET", waba_id: "WABA_SECRET" },
+    });
+    const dump = JSON.stringify(h.diagCalls);
+    for (const secret of ["APP", "CFG", "CODE123", "PN_SECRET", "WABA_SECRET"]) {
+      assert.equal(dump.includes(secret), false, `no '${secret}' in diagnostics`);
+    }
+    // message event logs only the mapped event type, not the payload.
+    const msg = h.diagFind("message");
+    assert.ok(msg, "message logged");
+    assert.equal(msg!.data.eventType, "ERROR");
+    assert.equal(msg!.data.isWaEmbeddedSignup, true);
+    assert.ok(!("data" in msg!.data), "no raw payload in message diag");
+  }
+
+  // D4) Diagnostics do not harm timeout / reset / dispose.
+  {
+    // timeout still fires + logs, listener/timer cleaned.
+    const t = makeHarness({ diag: true });
+    t.ctrl.preload();
+    await t.settleSdk();
+    t.ctrl.launch();
+    t.fireAllTimers();
+    const to = t.diagFind("timeout");
+    assert.ok(to, "timeout logged");
+    assert.equal(to!.data.phase, "launching");
+    assert.equal(to!.data.callbackReceived, false);
+    assert.equal(typeof to!.data.elapsedMs, "number");
+    assert.equal(t.ctrl.getState().phase, "error", "timeout still → error (diag on)");
+    assert.equal(t.messageListeners.length, 0, "listener cleaned (diag on)");
+
+    // reset + dispose still clean up with diag on.
+    const r = makeHarness({ diag: true });
+    r.ctrl.preload();
+    await r.settleSdk();
+    r.ctrl.launch();
+    r.ctrl.reset();
+    assert.equal(r.timers.size, 0, "reset clears timer (diag on)");
+    assert.equal(r.messageListeners.length, 0, "reset clears listener (diag on)");
+    r.ctrl.launch();
+    r.ctrl.dispose();
+    assert.equal(r.timers.size, 0, "dispose clears timer (diag on)");
+    assert.equal(r.messageListeners.length, 0, "dispose clears listener (diag on)");
   }
 
   console.log("ALL EMBEDDED SIGNUP CONTROLLER TESTS PASSED");
