@@ -1,5 +1,5 @@
 import type { EmbeddedSignupConfig } from "./embedded-signup-config";
-import type { FacebookSdk } from "./facebook-sdk";
+import { isFacebookSdkInitialized, type FacebookSdk } from "./facebook-sdk";
 
 /**
  * Framework-agnostic controller for the Meta Embedded Signup capture.
@@ -43,6 +43,19 @@ export type EmbeddedSignupState = {
 export type MessageEventLike = { origin: string; data: unknown };
 
 /**
+ * Temporary diagnostics sink (see {@link defaultBrowserDiag}). Every method is
+ * side-effect-only: it MUST NOT change phase/timer/listener/flow, and MUST emit
+ * only non-secret data (booleans, the public graph version, a timestamp).
+ */
+export type EmbeddedSignupDiag = {
+  log: (event: string, data?: Record<string, unknown>) => void;
+  /** Window/loader/config facts — booleans + graph version + timestamp only. */
+  snapshot: () => Record<string, unknown>;
+  isWindowFb: (candidate: unknown) => boolean;
+  now: () => number;
+};
+
+/**
  * Injected environment. In the browser these map to window/SDK primitives; in
  * tests they are fakes. Keeping them here is what makes the flow testable.
  */
@@ -57,6 +70,13 @@ export type EmbeddedSignupEnv = {
   clearTimer: (id: number) => void;
   /** Recovery ceiling (ms) for a "launching" that never resolves. */
   timeoutMs: number;
+  /**
+   * Optional diagnostics override (used by tests). When omitted, the controller
+   * falls back to {@link defaultBrowserDiag}, which is active ONLY when the page
+   * URL carries `?waDiag=1`; otherwise diagnostics are fully off (null). Logging
+   * never changes flow and never emits secrets.
+   */
+  diag?: EmbeddedSignupDiag;
 };
 
 export function isFacebookOrigin(origin: string): boolean {
@@ -66,6 +86,71 @@ export function isFacebookOrigin(origin: string): boolean {
       origin === "https://web.facebook.com" ||
       origin.endsWith(".facebook.com"))
   );
+}
+
+/**
+ * Diagnostics gate — true only when the page URL carries `?waDiag=1`. Pure and
+ * testable; when false, diagnostics are off. TEMPORARY (remove with the diag).
+ */
+export function isWaDiagEnabled(search: string | undefined | null): boolean {
+  if (!search) return false;
+  try {
+    return new URLSearchParams(search).get("waDiag") === "1";
+  } catch {
+    return false;
+  }
+}
+
+// TODO(wa-diag): Remove this temporary runtime instrumentation
+// after the Embedded Signup investigation is complete.
+// Everything gated behind the `[WA_ES_DIAG]` diagnostics — the
+// `EmbeddedSignupDiag` type, `isWaDiagEnabled`, `defaultBrowserDiag`, the
+// `diag`/`launchStartedAt`/`callbackReceived`/`messageReceived` state, all
+// `diag.log(...)` calls, and `isFacebookSdkInitialized()` in facebook-sdk.ts —
+// is temporary and must be removed together in a dedicated cleanup PR.
+/**
+ * TEMPORARY browser diagnostics sink — active ONLY when `?waDiag=1` is present.
+ * Emits `[WA_ES_DIAG]` console lines carrying booleans + the (public) graph
+ * version + a timestamp. It NEVER emits App ID / Config ID values, access
+ * tokens, the auth code, phone number / WABA / business ids, or auth headers.
+ * Returns null when disabled or off-browser, so normal users get zero logging
+ * and zero behavior change.
+ */
+function defaultBrowserDiag(env: EmbeddedSignupEnv): EmbeddedSignupDiag | null {
+  if (typeof window === "undefined") return null;
+  let search: string | undefined;
+  try {
+    search = window.location.search;
+  } catch {
+    return null;
+  }
+  if (!isWaDiagEnabled(search)) return null;
+  return {
+    log: (event, data) => {
+      try {
+        console.log("[WA_ES_DIAG] " + event, data ?? {});
+      } catch {
+        /* diagnostics must never affect the flow */
+      }
+    },
+    now: () => Date.now(),
+    isWindowFb: (candidate) =>
+      typeof window !== "undefined" && candidate === window.FB,
+    snapshot: () => {
+      const cfg = env.getConfig();
+      return {
+        windowFbExists: typeof window !== "undefined" && !!window.FB,
+        sdkScriptExists:
+          typeof document !== "undefined" &&
+          !!document.getElementById("facebook-jssdk"),
+        sdkInitialized: isFacebookSdkInitialized(),
+        configIdPresent: !!cfg?.configId,
+        appIdPresent: !!cfg?.appId,
+        graphVersion: cfg?.graphVersion ?? null,
+        timestamp: Date.now(),
+      };
+    },
+  };
 }
 
 export type EmbeddedSignupController = {
@@ -95,6 +180,15 @@ export function createEmbeddedSignupController(
   let fb: FacebookSdk | null = null;
   let sdkState: "idle" | "loading" | "ready" | "error" = "idle";
   const subscribers = new Set<(s: EmbeddedSignupState) => void>();
+
+  // TEMPORARY diagnostics — null unless injected (tests) or `?waDiag=1` present.
+  // Every use is guarded; when null there is zero logging and zero behavior
+  // change. `launchStartedAt`/`callbackReceived`/`messageReceived` are read only
+  // by the diagnostics.
+  const diag: EmbeddedSignupDiag | null = env.diag ?? defaultBrowserDiag(env);
+  let launchStartedAt = 0;
+  let callbackReceived = false;
+  let messageReceived = false;
 
   function emit() {
     const snapshot: EmbeddedSignupState = { phase, result };
@@ -126,6 +220,14 @@ export function createEmbeddedSignupController(
     clearTimer();
     timerId = env.setTimer(() => {
       timerId = null;
+      if (diag) {
+        diag.log("timeout", {
+          phase,
+          elapsedMs: diag.now() - launchStartedAt,
+          callbackReceived,
+          messageReceived,
+        });
+      }
       removeListener();
       // Only a still-"launching" flow is stuck; a late callback that already
       // moved us to success/cancel/error must not be overwritten.
@@ -145,26 +247,49 @@ export function createEmbeddedSignupController(
       (loaded) => {
         fb = loaded;
         sdkState = "ready";
+        diag?.log("preload_resolved");
       },
       () => {
         sdkState = "error";
+        diag?.log("preload_rejected");
       }
     );
   }
 
   function onMessage(ev: MessageEventLike) {
     if (!isFacebookOrigin(ev.origin)) return;
+    messageReceived = true;
     let payload: unknown;
+    let parseOk = true;
     try {
       payload = typeof ev.data === "string" ? JSON.parse(ev.data) : ev.data;
     } catch {
-      return;
+      parseOk = false;
     }
-    if (
-      !payload ||
-      typeof payload !== "object" ||
-      (payload as { type?: unknown }).type !== "WA_EMBEDDED_SIGNUP"
-    ) {
+    const obj =
+      parseOk && payload && typeof payload === "object"
+        ? (payload as { type?: unknown; event?: unknown })
+        : null;
+    const isWa = obj?.type === "WA_EMBEDDED_SIGNUP";
+    const evt = obj?.event;
+    const eventType =
+      evt === "FINISH"
+        ? "FINISH"
+        : evt === "CANCEL"
+          ? "CANCEL"
+          : evt === "ERROR"
+            ? "ERROR"
+            : "unknown";
+    if (diag) {
+      diag.log("message", {
+        origin: ev.origin,
+        parseOk,
+        isWaEmbeddedSignup: isWa,
+        eventType,
+      });
+    }
+
+    if (!parseOk || !isWa) {
       return;
     }
 
@@ -173,7 +298,6 @@ export function createEmbeddedSignupController(
     if (data.waba_id) ids.wabaId = String(data.waba_id);
     if (data.business_id) ids.businessId = String(data.business_id);
 
-    const evt = (payload as { event?: unknown }).event;
     if (evt === "CANCEL") {
       clearTimer();
       removeListener();
@@ -208,16 +332,41 @@ export function createEmbeddedSignupController(
 
     result = null;
     ids = {};
+    callbackReceived = false;
+    messageReceived = false;
     setPhase("launching");
+    if (diag) launchStartedAt = diag.now();
 
     listener = onMessage;
     env.addMessageListener(listener);
     armTimer();
 
+    if (diag) {
+      diag.log("fb_login_call", {
+        phase,
+        hasReadyFb: !!readyFb,
+        hasLoginFn: typeof readyFb.login === "function",
+        readyFbFromPreload: readyFb === fb,
+        readyFbIsWindowFb: diag.isWindowFb(readyFb),
+        ...diag.snapshot(),
+      });
+    }
+
     try {
       // Synchronous — called within the user gesture, with no await before it.
       readyFb.login(
         (response) => {
+          callbackReceived = true;
+          if (diag) {
+            diag.log("fb_login_callback", {
+              hasResponse: !!response,
+              hasAuthResponse: !!response?.authResponse,
+              hasCode: !!response?.authResponse?.code,
+              hasStatus:
+                typeof response?.status === "string" &&
+                response.status.length > 0,
+            });
+          }
           clearTimer();
           removeListener();
           const code = response?.authResponse?.code;
