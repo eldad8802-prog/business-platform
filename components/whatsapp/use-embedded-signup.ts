@@ -3,170 +3,88 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadFacebookSdk } from "./facebook-sdk";
 import { getEmbeddedSignupConfig } from "./embedded-signup-config";
+import {
+  createEmbeddedSignupController,
+  type EmbeddedSignupController,
+  type EmbeddedSignupEnv,
+  type EmbeddedSignupState,
+} from "./embedded-signup-controller";
+
+export type {
+  EmbeddedSignupPhase,
+  EmbeddedSignupResult,
+} from "./embedded-signup-controller";
 
 /**
- * Embedded Signup orchestration (Ticket 3 — CAPTURE ONLY).
+ * Embedded Signup orchestration (CAPTURE ONLY) — thin React wrapper over the
+ * framework-agnostic {@link createEmbeddedSignupController}.
  *
- * Lifecycle:
- *   idle → launching → (success | cancelled | error)
+ * On mount it preloads the Facebook SDK so the connect button can call
+ * `FB.login` synchronously inside the click (never after an async wait, which
+ * previously broke the user gesture and could block the popup). All the flow
+ * logic — launch, timeout recovery, listener/timer cleanup — lives in the
+ * controller and is unit-tested there.
  *
- * On success it captures `code` + identifiers IN MEMORY only. Nothing is sent
+ * On success it captures `code` + identifiers IN MEMORY only; nothing is sent
  * to our backend, persisted, logged, or written to URL/localStorage/
- * sessionStorage. The `code` value is never passed to console.* anywhere.
- *
- * The `code` arrives via the FB.login callback; the `waba_id` /
- * `phone_number_id` / `business_id` arrive via the `WA_EMBEDDED_SIGNUP`
- * window message event. The two are correlated here.
+ * sessionStorage here (the backend exchange lives in `use-whatsapp-connect`).
  */
-export type EmbeddedSignupPhase =
-  | "idle"
-  | "launching"
-  | "success"
-  | "cancelled"
-  | "error";
 
-export type EmbeddedSignupResult = {
-  /** Sensitive — held in memory only, never logged or persisted. */
-  code: string;
-  phoneNumberId?: string;
-  wabaId?: string;
-  businessId?: string;
-};
+/**
+ * Recovery ceiling for a "launching" popup that never returns a callback or
+ * event. Chosen at 60s: long enough that a user actively completing Meta's
+ * popup is not cut off (and any Embedded Signup progress message resets the
+ * timer), short enough that a blocked/abandoned popup returns to a clear,
+ * retryable error instead of an infinite spinner.
+ */
+const LAUNCH_TIMEOUT_MS = 60_000;
 
-type CapturedIds = {
-  phoneNumberId?: string;
-  wabaId?: string;
-  businessId?: string;
-};
-
-function isFacebookOrigin(origin: string): boolean {
-  return (
-    typeof origin === "string" &&
-    (origin === "https://www.facebook.com" ||
-      origin === "https://web.facebook.com" ||
-      origin.endsWith(".facebook.com"))
-  );
+function browserEnv(): EmbeddedSignupEnv {
+  return {
+    getConfig: getEmbeddedSignupConfig,
+    loadSdk: loadFacebookSdk,
+    getReadyFb: () =>
+      typeof window !== "undefined" ? window.FB ?? null : null,
+    // A "message" MessageEvent structurally satisfies MessageEventLike; the
+    // double-cast keeps the SAME function reference so add/remove still match.
+    addMessageListener: (fn) =>
+      window.addEventListener("message", fn as unknown as EventListener),
+    removeMessageListener: (fn) =>
+      window.removeEventListener("message", fn as unknown as EventListener),
+    setTimer: (fn, ms) => window.setTimeout(fn, ms),
+    clearTimer: (id) => window.clearTimeout(id),
+    timeoutMs: LAUNCH_TIMEOUT_MS,
+  };
 }
 
 export function useEmbeddedSignup() {
-  const [phase, setPhase] = useState<EmbeddedSignupPhase>("idle");
-  const [result, setResult] = useState<EmbeddedSignupResult | null>(null);
+  const [state, setState] = useState<EmbeddedSignupState>({
+    phase: "idle",
+    result: null,
+  });
+  const ctrlRef = useRef<EmbeddedSignupController | null>(null);
 
-  const idsRef = useRef<CapturedIds>({});
-  const listenerRef = useRef<((event: MessageEvent) => void) | null>(null);
+  useEffect(() => {
+    const ctrl = createEmbeddedSignupController(browserEnv());
+    ctrlRef.current = ctrl;
+    const unsubscribe = ctrl.subscribe(setState);
+    // Preload the SDK now so the first click opens Meta's popup synchronously.
+    ctrl.preload();
 
-  const removeListener = useCallback(() => {
-    if (listenerRef.current) {
-      window.removeEventListener("message", listenerRef.current);
-      listenerRef.current = null;
-    }
+    return () => {
+      unsubscribe();
+      ctrl.dispose();
+      ctrlRef.current = null;
+    };
   }, []);
 
-  // Cleanup any dangling listener on unmount.
-  useEffect(() => removeListener, [removeListener]);
-
-  const launch = useCallback(async () => {
-    const config = getEmbeddedSignupConfig();
-    if (!config) {
-      setPhase("error");
-      return;
-    }
-
-    setResult(null);
-    idsRef.current = {};
-    setPhase("launching");
-
-    // Listener for the WA_EMBEDDED_SIGNUP message event (carries the ids).
-    const onMessage = (event: MessageEvent) => {
-      if (!isFacebookOrigin(event.origin)) return;
-
-      let payload: unknown;
-      try {
-        payload =
-          typeof event.data === "string" ? JSON.parse(event.data) : event.data;
-      } catch {
-        return;
-      }
-      if (
-        !payload ||
-        typeof payload !== "object" ||
-        (payload as { type?: unknown }).type !== "WA_EMBEDDED_SIGNUP"
-      ) {
-        return;
-      }
-
-      const data =
-        (payload as { data?: Record<string, unknown> }).data ?? {};
-      if (data.phone_number_id) {
-        idsRef.current.phoneNumberId = String(data.phone_number_id);
-      }
-      if (data.waba_id) {
-        idsRef.current.wabaId = String(data.waba_id);
-      }
-      if (data.business_id) {
-        idsRef.current.businessId = String(data.business_id);
-      }
-
-      const evt = (payload as { event?: unknown }).event;
-      if (evt === "CANCEL") {
-        setPhase((prev) => (prev === "success" ? prev : "cancelled"));
-        removeListener();
-      } else if (evt === "ERROR") {
-        setPhase((prev) => (prev === "success" ? prev : "error"));
-        removeListener();
-      }
-    };
-
-    listenerRef.current = onMessage;
-    window.addEventListener("message", onMessage);
-
-    let FB;
-    try {
-      FB = await loadFacebookSdk(config);
-    } catch {
-      setPhase("error");
-      removeListener();
-      return;
-    }
-
-    try {
-      FB.login(
-        (response) => {
-          const code = response?.authResponse?.code;
-          if (code) {
-            setResult({ code, ...idsRef.current });
-            setPhase("success");
-          } else {
-            // Popup closed / cancelled without returning a code.
-            setPhase((prev) => (prev === "success" ? prev : "cancelled"));
-          }
-          removeListener();
-        },
-        {
-          config_id: config.configId,
-          response_type: "code",
-          override_default_response_type: true,
-          // Coexistence path — onboard an existing WhatsApp Business App number.
-          // Confirm param names against current Meta docs during live testing.
-          extras: {
-            setup: {},
-            featureType: "whatsapp_business_app_onboarding",
-            sessionInfoVersion: "3",
-          },
-        }
-      );
-    } catch {
-      setPhase("error");
-      removeListener();
-    }
-  }, [removeListener]);
+  const launch = useCallback(() => {
+    ctrlRef.current?.launch();
+  }, []);
 
   const reset = useCallback(() => {
-    idsRef.current = {};
-    setResult(null);
-    setPhase("idle");
-    removeListener();
-  }, [removeListener]);
+    ctrlRef.current?.reset();
+  }, []);
 
-  return { phase, result, launch, reset };
+  return { phase: state.phase, result: state.result, launch, reset };
 }
