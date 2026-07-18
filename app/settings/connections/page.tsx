@@ -2,6 +2,7 @@ import { SettingsSection } from "@/components/settings/SettingsSection";
 import { SettingsSubPageHeader } from "@/components/settings/SettingsSubPageHeader";
 import { PaymentConnectionCard } from "@/components/settings/PaymentConnectionCard";
 import { IntegrationStatusCards } from "@/components/settings/IntegrationStatusCards";
+import { AuthorityConnectionCard } from "@/components/settings/AuthorityConnectionCard";
 
 export default function SettingsConnectionsPage() {
   return (
@@ -9,6 +10,9 @@ export default function SettingsConnectionsPage() {
       <SettingsSubPageHeader title="חיבורים" />
       <div className="mb-4">
         <PaymentConnectionCard />
+      </div>
+      <div className="mb-4">
+        <AuthorityConnectionCard />
       </div>
       <div className="mb-4">
         <IntegrationStatusCards />
