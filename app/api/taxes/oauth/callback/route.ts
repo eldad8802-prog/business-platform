@@ -24,70 +24,39 @@ export const runtime = "nodejs";
 
 const REDIRECT_BASE_VAR = "BILLING_AUTHORITY_OAUTH_REDIRECT_BASE_URL";
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+/** Where the user lands back in the app after the OAuth round-trip. */
+const RESULT_PATH = "/settings/connections";
 
 /**
- * Minimal, self-contained result page. No tokens or secrets are ever placed in
- * the markup — only the connected/error status and a short safe reason code.
+ * Builds the post-OAuth redirect back into the Settings › Connections screen.
+ * Only a safe result flag and a short sanitized reason code are placed in the
+ * URL — never tokens, the authorization `code`, the `state`, or raw provider
+ * error details. OAuth cookies are wiped on every path.
  */
-function renderResultPage(outcome: {
-  status: "connected" | "error";
-  reason: string | null;
-}): string {
-  const connected = outcome.status === "connected";
-  const title = connected
-    ? "התחברות לרשות המסים הושלמה"
-    : "ההתחברות לרשות המסים נכשלה";
-  const detail = connected
-    ? "החיבור אומת ונשמר. אפשר לחזור ל-Dubiz."
-    : "לא הצלחנו להשלים את ההתחברות. נסו שוב מתוך Dubiz.";
-  const reasonLine =
-    !connected && outcome.reason
-      ? `<p class="reason">קוד: ${escapeHtml(outcome.reason)}</p>`
-      : "";
-
-  return `<!doctype html>
-<html lang="he" dir="rtl">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="robots" content="noindex" />
-    <title>${escapeHtml(title)}</title>
-    <style>
-      body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f7f8fa; color: #16181d; display: flex; min-height: 100vh; align-items: center; justify-content: center; margin: 0; }
-      .card { background: #fff; border: 1px solid #e6e8ee; border-radius: 14px; padding: 32px; max-width: 420px; text-align: center; }
-      h1 { font-size: 18px; margin: 0 0 8px; }
-      p { font-size: 14px; color: #5a6072; margin: 4px 0; }
-      .reason { font-family: ui-monospace, monospace; font-size: 12px; color: #98306a; }
-      a { display: inline-block; margin-top: 20px; color: #0f6fff; text-decoration: none; font-weight: 600; }
-    </style>
-  </head>
-  <body>
-    <main class="card">
-      <h1>${escapeHtml(title)}</h1>
-      <p>${escapeHtml(detail)}</p>
-      ${reasonLine}
-      <a href="/">חזרה ל-Dubiz</a>
-    </main>
-  </body>
-</html>`;
+function buildRedirectUrl(
+  origin: string,
+  outcome: { status: "connected" | "error"; reason: string | null }
+): URL {
+  const target = new URL(RESULT_PATH, origin);
+  if (outcome.status === "connected") {
+    target.searchParams.set("authority", "connected");
+  } else {
+    target.searchParams.set("authority", "error");
+    if (outcome.reason) {
+      target.searchParams.set("reason", outcome.reason);
+    }
+  }
+  return target;
 }
 
-function buildResponse(outcome: AuthorityCallbackRouteOutcome): NextResponse {
-  const res = new NextResponse(renderResultPage(outcome), {
-    status: outcome.ok ? 200 : 400,
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-store",
-    },
+function buildResponse(
+  outcome: AuthorityCallbackRouteOutcome,
+  origin: string
+): NextResponse {
+  const res = NextResponse.redirect(buildRedirectUrl(origin, outcome), {
+    status: 303,
   });
+  res.headers.set("cache-control", "no-store");
 
   // Wipe OAuth cookies on every path.
   for (const cookie of outcome.clearedCookies) {
@@ -138,7 +107,7 @@ export async function GET(req: NextRequest) {
       secureCookies,
     });
 
-    return buildResponse(outcome);
+    return buildResponse(outcome, req.nextUrl.origin);
   } catch (error) {
     // Log only the error name — never the message/stack (may contain config
     // values). The callback service already sanitizes its own failures.
@@ -146,16 +115,16 @@ export async function GET(req: NextRequest) {
       "AUTHORITY_OAUTH_CALLBACK_ERROR:",
       error instanceof Error ? error.name : "UnknownError"
     );
-    const res = new NextResponse(
-      renderResultPage({ status: "error", reason: "SERVER_ERROR" }),
-      {
-        status: 500,
-        headers: {
-          "content-type": "text/html; charset=utf-8",
-          "cache-control": "no-store",
-        },
-      }
+    // Redirect back into the app with a safe, generic error code — never HTML
+    // that strands the user outside Dubiz, and never any sensitive detail.
+    const res = NextResponse.redirect(
+      buildRedirectUrl(req.nextUrl.origin, {
+        status: "error",
+        reason: "SERVER_ERROR",
+      }),
+      { status: 303 }
     );
+    res.headers.set("cache-control", "no-store");
     return res;
   }
 }
