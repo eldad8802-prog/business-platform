@@ -87,14 +87,47 @@ function base(
   ok("no submission + CREDIT_NOTE → blocked (fail closed)", r.deliverable === false && r.reason === "AUTHORITY_SUBMISSION_MISSING");
 }
 
-// ---- A held decision never unblocks in this PR ----
+// ---- Held decision outcomes (Decision Flow) ----
 {
+  // Continue accepted + reported → delivery ALLOWED without an allocation number.
   const r = evaluateAuthorityDeliverability(base({
     submissionStatus: BillingAuthoritySubmissionStatus.HELD,
     heldDecisionType: "PROCEED_WITHOUT_ALLOCATION",
     heldDecisionReportedAt: new Date("2026-07-16T00:00:00.000Z"),
   }));
-  ok("HELD + PROCEED_WITHOUT_ALLOCATION (future) still blocked now", r.deliverable === false && r.reason === "AUTHORITY_NOT_DELIVERABLE_HELD");
+  ok("HELD + Continue (PROCEED_WITHOUT_ALLOCATION) + reported → deliverable", r.deliverable === true && r.reason === "CONTINUE_WITHOUT_ALLOCATION");
+}
+{
+  // Cancel accepted → delivery blocked.
+  const r = evaluateAuthorityDeliverability(base({
+    submissionStatus: BillingAuthoritySubmissionStatus.HELD,
+    heldDecisionType: "ABANDONED",
+    heldDecisionReportedAt: new Date("2026-07-16T00:00:00.000Z"),
+  }));
+  ok("HELD + Cancel (ABANDONED) → blocked", r.deliverable === false && r.reason === "AUTHORITY_NOT_DELIVERABLE_HELD");
+}
+{
+  // FurtherObjection accepted → delivery blocked (awaiting hearing).
+  const r = evaluateAuthorityDeliverability(base({
+    submissionStatus: BillingAuthoritySubmissionStatus.HELD,
+    heldDecisionType: "HEARING_REQUESTED",
+    heldDecisionReportedAt: new Date("2026-07-16T00:00:00.000Z"),
+  }));
+  ok("HELD + FurtherObjection (HEARING_REQUESTED) → blocked", r.deliverable === false && r.reason === "AUTHORITY_NOT_DELIVERABLE_HELD");
+}
+{
+  // Continue decision type WITHOUT a reported timestamp → inconsistent → blocked.
+  const r = evaluateAuthorityDeliverability(base({
+    submissionStatus: BillingAuthoritySubmissionStatus.HELD,
+    heldDecisionType: "PROCEED_WITHOUT_ALLOCATION",
+    heldDecisionReportedAt: null,
+  }));
+  ok("HELD + Continue but NOT reported → blocked (inconsistent)", r.deliverable === false && r.reason === "AUTHORITY_NOT_DELIVERABLE_HELD");
+}
+{
+  // HELD with no decision at all → blocked.
+  const r = evaluateAuthorityDeliverability(base({ submissionStatus: BillingAuthoritySubmissionStatus.HELD }));
+  ok("HELD + no decision → blocked", r.deliverable === false && r.reason === "AUTHORITY_NOT_DELIVERABLE_HELD");
 }
 
 // ---- No sensitive leakage: reason is always an internal code, public code is stable ----

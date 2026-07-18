@@ -37,7 +37,9 @@ export type AuthorityDeliverabilityInput = {
 export type AuthorityDeliverableReason =
   | "NOT_RELEVANT"
   | "NOT_REQUIRED"
-  | "APPROVED_WITH_ALLOCATION";
+  | "APPROVED_WITH_ALLOCATION"
+  /** HELD + an accepted, reported Continue decision (issue without a number). */
+  | "CONTINUE_WITHOUT_ALLOCATION";
 
 export type AuthorityBlockedReason =
   | "AUTHORITY_SUBMISSION_MISSING"
@@ -88,6 +90,16 @@ export function evaluateAuthorityDeliverability(
     case BillingAuthoritySubmissionStatus.FAILED:
       return { deliverable: false, reason: "AUTHORITY_NOT_DELIVERABLE_FAILED" };
     case BillingAuthoritySubmissionStatus.HELD:
+      // Delivery from HELD is permitted ONLY for an accepted, reported Continue
+      // (PROCEED_WITHOUT_ALLOCATION) decision — issue without a number. Cancel /
+      // FurtherObjection stay blocked, and a decision type without a reported
+      // timestamp is treated as an inconsistent (not-yet-accepted) state → blocked.
+      if (
+        input.heldDecisionType === BillingAuthorityDecisionType.PROCEED_WITHOUT_ALLOCATION &&
+        input.heldDecisionReportedAt !== null
+      ) {
+        return { deliverable: true, reason: "CONTINUE_WITHOUT_ALLOCATION" };
+      }
       return { deliverable: false, reason: "AUTHORITY_NOT_DELIVERABLE_HELD" };
     case BillingAuthoritySubmissionStatus.REJECTED:
       return { deliverable: false, reason: "AUTHORITY_NOT_DELIVERABLE_REJECTED" };
