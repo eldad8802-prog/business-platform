@@ -21,6 +21,7 @@ import { PlatformHealthSection } from "./platform-health-section";
 import { PlatformAttentionSection } from "./platform-attention-section";
 import { PlatformUsageInsightsSection } from "./platform-usage-insights-section";
 import { PlatformBusinessesSection } from "./platform-businesses-section";
+import { TaxAuthorityProbeSection } from "./tax-authority-probe-section";
 import { PlatformAdminSkeleton } from "./platform-admin-skeleton";
 import { PA } from "./platform-admin-styles";
 
@@ -246,6 +247,9 @@ export function AdminControlSurface({ session }: AdminControlSurfaceProps) {
         onRetry={() => void loadBusinesses(businessPage)}
         onPageChange={setBusinessPage}
       />
+
+      {/* TEMPORARY diagnostic — remove with the token-probe route/service/tests. */}
+      <TaxAuthorityProbeSection />
     </div>
   );
 }
