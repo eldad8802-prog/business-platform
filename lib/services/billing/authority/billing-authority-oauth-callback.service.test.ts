@@ -21,7 +21,6 @@ import {
   AUTHORITY_OAUTH_CALLBACK_ERROR_CODES,
   buildAuthorityOAuthCookieClearSpecs,
   encryptAuthorityOAuthTokens,
-  exchangeAuthorityAuthorizationCode,
   handleAuthorityOAuthCallback,
   statesMatch,
   validateAuthorityOAuthCallbackContext,
@@ -376,6 +375,132 @@ async function runAsyncTests() {
       prisma.billingAuthorityApp.findUnique = originalFindUnique;
       prisma.$transaction = originalTransaction;
     }
+  });
+
+  // ---- Sanitized failure-stage diagnostics at the handler level ------------
+  async function runHandlerFailureCase(opts: {
+    fetchImpl: typeof fetch;
+    encryptTokens?: Parameters<typeof handleAuthorityOAuthCallback>[0]["encryptTokens"];
+    markConnected?: Parameters<typeof handleAuthorityOAuthCallback>[0]["markConnected"];
+  }) {
+    const fake = makeFakeCallbackDb(BillingAuthorityEnvironment.SANDBOX);
+    const originalFindUnique = prisma.billingAuthorityApp.findUnique.bind(
+      prisma.billingAuthorityApp
+    );
+    const originalTransaction = prisma.$transaction.bind(prisma);
+    prisma.billingAuthorityApp.findUnique = (async () =>
+      APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
+    prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
+      fn(fake.tx)) as typeof prisma.$transaction;
+    try {
+      const result = await handleAuthorityOAuthCallback({
+        query: { code: AUTH_CODE, state: OAUTH_STATE },
+        cookies: callbackCookies(),
+        redirectBaseUrl: "https://tenant.dubiz.test",
+        actorUserId: 7,
+        secureCookies: false,
+        fetchImpl: opts.fetchImpl,
+        encryptTokens: opts.encryptTokens,
+        markConnected: opts.markConnected,
+      });
+      return { result, fake };
+    } finally {
+      prisma.billingAuthorityApp.findUnique = originalFindUnique;
+      prisma.$transaction = originalTransaction;
+    }
+  }
+
+  const tokenEndpointForFailure =
+    "https://openapi.taxes.gov.il/shaam/tsandbox/longtimetoken/oauth2/token";
+
+  await withEnvAsync(ENV, async () => {
+    const providerReject = (async () =>
+      new Response('{"error":"invalid_client","error_description":"SENSITIVE-LEAK"}', {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch;
+    const { result, fake } = await runHandlerFailureCase({ fetchImpl: providerReject });
+
+    ok(
+      "provider 400 -> TOKEN_EXCHANGE_REJECTED",
+      !result.ok && result.errorCode === AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_EXCHANGE_REJECTED
+    );
+    ok(
+      "provider 400 -> diagnostics oauthError invalid_client + status 400",
+      !result.ok &&
+        result.diagnostics.providerOAuthError === "invalid_client" &&
+        result.diagnostics.providerHttpStatus === 400 &&
+        result.diagnostics.providerResponseFormat === "JSON"
+    );
+    ok(
+      "provider 400 -> connection lastErrorCode updated",
+      fake.getConnection().lastErrorCode ===
+        AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_EXCHANGE_REJECTED
+    );
+    const failedAudit = fake.auditEvents.find(
+      (e) => e.eventType === "BILLING_AUTHORITY_OAUTH_FAILED"
+    );
+    ok("provider 400 -> OAUTH_FAILED audit written", failedAudit != null);
+    ok(
+      "audit metadata carries safe stage diagnostics",
+      failedAudit?.metadata?.stage === "TOKEN_EXCHANGE" &&
+        failedAudit?.metadata?.providerOAuthError === "invalid_client" &&
+        failedAudit?.metadata?.providerHttpStatus === 400
+    );
+    ok(
+      "audit metadata never carries error_description or tokens",
+      failedAudit != null &&
+        !JSON.stringify(failedAudit.metadata).includes("SENSITIVE-LEAK") &&
+        failedAudit.metadata != null &&
+        !("accessToken" in failedAudit.metadata) &&
+        !("refreshToken" in failedAudit.metadata) &&
+        !("error_description" in failedAudit.metadata)
+    );
+  });
+
+  await withEnvAsync(ENV, async () => {
+    const noRefresh = (async () =>
+      new Response('{"access_token":"AT","expires_in":3600}', {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch;
+    const { result } = await runHandlerFailureCase({ fetchImpl: noRefresh });
+    ok(
+      "2xx without refresh_token -> TOKEN_RESPONSE_INVALID",
+      !result.ok &&
+        result.errorCode === AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_RESPONSE_INVALID &&
+        result.diagnostics.stage === "TOKEN_RESPONSE"
+    );
+  });
+
+  await withEnvAsync(ENV, async () => {
+    const { result } = await runHandlerFailureCase({
+      fetchImpl: mockFetchSuccess(tokenEndpointForFailure),
+      encryptTokens: (() => {
+        throw new Error("crypto boom");
+      }) as Parameters<typeof handleAuthorityOAuthCallback>[0]["encryptTokens"],
+    });
+    ok(
+      "encryption failure -> TOKEN_ENCRYPTION_FAILED",
+      !result.ok &&
+        result.errorCode === AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_ENCRYPTION_FAILED &&
+        result.diagnostics.stage === "TOKEN_ENCRYPTION"
+    );
+  });
+
+  await withEnvAsync(ENV, async () => {
+    const { result } = await runHandlerFailureCase({
+      fetchImpl: mockFetchSuccess(tokenEndpointForFailure),
+      markConnected: (async () => {
+        throw new Error("db write boom");
+      }) as Parameters<typeof handleAuthorityOAuthCallback>[0]["markConnected"],
+    });
+    ok(
+      "persistence failure -> CONNECTION_PERSIST_FAILED",
+      !result.ok &&
+        result.errorCode === AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.CONNECTION_PERSIST_FAILED &&
+        result.diagnostics.stage === "CONNECTION_PERSISTENCE"
+    );
   });
 
   await withEnvAsync(ENV, async () => {
