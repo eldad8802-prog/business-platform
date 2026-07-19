@@ -76,4 +76,26 @@ WHERE "eventType" LIKE 'BILLING_AUTHORITY_%'
 GROUP BY "eventType"
 ORDER BY max("occurredAt") DESC;
 
+-- A5: Sanitized diagnostics from the newest OAuth outcome event for business 3.
+-- Reads ONLY the allowlisted metadata keys written by the new observability
+-- (stage / errorCode / providerHttpStatus / providerOAuthError /
+-- providerResponseFormat) — never the full metadata blob, summary, or payload.
+SELECT 'A5_latest_oauth_diag' AS q,
+  "businessId"                          AS business_id,
+  "eventType"                           AS event_type,
+  "occurredAt"                          AS occurred_at,
+  metadata ->> 'stage'                  AS stage,
+  metadata ->> 'errorCode'              AS error_code,
+  metadata ->> 'providerHttpStatus'     AS provider_http_status,
+  metadata ->> 'providerOAuthError'     AS provider_oauth_error,
+  metadata ->> 'providerResponseFormat' AS provider_response_format
+FROM "BillingAuditEvent"
+WHERE "businessId" = 3
+  AND "eventType" IN (
+    'BILLING_AUTHORITY_OAUTH_FAILED',
+    'BILLING_AUTHORITY_OAUTH_COMPLETED'
+  )
+ORDER BY "occurredAt" DESC
+LIMIT 1;
+
 ROLLBACK;
