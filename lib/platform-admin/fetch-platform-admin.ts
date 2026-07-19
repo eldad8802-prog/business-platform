@@ -160,3 +160,51 @@ export function fetchPlatformAdminBusinesses(page: number, limit = 20) {
     `/api/platform-admin/businesses?${params.toString()}`
   );
 }
+
+/* ------------------------------------------------------------------------- *
+ * TEMPORARY — Tax Authority token-endpoint network probe invoker.
+ * Remove together with the probe route, service, and their tests:
+ *   - app/api/platform-admin/diagnostics/tax-authority-token-probe/route.ts
+ *   - lib/services/billing/authority/billing-authority-token-probe.service.ts
+ *   - components/platform-admin/tax-authority-probe-*
+ * Reuses the canonical getToken()/Bearer/PlatformAdminFetchError mechanism —
+ * no new auth. The raw body is returned as `unknown` and validated by the UI
+ * logic layer (no blind cast).
+ * ------------------------------------------------------------------------- */
+
+export type TokenProbeInvocation = {
+  routeHttpStatus: number;
+  /** Raw JSON body — validated field-by-field by the caller, never trusted. */
+  result: unknown;
+};
+
+export async function postPlatformAdminTokenProbe(): Promise<TokenProbeInvocation> {
+  const token = getToken();
+  if (!token) {
+    throw new PlatformAdminFetchError("Unauthorized", 401);
+  }
+
+  const res = await fetch(
+    "/api/platform-admin/diagnostics/tax-authority-token-probe",
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    }
+  );
+
+  if (!res.ok) {
+    let message = res.status === 401 ? "Unauthorized" : "Request failed";
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error) {
+        message = body.error;
+      }
+    } catch {
+      // ignore parse errors
+    }
+    throw new PlatformAdminFetchError(message, res.status);
+  }
+
+  return { routeHttpStatus: res.status, result: await res.json() };
+}
