@@ -83,6 +83,31 @@ export type AuthorityOAuthResponseFormat =
   | "EMPTY"
   | "NETWORK_ERROR";
 
+/**
+ * Coarse, sanitized class of a network-level fetch failure (no response). Derived
+ * ONLY from safe technical codes (error.name / error.code / error.cause.code) —
+ * never from the raw message, host, IP, URL, or stack.
+ */
+export type AuthorityOAuthNetworkErrorClass =
+  | "DNS_ERROR"
+  | "CONNECT_TIMEOUT"
+  | "REQUEST_TIMEOUT"
+  | "CONNECTION_REFUSED"
+  | "CONNECTION_RESET"
+  | "TLS_ERROR"
+  | "CERTIFICATE_ERROR"
+  | "ABORTED"
+  | "FETCH_ERROR"
+  | "OTHER";
+
+/** Coarse request-duration bucket (avoids persisting a precise timing). */
+export type AuthorityOAuthDurationBucket =
+  | "<1s"
+  | "1-5s"
+  | "5-15s"
+  | "15-30s"
+  | "30s+";
+
 export type AuthorityOAuthFailureStage =
   | "PROVIDER_ERROR"
   | "STATE_VALIDATION"
@@ -102,6 +127,10 @@ export type AuthorityOAuthFailureDiagnostics = {
   providerHttpStatus?: number | null;
   providerOAuthError?: AuthorityOAuthProviderError | null;
   providerResponseFormat?: AuthorityOAuthResponseFormat | null;
+  /** Set only for a NETWORK_ERROR (fetch threw before any response). */
+  networkErrorClass?: AuthorityOAuthNetworkErrorClass | null;
+  /** Coarse duration of the failed request, when measured. */
+  requestDurationBucket?: AuthorityOAuthDurationBucket | null;
 };
 
 /**
@@ -119,6 +148,60 @@ export class AuthorityOAuthCallbackError extends Error {
     this.errorCode = errorCode;
     this.diagnostics = diagnostics;
   }
+}
+
+/**
+ * Classifies a thrown fetch error into a safe network-error class using ONLY
+ * technical codes (error.code / error.cause.code / error.name). Never reads the
+ * message, host, IP, URL, certificate details, or stack.
+ */
+export function mapNetworkErrorClass(
+  error: unknown
+): AuthorityOAuthNetworkErrorClass {
+  const codes: string[] = [];
+  const names: string[] = [];
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    const e = value as { name?: unknown; code?: unknown };
+    if (typeof e.code === "string") codes.push(e.code.toUpperCase());
+    if (typeof e.name === "string") names.push(e.name);
+  };
+  visit(error);
+  if (error && typeof error === "object") {
+    visit((error as { cause?: unknown }).cause);
+  }
+  const code = codes.join(" ");
+  const name = names.join(" ");
+
+  if (/\b(ENOTFOUND|EAI_AGAIN)\b/.test(code)) return "DNS_ERROR";
+  if (
+    /(DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE|CERT_HAS_EXPIRED|ERR_TLS_CERT_ALTNAME|CERT)/.test(
+      code
+    )
+  ) {
+    return "CERTIFICATE_ERROR";
+  }
+  if (/(ERR_TLS|ERR_SSL|EPROTO)/.test(code)) return "TLS_ERROR";
+  if (/\bECONNREFUSED\b/.test(code)) return "CONNECTION_REFUSED";
+  if (/\bECONNRESET\b/.test(code)) return "CONNECTION_RESET";
+  if (/(UND_ERR_CONNECT_TIMEOUT)/.test(code) || /\bETIMEDOUT\b/.test(code)) {
+    return "CONNECT_TIMEOUT";
+  }
+  if (/(UND_ERR_HEADERS_TIMEOUT|UND_ERR_BODY_TIMEOUT)/.test(code)) {
+    return "REQUEST_TIMEOUT";
+  }
+  if (/(ABORT_ERR)/.test(code) || /AbortError/.test(name)) return "ABORTED";
+  if (/TypeError/.test(name)) return "FETCH_ERROR";
+  return "OTHER";
+}
+
+/** Buckets an elapsed-milliseconds value into a coarse duration band. */
+export function toDurationBucket(ms: number): AuthorityOAuthDurationBucket {
+  if (ms < 1000) return "<1s";
+  if (ms < 5000) return "1-5s";
+  if (ms < 15000) return "5-15s";
+  if (ms < 30000) return "15-30s";
+  return "30s+";
 }
 
 /** Maps a raw provider `error` value to the closed allowlist (or unknown/null). */
@@ -480,7 +563,9 @@ export async function exchangeAuthorityAuthorizationCode(input: {
     scope: ITA_OAUTH_SCOPE,
   });
 
-  // Network / timeout: no provider response was ever read.
+  // Network / timeout: no provider response was ever read. Capture only the safe
+  // network-error class + a coarse duration bucket — never the message/host/URL.
+  const startedAt = Date.now();
   let response: Response;
   try {
     response = await fetchFn(input.tokenEndpoint, {
@@ -495,7 +580,7 @@ export async function exchangeAuthorityAuthorizationCode(input: {
       },
       body: body.toString(),
     });
-  } catch {
+  } catch (error) {
     throw new AuthorityOAuthCallbackError(
       AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_EXCHANGE_FAILED,
       {
@@ -503,6 +588,8 @@ export async function exchangeAuthorityAuthorizationCode(input: {
         providerHttpStatus: null,
         providerOAuthError: null,
         providerResponseFormat: "NETWORK_ERROR",
+        networkErrorClass: mapNetworkErrorClass(error),
+        requestDurationBucket: toDurationBucket(Date.now() - startedAt),
       }
     );
   }
@@ -635,6 +722,12 @@ function diagnosticsToAuditMetadata(
   }
   if (diagnostics.providerResponseFormat != null) {
     metadata.providerResponseFormat = diagnostics.providerResponseFormat;
+  }
+  if (diagnostics.networkErrorClass != null) {
+    metadata.networkErrorClass = diagnostics.networkErrorClass;
+  }
+  if (diagnostics.requestDurationBucket != null) {
+    metadata.requestDurationBucket = diagnostics.requestDurationBucket;
   }
   return metadata;
 }

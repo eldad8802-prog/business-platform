@@ -14,8 +14,10 @@ import {
   AuthorityOAuthCallbackError,
   classifyTokenErrorBody,
   exchangeAuthorityAuthorizationCode,
+  mapNetworkErrorClass,
   mapProviderOAuthError,
   resolveCallbackFailure,
+  toDurationBucket,
 } from "@/lib/services/billing/authority/billing-authority-oauth-callback.service";
 
 let failed = 0;
@@ -211,6 +213,60 @@ async function main() {
     ok("classifier: generic -> FAILED", r.errorCode === CODES.TOKEN_EXCHANGE_FAILED);
     const serialized = JSON.stringify(r);
     ok("classifier: generic message not leaked", !serialized.includes("secret leaked"));
+  }
+
+  // ---- Network error-class mapping ----------------------------------------
+  const undici = (code: string, message = "fetch failed") =>
+    Object.assign(new TypeError(message), { cause: Object.assign(new Error(), { code }) });
+  const withCode = (code: string, name = "Error") =>
+    Object.assign(new Error("boom"), { name, code });
+
+  ok("ENOTFOUND -> DNS_ERROR", mapNetworkErrorClass(undici("ENOTFOUND")) === "DNS_ERROR");
+  ok("EAI_AGAIN -> DNS_ERROR", mapNetworkErrorClass(withCode("EAI_AGAIN")) === "DNS_ERROR");
+  ok("ECONNREFUSED -> CONNECTION_REFUSED", mapNetworkErrorClass(undici("ECONNREFUSED")) === "CONNECTION_REFUSED");
+  ok("ECONNRESET -> CONNECTION_RESET", mapNetworkErrorClass(undici("ECONNRESET")) === "CONNECTION_RESET");
+  ok("ETIMEDOUT -> CONNECT_TIMEOUT", mapNetworkErrorClass(undici("ETIMEDOUT")) === "CONNECT_TIMEOUT");
+  ok("UND_ERR_CONNECT_TIMEOUT -> CONNECT_TIMEOUT", mapNetworkErrorClass(undici("UND_ERR_CONNECT_TIMEOUT")) === "CONNECT_TIMEOUT");
+  ok("UND_ERR_HEADERS_TIMEOUT -> REQUEST_TIMEOUT", mapNetworkErrorClass(undici("UND_ERR_HEADERS_TIMEOUT")) === "REQUEST_TIMEOUT");
+  ok("UND_ERR_BODY_TIMEOUT -> REQUEST_TIMEOUT", mapNetworkErrorClass(undici("UND_ERR_BODY_TIMEOUT")) === "REQUEST_TIMEOUT");
+  ok("AbortError name -> ABORTED", mapNetworkErrorClass(withCode("", "AbortError")) === "ABORTED");
+  ok("ABORT_ERR -> ABORTED", mapNetworkErrorClass(withCode("ABORT_ERR")) === "ABORTED");
+  ok("DEPTH_ZERO_SELF_SIGNED_CERT -> CERTIFICATE_ERROR", mapNetworkErrorClass(undici("DEPTH_ZERO_SELF_SIGNED_CERT")) === "CERTIFICATE_ERROR");
+  ok("UNABLE_TO_VERIFY_LEAF_SIGNATURE -> CERTIFICATE_ERROR", mapNetworkErrorClass(undici("UNABLE_TO_VERIFY_LEAF_SIGNATURE")) === "CERTIFICATE_ERROR");
+  ok("ERR_TLS_* -> TLS_ERROR", mapNetworkErrorClass(withCode("ERR_TLS_HANDSHAKE")) === "TLS_ERROR");
+  ok("EPROTO -> TLS_ERROR", mapNetworkErrorClass(undici("EPROTO")) === "TLS_ERROR");
+  ok("TypeError no known cause -> FETCH_ERROR", mapNetworkErrorClass(new TypeError("fetch failed")) === "FETCH_ERROR");
+  ok("unknown -> OTHER", mapNetworkErrorClass(withCode("ESOMETHING_WEIRD")) === "OTHER");
+  ok("null -> OTHER", mapNetworkErrorClass(null) === "OTHER");
+
+  {
+    // No message/stack leaks: the classifier returns only the enum.
+    const sensitive = undici("ECONNREFUSED", "connect ECONNREFUSED 199.203.206.249:443");
+    const cls = mapNetworkErrorClass(sensitive);
+    ok("network class is pure enum (no host/ip)", cls === "CONNECTION_REFUSED" && !cls.includes("199.203"));
+  }
+
+  ok("duration <1s", toDurationBucket(500) === "<1s");
+  ok("duration 1-5s", toDurationBucket(3000) === "1-5s");
+  ok("duration 5-15s", toDurationBucket(9000) === "5-15s");
+  ok("duration 15-30s", toDurationBucket(20000) === "15-30s");
+  ok("duration 30s+", toDurationBucket(45000) === "30s+");
+
+  {
+    // A network failure surfaced through the exchange carries the class + bucket
+    // and never the underlying host/message.
+    const netFetch = (async () => {
+      throw undici("ECONNREFUSED", "connect ECONNREFUSED 199.203.206.249:443");
+    }) as typeof fetch;
+    try {
+      await exchangeAuthorityAuthorizationCode({ ...BASE, fetchImpl: netFetch });
+      ok("exchange network failure threw", false);
+    } catch (error) {
+      const e = error as AuthorityOAuthCallbackError;
+      ok("exchange -> networkErrorClass CONNECTION_REFUSED", e.diagnostics.networkErrorClass === "CONNECTION_REFUSED");
+      ok("exchange -> duration bucket present", typeof e.diagnostics.requestDurationBucket === "string");
+      ok("exchange network failure never leaks host/ip", !JSON.stringify(e.diagnostics).includes("199.203.206.249"));
+    }
   }
 
   console.log(failed === 0 ? "\nALL PASS" : `\n${failed} FAILED`);
