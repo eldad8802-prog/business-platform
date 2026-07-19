@@ -450,6 +450,12 @@ export async function markAuthorityOAuthFailedTx(
     errorCode: string;
     errorMessage: string;
     occurredAt?: Date;
+    /**
+     * Optional sanitized diagnostics (stage, providerHttpStatus,
+     * providerOAuthError, providerResponseFormat). Safe keys only — validated by
+     * the audit metadata guard, which rejects any token/secret/code key.
+     */
+    diagnostics?: Record<string, unknown>;
   }
 ): Promise<AuthorityConnectionTransitionResult> {
   assertPositiveInteger(input.businessId, "businessId");
@@ -473,6 +479,7 @@ export async function markAuthorityOAuthFailedTx(
     actorUserId: input.actorUserId ?? null,
     occurredAt: input.occurredAt,
     metadata: {
+      ...(input.diagnostics ?? {}),
       errorCode,
       errorMessage,
     },

@@ -44,10 +44,125 @@ export const AUTHORITY_OAUTH_CALLBACK_ERROR_CODES = {
   MISSING_COOKIE: "AUTHORITY_OAUTH_MISSING_COOKIE",
   MISSING_CODE: "AUTHORITY_OAUTH_MISSING_CODE",
   ITA_ERROR: "AUTHORITY_OAUTH_ITA_ERROR",
+  // Kept for backward compatibility: network / pre-response / unparseable-on-2xx
+  // failures of the token exchange (no successful provider response was read).
   TOKEN_EXCHANGE_FAILED: "AUTHORITY_OAUTH_TOKEN_EXCHANGE_FAILED",
+  // The provider (ITA) token endpoint answered with a non-2xx status.
+  TOKEN_EXCHANGE_REJECTED: "AUTHORITY_OAUTH_TOKEN_EXCHANGE_REJECTED",
   TOKEN_RESPONSE_INVALID: "AUTHORITY_OAUTH_TOKEN_RESPONSE_INVALID",
+  // Local, post-exchange failures — previously masked as TOKEN_EXCHANGE_FAILED.
+  TOKEN_ENCRYPTION_FAILED: "AUTHORITY_OAUTH_TOKEN_ENCRYPTION_FAILED",
+  CONNECTION_PERSIST_FAILED: "AUTHORITY_OAUTH_CONNECTION_PERSIST_FAILED",
   APP_UNAVAILABLE: "AUTHORITY_OAUTH_APP_UNAVAILABLE",
 } as const;
+
+/**
+ * Closed allowlist of OAuth 2.0 error codes we are willing to persist from a
+ * provider token response. Anything outside this set collapses to "unknown".
+ * We never persist `error_description` or any other provider field.
+ */
+export const AUTHORITY_OAUTH_PROVIDER_ERROR_ALLOWLIST = [
+  "invalid_client",
+  "invalid_grant",
+  "invalid_request",
+  "unauthorized_client",
+  "unsupported_grant_type",
+  "invalid_scope",
+  "temporarily_unavailable",
+  "server_error",
+  "access_denied",
+] as const;
+
+export type AuthorityOAuthProviderError =
+  | (typeof AUTHORITY_OAUTH_PROVIDER_ERROR_ALLOWLIST)[number]
+  | "unknown";
+
+export type AuthorityOAuthResponseFormat =
+  | "JSON"
+  | "NON_JSON"
+  | "EMPTY"
+  | "NETWORK_ERROR";
+
+export type AuthorityOAuthFailureStage =
+  | "PROVIDER_ERROR"
+  | "STATE_VALIDATION"
+  | "APP_CONFIGURATION"
+  | "TOKEN_EXCHANGE"
+  | "TOKEN_RESPONSE"
+  | "TOKEN_ENCRYPTION"
+  | "CONNECTION_PERSISTENCE";
+
+/**
+ * Sanitized diagnostics attached to a callback failure. Contains ONLY a coarse
+ * stage, the provider HTTP status, an allowlisted OAuth error enum, and a
+ * response-format tag — never tokens, code, state, secrets, or free text.
+ */
+export type AuthorityOAuthFailureDiagnostics = {
+  stage: AuthorityOAuthFailureStage;
+  providerHttpStatus?: number | null;
+  providerOAuthError?: AuthorityOAuthProviderError | null;
+  providerResponseFormat?: AuthorityOAuthResponseFormat | null;
+};
+
+/**
+ * Internal callback failure carrying a safe internal error code plus sanitized
+ * diagnostics. The Error `message` is set to the internal code ONLY — never a
+ * provider body, error_description, URL, token, or any sensitive text.
+ */
+export class AuthorityOAuthCallbackError extends Error {
+  readonly errorCode: string;
+  readonly diagnostics: AuthorityOAuthFailureDiagnostics;
+
+  constructor(errorCode: string, diagnostics: AuthorityOAuthFailureDiagnostics) {
+    super(errorCode);
+    this.name = "AuthorityOAuthCallbackError";
+    this.errorCode = errorCode;
+    this.diagnostics = diagnostics;
+  }
+}
+
+/** Maps a raw provider `error` value to the closed allowlist (or unknown/null). */
+export function mapProviderOAuthError(
+  raw: unknown
+): AuthorityOAuthProviderError | null {
+  if (typeof raw !== "string") return null;
+  const value = raw.trim().toLowerCase();
+  if (value.length === 0) return null;
+  return (AUTHORITY_OAUTH_PROVIDER_ERROR_ALLOWLIST as readonly string[]).includes(
+    value
+  )
+    ? (value as AuthorityOAuthProviderError)
+    : "unknown";
+}
+
+/**
+ * Classifies a token-endpoint HTTP response body into a safe response-format tag
+ * and, when JSON, an allowlisted provider OAuth error — reading ONLY the `error`
+ * field. `error_description` and every other field are ignored entirely.
+ */
+export function classifyTokenErrorBody(rawBody: string): {
+  responseFormat: AuthorityOAuthResponseFormat;
+  providerOAuthError: AuthorityOAuthProviderError | null;
+} {
+  const trimmed = rawBody.trim();
+  if (trimmed.length === 0) {
+    return { responseFormat: "EMPTY", providerOAuthError: null };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return { responseFormat: "NON_JSON", providerOAuthError: null };
+  }
+  const errorField =
+    parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>).error
+      : undefined;
+  return {
+    responseFormat: "JSON",
+    providerOAuthError: mapProviderOAuthError(errorField),
+  };
+}
 
 export type AuthorityOAuthCallbackQuery = {
   code?: string | null;
@@ -79,6 +194,13 @@ export type HandleAuthorityOAuthCallbackInput = {
   actorUserId: number;
   secureCookies?: boolean;
   fetchImpl?: typeof fetch;
+  /**
+   * Injectable local steps — used to unit-test the encryption/persistence stage
+   * classification without a live crypto key or database. Default to the real
+   * implementations in production.
+   */
+  encryptTokens?: typeof encryptAuthorityOAuthTokens;
+  markConnected?: typeof markAuthorityConnected;
 };
 
 export type HandleAuthorityOAuthCallbackSuccess = {
@@ -91,6 +213,8 @@ export type HandleAuthorityOAuthCallbackFailure = {
   ok: false;
   errorCode: string;
   errorMessage: string;
+  /** Sanitized diagnostics — never leaves the server; not surfaced in the URL/UI. */
+  diagnostics: AuthorityOAuthFailureDiagnostics;
   connection?: PublicAuthorityConnection;
   /** True when markAuthorityOAuthFailed completed and wrote OAUTH_FAILED audit. */
   oauthFailureRecorded: boolean;
@@ -356,42 +480,80 @@ export async function exchangeAuthorityAuthorizationCode(input: {
     scope: ITA_OAUTH_SCOPE,
   });
 
-  const response = await fetchFn(input.tokenEndpoint, {
-    method: "POST",
-    headers: {
-      Authorization: buildAuthorityOAuthBasicAuthHeader(
-        input.clientId,
-        input.clientSecret
-      ),
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    },
-    body: body.toString(),
-  });
+  // Network / timeout: no provider response was ever read.
+  let response: Response;
+  try {
+    response = await fetchFn(input.tokenEndpoint, {
+      method: "POST",
+      headers: {
+        Authorization: buildAuthorityOAuthBasicAuthHeader(
+          input.clientId,
+          input.clientSecret
+        ),
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body: body.toString(),
+    });
+  } catch {
+    throw new AuthorityOAuthCallbackError(
+      AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_EXCHANGE_FAILED,
+      {
+        stage: "TOKEN_EXCHANGE",
+        providerHttpStatus: null,
+        providerOAuthError: null,
+        providerResponseFormat: "NETWORK_ERROR",
+      }
+    );
+  }
 
   const raw = await response.text();
+
+  // Provider answered with a non-2xx status: this is a provider REJECTION.
+  // Read only the safe `error` enum + response shape — never the body/description.
+  if (!response.ok) {
+    const { responseFormat, providerOAuthError } = classifyTokenErrorBody(raw);
+    throw new AuthorityOAuthCallbackError(
+      AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_EXCHANGE_REJECTED,
+      {
+        stage: "TOKEN_EXCHANGE",
+        providerHttpStatus: response.status,
+        providerOAuthError,
+        providerResponseFormat: responseFormat,
+      }
+    );
+  }
+
+  // 2xx but the body is not parseable JSON — treat as a failed exchange (not a
+  // rejection): we have no valid token response to work with.
   let parsed: unknown;
   try {
-    parsed = raw.length > 0 ? JSON.parse(raw) : null;
+    parsed = raw.trim().length > 0 ? JSON.parse(raw) : null;
   } catch {
-    throw new ValidationError(
-      AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_EXCHANGE_FAILED
+    throw new AuthorityOAuthCallbackError(
+      AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_EXCHANGE_FAILED,
+      {
+        stage: "TOKEN_EXCHANGE",
+        providerHttpStatus: response.status,
+        providerOAuthError: null,
+        providerResponseFormat: "NON_JSON",
+      }
     );
   }
 
-  if (!response.ok) {
-    throw new ValidationError(
-      AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_EXCHANGE_FAILED
-    );
-  }
-
-  const tokenResponse = parsed as Partial<AuthorityTokenExchangeResponse>;
+  const tokenResponse = (parsed ?? {}) as Partial<AuthorityTokenExchangeResponse>;
   if (
     typeof tokenResponse.access_token !== "string" ||
     tokenResponse.access_token.length === 0
   ) {
-    throw new ValidationError(
-      AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_RESPONSE_INVALID
+    throw new AuthorityOAuthCallbackError(
+      AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_RESPONSE_INVALID,
+      {
+        stage: "TOKEN_RESPONSE",
+        providerHttpStatus: response.status,
+        providerOAuthError: null,
+        providerResponseFormat: parsed === null ? "EMPTY" : "JSON",
+      }
     );
   }
 
@@ -412,12 +574,78 @@ export async function exchangeAuthorityAuthorizationCode(input: {
   };
 }
 
+const CODES = AUTHORITY_OAUTH_CALLBACK_ERROR_CODES;
+
+/** Maps a validation-context error code to its coarse failure stage. */
+function stageForValidationCode(errorCode: string): AuthorityOAuthFailureStage {
+  if (errorCode === CODES.ITA_ERROR) return "PROVIDER_ERROR";
+  return "STATE_VALIDATION";
+}
+
+function isKnownCallbackErrorCode(value: string): boolean {
+  return (Object.values(CODES) as string[]).includes(value);
+}
+
+/**
+ * Classifies a thrown error from the exchange/encrypt/persist steps into a safe
+ * internal error code + sanitized diagnostics. Never reads a provider body or
+ * free-text message beyond our own internal codes.
+ */
+export function resolveCallbackFailure(error: unknown): {
+  errorCode: string;
+  diagnostics: AuthorityOAuthFailureDiagnostics;
+} {
+  if (error instanceof AuthorityOAuthCallbackError) {
+    return { errorCode: error.errorCode, diagnostics: error.diagnostics };
+  }
+  if (error instanceof ServiceUnavailableError) {
+    return {
+      errorCode: CODES.APP_UNAVAILABLE,
+      diagnostics: { stage: "APP_CONFIGURATION" },
+    };
+  }
+  if (error instanceof ValidationError && isKnownCallbackErrorCode(error.message)) {
+    return {
+      errorCode: error.message,
+      diagnostics: {
+        stage:
+          error.message === CODES.TOKEN_RESPONSE_INVALID
+            ? "TOKEN_RESPONSE"
+            : "TOKEN_EXCHANGE",
+      },
+    };
+  }
+  // Unknown/untagged: do NOT surface the raw message (may carry a URL/host).
+  return {
+    errorCode: CODES.TOKEN_EXCHANGE_FAILED,
+    diagnostics: { stage: "TOKEN_EXCHANGE" },
+  };
+}
+
+/** Builds sanitized audit metadata from failure diagnostics (safe keys only). */
+function diagnosticsToAuditMetadata(
+  diagnostics: AuthorityOAuthFailureDiagnostics
+): Record<string, unknown> {
+  const metadata: Record<string, unknown> = { stage: diagnostics.stage };
+  if (diagnostics.providerHttpStatus != null) {
+    metadata.providerHttpStatus = diagnostics.providerHttpStatus;
+  }
+  if (diagnostics.providerOAuthError != null) {
+    metadata.providerOAuthError = diagnostics.providerOAuthError;
+  }
+  if (diagnostics.providerResponseFormat != null) {
+    metadata.providerResponseFormat = diagnostics.providerResponseFormat;
+  }
+  return metadata;
+}
+
 async function recordOAuthCallbackFailure(input: {
   businessId: number;
   environment: BillingAuthorityEnvironment;
   actorUserId?: number | null;
   errorCode: string;
   errorMessage: string;
+  diagnostics: AuthorityOAuthFailureDiagnostics;
 }): Promise<AuthorityConnectionTransitionResult | null> {
   try {
     return await markAuthorityOAuthFailed({
@@ -426,6 +654,7 @@ async function recordOAuthCallbackFailure(input: {
       actorUserId: input.actorUserId ?? null,
       errorCode: input.errorCode,
       errorMessage: input.errorMessage,
+      diagnostics: diagnosticsToAuditMetadata(input.diagnostics),
     });
   } catch {
     return null;
@@ -456,6 +685,9 @@ export async function handleAuthorityOAuthCallback(
   });
 
   if (!validation.ok) {
+    const diagnostics: AuthorityOAuthFailureDiagnostics = {
+      stage: stageForValidationCode(validation.errorCode),
+    };
     const failureTransition =
       validation.businessId != null && validation.environment != null
         ? await recordOAuthCallbackFailure({
@@ -463,14 +695,16 @@ export async function handleAuthorityOAuthCallback(
             environment: validation.environment,
             actorUserId: input.actorUserId,
             errorCode: validation.errorCode,
-            errorMessage: validation.errorMessage,
+            errorMessage: validation.errorCode,
+            diagnostics,
           })
         : null;
 
     return {
       ok: false,
       errorCode: validation.errorCode,
-      errorMessage: validation.errorMessage,
+      errorMessage: validation.errorCode,
+      diagnostics,
       connection: failureTransition?.connection,
       oauthFailureRecorded: failureTransition?.auditWritten ?? false,
       clearedCookies,
@@ -478,6 +712,8 @@ export async function handleAuthorityOAuthCallback(
   }
 
   const { context } = validation;
+  const encryptTokens = input.encryptTokens ?? encryptAuthorityOAuthTokens;
+  const markConnected = input.markConnected ?? markAuthorityConnected;
 
   try {
     const envConfig = resolveAuthorityEnvConfig(context.environment);
@@ -498,27 +734,46 @@ export async function handleAuthorityOAuthCallback(
       typeof tokenResponse.refresh_token !== "string" ||
       tokenResponse.refresh_token.length === 0
     ) {
-      throw new ValidationError(
-        AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_RESPONSE_INVALID
-      );
+      throw new AuthorityOAuthCallbackError(CODES.TOKEN_RESPONSE_INVALID, {
+        stage: "TOKEN_RESPONSE",
+        providerHttpStatus: null,
+        providerOAuthError: null,
+        providerResponseFormat: "JSON",
+      });
     }
 
-    const encryptedTokens = encryptAuthorityOAuthTokens({
-      businessId: context.businessId,
-      environment: context.environment,
-      accessToken: tokenResponse.access_token,
-      refreshToken: tokenResponse.refresh_token,
-    });
+    // Local encryption — a failure here is NOT a provider rejection.
+    let encryptedTokens;
+    try {
+      encryptedTokens = encryptTokens({
+        businessId: context.businessId,
+        environment: context.environment,
+        accessToken: tokenResponse.access_token,
+        refreshToken: tokenResponse.refresh_token,
+      });
+    } catch {
+      throw new AuthorityOAuthCallbackError(CODES.TOKEN_ENCRYPTION_FAILED, {
+        stage: "TOKEN_ENCRYPTION",
+      });
+    }
 
-    const connected = await markAuthorityConnected({
-      businessId: context.businessId,
-      environment: context.environment,
-      actorUserId: input.actorUserId,
-      tokens: encryptedTokens,
-      accessTokenExpiresAt: resolveTokenExpiryDate(tokenResponse.expires_in),
-      refreshTokenExpiresAt: null,
-      oauthAuthorizedAt: new Date(),
-    });
+    // Local persistence — a failure here is NOT a provider rejection.
+    let connected;
+    try {
+      connected = await markConnected({
+        businessId: context.businessId,
+        environment: context.environment,
+        actorUserId: input.actorUserId,
+        tokens: encryptedTokens,
+        accessTokenExpiresAt: resolveTokenExpiryDate(tokenResponse.expires_in),
+        refreshTokenExpiresAt: null,
+        oauthAuthorizedAt: new Date(),
+      });
+    } catch {
+      throw new AuthorityOAuthCallbackError(CODES.CONNECTION_PERSIST_FAILED, {
+        stage: "CONNECTION_PERSISTENCE",
+      });
+    }
 
     return {
       ok: true,
@@ -526,19 +781,11 @@ export async function handleAuthorityOAuthCallback(
       clearedCookies,
     };
   } catch (error) {
-    const errorCode =
-      error instanceof ServiceUnavailableError
-        ? AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.APP_UNAVAILABLE
-        : error instanceof ValidationError &&
-            Object.values(AUTHORITY_OAUTH_CALLBACK_ERROR_CODES).includes(
-              error.message as (typeof AUTHORITY_OAUTH_CALLBACK_ERROR_CODES)[keyof typeof AUTHORITY_OAUTH_CALLBACK_ERROR_CODES]
-            )
-          ? error.message
-          : AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_EXCHANGE_FAILED;
+    const { errorCode, diagnostics } = resolveCallbackFailure(error);
 
-    const errorMessage = sanitizeAuthorityConnectionErrorMessage(
-      error instanceof Error ? error.message : "OAuth callback failed"
-    );
+    // errorMessage is the internal code ONLY — never the thrown message (which,
+    // for an unexpected error, could carry a URL/host or other sensitive text).
+    const errorMessage = errorCode;
 
     const failureTransition = await recordOAuthCallbackFailure({
       businessId: context.businessId,
@@ -546,12 +793,14 @@ export async function handleAuthorityOAuthCallback(
       actorUserId: input.actorUserId,
       errorCode: errorCode.slice(0, 64),
       errorMessage,
+      diagnostics,
     });
 
     return {
       ok: false,
       errorCode,
       errorMessage,
+      diagnostics,
       connection: failureTransition?.connection,
       oauthFailureRecorded: failureTransition?.auditWritten ?? false,
       clearedCookies,
