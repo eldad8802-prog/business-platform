@@ -37,6 +37,8 @@ export type RequestInvoiceApprovalInput = {
   customerTaxId: string | null;
   /** Software registration number from config (never invented). */
   accountingSoftwareNumber: string | number | null;
+  /** Operator identity (§2.3): internal user id of the allocation actor. */
+  operatorUserName: string;
   /** Bearer access token, already acquired by the (future) OAuth layer. */
   accessToken: string;
   /** Runtime configuration for the HTTP client. */
@@ -121,6 +123,7 @@ export async function requestInvoiceApproval(
     snapshot: input.snapshot,
     customerTaxId: input.customerTaxId,
     accountingSoftwareNumber: input.accountingSoftwareNumber,
+    operatorUserName: input.operatorUserName,
   });
 
   if (!built.ok) {

@@ -109,6 +109,8 @@ function input(over: Partial<BuildInvoiceApprovalPayloadInput> = {}): BuildInvoi
       over.accountingSoftwareNumber === undefined
         ? TEST_ACCOUNTING_SOFTWARE_NUMBER
         : over.accountingSoftwareNumber,
+    operatorUserName:
+      over.operatorUserName === undefined ? "42" : over.operatorUserName,
   };
 }
 
@@ -151,7 +153,21 @@ ok("map has no QUOTE / RECEIPT", APPROVAL_DOCUMENT_TYPE_CODE.QUOTE === undefined
     ok("item total_amount before VAT", p.items?.[0].total_amount === 100);
     ok("customer_name sent", p.customer_name === "לקוח");
     ok("invoice_note omitted when no footer", p.invoice_note === undefined);
+    // §2.3: at least one of user_id/user_name must be present.
+    ok("user_name = operator identity", p.user_name === "42");
+    ok("at least one operator identity present", (p.user_id !== undefined) || (typeof p.user_name === "string" && p.user_name.length > 0));
+    ok("user_id not invented (unset)", p.user_id === undefined);
   }
+}
+
+// ---- operator identity (§2.3 fields 6/7) contract ----
+{
+  const missing = buildInvoiceApprovalPayload(input({ operatorUserName: "   " }));
+  ok("empty operator identity → MISSING_OPERATOR_IDENTITY", !missing.ok && errorCodes(missing).includes("MISSING_OPERATOR_IDENTITY"));
+}
+{
+  const long = buildInvoiceApprovalPayload(input({ operatorUserName: "x".repeat(40) }));
+  ok("operator user_name capped to A25 (25 chars)", long.ok && long.payload.user_name?.length === 25);
 }
 
 {

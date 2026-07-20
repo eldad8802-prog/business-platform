@@ -58,6 +58,14 @@ export type InvoiceApprovalRequest = {
   payment_amount: number;
   vat_amount: number;
   payment_amount_including_vat: number;
+  // ---- operator identity (§2.3 fields 6/7, CM) ----
+  // "At least one of the fields ID or username must be entered." Dubiz has no ITA
+  // Service-Operator national id (N9), so it sends user_name (A25) = the internal
+  // user id of the operator performing the allocation (footnote 3: "Name/user
+  // code (internal user ID) performing the actual allocation"). user_id (N9) is
+  // left unset because no valid national operator id exists — never invented.
+  user_id?: number;
+  user_name?: string;
   // ---- optional (sent only when a real source exists) ----
   customer_name?: string;
   invoice_note?: string;
