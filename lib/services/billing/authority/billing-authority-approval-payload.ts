@@ -27,17 +27,14 @@ import type {
  * Any type absent here resolves to `undefined` and is rejected by the builder
  * as UNSUPPORTED_DOCUMENT_TYPE.
  *
- * CREDIT_NOTE (code 330) is deliberately EXCLUDED. 330 is a valid OpenAPI
- * invoice_type value, but activating it is blocked pending evidence:
- *  - The official מע"מ 01/2025 instruction does not mention credit notes /
- *    זיכוי / 330 at all — it addresses חשבונית מס only.
- *  - The supplied OpenAPI facts list 330 as a code but do not establish that a
- *    credit note requires an allocation request, nor the header-amount sign
- *    (`minimum`) rules for a credit payload.
- *  - Dubiz stores credit-note amounts as POSITIVE and its (currently unwired)
- *    readiness returns NOT_REQUIRED for CREDIT_NOTE.
- * Until a regulatory + contract decision, credit notes are not submitted here.
- * readiness.ts is intentionally left unchanged.
+ * CREDIT_NOTE (code 330) is deliberately EXCLUDED — now confirmed by the
+ * official source: "Israel Invoice Model API Description" v2.0 (7/2024),
+ * Table 2.5 marks 330 ("Credit tax invoice") as allocation **No**. A credit note
+ * therefore does not request an allocation number and is not submitted here.
+ *
+ * This map must stay in sync with the CONDITIONAL entries of
+ * AUTHORITY_ALLOCATION_REQUIREMENT (single source of truth) — enforced by a
+ * consistency test in billing-authority-approval-payload.test.ts.
  */
 export const APPROVAL_DOCUMENT_TYPE_CODE: Readonly<Record<string, number>> = {
   [BillingDocumentType.TAX_INVOICE]: 305,

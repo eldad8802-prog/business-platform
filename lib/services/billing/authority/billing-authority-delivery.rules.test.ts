@@ -82,9 +82,14 @@ function base(
   ok("no submission + eligible type → blocked (fail closed)", r.deliverable === false && r.reason === "AUTHORITY_SUBMISSION_MISSING");
 }
 {
-  // CREDIT_NOTE is authority-eligible; no submission → fail closed too.
+  // 320 Tax invoice/receipt is now eligible (Table 2.5: Yes) → no submission fails closed.
+  const r = evaluateAuthorityDeliverability(base({ documentType: BillingDocumentType.TAX_INVOICE_RECEIPT, submissionStatus: null }));
+  ok("no submission + TAX_INVOICE_RECEIPT (320) → blocked (fail closed)", r.deliverable === false && r.reason === "AUTHORITY_SUBMISSION_MISSING");
+}
+{
+  // CREDIT_NOTE (330) is NO LONGER eligible (Table 2.5: No) → delivered normally.
   const r = evaluateAuthorityDeliverability(base({ documentType: BillingDocumentType.CREDIT_NOTE, submissionStatus: null }));
-  ok("no submission + CREDIT_NOTE → blocked (fail closed)", r.deliverable === false && r.reason === "AUTHORITY_SUBMISSION_MISSING");
+  ok("no submission + CREDIT_NOTE (330) → deliverable (NOT_RELEVANT)", r.deliverable === true && r.reason === "NOT_RELEVANT");
 }
 
 // ---- Held decision outcomes (Decision Flow) ----
@@ -128,6 +133,33 @@ function base(
   // HELD with no decision at all → blocked.
   const r = evaluateAuthorityDeliverability(base({ submissionStatus: BillingAuthoritySubmissionStatus.HELD }));
   ok("HELD + no decision → blocked", r.deliverable === false && r.reason === "AUTHORITY_NOT_DELIVERABLE_HELD");
+}
+
+// ---- Workstream 4: Continue-without-allocation is DISTINCT from an approval ----
+{
+  // Continue is deliverable with NO allocation number at all — it must never be
+  // conflated with APPROVED_WITH_ALLOCATION, and must not require/borrow a number.
+  const cont = evaluateAuthorityDeliverability(base({
+    submissionStatus: BillingAuthoritySubmissionStatus.HELD,
+    heldDecisionType: "PROCEED_WITHOUT_ALLOCATION",
+    heldDecisionReportedAt: new Date("2026-07-16T00:00:00.000Z"),
+    documentAllocationNumber: null,
+  }));
+  const appr = evaluateAuthorityDeliverability(base({
+    submissionStatus: BillingAuthoritySubmissionStatus.APPROVED,
+    documentAllocationNumber: "12345678",
+  }));
+  ok("Continue deliverable WITHOUT any allocation number", cont.deliverable === true && cont.reason === "CONTINUE_WITHOUT_ALLOCATION");
+  ok("Approved reason differs from Continue reason", appr.deliverable === true && appr.reason === "APPROVED_WITH_ALLOCATION" && appr.reason !== cont.reason);
+  // A Continue decision must NOT be upgraded to an approval just because a number
+  // is (erroneously) present — the reason stays CONTINUE_WITHOUT_ALLOCATION.
+  const contWithNumber = evaluateAuthorityDeliverability(base({
+    submissionStatus: BillingAuthoritySubmissionStatus.HELD,
+    heldDecisionType: "PROCEED_WITHOUT_ALLOCATION",
+    heldDecisionReportedAt: new Date("2026-07-16T00:00:00.000Z"),
+    documentAllocationNumber: "00000001",
+  }));
+  ok("Continue stays Continue even if a stray number is present (no placeholder promotion)", contWithNumber.deliverable === true && contWithNumber.reason === "CONTINUE_WITHOUT_ALLOCATION");
 }
 
 // ---- No sensitive leakage: reason is always an internal code, public code is stable ----

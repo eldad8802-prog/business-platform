@@ -24,9 +24,10 @@ export type AuthorityDeliverabilityInput = {
   /** `null` when no BillingAuthoritySubmission row exists for the document. */
   submissionStatus: BillingAuthoritySubmissionStatus | null;
   /**
-   * Loaded for the read model and forward-compatibility. NOT used to grant
-   * delivery in this layer yet: PROCEED_WITHOUT_ALLOCATION delivery arrives with
-   * the Decision API (a future PR), so a held decision never unblocks here.
+   * The Continue-without-allocation decision (Cancel/Continue/FurtherObjection)
+   * IS used to grant delivery here: a HELD submission whose accepted decision is
+   * PROCEED_WITHOUT_ALLOCATION (with a reported timestamp) becomes deliverable
+   * as CONTINUE_WITHOUT_ALLOCATION. Cancel / FurtherObjection stay blocked.
    */
   heldDecisionType: BillingAuthorityDecisionType | null;
   heldDecisionReportedAt: Date | null;

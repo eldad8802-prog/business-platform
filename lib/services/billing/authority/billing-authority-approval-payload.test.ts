@@ -121,7 +121,7 @@ function errorCodes(r: ReturnType<typeof buildInvoiceApprovalPayload>): Approval
 // ---------------------------------------------------------------------------
 ok("map TAX_INVOICE → 305", APPROVAL_DOCUMENT_TYPE_CODE.TAX_INVOICE === 305);
 ok("map TAX_INVOICE_RECEIPT → 320", APPROVAL_DOCUMENT_TYPE_CODE.TAX_INVOICE_RECEIPT === 320);
-ok("map has no CREDIT_NOTE (blocked pending evidence)", APPROVAL_DOCUMENT_TYPE_CODE.CREDIT_NOTE === undefined);
+ok("map has no CREDIT_NOTE (Table 2.5: 330 = No allocation)", APPROVAL_DOCUMENT_TYPE_CODE.CREDIT_NOTE === undefined);
 ok("map has no QUOTE / RECEIPT", APPROVAL_DOCUMENT_TYPE_CODE.QUOTE === undefined && APPROVAL_DOCUMENT_TYPE_CODE.RECEIPT === undefined);
 
 // ---------------------------------------------------------------------------
