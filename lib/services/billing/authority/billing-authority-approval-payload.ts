@@ -44,6 +44,8 @@ export const APPROVAL_DOCUMENT_TYPE_CODE: Readonly<Record<string, number>> = {
 export const MAX_INVOICE_ID_LENGTH = 50;
 export const MAX_DOCUMENT_NUMBER_LENGTH = 20;
 export const MAX_ITEM_DESCRIPTION_LENGTH = 30;
+/** §2.3 field 7 (user_name) is A25. */
+export const MAX_OPERATOR_USER_NAME_LENGTH = 25;
 
 const MONEY_DECIMAL_PLACES = 2;
 const QUANTITY_DECIMAL_PLACES = 4;
@@ -64,7 +66,8 @@ export type ApprovalPayloadErrorCode =
   | "DESCRIPTION_TOO_LONG"
   | "INVALID_AMOUNT_VALUE"
   | "INVALID_AMOUNT_RELATION"
-  | "INVALID_DOCUMENT_DATE";
+  | "INVALID_DOCUMENT_DATE"
+  | "MISSING_OPERATOR_IDENTITY";
 
 export type ApprovalPayloadValidationError = {
   code: ApprovalPayloadErrorCode;
@@ -90,6 +93,13 @@ export type BuildInvoiceApprovalPayloadInput = {
    * the caller. Passed in explicitly; never defaulted or invented here.
    */
   accountingSoftwareNumber: string | number | null;
+  /**
+   * Operator identity performing the allocation. ITA §2.3 requires at least one
+   * of user_id / user_name. Dubiz sends user_name = the internal user id of the
+   * operator (footnote 3). Passed in explicitly from the issue actor; never
+   * invented. Trimmed and capped to A25 (MAX_OPERATOR_USER_NAME_LENGTH).
+   */
+  operatorUserName: string;
 };
 
 function err(
@@ -340,6 +350,18 @@ export function buildInvoiceApprovalPayload(
   // ---- items (optional in the contract; Dubiz always has lines) ----
   const items = buildItems(snapshot, errors);
 
+  // ---- operator identity: §2.3 requires at least one of user_id/user_name ----
+  const operatorUserName = (input.operatorUserName ?? "").trim().slice(0, MAX_OPERATOR_USER_NAME_LENGTH);
+  if (operatorUserName.length === 0) {
+    errors.push(
+      err(
+        "MISSING_OPERATOR_IDENTITY",
+        "user_name",
+        "ITA §2.3 requires at least one of user_id/user_name; operator identity is missing"
+      )
+    );
+  }
+
   if (errors.length > 0) {
     return { ok: false, errors };
   }
@@ -360,6 +382,8 @@ export function buildInvoiceApprovalPayload(
     payment_amount: paymentAmount!,
     vat_amount: vatAmountNum!,
     payment_amount_including_vat: paymentInclVatNum!,
+    // §2.3: at least one of user_id/user_name. Dubiz always sends user_name.
+    user_name: operatorUserName,
   };
 
   const customerName = (snapshot.customer.name ?? "").trim();

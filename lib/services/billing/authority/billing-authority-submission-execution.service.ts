@@ -236,6 +236,7 @@ export async function executeAuthorityApproval(
     snapshot,
     customerTaxId: snapshot.customer.taxId,
     accountingSoftwareNumber: ctx.context.accountingSoftwareNumber,
+    operatorUserName: String(actorUserId),
   });
   if (!built.ok) {
     return { outcome: "local_validation_failed", billingDocumentId, submissionId: submission.id, errorCode: built.errors[0]?.code ?? "LOCAL_VALIDATION_FAILED", safeToRetry: true };
@@ -275,6 +276,7 @@ export async function executeAuthorityApproval(
     snapshot,
     customerTaxId: snapshot.customer.taxId,
     accountingSoftwareNumber: ctx.context.accountingSoftwareNumber,
+    operatorUserName: String(actorUserId),
     accessToken: ctx.context.accessToken,
     config: orchestratorConfig,
   });
@@ -297,6 +299,7 @@ export async function executeAuthorityApproval(
       snapshot,
       customerTaxId: snapshot.customer.taxId,
       accountingSoftwareNumber: ctx2.context.accountingSoftwareNumber,
+      operatorUserName: String(actorUserId),
       accessToken: ctx2.context.accessToken,
       config: { ...ctx2.context.approvalConfig, scope: ORCHESTRATOR_SCOPE_UNUSED },
     });

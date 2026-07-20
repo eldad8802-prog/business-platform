@@ -42,6 +42,7 @@ function baseInput(snapshot?: BillingIssuedSnapshotV1) {
     snapshot: snapshot ?? ({} as BillingIssuedSnapshotV1),
     customerTaxId: "514000000",
     accountingSoftwareNumber: 12345678,
+    operatorUserName: "1",
     accessToken: "test-token",
     config: CONFIG,
   };
