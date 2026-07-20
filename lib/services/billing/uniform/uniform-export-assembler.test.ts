@@ -100,7 +100,7 @@ function buildInput(): UniformExportAssemblerInput {
         totalAmount: "234.50",
         vatAmount: "34.50",
         issuedSnapshot: {
-          document: { allocationNumber: "ALLOC-SNAP-2", currency: "ILS", numberFormatted: "00000002" },
+          document: { allocationNumber: "20240627231846297178091822", currency: "ILS", numberFormatted: "00000002" },
           customer: customer("514888888"),
           lines: [line(0)],
           totals: { subtotal: "200.00", vat: "34.50", total: "234.50" },
@@ -162,18 +162,21 @@ function buildInput(): UniformExportAssemblerInput {
   const d1 = proj.documentRecords.find((r) => r.documentId === 1)!;
   const d2 = proj.documentRecords.find((r) => r.documentId === 2)!;
   ok("doc1 has NO allocation (null in -> null out, source NONE)", d1.allocationNumber === null && d1.allocationSource === "NONE");
-  ok("doc2 allocation copied from snapshot, not fabricated", d2.allocationNumber === "ALLOC-SNAP-2" && d2.allocationSource === "ISSUED_SNAPSHOT");
+  // §2.2.1: the export field carries the 9 right-most digits, not the full value.
+  ok("doc2 allocation = 9 right digits of the snapshot confirmation number", d2.allocationNumber === "178091822" && d2.allocationSource === "ISSUED_SNAPSHOT");
   ok("withAllocationCount counts only real ones", proj.totals.withAllocationCount === 1);
 
-  // every output allocation must trace back to an input value (never invented)
-  const inputAllocs = new Set<string>();
+  // every output allocation must be the 9 right-most digits of an input value
+  // (never invented, never the full value).
+  const inputAllocs: string[] = [];
   for (const doc of buildInput().documents) {
-    if (doc.allocationNumber) inputAllocs.add(doc.allocationNumber);
+    if (doc.allocationNumber) inputAllocs.push(doc.allocationNumber);
     const s = doc.issuedSnapshot?.document?.allocationNumber;
-    if (s) inputAllocs.add(s);
+    if (s) inputAllocs.push(s);
   }
   const outAllocs = proj.documentRecords.map((r) => r.allocationNumber).filter((x): x is string => x != null);
-  ok("output allocations ⊆ input allocations (no fabrication)", outAllocs.every((a) => inputAllocs.has(a)));
+  ok("output allocations are 9 chars", outAllocs.every((a) => a.length === 9));
+  ok("each output is the last-9 digits of an input (no fabrication)", outAllocs.every((a) => inputAllocs.some((i) => i.endsWith(a))));
 
   // all-null input -> all-null output
   const nullInput = buildInput();

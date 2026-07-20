@@ -8,6 +8,7 @@
  */
 
 import type { AuthorityIssueOutcome } from "@/lib/services/billing/authority/billing-authority-issue-outcome";
+import { deriveAllocationNumber } from "@/lib/services/billing/billing-allocation-number";
 
 export type AuthorityDisplayTone = "success" | "info" | "warning" | "danger";
 
@@ -31,17 +32,20 @@ export function describeAuthorityIssueOutcome(
   const base = { documentIssued: true as const, allocationReceived: false, userActionRequired: false };
 
   switch (authority.status) {
-    case "approved":
+    case "approved": {
+      // §2.2.1: display the 9 right-most digits, never the full confirmation_number.
+      const displayNumber = deriveAllocationNumber(authority.allocationNumber);
       return {
         ...base,
         allocationReceived: true,
-        allocationNumber: authority.allocationNumber,
+        allocationNumber: displayNumber ?? undefined,
         tone: "success",
         title: "המסמך הונפק ומספר הקצאה התקבל",
-        detail: authority.allocationNumber
-          ? `מספר הקצאה: ${authority.allocationNumber}`
+        detail: displayNumber
+          ? `מספר הקצאה: ${displayNumber}`
           : "התקבל מספר הקצאה מרשות המסים.",
       };
+    }
     case "not_required":
       return {
         ...base,
