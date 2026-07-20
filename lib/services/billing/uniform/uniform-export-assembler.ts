@@ -16,6 +16,7 @@
  * This is NOT the official "מבנה אחיד" serializer. No layout/encoding here.
  */
 
+import { deriveAllocationNumber } from "@/lib/services/billing/billing-allocation-number";
 import { sumDecimal2 } from "@/lib/services/billing/uniform/uniform-decimal";
 import {
   UNIFORM_EXPORT_PROJECTION_SCHEMA_VERSION,
@@ -60,10 +61,19 @@ function resolveAllocation(doc: UniformDocumentInput): {
   allocationSource: AllocationSource;
 } {
   // Preference: frozen snapshot first, then live column. Copy ONLY when present.
+  // §2.2.1: the designated report field carries the 9 right-most digits, not the
+  // full confirmation_number. Fail-closed: a value that cannot yield 9 digits is
+  // treated as NONE rather than exported verbatim.
   const snap = nonEmpty(doc.issuedSnapshot?.document?.allocationNumber ?? null);
-  if (snap) return { allocationNumber: snap, allocationSource: "ISSUED_SNAPSHOT" };
+  if (snap) {
+    const derived = deriveAllocationNumber(snap);
+    if (derived) return { allocationNumber: derived, allocationSource: "ISSUED_SNAPSHOT" };
+  }
   const live = nonEmpty(doc.allocationNumber);
-  if (live) return { allocationNumber: live, allocationSource: "LIVE_COLUMN" };
+  if (live) {
+    const derived = deriveAllocationNumber(live);
+    if (derived) return { allocationNumber: derived, allocationSource: "LIVE_COLUMN" };
+  }
   return { allocationNumber: null, allocationSource: "NONE" };
 }
 

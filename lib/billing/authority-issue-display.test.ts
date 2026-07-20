@@ -14,8 +14,10 @@ function ok(name: string, cond: boolean, extra?: unknown): void {
 
 // 1. approved → success WITH allocation number; the only state that "received" one.
 {
-  const d = describeAuthorityIssueOutcome({ status: "approved", submissionId: 5, allocationNumber: "12345678", safeToRetry: false } as AuthorityIssueOutcome);
-  ok("approved → allocationReceived + number + success", d.allocationReceived === true && d.allocationNumber === "12345678" && d.tone === "success");
+  const d = describeAuthorityIssueOutcome({ status: "approved", submissionId: 5, allocationNumber: "20240627231846297178091822", safeToRetry: false } as AuthorityIssueOutcome);
+  // §2.2.1: the display shows the 9 right-most digits, not the full confirmation number.
+  ok("approved → allocationReceived + 9-digit number + success", d.allocationReceived === true && d.allocationNumber === "178091822" && d.tone === "success");
+  ok("approved detail shows 9-digit allocation", d.detail === "מספר הקצאה: 178091822");
 }
 
 // 2. not_required → issued, not required, no number.

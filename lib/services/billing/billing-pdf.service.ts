@@ -30,6 +30,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
 import { createBillingAuditEventBestEffort } from "@/lib/services/billing/billing-audit.service";
+import { deriveAllocationNumber } from "@/lib/services/billing/billing-allocation-number";
 import { renderBillingPdfHtmlFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-html-renderer";
 import { renderBillingPdfFromSnapshot } from "@/lib/services/billing/pdf/billing-pdf-renderer";
 import {
@@ -216,10 +217,14 @@ export async function getOrRenderBillingPdf(
   // Targeted authority overlay: the live allocation number (granted post-issue)
   // overrides the frozen snapshot value for display ONLY. No other snapshot data
   // is touched — amounts, customer, and line items stay exactly as frozen.
-  if (typeof doc.allocationNumber === "string" && doc.allocationNumber.trim().length > 0) {
+  // §2.2.1: the invoice shows the 9 right-most digits ("Allocation Number"), not
+  // the full confirmation_number stored in the DB column. Fail-closed: if the
+  // stored value cannot yield 9 digits, no allocation number is displayed.
+  const displayAllocationNumber = deriveAllocationNumber(doc.allocationNumber);
+  if (displayAllocationNumber !== null) {
     snapshot = {
       ...snapshot,
-      document: { ...snapshot.document, allocationNumber: doc.allocationNumber },
+      document: { ...snapshot.document, allocationNumber: displayAllocationNumber },
     };
   }
 
