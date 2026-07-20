@@ -6,6 +6,7 @@
 import {
   buildInvoiceDecisionUrl,
   INVOICE_DECISION_API_VERSION,
+  INVOICE_DECISION_PATH_SEGMENT,
   type AuthorityDecisionConfig,
 } from "@/lib/services/billing/authority/billing-authority-decision-client.config";
 import {
@@ -38,16 +39,26 @@ function mockFetch(status: number, body: string, capture?: Capture): typeof fetc
 }
 
 async function main(): Promise<void> {
-  // ---- URL: contract path + version + PascalCase action (distinct from Approval) ----
-  ok("URL Cancel", buildInvoiceDecisionUrl(CONFIG, "Cancel") === "https://t-ita-api.taxes.gov.il/shaam/tsandbox/Invoice-decision/v1/Cancel");
-  ok("URL Continue", buildInvoiceDecisionUrl(CONFIG, "Continue").endsWith("/Invoice-decision/v1/Continue"));
-  ok("URL FurtherObjection", buildInvoiceDecisionUrl(CONFIG, "FurtherObjection").endsWith("/Invoice-decision/v1/FurtherObjection"));
+  // ---- URL: OFFICIAL contract path + version + PascalCase action (distinct from Approval) ----
+  // Official published route (v2.0/7.2024, §4.2):
+  //   https://ita-api.taxes.gov.il/shaam/{env}/InvoiceDecisionApi/v1/{Cancel|Continue|FurtherObjection}
+  ok("segment is the official InvoiceDecisionApi", INVOICE_DECISION_PATH_SEGMENT === "InvoiceDecisionApi");
+  ok("version is the official v1", INVOICE_DECISION_API_VERSION === "v1");
+  ok("URL Cancel", buildInvoiceDecisionUrl(CONFIG, "Cancel") === "https://t-ita-api.taxes.gov.il/shaam/tsandbox/InvoiceDecisionApi/v1/Cancel");
+  ok("URL Continue", buildInvoiceDecisionUrl(CONFIG, "Continue") === "https://t-ita-api.taxes.gov.il/shaam/tsandbox/InvoiceDecisionApi/v1/Continue");
+  ok("URL FurtherObjection", buildInvoiceDecisionUrl(CONFIG, "FurtherObjection") === "https://t-ita-api.taxes.gov.il/shaam/tsandbox/InvoiceDecisionApi/v1/FurtherObjection");
+  // Guard: the wrong (never-published) `Invoice-decision` segment must never reappear.
+  ok("no legacy Invoice-decision segment", !buildInvoiceDecisionUrl(CONFIG, "Cancel").includes("/Invoice-decision/"));
+  // Guard: the builder must NOT add a second `/shaam` — apiBaseUrl already carries exactly one.
+  ok("exactly one /shaam segment", buildInvoiceDecisionUrl(CONFIG, "Cancel").split("/shaam/").length === 2);
+  // Guard: trailing slash on the base must not double the separator.
+  ok("trailing slash on base is trimmed", buildInvoiceDecisionUrl({ ...CONFIG, apiBaseUrl: CONFIG.apiBaseUrl + "/" }, "Cancel") === "https://t-ita-api.taxes.gov.il/shaam/tsandbox/InvoiceDecisionApi/v1/Cancel");
 
   // ---- serialization: POST to the action URL, bearer, json body ----
   {
     const cap: Capture = { url: "", init: {} };
     await sendInvoiceDecision({ accessToken: "tkn", action: "Continue", payload: PAYLOAD, config: CONFIG, fetchImpl: mockFetch(200, JSON.stringify({ status: 200, message: "Decision accepted" }), cap) });
-    ok("POST to Continue URL", cap.url.endsWith("/Invoice-decision/v1/Continue") && cap.init.method === "POST");
+    ok("POST to Continue URL", cap.url.endsWith("/InvoiceDecisionApi/v1/Continue") && cap.init.method === "POST");
     const h = cap.init.headers as Record<string, string>;
     ok("bearer + json", h.Authorization === "Bearer tkn" && h["Content-Type"] === "application/json");
     ok("body is the payload", cap.init.body === JSON.stringify(PAYLOAD));

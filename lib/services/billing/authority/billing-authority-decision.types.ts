@@ -1,13 +1,13 @@
 /**
  * Contract types for the ITA "Invoice decision" endpoints (exit from HELD):
  *
- *   POST /Invoice-decision/v1/Cancel
- *   POST /Invoice-decision/v1/Continue
- *   POST /Invoice-decision/v1/FurtherObjection
+ *   POST /InvoiceDecisionApi/v1/Cancel
+ *   POST /InvoiceDecisionApi/v1/Continue
+ *   POST /InvoiceDecisionApi/v1/FurtherObjection
  *
- * Source: official ITA "מודל חשבוניות ישראל – תיאור ה-API's", 2.0/7.2024, §4.
+ * Source: official ITA "מודל חשבוניות ישראל – תיאור ה-API's", 2.0/7.2024, §4.2.
  * PURE TYPE LAYER — no runtime, no I/O. Field names mirror the contract verbatim
- * (snake_case). Distinct base segment (`Invoice-decision`) and version (`v1`)
+ * (snake_case). Distinct base segment (`InvoiceDecisionApi`) and version (`v1`)
  * from the Approval endpoint (`/Invoices/v2/Approval`) — do NOT share the URL.
  *
  * Not-guessed provenance:
