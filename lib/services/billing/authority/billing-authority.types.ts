@@ -24,9 +24,51 @@ export const AUTHORITY_SUBMISSION_STATUSES = [
   "HELD",
 ] as const satisfies readonly BillingAuthoritySubmissionStatus[];
 
+/**
+ * SINGLE SOURCE OF TRUTH — allocation-number requirement per document type.
+ *
+ * Official "Israel Invoice Model API Description" v2.0 (7/2024), Table 2.5
+ * ("Types of documents"), verified against a clean copy of the official PDF
+ * (see docs/compliance/tax-authority/invoice-decision-contract-evidence-v1.md
+ * and israel-invoices-authority-flow-consistency-report-v1.md §1):
+ *   305 Tax invoice          → Yes  (conditional on threshold / VAT / licensed dealer)
+ *   320 Tax invoice/receipt  → Yes  (same conditions as 305)
+ *   330 Credit tax invoice   → No
+ * Every other Dubiz document type never requires an allocation number.
+ *
+ * "CONDITIONAL" = the reform MAY require an allocation number, subject to the
+ * issue-time conditions in `evaluateAuthorityReadinessAtIssue`.
+ * "NOT_REQUIRED" = never requires one.
+ *
+ * The map is EXHAUSTIVE over BillingDocumentType (Record<...>), so adding a new
+ * document type is a compile error until it is classified here. All other
+ * authority classifications (eligibility, readiness, the approval HsbSug code
+ * map) must agree with this map — enforced by a consistency test.
+ */
+export type AuthorityAllocationRequirement = "CONDITIONAL" | "NOT_REQUIRED";
+
+export const AUTHORITY_ALLOCATION_REQUIREMENT: Readonly<
+  Record<BillingDocumentType, AuthorityAllocationRequirement>
+> = {
+  TAX_INVOICE: "CONDITIONAL", // 305 — Table 2.5: Yes
+  TAX_INVOICE_RECEIPT: "CONDITIONAL", // 320 — Table 2.5: Yes (treated like 305)
+  CREDIT_NOTE: "NOT_REQUIRED", // 330 — Table 2.5: No
+  RECEIPT: "NOT_REQUIRED",
+  QUOTE: "NOT_REQUIRED",
+};
+
+/**
+ * Document types for which a BillingAuthoritySubmission is created at issue and
+ * whose delivery is gated by the authority flow. Derived from (and kept in sync
+ * with) AUTHORITY_ALLOCATION_REQUIREMENT: exactly the CONDITIONAL types.
+ *
+ * CREDIT_NOTE (330) was previously listed here in error — Table 2.5 confirms 330
+ * does NOT require an allocation number, so it is no longer eligible; a credit
+ * note is delivered without any authority gating.
+ */
 export const AUTHORITY_ELIGIBLE_DOCUMENT_TYPES = [
   "TAX_INVOICE",
-  "CREDIT_NOTE",
+  "TAX_INVOICE_RECEIPT",
 ] as const satisfies readonly BillingDocumentType[];
 
 export type AuthorityEligibleDocumentType =

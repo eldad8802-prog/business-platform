@@ -5,6 +5,7 @@ import {
   Prisma,
 } from "@prisma/client";
 import { getAuthorityAllocationThresholdIls } from "@/lib/services/billing/authority/billing-authority-threshold";
+import { AUTHORITY_ALLOCATION_REQUIREMENT } from "@/lib/services/billing/authority/billing-authority.types";
 
 export type AuthorityReadinessInput = {
   documentType: BillingDocumentType;
@@ -34,11 +35,12 @@ function isLicensedDealerCustomer(input: AuthorityReadinessInput): boolean {
 export function evaluateAuthorityReadinessAtIssue(
   input: AuthorityReadinessInput
 ): BillingAuthoritySubmissionStatus {
-  if (input.documentType === BillingDocumentType.CREDIT_NOTE) {
-    return BillingAuthoritySubmissionStatus.NOT_REQUIRED;
-  }
-
-  if (input.documentType !== BillingDocumentType.TAX_INVOICE) {
+  // Single source of truth: only document types the official Table 2.5 marks as
+  // requiring an allocation number ("CONDITIONAL") can ever be READY. Everything
+  // else (CREDIT_NOTE 330, RECEIPT, QUOTE, …) is NOT_REQUIRED. This covers both
+  // TAX_INVOICE (305) and TAX_INVOICE_RECEIPT (320) with identical conditions.
+  const documentType = input.documentType as BillingDocumentType;
+  if (AUTHORITY_ALLOCATION_REQUIREMENT[documentType] !== "CONDITIONAL") {
     return BillingAuthoritySubmissionStatus.NOT_REQUIRED;
   }
 

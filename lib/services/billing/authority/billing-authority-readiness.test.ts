@@ -84,6 +84,47 @@ ok(
   }) === BillingAuthoritySubmissionStatus.READY
 );
 
+// ---- 320 Tax invoice/receipt: treated exactly like 305 (Table 2.5: Yes) ----
+ok(
+  "TAX_INVOICE_RECEIPT qualifying is READY (320 = Yes)",
+  evaluateAuthorityReadinessAtIssue({
+    ...licensedDealerBase,
+    documentType: BillingDocumentType.TAX_INVOICE_RECEIPT,
+    invoiceDate: invoiceDate("2026-06-15"),
+    subtotalAmount: dec("5000"),
+  }) === BillingAuthoritySubmissionStatus.READY
+);
+ok(
+  "TAX_INVOICE_RECEIPT below threshold is NOT_REQUIRED",
+  evaluateAuthorityReadinessAtIssue({
+    ...licensedDealerBase,
+    documentType: BillingDocumentType.TAX_INVOICE_RECEIPT,
+    invoiceDate: invoiceDate("2026-06-15"),
+    subtotalAmount: dec("4999.99"),
+  }) === BillingAuthoritySubmissionStatus.NOT_REQUIRED
+);
+ok(
+  "TAX_INVOICE_RECEIPT without licensed dealer is NOT_REQUIRED",
+  evaluateAuthorityReadinessAtIssue({
+    ...licensedDealerBase,
+    documentType: BillingDocumentType.TAX_INVOICE_RECEIPT,
+    invoiceDate: invoiceDate("2026-06-15"),
+    subtotalAmount: dec("30000"),
+    customerTaxIdType: CustomerTaxIdType.PRIVATE_ID,
+    customerTaxId: "123456789",
+  }) === BillingAuthoritySubmissionStatus.NOT_REQUIRED
+);
+// ---- RECEIPT / QUOTE never require allocation ----
+ok(
+  "RECEIPT is NOT_REQUIRED even when otherwise qualifying",
+  evaluateAuthorityReadinessAtIssue({
+    ...licensedDealerBase,
+    documentType: BillingDocumentType.RECEIPT,
+    invoiceDate: invoiceDate("2026-06-15"),
+    subtotalAmount: dec("30000"),
+  }) === BillingAuthoritySubmissionStatus.NOT_REQUIRED
+);
+
 ok(
   "TAX_INVOICE at 20K subtotal in 2025 is READY",
   evaluateAuthorityReadinessAtIssue({
