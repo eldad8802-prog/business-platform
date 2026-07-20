@@ -1,0 +1,135 @@
+name: Billing Authority Production Bootstrap (gated)
+
+# Manual, gated bootstrap of BillingAuthorityApp for environment=PRODUCTION.
+#
+# All sensitive values come from production-db Environment Secrets and are passed
+# ONLY as environment variables to the script process — never as CLI arguments,
+# never printed. The script itself masks its output (client id / accounting
+# number shown as ***<last4>; client secret never shown).
+#
+# Two-step safety:
+#   - mode=dry-run  -> no DB write; no confirmation needed.
+#   - mode=apply    -> requires confirmation == CREATE_PRODUCTION_AUTHORITY_APP,
+#                      writes the PRODUCTION row.
+#
+# Guards: production-db environment (human approval) · runs against main only ·
+# hardcoded --environment PRODUCTION · DATABASE_URL host allowlist · presence
+# check of required secrets (names only) · no `set -x` · no env dump.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run (no DB write) or apply (writes the PRODUCTION row)"
+        required: true
+        type: choice
+        options:
+          - dry-run
+          - apply
+        default: dry-run
+      confirmation:
+        description: "For apply only — type exactly: CREATE_PRODUCTION_AUTHORITY_APP"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: billing-authority-production-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    name: Gated production bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - name: Validate mode + apply confirmation (before any DB access)
+        env:
+          MODE: ${{ inputs.mode }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          if [ "$MODE" = "apply" ]; then
+            if [ "$CONFIRMATION" != "CREATE_PRODUCTION_AUTHORITY_APP" ]; then
+              echo "::error::apply requires confirmation to equal CREATE_PRODUCTION_AUTHORITY_APP"; exit 1
+            fi
+            echo "Mode: apply (confirmed)."
+          elif [ "$MODE" = "dry-run" ]; then
+            echo "Mode: dry-run."
+          else
+            echo "::error::mode must be dry-run or apply"; exit 1
+          fi
+
+      - name: Checkout (main only)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Presence check of required secrets (names only, no values/lengths)
+        env:
+          BILLING_AUTHORITY_CLIENT_SECRET: ${{ secrets.BILLING_AUTHORITY_CLIENT_SECRET }}
+          BILLING_AUTHORITY_ITA_CLIENT_ID: ${{ secrets.BILLING_AUTHORITY_ITA_CLIENT_ID }}
+          BILLING_AUTHORITY_ACCOUNTING_SOFTWARE_NUMBER: ${{ secrets.BILLING_AUTHORITY_ACCOUNTING_SOFTWARE_NUMBER }}
+          BILLING_AUTHORITY_ENCRYPTION_KEY: ${{ secrets.BILLING_AUTHORITY_ENCRYPTION_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          missing=""
+          for v in BILLING_AUTHORITY_CLIENT_SECRET BILLING_AUTHORITY_ITA_CLIENT_ID \
+                   BILLING_AUTHORITY_ACCOUNTING_SOFTWARE_NUMBER BILLING_AUTHORITY_ENCRYPTION_KEY \
+                   DATABASE_URL; do
+            if [ -z "${!v:-}" ]; then missing="$missing $v"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required secrets:$missing"; exit 1
+          fi
+          echo "All required secrets are present."
+
+      - name: DATABASE_URL host allowlist (verified Production only)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          ALLOW="ep-flat-brook-am4bhq1y"
+          case "$DATABASE_URL" in
+            *"$ALLOW"*) echo "DB host allowlist OK." ;;
+            *) echo "::error::DATABASE_URL does not target the verified Production endpoint — aborting."; exit 1 ;;
+          esac
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies (deterministic)
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Bootstrap — DRY-RUN (no DB write)
+        if: ${{ inputs.mode == 'dry-run' }}
+        env:
+          BILLING_AUTHORITY_CLIENT_SECRET: ${{ secrets.BILLING_AUTHORITY_CLIENT_SECRET }}
+          BILLING_AUTHORITY_ITA_CLIENT_ID: ${{ secrets.BILLING_AUTHORITY_ITA_CLIENT_ID }}
+          BILLING_AUTHORITY_ACCOUNTING_SOFTWARE_NUMBER: ${{ secrets.BILLING_AUTHORITY_ACCOUNTING_SOFTWARE_NUMBER }}
+          BILLING_AUTHORITY_ENCRYPTION_KEY: ${{ secrets.BILLING_AUTHORITY_ENCRYPTION_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          npx tsx scripts/bootstrap-billing-authority-app.ts --environment PRODUCTION
+
+      - name: Bootstrap — APPLY (writes the PRODUCTION row)
+        if: ${{ inputs.mode == 'apply' }}
+        env:
+          BILLING_AUTHORITY_CLIENT_SECRET: ${{ secrets.BILLING_AUTHORITY_CLIENT_SECRET }}
+          BILLING_AUTHORITY_ITA_CLIENT_ID: ${{ secrets.BILLING_AUTHORITY_ITA_CLIENT_ID }}
+          BILLING_AUTHORITY_ACCOUNTING_SOFTWARE_NUMBER: ${{ secrets.BILLING_AUTHORITY_ACCOUNTING_SOFTWARE_NUMBER }}
+          BILLING_AUTHORITY_ENCRYPTION_KEY: ${{ secrets.BILLING_AUTHORITY_ENCRYPTION_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          npx tsx scripts/bootstrap-billing-authority-app.ts --environment PRODUCTION --apply

@@ -1,27 +1,22 @@
 /**
  * Bootstrap / update BillingAuthorityApp for ITA OAuth (confidential client).
  *
- * DRY-RUN (default):
- *   npx tsx scripts/bootstrap-billing-authority-app.ts \
- *     --environment SANDBOX \
- *     --accounting-software-number 12345678 \
- *     --ita-client-id <client-id> \
- *     --client-secret <secret>
+ * DRY-RUN (default) — no DB write:
+ *   npx tsx scripts/bootstrap-billing-authority-app.ts --environment SANDBOX
  *
- * APPLY:
- *   npx tsx scripts/bootstrap-billing-authority-app.ts --apply ...same args...
+ * APPLY — writes the row:
+ *   npx tsx scripts/bootstrap-billing-authority-app.ts --environment SANDBOX --apply
  *
- * Secrets may also be supplied via env:
+ * Sensitive inputs are read from environment variables (never CLI args, never
+ * printed):
  *   BILLING_AUTHORITY_ITA_CLIENT_ID
  *   BILLING_AUTHORITY_CLIENT_SECRET
+ *   BILLING_AUTHORITY_ACCOUNTING_SOFTWARE_NUMBER   (fallback for --accounting-software-number)
+ *   BILLING_AUTHORITY_ENCRYPTION_KEY               (32-byte hex or base64)
  *
- * Requires:
- *   BILLING_AUTHORITY_ENCRYPTION_KEY (32-byte hex or base64)
- *
- * Idempotent: upserts on unique `environment`.
- *
- * Client-secret encryption follows the WhatsApp AES-256-GCM pattern and will
- * move to billing-authority-token-crypto.service.ts in D.2.2.
+ * CLI args, where provided, take precedence over env. The client secret is never
+ * echoed (not even partially); client id and accounting number are only ever
+ * shown masked (***<last4>). Idempotent: upserts on unique `environment`.
  */
 
 import {
@@ -29,11 +24,7 @@ import {
   BillingAuthorityEnvironment,
   Prisma,
 } from "@prisma/client";
-import {
-  createCipheriv,
-  randomBytes,
-} from "node:crypto";
-import { prisma } from "@/lib/prisma";
+import { createCipheriv, randomBytes } from "node:crypto";
 
 const ALGORITHM = "aes-256-gcm" as const;
 const KEY_BYTES = 32;
@@ -42,86 +33,159 @@ const TAG_BYTES = 16;
 const ENCRYPTION_KEY_ENV = "BILLING_AUTHORITY_ENCRYPTION_KEY";
 const ENCRYPTION_KEY_ID = "authority_gcm_v1";
 
-type EncryptedSecret = {
-  encrypted: string;
-  iv: string;
-  tag: string;
+type EncryptedSecret = { encrypted: string; iv: string; tag: string };
+
+/** Masks a value to `***<last4>`; empty stays empty. Never reveals the head. */
+export function maskTail(value: string | undefined | null): string {
+  const v = (value ?? "").trim();
+  if (v.length === 0) return "";
+  return `***${v.slice(-4)}`;
+}
+
+function getFlag(argv: string[], name: string): boolean {
+  return argv.includes(name);
+}
+
+function getValue(argv: string[], name: string): string | undefined {
+  const i = argv.indexOf(name);
+  return i >= 0 && i + 1 < argv.length ? argv[i + 1] : undefined;
+}
+
+export function parseEnvironmentStrict(
+  raw: string | undefined
+): BillingAuthorityEnvironment | null {
+  const n = raw?.trim().toUpperCase();
+  if (n === "SANDBOX") return BillingAuthorityEnvironment.SANDBOX;
+  if (n === "PRODUCTION") return BillingAuthorityEnvironment.PRODUCTION;
+  return null;
+}
+
+export type BootstrapInputs = {
+  apply: boolean;
+  environment: BillingAuthorityEnvironment;
+  accountingSoftwareNumber: string;
+  itaClientId: string;
+  clientSecret: string;
+  portalOrganizationId?: string;
+  portalApplicationId?: string;
 };
 
-function getFlag(name: string): boolean {
-  return process.argv.includes(name);
+export type ResolveResult =
+  | { ok: true; inputs: BootstrapInputs }
+  | { ok: false; errorField: string };
+
+/**
+ * Resolves inputs from argv + env. CLI takes precedence over env for each value.
+ * Returns an explicit error field name instead of throwing/exiting, so callers
+ * (and tests) can handle it without process-level side effects.
+ */
+export function resolveBootstrapInputs(
+  argv: string[],
+  env: NodeJS.ProcessEnv
+): ResolveResult {
+  const environment = parseEnvironmentStrict(
+    getValue(argv, "--environment") ?? "SANDBOX"
+  );
+  if (!environment) return { ok: false, errorField: "--environment" };
+
+  const accountingSoftwareNumber =
+    getValue(argv, "--accounting-software-number")?.trim() ??
+    env.BILLING_AUTHORITY_ACCOUNTING_SOFTWARE_NUMBER?.trim() ??
+    "";
+  const itaClientId =
+    getValue(argv, "--ita-client-id")?.trim() ??
+    env.BILLING_AUTHORITY_ITA_CLIENT_ID?.trim() ??
+    "";
+  const clientSecret =
+    getValue(argv, "--client-secret")?.trim() ??
+    env.BILLING_AUTHORITY_CLIENT_SECRET?.trim() ??
+    "";
+  const portalOrganizationId = getValue(argv, "--portal-organization-id")?.trim();
+  const portalApplicationId = getValue(argv, "--portal-application-id")?.trim();
+
+  if (!accountingSoftwareNumber)
+    return { ok: false, errorField: "accountingSoftwareNumber" };
+  if (!itaClientId) return { ok: false, errorField: "itaClientId" };
+  if (!clientSecret) return { ok: false, errorField: "clientSecret" };
+
+  return {
+    ok: true,
+    inputs: {
+      apply: getFlag(argv, "--apply"),
+      environment,
+      accountingSoftwareNumber,
+      itaClientId,
+      clientSecret,
+      portalOrganizationId,
+      portalApplicationId,
+    },
+  };
 }
 
-function getValue(name: string): string | undefined {
-  const index = process.argv.indexOf(name);
-  return index >= 0 && index + 1 < process.argv.length
-    ? process.argv[index + 1]
-    : undefined;
+/** Sanitized dry-run summary. Never contains the secret; ids are masked. */
+export function buildDryRunSummary(inputs: BootstrapInputs) {
+  return {
+    mode: "dry-run" as const,
+    databaseWritePerformed: false,
+    environment: inputs.environment,
+    itaClientIdPresent: inputs.itaClientId.length > 0,
+    itaClientIdMasked: maskTail(inputs.itaClientId),
+    accountingSoftwareNumberPresent: inputs.accountingSoftwareNumber.length > 0,
+    accountingSoftwareNumberMasked: maskTail(inputs.accountingSoftwareNumber),
+    portalOrganizationIdPresent: !!inputs.portalOrganizationId,
+    portalApplicationIdPresent: !!inputs.portalApplicationId,
+  };
 }
 
-function parseEnvironment(raw: string | undefined): BillingAuthorityEnvironment {
-  const normalized = raw?.trim().toUpperCase();
-  if (normalized === "SANDBOX") return BillingAuthorityEnvironment.SANDBOX;
-  if (normalized === "PRODUCTION") return BillingAuthorityEnvironment.PRODUCTION;
-  console.error("--environment must be SANDBOX or PRODUCTION");
-  process.exit(1);
+/** Sanitized apply summary. Never contains ids in full or the secret. */
+export function buildApplySummary(
+  inputs: BootstrapInputs,
+  operation: "created" | "updated"
+) {
+  return {
+    mode: "apply" as const,
+    databaseWritePerformed: true,
+    operation,
+    environment: inputs.environment,
+    status: BillingAuthorityAppStatus.ACTIVE,
+  };
 }
 
-function loadEncryptionKey(): Buffer {
-  const raw = process.env[ENCRYPTION_KEY_ENV];
+function loadEncryptionKey(env: NodeJS.ProcessEnv): Buffer {
+  const raw = env[ENCRYPTION_KEY_ENV];
   if (typeof raw !== "string" || raw.trim().length === 0) {
-    console.error(`Missing ${ENCRYPTION_KEY_ENV}`);
-    process.exit(1);
+    throw new Error(`Missing ${ENCRYPTION_KEY_ENV}`);
   }
-
   const trimmed = raw.trim();
-  let key: Buffer;
-  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
-    key = Buffer.from(trimmed, "hex");
-  } else {
-    try {
-      key = Buffer.from(trimmed, "base64");
-    } catch {
-      console.error(`${ENCRYPTION_KEY_ENV} is not valid base64`);
-      process.exit(1);
-    }
-  }
-
+  const key = /^[0-9a-fA-F]{64}$/.test(trimmed)
+    ? Buffer.from(trimmed, "hex")
+    : Buffer.from(trimmed, "base64");
   if (key.length !== KEY_BYTES) {
-    console.error(
-      `${ENCRYPTION_KEY_ENV} must decode to exactly ${KEY_BYTES} bytes (got ${key.length})`
+    throw new Error(
+      `${ENCRYPTION_KEY_ENV} must decode to exactly ${KEY_BYTES} bytes`
     );
-    process.exit(1);
   }
-
   return key;
 }
 
-function encryptClientSecret(
+export function encryptClientSecret(
   plaintext: string,
-  environment: BillingAuthorityEnvironment
+  environment: BillingAuthorityEnvironment,
+  env: NodeJS.ProcessEnv
 ): EncryptedSecret {
-  if (!plaintext) {
-    console.error("Client secret must be a non-empty string");
-    process.exit(1);
-  }
-
-  const key = loadEncryptionKey();
+  if (!plaintext) throw new Error("Client secret must be a non-empty string");
+  const key = loadEncryptionKey(env);
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv(ALGORITHM, key, iv);
   cipher.setAAD(Buffer.from(environment, "utf8"));
-
   const ciphertext = Buffer.concat([
     cipher.update(plaintext, "utf8"),
     cipher.final(),
   ]);
   const tag = cipher.getAuthTag();
-
   if (tag.length !== TAG_BYTES) {
-    console.error(`Unexpected GCM tag length: ${tag.length}`);
-    process.exit(1);
+    throw new Error(`Unexpected GCM tag length: ${tag.length}`);
   }
-
   return {
     encrypted: ciphertext.toString("base64"),
     iv: iv.toString("base64"),
@@ -129,109 +193,120 @@ function encryptClientSecret(
   };
 }
 
-async function main() {
-  const apply = getFlag("--apply");
-  const environment = parseEnvironment(getValue("--environment") ?? "SANDBOX");
-  const accountingSoftwareNumber =
-    getValue("--accounting-software-number")?.trim() ?? "";
-  const itaClientId =
-    getValue("--ita-client-id")?.trim() ??
-    process.env.BILLING_AUTHORITY_ITA_CLIENT_ID?.trim() ??
-    "";
-  const clientSecret =
-    getValue("--client-secret")?.trim() ??
-    process.env.BILLING_AUTHORITY_CLIENT_SECRET?.trim() ??
-    "";
-  const portalOrganizationId = getValue("--portal-organization-id")?.trim();
-  const portalApplicationId = getValue("--portal-application-id")?.trim();
+/** Minimal Prisma surface the bootstrap needs — keeps runBootstrap testable. */
+export type BootstrapPrisma = {
+  billingAuthorityApp: {
+    findUnique: (args: {
+      where: { environment: BillingAuthorityEnvironment };
+    }) => Promise<{ id: number } | null>;
+    upsert: (args: Prisma.BillingAuthorityAppUpsertArgs) => Promise<{
+      id: number;
+      environment: BillingAuthorityEnvironment;
+    }>;
+  };
+};
 
-  if (!accountingSoftwareNumber) {
-    console.error("--accounting-software-number is required");
-    process.exit(1);
+export type RunBootstrapDeps = {
+  argv: string[];
+  env: NodeJS.ProcessEnv;
+  prisma: BootstrapPrisma;
+  log?: (line: string) => void;
+  now?: () => Date;
+};
+
+export type RunBootstrapResult =
+  | { ok: true; mode: "dry-run" }
+  | { ok: true; mode: "apply"; operation: "created" | "updated" }
+  | { ok: false; errorField: string };
+
+/**
+ * Core bootstrap. On dry-run performs NO DB access at all. On apply, reads
+ * existence once (to report created|updated) then upserts exactly once. Prints
+ * only sanitized summaries.
+ */
+export async function runBootstrap(
+  deps: RunBootstrapDeps
+): Promise<RunBootstrapResult> {
+  const log = deps.log ?? ((l: string) => console.log(l));
+  const now = deps.now ?? (() => new Date());
+
+  const resolved = resolveBootstrapInputs(deps.argv, deps.env);
+  if (!resolved.ok) {
+    log(JSON.stringify({ error: "missing_or_invalid", field: resolved.errorField }));
+    return { ok: false, errorField: resolved.errorField };
   }
-  if (!itaClientId) {
-    console.error("--ita-client-id or BILLING_AUTHORITY_ITA_CLIENT_ID is required");
-    process.exit(1);
-  }
-  if (!clientSecret) {
-    console.error(
-      "--client-secret or BILLING_AUTHORITY_CLIENT_SECRET is required"
-    );
-    process.exit(1);
+  const inputs = resolved.inputs;
+
+  if (!inputs.apply) {
+    log(JSON.stringify(buildDryRunSummary(inputs), null, 2));
+    return { ok: true, mode: "dry-run" };
   }
 
-  const encrypted = encryptClientSecret(clientSecret, environment);
-  const now = new Date();
+  // apply: encrypt (in memory), determine operation, upsert once.
+  const encrypted = encryptClientSecret(
+    inputs.clientSecret,
+    inputs.environment,
+    deps.env
+  );
+  const existing = await deps.prisma.billingAuthorityApp.findUnique({
+    where: { environment: inputs.environment },
+  });
+  const operation: "created" | "updated" = existing ? "updated" : "created";
+  const ts = now();
 
-  const payload: Prisma.BillingAuthorityAppUpsertArgs["create"] = {
-    environment,
+  const shared = {
     status: BillingAuthorityAppStatus.ACTIVE,
-    accountingSoftwareNumber,
-    itaClientId,
+    accountingSoftwareNumber: inputs.accountingSoftwareNumber,
+    itaClientId: inputs.itaClientId,
     clientSecretEncrypted: encrypted.encrypted,
     clientSecretIv: encrypted.iv,
     clientSecretTag: encrypted.tag,
     encryptionKeyId: ENCRYPTION_KEY_ID,
-    portalOrganizationId: portalOrganizationId ?? null,
-    portalApplicationId: portalApplicationId ?? null,
-    registeredAt: now,
-    lastValidatedAt: null,
+    portalOrganizationId: inputs.portalOrganizationId ?? null,
+    portalApplicationId: inputs.portalApplicationId ?? null,
+    registeredAt: ts,
     lastErrorCode: null,
     lastErrorMessage: null,
   };
 
-  console.log(
-    JSON.stringify(
-      {
-        mode: apply ? "apply" : "dry-run",
-        environment,
-        accountingSoftwareNumber,
-        itaClientId,
-        encryptionKeyId: ENCRYPTION_KEY_ID,
-        portalOrganizationId: payload.portalOrganizationId,
-        portalApplicationId: payload.portalApplicationId,
-        hasEncryptedSecret: true,
-      },
-      null,
-      2
-    )
-  );
-
-  if (!apply) {
-    console.log("\nDry-run complete. Re-run with --apply to persist.");
-    return;
-  }
-
-  const row = await prisma.billingAuthorityApp.upsert({
-    where: { environment },
-    create: payload,
-    update: {
-      status: BillingAuthorityAppStatus.ACTIVE,
-      accountingSoftwareNumber,
-      itaClientId,
-      clientSecretEncrypted: encrypted.encrypted,
-      clientSecretIv: encrypted.iv,
-      clientSecretTag: encrypted.tag,
-      encryptionKeyId: ENCRYPTION_KEY_ID,
-      portalOrganizationId: portalOrganizationId ?? null,
-      portalApplicationId: portalApplicationId ?? null,
-      registeredAt: now,
-      lastErrorCode: null,
-      lastErrorMessage: null,
-      updatedAt: now,
-    },
+  await deps.prisma.billingAuthorityApp.upsert({
+    where: { environment: inputs.environment },
+    create: { environment: inputs.environment, lastValidatedAt: null, ...shared },
+    update: { ...shared, updatedAt: ts },
   });
 
-  console.log(
-    `\nBillingAuthorityApp upserted: id=${row.id} environment=${row.environment}`
-  );
+  log(JSON.stringify(buildApplySummary(inputs, operation), null, 2));
+  return { ok: true, mode: "apply", operation };
 }
 
-main()
-  .catch((error) => {
-    console.error("bootstrap-billing-authority-app failed:", error);
-    process.exit(1);
-  })
-  .finally(async () => {
+async function main() {
+  const { prisma } = await import("@/lib/prisma");
+  try {
+    const result = await runBootstrap({
+      argv: process.argv,
+      env: process.env,
+      prisma: prisma as unknown as BootstrapPrisma,
+    });
+    if (!result.ok) {
+      process.exitCode = 1;
+    } else if (result.mode === "dry-run") {
+      console.log("\nDry-run complete. Re-run with --apply to persist.");
+    }
+  } finally {
     await prisma.$disconnect();
+  }
+}
+
+// Only auto-run when executed directly (not when imported by tests).
+if (
+  process.argv[1] &&
+  /bootstrap-billing-authority-app(\.ts|\.js)?$/.test(process.argv[1])
+) {
+  void main().catch((error) => {
+    console.error(
+      "bootstrap-billing-authority-app failed:",
+      error instanceof Error ? error.name : "UnknownError"
+    );
+    process.exit(1);
   });
+}
