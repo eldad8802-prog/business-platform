@@ -1752,6 +1752,7 @@ model Supplier {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  purchaseOrders      PurchaseOrder[]
 
   @@index([businessId])
   @@index([businessId, isActive])
@@ -1762,6 +1763,7 @@ model PurchaseOrder {
   id                            Int                 @id @default(autoincrement())
   businessId                    Int
   supplierName                  String?
+  supplierId                    Int?
   externalOrderId               String?
   source                        String?             @default("MANUAL")
   orderDate                     DateTime?
@@ -1771,6 +1773,7 @@ model PurchaseOrder {
   createdAt                     DateTime            @default(now())
   updatedAt                     DateTime            @updatedAt
   business                      Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  supplier                      Supplier?           @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   lines                         PurchaseOrderLine[]
   receivingSessions             ReceivingSession[]
 
@@ -1778,6 +1781,7 @@ model PurchaseOrder {
   @@index([businessId, status])
   @@index([businessId, createdAt])
   @@index([businessId, supplierName])
+  @@index([businessId, supplierId])
   @@index([businessId, source, externalOrderId])
   @@index([sourceSupplierPurchaseDraftId])
 }
