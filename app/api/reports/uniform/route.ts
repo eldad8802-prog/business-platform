@@ -7,15 +7,16 @@
  * and summary.pdf.
  *
  * Business identity (name / VAT / address) is loaded from the DB (via the loader
- * + projection). The software config supplies only the SOFTWARE identity; its
- * registration number (1006) and vendor VAT (1009) are TEMPORARY pre-registration
- * placeholders until a real ITA registration number is issued.
+ * + projection). The software config (DUBIZ_SOFTWARE_CONFIG) supplies only the
+ * SOFTWARE identity: real vendor entity number (1009 = 312260110) and vendor name
+ * (1010). Only the registration number (1006 = 00000001) is a TEMPORARY /
+ * PENDING_REGISTRATION placeholder until a real ITA registration number is issued.
  */
 
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { loadUniformExportInput } from "@/lib/services/billing/uniform/uniform-export-loader";
 import { assembleUniformExportProjection } from "@/lib/services/billing/uniform/uniform-export-assembler";
-import { SIMULATOR_SOFTWARE_CONFIG } from "@/lib/services/billing/uniform/uniform-config";
+import { DUBIZ_SOFTWARE_CONFIG } from "@/lib/services/billing/uniform/uniform-config";
 import {
   buildUniformExportZip,
   makePrimaryId,
@@ -48,7 +49,7 @@ export async function GET(req: Request): Promise<Response> {
     });
     const projection = assembleUniformExportProjection(input);
 
-    const result = await buildUniformExportZip(projection, SIMULATOR_SOFTWARE_CONFIG, {
+    const result = await buildUniformExportZip(projection, DUBIZ_SOFTWARE_CONFIG, {
       primaryId: makePrimaryId(Date.now()),
       generatedAt: new Date().toISOString(),
     });

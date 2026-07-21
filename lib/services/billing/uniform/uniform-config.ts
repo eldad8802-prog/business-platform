@@ -59,3 +59,34 @@ export const SIMULATOR_SOFTWARE_CONFIG: UniformSoftwareConfig = {
   charset: 1, // 1029 — ISO-8859-8-i
   leadingCurrency: "ILS", // 1032
 };
+
+/**
+ * Canonical LIVE software-identity config for the Dubiz production export
+ * endpoint (real software-house identity — NOT the simulator).
+ *
+ * Field 1009 (vendor entity number) = "312260110" — the registered entity/
+ * dealer number of the software house ("אלדד נהרי"). 1010 must stay matched to
+ * that entity ("אלדד נהרי"); "דוביז Dubiz" is the PRODUCT name (1007), not the
+ * vendor.
+ *
+ * ⚠️ Field 1006 (softwareRegistrationNumber) = "00000001" is TEMPORARY /
+ * PENDING_REGISTRATION — no real ITA registration certificate number has been
+ * issued yet. It is the existing simulator placeholder and MUST NOT be presented
+ * anywhere (UI / reports) as the official registration number. Replace it the
+ * moment the real certificate number arrives; do NOT substitute any other value
+ * without an official source.
+ */
+export const DUBIZ_SOFTWARE_CONFIG: UniformSoftwareConfig = {
+  isSimulator: false,
+  softwareRegistrationNumber: "00000001", // 1006 — TEMPORARY / PENDING_REGISTRATION (no official number yet)
+  softwareName: "דוביז Dubiz", // 1007 — product name
+  softwareVersion: "1.0", // 1008
+  vendorVatNumber: "312260110", // 1009 — real vendor entity/dealer number (software house)
+  vendorName: "אלדד נהרי", // 1010 — vendor entity name (matches 1009)
+  compressionSoftwareName: "ZIP", // 1030
+  softwareType: 2, // 1011 — multi-year
+  accountingType: 0, // 1013 — not relevant (BD-1: document-only)
+  languageCode: 0, // 1028 — Hebrew
+  charset: 1, // 1029 — ISO-8859-8-i
+  leadingCurrency: "ILS", // 1032
+};
