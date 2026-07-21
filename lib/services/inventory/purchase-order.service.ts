@@ -31,6 +31,14 @@ type PurchaseOrderLineInput = {
 export type CreatePurchaseOrderInput = {
   businessId: number;
   createdByUserId?: number | null;
+  /**
+   * Optional Entity-FK (Party Identity Strategy Tier 2). When provided, the
+   * server loads the Supplier tenant-scoped, verifies ownership, and derives the
+   * `supplierName` snapshot from the verified entity — the client-supplied
+   * `supplierName` is NOT trusted in that case. When omitted, behaviour is
+   * unchanged: `supplierId` stays null and `supplierName` is the raw snapshot.
+   */
+  supplierId?: number | null;
   supplierName?: string | null;
   externalOrderId?: string | null;
   source?: string | null;
@@ -272,6 +280,7 @@ export const purchaseOrderService = {
     const {
       businessId,
       createdByUserId,
+      supplierId,
       supplierName,
       externalOrderId,
       source,
@@ -283,6 +292,11 @@ export const purchaseOrderService = {
     if (!businessId || Number.isNaN(businessId)) {
       throw new InventoryUnauthorizedError("Invalid business id");
     }
+
+    const normalizedSupplierId = normalizeOptionalPositiveInt(
+      supplierId,
+      "supplierId"
+    );
 
     if (!Array.isArray(lines) || lines.length === 0) {
       throw new InventoryValidationError(
@@ -349,10 +363,30 @@ export const purchaseOrderService = {
         };
       });
 
+      // Tier-2 Entity-FK resolution (Party Identity Strategy). When a supplierId
+      // is supplied, load the Supplier tenant-scoped and derive the supplierName
+      // snapshot from the verified entity — never from the client. A missing or
+      // cross-tenant supplier is indistinguishable (tenant-safe not-found). When
+      // no supplierId is supplied, keep the legacy raw-name snapshot, id null.
+      let resolvedSupplierId: number | null = null;
+      let resolvedSupplierName: string | null = normalizeText(supplierName);
+      if (normalizedSupplierId != null) {
+        const supplier = await tx.supplier.findFirst({
+          where: { id: normalizedSupplierId, businessId },
+          select: { id: true, name: true },
+        });
+        if (!supplier) {
+          throw new InventoryNotFoundError("Supplier not found");
+        }
+        resolvedSupplierId = supplier.id;
+        resolvedSupplierName = supplier.name;
+      }
+
       const purchaseOrder = await tx.purchaseOrder.create({
         data: {
           businessId,
-          supplierName: normalizeText(supplierName),
+          supplierId: resolvedSupplierId,
+          supplierName: resolvedSupplierName,
           externalOrderId: normalizeText(externalOrderId),
           source: normalizeText(source) ?? "MANUAL",
           orderDate: normalizeOrderDate(orderDate),

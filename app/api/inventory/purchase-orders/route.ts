@@ -73,6 +73,7 @@ export async function POST(request: NextRequest) {
     const purchaseOrder = await purchaseOrderService.createPurchaseOrder({
       businessId: user.businessId,
       createdByUserId: user.id,
+      supplierId: body.supplierId ?? null,
       supplierName: body.supplierName ?? null,
       externalOrderId: body.externalOrderId ?? null,
       source: body.source ?? "MANUAL",
