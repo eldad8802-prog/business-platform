@@ -15,6 +15,7 @@ import {
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { NotesThread } from "@/components/crm/NotesThread";
 import { AttachmentList } from "@/components/crm/AttachmentList";
+import { SupplierPurchaseHistorySection } from "@/components/inventory/SupplierPurchaseHistorySection";
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -194,6 +195,11 @@ function SupplierCardView({
           <div className="crm-note__body">{supplier.notes}</div>
         </div>
       ) : null}
+
+      <SupplierPurchaseHistorySection
+        supplierId={supplier.id}
+        supplierName={supplier.name}
+      />
 
       <NotesThread subjectType="SUPPLIER" subjectId={supplier.id} />
 
