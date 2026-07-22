@@ -138,6 +138,60 @@ export async function createSupplier(
   return data.supplier as Supplier;
 }
 
+/**
+ * Supplier purchase history (S4-P5 UI reading the S4-P4 read model). Mirrors the
+ * `GET /api/inventory/suppliers/[id]/purchase-orders` response shape 1:1. Orders
+ * are related to the supplier by id server-side; `supplierName` here is the Tier-1
+ * snapshot for display only. `status` is kept as a plain string so the Prisma enum
+ * never reaches the client bundle.
+ */
+export type SupplierPurchaseHistorySummary = {
+  purchaseOrderCount: number;
+  openPurchaseOrderCount: number;
+  lastPurchaseOrderAt: string | null;
+};
+
+export type SupplierPurchaseOrderItem = {
+  id: number;
+  supplierId: number | null;
+  supplierName: string | null;
+  status: string;
+  orderDate: string | null;
+  createdAt: string;
+  lineCount: number;
+};
+
+export type SupplierPurchaseHistory = {
+  summary: SupplierPurchaseHistorySummary;
+  items: SupplierPurchaseOrderItem[];
+  pagination: { limit: number; offset: number; total: number; hasMore: boolean };
+};
+
+export async function getSupplierPurchaseHistory(
+  id: number,
+  options?: { limit?: number; offset?: number }
+): Promise<SupplierPurchaseHistory> {
+  const params = new URLSearchParams();
+  if (options?.limit != null) params.set("limit", String(options.limit));
+  if (options?.offset != null) params.set("offset", String(options.offset));
+  const qs = params.toString() ? `?${params.toString()}` : "";
+
+  const res = await fetchWithTimeout(
+    `/api/inventory/suppliers/${id}/purchase-orders${qs}`,
+    {
+      method: "GET",
+      headers: buildClientAuthHeaders(),
+      cache: "no-store",
+    }
+  );
+
+  if (res.status === 401) throw new Error("UNAUTHORIZED");
+  if (res.status === 404) throw new Error("NOT_FOUND");
+  if (!res.ok) throw new Error("Failed to fetch purchase history");
+
+  return (await res.json()) as SupplierPurchaseHistory;
+}
+
 export async function updateSupplier(
   id: number,
   input: UpdateSupplierInput
