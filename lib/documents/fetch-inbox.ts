@@ -55,6 +55,8 @@ type ApiHubSummaryBody = {
   success: true;
   scope: InboxScope;
   financialPulse: InboxFinancialPulse;
+  /** Net cash-flow of the previous Jerusalem month; null when there is no prior data. */
+  previousNet: number | null;
   nextPending: DocumentsHubNextPending;
   items: [];
   pagination: InboxPagination;
@@ -63,6 +65,7 @@ type ApiHubSummaryBody = {
 export type DocumentsHubSnapshot = {
   scope: InboxScope;
   financialPulse: InboxFinancialPulse;
+  previousNet: number | null;
   nextPending: DocumentsHubNextPending;
 };
 
@@ -105,6 +108,7 @@ export async function fetchDocumentsHubSummary(
   return {
     scope: body.scope,
     financialPulse: body.financialPulse,
+    previousNet: body.previousNet ?? null,
     nextPending: body.nextPending ?? null,
   };
 }

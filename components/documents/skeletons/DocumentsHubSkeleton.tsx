@@ -2,92 +2,105 @@
 
 import {
   SkeletonBlock,
-  documentsShellCard,
   skeletonBar,
 } from "./skeleton-primitives";
 import { TOKEN } from "@/lib/design/documents-theme";
 
+/**
+ * Loading placeholder for the Documents home. Mirrors the live layout —
+ * Pulse card → capture Hero → three station rows — so the transition to real
+ * content doesn't jump. Wired by the page in place of a misleading ₪0 render.
+ */
 export default function DocumentsHubSkeleton() {
   return (
-    <SkeletonBlock>
-      <section style={documentsShellCard()}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-          <div style={{ flex: 1 }}>
-            <div style={skeletonBar("55%", 16)} />
-            <div style={{ ...skeletonBar("70%", 12), marginTop: 10 }} />
-          </div>
+    <SkeletonBlock style={{ gap: TOKEN.space.lg }}>
+      {/* Pulse */}
+      <section
+        style={{
+          background: TOKEN.surface.card,
+          border: `1px solid ${TOKEN.border.DEFAULT}`,
+          borderRadius: TOKEN.dsv1.radius.sheet,
+          padding: TOKEN.space.xl,
+          boxShadow: TOKEN.shadow.elevated,
+        }}
+      >
+        <div style={skeletonBar("48%", 12)} />
+        <div style={{ ...skeletonBar("40%", 26), marginTop: 8 }} />
+        <div style={{ ...skeletonBar("100%", 9), marginTop: TOKEN.space.lg }} />
+        <div style={{ display: "flex", gap: TOKEN.space.xl, marginTop: TOKEN.space.md }}>
+          <div style={skeletonBar(120, 14)} />
+          <div style={skeletonBar(120, 14)} />
+        </div>
+      </section>
+
+      {/* Capture hero */}
+      <section
+        style={{
+          borderRadius: TOKEN.dsv1.radius.sheet,
+          padding: TOKEN.space.xl,
+          background: TOKEN.surface.inset,
+          border: `1px solid ${TOKEN.border.DEFAULT}`,
+        }}
+      >
+        <div style={skeletonBar("30%", 18)} />
+        <div style={{ ...skeletonBar("55%", 20), marginTop: 12 }} />
+        <div style={{ ...skeletonBar("75%", 12), marginTop: 8 }} />
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: TOKEN.space.md,
+            marginTop: TOKEN.space.lg,
+          }}
+        >
+          <div style={skeletonBar("100%", 50)} />
+          <div style={skeletonBar("100%", 50)} />
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: TOKEN.space.md,
+            marginTop: TOKEN.space.md,
+          }}
+        >
+          <div style={skeletonBar("100%", 44)} />
+          <div style={skeletonBar("100%", 44)} />
+        </div>
+      </section>
+
+      {/* Stations */}
+      <div style={{ display: "flex", flexDirection: "column", gap: TOKEN.space.sm }}>
+        {[0, 1, 2].map((i) => (
           <div
+            key={i}
             style={{
-              width: 74,
-              height: 74,
-              borderRadius: TOKEN.radius.pill,
-              background: TOKEN.surface.inset,
-              flexShrink: 0,
-              animation: "documentsSkeletonPulse 1.2s ease-in-out infinite",
+              display: "flex",
+              alignItems: "center",
+              gap: TOKEN.space.lg,
+              background: TOKEN.surface.card,
+              border: `1px solid ${TOKEN.border.DEFAULT}`,
+              borderRadius: TOKEN.radius.card,
+              padding: `${TOKEN.space.md}px ${TOKEN.space.lg}px`,
+              boxShadow: TOKEN.shadow.elevated,
             }}
-          />
-        </div>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-            gap: 10,
-            marginTop: 14,
-          }}
-        >
-          {[0, 1, 2, 3].map((i) => (
+          >
             <div
-              key={i}
               style={{
-                border: `1px solid ${TOKEN.border.DEFAULT}`,
+                width: 42,
+                height: 42,
                 borderRadius: TOKEN.radius.input,
-                padding: 12,
-                textAlign: "center",
-              }}
-            >
-              <div style={{ ...skeletonBar("60%", 12), margin: "0 auto" }} />
-              <div style={{ ...skeletonBar("40%", 22), margin: "8px auto 0" }} />
-              <div style={{ ...skeletonBar("50%", 10), margin: "6px auto 0" }} />
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section style={{ ...documentsShellCard(), textAlign: "center" }}>
-        <div style={{ ...skeletonBar("70%", 18), margin: "0 auto" }} />
-        <div style={{ ...skeletonBar("85%", 12), margin: "10px auto 0" }} />
-        <div
-          style={{
-            ...skeletonBar("100%", 48),
-            marginTop: 16,
-            borderRadius: 9,
-          }}
-        />
-      </section>
-
-      <section style={documentsShellCard()}>
-        <div style={skeletonBar("35%", 16)} />
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-            gap: 10,
-            marginTop: 12,
-          }}
-        >
-          {[0, 1, 2, 3].map((i) => (
-            <div
-              key={i}
-              style={{
-                border: `1px solid ${TOKEN.border.DEFAULT}`,
-                borderRadius: TOKEN.radius.input,
-                minHeight: 94,
                 background: TOKEN.surface.inset,
+                flexShrink: 0,
               }}
             />
-          ))}
-        </div>
-      </section>
+            <div style={{ flex: 1 }}>
+              <div style={skeletonBar("40%", 14)} />
+              <div style={{ ...skeletonBar("60%", 12), marginTop: 6 }} />
+            </div>
+          </div>
+        ))}
+      </div>
     </SkeletonBlock>
   );
 }

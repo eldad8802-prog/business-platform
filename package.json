@@ -25,6 +25,9 @@
     "verify:crm-notes": "npx tsx lib/services/crm/crm-notes.service.test.ts",
     "verify:crm-attachment-storage": "npx tsx lib/services/crm/crm-attachment-storage.test.ts",
     "verify:crm-attachments": "npx tsx lib/services/crm/crm-attachments.service.test.ts",
+    "verify:documents-previous-net": "npx tsx lib/documents/previous-net.test.ts",
+    "verify:documents-previous-year-month": "npx tsx lib/documents/previous-year-month.test.ts",
+    "verify:documents-pulse-delta": "npx tsx components/documents/home/PulseCard.test.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

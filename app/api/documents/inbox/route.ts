@@ -9,6 +9,8 @@ import {
   getCurrentYearMonthJerusalem,
   jerusalemMonthUtcHalfOpen,
 } from "@/lib/utils/jerusalem-month-range";
+import { derivePreviousNet } from "@/lib/documents/previous-net";
+import { previousYearMonth } from "@/lib/documents/previous-year-month";
 
 export const runtime = "nodejs";
 
@@ -184,6 +186,14 @@ export async function GET(req: Request) {
     const businessId = user.businessId;
 
     if (summaryOnly) {
+      // Previous calendar month (Jerusalem), for the net cash-flow delta. Reuses
+      // the exact same half-open window logic — just shifted one month back via a
+      // pure, unit-tested helper. `resolvedMonth` is already validated (it passed
+      // the range call above).
+      const previousMonth = previousYearMonth(resolvedMonth);
+      const { from: prevFrom, toExclusive: prevToExclusive } =
+        jerusalemMonthUtcHalfOpen(previousMonth);
+
       const [
         incomeAgg,
         expenseAgg,
@@ -191,6 +201,8 @@ export async function GET(req: Request) {
         pendingReview,
         approvedDocuments,
         nextPendingDoc,
+        prevIncomeAgg,
+        prevExpenseAgg,
       ] = await Promise.all([
         prisma.financialRecord.aggregate({
           where: {
@@ -246,10 +258,33 @@ export async function GET(req: Request) {
             },
           },
         }),
+        prisma.financialRecord.aggregate({
+          where: {
+            businessId,
+            date: { gte: prevFrom, lt: prevToExclusive },
+            direction: "income",
+          },
+          _sum: { amount: true },
+        }),
+        prisma.financialRecord.aggregate({
+          where: {
+            businessId,
+            date: { gte: prevFrom, lt: prevToExclusive },
+            direction: "expense",
+          },
+          _sum: { amount: true },
+        }),
       ]);
 
       const incomeSum = incomeAgg._sum.amount ?? 0;
       const expenseSum = expenseAgg._sum.amount ?? 0;
+
+      // Previous-month net — derived by a pure, unit-tested helper (returns null
+      // when there is genuinely no prior data, never 0).
+      const previousNet = derivePreviousNet(
+        prevIncomeAgg._sum.amount,
+        prevExpenseAgg._sum.amount
+      );
 
       const nextPending = nextPendingDoc
         ? {
@@ -287,6 +322,7 @@ export async function GET(req: Request) {
             approvedDocuments,
           },
         },
+        previousNet,
         nextPending,
         items: [],
         pagination: {
