@@ -70,6 +70,15 @@ export type CustomerCardAppointment = {
   createdAt: string;
 };
 
+/** Basic CRM fields editable from the customer card (C1). Tax identity excluded. */
+export type UpdateCustomerInput = {
+  name?: string;
+  phone?: string | null;
+  email?: string | null;
+  city?: string | null;
+  notes?: string | null;
+};
+
 export type CustomerCardSection<T> = { items: T[]; total: number };
 
 export type CustomerCard = {
@@ -127,6 +136,33 @@ export async function getCustomerCard(id: number): Promise<CustomerCard> {
   if (!res.ok) throw new Error("Failed to fetch customer");
 
   return (await res.json()) as CustomerCard;
+}
+
+export async function updateCustomer(
+  id: number,
+  input: UpdateCustomerInput
+): Promise<CustomerCardCustomer> {
+  const res = await fetchWithTimeout(`/api/customers/${id}`, {
+    method: "PATCH",
+    headers: buildClientAuthHeaders(),
+    body: JSON.stringify(input),
+  });
+
+  if (res.status === 401) throw new Error("UNAUTHORIZED");
+  if (res.status === 404) throw new Error("NOT_FOUND");
+  if (!res.ok) {
+    let message = "לא הצלחנו לשמור את הלקוח";
+    try {
+      const data = await res.json();
+      if (data?.error) message = data.error;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(message);
+  }
+
+  const data = await res.json();
+  return data.customer as CustomerCardCustomer;
 }
 
 export async function createCustomer(

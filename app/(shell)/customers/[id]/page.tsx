@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   getCustomerCard,
+  updateCustomer,
   type CustomerCard,
+  type CustomerCardCustomer,
   type CustomerCardBillingDocument,
   type CustomerCardPaymentRequest,
   type CustomerCardConversation,
@@ -107,6 +109,7 @@ export default function CustomerCardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const load = useCallback(async () => {
     const token = getClientAuthToken();
@@ -174,13 +177,30 @@ export default function CustomerCardPage() {
           </button>
         </div>
       ) : card ? (
-        <CustomerCardView card={card} />
+        <CustomerCardView card={card} onEdit={() => setEditOpen(true)} />
+      ) : null}
+
+      {editOpen && card ? (
+        <EditCustomerModal
+          customer={card.customer}
+          onClose={() => setEditOpen(false)}
+          onSaved={(updated) => {
+            setCard((prev) => (prev ? { ...prev, customer: updated } : prev));
+            setEditOpen(false);
+          }}
+        />
       ) : null}
     </div>
   );
 }
 
-function CustomerCardView({ card }: { card: CustomerCard }) {
+function CustomerCardView({
+  card,
+  onEdit,
+}: {
+  card: CustomerCard;
+  onEdit: () => void;
+}) {
   const { customer } = card;
   const lastActivity = formatDate(card.activity.lastActivityAt);
 
@@ -196,7 +216,24 @@ function CustomerCardView({ card }: { card: CustomerCard }) {
   return (
     <>
       <div className="crm-id">
-        <h1 className="crm-id__name">{customer.name}</h1>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <h1 className="crm-id__name">{customer.name}</h1>
+          <button
+            type="button"
+            className="crm-btn crm-btn--ghost"
+            onClick={onEdit}
+            style={{ flexShrink: 0 }}
+          >
+            עריכה
+          </button>
+        </div>
 
         {shownFields.length > 0 ? (
           <div className="crm-id__grid">
@@ -363,6 +400,144 @@ function ConversationsSection({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function EditCustomerModal({
+  customer,
+  onClose,
+  onSaved,
+}: {
+  customer: CustomerCardCustomer;
+  onClose: () => void;
+  onSaved: (updated: CustomerCardCustomer) => void;
+}) {
+  const [name, setName] = useState(customer.name);
+  const [phone, setPhone] = useState(customer.phone ?? "");
+  const [email, setEmail] = useState(customer.email ?? "");
+  const [city, setCity] = useState(customer.city ?? "");
+  const [notes, setNotes] = useState(customer.notes ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit() {
+    if (!name.trim()) {
+      setError("יש להזין שם לקוח");
+      return;
+    }
+    try {
+      setSaving(true);
+      setError(null);
+      const updated = await updateCustomer(customer.id, {
+        name: name.trim(),
+        phone: phone.trim() || null,
+        email: email.trim() || null,
+        city: city.trim() || null,
+        notes: notes.trim() || null,
+      });
+      onSaved(updated);
+    } catch (err: unknown) {
+      if (isUnauthorizedError(err)) {
+        redirectToLogin();
+        return;
+      }
+      setError(err instanceof Error ? err.message : "לא הצלחנו לשמור את הלקוח");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="crm-modal__backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !saving) onClose();
+      }}
+    >
+      <div className="crm-modal" role="dialog" aria-modal="true" aria-label="עריכת לקוח">
+        <h2 className="crm-modal__title">עריכת לקוח</h2>
+
+        <div className="crm-field">
+          <label className="crm-field__label" htmlFor="cust-edit-name">
+            שם *
+          </label>
+          <input
+            id="cust-edit-name"
+            className="crm-input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
+        </div>
+        <div className="crm-field">
+          <label className="crm-field__label" htmlFor="cust-edit-phone">
+            טלפון
+          </label>
+          <input
+            id="cust-edit-phone"
+            className="crm-input"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            inputMode="tel"
+          />
+        </div>
+        <div className="crm-field">
+          <label className="crm-field__label" htmlFor="cust-edit-email">
+            אימייל
+          </label>
+          <input
+            id="cust-edit-email"
+            className="crm-input"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            inputMode="email"
+          />
+        </div>
+        <div className="crm-field">
+          <label className="crm-field__label" htmlFor="cust-edit-city">
+            עיר
+          </label>
+          <input
+            id="cust-edit-city"
+            className="crm-input"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+          />
+        </div>
+        <div className="crm-field">
+          <label className="crm-field__label" htmlFor="cust-edit-notes">
+            הערה כללית
+          </label>
+          <textarea
+            id="cust-edit-notes"
+            className="crm-note-input"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={3}
+          />
+        </div>
+
+        {error ? <div className="crm-modal__error">{error}</div> : null}
+
+        <div className="crm-modal__actions">
+          <button
+            type="button"
+            className="crm-btn crm-btn--primary crm-btn--full"
+            onClick={() => void handleSubmit()}
+            disabled={saving}
+          >
+            {saving ? "שומר…" : "שמירה"}
+          </button>
+          <button
+            type="button"
+            className="crm-btn crm-btn--ghost"
+            onClick={onClose}
+            disabled={saving}
+          >
+            ביטול
+          </button>
+        </div>
       </div>
     </div>
   );

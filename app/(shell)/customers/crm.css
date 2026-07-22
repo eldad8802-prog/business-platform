@@ -371,10 +371,18 @@
   align-items: flex-end;
   justify-content: center;
   padding: 0;
+  /* Mobile bottom-sheet: reserve the fixed bottom chrome footprint so the sheet —
+     and its Save / Cancel actions — always sit ABOVE it. The shell content wrapper
+     is a `z-index:1` stacking context, so the modal (z-index:1000) cannot paint over
+     the root-level chrome; lifting it geometrically is what keeps the actions
+     clickable. The reserve clears BOTH the fixed bottom nav (~100px, cf.
+     SHELL_SCROLL_BOTTOM_PADDING) and the accessibility FAB that floats above it. */
+  padding-bottom: calc(160px + env(safe-area-inset-bottom, 0px));
 }
 @media (min-width: 640px) {
   .crm-modal__backdrop {
     align-items: center;
+    /* Centered dialog on desktop — resets the mobile bottom reserve (no excess gap). */
     padding: 16px;
   }
 }
@@ -386,10 +394,17 @@
   box-shadow: var(--crm-shadow-overlay);
   padding: 20px;
   box-sizing: border-box;
+  /* Never exceed the viewport (also handles short screens / on-screen keyboard):
+     a tall modal scrolls INSIDE instead of pushing actions off-screen. Matches the
+     backdrop bottom reserve so the sheet always fits above the bottom chrome. */
+  max-height: calc(100dvh - 160px - env(safe-area-inset-bottom, 0px) - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 @media (min-width: 640px) {
   .crm-modal {
     border-radius: var(--crm-radius-dialog);
+    max-height: calc(100dvh - 32px);
   }
 }
 .crm-modal__title {
