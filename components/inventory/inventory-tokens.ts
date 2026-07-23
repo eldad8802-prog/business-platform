@@ -186,6 +186,62 @@ export const inventoryCssVars = `
   --inv-bottom-safe: ${inventoryLayout.safeBottomMobile};
 `;
 
+/* --- Inventory HOME accents (screen s8 modern redesign) --------------------
+ * The home uses the same WARM DS v1 canvas as every other inventory sub-screen
+ * (surfaces / text / status all resolve to the module's existing `--inv-*`
+ * tokens — see `home-styles.ts`). What remains home-scoped here is only the
+ * design layer that has no warm-module equivalent: the brand teal RAMP for the
+ * hero (individual gradient stops, which the single `--inv-primary` gradient
+ * token can't supply), the four categorical action-icon ACCENTS (teal / blue /
+ * amber / violet), the warm skeleton shimmer pair, radii and easing.
+ *
+ * Literal values are declared here, in ONE place, and emitted only inside the
+ * home's `[data-inventory-home]` block (`inventoryHomeCssVars`). They never leak
+ * to other inventory screens and never touch the shared Documents anchor tokens
+ * in `TOKEN.dsv1`. Every call site references `var(--inv-home-*)` — no hex in
+ * components. */
+export const inventoryHomePalette = {
+  /** Brand teal ramp — hero gradient stops + teal controls. */
+  teal1: "#16A093",
+  teal2: "#0E766E",
+  teal3: "#0A574F",
+  onTeal: "#FFFFFF",
+  /** Categorical action-icon accents, tinted to read on the warm beige cards. */
+  iconTeal: "#0E766E",
+  iconTealBg: "rgba(14, 118, 110, 0.12)",
+  iconBlue: "#2F6FB2",
+  iconBlueBg: "rgba(45, 111, 178, 0.13)",
+  iconAmber: "#9C6A16",
+  iconAmberBg: "rgba(156, 106, 22, 0.16)",
+  iconViolet: "#6E4F9E",
+  iconVioletBg: "rgba(124, 92, 168, 0.15)",
+  /** Warm skeleton shimmer (base → highlight), matching the cream module. */
+  skBase: "#EDE3D2",
+  skHi: "#F7EFE2",
+  ease: "cubic-bezier(0.22, 0.61, 0.36, 1)",
+} as const;
+
+/** CSS custom properties for the home screen — emitted inside `[data-inventory-home]`. */
+export const inventoryHomeCssVars = `
+  --inv-home-teal-1: ${inventoryHomePalette.teal1};
+  --inv-home-teal-2: ${inventoryHomePalette.teal2};
+  --inv-home-teal-3: ${inventoryHomePalette.teal3};
+  --inv-home-on-teal: ${inventoryHomePalette.onTeal};
+  --inv-home-icon-teal: ${inventoryHomePalette.iconTeal};
+  --inv-home-icon-teal-bg: ${inventoryHomePalette.iconTealBg};
+  --inv-home-icon-blue: ${inventoryHomePalette.iconBlue};
+  --inv-home-icon-blue-bg: ${inventoryHomePalette.iconBlueBg};
+  --inv-home-icon-amber: ${inventoryHomePalette.iconAmber};
+  --inv-home-icon-amber-bg: ${inventoryHomePalette.iconAmberBg};
+  --inv-home-icon-violet: ${inventoryHomePalette.iconViolet};
+  --inv-home-icon-violet-bg: ${inventoryHomePalette.iconVioletBg};
+  --inv-home-sk-base: ${inventoryHomePalette.skBase};
+  --inv-home-sk-hi: ${inventoryHomePalette.skHi};
+  --inv-home-r-card: 20px;
+  --inv-home-r-chip: 12px;
+  --inv-home-ease: ${inventoryHomePalette.ease};
+`;
+
 /* --- Warm action styles (DS v1) ------------------------------------------
  * Inventory-scoped replacements for the cold `@/lib/design/action-styles`
  * helpers, mirroring the warm variants the Documents theme provides. Same
