@@ -14,7 +14,12 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ValidationError, UnauthorizedError, NotFoundError } from "@/lib/errors";
+import {
+  ValidationError,
+  UnauthorizedError,
+  NotFoundError,
+  ConflictError,
+} from "@/lib/errors";
 import { normalizeCustomerPhone } from "@/lib/services/integrations/whatsapp/phone";
 
 const NAME_MAX = 200;
@@ -165,16 +170,36 @@ export const customerService = {
       data.notes = normalizeOptionalText(input.notes, "notes", NOTES_MAX);
 
     const run = async (tx: Tx | typeof prisma) => {
-      const updated = await tx.customer.updateMany({
-        where: { id: customerId, businessId: input.businessId },
-        data,
-      });
-      if (updated.count !== 1) {
-        throw new NotFoundError("Customer not found");
+      try {
+        // Atomic tenant-guarded update: a row of another business never matches,
+        // so count !== 1 → NotFound (no cross-tenant existence disclosure). A
+        // unique-phone collision aborts the whole statement — nothing is written
+        // partially.
+        const updated = await tx.customer.updateMany({
+          where: { id: customerId, businessId: input.businessId },
+          data,
+        });
+        if (updated.count !== 1) {
+          throw new NotFoundError("Customer not found");
+        }
+        return await tx.customer.findFirstOrThrow({
+          where: { id: customerId, businessId: input.businessId },
+        });
+      } catch (error) {
+        // Surface the existing (businessId, phone) unique constraint as a friendly
+        // CRM conflict instead of a raw Prisma error / 500. Not a new duplicate
+        // mechanism — just correct handling of the constraint that already exists.
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2002"
+        ) {
+          throw new ConflictError(
+            "PHONE_TAKEN",
+            "מספר הטלפון כבר משויך ללקוח אחר בעסק."
+          );
+        }
+        throw error;
       }
-      return tx.customer.findFirstOrThrow({
-        where: { id: customerId, businessId: input.businessId },
-      });
     };
 
     return options?.tx ? run(options.tx) : run(prisma);
