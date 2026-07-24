@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 
 import { ActionSheet } from "./action-sheet";
 import { useShellChromeHidden } from "./shell-chrome-visibility";
+import { PRIMARY_DESTINATIONS, isNavActive } from "./nav-destinations";
 
 /** Below in-app modals (~200); shell content is z-index 1 - bar stays above page for the strip only. */
 export const BOTTOM_BAR_Z_INDEX = 100;
@@ -17,26 +18,12 @@ export const BOTTOM_BAR_Z_INDEX = 100;
 export const SHELL_SCROLL_BOTTOM_PADDING =
   "calc(100px + env(safe-area-inset-bottom, 0px))";
 
-function isActive(pathname: string, href: string) {
-  if (href === "/") {
-    return pathname === "/";
-  }
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
-
 const NAV_TOP_PAD = 8;
 const NAV_BOTTOM_PAD = 12;
 const ROW_MIN_H = 56;
 const FAB_SIZE = 54;
 const FAB_SLOT_SIZE = 68;
 const FAB_LIFT = 16;
-
-type TabDef = {
-  key: string;
-  label: string;
-  href: string;
-  icon: (props: { active: boolean }) => ReactNode;
-};
 
 export function BottomBar() {
   const pathname = usePathname() || "/";
@@ -49,13 +36,10 @@ export function BottomBar() {
   if (chromeHidden) return null;
 
   // Fixed, uniform navigation on every screen the bar appears on — no per-screen
-  // variants. Settings is intentionally NOT here (reached from the home screen).
-  const tabs: TabDef[] = [
-    { key: "home", label: "בית", href: "/", icon: IconHome },
-    { key: "chats", label: "שיחות", href: "/inbox", icon: IconChat },
-    { key: "docs", label: "מסמכים", href: "/documents", icon: IconDocs },
-    { key: "inventory", label: "מלאי", href: "/inventory", icon: IconInventory },
-  ];
+  // variants. The four primary tabs come from the single nav source
+  // (nav-destinations); the tablet/desktop sidebar renders the full list from
+  // the same source, so the nav list is never duplicated.
+  const tabs = PRIMARY_DESTINATIONS;
 
   // Unified Dubiz active state across every section of the app — the Documents
   // feature teal (DS v1 accent #246966), so the whole app shares one language.
@@ -107,8 +91,8 @@ export function BottomBar() {
           label={tabs[0].label}
           icon={tabs[0].icon}
           // Home links to "/" but the authenticated home renders at "/app"
-          // (via redirect), so treat both as the active home route.
-          active={isActive(pathname, tabs[0].href) || pathname === "/app"}
+          // (via redirect); isNavActive treats both as the active home route.
+          active={isNavActive(pathname, tabs[0].href)}
           activeColor={activeColor}
           activeBg={activeBg}
           activeRing={activeRing}
@@ -117,7 +101,7 @@ export function BottomBar() {
           href={tabs[1].href}
           label={tabs[1].label}
           icon={tabs[1].icon}
-          active={isActive(pathname, tabs[1].href)}
+          active={isNavActive(pathname, tabs[1].href)}
           activeColor={activeColor}
           activeBg={activeBg}
           activeRing={activeRing}
@@ -181,7 +165,7 @@ export function BottomBar() {
           href={tabs[2].href}
           label={tabs[2].label}
           icon={tabs[2].icon}
-          active={isActive(pathname, tabs[2].href)}
+          active={isNavActive(pathname, tabs[2].href)}
           activeColor={activeColor}
           activeBg={activeBg}
           activeRing={activeRing}
@@ -190,7 +174,7 @@ export function BottomBar() {
           href={tabs[3].href}
           label={tabs[3].label}
           icon={tabs[3].icon}
-          active={isActive(pathname, tabs[3].href)}
+          active={isNavActive(pathname, tabs[3].href)}
           activeColor={activeColor}
           activeBg={activeBg}
           activeRing={activeRing}
@@ -292,68 +276,5 @@ function BarLink({
         </span>
       </span>
     </Link>
-  );
-}
-
-function IconHome({ active }: { active: boolean }) {
-  const w = active ? 2.25 : 2;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5z"
-        stroke="currentColor"
-        strokeWidth={w}
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function IconChat({ active }: { active: boolean }) {
-  const w = active ? 2.25 : 2;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
-        stroke="currentColor"
-        strokeWidth={w}
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function IconDocs({ active }: { active: boolean }) {
-  const w = active ? 2.25 : 2;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"
-        stroke="currentColor"
-        strokeWidth={w}
-        strokeLinejoin="round"
-      />
-      <path
-        d="M14 2v6h6M9 13h6M9 17h6"
-        stroke="currentColor"
-        strokeWidth={w}
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function IconInventory({ active }: { active: boolean }) {
-  const w = active ? 2.25 : 2;
-  return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M21 8 12 3 3 8v8l9 5 9-5V8zM3 8l9 5 9-5M12 13v8"
-        stroke="currentColor"
-        strokeWidth={w}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    </svg>
   );
 }
