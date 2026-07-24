@@ -669,6 +669,7 @@ model Customer {
   taxId            String?
   taxIdType        CustomerTaxIdType?
   notes            String?
+  isActive         Boolean           @default(true)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   billingDocuments BillingDocument[]
@@ -679,6 +680,7 @@ model Customer {
   paymentRequests  PaymentRequest[]
 
   @@unique([businessId, phone])
+  @@index([businessId, isActive])
 }
 
 model Deal {
