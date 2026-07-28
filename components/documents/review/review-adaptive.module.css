@@ -1,0 +1,223 @@
+/*
+ * Documents Review — Adaptive Workspace (presentation only).
+ *
+ * One DOM, CSS-driven tiers. Below 1280px the review screen is the historical
+ * single 760px column (mobile/tablet), pixel-identical to before. At >=1280px it
+ * becomes a Preview–Editor two-pane workspace: editor on the inline-start (right
+ * in RTL), source preview on the inline-end (left) taking the remaining width.
+ *
+ * Design-token colours/radii/shadows arrive as inline CSS custom properties
+ * (--rvw-*) set on the decision card from the Documents DS v1 TOKEN set, so this
+ * file hardcodes no palette. Only structural dimensions live here: the single
+ * Review-local breakpoint (1280), pane widths and gaps. App Shell breakpoints
+ * (768 / 1024) are NOT touched.
+ *
+ * Breakpoint rationale (RTL, desktop sidebar 248px, main padding 36, editor
+ * 440, gap 24): preview width = viewport - 248 - 36 - 440 - 24. It first clears
+ * ~520px at 1280 (=>532). 1200 yields only 452 (mobile-narrow), so 1280 is the
+ * Review-local two-pane threshold.
+ */
+
+/* ------------------------------------------------------------------ *
+ * Page container: 760 single column, widened only for the workspace.
+ * ------------------------------------------------------------------ */
+.reviewMain {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+@media (min-width: 1280px) {
+  .reviewMain {
+    max-width: 1240px;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Decision card chrome — kept on mobile/tablet, stripped on desktop so
+ * the two panes read as distinct surfaces instead of a card-in-card.
+ * ------------------------------------------------------------------ */
+.decisionCard {
+  background: var(--rvw-card);
+  border: 1px solid var(--rvw-line);
+  border-radius: var(--rvw-radius-card);
+  padding: var(--rvw-pad-xl);
+  box-shadow: var(--rvw-shadow);
+}
+
+@media (min-width: 1280px) {
+  .decisionCard {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Workspace grid. Single column below 1280 (natural stacking order:
+ * editorTop, preview, editorBottom, actions — the current layout). Two
+ * columns at >=1280 with preview spanning the full height on the left.
+ * ------------------------------------------------------------------ */
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "editorTop"
+    "preview"
+    "editorBottom"
+    "actions";
+  row-gap: 0;
+}
+
+.editorTop {
+  grid-area: editorTop;
+  min-width: 0;
+}
+
+.preview {
+  grid-area: preview;
+  min-width: 0;
+  /* Restores the 16px flex gap that sat between ImpactBox and the preview
+     in the original single-column decision panel. */
+  margin-top: 16px;
+}
+
+.editorBottom {
+  grid-area: editorBottom;
+  min-width: 0;
+}
+
+.actions {
+  grid-area: actions;
+  min-width: 0;
+}
+
+@media (min-width: 1280px) {
+  .workspace {
+    grid-template-columns: 440px minmax(520px, 1fr);
+    grid-template-areas:
+      "editorTop    preview"
+      "editorBottom preview"
+      "actions      preview";
+    column-gap: 24px;
+    align-items: start;
+  }
+
+  .preview {
+    margin-top: 0;
+    /* Independent scroll: the preview pins to the viewport while the editor
+       column scrolls with the page; the document scrolls inside its own
+       iframe/image. */
+    position: sticky;
+    top: 16px;
+    height: calc(100vh - 32px);
+    min-height: 360px;
+    overflow: hidden;
+  }
+
+  /* Actions stay in-flow at the foot of the editor column (see delivery notes:
+     sticky was evaluated and dropped to guarantee no mid-scroll field
+     occlusion at 700px height, per the safety-first rule). */
+}
+
+/* ------------------------------------------------------------------ *
+ * Preview surface sizing. The soft outer panel + inner card frame the
+ * live blob exactly as before; only heights change across tiers. Below
+ * 768 (mobile) the historical 330px surface is preserved pixel-for-pixel.
+ * ------------------------------------------------------------------ */
+.previewOuter {
+  border: 1px solid var(--rvw-line);
+  background: var(--rvw-inset);
+  border-radius: var(--rvw-radius-card);
+  padding: 16px;
+}
+
+.previewInner {
+  min-height: 330px;
+  background: var(--rvw-card);
+  border: 1px solid var(--rvw-line);
+  border-radius: var(--rvw-radius-card);
+  padding: 18px;
+  box-shadow: var(--rvw-shadow);
+}
+
+.previewMedia {
+  width: 100%;
+  height: 330px;
+  border: none;
+  border-radius: var(--rvw-radius-input);
+  background: var(--rvw-card);
+}
+
+.previewImg {
+  width: 100%;
+  max-height: 330px;
+  object-fit: contain;
+  border-radius: var(--rvw-radius-input);
+}
+
+.previewLoading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 294px;
+  gap: 8px;
+  text-align: center;
+}
+
+/* Tablet + sub-breakpoint desktop single column: give the preview more height
+   (additive only) so the wider column isn't wasted. Mobile (<768) is untouched. */
+@media (min-width: 768px) and (max-width: 1279px) {
+  .previewInner {
+    min-height: 460px;
+  }
+
+  .previewMedia {
+    height: 460px;
+  }
+
+  .previewImg {
+    max-height: 460px;
+  }
+
+  .previewLoading {
+    height: 424px;
+  }
+}
+
+/* Desktop two-pane: the preview fills the pinned pane height. */
+@media (min-width: 1280px) {
+  .previewOuter {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .previewInner {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .previewMedia {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+  }
+
+  .previewImg {
+    flex: 1;
+    max-height: 100%;
+    min-height: 0;
+  }
+
+  .previewLoading {
+    flex: 1;
+    height: auto;
+  }
+}
+
