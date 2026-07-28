@@ -644,3 +644,22 @@
   align-items: center;
   gap: 12px;
 }
+
+/* Adaptive Master–Detail (desktop) — the layout itself is provided by the generic
+   MasterDetailLayout; these are the CRM-scoped touches only. */
+
+/* Selected row in the desktop master list (adds no data — a calm teal marker). */
+.crm-row--selected {
+  border-color: var(--crm-accent);
+  background: var(--crm-surface2);
+  box-shadow: inset 0 0 0 1px var(--crm-accent), var(--crm-shadow-card);
+}
+
+/* In two-pane mode the list is always visible beside the card, so the card's
+   "back to customers" link is redundant. Keep this breakpoint in sync with
+   TWO_PANE_MIN in customers/layout.tsx. */
+@media (min-width: 1200px) {
+  .crm-scope .crm-hd__back {
+    display: none;
+  }
+}
