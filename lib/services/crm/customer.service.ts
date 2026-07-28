@@ -34,6 +34,15 @@ type TxOptions = { tx?: Tx };
 /** `recent` = updatedAt desc (billing UX). `id-asc` = legacy `/api/customer` order. */
 export type CustomerSort = "recent" | "id-asc";
 
+/**
+ * Lifecycle list filter. Default (undefined) = "all" — this is deliberate: the
+ * canonical service is shared by Billing (`/api/billing/customers`, invoice picker)
+ * and the legacy `/api/customer`, which must keep seeing every customer. Only the
+ * CRM list opts into "active" explicitly (via its client), so no existing caller
+ * changes behavior.
+ */
+export type CustomerLifecycleFilter = "active" | "inactive" | "all";
+
 export type CreateCustomerInput = {
   businessId: number;
   name: string;
@@ -53,12 +62,21 @@ export type UpdateCustomerBasicsInput = {
   notes?: string | null;
 };
 
+/** Lifecycle is a distinct business action — its own contract, separate from basics. */
+export type SetCustomerActiveStatusInput = {
+  businessId: number;
+  customerId: number;
+  isActive: boolean;
+};
+
 export type ListCustomersInput = {
   businessId: number;
   query?: string | null;
   /** Omit/undefined = unbounded (legacy `/api/customer` GET). A number caps + clamps to 100. */
   limit?: number | null;
   sort?: CustomerSort;
+  /** Lifecycle filter. Omit/undefined = "all" (backward compatible for non-CRM callers). */
+  status?: CustomerLifecycleFilter;
 };
 
 export type GetCustomerInput = {
@@ -205,6 +223,38 @@ export const customerService = {
     return options?.tx ? run(options.tx) : run(prisma);
   },
 
+  /**
+   * Lifecycle: activate / deactivate a customer. Flips ONLY `isActive` — never
+   * deletes the customer and never touches its relations (billing documents,
+   * payments, conversations, appointments, notes, attachments) or its identity.
+   * Tenant-guarded: another business's customer behaves exactly like not-found.
+   */
+  async setCustomerActiveStatus(
+    input: SetCustomerActiveStatusInput,
+    options?: TxOptions
+  ) {
+    assertBusinessId(input.businessId);
+    const customerId = normalizeCustomerId(input.customerId);
+    if (typeof input.isActive !== "boolean") {
+      throw new ValidationError("isActive must be a boolean");
+    }
+
+    const run = async (tx: Tx | typeof prisma) => {
+      const updated = await tx.customer.updateMany({
+        where: { id: customerId, businessId: input.businessId },
+        data: { isActive: input.isActive },
+      });
+      if (updated.count !== 1) {
+        throw new NotFoundError("Customer not found");
+      }
+      return tx.customer.findFirstOrThrow({
+        where: { id: customerId, businessId: input.businessId },
+      });
+    };
+
+    return options?.tx ? run(options.tx) : run(prisma);
+  },
+
   /** Fetch one customer, tenant-scoped. Throws NotFound across businesses. */
   async getCustomer(input: GetCustomerInput) {
     assertBusinessId(input.businessId);
@@ -235,6 +285,11 @@ export const customerService = {
         { phone: { contains: q, mode: "insensitive" } },
       ];
     }
+    // Lifecycle filter. Default (undefined) = "all" so Billing / legacy callers are
+    // unaffected; only the CRM list passes "active"/"inactive" explicitly.
+    const status = input.status ?? "all";
+    if (status === "active") where.isActive = true;
+    else if (status === "inactive") where.isActive = false;
 
     const take = clampLimit(input.limit);
     return prisma.customer.findMany({

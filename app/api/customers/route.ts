@@ -1,17 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
-import { customerService } from "@/lib/services/crm/customer.service";
+import { ValidationError } from "@/lib/errors";
+import {
+  customerService,
+  type CustomerLifecycleFilter,
+} from "@/lib/services/crm/customer.service";
 
 const DEFAULT_LIMIT = 50;
 
-/** Row shape exposed to the customers list UI — identity only, no fabricated financials. */
+const LIFECYCLE_FILTERS: CustomerLifecycleFilter[] = ["active", "inactive", "all"];
+
+/** Validate the closed lifecycle filter set. Absent = undefined (service → "all"). */
+function parseStatus(value: string | null): CustomerLifecycleFilter | undefined {
+  if (value === null || value === "") return undefined;
+  if (!LIFECYCLE_FILTERS.includes(value as CustomerLifecycleFilter)) {
+    throw new ValidationError(`status must be one of: ${LIFECYCLE_FILTERS.join(", ")}`);
+  }
+  return value as CustomerLifecycleFilter;
+}
+
+/** Row shape exposed to the customers list UI — identity + lifecycle, no fabricated financials. */
 function toListRow(c: {
   id: number;
   name: string;
   phone: string | null;
   email: string | null;
   city: string | null;
+  isActive: boolean;
 }) {
   return {
     id: c.id,
@@ -19,6 +35,7 @@ function toListRow(c: {
     phone: c.phone,
     email: c.email,
     city: c.city,
+    isActive: c.isActive,
   };
 }
 
@@ -40,12 +57,14 @@ export async function GET(req: NextRequest) {
       limitParam === null || limitParam === ""
         ? DEFAULT_LIMIT
         : Number(limitParam);
+    const status = parseStatus(searchParams.get("status"));
 
     const customers = await customerService.listCustomers({
       businessId: user.businessId,
       query: q,
       limit,
       sort: "recent",
+      status,
     });
 
     return NextResponse.json(

@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import {
   getCustomerCard,
   updateCustomer,
+  setCustomerActiveStatus,
   type CustomerCard as CustomerCardData,
   type CustomerCardCustomer,
   type CustomerCardBillingDocument,
@@ -124,6 +125,9 @@ export function CustomerCard() {
   const id = Number(params?.id);
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [editOpen, setEditOpen] = useState(false);
+  const [confirmDeactivate, setConfirmDeactivate] = useState(false);
+  const [lifecycleSaving, setLifecycleSaving] = useState(false);
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null);
 
   // Returns the next state; never sets it — the effect updates state only after
   // the request resolves. Depends only on `id` (no router) so a soft navigation
@@ -167,6 +171,36 @@ export function CustomerCard() {
     void fetchCard().then(setState);
   }, [fetchCard]);
 
+  // Lifecycle (C2) — flips isActive only, merges into the loaded card, and never
+  // reloads the card or its related sections. Guarded against double-submit.
+  const applyActive = useCallback(
+    async (next: boolean) => {
+      if (lifecycleSaving) return;
+      try {
+        setLifecycleSaving(true);
+        setLifecycleError(null);
+        const updated = await setCustomerActiveStatus(id, next);
+        setState((prev) =>
+          prev.status === "ready"
+            ? { status: "ready", card: { ...prev.card, customer: updated } }
+            : prev,
+        );
+        setConfirmDeactivate(false);
+      } catch (err: unknown) {
+        if (isUnauthorizedError(err)) {
+          redirectToLogin();
+          return;
+        }
+        setLifecycleError(
+          err instanceof Error ? err.message : "לא הצלחנו לעדכן את סטטוס הלקוח",
+        );
+      } finally {
+        setLifecycleSaving(false);
+      }
+    },
+    [id, lifecycleSaving],
+  );
+
   return (
     <div className="crm-page">
       <Link className="crm-hd__back" href="/customers">
@@ -196,7 +230,16 @@ export function CustomerCard() {
           </button>
         </div>
       ) : (
-        <CustomerCardView card={state.card} onEdit={() => setEditOpen(true)} />
+        <CustomerCardView
+          card={state.card}
+          onEdit={() => setEditOpen(true)}
+          lifecycleSaving={lifecycleSaving}
+          onDeactivate={() => {
+            setLifecycleError(null);
+            setConfirmDeactivate(true);
+          }}
+          onReactivate={() => void applyActive(true)}
+        />
       )}
 
       {editOpen && state.status === "ready" ? (
@@ -213,6 +256,18 @@ export function CustomerCard() {
           }}
         />
       ) : null}
+
+      {confirmDeactivate && state.status === "ready" ? (
+        <ConfirmDeactivateModal
+          customerName={state.card.customer.name}
+          saving={lifecycleSaving}
+          error={lifecycleError}
+          onCancel={() => {
+            if (!lifecycleSaving) setConfirmDeactivate(false);
+          }}
+          onConfirm={() => void applyActive(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -220,9 +275,15 @@ export function CustomerCard() {
 function CustomerCardView({
   card,
   onEdit,
+  lifecycleSaving,
+  onDeactivate,
+  onReactivate,
 }: {
   card: CustomerCardData;
   onEdit: () => void;
+  lifecycleSaving: boolean;
+  onDeactivate: () => void;
+  onReactivate: () => void;
 }) {
   const { customer } = card;
   const lastActivity = formatDate(card.activity.lastActivityAt);
@@ -248,14 +309,30 @@ function CustomerCardView({
           }}
         >
           <h1 className="crm-id__name">{customer.name}</h1>
-          <button
-            type="button"
-            className="crm-btn crm-btn--ghost"
-            onClick={onEdit}
-            style={{ flexShrink: 0 }}
-          >
-            עריכה
-          </button>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <button type="button" className="crm-btn crm-btn--ghost" onClick={onEdit}>
+              עריכה
+            </button>
+            {customer.isActive ? (
+              <button
+                type="button"
+                className="crm-btn crm-btn--ghost"
+                onClick={onDeactivate}
+                disabled={lifecycleSaving}
+              >
+                השבת לקוח
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="crm-btn crm-btn--ghost"
+                onClick={onReactivate}
+                disabled={lifecycleSaving}
+              >
+                {lifecycleSaving ? "מעדכן…" : "החזר לפעילות"}
+              </button>
+            )}
+          </div>
         </div>
 
         {shownFields.length > 0 ? (
@@ -270,6 +347,11 @@ function CustomerCardView({
         ) : null}
 
         <div className="crm-chips">
+          <span
+            className={customer.isActive ? "crm-badge crm-badge--success" : "crm-badge"}
+          >
+            {customer.isActive ? "פעיל" : "לא פעיל"}
+          </span>
           {customer.taxIdType ? (
             <span className="crm-chip">{label(TAX_ID_TYPE_LABEL, customer.taxIdType)}</span>
           ) : null}
@@ -584,6 +666,58 @@ function EditCustomerModal({
             type="button"
             className="crm-btn crm-btn--ghost"
             onClick={onClose}
+            disabled={saving}
+          >
+            ביטול
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmDeactivateModal({
+  customerName,
+  saving,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  customerName: string;
+  saving: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="crm-modal__backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !saving) onCancel();
+      }}
+    >
+      <div className="crm-modal" role="dialog" aria-modal="true" aria-label="השבתת לקוח">
+        <h2 className="crm-modal__title">להשבית את {customerName}?</h2>
+        <p className="crm-panel__body" style={{ marginBottom: 8 }}>
+          הלקוח יסומן כלא פעיל ולא יופיע ברשימת הפעילים. שום דבר לא נמחק — המסמכים,
+          התשלומים, השיחות, הפגישות, ההערות והקבצים נשמרים, והכרטיס יישאר נגיש.
+        </p>
+
+        {error ? <div className="crm-modal__error">{error}</div> : null}
+
+        <div className="crm-modal__actions">
+          <button
+            type="button"
+            className="crm-btn crm-btn--primary crm-btn--full"
+            onClick={onConfirm}
+            disabled={saving}
+          >
+            {saving ? "משבית…" : "השבת לקוח"}
+          </button>
+          <button
+            type="button"
+            className="crm-btn crm-btn--ghost"
+            onClick={onCancel}
             disabled={saving}
           >
             ביטול

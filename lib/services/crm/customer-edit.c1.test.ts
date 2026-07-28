@@ -114,7 +114,7 @@ async function main() {
     assert.equal(okJson.customer.city, "ירושלים", "route: returns updated card-customer");
     assert.deepEqual(
       Object.keys(okJson.customer).sort(),
-      ["city", "createdAt", "email", "id", "legalName", "name", "notes", "phone", "taxId", "taxIdType", "updatedAt"],
+      ["city", "createdAt", "email", "id", "isActive", "legalName", "name", "notes", "phone", "taxId", "taxIdType", "updatedAt"],
       "route: card-customer projection shape"
     );
 

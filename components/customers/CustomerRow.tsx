@@ -42,7 +42,17 @@ export function CustomerRow({
         {initials(customer.name)}
       </span>
       <span className="crm-row__body">
-        <span className="crm-row__name">{customer.name}</span>
+        <span className="crm-row__name">
+          {customer.name}
+          {!customer.isActive ? (
+            <span
+              className="crm-badge"
+              style={{ marginInlineStart: 8, verticalAlign: "middle" }}
+            >
+              לא פעיל
+            </span>
+          ) : null}
+        </span>
         {meta ? <span className="crm-row__meta">{meta}</span> : null}
       </span>
       <span className="crm-row__chevron" aria-hidden>

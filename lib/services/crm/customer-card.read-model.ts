@@ -23,6 +23,7 @@ export type CustomerCardCustomer = {
   taxId: string | null;
   taxIdType: string | null;
   notes: string | null;
+  isActive: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -222,6 +223,7 @@ export async function getCustomerCard(
       taxId: customer.taxId,
       taxIdType: customer.taxIdType,
       notes: customer.notes,
+      isActive: customer.isActive,
       createdAt: customer.createdAt.toISOString(),
       updatedAt: customer.updatedAt.toISOString(),
     },

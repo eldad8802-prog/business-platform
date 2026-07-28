@@ -6,6 +6,7 @@ import {
   getCustomers,
   createCustomer,
   type CustomerListRow,
+  type CustomerLifecycleFilter,
 } from "@/lib/api/customers";
 import {
   getClientAuthToken,
@@ -13,6 +14,12 @@ import {
   redirectToLogin,
 } from "@/lib/client-session";
 import { CustomerRow } from "@/components/customers/CustomerRow";
+
+const FILTERS: Array<{ key: CustomerLifecycleFilter; label: string }> = [
+  { key: "active", label: "פעילים" },
+  { key: "inactive", label: "לא פעילים" },
+  { key: "all", label: "הכול" },
+];
 
 /**
  * Customers list (master). Lives in the stable `customers/layout` so it is
@@ -26,6 +33,9 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
   const router = useRouter();
   const [customers, setCustomers] = useState<CustomerListRow[]>([]);
   const [query, setQuery] = useState("");
+  // Lifecycle filter (C2). The CRM surface defaults to "active"; the API/client
+  // default stays "all" for Billing / legacy callers, so this only narrows the CRM.
+  const [status, setStatus] = useState<CustomerLifecycleFilter>("active");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -36,6 +46,7 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
   const fetchList = useCallback(
     async (
       q: string,
+      st: CustomerLifecycleFilter,
     ): Promise<{ customers: CustomerListRow[] } | { error: string } | null> => {
       const token = getClientAuthToken();
       if (!token) {
@@ -43,7 +54,7 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
         return null;
       }
       try {
-        const data = await getCustomers(q);
+        const data = await getCustomers({ query: q, status: st });
         return { customers: Array.isArray(data) ? data : [] };
       } catch (err: unknown) {
         if (isUnauthorizedError(err)) {
@@ -68,10 +79,10 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
     setLoading(false);
   }
 
-  // Initial load.
+  // Initial load (active by default).
   useEffect(() => {
     let cancelled = false;
-    void fetchList("").then((res) => {
+    void fetchList("", "active").then((res) => {
       if (!cancelled) apply(res);
     });
     return () => {
@@ -79,7 +90,7 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
     };
   }, [fetchList]);
 
-  // Debounced server-side search on query change (skips the initial mount).
+  // Debounced server-side search + lifecycle filter (skips the initial mount).
   useEffect(() => {
     if (!searchedOnce.current) {
       searchedOnce.current = true;
@@ -88,15 +99,15 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
     const timer = window.setTimeout(() => {
       setLoading(true);
       setError(null);
-      void fetchList(query).then(apply);
+      void fetchList(query, status).then(apply);
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [query, fetchList]);
+  }, [query, status, fetchList]);
 
   const retry = () => {
     setLoading(true);
     setError(null);
-    void fetchList(query).then(apply);
+    void fetchList(query, status).then(apply);
   };
 
   const isSearching = query.trim().length > 0;
@@ -130,6 +141,40 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
         inputMode="search"
       />
 
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 8,
+          marginBottom: 14,
+        }}
+      >
+        {FILTERS.map((f) => {
+          const selected = status === f.key;
+          return (
+            <button
+              key={f.key}
+              type="button"
+              className="crm-chip"
+              onClick={() => setStatus(f.key)}
+              aria-pressed={selected}
+              style={{
+                cursor: "pointer",
+                border: `1px solid ${selected ? "transparent" : "var(--crm-line)"}`,
+                ...(selected
+                  ? {
+                      background: "var(--crm-accent)",
+                      color: "var(--crm-on-accent)",
+                    }
+                  : {}),
+              }}
+            >
+              {f.label}
+            </button>
+          );
+        })}
+      </div>
+
       {error ? (
         <div className="crm-panel crm-panel--error">
           <p className="crm-panel__title">משהו השתבש</p>
@@ -147,14 +192,22 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
       ) : customers.length === 0 ? (
         <div className="crm-panel">
           <p className="crm-panel__title">
-            {isSearching ? "לא נמצאו לקוחות" : "עדיין אין לקוחות"}
+            {isSearching
+              ? "לא נמצאו לקוחות"
+              : status === "inactive"
+                ? "אין לקוחות לא פעילים"
+                : status === "all"
+                  ? "עדיין אין לקוחות"
+                  : "עדיין אין לקוחות פעילים"}
           </p>
           <p className="crm-panel__body">
             {isSearching
               ? "נסו חיפוש קצר יותר או בשם אחר."
-              : "הוסיפו את הלקוח הראשון כדי לנהל את הפרטים, המסמכים והפעילות במקום אחד."}
+              : status === "inactive"
+                ? "לקוחות שתשביתו יופיעו כאן."
+                : "הוסיפו את הלקוח הראשון כדי לנהל את הפרטים, המסמכים והפעילות במקום אחד."}
           </p>
-          {!isSearching ? (
+          {!isSearching && status !== "inactive" ? (
             <button
               type="button"
               className="crm-btn crm-btn--primary"

@@ -1,11 +1,14 @@
 import { buildClientAuthHeaders } from "@/lib/client-session";
 
+export type CustomerLifecycleFilter = "active" | "inactive" | "all";
+
 export type CustomerListRow = {
   id: number;
   name: string;
   phone: string | null;
   email: string | null;
   city: string | null;
+  isActive: boolean;
 };
 
 export type CreateCustomerInput = {
@@ -26,6 +29,7 @@ export type CustomerCardCustomer = {
   taxId: string | null;
   taxIdType: string | null;
   notes: string | null;
+  isActive: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -70,7 +74,7 @@ export type CustomerCardAppointment = {
   createdAt: string;
 };
 
-/** Basic CRM fields editable from the customer card (C1). Tax identity excluded. */
+/** Basic CRM fields editable from the customer card (C1). Tax identity + lifecycle excluded. */
 export type UpdateCustomerInput = {
   name?: string;
   phone?: string | null;
@@ -109,8 +113,17 @@ async function fetchWithTimeout(
   }
 }
 
-export async function getCustomers(query?: string): Promise<CustomerListRow[]> {
-  const qs = query && query.trim() ? `?q=${encodeURIComponent(query.trim())}` : "";
+export async function getCustomers(options?: {
+  query?: string;
+  status?: CustomerLifecycleFilter;
+}): Promise<CustomerListRow[]> {
+  const params = new URLSearchParams();
+  const q = options?.query?.trim();
+  if (q) params.set("q", q);
+  // The CRM list defaults to active; the service default ("all") is preserved for
+  // Billing / legacy callers, so this only narrows the CRM surface.
+  params.set("status", options?.status ?? "active");
+  const qs = `?${params.toString()}`;
   const res = await fetchWithTimeout(`/api/customers${qs}`, {
     method: "GET",
     headers: buildClientAuthHeaders(),
@@ -152,6 +165,38 @@ export async function updateCustomer(
   if (res.status === 404) throw new Error("NOT_FOUND");
   if (!res.ok) {
     let message = "לא הצלחנו לשמור את הלקוח";
+    try {
+      const data = await res.json();
+      if (data?.error) message = data.error;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(message);
+  }
+
+  const data = await res.json();
+  return data.customer as CustomerCardCustomer;
+}
+
+/**
+ * Lifecycle (C2): activate / deactivate a customer. Distinct from `updateCustomer`
+ * (basics) — sends `isActive` only, so the server routes it to the dedicated
+ * lifecycle service and never mixes it with a basics edit.
+ */
+export async function setCustomerActiveStatus(
+  id: number,
+  isActive: boolean
+): Promise<CustomerCardCustomer> {
+  const res = await fetchWithTimeout(`/api/customers/${id}`, {
+    method: "PATCH",
+    headers: buildClientAuthHeaders(),
+    body: JSON.stringify({ isActive }),
+  });
+
+  if (res.status === 401) throw new Error("UNAUTHORIZED");
+  if (res.status === 404) throw new Error("NOT_FOUND");
+  if (!res.ok) {
+    let message = "לא הצלחנו לעדכן את סטטוס הלקוח";
     try {
       const data = await res.json();
       if (data?.error) message = data.error;

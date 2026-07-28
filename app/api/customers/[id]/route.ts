@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
+import { ValidationError } from "@/lib/errors";
 import { getCustomerCard } from "@/lib/services/crm/customer-card.read-model";
 import { customerService } from "@/lib/services/crm/customer.service";
 
-/** Basic CRM fields editable from the customer card. Tax identity stays in Billing. */
+/** Basic CRM fields editable from the card. Tax identity stays in Billing. */
 const BASIC_FIELDS = ["name", "phone", "email", "city", "notes"] as const;
 
 /** Project a Customer row to the same `customer` shape the card read-model exposes. */
@@ -18,6 +19,7 @@ function toCardCustomer(c: {
   taxId: string | null;
   taxIdType: string | null;
   notes: string | null;
+  isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -31,6 +33,7 @@ function toCardCustomer(c: {
     taxId: c.taxId,
     taxIdType: c.taxIdType,
     notes: c.notes,
+    isActive: c.isActive,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   };
@@ -65,11 +68,13 @@ export async function GET(
 }
 
 /**
- * Edit a customer's basic CRM fields (name/phone/email/city/notes). Delegates to
- * the canonical `customerService.updateCustomerBasics` — no parallel write path.
- * Tenant-guarded there (another business's customer behaves as not-found). Tax
- * identity (legalName/taxId/taxIdType) is intentionally NOT accepted here; it stays
- * owned by PATCH /api/billing/customers/[id].
+ * PATCH is split by contract to keep the two write paths atomic and separate:
+ *  - a LIFECYCLE request carries `isActive` only → customerService.setCustomerActiveStatus
+ *  - an EDIT request carries basic fields only (name/phone/email/city/notes) →
+ *    customerService.updateCustomerBasics
+ * Mixing lifecycle + basics in one request is rejected (no non-atomic multi-service
+ * update). Tax identity (legalName/taxId/taxIdType) stays owned by
+ * PATCH /api/billing/customers/[id]. Both paths are tenant-guarded in the service.
  */
 export async function PATCH(
   req: NextRequest,
@@ -82,6 +87,7 @@ export async function PATCH(
     }
 
     const { id } = await context.params;
+    const customerId = Number(id);
 
     let body: Record<string, unknown> = {};
     try {
@@ -90,18 +96,32 @@ export async function PATCH(
       body = {};
     }
 
-    // Forward only the basic fields, preserving "key absent = don't touch".
-    const input: Parameters<typeof customerService.updateCustomerBasics>[0] = {
-      businessId: user.businessId,
-      customerId: Number(id),
-    };
+    const hasLifecycle = Object.prototype.hasOwnProperty.call(body, "isActive");
+    const basics: Record<string, unknown> = {};
     for (const key of BASIC_FIELDS) {
       if (Object.prototype.hasOwnProperty.call(body, key)) {
-        (input as Record<string, unknown>)[key] = body[key];
+        basics[key] = body[key];
       }
     }
+    const hasBasics = Object.keys(basics).length > 0;
 
-    const updated = await customerService.updateCustomerBasics(input);
+    if (hasLifecycle && hasBasics) {
+      throw new ValidationError(
+        "Lifecycle (isActive) and basic fields cannot be updated in the same request"
+      );
+    }
+
+    const updated = hasLifecycle
+      ? await customerService.setCustomerActiveStatus({
+          businessId: user.businessId,
+          customerId,
+          isActive: body.isActive as boolean,
+        })
+      : await customerService.updateCustomerBasics({
+          businessId: user.businessId,
+          customerId,
+          ...basics,
+        });
 
     return NextResponse.json({ customer: toCardCustomer(updated) }, { status: 200 });
   } catch (error) {
