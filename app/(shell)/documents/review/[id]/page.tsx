@@ -17,6 +17,7 @@ import {
 import ReviewNotFound from "@/components/documents/review/ReviewNotFound";
 import DocumentsBackButton from "@/components/documents/DocumentsBackButton";
 import { basePageStyle, mainStyle } from "@/components/documents/review/review-ui";
+import reviewAdaptive from "@/components/documents/review/review-adaptive.module.css";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { errorMessage } from "@/lib/documents/review/format";
 import { buildExtractionMeta } from "@/lib/documents/review/meta";
@@ -506,7 +507,9 @@ export default function ReviewPage() {
 
   return (
     <div dir="rtl" style={basePageStyle()}>
-      <main style={mainStyle()}>
+      {/* maxWidth/margin come from the responsive .reviewMain class (760 →
+          1240 at the workspace breakpoint); the rest of mainStyle stays inline. */}
+      <main className={reviewAdaptive.reviewMain} style={{ ...mainStyle(), maxWidth: undefined, margin: undefined }}>
         <section style={reviewTopBarStyle}>
           <DocumentsBackButton onClick={() => router.push("/documents")} />
           <div style={reviewTopTitleWrapStyle}>
@@ -575,19 +578,23 @@ export default function ReviewPage() {
         ) : null}
 
         {state === "done" ? (
-          <ReviewDoneStateLazy
-            approvedAs={approvedAs}
-            directionDisplay={trustContext.directionDisplay}
-            amountDisplay={trustContext.amountDisplay}
-            nextPendingDocumentId={nextPendingDocumentId}
-            onNext={() =>
-              nextPendingDocumentId
-                ? router.push(`/documents/review/${nextPendingDocumentId}`)
-                : router.push("/documents/inbox")
-            }
-            onHub={() => router.push("/documents")}
-            onSearch={() => router.push("/documents/search")}
-          />
+          // The container widens for the workspace; the done card keeps its
+          // original narrow width so it never stretches on desktop.
+          <div style={{ width: "100%", maxWidth: 760, margin: "0 auto" }}>
+            <ReviewDoneStateLazy
+              approvedAs={approvedAs}
+              directionDisplay={trustContext.directionDisplay}
+              amountDisplay={trustContext.amountDisplay}
+              nextPendingDocumentId={nextPendingDocumentId}
+              onNext={() =>
+                nextPendingDocumentId
+                  ? router.push(`/documents/review/${nextPendingDocumentId}`)
+                  : router.push("/documents/inbox")
+              }
+              onHub={() => router.push("/documents")}
+              onSearch={() => router.push("/documents/search")}
+            />
+          </div>
         ) : null}
 
         {shouldShowDocumentPreview ? (
