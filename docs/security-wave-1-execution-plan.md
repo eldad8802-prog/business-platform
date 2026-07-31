@@ -8,7 +8,7 @@
 > ---
 > **⚠️ עדכון Ground Truth — 2026-07-31 (בסיס: `origin/main` @ `cd4048c`):**
 > תוכנית זו היא Planning מ-2026-06-03. סטטוס ביצוע בפועל של Phase A מול הקוד:
-> - **1.1 Coupon Surface (W1-01):** ✅ **Implemented** — ענף `feat/security-w1-01-coupon-surface`.
+> - **1.1 Coupon Surface (W1-01):** ✅ **Verified / Closed** — PR #157, merge `6e9935a`, 2026-07-31 (production deploy success, Closure Verification 5/5).
 > - **1.6 Distributed Rate Limiting:** ✅ **Implemented** ב-mainline (Upstash).
 > - **1.7 Gmail Token Encryption:** ✅ **Implemented** (GCM at-rest); ⚠️ אימות AAD=businessId פתוח.
 > - **Phase B (1.4), Phase C (1.2/1.3), Phase D (1.5):** 🔴 טרם מומשו.
@@ -22,7 +22,7 @@
 | **D3** | Approved (Upstash) — ✅ **Implemented** (mainline) | Phase A — 1.6 |
 
 **מוכנות Phase A:** **כן** — D2 Locked אינו חוסם 1.1 / 1.6 / 1.7. H3/H5 מיושמים ב-Phase B בלבד.
-**סטטוס Phase A בפועל:** 1.1 ✅ (W1-01), 1.6 ✅, 1.7 ✅ (AAD פתוח).
+**סטטוס Phase A בפועל:** 1.1 ✅ **Verified/Closed** (W1-01, PR #157), 1.6 ✅, 1.7 ✅ (AAD פתוח).
 
 ---
 
