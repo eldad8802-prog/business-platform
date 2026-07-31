@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import "./crm.css";
 import { CRM_THEME_CSS } from "@/lib/design/crm-theme";
-import { MasterDetailLayout } from "@/components/ui/master-detail-layout";
+import { WorkspaceLayout } from "@/components/ui/workspace-layout";
 import { CustomersList } from "@/components/customers/CustomersList";
 
 /**
@@ -36,14 +36,14 @@ export default function CustomersLayout({ children }: { children: ReactNode }) {
   return (
     <div className="crm-scope" dir="rtl">
       <style dangerouslySetInnerHTML={{ __html: CRM_THEME_CSS }} />
-      <MasterDetailLayout
-        showDetail={selectedId != null}
-        masterWidth={380}
-        twoPaneMinWidth={TWO_PANE_MIN}
-        masterLabel="רשימת לקוחות"
-        detailLabel="כרטיס לקוח"
-        master={<CustomersList selectedId={selectedId} />}
-        detail={children}
+      <WorkspaceLayout
+        start={<CustomersList selectedId={selectedId} />}
+        end={children}
+        startWidth={380}
+        breakpointStep={TWO_PANE_MIN}
+        responsive={{ mode: "switch", visible: selectedId != null ? "end" : "start" }}
+        startLabel="רשימת לקוחות"
+        endLabel="כרטיס לקוח"
       />
     </div>
   );
