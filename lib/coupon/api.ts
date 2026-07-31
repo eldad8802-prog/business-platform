@@ -116,7 +116,14 @@ export async function fetchCouponStatus(publicId: string): Promise<string | null
 /** Token + QR for a coupon (used by "קבל קופון" / share). */
 export async function fetchCouponCode(publicId: string): Promise<{ token: string; qrValue: string } | null> {
   try {
-    const res = await fetch(`/api/revenue/coupons/${publicId}/code`, { cache: "no-store" });
+    // W1-01: /code is issuer-only. Attach the business bearer token; callers
+    // that are not the issuing business (anonymous / other business) get 401/403
+    // and this resolves to null (no secret is ever returned publicly).
+    const token = getToken();
+    const res = await fetch(`/api/revenue/coupons/${publicId}/code`, {
+      cache: "no-store",
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
     if (!res.ok) return null;
     const d = await res.json();
     if (!d?.qrValue) return null;

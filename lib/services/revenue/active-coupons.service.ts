@@ -44,6 +44,88 @@ function distanceLabel(km: number): string {
   return `${km.toFixed(1)} ק״מ`;
 }
 
+/** Coupon record shape (from the active-coupons select) the card mapper needs. */
+export type ActiveCouponRecord = {
+  publicId: string;
+  issuedAt: Date;
+  expiresAt: Date;
+  offer: {
+    id: number;
+    title: string;
+    customerBenefitText: string;
+    description: string | null;
+    imageUrl: string | null;
+  };
+  issuingBusiness: {
+    id: number;
+    name: string;
+    profile: {
+      category: string | null;
+      subCategory: string | null;
+      businessModel: string | null;
+      city: string | null;
+      openingHours: string | null;
+      latitude: number | null;
+      longitude: number | null;
+      billingAddress: string | null;
+      billingPhone: string | null;
+    } | null;
+  };
+};
+
+/**
+ * Pure mapper → public marketing card. Marketing metadata ONLY: never selects or
+ * returns `token`, `qrValue`, `redeemLink`, or the internal numeric coupon `id`
+ * (the coupon is identified publicly by `publicId`). Raw lat/lng are consumed to
+ * compute a distance label and never leave this function.
+ */
+export function toActiveCouponCard(
+  coupon: ActiveCouponRecord,
+  near: GeoPoint | null
+): ActiveCouponCard {
+  const profile = coupon.issuingBusiness.profile;
+
+  let distanceKm: number | undefined;
+  let distanceLabelText: string | undefined;
+  if (
+    near &&
+    typeof profile?.latitude === "number" &&
+    typeof profile?.longitude === "number"
+  ) {
+    const km = haversineKm(near, profile.latitude, profile.longitude);
+    if (Number.isFinite(km)) {
+      distanceKm = km;
+      distanceLabelText = distanceLabel(km);
+    }
+  }
+
+  return {
+    publicId: coupon.publicId,
+    issuedAt: coupon.issuedAt.toISOString(),
+    expiresAt: coupon.expiresAt.toISOString(),
+    business: {
+      id: coupon.issuingBusiness.id,
+      name: coupon.issuingBusiness.name,
+      city: profile?.city ?? undefined,
+      address: profile?.billingAddress ?? undefined,
+      phone: profile?.billingPhone ?? undefined,
+      category: profile?.category ?? undefined,
+      subCategory: profile?.subCategory ?? undefined,
+      businessModel: profile?.businessModel ?? undefined,
+      openingHours: profile?.openingHours ?? undefined,
+    },
+    offer: {
+      id: coupon.offer.id,
+      title: coupon.offer.title,
+      customerBenefitText: coupon.offer.customerBenefitText,
+      description: coupon.offer.description ?? null,
+      imageUrl: coupon.offer.imageUrl ?? null,
+    },
+    distanceKm,
+    distanceLabel: distanceLabelText,
+  };
+}
+
 export async function getActiveCoupons(
   input: Partial<GetActiveCouponsInput> = {}
 ): Promise<ActiveCouponCard[]> {
@@ -59,7 +141,6 @@ export async function getActiveCoupons(
       },
     },
     select: {
-      id: true,
       publicId: true,
       issuedAt: true,
       expiresAt: true,
@@ -98,51 +179,9 @@ export async function getActiveCoupons(
     take: 200,
   });
 
-  const cards: ActiveCouponCard[] = coupons.map((coupon) => {
-    const profile = coupon.issuingBusiness.profile;
-
-    // Distance is computed here and only the RESULT is kept — raw lat/lng never
-    // leaves the service (not placed on `business`, not returned in the DTO).
-    let distanceKm: number | undefined;
-    let distanceLabelText: string | undefined;
-    if (
-      near &&
-      typeof profile?.latitude === "number" &&
-      typeof profile?.longitude === "number"
-    ) {
-      const km = haversineKm(near, profile.latitude, profile.longitude);
-      if (Number.isFinite(km)) {
-        distanceKm = km;
-        distanceLabelText = distanceLabel(km);
-      }
-    }
-
-    return {
-      publicId: coupon.publicId,
-      issuedAt: coupon.issuedAt.toISOString(),
-      expiresAt: coupon.expiresAt.toISOString(),
-      business: {
-        id: coupon.issuingBusiness.id,
-        name: coupon.issuingBusiness.name,
-        city: profile?.city ?? undefined,
-        address: profile?.billingAddress ?? undefined,
-        phone: profile?.billingPhone ?? undefined,
-        category: profile?.category ?? undefined,
-        subCategory: profile?.subCategory ?? undefined,
-        businessModel: profile?.businessModel ?? undefined,
-        openingHours: profile?.openingHours ?? undefined,
-      },
-      offer: {
-        id: coupon.offer.id,
-        title: coupon.offer.title,
-        customerBenefitText: coupon.offer.customerBenefitText,
-        description: coupon.offer.description ?? null,
-        imageUrl: coupon.offer.imageUrl ?? null,
-      },
-      distanceKm,
-      distanceLabel: distanceLabelText,
-    };
-  });
+  const cards: ActiveCouponCard[] = coupons.map((coupon) =>
+    toActiveCouponCard(coupon, near)
+  );
 
   const ranked = rankActiveCoupons(cards, now);
   const out = ranked.slice(0, limit);

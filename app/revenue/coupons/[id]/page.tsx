@@ -6,7 +6,7 @@ import { QRCodeCanvas } from "qrcode.react";
 
 type PublicCouponDetailsDTO = {
   coupon: {
-    id: number;
+    publicId: string;
     status: "ACTIVE" | "REDEEMED" | "EXPIRED" | "CANCELLED";
     issuedAt: string;
     expiresAt: string;
@@ -65,6 +65,9 @@ export default function RevenueCouponDetailsPage() {
   const [viewMode, setViewMode] = useState<"details" | "code">("details");
   const [codeLoading, setCodeLoading] = useState(false);
   const [codeError, setCodeError] = useState("");
+  const [codeErrorKind, setCodeErrorKind] = useState<
+    "none" | "login" | "forbidden" | "generic"
+  >("none");
   const [code, setCode] = useState<CouponCodeDTO | null>(null);
   const [shareMessage, setShareMessage] = useState("");
   const [qrSize, setQrSize] = useState<220 | 320>(220);
@@ -108,12 +111,43 @@ export default function RevenueCouponDetailsPage() {
     try {
       setCodeLoading(true);
       setCodeError("");
+      setCodeErrorKind("none");
       setShareMessage("");
       setViewMode("code");
 
+      // W1-01: /code is authenticated + issuer-only. Attach the business bearer
+      // token; anonymous → login CTA, non-issuer → clear 403 message.
+      const token =
+        typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      if (!token) {
+        setCode(null);
+        setCodeErrorKind("login");
+        setCodeError(
+          "כדי להציג את קוד הקופון יש להתחבר לחשבון העסק שהנפיק אותו."
+        );
+        return;
+      }
+
       const res = await fetch(`/api/revenue/coupons/${publicId}/code`, {
         cache: "no-store",
+        headers: { Authorization: `Bearer ${token}` },
       });
+
+      if (res.status === 401) {
+        setCode(null);
+        setCodeErrorKind("login");
+        setCodeError(
+          "ההתחברות פגה. יש להתחבר מחדש כדי להציג את קוד הקופון."
+        );
+        return;
+      }
+      if (res.status === 403) {
+        setCode(null);
+        setCodeErrorKind("forbidden");
+        setCodeError("קוד הקופון זמין רק לעסק שהנפיק אותו.");
+        return;
+      }
+
       const data = await res.json();
 
       if (!res.ok) {
@@ -124,11 +158,28 @@ export default function RevenueCouponDetailsPage() {
     } catch (err) {
       console.error("Failed to load coupon code:", err);
       setCode(null);
+      setCodeErrorKind("generic");
       setCodeError(err instanceof Error ? err.message : "לא ניתן להציג קוד קופון");
     } finally {
       setCodeLoading(false);
     }
   };
+
+  const renderCodeErrorBlock = () =>
+    codeError ? (
+      <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+        {codeError}
+        {codeErrorKind === "login" ? (
+          <button
+            type="button"
+            onClick={() => router.push("/login")}
+            className="mt-3 block w-full rounded-2xl bg-[#1f7a5a] px-4 py-3 text-sm font-bold text-white active:scale-[0.99]"
+          >
+            התחברות
+          </button>
+        ) : null}
+      </div>
+    ) : null;
 
   useEffect(() => {
     loadDetails();
@@ -297,11 +348,7 @@ export default function RevenueCouponDetailsPage() {
               </div>
             ) : null}
 
-            {codeError ? (
-              <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
-                {codeError}
-              </div>
-            ) : null}
+            {renderCodeErrorBlock()}
           </div>
         </div>
       </div>
@@ -339,9 +386,7 @@ export default function RevenueCouponDetailsPage() {
             טוען קוד…
           </div>
         ) : codeError ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
-            {codeError}
-          </div>
+          renderCodeErrorBlock()
         ) : code ? (
           <>
             <div className="mt-3 flex justify-center">

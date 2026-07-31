@@ -17,6 +17,7 @@
     "verify:whatsapp-webhook-pr4": "npx tsx lib/services/integrations/whatsapp/webhook-pr4.intake.test.ts",
     "verify:whatsapp-embedded-signup": "npx tsx components/whatsapp/embedded-signup-controller.test.ts",
     "verify:gmail-token-revoke": "npx tsx lib/services/integrations/gmail/gmail-token-revoke.verify.test.ts",
+    "verify:coupon-w1-01": "npx tsx lib/services/revenue/coupon-code.access.verify.test.ts",
     "verify:supplier": "npx tsx lib/services/inventory/supplier.service.test.ts",
     "verify:crm-customer": "npx tsx lib/services/crm/customer.service.test.ts",
     "verify:crm-customer-card": "npx tsx lib/services/crm/customer-card.read-model.test.ts",
