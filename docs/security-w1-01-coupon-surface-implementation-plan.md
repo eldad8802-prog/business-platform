@@ -6,7 +6,7 @@
 > **תלות מומלצת:** W1-02 (1.6 Distributed Rate Limit) — במקביל או מיד לפני/אחרי; לא חוסם תכנון.
 
 > ---
-> **✅ סטטוס Implementation — 2026-07-31: IMPLEMENTED** (ענף `feat/security-w1-01-coupon-surface`, בסיס `origin/main` @ `cd4048c`).
+> **✅ סטטוס — 2026-07-31: VERIFIED / CLOSED** (PR #157, merge `6e9935aff61b1a63e8b50402a618587430f037f3`, production deploy success, Closure Verification 5/5). "Public coupon secret exposure" = **Fully Resolved**.
 > מימוש בפועל מול תכנית D4:
 > - `GET /api/revenue/coupons/[id]/code` — נעול: `getCurrentUser` → `requireIssuerBusinessId` (401 ללא auth) → `getCouponCode(publicId, businessId)` עם בדיקת `issuingBusinessId === requestingBusinessId` (403 ללא בעלות) → 200 רק למנפיק. קבצים: `app/api/revenue/coupons/[id]/code/route.ts`, `lib/services/revenue/coupon-code.service.ts`.
 > - הסרת `coupon.id` הפנימי מ-DTO ציבורי; שימוש ב-`publicId` בלבד. `lib/services/revenue/coupon-details-public.service.ts`, `active-coupons.service.ts`.

@@ -8,7 +8,7 @@
 > ---
 > **⚠️ עדכון Ground Truth — 2026-07-31 (בסיס: `origin/main` @ `cd4048c`):**
 > מסמך זה נכתב כ-Planning ב-2026-06-03 ולא נסע עם הקוד. מאז חלק מהפריטים מומשו ישירות ב-mainline. סטטוס אמת עדכני מהקוד:
-> - **W1-01 / D4 (Coupon Surface):** ✅ **Implemented** — ענף `feat/security-w1-01-coupon-surface`: `/api/revenue/coupons/[id]/code` דורש auth + issuer-ownership (401/403/200); ה-DTOs הציבוריים ללא `token`/`qrValue`/`redeemLink` וללא `coupon.id` פנימי.
+> - **W1-01 / D4 (Coupon Surface):** ✅ **Verified / Closed** (2026-07-31, PR #157, merge `6e9935a`, production deploy success, Closure Verification 5/5) — `/api/revenue/coupons/[id]/code` דורש auth + issuer-ownership (401/403/200); ה-DTOs הציבוריים ללא `token`/`qrValue`/`redeemLink` וללא `coupon.id` פנימי. "Public coupon secret exposure" = **Fully Resolved**.
 > - **1.6 / D3 (Distributed Rate Limiting):** ✅ **Implemented** ב-mainline (`lib/security/rate-limiter/redis-backend.ts`, Upstash).
 > - **1.7 / D5 (Gmail Token Encryption):** ✅ **Implemented** (AES-256-GCM at-rest) — אך אימות **AAD = businessId עדיין פתוח**.
 > - **1.2/D1 (Session), 1.3 (Token Revocation), 1.4/D2 (Business Isolation מבני), 1.5 (Authorization Gateway):** 🔴 **טרם מומשו** — נשארים כפי שמתוארים למטה.
@@ -24,7 +24,7 @@
 | **D1** | O2 — Server Session (Postgres) + httpOnly cookie; תנאים C1–C6 | **Approved** (Implementation לא התחיל) | `docs/security-d1-session-architecture-review.md` |
 | **D2** | Hybrid — Prisma Extension + ALS + RLS מדורג (H1–H5 נסגרו) | **D2 Locked** (Implementation לא התחיל) | `docs/security-d2-business-isolation-impact-review.md`, `docs/security-d2-h1-h5-final-decision-package.md` |
 | **D3** | Upstash Redis (rate limiting) | ✅ **Implemented** (mainline — `lib/security/rate-limiter/redis-backend.ts`) | `docs/security-wave-1-design-review-d1-d2-d3.md` |
-| **D4** | Coupon: QR/token לא ציבורי; marketing מותר; redeem מורשה | ✅ **Implemented** — W1-01 (`feat/security-w1-01-coupon-surface`) | `docs/security-w1-01-coupon-surface-implementation-plan.md` |
+| **D4** | Coupon: QR/token לא ציבורי; marketing מותר; redeem מורשה | ✅ **Verified / Closed** — W1-01 (PR #157, merge `6e9935a`, 2026-07-31) | `docs/security-w1-01-coupon-surface-implementation-plan.md` |
 | **D5** | Gmail token encryption AAD = `businessId`; יישור מודל עם WhatsApp | ✅ **Implemented** (GCM at-rest); ⚠️ אימות AAD=businessId פתוח | Wave 1 — 1.7 |
 
 **D2 Locked — עקרונות מחייבים ל-Implementation (מתוך H1–H5):**
