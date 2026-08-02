@@ -272,8 +272,12 @@ function InboxPageContent() {
       params.delete("conversationId");
     }
 
+    // Always carry an explicit query string (even when empty) so the App Router
+    // applies the cleared search params. Navigating to a bare pathname does NOT
+    // strip a pre-existing `conversationId` in the production build, which left
+    // invalid/not-found deep links and in-app close with a stale URL.
     const query = params.toString();
-    const nextUrl = query ? `${pathname}?${query}` : pathname;
+    const nextUrl = `${pathname}?${query}`;
 
     // Search-param-only update on the same route (open/close a conversation).
     // `router.push`/`router.replace` to a bare pathname no-ops on the production
