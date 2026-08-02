@@ -1,0 +1,47 @@
+# CODEOWNERS — review-routing ownership map for the Dubiz repository.
+#
+# Context (2026-07-31): the repository currently has a SINGLE maintainer
+# (@eldad8802-prog — the only account with write/admin access). Every rule
+# below therefore resolves to that one owner. The per-path structure is
+# intentional: it documents the security-sensitive surfaces and is ready for a
+# dedicated security reviewer / second maintainer to be added later without a
+# restructure.
+#
+# NOTE: this file only routes review *requests*. It becomes enforcing only if
+# branch protection is set to "require review from Code Owners" — which is
+# deliberately NOT enabled at this stage (single-maintainer self-merge policy).
+# Syntax: last matching pattern wins.
+
+# ── Default owner ────────────────────────────────────────────────────────────
+*                                   @eldad8802-prog
+
+# ── Authentication & session ─────────────────────────────────────────────────
+/lib/auth.ts                        @eldad8802-prog
+/lib/auth-token.ts                  @eldad8802-prog
+/lib/auth/                          @eldad8802-prog
+/app/api/auth/                      @eldad8802-prog
+
+# ── Security primitives (rate limiting; perimeter gateway) ───────────────────
+/lib/security/                      @eldad8802-prog
+/middleware.ts                      @eldad8802-prog          # perimeter gateway (T13; file not yet created — forward-declared)
+
+# ── Tenant model, schema & migrations ───────────────────────────────────────
+/prisma/                            @eldad8802-prog
+
+# ── Storage & file handling ──────────────────────────────────────────────────
+/lib/storage/                       @eldad8802-prog
+
+# ── Integration credentials & cryptography ──────────────────────────────────
+/lib/services/integrations/         @eldad8802-prog
+/lib/services/payments/             @eldad8802-prog
+/lib/services/billing/authority/    @eldad8802-prog
+
+# ── Platform admin ───────────────────────────────────────────────────────────
+/app/api/platform-admin/            @eldad8802-prog
+/lib/auth/platform-admin.ts         @eldad8802-prog
+
+# ── Repository & CI/CD configuration ────────────────────────────────────────
+/.github/                           @eldad8802-prog
+
+# ── Security governance & strategy documents ────────────────────────────────
+/docs/security-*                    @eldad8802-prog
