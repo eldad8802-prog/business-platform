@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { TOKEN } from "@/lib/design/tokens";
 import { DubizLogo } from "@/components/ui/dubiz-logo";
+import { PrimaryCta } from "@/components/ui/primary-cta";
 
 type LoginErrors = {
   email?: string;
@@ -327,22 +327,6 @@ export default function LoginPage() {
     fontWeight: 600,
   };
 
-  const primaryButtonStyle: React.CSSProperties = {
-    width: "100%",
-    padding: "14px 16px",
-    borderRadius: 14,
-    border: "1px solid #111827",
-    background: loading
-      ? TOKEN.action.primary.background
-      : TOKEN.action.primary.background,
-    color: "#ffffff",
-    cursor: loading ? "not-allowed" : "pointer",
-    fontWeight: 800,
-    fontSize: 15,
-    boxShadow: TOKEN.action.primary.shadow,
-    opacity: isSubmitDisabled ? 0.85 : 1,
-  };
-
   const formErrorStyle: React.CSSProperties = {
     marginBottom: 16,
     padding: 12,
@@ -519,13 +503,9 @@ export default function LoginPage() {
 
           {errors.form && <div style={formErrorStyle}>{errors.form}</div>}
 
-          <button
-            type="submit"
-            disabled={isSubmitDisabled}
-            style={primaryButtonStyle}
-          >
+          <PrimaryCta type="submit" block disabled={isSubmitDisabled}>
             {loading ? "מתחבר..." : "התחבר למערכת"}
-          </button>
+          </PrimaryCta>
 
           <div style={dividerStyle}>
             <div style={lineStyle} />

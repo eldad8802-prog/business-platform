@@ -113,3 +113,81 @@ select {
 .dz-datefield:focus-within {
   box-shadow: 0 0 0 3px rgba(36, 105, 102, 0.22);
 }
+
+/* --- Public Primary CTA — the official Dubiz Primary button (DS v1 teal) ----
+ * SINGLE SOURCE OF TRUTH for the primary action buttons on the PUBLIC pages
+ * (marketing home, corporate header, login, register). Values are the approved
+ * Dubiz DS v1 primary spec — the same teal language used across the live
+ * product (Secretary / Collection / Documents / Inventory / Billing):
+ *   TOKEN.dsv1.gradient / gradientHover / onAccent / shadowGlow / radius.button.
+ * Do NOT re-declare these per page — apply the `dz-btn-primary` class (via the
+ * PrimaryCta component). Width is intrinsic by default; add `--block` for
+ * full-width form submits. No bright gradient tail, no oversized halo, no black
+ * border — those were the off-brand traits we are removing.
+ */
+/* The selector is intentionally doubled (`.dz-btn-primary.dz-btn-primary`) to
+ * raise specificity to (0,2,0) so the gradient beats Tailwind Preflight's
+ * `[type="submit"] { background-image: none }` (0,1,1) on <button> submits.
+ * Anchor CTAs are unaffected either way. */
+.dz-btn-primary.dz-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 14px;
+  background-image: linear-gradient(
+    115deg,
+    #246966 0%,
+    #2c7c79 52%,
+    #3d9c9a 100%
+  );
+  color: #fef8f2;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.15;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 6px 18px rgba(36, 105, 102, 0.28);
+  transition: background-image 0.15s ease, box-shadow 0.15s ease,
+    transform 0.1s ease;
+}
+/* Full-width variant — form submits (login / register) stay full-width. */
+.dz-btn-primary--block {
+  width: 100%;
+}
+.dz-btn-primary:hover {
+  background-image: linear-gradient(
+    115deg,
+    #2a7370 0%,
+    #348c89 52%,
+    #49aeac 100%
+  );
+  box-shadow: 0 6px 18px rgba(36, 105, 102, 0.38);
+}
+/* Accessible keyboard focus — a crisp ring (cream gap + teal), NOT the old
+ * blurred halo. Only shows for keyboard users via :focus-visible. */
+.dz-btn-primary:focus-visible {
+  outline: none;
+  box-shadow: 0 6px 18px rgba(36, 105, 102, 0.28), 0 0 0 3px #fef8f2,
+    0 0 0 5px rgba(36, 105, 102, 0.55);
+}
+.dz-btn-primary:active {
+  transform: translateY(1px);
+  box-shadow: 0 3px 10px rgba(36, 105, 102, 0.3);
+}
+.dz-btn-primary:disabled,
+.dz-btn-primary[aria-disabled="true"] {
+  background-image: none;
+  background-color: #f6ecdd;
+  color: #777067;
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}

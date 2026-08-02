@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { CorporateContainer } from "./CorporateContainer";
 import { CorporateNav } from "./CorporateNav";
+import { PrimaryCta } from "@/components/ui/primary-cta";
 
 /**
  * Corporate header: sticky top bar with brand, nav, and a single login CTA.
@@ -36,12 +37,7 @@ export function CorporateHeader() {
 
         <div className="hidden items-center gap-2 sm:flex">
           <CorporateNav />
-          <Link
-            href="/login"
-            className="rounded-2xl [border:var(--mkt-cta-border)] bg-[image:var(--mkt-cta)] px-4 py-2.5 text-sm font-semibold text-white [box-shadow:var(--mkt-cta-shadow)] transition hover:bg-[image:var(--mkt-cta-hover)] active:scale-[0.99]"
-          >
-            כניסה למערכת
-          </Link>
+          <PrimaryCta href="/login">כניסה למערכת</PrimaryCta>
         </div>
 
         <button
@@ -62,13 +58,9 @@ export function CorporateHeader() {
               orientation="vertical"
               onNavigate={() => setOpen(false)}
             />
-            <Link
-              href="/login"
-              onClick={() => setOpen(false)}
-              className="rounded-2xl [border:var(--mkt-cta-border)] bg-[image:var(--mkt-cta)] px-4 py-3 text-center text-sm font-semibold text-white [box-shadow:var(--mkt-cta-shadow)] transition hover:bg-[image:var(--mkt-cta-hover)]"
-            >
+            <PrimaryCta href="/login" block onClick={() => setOpen(false)}>
               כניסה למערכת
-            </Link>
+            </PrimaryCta>
           </CorporateContainer>
         </div>
       ) : null}

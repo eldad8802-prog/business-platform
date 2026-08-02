@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { CorporateContainer } from "@/components/corporate/CorporateContainer";
+import { PrimaryCta } from "@/components/ui/primary-cta";
 
 export const metadata: Metadata = {
   title: "בית",
@@ -50,12 +50,7 @@ export default function CorporateHomePage() {
         </p>
 
         <div className="mt-8 flex justify-center">
-          <Link
-            href="/login"
-            className="rounded-2xl [border:var(--mkt-cta-border)] bg-[image:var(--mkt-cta)] px-6 py-3.5 text-sm font-semibold text-white [box-shadow:var(--mkt-cta-shadow)] transition hover:bg-[image:var(--mkt-cta-hover)] active:scale-[0.99]"
-          >
-            כניסה למערכת
-          </Link>
+          <PrimaryCta href="/login">כניסה למערכת</PrimaryCta>
         </div>
       </section>
 
@@ -86,12 +81,7 @@ export default function CorporateHomePage() {
         <p className="text-lg font-semibold text-[var(--mkt-ink)]">
           רוצה לראות הכול במקום אחד?
         </p>
-        <Link
-          href="/login"
-          className="rounded-2xl [border:var(--mkt-cta-border)] bg-[image:var(--mkt-cta)] px-6 py-3.5 text-sm font-semibold text-white [box-shadow:var(--mkt-cta-shadow)] transition hover:bg-[image:var(--mkt-cta-hover)] active:scale-[0.99]"
-        >
-          כניסה למערכת
-        </Link>
+        <PrimaryCta href="/login">כניסה למערכת</PrimaryCta>
       </section>
     </CorporateContainer>
   );

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { TOKEN } from "@/lib/design/tokens";
+import { PrimaryCta } from "@/components/ui/primary-cta";
 
 type RegisterErrors = {
   name?: string;
@@ -424,21 +424,6 @@ export default function RegisterPage() {
         : "rgba(107,114,128,0.20)",
   });
 
-  const primaryButtonStyle: React.CSSProperties = {
-    width: "100%",
-    padding: "14px 16px",
-    borderRadius: 14,
-    border: "1px solid #111827",
-    background: loading
-      ? TOKEN.action.primary.background
-      : TOKEN.action.primary.background,
-    color: "#ffffff",
-    cursor: loading ? "not-allowed" : "pointer",
-    fontWeight: 800,
-    fontSize: 15,
-    boxShadow: TOKEN.action.primary.shadow,
-    opacity: isSubmitDisabled ? 0.85 : 1,
-  };
 
   const formErrorStyle: React.CSSProperties = {
     marginBottom: 16,
@@ -755,13 +740,9 @@ export default function RegisterPage() {
 
           {errors.form && <div style={formErrorStyle}>{errors.form}</div>}
 
-          <button
-            type="submit"
-            disabled={isSubmitDisabled}
-            style={primaryButtonStyle}
-          >
+          <PrimaryCta type="submit" block disabled={isSubmitDisabled}>
             {loading ? "יוצר חשבון..." : "צור חשבון"}
-          </button>
+          </PrimaryCta>
 
           <div style={dividerStyle}>
             <div style={lineStyle} />
