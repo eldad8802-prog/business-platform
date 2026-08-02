@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ConversationList } from "@/components/inbox/ConversationList";
+import { ConversationList, type InboxListPhase } from "@/components/inbox/ConversationList";
 import { ConversationView } from "@/components/inbox/ConversationView";
 import {
   InboxConnectionLoader,
@@ -65,8 +65,6 @@ type SmartIndicator = {
   color: string;
   border: string;
 };
-
-type InboxScreen = "categories" | "conversation_list" | "conversation_detail";
 
 function Pressable({
   children,
@@ -184,14 +182,27 @@ function InboxPageContent() {
 
   const [selectedWorkCategory, setSelectedWorkCategory] =
     useState<InboxSidebarSelection>(INBOX_SIDEBAR_LEGACY_OPEN);
-  const [inboxScreen, setInboxScreen] = useState<InboxScreen>("categories");
+  // List-internal browsing toggle (mobile only): triage ("categories") vs the
+  // selected category's conversations. NOT a top-level navigation source of
+  // truth — the open conversation is owned solely by the URL (see below).
+  const [mobileListPhase, setMobileListPhase] =
+    useState<InboxListPhase>("categories");
 
   const [allConversations, setAllConversations] = useState<Conversation[]>([]);
   /** Full list from GET /api/conversations; undefined = API without `items` (legacy fallback). */
   const [allConversationItems, setAllConversationItems] = useState<
     InboxItemViewModel[] | undefined
   >(undefined);
-  const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
+
+  // The open conversation is DERIVED from the URL — the URL is the sole durable
+  // source of truth. `null` = no valid conversation open (list surface). Invalid
+  // syntax also yields `null` and is normalized out of the URL below.
+  const activeConversationId = useMemo<number | null>(() => {
+    const raw = searchParams.get("conversationId");
+    if (raw == null) return null;
+    const parsed = Number(raw);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  }, [searchParams]);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -212,7 +223,6 @@ function InboxPageContent() {
   const [productLinkPrefill, setProductLinkPrefill] =
     useState<ProductLinkPrefill | null>(null);
   const initialInboxTabPickedRef = useRef(false);
-  const mobileSkippedCategoriesRef = useRef(false);
 
   useEffect(() => {
     function handleResize() {
@@ -262,49 +272,37 @@ function InboxPageContent() {
       target = resolveInboxCategoryPick(category, byId);
     }
     setSelectedWorkCategory(target);
-    setInboxScreen("conversation_list");
-    updateConversationIdInUrl(null, { replace: true });
+    setMobileListPhase("conversation_list");
   }
 
   function handlePickDesktopCategory(category: InboxSidebarSelection) {
     setSelectedWorkCategory(category);
-    setInboxScreen("conversation_list");
   }
 
+  // Mobile: back from a category's conversations to the triage screen. Pure
+  // list-internal browsing — no URL/history change (category is not URL-backed).
   function handleBackToCategories() {
-    setInboxScreen("categories");
-    updateConversationIdInUrl(null, { replace: true });
+    setMobileListPhase("categories");
   }
 
+  // Mobile: in-app back arrow inside a conversation. Explicit navigation to the
+  // list via push — independent of history provenance, so a deep-linked or
+  // refreshed detail also lands on the list rather than exiting the app.
   function handleBackToConversationList() {
-    setInboxScreen("conversation_list");
-    updateConversationIdInUrl(null, { replace: true });
+    updateConversationIdInUrl(null);
   }
 
+  // Invalid-SYNTAX normalization: the param exists but is not a valid id →
+  // remove it via replace (no history entry). No loop: once removed raw is null.
+  // Not-found / inaccessible ids are handled after conversations load (below),
+  // never during loading, so a valid deep link is not dropped early.
   useEffect(() => {
     const raw = searchParams.get("conversationId");
-
-    if (!raw) {
-      if (activeConversationId !== null) {
-        setActiveConversationId(null);
-      }
-      return;
-    }
-
-    const parsed = Number(raw);
-    const nextId = parsed && !Number.isNaN(parsed) ? parsed : null;
-
-    if (nextId !== activeConversationId) {
-      setActiveConversationId(nextId);
+    if (raw != null && activeConversationId == null) {
+      updateConversationIdInUrl(null, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
-
-  useEffect(() => {
-    if (searchParams.get("conversationId")) {
-      setInboxScreen("conversation_detail");
-    }
-  }, [searchParams]);
+  }, [searchParams, activeConversationId]);
 
   async function loadConversations() {
     const rawToken = localStorage.getItem("token");
@@ -364,17 +362,19 @@ function InboxPageContent() {
         setProductLinkPrefill(null);
       }
 
+      // Not-found / inaccessible: only AFTER a successful conversations load, if
+      // the URL's conversation is absent from the list, normalize it out
+      // (replace → list surface). This never runs during loading, so a valid
+      // deep link is not dropped before the data that decides it is available.
       if (
         activeConversationId &&
         !all.some((conversation: Conversation) => conversation.id === activeConversationId)
       ) {
         updateConversationIdInUrl(null, { replace: true });
-        setActiveConversationId(null);
         setMessages([]);
         setSuggestions([]);
         setInput("");
         setSelectedSuggestionId(null);
-        setInboxScreen("categories");
       }
     } catch (error) {
       console.error("loadConversations error", error);
@@ -465,6 +465,7 @@ function InboxPageContent() {
       }
 
       setSelectedWorkCategory("active");
+      setMobileListPhase("conversation_list");
 
       await loadConversations();
       updateConversationIdInUrl(data.conversation.id);
@@ -472,17 +473,17 @@ function InboxPageContent() {
       setSuggestions([]);
       setInput("");
       setSelectedSuggestionId(null);
-      setInboxScreen("conversation_detail");
     } catch (error) {
       console.error("handleCreateConversation error", error);
     }
   }
 
+  // Select a conversation (from the list or a smart triage item) — the durable
+  // destination is pushed to the URL. Browser Back consumes it → list.
   function handleSelectConversation(id: number) {
     updateConversationIdInUrl(id);
     setInput("");
     setSelectedSuggestionId(null);
-    setInboxScreen("conversation_detail");
   }
 
   async function handleChooseSuggestion(s: Suggestion) {
@@ -748,12 +749,11 @@ function InboxPageContent() {
       }
 
       updateConversationIdInUrl(null);
-      setActiveConversationId(null);
+      setMobileListPhase("conversation_list");
       setMessages([]);
       setSuggestions([]);
       setInput("");
       setSelectedSuggestionId(null);
-      setInboxScreen("conversation_list");
 
       await loadConversations();
     } catch (error) {
@@ -786,6 +786,8 @@ function InboxPageContent() {
     const openTotal = totalOpenInboxCount(byId);
     const hasDeepLinkConversation = !!searchParams.get("conversationId");
 
+    // Category selection only — no mobile-screen inference (the skip heuristic
+    // was removed: mobile shows triage until the user picks a category).
     if (!initialInboxTabPickedRef.current) {
       initialInboxTabPickedRef.current = true;
       const picked =
@@ -793,16 +795,6 @@ function InboxPageContent() {
           ? pickDefaultInboxSelection(byId)
           : resolveInboxCategoryPick(selectedWorkCategory, byId);
       setSelectedWorkCategory(picked);
-
-      if (
-        isMobile &&
-        openTotal > 0 &&
-        !hasDeepLinkConversation &&
-        !mobileSkippedCategoriesRef.current
-      ) {
-        mobileSkippedCategoriesRef.current = true;
-        setInboxScreen("conversation_list");
-      }
       return;
     }
 
@@ -812,7 +804,7 @@ function InboxPageContent() {
 
     if (
       isMobile &&
-      inboxScreen === "conversation_list" &&
+      mobileListPhase === "conversation_list" &&
       openTotal > 0 &&
       !hasDeepLinkConversation
     ) {
@@ -825,7 +817,7 @@ function InboxPageContent() {
     allConversationItems,
     selectedWorkCategory,
     isMobile,
-    inboxScreen,
+    mobileListPhase,
     searchParams,
   ]);
 
@@ -1203,40 +1195,24 @@ function InboxPageContent() {
           boxSizing: "border-box",
         }}
       >
-      {inboxScreen === "categories" && (
+      {/* Top-level mobile screen is DERIVED from the URL: a valid open
+          conversation → detail; otherwise the list surface. The list is a
+          SINGLE stable ConversationList instance whose content toggles between
+          triage and conversations via `listPhase` (list-internal browsing state)
+          — no remount across that switch. */}
+      {activeConversationId == null ? (
         <ConversationList
-          listPhase="categories"
+          listPhase={mobileListPhase}
           isMobile={isMobile}
           selectedWorkCategory={selectedWorkCategory}
           onChangeWorkCategory={handlePickCategory}
-          sidebarCounts={sidebarCounts}
-          onCreateConversation={handleCreateConversation}
-          conversations={[]}
-          items={undefined}
-          dailyContext={dailyContext}
-          smartCategoryRows={smartCategoryRows}
-          activeConversationId={null}
-          onSelectConversation={handleSelectConversation}
-          getStageLabel={getStageLabel}
-          styles={{
-            softButtonStyle,
-            accentButtonStyle,
-            warmButtonStyle,
-          }}
-        />
-      )}
-
-      {inboxScreen === "conversation_list" && (
-        <ConversationList
-          listPhase="conversation_list"
-          isMobile={isMobile}
-          selectedWorkCategory={selectedWorkCategory}
-          onChangeWorkCategory={setSelectedWorkCategory}
           onBackFromList={handleBackToCategories}
           sidebarCounts={sidebarCounts}
           onCreateConversation={handleCreateConversation}
           conversations={visibleConversations}
           items={visibleConversationItems}
+          dailyContext={dailyContext}
+          smartCategoryRows={smartCategoryRows}
           activeConversationId={activeConversationId}
           onSelectConversation={handleSelectConversation}
           getStageLabel={getStageLabel}
@@ -1246,9 +1222,7 @@ function InboxPageContent() {
             warmButtonStyle,
           }}
         />
-      )}
-
-      {inboxScreen === "conversation_detail" && (
+      ) : (
         <div
           style={{
             flex: 1,
