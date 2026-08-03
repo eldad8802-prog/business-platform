@@ -32,47 +32,55 @@ const CAPABILITIES = [
   },
 ];
 
-// Three flagship screens — benefit-first copy, shown large with a mobile companion.
-const HERO_SCREENS = [
+// Real product screens (phone), shown as a mobile gallery in "המערכת בפעולה".
+const SCREENS = [
   {
-    title: "כל הכסף שלך במקום אחד",
-    value:
-      "צלם חשבונית או קבלה — ואנחנו כבר נזהה, נסדר ונראה לך בדיוק כמה נכנס וכמה יצא החודש.",
-    desktop: "/landing/documents-home-desktop.webp",
-    mobile: "/landing/documents-home-mobile.webp",
-    alt: "מסך המסמכים של Dubiz — תזרים חודשי, קליטת מסמך חכמה ותור אימות",
+    src: "/landing/documents-home.webp",
+    title: "כל הכסף שלך, סוף סוף במקום אחד",
+    body: "צלם חשבונית או קבלה — או תן ל-Dubiz למשוך אותן לבד מ-Gmail ומוואטסאפ. המערכת מזהה ספק, סכום ותאריך לבד, ומראה לך תזרים חודשי נקי. בלי אקסלים, בלי ערימות ניירת ובלי הפתעות בסוף החודש.",
+    alt: "מסך המסמכים של Dubiz — תזרים חודשי נטו, קליטת מסמך חכמה ותור אימות",
   },
   {
-    title: "כל לקוח, סיפור אחד שלם",
-    value:
-      "פרטים, מסמכים, תשלומים ושיחות — הכול בכרטיס אחד, כדי שתמיד תדע איפה אתה עומד מול כל לקוח.",
-    desktop: "/landing/customer-card-desktop.webp",
-    mobile: "/landing/customer-card-mobile.webp",
+    src: "/landing/customer-card.webp",
+    title: "כל לקוח — סיפור אחד שלם",
+    body: "כרטיס לקוח שמרכז הכול: פרטים, מסמכים, תשלומים, שיחות, הערות וקבצים. עם Dubiz תמיד תדע איפה אתה עומד מול כל לקוח, מה נשאר לגבות ומה הבטחת — בלי לחפש בין מיילים והודעות.",
     alt: "כרטיס לקוח ב-Dubiz — פרטים, מסמכים, הערות וקבצים לצד רשימת הלקוחות",
   },
   {
-    title: "לא תיתפס בלי מלאי",
-    value:
-      "במבט אחד רואים מה יש, כמה שווה המלאי ומה עומד להיגמר — לפני שהלקוח כבר מחכה.",
-    desktop: "/landing/inventory-home-desktop.webp",
-    mobile: "/landing/inventory-home-mobile.webp",
+    src: "/landing/inventory-home.webp",
+    title: "לא תיתפס שוב בלי מלאי",
+    body: "Dubiz מראה לך במבט אחד מה יש במלאי, כמה הוא שווה ומה עומד להיגמר — עם התראות חכמות לפני שנגמר. ככה אתה מזמין בזמן, לא מפספס מכירה ולא כובל כסף על המדפים.",
     alt: "מסך המלאי של Dubiz — שווי מלאי, בריאות המלאי ופריטים שדורשים טיפול",
   },
-];
-
-// Two supporting screens — shown compact, below the flagships.
-const MORE_SCREENS = [
   {
-    title: "שהכסף יגיע בזמן",
-    value: "כל הגביות הפתוחות במקום אחד, עם קישור תשלום שנשלח ללקוח בלחיצה.",
-    desktop: "/landing/collection-desktop.webp",
+    src: "/landing/collection.webp",
+    title: "שהכסף יגיע אליך בזמן",
+    body: "כל הגביות הפתוחות במקום אחד, ממוינות לפי מה שדורש טיפול. Dubiz שולח ללקוח קישור תשלום בלחיצה ומראה לך מי שילם, מי מתעכב וכמה נגבה החודש — כדי שתפסיק לרדוף אחרי הכסף שלך.",
     alt: "מרכז הגבייה של Dubiz — גביות פתוחות, סטטוסים ומצב תשלום",
   },
   {
-    title: "מזכירה שלא שוכחת",
-    value: "מזכירה לך מה חייבים לסגור היום, ושומרת את כל השאר לרגע הנכון.",
-    desktop: "/landing/secretary-desktop.webp",
-    alt: "המזכירה של Dubiz — מה צריך לסגור היום והתחייבויות במעקב",
+    src: "/landing/billing.webp",
+    title: "חשבונית מקצועית בכמה שניות",
+    body: "חשבונית מס, קבלה או הצעת מחיר — Dubiz מפיקה אותן מעוצבות ותקינות מול רשות המסים, שומרת הכול מסודר לרואה החשבון, וממשיכה מכל מקום שבו עצרת. פחות בירוקרטיה, יותר עסק.",
+    alt: "מסך החשבוניות של Dubiz — יצירת חשבונית והצעת מחיר וניהול מסמכי חיוב",
+  },
+  {
+    src: "/landing/obligation-types.webp",
+    title: "המזכירה שזוכרת כל תשלום",
+    body: 'שכירות, ארנונה, ביטוח לאומי, מע"מ, ספקים — Dubiz מכירה את כל סוגי ההתחייבויות של העסק שלך ומזכירה לך לשלם בדיוק בזמן. בוחרים מהרשימה, וזהו: לא עוד קנסות ולא עוד תשלומים שנשכחו.',
+    alt: "מסך ההתחייבויות של Dubiz — סוגי התשלומים הקבועים שהמערכת מציעה לעקוב אחריהם",
+  },
+  {
+    src: "/landing/bot-main.webp",
+    title: "בוט שמדבר בשם העסק שלך",
+    body: "Dubiz בונה לך בוט אישי שעונה ללקוחות בשפה ובאופי שלך, אוסף פרטים ומכין טיוטות — מסביב לשעון. אתה שולט בכל מילה שהוא אומר ומאשר לפני שיוצא. כאילו קיבלת עובד נוסף שלא ישן.",
+    alt: "מסך הבוט של Dubiz — הגדרת זהות, אופי, גישה וידע לבוט העסקי",
+  },
+  {
+    src: "/landing/bot-config.webp",
+    title: "אתה מחליט, הבוט מבצע",
+    body: "מגדירים לבוט מטרה, גבולות ומתי להעביר אליך — ו-Dubiz דואגת שהוא לא ימציא מידע ולא יחרוג ממה שהתרת. שליטה מלאה בלי סיכונים, עם כפתור אחד להפעיל או לעצור בכל רגע.",
+    alt: "מסך הפעלת הבוט של Dubiz — הרכבת הבוט מהמטרות והגדרות הבטיחות",
   },
 ];
 
@@ -114,75 +122,38 @@ export default function CorporateHomePage() {
       <section className="mt-14 sm:mt-20">
         <div className="text-center">
           <span className="inline-flex items-center gap-2 rounded-full border border-[var(--mkt-soft-border)] bg-[var(--mkt-soft)] px-3 py-1 text-xs font-semibold text-[var(--mkt-link)]">
-            הצצה למערכת
+            המערכת בפעולה
           </span>
-          <h2 className="mx-auto mt-4 max-w-2xl text-xl font-bold text-[var(--mkt-ink)] sm:text-3xl">
-            ככה נראה עסק מסודר
+          <h2 className="mx-auto mt-4 max-w-2xl text-2xl font-bold text-[var(--mkt-ink)] sm:text-3xl">
+            כל העסק שלך — בכיס אחד
           </h2>
           <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-gray-600 sm:text-base">
-            מסכים אמיתיים מהמערכת — במחשב ובנייד.
+            אלה מסכים אמיתיים מ-Dubiz. ככה נראה לנהל עסק מסודר — הכול מהטלפון,
+            בלי בלגן ובלי עשר מערכות נפרדות.
           </p>
         </div>
 
-        {/* Flagship screens — large, with a mobile companion */}
-        <div className="mt-8 grid gap-5 sm:mt-12 sm:gap-6">
-          {HERO_SCREENS.map((s) => (
+        <div className="mt-8 grid gap-5 sm:mt-12 sm:grid-cols-2 sm:gap-6 lg:gap-7">
+          {SCREENS.map((s) => (
             <article
               key={s.title}
-              className="grid items-center gap-5 rounded-[28px] bg-white p-5 shadow-sm sm:grid-cols-5 sm:gap-8 sm:p-8"
+              className="flex flex-col items-center rounded-[28px] bg-white p-6 text-center shadow-sm"
             >
-              <div className="sm:col-span-2">
-                <h3 className="text-lg font-bold leading-snug text-[var(--mkt-ink)] sm:text-xl">
-                  {s.title}
-                </h3>
-                <p className="mt-2.5 text-sm leading-6 text-gray-600 sm:text-[15px]">
-                  {s.value}
-                </p>
-                <div className="mt-4 w-24 overflow-hidden rounded-2xl border border-[var(--mkt-soft-border)] shadow-sm sm:w-28">
-                  <Image
-                    src={s.mobile}
-                    alt={`${s.alt} — תצוגת מובייל`}
-                    width={390}
-                    height={844}
-                    className="h-auto w-full"
-                    loading="lazy"
-                  />
-                </div>
-              </div>
-              <div className="overflow-hidden rounded-2xl border border-[var(--mkt-soft-border)] shadow-sm sm:col-span-3">
+              <div className="w-full max-w-[210px] overflow-hidden rounded-[1.6rem] border border-[var(--mkt-soft-border)] shadow-md">
                 <Image
-                  src={s.desktop}
+                  src={s.src}
                   alt={s.alt}
-                  width={1440}
-                  height={900}
+                  width={390}
+                  height={844}
                   className="h-auto w-full"
                   loading="lazy"
-                  sizes="(min-width: 640px) 60vw, 100vw"
+                  sizes="(min-width: 640px) 210px, 60vw"
                 />
               </div>
-            </article>
-          ))}
-        </div>
-
-        {/* Supporting screens — compact, two-up */}
-        <div className="mt-5 grid gap-5 sm:mt-6 sm:grid-cols-2 sm:gap-6">
-          {MORE_SCREENS.map((s) => (
-            <article key={s.title} className="rounded-[28px] bg-white p-5 shadow-sm sm:p-6">
-              <h3 className="text-base font-bold text-[var(--mkt-ink)] sm:text-lg">
+              <h3 className="mt-5 text-base font-bold text-[var(--mkt-ink)] sm:text-lg">
                 {s.title}
               </h3>
-              <p className="mt-2 text-sm leading-6 text-gray-600">{s.value}</p>
-              <div className="mt-4 overflow-hidden rounded-2xl border border-[var(--mkt-soft-border)] shadow-sm">
-                <Image
-                  src={s.desktop}
-                  alt={s.alt}
-                  width={1440}
-                  height={900}
-                  className="h-auto w-full"
-                  loading="lazy"
-                  sizes="(min-width: 640px) 45vw, 100vw"
-                />
-              </div>
+              <p className="mt-2 text-sm leading-6 text-gray-600">{s.body}</p>
             </article>
           ))}
         </div>
