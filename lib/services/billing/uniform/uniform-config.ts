@@ -1,13 +1,12 @@
 /**
  * WP2 — Uniform Export software-identity config.
  *
- * ⚠️ SIMULATOR-ONLY PLACEHOLDERS ⚠️
- * The values in `SIMULATOR_SOFTWARE_CONFIG` are placeholders for running the
- * official Tax Authority simulator ONLY. They are NOT production values.
- *
- * After Dubiz receives its real software registration number (via Form 513),
- * swap these for the real config — this is a CONFIG change only, no logic
- * changes in the builders/serializer (which read every value from here).
+ * Two configs live here, and they are NOT interchangeable:
+ * - `DUBIZ_SOFTWARE_CONFIG` — the LIVE identity used by the production export
+ *   endpoint. Carries the official ITA registration number (270901).
+ * - `SIMULATOR_SOFTWARE_CONFIG` — frozen simulator identity, kept ONLY so the
+ *   historical 2026-07-02 "תקינה" run stays byte-for-byte reproducible. It is
+ *   NOT a production config and must not be updated to the official number.
  *
  * Scope (BD-1): Dubiz is registered as an INVOICE-ISSUANCE software, not a
  * double-entry accounting system → INI field 1013 = 0, and B100/B110/M100 are
@@ -42,7 +41,11 @@ export type UniformSoftwareConfig = {
 };
 
 /**
- * SIMULATOR-ONLY placeholder config. Replace after real registration.
+ * SIMULATOR-ONLY frozen config — the exact identity used in the official
+ * simulator run of 2026-07-02 ("תקינה"). DO NOT update these values to the
+ * official registration number: they exist to keep that historical run
+ * deterministically reproducible (see the certification doc). The live identity
+ * is `DUBIZ_SOFTWARE_CONFIG` below.
  * (The simulator's own example uses registration number "00000001".)
  */
 export const SIMULATOR_SOFTWARE_CONFIG: UniformSoftwareConfig = {
@@ -69,16 +72,15 @@ export const SIMULATOR_SOFTWARE_CONFIG: UniformSoftwareConfig = {
  * that entity ("אלדד נהרי"); "דוביז Dubiz" is the PRODUCT name (1007), not the
  * vendor.
  *
- * ⚠️ Field 1006 (softwareRegistrationNumber) = "00000001" is TEMPORARY /
- * PENDING_REGISTRATION — no real ITA registration certificate number has been
- * issued yet. It is the existing simulator placeholder and MUST NOT be presented
- * anywhere (UI / reports) as the official registration number. Replace it the
- * moment the real certificate number arrives; do NOT substitute any other value
- * without an official source.
+ * Field 1006 (softwareRegistrationNumber) = "270901" — the OFFICIAL ITA
+ * software registration certificate number issued for "דוביז dubiz" מהדורה 1.0
+ * (file / software-house number 312260110), valid 22/07/2026 – 31/07/2028.
+ * Source: the ITA registration certificate. Do NOT change this value without an
+ * official source document.
  */
 export const DUBIZ_SOFTWARE_CONFIG: UniformSoftwareConfig = {
   isSimulator: false,
-  softwareRegistrationNumber: "00000001", // 1006 — TEMPORARY / PENDING_REGISTRATION (no official number yet)
+  softwareRegistrationNumber: "270901", // 1006 — official ITA registration certificate number
   softwareName: "דוביז Dubiz", // 1007 — product name
   softwareVersion: "1.0", // 1008
   vendorVatNumber: "312260110", // 1009 — real vendor entity/dealer number (software house)

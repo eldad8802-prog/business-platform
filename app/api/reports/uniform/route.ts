@@ -8,9 +8,8 @@
  *
  * Business identity (name / VAT / address) is loaded from the DB (via the loader
  * + projection). The software config (DUBIZ_SOFTWARE_CONFIG) supplies only the
- * SOFTWARE identity: real vendor entity number (1009 = 312260110) and vendor name
- * (1010). Only the registration number (1006 = 00000001) is a TEMPORARY /
- * PENDING_REGISTRATION placeholder until a real ITA registration number is issued.
+ * SOFTWARE identity: official ITA registration number (1006 = 270901), vendor
+ * entity number (1009 = 312260110) and vendor name (1010).
  */
 
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
