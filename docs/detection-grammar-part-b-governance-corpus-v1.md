@@ -717,6 +717,48 @@ This Design Bundle collects, **verbatim**, the ratified W3 outputs for Ordinal v
 | F2 | §10 | — |
 | B1b-2 · descending · collation/tz/units/scaling/precision/norm · Producer-allow-lists · finite-outcome · Scope-relations | §11 | — |
 
+### K · Equality W2 · Owner Acceptance of W1 Threshold Outcome — OWNER-ACCEPTED · RECORDED 2026-08-06
+
+**1 · Purpose & Scope.** W2 is NOT Design and NOT Contract. The sole purpose of W2 is Owner Acceptance of the Threshold Outcome established by W1, and authorization to begin contract design through W3. W2 does NOT reopen W1 and does NOT itself execute or record W3. It only ACCEPTS or REJECTS the W1 threshold outcome; on acceptance it transitions the candidate to CONTRACT-PENDING. Nothing more.
+
+**2 · Candidate & Class.** Candidate: `Equality`. Class: `Canonical Relation Evaluation` (RATIFIED, PART A §6b, @v1.1).
+
+**3 · W1 Evidence Recap (evidence only — NOT re-run).** W1 (2026-07-22, fresh vs @v1, no Ordinal conclusions carried): candidate boundary resolved — Equality concerns canonical value-equality, not identity-equality and not semantic-equivalence; no known legal decomposition; not a §2.9 View; C1 holds; C2 was CLASS-UNRESOLVED at W1.
+
+**4 · EQ-CF1 Class-Fit Recap.** EQ-CF1 (2026-07-29, vs @v1.1 / §6b, examined independently of Ordinal) PASS — Equality FITS Canonical Relation Evaluation: D1 · D6 · TK · Information-Ownership · Output-boundary · Hidden-Transformation-Guard · value-vs-identity · value-vs-semantic · Boundary-Preservation — all PASS; no Open Question required. Class fit accepted.
+
+**5 · W2 Owner Acceptance — Question & Answer.** Question: Does the Owner ACCEPT the W1 Threshold Outcome for Equality and authorize transition to CONTRACT-PENDING, permitting entry into W3 contract design without starting or approving a contract? Answer: ACCEPTED (Owner, 2026-08-06).
+
+**6 · W1 Candidate Boundary Preserved (no expansion beyond W1).**
+
+- Canonical value-equality.
+- Not identity-equality.
+- Not semantic-equivalence.
+- No expansion beyond the W1 candidate boundary.
+
+**7 · Deferred to W3 (surfaced at W1, NOT decided here).** normalization-visibility · authorized-equivalence-domains · null-equality. None was decided by W2; none blocked acceptance.
+
+**8 · Explicit Non-Decisions.** §K does NOT: assign an operatorId · assign a Primitive number · assign a Contract ID · write or approve a §2 contract · ratify CRE membership · define Outcome vocabulary · define a Domain contract · define a Failure model · define Operation identity · define a Versioning model · register a Determinism projection · itself execute, decide, or record W3 Design-Axes · resolve any Open Question · change the class or PART A.
+
+**9 · Status Transition.** `CLASS ASSIGNED · W2-ELIGIBLE · CONTRACT NOT STARTED` → `CLASS ASSIGNED · CONTRACT-PENDING`. W2 authorized entry into W3 design. Subsequent W3 design decisions are outside the scope of §K and are not materialized by this record. Ordinal is unaffected. Equality remains a candidate, not a ratified member. CONTRACT-PENDING means that design work may proceed toward a contract; no contract yet exists.
+
+**10 · Verdict.** THRESHOLD OUTCOME ACCEPTED · CONTRACT-PENDING (Owner Acceptance 2026-08-06).
+
+**11 · Governance Note.** CONTRACT-PENDING does NOT grant Primitive status, Membership, operatorId, Primitive number, Contract ID, or §2 approval. It records only the W2 authorization to proceed into contract design. "Authorized for contract design" is not "ratified as a Primitive." Equality may become a ratified member or allocated Primitive only through the applicable downstream contract, closure, and ratification stages, each requiring its own governance approval. W2 is a governance checkpoint, not a semantic contract or ratification event.
+
+**12 · Source Mapping.**
+
+| §K clause | Source | Category |
+|---|---|---|
+| §2 Candidate & Class | PA-B §B + PART A §6b; Equality Ledger row (§4) | evidence (corpus) |
+| §3 W1 Evidence Recap | Equality Ledger row (§4), W1 2026-07-22 | evidence (corpus) |
+| §4 EQ-CF1 | Equality Ledger row (§4) + §D candidate status, EQ-CF1 2026-07-29 | evidence (corpus) |
+| §6 Boundary Preserved | Equality Ledger row (§4): value-equality; ≠ identity-equality; ≠ semantic-equivalence | evidence (corpus) |
+| §7 Deferred to W3 | Equality Ledger row (§4): normalization-visibility · authorized-equivalence-domains · null-equality | evidence (corpus) |
+| §1 / §5-Q / §8 / §9 / §11 wording | Ordinal §G — STRUCTURAL PRECEDENT ONLY (no semantic reuse) | template |
+| §5 Answer · §10 Verdict · date 2026-08-06 | Owner decision recorded now | decision |
+| W3 status | W3 design Record is not included in §K | scope note |
+
 ---
 
 ## 3 · Operator Inventory  (LEVEL 1 — CLASSIFICATION IN PROGRESS, all PROPOSED)
@@ -989,7 +1031,7 @@ to any FRAMING contract.
 | **Operator Class `Canonical Relation Evaluation`** (3rd class) | Governance | **RATIFIED · EFFECTIVE** | Third operator class alongside FRAMING/REDUCTION, added via PA-B. Authority `DR-C1-PARTB-CLASS-01`. Foundation (D1/D6/Contract-Opaque/Hidden-Transformation-Guard) = RATIFIED (PA-B §A). Full definition PA-B §B §1–§15; PART A §6b. **Members: NONE RATIFIED** (unchanged). Candidates: `Ordinal` (CLASS ASSIGNED · CONTRACT-PENDING, ORD-CF1+W2) · `Equality` (CLASS ASSIGNED · W2-ELIGIBLE, EQ-CF1) — 2026-07-29, both NOT members. Additive; FRAMING/REDUCTION + 4 primitives unchanged; no re-ratification | 2026-07-24 |
 | **`DR-C1-PARTB-CLASS-01`** | Governance | **OWNER-RATIFIED · EFFECTIVE** | Decision Record authorizing the 3rd class per PART A §8; PA-B §E. Closes OPEN-Q5. Explicit Non-Decisions: does NOT ratify Ordinal/Equality/any operator/membership/§2/W2/operatorId/Primitive#/Type-Compat/Set-as-value/finite-outcome/normalization/identity-collapse/Composition/Scope-Relations-family | 2026-07-24 |
 | **`Ordinal`** (candidate) | L1 | **W1-COMPLETE 2026-07-22 → `CLASS ASSIGNED` (ORD-CF1 2026-07-29) → `CONTRACT-PENDING` (Ordinal W2 ACCEPTED 2026-07-29, §G): `Canonical Relation Evaluation`** | W1 (2026-07-22, vs `@v1`): Candidate-Boundary resolved · no known legal decomposition · not §2.9-View · C1 holds · C2 was CLASS-UNRESOLVED. **ORD-CF1 (2026-07-29, vs `@v1.1` / §6b):** FITS `Canonical Relation Evaluation` — D1(peer+contract-opaque)/D6(canonical-domain-fixed)/TK/Ownership/Output/Hidden-Guard/Boundary all PASS; no OQ required for fit. **NOT a ratified member** — no §2 / operatorId / Primitive# / C1–C8-complete / Ledger-Member; Class-Fit ≠ Membership. Deferred (W2/Contract): ascending/descending · collation/null/timezone/units · total-order-vs-preorder | 2026-07-22 / 2026-07-29 |
-| **`Equality`** (candidate) | L1 | **W1-COMPLETE 2026-07-22 → `CLASS ASSIGNED` (EQ-CF1 2026-07-29): `Canonical Relation Evaluation` · W2-ELIGIBLE · CONTRACT NOT STARTED** | W1 (2026-07-22, vs `@v1`, no Ordinal conclusions carried): Candidate-Boundary resolved (canonical value-equality; ≠ identity-equality / semantic-equivalence) · no known legal decomposition · not §2.9-View · C1 holds · C2 was CLASS-UNRESOLVED. **EQ-CF1 (2026-07-29, vs `@v1.1` / §6b, examined independently of Ordinal):** FITS `Canonical Relation Evaluation` — D1/D6/TK/Ownership/Output/Hidden-Guard/value-vs-identity/value-vs-semantic/Boundary-Preservation all PASS; no OQ required for fit. **NOT a ratified member** — no §2 / operatorId / Primitive# / C1–C8-complete / Ledger-Member; Class-Fit ≠ Membership. Deferred (W2/Contract): normalization-visibility · authorized-equivalence-domains · null-equality | 2026-07-22 / 2026-07-29 |
+| **`Equality`** (candidate) | L1 | **W1-COMPLETE 2026-07-22 → `CLASS ASSIGNED` (EQ-CF1 2026-07-29) → `CONTRACT-PENDING` (Equality W2 ACCEPTED 2026-08-06, §K): `Canonical Relation Evaluation`** | W1 (2026-07-22, vs `@v1`, no Ordinal conclusions carried): Candidate-Boundary resolved (canonical value-equality; ≠ identity-equality / semantic-equivalence) · no known legal decomposition · not §2.9-View · C1 holds · C2 was CLASS-UNRESOLVED. **EQ-CF1 (2026-07-29, vs `@v1.1` / §6b, examined independently of Ordinal):** FITS `Canonical Relation Evaluation` — D1/D6/TK/Ownership/Output/Hidden-Guard/value-vs-identity/value-vs-semantic/Boundary-Preservation all PASS; no OQ required for fit. **NOT a ratified member** — no §2 / operatorId / Primitive# / C1–C8-complete / Ledger-Member; Class-Fit ≠ Membership. Deferred (W2/Contract): normalization-visibility · authorized-equivalence-domains · null-equality. **W2 owner-accepted 2026-08-06 (§K) → CONTRACT-PENDING; subsequent W3 design decisions are not materialized by §K; W3 design record not yet materialized in the corpus; not ratified; no §2/operatorId/Primitive#/Contract-ID allocation.** | 2026-07-22 / 2026-07-29 / 2026-08-06 |
 | §0 Nature & Authority Model | L0 | RATIFIED | — | 2026-07-17 |
 | §1 Ratification Protocol | L0 | RATIFIED | — | 2026-07-17 |
 | §2 Per-Operator Entry Template | L0 | CORRECTED | Added per-field `provenance:` tag + Governance Note (template is design-source, not a PART A quote/publication; future PART A must stay consistent or carry a Decision Record) | 2026-07-17 |
@@ -1057,7 +1099,7 @@ to any FRAMING contract.
 - **Transformation Kind:** canonical domain-fixed relation evaluation (D6) between peer relata consumed contract-opaquely (D1) → canonical relation-specific typed outcome
 - **Input/Output boundary:** input = two peer relata (contract-opaque; not Scope-structural) → output = relation-specific canonical typed outcome (NOT Scope, NOT Quantity, NOT Judgment)
 - **Ratified members:** `Ordinal` — Primitive Operator #5, `Ordinal/contract@v1-2026-07-31`, ratified 2026-07-31 (first member of this class)
-- **Active candidates:** `Equality` — `CLASS ASSIGNED · W2-ELIGIBLE · NOT A RATIFIED MEMBER` (EQ-CF1, 2026-07-29). (`Ordinal` is no longer an active candidate — it is now a ratified member, above.)
+- **Active candidates:** `Equality` — `CLASS ASSIGNED · W2-ACCEPTED · CONTRACT-PENDING · NOT A RATIFIED MEMBER` (EQ-CF1 2026-07-29; W2 owner-accepted 2026-08-06, §K). (`Ordinal` is no longer an active candidate — it is now a ratified member, above.)
 - **Composition:** `OPEN`
 - **Full definition:** PART A §6b + PA-B §A–§B
 
