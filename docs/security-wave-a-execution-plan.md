@@ -7,7 +7,7 @@
 > (`docs/security-gap-matrix.md`, `docs/security-wave-1-execution-plan.md`). Nothing new is
 > designed or decided here — this file records task status, PRs, evidence, and remaining work.
 >
-> **Base:** origin/main · **Last updated:** 2026-08-02.
+> **Base:** origin/main · **Last updated:** 2026-08-11.
 
 ## Purpose
 Track the execution and verification status of the Wave A tasks (repository guardrails +
@@ -29,10 +29,23 @@ targeted low-cost, low-regression perimeter closures).
 | T3b | Branch Protection / Required Checks | ✅ **VERIFIED** | settings-only (no PR) | Classic branch protection on `main` | Read-back: PR required, `release/verify` required, `enforce_admins=false`, linear history, force-push + deletion blocked |
 | T3c | Secret Scanning / Push Protection | ✅ **VERIFIED / CLOSED** | settings-only (no PR) | `security_and_analysis`: `secret_scanning=enabled`, `secret_scanning_push_protection=enabled` | Already active; verified via API (capabilities were pre-enabled). Verified, not implemented. |
 
-## Pending (status only)
+## T4a — Dependabot (status)
 
-**Stage 0 — Repository Guardrails**
-- T4a — Dependabot — ⏳ PENDING
+| Aspect | Status |
+|--------|--------|
+| Dependabot Alerts (Detection) | ✅ **VERIFIED** — enabled; producing the canonical alert set |
+| Automated / grouped Security Updates (pilot) | ❌ **REJECTED BY EVIDENCE** |
+| Operating model | **Detection-Only + Manual Security Remediation** |
+| Version Updates automation | **NOT APPROVED / DEFERRED** |
+| Auto-merge | Not used |
+
+**Evidence / factual rationale:**
+- Pilot config `.github/dependabot.yml` (closed allowlist: `js-yaml`, `@babel/core`; single security group) merged (PR #171), then removed (PR #178) → repository is **Detection-Only**; no `.github/dependabot.yml` in `main`.
+- Enabling automated security updates produced **PR #177** whose diff **exceeded the approved allowlist scope**: `allow` scopes the *target* (js-yaml) but not the *diff* — the PR also modified **direct/runtime dependencies** (`next` 16.2.1 → 16.3.0, plus `sharp` and subtree). CI was green (build-safe) but **not security-scope clean**. PR #177 was **CLOSED / NOT MERGED** (scope violation, not CI failure).
+- This is **not** a failure of Dependabot **Detection** — Alerts remain active, accurate, and valuable. Only the **Automated Security Updates** model was rejected, for insufficient diff-scope control.
+- Current settings: Dependabot Alerts = **Enabled**; Dependabot Security Updates = **Disabled**.
+
+## Pending (status only)
 
 **Stage 1 — Headers & Targeted Closures**
 - T5 — `/api/learning` cross-tenant closure — ⏳ PENDING
@@ -56,7 +69,7 @@ targeted low-cost, low-regression perimeter closures).
 ---
 
 ## Remaining work
-- **Next task:** T4a (Dependabot).
+- **Next task:** T5 (`/api/learning` cross-tenant closure). *(T4a resolved — see "T4a — Dependabot (status)" above: Detection-Only; automated updates rejected by evidence.)*
 - **Pending:** all tasks listed under "Pending" above.
 - **Deferred follow-ups (tracking only — noted during Wave A execution, not new work items):**
   - Workflow doc-drift: `release-ci-verify.yml` still describes `release/verify` as non-blocking, though T3b made it a required check — DEFERRED.
