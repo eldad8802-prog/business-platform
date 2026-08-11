@@ -1009,6 +1009,58 @@ Per C4 (§2.5): Determinism & statelessness — pure function; no state / schedu
 
 **Governance Note.** This is a CONTRACT-PENDING draft projecting §M verbatim. It writes no new normative wording, allocates no operatorId / Primitive number / Contract ID, adds no Contracts-Register row, and does not ratify. Equality remains `candidate · CONTRACT-PENDING · NOT A RATIFIED MEMBER`. The next stage is the W6 Closure Battery (separate, requiring its own approval).
 
+### O · Equality W6 · Closure Battery Record — W6 CLOSURE BATTERY CLEAN PASS · Equality CONTRACT-PENDING
+
+**§O.1 · Scope & Status.** This is a Closure-verification record ONLY. It is not a Ratification record and performs no allocation. Subject = §N (Equality §2 Contract DRAFT). Basis = §2.5-B (C1–C8) + cross-layer + semantic closure. §N is unchanged by this record. Equality remains `candidate · CONTRACT-PENDING · NOT A RATIFIED MEMBER`.
+
+**§O.2 · C1–C8 Result Table**
+
+| # | Criterion (HOME §2.5-B) | Requirement | Evidence | Verdict |
+|---|---|---|---|---|
+| C1 | Irreducibility | not composable from other operators | W1 (2026-07-22): no known legal contract-preserving decomposition; not a §2.9 View | **PASS** |
+| C2 | Single Grammar Class | exactly one ratified class | §N field 2 = `Canonical Relation Evaluation` (EQ-CF1; PART A §6b `@v1.1`); C2 reconciled by Amendment A3 | **PASS** |
+| C3 | §2 conformance + Output Contract | declarable via §2, has an Output Contract | §N declares all 11 fields; §5 `outputContract` (EA1 · EC1 · EC2) present | **PASS** |
+| C4 | Determinism & statelessness | pure function; no state/schedule/inference/side-effects | §N §8: ED3 lock + IMP-2/CPT-1 verbatim projection (Authority/HOME C4 §2.5); explicit (avoids Count SF-1) | **PASS** |
+| C5 | Layer-correctness | consumes grounds/projection, emits within the Projection layer | Equality evaluates a relation → a Canonical Relation State (EC1), not Evidence and not Belief | **PASS** |
+| C6 (=C6a) | Honesty / no-fabrication | grounds-anchored; no fabrication | EB3 (admissibility upstream; inadmissibility → Failure, never `NOT_EQUAL`; no membership inference); EC2 (no fabricated outcome). C6b coverage = OQ-39 (not membership) | **PASS** |
+| C7 | Output-Contract versionability + purpose-identity | operatorId=purpose; version tracks Output Contract | stable purpose-identity + ED4/§10 versioning discipline + §5 Output-Contract anchor. The operatorId string is NOT ASSIGNED (deferred to Ratification); C7 is evaluated on the purpose-identity, and its normative wording asserts no allocated-string requirement | **PASS** |
+| C8 | Inventory-Independence (A0) | definition references no other operator's existence | ED1 (no dependency on Ordinal); EQ-CF1 examined independently of Ordinal (Swap-Test) | **PASS** |
+
+**§O.3 · Cross-Layer Checks**
+- **§K → §L:** W3 did not expand the W1 Candidate Boundary (EA1 = canonical value-equality, ≠ identity-equality, ≠ semantic-equivalence — identical to the W1/§K boundary). **PASS**
+- **§L → §M:** 15/15 locks preserved byte-for-byte (§M.2 == §L); no omission, no reinterpretation; Deferrals preserved; Phase A–E preserved. **PASS**
+- **§M → §N:** 15/15 projected byte-for-byte (§N HOME bodies == §M.2); HOME/Reference distinction preserved; no re-bucketing; §7/§9 governance-only (no unauthorized HOME); §11 resolves no Deferral. **PASS**
+- **IMP-2 → CPT-1 → §N §8:** registration ↔ projection match; CPT-1 text verbatim; Authority/HOME remains C4 §2.5; no duplicate authority; the ED3 lock is not replaced by the projection; identity/failure commitments are not reclassified as determinism (field-8 naming). **PASS**
+
+**§O.4 · Semantic Closure Checks** — all asserted against §N, all **PASS**: value-equality boundary; value ≠ identity; value ≠ semantic-equivalence; two peer relata; authorized equivalence-domain; admissibility upstream; no membership inference in Equality; canonicalization Domain-owned and optional; Outcome `EQUAL`/`NOT_EQUAL` only; Outcome XOR Failure; Failure ≠ `NOT_EQUAL`; Failure ∉ EqualityRelationState; ordered operation identity; Specification / Attempt / Disposition / Record separation; determinism / statelessness; Contract-Version immutability; A/B/C/D failure taxonomy; A Equality-owned vs B/C/D recognized-boundaries; distributed detection; mandatory non-outcome preservation; absent family-classification legality; no fifth failure family; boundary-breach distinction; all EE1/EE2 Deferrals preserved.
+
+**§O.5 · OUT-OF-SCOPE / Deferral Disposition**
+- **OUT-OF-SCOPE (justified) — N = 2:** (1) **Coverage** — OQ-39; governance-only (§N §7), not a membership criterion (C6b). (2) **Composition** — `OPEN` in the CRE Register; governance-only (§N §9), not decided at contract level.
+- **Implementation-only deferrals (downstream; not closure-blocking):** the §N §11 / §M.4 entries — hashing · replay-key · cache-key · identifier-encoding · UUID · persistence · codes · messages · wire · schema · registry · retry · supervisor/audit mechanism · concrete execution locus · membership-proof mechanism · detection mechanics · migration · version-format · absent-classification representation · the D↔C distinction at implementation level. None blocks any criterion.
+- **Closure-relevant but justified:** failure-determinism (ED3 / EE1) — C4 requires only successful-Outcome determinism (failure-determinism is explicitly not locked), so it is not a C4 defect.
+- **Contradictions:** none.
+
+**§O.6 · Defect Handling.** No defects surfaced. No `DEFECT-N` recorded. No correction was performed; no §K/§L/§M/§N change; no Amendment; no Deferral resolved.
+
+**§O.7 · Source Mapping**
+
+| Verdict | Criterion HOME | Evidence | §N commitment | §L/§M source |
+|---|---|---|---|---|
+| C1 | §2.5-B C1 | W1 no-decomposition | — (membership) | W1 / §K |
+| C2 | §2.5-B C2 (A3) | one ratified class (CRE) | §N field 2 | EQ-CF1 / PART A §6b |
+| C3 | §2.5-B C3 | 11 fields + Output Contract | §N §5 | EC1 · EC2 · EA1 |
+| C4 | §2.5-B C4 (A4) | explicit determinism projection | §N §8 | ED3 + CPT-1 (C4 §2.5) |
+| C5 | §2.5-B C5 | Projection-layer relation-state | §N §5 | EC1 |
+| C6 | §2.5-B C6a | no-fabrication | §N §4 / §5 | EB3 · EC2 |
+| C7 | §2.5-B C7 | purpose-identity + versioning | §N §10 / §5 | ED4 |
+| C8 | §2.5-B C8 | inventory-independence | §N §8 | ED1 / EQ-CF1 |
+| Cross-layer | provenance chain | byte-identity | §K → §L → §M → §N | — |
+| IMP-2 / CPT-1 | C4 §2.5 | verbatim projection | §N §8 | §M.3 / CPT-1 |
+
+**§O.8 · Final Verdict.** **W6 Closure Battery CLEAN PASS · C1–C8 PASS · Cross-layer PASS · 2 OUT-OF-SCOPE justified.**
+
+**Governance Note.** §O is a Closure record only. It performs no allocation and no ratification: no operatorId, no Primitive #6, no Contract-ID, no Contracts-Register row, no CRE promotion, and no Ledger status change. §N remains DRAFT · CONTRACT-PENDING; Equality remains `candidate · CONTRACT-PENDING · NOT A RATIFIED MEMBER`. A successful W6 closes Stage 5 but does not ratify Equality; Final Ratification is a separate stage requiring its own audit and approval.
+
 ---
 
 ## 3 · Operator Inventory  (LEVEL 1 — CLASSIFICATION IN PROGRESS, all PROPOSED)
