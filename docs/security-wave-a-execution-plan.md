@@ -28,6 +28,23 @@ targeted low-cost, low-regression perimeter closures).
 | T3a | CODEOWNERS | ✅ **COMPLETED** | PR #161 · `24ab3f1` | `.github/CODEOWNERS` | GitHub CODEOWNERS validation `errors: []`; CI green; single-file merge |
 | T3b | Branch Protection / Required Checks | ✅ **VERIFIED** | settings-only (no PR) | Classic branch protection on `main` | Read-back: PR required, `release/verify` required, `enforce_admins=false`, linear history, force-push + deletion blocked |
 | T3c | Secret Scanning / Push Protection | ✅ **VERIFIED / CLOSED** | settings-only (no PR) | `security_and_analysis`: `secret_scanning=enabled`, `secret_scanning_push_protection=enabled` | Already active; verified via API (capabilities were pre-enabled). Verified, not implemented. |
+| T5 | `/api/learning` cross-tenant closure (gap C-2) | ✅ **VERIFIED / CLOSED** | PR #182 · `a424193072aa348da7ab1bae0ad77f55a48e1f76` | `/api/learning` + `/api/feedback` removed; `PrePublishModal` feedback mechanism removed | See "T5 — `/api/learning` closure (status)" below |
+
+## T5 — `/api/learning` closure (status)
+
+| Fact | Value |
+|------|-------|
+| PR / Squash SHA | PR #182 · `a424193072aa348da7ab1bae0ad77f55a48e1f76` |
+| `/api/learning` | **Removed** |
+| `/api/feedback` | **Removed** |
+| Cross-tenant read vector | **Removed** |
+| Global unowned write source | **Removed** |
+| `ContentFeedback` model | **Retained in schema only** — no active Reader/Writer |
+| Data-retention / schema cleanup | **Deferred** — intentional, tracked as a separate future task |
+| Prisma schema change | **None** |
+| Migration | **None** |
+| Vercel deploys (post-merge) | **Both Success** |
+| Status | **VERIFIED / CLOSED** |
 
 ## T4a — Dependabot (status)
 
@@ -48,7 +65,6 @@ targeted low-cost, low-regression perimeter closures).
 ## Pending (status only)
 
 **Stage 1 — Headers & Targeted Closures**
-- T5 — `/api/learning` cross-tenant closure — ⏳ PENDING
 - T4b — Remove unused `bcryptjs` — ⏳ PENDING
 - T1 — Static security headers — ⏳ PENDING
 - T2 — CSP (report-only) — ⏳ PENDING
@@ -69,7 +85,7 @@ targeted low-cost, low-regression perimeter closures).
 ---
 
 ## Remaining work
-- **Next task:** T5 (`/api/learning` cross-tenant closure). *(T4a resolved — see "T4a — Dependabot (status)" above: Detection-Only; automated updates rejected by evidence.)*
+- **Next task:** T4b (remove unused `bcryptjs`). *(T5 resolved — see "T5 — `/api/learning` closure (status)" above: cross-tenant read vector + global unowned write source removed; VERIFIED / CLOSED. T4a resolved — see "T4a — Dependabot (status)": Detection-Only; automated updates rejected by evidence.)*
 - **Pending:** all tasks listed under "Pending" above.
 - **Deferred follow-ups (tracking only — noted during Wave A execution, not new work items):**
   - Workflow doc-drift: `release-ci-verify.yml` still describes `release/verify` as non-blocking, though T3b made it a required check — DEFERRED.
