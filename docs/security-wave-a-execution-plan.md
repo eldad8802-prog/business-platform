@@ -29,6 +29,7 @@ targeted low-cost, low-regression perimeter closures).
 | T3b | Branch Protection / Required Checks | ✅ **VERIFIED** | settings-only (no PR) | Classic branch protection on `main` | Read-back: PR required, `release/verify` required, `enforce_admins=false`, linear history, force-push + deletion blocked |
 | T3c | Secret Scanning / Push Protection | ✅ **VERIFIED / CLOSED** | settings-only (no PR) | `security_and_analysis`: `secret_scanning=enabled`, `secret_scanning_push_protection=enabled` | Already active; verified via API (capabilities were pre-enabled). Verified, not implemented. |
 | T5 | `/api/learning` cross-tenant closure (gap C-2) | ✅ **VERIFIED / CLOSED** | PR #182 · `a424193072aa348da7ab1bae0ad77f55a48e1f76` | `/api/learning` + `/api/feedback` removed; `PrePublishModal` feedback mechanism removed | See "T5 — `/api/learning` closure (status)" below |
+| T4b | Remove unused `bcryptjs` dependency | ✅ **VERIFIED / CLOSED** | PR #186 · `65ca26dddfc3dceda1f3b61266fe0008d828bc56` | `bcryptjs` removed from `package.json` + `package-lock.json`; `bcrypt` / `@types/bcrypt` unchanged | See "T4b — `bcryptjs` removal (status)" below |
 
 ## T5 — `/api/learning` closure (status)
 
@@ -43,6 +44,21 @@ targeted low-cost, low-regression perimeter closures).
 | Data-retention / schema cleanup | **Deferred** — intentional, tracked as a separate future task |
 | Prisma schema change | **None** |
 | Migration | **None** |
+| Vercel deploys (post-merge) | **Both Success** |
+| Status | **VERIFIED / CLOSED** |
+
+## T4b — `bcryptjs` removal (status)
+
+| Fact | Value |
+|------|-------|
+| PR / Squash SHA | PR #186 · `65ca26dddfc3dceda1f3b61266fe0008d828bc56` |
+| Driver | Dependency Hygiene (unused direct dependency) — **not** a Dependabot alert (0/52 open alerts mention bcrypt/bcryptjs) |
+| `bcryptjs` | **Removed** from `package.json` + `package-lock.json` |
+| `bcrypt` (native, `^6.0.0`) | **Unchanged** — remains the sole hashing library on the live auth path |
+| `@types/bcrypt` | **Unchanged** |
+| Auth code (`app/api/auth/*`) | **Unchanged** |
+| Diff scope | Exactly 2 files; only `bcryptjs` records; no other dependency pin changed |
+| Prisma schema / migration / config / workflow / CI change | **None** |
 | Vercel deploys (post-merge) | **Both Success** |
 | Status | **VERIFIED / CLOSED** |
 
@@ -65,7 +81,6 @@ targeted low-cost, low-regression perimeter closures).
 ## Pending (status only)
 
 **Stage 1 — Headers & Targeted Closures**
-- T4b — Remove unused `bcryptjs` — ⏳ PENDING
 - T1 — Static security headers — ⏳ PENDING
 - T2 — CSP (report-only) — ⏳ PENDING
 - T6 — `POST /api/business` gate — ⏳ PENDING
@@ -85,7 +100,6 @@ targeted low-cost, low-regression perimeter closures).
 ---
 
 ## Remaining work
-- **Next task:** T4b (remove unused `bcryptjs`). *(T5 resolved — see "T5 — `/api/learning` closure (status)" above: cross-tenant read vector + global unowned write source removed; VERIFIED / CLOSED. T4a resolved — see "T4a — Dependabot (status)": Detection-Only; automated updates rejected by evidence.)*
 - **Pending:** all tasks listed under "Pending" above.
 - **Deferred follow-ups (tracking only — noted during Wave A execution, not new work items):**
   - Workflow doc-drift: `release-ci-verify.yml` still describes `release/verify` as non-blocking, though T3b made it a required check — DEFERRED.
