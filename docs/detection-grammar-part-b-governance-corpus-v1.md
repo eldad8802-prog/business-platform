@@ -916,6 +916,99 @@ This Design Bundle collects, **verbatim**, the ratified W3 outputs for Ordinal v
 
 **Governance Note.** §M is an Evidence/Assembly record only. It does not write the Equality §2 Contract, does not perform the CPT-1 projection into any contract, and allocates no operatorId, Primitive number, or Contract ID. The IMP-2 entry is projection-registration metadata, not an operator allocation. §M changes no governance status: Equality remains `candidate · CONTRACT-PENDING · NOT A RATIFIED MEMBER`.
 
+### N · Equality — §2 Contract · DRAFT · CONTRACT-PENDING (no operatorId / Primitive# / Contract-ID assigned; not ratified)
+
+> **Governance.** Structure = the Ratified §2 Template (11 fields). Content = the §M Bundle ONLY (verbatim). HOME = the single normative-authority site where a commitment is defined; a Reference is navigational only. Contract Metadata (§1–§2) is excluded from the Projection Audit. This is a CONTRACT-PENDING draft: no new decision, refinement, or Open-Question resolution; operatorId, Primitive number, and Contract ID are deferred to Closure/Ratification.
+
+**Contract Metadata (not Projection; excluded from Projection Audit)**
+
+1. `operatorId` — **[NOT ASSIGNED — deferred to Closure/Ratification.]** Candidate name `Equality`; not allocated in this draft.
+2. `class` — `Canonical Relation Evaluation` (PART A §6b, ratified `@v1.1`).
+
+**Contract Content (Projection of §M — verbatim)**
+
+3. `purpose` — **[Reference-only · navigational]** → EA1 · EC1 · EC2 (§5 HOME) · EB1 · EA3 (§4 HOME). No normative wording is stated here.
+
+4. `inputContract` — **HOME of EA2 · EA3 · EB1 · EB2 · EB3 · EB4:**
+
+**EA2 · Criterion Ownership & Boundary — LOCKED.** The equality criterion is supplied by the authorized Domain. Equality does not invent, infer, broaden, or relax that criterion. Any transformation or rule used in evaluation must remain within the boundary of "same authorized abstract value"; similarity, tolerance, approximation, semantic relatedness, or business substitutability do not become Equality merely because a Domain mechanism can compute them. Two guards apply: **(1) Governance guard** — any such rule must be explicit, authorized, version-bound, and replayable; **(2) Relation-boundary guard** — the resulting relation must still mean identity of the same abstract value and must not become Similarity or Approximation. *Excludes:* operator-invented/broadened/relaxed criteria · similarity/tolerance/approximation/business-substitutability as Equality. *Deferred:* exact Domain binding (EA3) · admissibility (EB3) · canonicalization ownership (EB4) · version ownership (ED4).
+
+**EA3 · Domain Binding — LOCKED.** Each Equality operation is bound to one explicit Domain ID and one explicit Domain Version. There is no Domain inference and no Version inference; no cross-domain evaluation and no cross-version evaluation; no hidden compatibility mode and no hidden migration. Replay preserves the same binding. Any value-identity-affecting transformation is explicit, Domain-owned, version-bound, deterministic, replayable, and non-hidden. *Excludes:* inferred/implicit domain or version · cross-domain/version · hidden compatibility/migration. *Deferred:* operation identity (ED1) · membership (EB3) · concrete resolution mechanism.
+
+**EB1 · Arity & Peer Relata — LOCKED.** Equality takes exactly two relata; the two relata are peers with no subject/object hierarchy. Swapping the two admissible relata preserves the Outcome (Outcome symmetry); this symmetry does not establish that the two orderings are the same Operation. A structured value is permitted as a relatum when the Domain defines it as one value. No generic collection equality is created by EB1. *Excludes:* subject/object hierarchy · n-ary/variadic · operator-created collection equality · inferring operation identity from Outcome symmetry. *Deferred:* same-domain/kind (EB2) · admissibility (EB3) · operation identity (ED1).
+
+**EB2 · Same Domain & Version — LOCKED.** Both relata must be admissible under the exact single bound Domain ID and Domain Version (the same authorized abstract-value space). Same runtime representation or type is not required if the Domain admits them. A mismatch is a Failure, never `NOT_EQUAL`. *Excludes:* cross-domain/version evaluation · compatibility-as-identity · operator-owned conversion/coercion. *Deferred:* admissibility proof (EB3) · canonicalization (EB4) · failure taxonomy (EE1).
+
+**EB3 · Relatum Admissibility & Membership — LOCKED.** Admissibility is an upstream precondition; Equality consumes the guarantee and does not itself establish Domain membership. A missing relatum or a broken invocation envelope may be detected structurally; such an envelope guard is not membership validation. Null and Sentinel are not universally inadmissible; they are admissible only when the bound Domain defines them as values. A type may carry evidence of membership but does not define admissibility or Equality. An unresolved reference may itself be a Domain value if the Domain defines it as such. Inadmissibility never becomes `NOT_EQUAL`. *Excludes:* operator membership inference · type as definition of admissibility/Equality · inadmissibility→`NOT_EQUAL`. *Deferred:* proof mechanism · parsing/validation/normalization HOME (EB4/architecture) · detection mechanics (EE2).
+
+**EB4 · Normalization / Canonicalization Ownership — LOCKED.** Canonicalization is not universally required; it is Domain-owned and Equality-agnostic. Equality does not define, select, or infer any parsing, normalization, conversion, or canonicalization policy. Any value-identity-affecting transformation, if used, is explicit, Domain-owned, version-bound, deterministic, replayable, and non-hidden. Canonical form is optional and non-standardized at the Equality level. A required transformation that has not been satisfied yields a Failure, never `NOT_EQUAL`. No new Primitive, Registry, or Engine is authorized. *Excludes:* mandatory universal canonical form · operator-performed normalization · a blanket ban on canonicalization · hidden/caller-inline transformation. *Deferred:* concrete execution locus · whether a given Domain uses canonical form · versioning (ED4).
+
+5. `outputContract` — **HOME of EA1 · EC1 · EC2** (this field is the versioning anchor)**:**
+
+**EA1 · Relation Semantics — LOCKED.** Equality concerns identity of an authorized domain-qualified abstract value. Value is not Representation. Different representations may denote the same abstract value, and representation identity alone does not define value identity. Canonical form may serve as a witness but is neither universally required nor defined by Equality. *Excludes:* representation identity · object/record identity · similarity · approximation · semantic relatedness · business equivalence. *Deferred:* domain binding (EA3) · admissibility (EB3) · canonicalization ownership (EB4).
+
+**EC1 · Outcome Type — LOCKED.** A successful Equality evaluation yields exactly one typed canonical relation state: `EQUAL` or `NOT_EQUAL`. There is no third Outcome. Failure is outside the Outcome domain. The Outcome is not a bare Boolean and carries no similarity score, confidence, validation status, domain-specific label, reason, evidence, or payload within the Outcome value. Outcome identity is not Operation identity. *Excludes:* `UNKNOWN`/`INVALID`/`ERROR`/`PARTIAL` as Outcome members · bare Boolean · score/confidence · domain-specific labels · payload inside the Outcome value. *Deferred:* failure channel (EC2) · outcome/record identity (ED2).
+
+**EC2 · Failure vs Outcome Channel — LOCKED.** Every accepted evaluation attempt that reaches a terminal disposition yields exactly one of: a canonical Outcome, or a Failure — never both and never neither. Failure is not a member of the Equality relation-state and is never `NOT_EQUAL`. There is no partial, degraded, or stale Outcome. Failure is a non-outcome category; its concrete type and representation are deferred, and no delivery mechanism is fixed here. *Excludes:* in-band failure value · `NOT_EQUAL` fallback · Outcome and Failure together · a third state. *Deferred:* envelope mechanism · failure taxonomy/codes (EE1) · replayability.
+
+6. `parameters` — **[Reference-only · navigational]** Equality v1 declares no semantic parameter → EA3 (criterion not parameter-supplied) · EB4 (no operator-owned transformation).
+
+7. `coverageDeclaration` — **[Governance-only; not a W3 axis]** Coverage is not decided here; it is subject to existing Coverage Governance (contributor, not authority).
+
+8. `determinism` — **HOME of ED3 · ED1 · ED2 · EE1 · EE2. Each is a named contract commitment projected verbatim from §M; placement in field 8 does not reclassify identity or failure commitments as determinism. Includes the inherited membership projection registered by IMP-2 from CPT-1, Authority/HOME C4 §2.5:**
+
+**ED3 · Determinism & Statelessness — LOCKED.** C4 applies. Successful-Outcome determinism holds: under the same complete version-pinned semantic specification, a completed evaluation yields the same canonical Outcome. Statelessness is observational: no hidden state, schedule, inference, environment dependence, or semantic side effects; internal implementation state is permitted only when observationally irrelevant to the canonical Outcome. Failure determinism is not locked. *Subsequent record-readiness evidence (not part of the original ED3 lock):* CPT-1 was later audited and found operator-agnostic and applicable to Equality for future projection; no IMP registration occurs in §L. *Excludes:* implicit-only inheritance of C4 · deriving the commitments from "pure function" · operator-owned domain determinism CPT. *Deferred:* IMP registration and projection (§I) · failure determinism (EE1) · replay-key model.
+
+**ED1 · Operation Identity — LOCKED.** Operation identity is ordered and orientation-preserving. `(a,b)` and `(b,a)` are distinct Operations even though successful evaluation must yield the same Outcome by symmetry. Identity includes the exact Domain binding and stable identities/references of the two admitted relatum participations in their original positional orientation. ED4 later adds Contract Version and any other approved semantic-authority reference. *Excludes:* unordered/commutative operation identity · canonical sorting of relata · value-resolved identity · any dependency on Ordinal. *Deferred:* hashing · replay key · cache key · identifier encoding · concrete reference mechanism.
+
+**ED2 · Outcome & Result-Record Identity — LOCKED.** Four layers remain distinct and never collapse: Operation specification, Evaluation attempt, Terminal disposition, and Result record. `EQUAL` and `NOT_EQUAL` are shared canonical values, not minted per attempt; the occurrence that an attempt produced an Outcome is distinct from the Outcome value. A new execution started after a completed Attempt is a new Attempt; resume, internal backoff, step retry, or continuation within the same execution occurrence are not necessarily new Attempts, and the concrete boundary is deferred to execution architecture. A Specification may be executed zero, one, or many times; a Result record may be zero, one, or many artifacts. No normative identity collapse occurs between Specification, Attempt, Outcome, and Record. *Excludes:* collapsed identity · outcome-keyed record identity · request-ID as operation identity. *Deferred:* identifiers/UUID/hash · persistence · determinism (ED3).
+
+**EE1 · Failure Taxonomy & Boundary — LOCKED.** Failures fall into four families: **A — Equality Contract Failure**, Equality-owned; **B — Domain / Admission / Authority**, a recognized boundary whose internal taxonomy is owned by the Domain authority; **C — Operational**, a recognized boundary whose internal taxonomy is owned by Execution / Platform; **D — Internal Defect**, a recognized boundary governed by the violated invariant / appropriate supervisory authority. Family classification follows the root authority or invariant violated; persistent versus transient alone does not determine ownership. Failure is not an Outcome and is never `NOT_EQUAL`; a terminal disposition is Outcome XOR Failure; there is no valid "undefined comparison" once two admissible relata have been accepted for evaluation. Semantic authority is immutable under the same Version, and there is no blanket replay guarantee for a failure occurrence, family, code, or diagnosis. *Excludes:* a single flat failure enum · Equality owning the internal taxonomy of B/C/D · codes/wire/exception hierarchy. *Deferred:* codes · messages · wire · persistence · registry · retry · schema · the D↔C distinction at implementation level · the representation of an absent classification.
+
+**EE2 · Failure Detection Obligation — LOCKED.** Four operations remain distinct: **Detection** follows operational capability; **Classification** authority follows semantic ownership (A/B/C/D); **Propagation** carries a Failure toward the Evaluation boundary without transferring ownership; **Preservation** of Outcome XOR Failure is owned by the Evaluation boundary. Classification of Family A is mandatory when Equality's own invocation boundary detects a contract violation; classification of B/C/D is consumed and preserved only when supplied by an authoritative source, and is never invented. A Failure disposition may be valid without a resolved Family classification; the absence of a classification creates no fifth family and no third Outcome, and its representation is deferred. Equality performs no classification inference. A captured internal defect may terminate as a valid Failure; a breach in which the Evaluation boundary itself fails to produce a legal terminal disposition is observed outside the broken Attempt and is not automatically Family D of that same Attempt. The Preservation obligation is normative; its operational realization (any supervisor, API, exception, storage, queue, or retry mechanism) is deferred. *Excludes:* presupposition-only detection · mandatory exact canonical classification · escalating an unclassified-but-preserved Failure to Family D · defining a supervisor API or execution architecture. *Deferred:* supervisor/audit mechanism · codes/messages · the D↔C distinction at family level · the representation of an absent classification.
+
+**IMP-2 · CPT-1 — inherited membership projection**
+Per C4 (§2.5): Determinism & statelessness — pure function; no state / schedule / inference / side effects.
+
+9. `compositionRules` — **[Governance-only]** Equality composition is `OPEN` (CRE Register); not decided here.
+
+10. `versioningRule` — **HOME of ED4:**
+
+**ED4 · Versioning Boundary — LOCKED.** Two ownership-aligned version authorities exist: the Domain Version (Domain-owned semantics) and the Equality Contract Version (operator-owned commitments); they are non-overlapping, and an implementation-only change bumps neither. Replay pins both. Different versions yield a different Operation specification. Policy is, by default, governed under Domain authority; a separate versioned policy artifact is not prohibited provided it has one semantic owner, an explicit version, an explicit binding, replayability, no `latest`, no mutable policy, and no dual authority. No Policy Registry is created. A complete specification includes at least the Contract Version, Domain ID, Domain Version, ordered relata references, and any additional approved semantic-authority reference. *Excludes:* a single unified version · subsumption of one authority by the other · a third free-standing policy authority causing dual authority · a version-format decision. *Deferred:* version format · migration · failure-code versioning (EE1).
+
+11. `openQuestions` — **HOME of the §M.4 Deferrals (source-preserving; none resolved):**
+- **EA1** → domain binding (EA3) · admissibility (EB3) · canonicalization ownership (EB4)
+- **EA2** → exact Domain binding (EA3) · admissibility (EB3) · canonicalization ownership (EB4) · version ownership (ED4)
+- **EA3** → operation identity (ED1) · membership (EB3) · concrete resolution mechanism
+- **EB1** → same-domain/kind (EB2) · admissibility (EB3) · operation identity (ED1)
+- **EB2** → admissibility proof (EB3) · canonicalization (EB4) · failure taxonomy (EE1)
+- **EB3** → proof mechanism · parsing/validation/normalization HOME (EB4/architecture) · detection mechanics (EE2)
+- **EB4** → concrete execution locus · whether a given Domain uses canonical form · versioning (ED4)
+- **EC1** → failure channel (EC2) · outcome/record identity (ED2)
+- **EC2** → envelope mechanism · failure taxonomy/codes (EE1) · replayability
+- **ED1** → hashing · replay key · cache key · identifier encoding · concrete reference mechanism
+- **ED2** → identifiers/UUID/hash · persistence · determinism (ED3)
+- **ED3** → IMP registration and projection (§I) · failure determinism (EE1) · replay-key model
+- **ED4** → version format · migration · failure-code versioning (EE1)
+- **EE1** → codes · messages · wire · persistence · registry · retry · schema · the D↔C distinction at implementation level · the representation of an absent classification
+- **EE2** → supervisor/audit mechanism · codes/messages · the D↔C distinction at family level · the representation of an absent classification
+
+**§N Source Mapping** *(bidirectional; Metadata excluded)*
+
+| Field | HOME (authority) | References (navigational) |
+|---|---|---|
+| §3 purpose | — | → EA1 · EC1 · EC2 (§5) · EB1 · EA3 (§4) |
+| §4 inputContract | EA2 · EA3 · EB1 · EB2 · EB3 · EB4 | — |
+| §5 outputContract | EA1 · EC1 · EC2 | ← by §3 |
+| §6 parameters | — | → EA3 · EB4 |
+| §7 coverageDeclaration | Coverage Governance (OQ-39-analog) | — |
+| §8 determinism | ED3 · ED1 · ED2 · EE1 · EE2 ; IMP-2 registering CPT-1 (Authority/HOME: C4 §2.5) | — |
+| §9 compositionRules | Composition (OPEN) | — |
+| §10 versioningRule | ED4 | — |
+| §11 openQuestions | §M.4 Deferrals (source-preserving) | — |
+
+**Governance Note.** This is a CONTRACT-PENDING draft projecting §M verbatim. It writes no new normative wording, allocates no operatorId / Primitive number / Contract ID, adds no Contracts-Register row, and does not ratify. Equality remains `candidate · CONTRACT-PENDING · NOT A RATIFIED MEMBER`. The next stage is the W6 Closure Battery (separate, requiring its own approval).
+
 ---
 
 ## 3 · Operator Inventory  (LEVEL 1 — CLASSIFICATION IN PROGRESS, all PROPOSED)
