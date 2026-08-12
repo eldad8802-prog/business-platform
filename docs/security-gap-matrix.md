@@ -4,6 +4,8 @@
 > **תחולה:** SaaS multi-tenant — מסמכים, לקוחות, WhatsApp, Billing, Inventory, Platform Admin, ובעתיד מנויים וסליקה.  
 > **היקף מסמך:** תכנון בלבד. אין קוד, אין implementation, אין PR, אין schema/runtime changes.  
 > **מסמכי בסיס:** Security Audit Mapping (שיחת סוכן), `docs/security-architecture-review.md`, Threat Modeling (§1 באותו מסמך), `docs/billing-compliance-*`.
+>
+> **פערים רגולטוריים (ITA):** ההתחייבויות החתומות מול רשות המסים והפערים הנגזרים מהן (כולל H-13/H-14/M-16) מיוצגים ומרוכזים ב-`docs/security-master-plan-v1.md` **§13 (Regulatory Commitments — ITA)** — מקור-האמת היחיד למיפוי-הרגולטורי. מטריצה זו אינה משכפלת אותם.
 
 > ---
 > **⚠️ עדכון Ground Truth — 2026-07-31 (בסיס: `origin/main` @ `cd4048c`):**
