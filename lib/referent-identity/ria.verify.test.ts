@@ -186,12 +186,19 @@ section("X4 — UNRESOLVED (No-Authorization)");
   check("anchors NOT aligned", !anchorsAligned(cii, R_A, R_B));
 }
 
-// ── X5 — contradictory SAME-closure + DISTINCT → CONFLICT, abstain, no cut ────
-section("X5 — CONFLICT (RC6: abstain, no graph-cut)");
+// ── X5a — clean transitive conflict from THREE independent unambiguous assertions ─
+// R1={A}, R2={A,B}, R3={B}: R1~R2 via token A, R2~R3 via token B, and R1/R3 share NO
+// token — so NO single evaluation is both SAME- and DISTINCT-eligible. The CONFLICT
+// arises purely from the SAME-closure contradicting an independent DISTINCT (RC6),
+// with zero authority-level precedence.
+section("X5a — CONFLICT via independent assertions (RC6, no precedence)");
 {
   const R1 = canonicalReferentId("R:x:conflict-1");
   const R2 = canonicalReferentId("R:x:conflict-2");
   const R3 = canonicalReferentId("R:x:conflict-3");
+  const TA = fixtureAuthoritativeRef("A");
+  const TAB = fixtureAuthoritativeRef("A|B");
+  const TB = fixtureAuthoritativeRef("B");
   const cot1 = normalizeResourceObservation({
     featureDomain: "documents", datum: 5, sourceRecordId: "doc-5a", runId: "run-5a",
   });
@@ -201,22 +208,24 @@ section("X5 — CONFLICT (RC6: abstain, no graph-cut)");
   const cot3 = normalizeResourceObservation({
     featureDomain: "documents", datum: 5, sourceRecordId: "doc-5c", runId: "run-5c",
   });
-  // R1,R2,R3 share a token (transitive SAME); R1 is affirmatively DISTINCT from R3.
   const b1 = bindingFromCot(cot1, {
-    canonicalReferentId: R1, authorityRef: TOKEN_42, affirmativeDistinctFrom: [R3],
+    canonicalReferentId: R1, authorityRef: TA, affirmativeDistinctFrom: [R3],
   });
-  const b2 = bindingFromCot(cot2, { canonicalReferentId: R2, authorityRef: TOKEN_42 });
-  const b3 = bindingFromCot(cot3, { canonicalReferentId: R3, authorityRef: TOKEN_42 });
+  const b2 = bindingFromCot(cot2, { canonicalReferentId: R2, authorityRef: TAB });
+  const b3 = bindingFromCot(cot3, { canonicalReferentId: R3, authorityRef: TB });
 
   const rec12 = authorizeAndRecord(policy, b1, b2, TIMES);
   const rec23 = authorizeAndRecord(policy, b2, b3, TIMES);
   const rec13 = authorizeAndRecord(policy, b1, b3, TIMES);
-  check("R1~R2 authorized SAME", rec12.decision.kind === "AUTHORIZED" &&
+  check("R1~R2 unambiguous SAME (A ∩ {A,B})", rec12.decision.kind === "AUTHORIZED" &&
     rec12.decision.basis.relation === "SAME");
-  check("R2~R3 authorized SAME", rec23.decision.kind === "AUTHORIZED" &&
+  check("R2~R3 unambiguous SAME ({A,B} ∩ B)", rec23.decision.kind === "AUTHORIZED" &&
     rec23.decision.basis.relation === "SAME");
-  check("R1~R3 authorized DISTINCT (targeted affirmative)", rec13.decision.kind === "AUTHORIZED" &&
-    rec13.decision.basis.relation === "DISTINCT");
+  check("R1~R3 unambiguous DISTINCT (disjoint tokens + affirmative)",
+    rec13.decision.kind === "AUTHORIZED" && rec13.decision.basis.relation === "DISTINCT");
+  // None hit the ambiguity guard ⇒ NO pair was both-eligible (no suppressed SAME).
+  check("no evaluation was both-eligible (none abstained)",
+    [rec12, rec23, rec13].every((r) => r.decision.kind === "AUTHORIZED"));
 
   const history: IdentityHistory = [rec12.assertion!, rec23.assertion!, rec13.assertion!];
   const cii = deriveCii(R1, T1, "RESOURCE", history, CTX);
@@ -226,6 +235,41 @@ section("X5 — CONFLICT (RC6: abstain, no graph-cut)");
     cii.members.includes(R2) && cii.members.includes(R3));
   check("CONFLICT is not aligned (abstain — no joint reasoning)",
     !anchorsAligned(cii, R1, R3));
+}
+
+// ── X5b — dual-eligibility guard: policy abstains, never silently picks ───────
+// A direct pair that is BOTH SAME-eligible (shared token {A}) AND DISTINCT-eligible
+// (affirmative). This exists ONLY to prove the guard has no hidden precedence — it is
+// not part of the RIA semantic proof. The general both-fire semantics stay SEMANTIC-OPEN.
+section("X5b — ambiguity guard (no hidden precedence)");
+{
+  const RP = canonicalReferentId("R:x:guard-P");
+  const RQ = canonicalReferentId("R:x:guard-Q");
+  const TA = fixtureAuthoritativeRef("A");
+  const cotP = normalizeResourceObservation({
+    featureDomain: "documents", datum: 5, sourceRecordId: "doc-5g1", runId: "run-5g1",
+  });
+  const cotQ = normalizeResourceObservation({
+    featureDomain: "inventory", datum: 5, sourceRecordId: "inv-5g2", runId: "run-5g2",
+  });
+  const bP = bindingFromCot(cotP, {
+    canonicalReferentId: RP, authorityRef: TA, affirmativeDistinctFrom: [RQ],
+  });
+  const bQ = bindingFromCot(cotQ, { canonicalReferentId: RQ, authorityRef: TA });
+
+  const dec = policy.authorize(bP, bQ);
+  check("dual-eligible pair is NOT authorized SAME",
+    !(dec.kind === "AUTHORIZED" && dec.basis.relation === "SAME"));
+  check("dual-eligible pair is NOT authorized DISTINCT",
+    !(dec.kind === "AUTHORIZED" && dec.basis.relation === "DISTINCT"));
+  check("policy abstains (NO_AUTHORIZATION, ambiguous)",
+    dec.kind === "NO_AUTHORIZATION" && dec.reason.includes("ambiguous"));
+  const rec = authorizeAndRecord(policy, bP, bQ, TIMES);
+  check("no assertion recorded for ambiguous authorization", rec.assertion === null);
+  // Argument-order independence: reversing the pair yields the same abstention.
+  const decRev = policy.authorize(bQ, bP);
+  check("guard is argument-order-independent",
+    decRev.kind === "NO_AUTHORIZATION" && decRev.reason.includes("ambiguous"));
 }
 
 // ── X6 — cross-tenant → invalid, no CII ──────────────────────────────────────
