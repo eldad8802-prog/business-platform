@@ -98,6 +98,8 @@ CI/CD:  main → Vercel auto-deploy | release/verify לא-חוסם | אין bran
 
 רמת Master Plan: מהו הפער, חומרתו, ההשפעה העסקית, ובאיזה Phase הוא מטופל. **ה-Evidence המלא והתיקון המפורט חיים במסמכי ה-Governance.** לכל פער מזהה יציב (C/H/M/L) לצורך הצלבה.
 
+> **פערים רגולטוריים (ITA):** פערים הנגזרים מההתחייבויות החתומות מול רשות המסים — כולל מזהים חדשים (H-13, H-14, M-16) ופריטים תהליכיים/ארגוניים — מרוכזים ב-**§13 (Regulatory Commitments — ITA)**, עם מיפוי לכל דרישה, Owner, Priority ו-Phase.
+
 ### 🔴 Critical
 | ID | פער | השפעה עסקית | Phase |
 |---|---|---|---|
@@ -158,6 +160,8 @@ CI/CD:  main → Vercel auto-deploy | release/verify לא-חוסם | אין bran
 > **הבהרת מספור:** Phases אסטרטגיים מסומנים P1–P8 כדי **לא** להתנגש במספור הביצועי של ה-Governance (Wave 1 / W1-0X). Phase אסטרטגי מקבץ פערים לפי סיכון+תלות; פירוק לביצוע (מספרי Wave, DoD מפורט, Evidence) נעשה במסמכי ה-Governance.
 >
 > **סטטוס קו-בסיס (מיושר ל-Governance):** ה-Wave הביצועי הראשון — **W1-01 Coupon Surface — הושלם (Verified/Closed)**. בנוסף, Distributed Rate Limiting ו-Gmail token-encryption-at-rest מומשו ב-mainline (שארית פתוחה: Gmail AAD, ר' M-1). שאר הפריטים הם התוכנית קדימה.
+>
+> **⚠️ התחייבות רגולטורית (ITA) — השפעה על Phases:** חלק מ-Phases אלו (במיוחד **P2, P5, P8**) נושאים כעת **חובות רגולטוריות מחייבות ("now-binding" מ-22/07/2026)** מכוח ההתחייבות מול רשות המסים — ר' **§13**. מספר חובות בעדיפות **Immediate** ממופות ל-Phases מאוחרים; **שיקול הרצף-מחדש נדחה במפורש לשלב בחירת משימת-ה-Hardening — כאן הוא מיוצג, לא בוצע.** מסמך זה אינו משנה את סדר ה-P1–P8.
 
 לכל Phase: **מטרה** · **היקף (פערים)** · **תלות** · **תוצאת-יעד** (exit במונחי outcome; ה-DoD הביצועי המפורט חי במסמכי ה-Waves).
 
@@ -247,6 +251,48 @@ P2 ─► P8
 - מסמך זה מתוקן ל-**v(n+1)** רק בשינוי מהותי בתמונה הכוללת (בדרך-כלל השלמת Phase, שינוי ארכיטקטוני מהותי, או ביקורת-אבטחה חדשה).
 - תיקוני PR נקודתיים, מעברי סטטוס (Implemented/Verified/Closed) ו-Evidence **אינם** נכנסים לכאן — מקומם ב-Governance.
 - כל גרסה חדשה מציינת את בסיס-הראיות (SHA) שממנו נגזרה.
+
+---
+
+## 13. Regulatory Commitments — ITA (מחייב)
+
+> **הוספה 2026-08-13 — Representation-alignment בלבד.** סעיף זה **מייצג** את ההתחייבויות החתומות מול רשות המסים במסמכי ה-Governance; הוא **אינו** משנה עקרונות (Constitution), capabilities (SEP), או את סדר ה-Roadmap (§8). מקור-האמת למיפוי-הדרישות המלא (VERIFIED/PARTIAL/GAP/UNKNOWN) הוא דוח ה-Compliance-Mapping; כאן — הייצוג, ה-Owner, ה-Priority וה-Phase.
+
+**מסמכי-המקור (חתומים):**
+- נספח אבטחת מידע — הצהרה (חתום 28/07/2025).
+- כתב התחייבות — חיבור בית תוכנה לשע"ם (חתום 24/06/2026).
+
+**עובדות-רקע [VERIFIED]:**
+- תעודת-רישום תוכנה **270901**, בתוקף **22/07/2026–31/07/2028** → Dubiz פועלת מול שע"ם **מ-22/07/2026**; החובות ה-threshold-independent **"now-binding"** מתאריך זה.
+- **תיקון:** דדלייני ה-PT הדתומים בנספח (31/12/2025 · ספט' 2025) חלים על גופים "הפועלים כבר היום" (נכון ל-2025); Dubiz **לא** פעלה מול שע"ם באותן תאריכים → **אין הפרת-דדליין-שחלף**. מועד-PT-ראשון תלוי תחולת >10/>100 לקוחות — **UNKNOWN** (דורש ספירת-prod).
+
+**Owner:** כל הפריטים — **@eldad8802-prog** (המתחזק היחיד, לפי `.github/CODEOWNERS`; מוכן להעברה ל-Security-Owner ייעודי).
+
+**מזהי-פער חדשים (רגולטוריים):** `H-13` (חיוב 2FA ללקוחות) · `H-14` (הודעה-מיידית-לרשות על אירוע) · `M-16` (לוגי-אימות מוצפנים, retention 12 חודש) · פריטים תהליכיים/ארגוניים (IR annual-review · PT regulatory-cadence · סודיות-עובדים).
+
+**מיפוי ההתחייבויות (Representation · Traceability · Priority · Phase):**
+
+| ITA-ID | דרישה | מקור חתום | Coverage היום | Gap-ID | Priority | Phase |
+|---|---|---|---|---|---|---|
+| ITA-1 | סודיות + בידוד-דיירים | נספח §4–8; כתב §5(1) | PARTIAL | C-1 | High | P3 |
+| ITA-2 | **חיוב 2FA ללקוחות** | נספח §17 | GAP | **H-13** (חדש) | **Immediate** | P2 |
+| ITA-3 | הצפנת נתוני-אימות at-rest | נספח §17 | PARTIAL (טוקני-רשות VERIFIED; session GAP) | H-1, M-6 | High | P2/P6 |
+| ITA-4 | תיעוד אירועי-אבטחה + רישום-אוטומטי | נספח §9 | GAP | H-8, M-9 | **Immediate** | P5 |
+| ITA-5 | **לוגי-אימות מוצפנים 12 חודש** | נספח §18 | GAP | **M-16** (חדש) | **Immediate** | P5 |
+| ITA-6 | ניטור/התרעה בזמן-אמת (attack/phishing) | נספח §19; כתב §7(5) | GAP | H-11, M-13 | **Immediate** | P5 |
+| ITA-7 | נהלי-IR + דיון-שנתי (תק' 11ג) | נספח §10 | GAP | Incident-Response (+annual-review, חדש-תהליכי) | **Immediate** | P5/P8 |
+| ITA-8 | **הודעה-מיידית-לרשות על אירוע/שימוש-לרעה** | נספח §11; כתב §5(8) | GAP | **H-14** (חדש) | **Immediate** | P5 (unphased→משויך) |
+| ITA-9 | PT cadence + תיקון High/Critical 30 יום + דיווח | נספח §12–16 | GAP (threshold-dependent, **UNKNOWN**; לא-overdue) | PT-regulatory (SEP §5; חדש-תהליכי) | High | P4 |
+| ITA-10 | בדיקות-אבטחה לפני-שחרור | כתב §7(4) | PARTIAL | API-Security | High | P1 |
+| ITA-11 | backup/restore + הגנה | כתב §11(4) | UNKNOWN/GAP | M-14 | **Immediate** | P8 |
+| ITA-12 | ציות חוק-פרטיות/תקנות | נספח (הדין) | PARTIAL/UNKNOWN | M-12 | High | P8 |
+| ITA-13 | Need-to-Know authorization | נספח §2,6 | PARTIAL | H-7, M-8 | High | P3/P7 |
+| ITA-14 | OAuth2 + ניהול-TOKENS | כתב §7(1),§6 | **VERIFIED (מקוים)** | — | Normal | מומש |
+| ITA-15 | סודיות-עובדים / access-governance | נספח §1–3 | UNKNOWN (ארגוני) | org (חדש-ארגוני, non-code) | Normal | ארגוני (לא-Phase) |
+
+**הערת-רצף:** חובות ב-Priority **Immediate** (ITA-2/4/5/6/7/8/11) ממופות כרגע ל-Phases מאוחרים (P2/P5/P8). **המשמעות מיוצגת כאן; הכרעת הרצף-מחדש שמורה לשלב בחירת משימת-ה-Hardening** (Gate B), ואינה מבוצעת במסמך זה.
+
+---
 
 ### נספח — בסיס ראיות
 נגזר מ-8 ביקורות קוד מקבילות (Identity & Access · Tenant Isolation & DB · API/Input-Output · Integrations/OAuth/Crypto · Files/Storage/Documents · Domain (Billing/CRM/Inventory/AI) · Observability/Ops · Supply-Chain/Platform/Privacy) על `origin/main` @ `f2c78de`, 2026-07-31. סתירות עם המצב בשטח מיושרות ב-Governance ובגרסה הבאה של מסמך זה.
