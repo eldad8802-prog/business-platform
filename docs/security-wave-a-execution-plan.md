@@ -7,7 +7,7 @@
 > (`docs/security-gap-matrix.md`, `docs/security-wave-1-execution-plan.md`). Nothing new is
 > designed or decided here — this file records task status, PRs, evidence, and remaining work.
 >
-> **Base:** origin/main · **Last updated:** 2026-08-11.
+> **Base:** origin/main · **Last updated:** 2026-08-14.
 
 ## Purpose
 Track the execution and verification status of the Wave A tasks (repository guardrails +
@@ -31,6 +31,26 @@ targeted low-cost, low-regression perimeter closures).
 | T5 | `/api/learning` cross-tenant closure (gap C-2) | ✅ **VERIFIED / CLOSED** | PR #182 · `a424193072aa348da7ab1bae0ad77f55a48e1f76` | `/api/learning` + `/api/feedback` removed; `PrePublishModal` feedback mechanism removed | See "T5 — `/api/learning` closure (status)" below |
 | T4b | Remove unused `bcryptjs` dependency | ✅ **VERIFIED / CLOSED** | PR #186 · `65ca26dddfc3dceda1f3b61266fe0008d828bc56` | `bcryptjs` removed from `package.json` + `package-lock.json`; `bcrypt` / `@types/bcrypt` unchanged | See "T4b — `bcryptjs` removal (status)" below |
 | T1 | Static security response headers (**subset** of gap H-3) | ✅ **VERIFIED / CLOSED** | PR #195 · `9e3313e5954d15dc8300c8406a1fa1507ed3dd77` | 4 static headers added to `next.config.ts`; **no CSP / Permissions-Policy / HSTS `preload`** | Production `curl -I` (promaxgroup.co.il, HTTP 200): 4 headers live, exact, single-occurrence; see "T1 — Static security headers (status)" below |
+| T7 (subset — gap M-3) | Billing documents **LIST** `pdfStorageKey` removal (**subset** of task T7 / gap M-3) | ✅ **VERIFIED / CLOSED** (subset); **T7 / M-3 remain PARTIAL** | PR #198 · `d391eab1cd77d22bd3f12b6bf4979de15f7a89d4` | `pdfStorageKey` removed from `LIST_SELECT` in `app/api/billing/documents/route.ts`; `pdfHash` retained; response-boundary regression test added | Code on `main` (git show): key absent from `LIST_SELECT`, `pdfHash` present; regression test passes; Vercel both success; prod endpoint live+auth-gated (401). See "T7 / M-3 — Billing LIST `pdfStorageKey` removal (status)" below |
+
+## T7 / M-3 — Billing LIST `pdfStorageKey` removal (status)
+
+| Fact | Value |
+|------|-------|
+| PR / Squash SHA | PR #198 · `d391eab1cd77d22bd3f12b6bf4979de15f7a89d4` |
+| Scope (exact) | **Only** `GET /api/billing/documents` **LIST** response — `pdfStorageKey` removed from `LIST_SELECT` |
+| `pdfStorageKey` (internal R2 object-key) | **Removed** from the LIST response |
+| `pdfHash` | **Retained** — intentionally out of this subset's scope (deliberate scope guard, not sensitive-by-default) |
+| Diff scope | Exactly 2 files: `route.ts` (+8 / −2; `LIST_SELECT` exported for the test + line removed) and `list-response.regression.test.ts` (+98, new) |
+| Out of scope (unchanged) | POST/create response · `billing-draft.service.ts` (`createBillingDraft` `include` all-scalars) · single-doc `GET /billing/documents/[id]` · any other endpoint exposing `pdfStorageKey`/`pdfHash` |
+| Security value | pdfStorageKey = storage-topology recon/pivot value → removed. pdfHash = near-zero access/enumeration value → retained (no forced widening) |
+| Regression test | Response-**shape** (projection through `LIST_SELECT`), not select-inspection: pdfStorageKey absent, pdfHash + central fields present. Passes on merged code |
+| In-repo compatibility | **VERIFIED** — no in-repo consumer reads `pdfStorageKey` from this LIST response |
+| External compatibility | **UNKNOWN** (documented, non-blocking) — grep proves in-repo absence, not external absence; not inflated to "has consumer" |
+| Production response (authed) verification | **UNKNOWN** — endpoint is tenant-scoped + auth-gated (401 without session); outcome is certain-by-construction (code on `main` + Prisma-select semantics + regression test) but not empirically curled |
+| Prisma schema / migration / config / workflow / CI change | **None** |
+| Vercel deploys (post-merge) | **Both Success** |
+| Status | **VERIFIED / CLOSED** (LIST-`pdfStorageKey` subset); **T7 / gap M-3 remain PARTIAL** |
 
 ## T5 — `/api/learning` closure (status)
 
@@ -101,7 +121,7 @@ targeted low-cost, low-regression perimeter closures).
 - T2 — CSP (report-only) — ⏳ PENDING
   *(H-3 remaining scope: T1 closed the static-headers subset; CSP is the open remainder.)*
 - T6 — `POST /api/business` gate — ⏳ PENDING
-- T7 — Billing DTO output filtering — ⏳ PENDING
+- T7 — Billing DTO output filtering — 🟡 **PARTIAL** — LIST-`pdfStorageKey` subset **CLOSED** (PR #198 / gap M-3). **Open remainder:** POST/create response (`billing-draft.service.ts` `include` all-scalars), single-doc `GET /billing/documents/[id]`, any other endpoint exposing `pdfStorageKey`/`pdfHash`, and `pdfHash` itself (deliberately retained).
 - T8 — SVG upload hardening — ⏳ PENDING
 
 **Stage 2 — Rate / Auth / Isolation-verify / Gateway**
