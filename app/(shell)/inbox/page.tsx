@@ -257,12 +257,23 @@ function InboxPageContent() {
     const query = params.toString();
     const nextUrl = query ? `${pathname}?${query}` : pathname;
 
+    // Search-param-only update on the same route (open/close a conversation).
+    // `router.push`/`router.replace` to a bare pathname no-ops on the production
+    // build when the only change is removing the query, so it cannot clear
+    // `conversationId`. Use the native History API, which Next integrates into the
+    // App Router: it copies its internal state (`__NA` + internals tree) into the
+    // new entry and syncs `usePathname`/`useSearchParams` without a reload. Pass
+    // `null` (not `window.history.state`): a state already carrying `__NA` is
+    // treated as an internal call and skips the URL sync. `pushState` keeps a
+    // back-entry (Browser Back returns to the conversation); `replaceState`
+    // normalizes in place with no history entry. Real route changes still use
+    // `router`.
     if (opts?.replace) {
-      router.replace(nextUrl);
+      window.history.replaceState(null, "", nextUrl);
       return;
     }
 
-    router.push(nextUrl);
+    window.history.pushState(null, "", nextUrl);
   }
 
   function handlePickCategory(category: InboxSidebarSelection) {
