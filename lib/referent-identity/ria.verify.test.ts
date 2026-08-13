@@ -1,6 +1,8 @@
 /**
  * RIA — Minimum Cross-Feature Executable Proof (fixtures-only). Run: npx tsx.
  *
+ * Governance source of truth: docs/referent-identity-authority-v1.md (RIA-1 §0–§7, RATIFIED).
+ *
  * Proves, end-to-end and with deterministic replay:
  *   Feature A RawInput + Feature B RawInput
  *     → genuine C0 normalize() (two feature domains, real registry snapshot)

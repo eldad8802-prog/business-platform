@@ -1,6 +1,8 @@
 /**
  * RIA — deterministic digests + cross-feature golden · §6.
  *
+ * Governance source of truth: docs/referent-identity-authority-v1.md (RIA-1 §0–§7, RATIFIED).
+ *
  * Reuses C0's canonical serialization (byte-stable, object-key-order-independent) so
  * that identical inputs — RawInputs, C0 snapshots, bindings, policy id/version,
  * assertion history, temporal context, Equality contract/domain — reproduce identical

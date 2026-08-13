@@ -1,6 +1,8 @@
 /**
  * RIA — Identity Resolver · §2 / §3.
  *
+ * Governance source of truth: docs/referent-identity-authority-v1.md (RIA-1 §0–§7, RATIFIED).
+ *
  * RIA-ONLY-ASSERTS. The resolver consumes an AUTHORIZED BASIS (produced by a Method
  * Policy) and records an immutable, append-only Identity Assertion at an explicit
  * point in dual-time. It does NOT read authority-capable inputs (authorityRef /
