@@ -2,7 +2,7 @@
 
 **Status:** RATIFIED · **Version:** v1 · **Scope:** semantic / governance contract, implementation-independent.
 
-> This document materializes the already-ratified RIA-1 §0–§7 semantic contract as the in-repo source of authority. It introduces **no** new semantic decisions, changes **no** locks, and defines **no** production matching heuristics, DB representation, APIs, or feature wiring. Per-turn verification scans, ratification checklists, and drafting recommendations from the ratification dialogue are intentionally omitted (canonical corpus, not transcript); every normative lock, OPEN/DEFERRED item, and guard is preserved with its ratified identifier.
+> This document materializes the already-ratified RIA-1 §0–§9 semantic contract as the in-repo source of authority. It introduces **no** new semantic decisions, changes **no** locks, and defines **no** production matching heuristics, DB representation, APIs, or feature wiring. Per-turn verification scans, ratification checklists, and drafting recommendations from the ratification dialogue are intentionally omitted (canonical corpus, not transcript); every normative lock, OPEN/DEFERRED item, and guard is preserved with its ratified identifier.
 
 ## Authority & Relationship to C0 and Detection Grammar
 RIA is **post-C0**. It consumes immutable C0 Evidence (CanonicalObservation accounts) and emits Identity Assertions and derived Identity State (the Current Identity Interpretation). It never mutates C0. Detection Grammar and other reasoning layers **consume** RIA's resolved/aligned identity but do **not** own identity resolution. Product features do **not** own RIA authority.
@@ -1037,6 +1037,78 @@ RC0 scope-neutral · RC1 definitions · RC2 AILC-family · RC3 SAME→derived-re
 survivor/alias/cluster/pointer representation · persistence/storage-schema · reconciliation-operation-ID · materialized-execution-mechanism · materialized-re-attribution-propagation · downstream-business-reprocessing · CONFLICT-adjudication · Method-Policy-concrete-schema · privacy/erasure · API/product-behavior · encoding/hashing · **type-correction linking-mechanism** · **EVENT** · full-failure-taxonomy · **כל §0–§6 OPEN/DEFERRED**.
 
 ---
+
+# RIA-1 · §8 — Production Method-Policy Authorization Structure
+*Prefix: `PA`. §0–§7 = INHERITED. Meta-contract: how a versioned Method Policy turns admitted signals into a typed Authorized Basis for SAME / DISTINCT / Minting; it allocates no concrete identifier rule.*
+
+## §8 Terminology
+- **Evaluation Context** — a pinned body of admitted evidence/signals + scope + temporal context; may be relevant to more than one Authorization Question.
+- **Authorization Question** — one typed, single-decision-category question (SAME **or** DISTINCT **or** Minting) over a bounded candidate.
+- **Authorization Evaluation** — the application of the applicable versioned Method Policy to an Evaluation Context to answer **one** Authorization Question.
+
+## §8 Normative Locks (PA1–PA26)
+- **PA1** — A Method Policy is a **named, versioned, RIA-owned authorization contract**; not feature-owned. *(MP1/RA17)*
+- **PA2** — Every Method Policy declares an **explicit scope**: tenant (mandatory), Referent Type, the decision-categories it may authorize, its method(s), and temporal applicability. *(MP18/MP24/RA17/§6)*
+- **PA3** — A Method Policy is **deterministic under a pinned evaluation context, auditable, provenance-preserving, replay-compatible**. *(MP3/MP21/RA18/§6)*
+- **PA4** — A Method Policy declares **separately** the authorization conditions for each decision-category (SAME / DISTINCT / Minting). *(MP4/RA15)*
+- **PA5** — Serialization / schema / DB / registry representation of a policy is **DEFERRED**. *(§0 R3)*
+- **PA6** — An **Authorization Evaluation** answers exactly **one Authorization Question**. A single pinned **Evaluation Context** MAY be evaluated against **multiple** Authorization Questions, each by its own Authorization Evaluation. *(MP0/RA1)*
+- **PA7** — Evaluation **semantic inputs** (requirement, not a DTO): the candidate referent/binding(s) · admitted evidence/signals · Method-Policy identity+version · tenant · Referent Type · EvaluationTime/temporal context · relevant authority & lifecycle context. Encoding **DEFERRED**. *(§2/§5/§6)*
+- **PA8** — Evaluation output ∈ **{ Authorized Basis | No-Authorization | Failure }**. *(MP25)*
+- **PA9 · Cardinality** — Each Authorization Question is scoped to one decision-category and yields **at most one Authorized Basis** for that question (zero ⇒ No-Authorization). Multiple relations/candidates ⇒ multiple Authorization Evaluations. **The same admitted evidence / Evaluation Context MAY supply grounds relevant to both a SAME and a DISTINCT Authorization Question**; single-question cardinality **MUST NOT** be read as eliminating authority-relevant SAME/DISTINCT co-authorization. *(ratified D1)*
+- **PA10** — Keep **five** layers distinct, never conflated: **multiple Evidence ≠ multiple grounds ≠ multiple Authorization Questions ≠ multiple Authorized Bases ≠ multiple Assertions.** Several grounds for one question = **one** Basis (multi-ground provenance). *(MP7/RA13)*
+- **PA11** — SAME-fail **⇏** DISTINCT; no-match **⇏** DISTINCT and **⇏** Minting-authorization. *(RA15/RA16/MP15)*
+- **PA12** — **DISTINCT requires affirmatively-established distinctness authority**; never derived from absence/mismatch. *(RA15/RA16)*
+- **PA13** — **Layer distinction:** *authority-level* contradiction (grounds around one question) is **not** *state-level* CONFLICT (two applicable authoritative **Assertions** incompatible → §1 RS9 / §7 RC6-b). *(MP12/RC6)*
+- **PA14 · No silent winner** — **(a)** Contradictory admitted inputs **within a single** Authorization Evaluation ⇒ **No-Authorization**, or **Failure** per an explicit policy contract — never a silent winner, never CONFLICT-by-itself *(MP12)*. **(b)** **Cross-question co-authorization** (one Evaluation Context authorizing a SAME and a DISTINCT question) is bound by the same **no-silent-winner** constraint; its **governed backstop** is that the two Authorized Bases, if asserted, become two applicable contradictory **Assertions → STATE-level CONFLICT (RC6-b)**. Whether an **authority-layer disposition** (abstain / No-Authorization / Failure) MAY *additionally* apply to (b) **before** assertion is **OPEN** — not solvable by precedence. *(MP12/RC6/RA22)*
+- **PA15 · Precedence expressibility only** — §8 ratifies **no** precedence content (RA22 holds). IF a future contract authorizes precedence it must be **explicit, versioned, scoped, provenance-bearing**; absent it, contradictory grounds → No-Auth/Failure (authority) and contradictory applicable Assertions → CONFLICT (state). *(RA22/MP12)*
+- **PA16 · Identifier-authority condition SLOTS** (dimensions, not values) — a policy authorizing on an identifier signal MUST be able to condition on: identifier namespace/type · issuer · jurisdiction · tenant/domain scope · Referent Type · verification state/method · verification age/freshness · lifecycle · reassignment · recycling/reuse · expiry · historical ownership/applicability · effective temporal context. **§8 defines the slots; §9 fills them.** *(RA7/RA9/RA10/RA20)*
+- **PA17** — The applicable Method Policy is chosen by an **authorized, deterministic, context-pinned** function of {tenant, Referent Type, decision-category, source/method, purpose, temporal applicability}, **determined before observing the desired outcome**; **not feature-chosen**; **no post-evaluation outcome-shopping**. Selection mechanism/registry **DEFERRED**. *(MP19/RA17)*
+- **PA18** — **Tenant-scope mandatory; cross-tenant inputs/policies are invalid/Failure, never SAME/DISTINCT.** *(MP26/§0-T)*
+- **PA19** — **Referent-Type isolation:** no cross-type authorization; type-specific methods only. *(MP24/RA20)*
+- **PA20** — Temporal applicability governs every Evaluation via **explicit EvaluationTime / pinned temporal context** (no wall-clock). *(§6 TR16/TR21)*
+- **PA21** — For a pinned evaluation context the authorization result is **reproducible**, semantically pinning admitted-inputs · policy id+version · method · tenant · Referent Type · EvaluationTime/temporal context · relevant authority/lifecycle context. Encoding **DEFERRED**. *(§6 TR25/MP3/RA18)*
+- **PA22** — **Policy-replay = pure authorization replay**: it reproduces the authorization result and does **not** re-emit an Assertion nor repeat a mint side-effect. *(MP21)*
+- **PA23** — An Authorized Basis preserves (semantic categories, not JSON): Method-Policy identity+version · decision-category · contributing admitted grounds/signals with provenance · temporal applicability · scope (tenant/type) · the source bindings/referents · evaluator provenance *if contractually relevant*, with **runtime-evaluator ≠ authority-source**. Schema **DEFERRED**. *(MP22/RA13)*
+- **PA24** — **`PartyResolutionClaim` / Tier-3 Party resolution is NOT an independent identity authority.** Under RIA-only-asserts (RA2) and no-feature-owned-policy (MP23), when activated it must operate **under RIA authority**: its resolutions are RIA Identity Assertions produced via an applicable Method Policy, **or** its signals/claims are admitted evidence/candidates feeding one — never a parallel authority. The Party Identity Strategy's tiers/direction/prohibitions remain **binding and complementary**. Absorb / wrap / migrate / deprecate mechanism **DEFERRED**. *(RA2/MP23/RC16 + Party Strategy)*
+- **PA25** — Existing/future **feature-local matching** (exact-phone customer upsert, supplier advisory match, DB uniqueness, import dedup) does **not** become RIA identity authority by existing; it may be an evidence-producer / feature-local mechanic / migration candidate, but carries **no identity authority** absent an authorized Method Policy. **DB uniqueness / persistence order / feature FK ≠ referent-identity authority.** *(RC16/MP23/TR26)*
+- **PA26** — Four dispositions stay distinct: **Authorized Basis** · **No-Authorization** (valid eval, insufficient authority → contributes to UNRESOLVED) · **Method-Policy Failure** (eval could not validly execute) · **Identity-State CONFLICT** (derived from incompatible applicable Assertions, §1/§7 — not an evaluation output). Evaluation ambiguity **⇏** CONFLICT. §8 closes only {Basis, No-Auth, Failure}; **full failure taxonomy DEFERRED**. *(MP13/RA14/RC6)*
+
+## §8 OPEN / DEFERRED
+**Cross-question SAME/DISTINCT authority-layer pre-assertion disposition (PA14(b))** · precedence content (PA15) · Method-Policy schema/serialization/registry/selection-mechanism (PA5/PA17) · replay/provenance encoding (PA21/PA23) · concrete Minting rules (MP14) · CONFLICT adjudication · re-attribution propagation · full failure taxonomy (PA26) · Party absorb/wrap/migrate mechanism (PA24) · runtime/persistence/APIs/feature-wiring · **כל §0–§7 OPEN/DEFERRED**.
+
+---
+
+# RIA-1 · §9 — Concrete Identifier & Signal Authority Semantics
+*Prefix: `IA`. §0–§8 = INHERITED. PARTY identifiers only. Every "may authorize" means: a verified identifier→referent proposition, under an applicable versioned Method Policy satisfying §8, MAY support production of an Authorized Basis — the identifier is never itself an authority artifact.*
+
+## §9 Identifier Ontology
+Two orthogonal axes: **(a) identity namespace** — ת.ז. (natural person, Ministry of Interior) · ח.פ. (legal person, Corporations Authority); **(b) VAT status** — עוסק מורשה / עוסק פטור (turnover-based classification, **not** identifiers). §9 authorizes on **(a)** only. Natural-person / legal-person are **PARTY-domain qualifications** (top-level RIA types remain PARTY/COMMITMENT/RESOURCE; encoding DEFERRED, IA15).
+
+## §9 Normative Locks (IA1–IA17)
+*(tags: CD Contract-derived · OV Officially-verified · PD owner-ratified · COND external fact not established)*
+- **IA1 · ת.ז. SAME-capability** — For `PARTY·natural-person`, a **verified ת.ז.→person binding** MAY support a **SAME** Authorized Basis **only** under a §8 Method Policy pinning authoritative source, namespace, Referent Type, tenant, verification state, temporal context, policy/version, provenance. `same 9 digits → SAME` **forbidden**. *(CD·OV·PD1)*
+- **IA2 · ת.ז. bounds** — Luhn check-digit = **structural validity only** (≠ existence, ≠ binding, ≠ authority); existence ≠ binding; evaluated at explicit EvaluationTime; **no post-death non-reuse claim**. *(OV·COND)*
+- **IA3 · ח.פ. SAME-capability** — For `PARTY·legal-person`, a **verified ח.פ.→legal-person registry binding** MAY support **SAME** under a Method Policy pinning registry source, namespace, Referent Type, verification state, **effective temporal context**, policy/version, provenance. Authority = the registry binding, not the number's VAT usage. *(CD·OV·PD1)*
+- **IA4 · ח.פ. effective-time bound** — ח.פ. SAME/DISTINCT authority is **effective-time-bounded to the verified binding**; **no permanent-non-reassignment claim** (reassignment NOT-ESTABLISHED). *(OV·COND)*
+- **IA5 · VAT-status EXCLUDE** — עוסק מורשה/פטור are **statuses, not namespaces**; **MUST NOT** independently authorize SAME/DISTINCT; underlying identifier = ת.ז./ח.פ.; `פטור↔מורשה` (or תיק close/reopen) is **not** an identity change; may be admitted context. Not bound to `CustomerTaxIdType`. *(OV·PD1)*
+- **IA6 · phone/email never-alone SAME** — endpoint equality/verification **MUST NOT alone** authorize SAME; MAY be evidence/corroborating/bound-through under a future policy; **§9 ratifies NO concrete sufficiency formula (OPEN)**; control≠ownership≠party-identity≠SAME-authority. *(CD·OV·PD2·OPEN)*
+- **IA7 · phone/email never DISTINCT** — difference/mismatch/absence/expiry/failed-verification/changed-endpoint **MUST NOT** authorize DISTINCT (only fails to prove SAME). *(CD·PD2)*
+- **IA8 · internal-ID Class-A only** — storage uniqueness has **no** RIA authority; `Customer.id`/`Supplier.id`/feature-FK/DB-PK/uniqueness ≠ authority; **same-DB-row ≠ cross-feature SAME**; a canonical-internal identifier is authority-capable **only** if a policy governs it as **§2 Class-A**; `CanonicalReferentId` is **not** automatically a SAME signal. *(CD·PA25/RC16/§2)*
+- **IA9 · affirmative-DISTINCT ת.ז.** — **Two independently authoritative verified ת.ז.→person bindings, each binding a different national-ID value to a different natural-person referent under the applicable Method Policy/context, MAY support affirmative DISTINCT.** Authority arises from `verified binding A + verified binding B + policy`, **never from `A ≠ B`**; raw unequal values alone never authorize DISTINCT. *(CD·OV·PD3)*
+- **IA10 · affirmative-DISTINCT ח.פ.** — different **verified** ח.פ.→legal-person bindings MAY support affirmative DISTINCT **only within the effective temporal scope** of the registry bindings; **no timeless non-reassignment claim**. If the temporal/lifecycle context is insufficient to support the DISTINCT proposition → **No-Authorization** (**not** Failure; Failure only where the Evaluation itself cannot validly execute per §8/PA26). *(OV·COND·PD3)*
+- **IA11 · negative-DISTINCT guards** — DISTINCT **NEVER** from: no-match · failed-SAME · missing signal · stale verification · phone/email mismatch · VAT-status difference · syntax mismatch · unverified raw-string difference. *(CD, inherits RA16/PA12)*
+- **IA12 · verification-source proposition-specific trust** — no generic "trusted"; a policy must state **which proposition** a source is authoritative for (syntax-only / existence / identifier→referent binding / current-status / historical-binding) and preserve the **11 categories** (namespace/type · source · what-it-establishes · verification-state · freshness/time · binding · Referent Type · tenant · effective-temporal · policy/version · provenance); `official ≠ unlimited authority`; `current-status ≠ historical identity`. *(CD·PD4)*
+- **IA13 · temporal guards** — explicit **EvaluationTime** + applicable temporal context + verification freshness/age; **no hidden `effectiveFrom=recordedAt`**; if the required temporal proposition is unavailable the policy **must not fabricate applicability**; no new default. *(CD·§6/PA20)*
+- **IA14 · OTHER No-Authorization-until-classified** — `OTHER`/ungoverned-namespace **MUST NOT** authorize SAME/DISTINCT (may remain evidence); authority requires an explicitly governed identifier class/policy; **no best-effort fallback**. *(CD·PD5)*
+- **IA15 · Referent-Type isolation** — ת.ז.→`PARTY·natural`; ח.פ.→`PARTY·legal`; no VAT/phone/email/internal rule silently crosses Referent Types; no PARTY-identifier rule on RESOURCE/COMMITMENT. Natural/legal = **PARTY-domain qualification**; **encoding DEFERRED** — §9 mints no new top-level type. *(CD·PA19/RA20)*
+- **IA16 · Minting separation** — identifier SAME/DISTINCT authority **does not imply Minting authorization** (MP14/MP15); §9 defines **no** Minting conditions; verified ת.ז./ח.פ. triggers **no** automatic Canonical-Referent creation. *(CD)*
+- **IA17 · schema observation (non-normative)** — governance semantics key on **actual namespace + proposition**, not on `CustomerTaxIdType {AUTHORIZED_DEALER, EXEMPT_DEALER, LTD_COMPANY, PRIVATE_ID, OTHER}` (which conflates identity namespace `LTD_COMPANY`/`PRIVATE_ID` with VAT status `AUTHORIZED_DEALER`/`EXEMPT_DEALER`); §9 **must not inherit that conflation**; **no migration/redesign/deprecation now**. *(OV·observation-only)*
+
+## §9 OPEN / DEFERRED
+phone/email concrete corroboration **sufficiency** (IA6) · **ח.פ. reassignment/non-reuse fact** (IA4/IA10, OFFICIAL-NOT-ESTABLISHED) · **ת.ז. post-death reuse** (IA2, OFFICIAL-NOT-ESTABLISHED) · cross-question authority-layer disposition (PA14(b)) · `OTHER` future identifier policies (IA14) · RESOURCE/COMMITMENT identifier authority (RA20) · concrete Minting rules · Method-Policy schema/registry (§10) · replay/provenance encoding · production runtime/persistence · schema-mismatch remediation (IA17) · Party migration · CONFLICT adjudication · feature wiring.
+
+---
 ---
 
 ## Global Non-Negotiable Invariants
@@ -1065,9 +1137,9 @@ survivor/alias/cluster/pointer representation · persistence/storage-schema · r
 
 ## Global OPEN / DEFERRED Ledger
 The following are explicitly **unresolved / deferred** and are NOT decided by this contract:
-- Concrete production Method-Policy schema.
-- VAT / phone / email / identifier authority rules.
-- General SAME + DISTINCT co-authorization semantics inside a single Method evaluation.
+- Concrete Method-Policy representation / registry / versioning / selection schema (§10).
+- Concrete phone/email corroboration sufficiency (§9 IA6); ח.פ. reassignment & ת.ז. post-death reuse remain OFFICIAL-NOT-ESTABLISHED and effective-time-guarded (§9 IA4/IA2/IA10).
+- Cross-question SAME/DISTINCT authority-layer pre-assertion disposition (§8 PA14(b) — RC6-b remains the state-level backstop).
 - CONFLICT adjudication.
 - Survivor / alias / cluster / pointer representation.
 - Persistence / storage.
@@ -1104,3 +1176,5 @@ RIA-1 defines semantic authority and lifecycle rules. It does **not** itself def
 
 ## Provenance / Ratification Note
 §0–§7 are transcribed verbatim from their ratified drafts in the RIA-1 ratification dialogue. Mechanical, non-semantic touches applied during materialization: (1) conversational preamble/closing framing removed; (2) H1 status tags "(REVISED/DRAFT · CONTRACT-PENDING)" dropped; (3) per-turn Consistency-Check/Scan, Ratification-Checklist, Scenario-Proof/Stress-Test, and Exact-Recommendation blocks omitted (canonical corpus, not transcript); (4) the three ratified single-lock corrections applied in place — **CR25** (§4), **TR26 + TR29** (§6), and **RC6** (§7) — superseding their base wording, with the superseded drafts excluded. No lock was renumbered; all identifiers (RS0–RS14, RA1–RA22, AS1–AS15, CR1–CR25, MP0–MP26, TR1–TR29, RC0–RC23) are preserved.
+
+**§8 & §9 materialization (non-semantic transcription):** §8 (PA1–PA26, including the corrected PA6/PA9/PA10/PA14 and the PA14(b) cross-question OPEN) and §9 (IA1–IA17, including the ratified IA9 clarification — affirmative DISTINCT arises from two independently authoritative verified bindings + policy, never from raw `A ≠ B` — and the IA10 clarification — insufficient temporal/lifecycle authority → No-Authorization, not Failure) are transcribed verbatim from their ratified in-conversation drafts. No new decisions; identifiers PA1–PA26 and IA1–IA17 preserved; per-turn scenario proofs and consistency scans omitted (canonical corpus, not transcript).
