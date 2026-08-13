@@ -17,7 +17,10 @@ import { assertBillingIdentityReadyForTaxInvoice } from "@/lib/billing/business-
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 
-const LIST_SELECT = {
+// Exported for the response-boundary regression test (see
+// list-response.regression.test.ts). Export only — the runtime behaviour and
+// the object contents (minus the removed pdfStorageKey) are unchanged.
+export const LIST_SELECT = {
   id: true,
   businessId: true,
   documentType: true,
@@ -36,7 +39,8 @@ const LIST_SELECT = {
   convertedToInvoiceId: true,
   pdfRenderStatus: true,
   pdfTemplateVersion: true,
-  pdfStorageKey: true,
+  // pdfStorageKey removed (M-3): internal R2 object-key must not egress via the
+  // billing documents LIST response. pdfHash is intentionally retained (scope).
   pdfHash: true,
   pdfRenderedAt: true,
   pdfRenderError: true,
