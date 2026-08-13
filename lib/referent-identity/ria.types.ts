@@ -2,7 +2,8 @@
  * Referent Identity Authority (RIA) — Minimum Cross-Feature Executable Proof.
  *
  * PROOF-ONLY, NON-NORMATIVE. These shapes realize the RATIFIED RIA-1 contract
- * (§0–§7, in-conversation) for a fixtures-only Governance→Runtime validation. They
+ * (§0–§7 — governance source of truth: docs/referent-identity-authority-v1.md) for a
+ * fixtures-only Governance→Runtime validation. They
  * do NOT ratify a survivor / cluster / pointer / persistence architecture; every
  * encoding here is implementation-only and may be replaced without touching the
  * contract. No DB, no persistence, no product wiring, no production identity rules.

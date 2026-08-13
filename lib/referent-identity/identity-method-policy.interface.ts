@@ -1,6 +1,8 @@
 /**
  * RIA — Identity Method Policy (the contract the resolver DEPENDS ON) · §5.
  *
+ * Governance source of truth: docs/referent-identity-authority-v1.md (RIA-1 §0–§7, RATIFIED).
+ *
  * The Method Policy is the ONLY component permitted to read authority-capable inputs
  * (SourceReferentBinding.authorityRef / affirmativeDistinctFrom) and to decide whether
  * an authorized basis exists. It realizes the §5 substrate + §2 separation:

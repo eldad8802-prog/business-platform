@@ -1,6 +1,8 @@
 /**
  * RIA — Fixture Identity Method Policy (PROOF ONLY, NON-NORMATIVE) · §2 / §5.
  *
+ * Governance source of truth: docs/referent-identity-authority-v1.md (RIA-1 §2/§5, RATIFIED).
+ *
  * A fixture Canonical/Internal authority (§2 Class-A): two bindings whose authoritative
  * canonical token SETS intersect — within one tenant and one referent type — are
  * SAME-eligible. This is the RIA analogue of the fixture Equality Domain: it proves the

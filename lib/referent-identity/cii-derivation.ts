@@ -1,6 +1,8 @@
 /**
  * RIA — Current Identity Interpretation derivation · §1 / §6 / §7.
  *
+ * Governance source of truth: docs/referent-identity-authority-v1.md (RIA-1 §0–§7, RATIFIED).
+ *
  * Derives the DERIVED equivalence-class (CII) for a query anchor from the append-only
  * Identity History, under an explicit Temporal Reconstruction Context. It reads ONLY
  * assertions (never authority-capable inputs, never C0 values) — proving the chain

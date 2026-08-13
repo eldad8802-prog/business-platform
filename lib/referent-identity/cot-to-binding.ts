@@ -1,6 +1,8 @@
 /**
  * RIA — C0 CanonicalObservation → SourceReferentBinding adapter · §2 / §4.
  *
+ * Governance source of truth: docs/referent-identity-authority-v1.md (RIA-1 §0–§7, RATIFIED).
+ *
  * PACKAGING ONLY. This adapter lifts GROUNDS from an immutable C0 account (tenant,
  * referent type, account identity) and attaches authority-capable inputs supplied by
  * the caller (the pre-minted anchor + authority reference). It performs NO resolution:
