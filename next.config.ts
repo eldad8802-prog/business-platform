@@ -21,6 +21,28 @@ const nextConfig: NextConfig = {
       fallback: [],
     };
   },
+
+  // Static security response headers (T1 / gap H-3). Applied to all routes.
+  // Scope is exactly these four headers: no CSP, no Permissions-Policy, no
+  // HSTS `preload` (kept reversible), no other header. Behaviour-preserving:
+  // X-Frame-Options is SAMEORIGIN (same-origin blob: previews unaffected),
+  // and no Permissions-Policy so the camera scanners keep working.
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=63072000; includeSubDomains",
+          },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;
