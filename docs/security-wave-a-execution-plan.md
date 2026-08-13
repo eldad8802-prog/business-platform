@@ -30,6 +30,7 @@ targeted low-cost, low-regression perimeter closures).
 | T3c | Secret Scanning / Push Protection | ✅ **VERIFIED / CLOSED** | settings-only (no PR) | `security_and_analysis`: `secret_scanning=enabled`, `secret_scanning_push_protection=enabled` | Already active; verified via API (capabilities were pre-enabled). Verified, not implemented. |
 | T5 | `/api/learning` cross-tenant closure (gap C-2) | ✅ **VERIFIED / CLOSED** | PR #182 · `a424193072aa348da7ab1bae0ad77f55a48e1f76` | `/api/learning` + `/api/feedback` removed; `PrePublishModal` feedback mechanism removed | See "T5 — `/api/learning` closure (status)" below |
 | T4b | Remove unused `bcryptjs` dependency | ✅ **VERIFIED / CLOSED** | PR #186 · `65ca26dddfc3dceda1f3b61266fe0008d828bc56` | `bcryptjs` removed from `package.json` + `package-lock.json`; `bcrypt` / `@types/bcrypt` unchanged | See "T4b — `bcryptjs` removal (status)" below |
+| T1 | Static security response headers (**subset** of gap H-3) | ✅ **VERIFIED / CLOSED** | PR #195 · `9e3313e5954d15dc8300c8406a1fa1507ed3dd77` | 4 static headers added to `next.config.ts`; **no CSP / Permissions-Policy / HSTS `preload`** | Production `curl -I` (promaxgroup.co.il, HTTP 200): 4 headers live, exact, single-occurrence; see "T1 — Static security headers (status)" below |
 
 ## T5 — `/api/learning` closure (status)
 
@@ -62,6 +63,22 @@ targeted low-cost, low-regression perimeter closures).
 | Vercel deploys (post-merge) | **Both Success** |
 | Status | **VERIFIED / CLOSED** |
 
+## T1 — Static security headers (status)
+
+| Fact | Value |
+|------|-------|
+| PR / Squash SHA | PR #195 · `9e3313e5954d15dc8300c8406a1fa1507ed3dd77` |
+| Headers added (4, all routes) | `Strict-Transport-Security: max-age=63072000; includeSubDomains` · `X-Content-Type-Options: nosniff` · `Referrer-Policy: strict-origin-when-cross-origin` · `X-Frame-Options: SAMEORIGIN` |
+| Excluded (out of T1 scope) | **No CSP** · **no Permissions-Policy** · **no HSTS `preload`** · no other header |
+| Relationship to gap H-3 | **Partial** — H-3 (Master Plan) also covers **CSP**; T1 closes only the **static-headers subset**. **CSP remains open (T2); H-3 is NOT fully closed.** |
+| Diff scope | Exactly `next.config.ts` (+22 / −0) |
+| Production verification | `curl -I` on `promaxgroup.co.il` (`/` and `/login`, HTTP 200): all 4 headers live, exact values, single occurrence; no `preload` / CSP / Permissions-Policy / `DENY`. App headers separated from Vercel/Next platform headers. |
+| Behaviour preservation | Camera/geo **VERIFIED** (diff adds no Permissions-Policy) · document-preview iframe + WhatsApp **verified-by-construction** (X-Frame-Options gates being-framed, not features); page delivery smoke passed |
+| UNKNOWN (documented) | Live authenticated browser smoke of the four features not executed (no session/device); regression structurally precluded for the listed features |
+| Prisma schema / migration / config / workflow / CI change | **None** |
+| Vercel deploys (post-merge) | **Both Success** |
+| Status | **VERIFIED / CLOSED** (T1); gap H-3 **partial** — CSP/T2 open |
+
 ## T4a — Dependabot (status)
 
 | Aspect | Status |
@@ -81,8 +98,8 @@ targeted low-cost, low-regression perimeter closures).
 ## Pending (status only)
 
 **Stage 1 — Headers & Targeted Closures**
-- T1 — Static security headers — ⏳ PENDING
 - T2 — CSP (report-only) — ⏳ PENDING
+  *(H-3 remaining scope: T1 closed the static-headers subset; CSP is the open remainder.)*
 - T6 — `POST /api/business` gate — ⏳ PENDING
 - T7 — Billing DTO output filtering — ⏳ PENDING
 - T8 — SVG upload hardening — ⏳ PENDING
