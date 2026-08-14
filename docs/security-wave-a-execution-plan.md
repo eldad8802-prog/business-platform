@@ -32,6 +32,25 @@ targeted low-cost, low-regression perimeter closures).
 | T4b | Remove unused `bcryptjs` dependency | ✅ **VERIFIED / CLOSED** | PR #186 · `65ca26dddfc3dceda1f3b61266fe0008d828bc56` | `bcryptjs` removed from `package.json` + `package-lock.json`; `bcrypt` / `@types/bcrypt` unchanged | See "T4b — `bcryptjs` removal (status)" below |
 | T1 | Static security response headers (**subset** of gap H-3) | ✅ **VERIFIED / CLOSED** | PR #195 · `9e3313e5954d15dc8300c8406a1fa1507ed3dd77` | 4 static headers added to `next.config.ts`; **no CSP / Permissions-Policy / HSTS `preload`** | Production `curl -I` (promaxgroup.co.il, HTTP 200): 4 headers live, exact, single-occurrence; see "T1 — Static security headers (status)" below |
 | T7 (subset — gap M-3) | Billing documents **LIST** `pdfStorageKey` removal (**subset** of task T7 / gap M-3) | ✅ **VERIFIED / CLOSED** (subset); **T7 / M-3 remain PARTIAL** | PR #198 · `d391eab1cd77d22bd3f12b6bf4979de15f7a89d4` | `pdfStorageKey` removed from `LIST_SELECT` in `app/api/billing/documents/route.ts`; `pdfHash` retained; response-boundary regression test added | Code on `main` (git show): key absent from `LIST_SELECT`, `pdfHash` present; regression test passes; Vercel both success; prod endpoint live+auth-gated (401). See "T7 / M-3 — Billing LIST `pdfStorageKey` removal (status)" below |
+| T6 (gap H2) | Remove unsupported `POST /api/business` endpoint | ✅ **VERIFIED / CLOSED** (H2); **broader Business-Isolation gap remains PARTIAL** | PR #201 · `1107636237384dc0371d4c963ca9f7885978909a` | `app/api/business/route.ts` (POST-only) deleted; orphan-business creation surface removed | Production (promaxgroup.co.il, public): `GET`+`POST /api/business` → **404** (app 404 page, not SSO); sibling `/api/business/*` still present + auth-gated (401). See "T6 — `POST /api/business` removal (status)" below |
+
+## T6 — `POST /api/business` removal (status)
+
+| Fact | Value |
+|------|-------|
+| PR / Squash SHA | PR #201 · `1107636237384dc0371d4c963ca9f7885978909a` |
+| Change | `app/api/business/route.ts` (POST-only) **deleted** — single-file, pure deletion (−39) |
+| Threat class | Attack-Surface + Integrity + Availability (unbounded authenticated orphan-business creation; violates single-tenant Wave-1 model). **Not** Confidentiality / privilege-escalation |
+| Design decision | Full removal (not `410`/`405` stub) — no published/versioned external API today; consistent with `/api/learning` removal (T5). Design decision for current architecture, **not** a new governance policy |
+| Scope (exact) | **Only** `POST /api/business`. `register`/`login`, `Business.name` uniqueness, orphan cleanup, other `/api/business/*` routes **untouched** |
+| In-repo compatibility | **VERIFIED** — 0 in-repo consumers / imports / references |
+| External compatibility | **UNKNOWN** (documented, non-blocking) — grep proves in-repo absence, not external absence; **not** inflated to "has consumer" or "absent" |
+| Production verification | `GET`+`POST /api/business` → **404** (app 404 page; no `_vercel_sso_nonce`, not an SSO/Preview wall). Siblings `/api/business/{profile,bot-hub,bot-settings,capabilities}` → **401** (present, auth-gated) |
+| Build / route-manifest | `next build` exit 0; `/api/business` removed from manifest, 18 `/api/business/*` siblings intact |
+| Vercel deploys (post-merge) | `business-platform-btrl` **success**; `business-platform` GitHub-check **canceled/superseded** (not a build failure) — production empirically verified live on the merge commit |
+| Prisma schema / migration / config / workflow / CI change | **None** |
+| Relationship to broader gap | H2 (**remove `POST /api/business`**) closed. **Business-Isolation gap (D2) remains OPEN**: RLS Phase 1, Extension+ALS, H1 (`ContentFeedback` tenant), H3 (dual-URL), H4/H5 — **not** done, **not** closed here |
+| Status | **VERIFIED / CLOSED** (T6 / H2); broader Business-Isolation gap **PARTIAL** |
 
 ## T7 / M-3 — Billing LIST `pdfStorageKey` removal (status)
 
@@ -120,7 +139,6 @@ targeted low-cost, low-regression perimeter closures).
 **Stage 1 — Headers & Targeted Closures**
 - T2 — CSP (report-only) — ⏳ PENDING
   *(H-3 remaining scope: T1 closed the static-headers subset; CSP is the open remainder.)*
-- T6 — `POST /api/business` gate — ⏳ PENDING
 - T7 — Billing DTO output filtering — 🟡 **PARTIAL** — LIST-`pdfStorageKey` subset **CLOSED** (PR #198 / gap M-3). **Open remainder:** POST/create response (`billing-draft.service.ts` `include` all-scalars), single-doc `GET /billing/documents/[id]`, any other endpoint exposing `pdfStorageKey`/`pdfHash`, and `pdfHash` itself (deliberately retained).
 - T8 — SVG upload hardening — ⏳ PENDING
 
