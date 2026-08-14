@@ -210,6 +210,7 @@ model Business {
   billingAuthoritySubmissions BillingAuthoritySubmission[]
   parties                     Party[]
   partyResolutionClaims       PartyResolutionClaim[]
+  riaCanonicalReferents       RiaCanonicalReferent[]
   paymentConnections          BusinessPaymentConnection[]
   paymentRequests             PaymentRequest[]
   businessObligations         BusinessObligation[]
@@ -2792,4 +2793,34 @@ enum PaymentWebhookProcessingStatus {
   PROCESSED
   FAILED
   UNMATCHED
+}
+
+/// RIA-1 · Canonical Referent (Governance §4; Runtime Architecture v1; Persistence Design v1 §6).
+/// An OPAQUE, tenant-scoped identity ANCHOR — NOT a truth container. The existence of a row
+/// proves NONE of: name / phone / email / ת.ז. / ח.פ. / Customer identity / Supplier identity /
+/// Party identity / SAME / DISTINCT / verified identity / source binding / ownership of any
+/// real-world identifier. Duplicate Canonical Referents are LEGAL by design (§4 CR8) — hence
+/// there is deliberately NO uniqueness on any identity signal.
+///
+/// INERT SUBSTRATE (RIA-IMPL-1): no writer, no Method Policy, no Authorized Basis, no Identity
+/// Assertion, no feature wiring, no PII, no activation. Table existence ≠ RIA activation.
+/// Mint-provenance (which authorized Minting Basis created the anchor) is DEFERRED and will be
+/// added additively once the policy/basis substrate lands; an inert table mints nothing.
+/// onDelete: Restrict (NOT the repo-default Cascade) so authoritative RIA history is never
+/// cascade-deleted; the Business-deletion-vs-RIA-retention decision (privacy/erasure OPEN) is a
+/// pre-activation concern and is NOT resolved here.
+model RiaCanonicalReferent {
+  id           Int      @id @default(autoincrement())
+  businessId   Int
+  /// A governed STRING slot for the type of anchor (e.g. "PARTY") — deliberately NOT an enum:
+  /// referent-type / natural-vs-legal-person taxonomy is DEFERRED (RA20 / IA15). No default, no
+  /// allowed-values list, no validation, no runtime behavior keyed on this value in this slice.
+  referentType String
+  /// Recorded/storage creation time ONLY — NOT effective time, NOT EvaluationTime, NOT identity
+  /// validity time. There is deliberately no effectiveFrom here (and no effectiveFrom=createdAt).
+  createdAt    DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@index([businessId])
 }
