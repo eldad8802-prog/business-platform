@@ -211,6 +211,7 @@ model Business {
   parties                     Party[]
   partyResolutionClaims       PartyResolutionClaim[]
   riaCanonicalReferents       RiaCanonicalReferent[]
+  riaPolicyLineages           RiaPolicyLineage[]
   paymentConnections          BusinessPaymentConnection[]
   paymentRequests             PaymentRequest[]
   businessObligations         BusinessObligation[]
@@ -2819,6 +2820,46 @@ model RiaCanonicalReferent {
   /// Recorded/storage creation time ONLY — NOT effective time, NOT EvaluationTime, NOT identity
   /// validity time. There is deliberately no effectiveFrom here (and no effectiveFrom=createdAt).
   createdAt    DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@index([businessId])
+}
+
+/// RIA-1 · Policy Lineage (Governance §10 RP1/RP5; Persistence Design §11/§28).
+/// The stable, tenant-scoped, GOVERNED IDENTITY of a Method Policy across its evolution — the
+/// continuous normative identity that governs THE ONE semantic authorization question the lineage
+/// exists to govern (RP1), and which is DISTINCT from any version. This row is an identity/lineage
+/// ANCHOR, never an applicability decision: it does NOT say which policy applies, wins, is current,
+/// active, latest, or selected. Selection/applicability/precedence are later governed processes.
+///
+/// INERT SUBSTRATE (RIA-IMPL-2, Candidate A = Lineage only): no writer, no Policy Version, no
+/// registry/selector/resolver, no Authorized Basis, no Evaluation Record, no feature wiring, no PII,
+/// no activation. Table existence ≠ policy authority; a policy becomes operational through no part
+/// of this table. Policy Version (RP2/RP6 — immutable content, effective applicability, provenance,
+/// governed version-identity) is DEFERRED to a later additive slice; it is NOT a hollow row here.
+///
+/// RP5: the governed Policy Lineage Identity MUST NOT be a DB key/hash/composite — so `id` below is
+/// STORAGE identity only and is never the governed lineage identity. There is deliberately NO
+/// uniqueness on this model (no scope-signature key, no "one lineage per scope"): duplicate rows are
+/// legal; governance — not the database — distinguishes lineages. onDelete: Restrict (NOT the
+/// repo-default Cascade) so authoritative RIA policy history is never cascade-deleted. No relation to
+/// RiaCanonicalReferent: the policy substrate and the referent substrate are NOT coupled without a
+/// contract requirement (Persistence Design §20).
+model RiaPolicyLineage {
+  id         Int      @id @default(autoincrement())
+  businessId Int
+  /// A governed STRING slot naming the ONE semantic authorization question this lineage governs
+  /// (RP1) — deliberately NOT an enum, NOT a key/identity (RP5), NOT unique (duplicates legal), and
+  /// NOT the RP4 new-lineage semantic boundary (that determination is governance-defined and
+  /// deterministic, never DB/runtime). No default, no allowed-values list, no validation, no runtime
+  /// behavior keyed on this value in this slice; taxonomy/serialization DEFERRED (RP6).
+  scope      String
+  /// Recorded/storage creation time ONLY (RP14 / §13) — NOT effective time, NOT applicability time,
+  /// NOT EvaluationTime. A lineage carries no effective-time of its own; effective applicability is a
+  /// Policy Version concern (RP6) and is deferred. There is deliberately no effectiveFrom here (and
+  /// no effectiveFrom=createdAt default).
+  createdAt  DateTime @default(now())
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
 
