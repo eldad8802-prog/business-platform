@@ -15,6 +15,7 @@
     "verify:equality": "npx tsx lib/detection-grammar/equality/equality.verify.test.ts",
     "verify:ria-cross-feature": "npx tsx lib/referent-identity/ria.verify.test.ts",
     "verify:ria-canonical-referent-schema": "npx tsx lib/referent-identity/ria-canonical-referent.schema.test.ts",
+    "verify:ria-policy-lineage-schema": "npx tsx lib/referent-identity/ria-policy-lineage.schema.test.ts",
     "verify:writing-package": "npx tsx lib/features/content/writing-package/verify-writing-package-runtime.ts",
     "verify:obligations-state": "npx tsx lib/services/obligations/obligation-core.verify.test.ts",
     "verify:obligations-service": "npx tsx lib/services/obligations/obligation-service.verify.test.ts",
