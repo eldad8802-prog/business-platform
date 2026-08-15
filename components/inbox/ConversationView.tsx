@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import BackButton from "@/components/ui/back-button";
 import type { InboxItemViewModel } from "@/lib/inbox-view/inbox-item.types";
 import { INBOX_SURFACE } from "@/components/inbox/inbox-ui-tokens";
@@ -385,7 +385,14 @@ function canShowTakeOver(item: InboxItemViewModel | null): boolean {
 }
 
 export function ConversationView(props: {
-  isMobile: boolean;
+  /**
+   * DS breakpoint step (px) shared with the host WorkspaceLayout. Presentation
+   * that used to branch on a JS `isMobile` boolean is now CSS-driven at this
+   * step: below it (collapsed/switch) the back button shows and mobile spacing
+   * applies; at/above it (parallel/desktop) the empty-selection placeholder
+   * shows and desktop spacing applies. No `window.innerWidth`, single instance.
+   */
+  breakpointStep: number;
   viewMode: "OPEN" | "CLOSED";
   activeConversationId: number | null;
   activeConversation: Conversation | null;
@@ -415,7 +422,7 @@ export function ConversationView(props: {
   };
 }) {
   const {
-    isMobile,
+    breakpointStep,
     viewMode,
     activeConversationId,
     activeItem = null,
@@ -467,8 +474,22 @@ export function ConversationView(props: {
 
   const composerMinHeight = hasDraft ? 40 : 36;
 
+  // Presentation breakpoint (CSS, no JS): mirrors the host WorkspaceLayout step.
+  const cvScope = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  const cvCss = `
+[data-cv="${cvScope}"] { --cv-header-pad: 8px 10px; --cv-msg-pad: 8px 10px 4px; --cv-bubble-maxw: 88%; --cv-input-pad: 6px 8px 10px; --cv-input-padb: max(10px, env(safe-area-inset-bottom)); }
+[data-cv="${cvScope}"] .cv-mobile-only { display: flex; }
+[data-cv="${cvScope}"] .cv-desktop-only { display: none; }
+@media (min-width: ${breakpointStep}px) {
+  [data-cv="${cvScope}"] { --cv-header-pad: 10px 14px; --cv-msg-pad: 10px 14px 4px; --cv-bubble-maxw: 72%; --cv-input-pad: 8px 12px 12px; --cv-input-padb: 12px; }
+  [data-cv="${cvScope}"] .cv-mobile-only { display: none; }
+  [data-cv="${cvScope}"] .cv-desktop-only { display: block; }
+}
+`;
+
   return (
     <div
+      data-cv={cvScope}
       style={{
         flex: "1 1 420px",
         minWidth: 0,
@@ -476,15 +497,17 @@ export function ConversationView(props: {
         maxWidth: "100%",
         display: "flex",
         flexDirection: "column",
-        minHeight: isMobile ? "100%" : "calc(100vh - 48px)",
+        minHeight: "100%",
         background: INBOX_SURFACE.chatBg,
         boxSizing: "border-box",
         overflow: "hidden",
         position: "relative",
       }}
     >
-      {!activeConversationId && !isMobile && (
+      <style>{cvCss}</style>
+      {!activeConversationId && (
         <div
+          className="cv-desktop-only"
           style={{
             margin: 24,
             background: INBOX_SURFACE.cardBg,
@@ -508,15 +531,17 @@ export function ConversationView(props: {
               flexShrink: 0,
               background: INBOX_SURFACE.cardBg,
               borderBottom: `1px solid ${INBOX_SURFACE.border}`,
-              padding: isMobile ? "8px 10px" : "10px 14px",
+              padding: "var(--cv-header-pad)",
               display: "flex",
               alignItems: "center",
               gap: 8,
               zIndex: 2,
             }}
           >
-            {isMobile && onBack ? (
-              <BackButton onClick={onBack} label="חזרה לשיחות" />
+            {onBack ? (
+              <span className="cv-mobile-only">
+                <BackButton onClick={onBack} label="חזרה לשיחות" />
+              </span>
             ) : null}
 
             <div style={{ position: "relative", flexShrink: 0 }}>
@@ -722,7 +747,7 @@ export function ConversationView(props: {
               flex: 1,
               overflowY: "auto",
               overflowX: "hidden",
-              padding: isMobile ? "8px 10px 4px" : "10px 14px 4px",
+              padding: "var(--cv-msg-pad)",
               background: INBOX_SURFACE.chatBg,
             }}
           >
@@ -761,7 +786,7 @@ export function ConversationView(props: {
                   >
                     <div
                       style={{
-                        maxWidth: isMobile ? "88%" : "72%",
+                        maxWidth: "var(--cv-bubble-maxw)",
                         padding: isBusiness ? "8px 12px 6px" : "8px 12px 6px",
                         borderRadius: isBusiness
                           ? "14px 14px 4px 14px"
@@ -808,10 +833,8 @@ export function ConversationView(props: {
                 bottom: 0,
                 zIndex: 3,
                 background: INBOX_SURFACE.chatBg,
-                padding: isMobile ? "6px 8px 10px" : "8px 12px 12px",
-                paddingBottom: isMobile
-                  ? "max(10px, env(safe-area-inset-bottom))"
-                  : 12,
+                padding: "var(--cv-input-pad)",
+                paddingBottom: "var(--cv-input-padb)",
               }}
             >
               {replyOptions.length > 0 && (
