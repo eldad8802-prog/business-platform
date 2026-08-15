@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/prisma";
-import { decryptToken, encryptToken } from "./token-crypto.placeholder";
+import {
+  decryptToken,
+  encryptToken,
+  legacyRefreshTokenUpgrade,
+} from "./token-crypto.placeholder";
 import { refreshGoogleAccessToken } from "./oauth-refresh.service";
 import { GmailReauthRequiredError } from "./gmail-errors";
 
@@ -164,6 +168,12 @@ export async function discoverGmailAttachments(params: {
         expiresAt: newExpiresAt,
         tokenType: refreshed.token_type ?? connection.token.tokenType,
         encryptionKeyId: enc.keyId,
+        // Best-effort, fail-safe: upgrade a legacy plaintext (enc_v0) refresh
+        // token to gcm_v1 in-place. Absent field => no upgrade; never blocks refresh.
+        ...legacyRefreshTokenUpgrade(
+          connection.token.refreshTokenEncrypted,
+          refreshToken
+        ),
       },
     });
 

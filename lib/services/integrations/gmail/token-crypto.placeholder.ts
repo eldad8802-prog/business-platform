@@ -162,3 +162,45 @@ export function decryptToken(
 
   return null;
 }
+
+/**
+ * Best-effort, FAIL-SAFE security upgrade of a stored refresh token.
+ *
+ * If the stored blob is in the legacy plaintext `enc_v0:` format, returns a
+ * strong `gcm_v1:` re-encryption of the SAME token, to be persisted
+ * opportunistically alongside an already-happening refresh write. Returns `{}`
+ * (no upgrade) when the blob is already strong / unknown / the key is missing /
+ * the round-trip does not verify.
+ *
+ * This MUST NEVER throw and MUST NEVER be a condition for refresh success — the
+ * caller spreads the result into an update it is performing regardless, so an
+ * absent field simply means "no upgrade this time". No new format is
+ * introduced: the output is the existing `gcm_v1` format, so a rollback keeps
+ * every upgraded token readable.
+ */
+export function legacyRefreshTokenUpgrade(
+  storedEncrypted: string | null | undefined,
+  plaintextRefreshToken: string | null | undefined
+): { refreshTokenEncrypted?: string } {
+  try {
+    if (
+      !storedEncrypted ||
+      !storedEncrypted.startsWith(LEGACY_PREFIX) ||
+      !plaintextRefreshToken
+    ) {
+      return {};
+    }
+
+    const reencrypted = encryptToken(plaintextRefreshToken);
+    // Round-trip verify BEFORE persisting: never write a blob we cannot read back.
+    if (
+      reencrypted &&
+      decryptToken(reencrypted.encrypted) === plaintextRefreshToken
+    ) {
+      return { refreshTokenEncrypted: reencrypted.encrypted };
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
