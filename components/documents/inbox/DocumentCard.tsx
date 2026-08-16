@@ -4,11 +4,8 @@ import { useRouter } from "next/navigation";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
 import { TOKEN } from "@/lib/design/documents-theme";
+import { formatMoney } from "@/lib/ui/money";
 import ConfidenceDots from "./ConfidenceDots";
-
-function fmtMoney(n: number) {
-  return `₪${n.toLocaleString("he-IL", { maximumFractionDigits: 2 })}`;
-}
 
 function formatShortDate(iso: string | null | undefined) {
   if (!iso) return "";
@@ -39,8 +36,7 @@ export default function DocumentCard({ item }: { item: InboxListItem }) {
   const vendor =
     item.financial?.vendorName ?? item.extracted?.vendorName ?? "לא צוין";
   const amountRaw = item.financial?.amount ?? item.extracted?.amount ?? null;
-  const amountLabel =
-    amountRaw != null && Number.isFinite(amountRaw) ? fmtMoney(amountRaw) : "—";
+  const amountLabel = formatMoney(amountRaw);
   const dateIso = item.financial?.date ?? item.extracted?.date ?? item.createdAt;
   const categoryRaw = item.financial?.category ?? item.extracted?.category ?? null;
   const category = categoryRaw ? CATEGORY_MAP[categoryRaw] ?? categoryRaw : "כללי";
