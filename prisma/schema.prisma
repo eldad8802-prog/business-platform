@@ -2865,3 +2865,49 @@ model RiaPolicyLineage {
 
   @@index([businessId])
 }
+
+/// Business Memory · Derivation Policy (Contract v1 INV-2; Memory Architecture §7; Persistence Design §9).
+/// The stable, GLOBAL / platform-authored IDENTITY of a derivation-policy family — the continuous identity
+/// of "how Business Memory derives a kind of learned knowledge from evidence" across versions. It is NOT a
+/// business-tenant concept: INV-9 (tenant-locality) governs learned KNOWLEDGE (future Claims), never the
+/// derivation ALGORITHM — so this substrate deliberately has NO businessId and NO Business relation.
+///
+/// This is NOT learned knowledge, NOT a Claim, NOT policy selection, and NOT the derivation function itself
+/// (the function is CODE, never persisted here). It is DISTINCT from RiaPolicyLineage (RIA's identity Method
+/// Policy) and must not be conflated with it. INERT SUBSTRATE (Business Memory IMPL-1): no writer, no
+/// selector, no read-path, no Claim, no confidence, no VendorLearning integration, no activation. Table
+/// existence != Business Memory activation.
+model DerivationPolicy {
+  id        Int      @id @default(autoincrement())
+  /// Stable governed name/identifier of the derivation-policy family (e.g. "vendor-category"). A governed
+  /// DESCRIPTOR, NOT a DB key/identity: deliberately NOT @@unique (governance — not the database —
+  /// distinguishes policies); no default, no allowed-values list, no validation, no runtime behavior.
+  name      String
+  /// Recorded/storage creation time ONLY — NOT effective time, NOT activation, NOT precedence, NOT "latest".
+  createdAt DateTime @default(now())
+
+  versions DerivationPolicyVersion[]
+}
+
+/// Business Memory · Derivation Policy Version (Contract v1 INV-2; Persistence Design §9).
+/// An IMMUTABLE identity of one version of a DerivationPolicy, identified by (policy, version). A future
+/// Claim pins the exact version that produced it (INV-2). GLOBAL (no tenant). `version` is an identity
+/// LABEL only — NOT precedence, NOT order, NOT currentness, NOT recency authority. There is deliberately no
+/// current/latest/active/selected/default/priority here; policy SELECTION is a later governed process, not a
+/// column. No derivation content/serialization (the function is CODE). onDelete: Restrict so policy history
+/// is never cascade-deleted; a retired version is a NEW version, never an overwrite or a delete.
+model DerivationPolicyVersion {
+  id        Int      @id @default(autoincrement())
+  policyId  Int
+  /// Immutable identity label of this version (e.g. "v1") — identity only, NEVER precedence/order.
+  version   String
+  /// Recorded/storage creation time ONLY — NOT effective time, NOT activation, NOT "latest".
+  createdAt DateTime @default(now())
+
+  policy DerivationPolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
+
+  /// Identity uniqueness ONLY: one row per (policy, version). This is the version's IDENTITY (a version IS
+  /// (policy, version)); it does NOT imply order, currentness, precedence, or "one active version".
+  @@unique([policyId, version])
+  @@index([policyId])
+}
