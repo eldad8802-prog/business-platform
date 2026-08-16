@@ -54,8 +54,16 @@ export type WorkspaceLayoutProps = {
    * by its own route/state — never by the Layout.
    */
   responsive: { mode: "switch"; visible: "start" | "end" };
-  /** Scroll containment. v0 instantiates only `shared` (page scroll). */
-  scrollModel?: "shared";
+  /**
+   * Scroll containment.
+   * - `shared` (default): the Layout imposes no height/overflow — the page
+   *   scrolls as one (Customers).
+   * - `split`: each region is bounded to the Layout's height and scrolls
+   *   independently (`overflow-y:auto` per region). The consumer MUST give the
+   *   Layout a bounded height (e.g. a `height: calc(100vh - chrome)` wrapper);
+   *   the Layout stays viewport-agnostic and only distributes that height.
+   */
+  scrollModel?: "shared" | "split";
   /** Region landmark labels (accessibility). */
   startLabel?: string;
   endLabel?: string;
@@ -67,37 +75,50 @@ export function WorkspaceLayout({
   startWidth,
   breakpointStep,
   responsive,
+  scrollModel = "shared",
   startLabel,
   endLabel,
 }: WorkspaceLayoutProps) {
-  // `scrollModel` is accepted for contract shape; v0 implements only "shared"
-  // (the Layout imposes no overflow/height), so it is not read here.
   // SSR-safe unique scope so multiple instances / configurable values never
   // collide and there is no hydration mismatch.
   const scope = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const startW = typeof startWidth === "number" ? `${startWidth}px` : startWidth;
 
-  // shared scroll → the Layout imposes no overflow/height. Parallel via flex on
-  // the inline axis (RTL-correct: start = first child = inline-start). Collapsed
-  // = switch: base shows start; when the consumer chooses "end", show end.
+  // Parallel via flex on the inline axis (RTL-correct: start = first child =
+  // inline-start). Collapsed = switch: base shows start; when the consumer
+  // chooses "end", show end. Scroll ownership by `scrollModel`:
+  //   shared → the Layout imposes no height/overflow (page scroll).
+  //   split  → the Layout fills its (consumer-bounded) height and each region
+  //            scrolls independently, in both parallel and switch modes.
   const css = `
 [data-wsl="${scope}"] { display: block; box-sizing: border-box; }
 [data-wsl="${scope}"] > .wsl-region { min-width: 0; box-sizing: border-box; }
 [data-wsl="${scope}"] > .wsl-start { display: block; }
 [data-wsl="${scope}"] > .wsl-end { display: none; }
-@media (max-width: ${breakpointStep - 1}px) {
-  [data-wsl="${scope}"][data-visible="end"] > .wsl-start { display: none; }
-  [data-wsl="${scope}"][data-visible="end"] > .wsl-end { display: block; }
-}
+/* Collapsed (switch) is the BASE state — NOT gated behind a max-width query.
+ * This makes \`min-width: ${breakpointStep}px\` the SINGLE breakpoint: every
+ * width below it is collapsed (the consumer-chosen region shows) and every width
+ * at/above it is parallel. A previous \`max-width: step-1\` + \`min-width: step\`
+ * pair left the half-open interval (step-1, step) — reachable via fractional /
+ * device-pixel widths — matching NEITHER query, so the base state hid the end
+ * region: an intermediate dead zone where a selected \`end\` was unreachable. */
+[data-wsl="${scope}"][data-visible="end"] > .wsl-start { display: none; }
+[data-wsl="${scope}"][data-visible="end"] > .wsl-end { display: block; }
+[data-wsl="${scope}"][data-scroll="split"] { height: 100%; }
+[data-wsl="${scope}"][data-scroll="split"] > .wsl-region { height: 100%; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 @media (min-width: ${breakpointStep}px) {
   [data-wsl="${scope}"] { display: flex; flex-direction: row; align-items: stretch; }
-  [data-wsl="${scope}"] > .wsl-start { display: block; flex: 0 0 ${startW}; }
-  [data-wsl="${scope}"] > .wsl-end { display: block; flex: 1 1 0; }
+  /* [data-visible] qualifier ties the specificity of the base switch rules so
+     these later-in-source parallel rules win — both regions show side by side. */
+  [data-wsl="${scope}"][data-visible="start"] > .wsl-start,
+  [data-wsl="${scope}"][data-visible="end"] > .wsl-start { display: block; flex: 0 0 ${startW}; }
+  [data-wsl="${scope}"][data-visible="start"] > .wsl-end,
+  [data-wsl="${scope}"][data-visible="end"] > .wsl-end { display: block; flex: 1 1 0; }
 }
 `;
 
   return (
-    <div data-wsl={scope} data-visible={responsive.visible}>
+    <div data-wsl={scope} data-visible={responsive.visible} data-scroll={scrollModel}>
       <style>{css}</style>
       <div className="wsl-region wsl-start" role="region" aria-label={startLabel}>
         {start}

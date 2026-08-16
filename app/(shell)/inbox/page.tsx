@@ -1,9 +1,10 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ConversationList, type InboxListPhase } from "@/components/inbox/ConversationList";
 import { ConversationView } from "@/components/inbox/ConversationView";
+import { WorkspaceLayout } from "@/components/ui/workspace-layout";
 import {
   InboxConnectionLoader,
   WhatsAppInboxOnboarding,
@@ -26,6 +27,16 @@ import {
 } from "@/lib/inbox-view/work-category";
 import { sortInboxConversationRows } from "@/lib/inbox-view/inbox-queue-order";
 import { buildSmartInboxCategoryRows } from "@/lib/inbox-view/inbox-category-presentation";
+
+/**
+ * Consumer-selected DS breakpoint step for the Inbox WorkspaceLayout adoption.
+ * At/above it the list + conversation show in parallel (desktop two-pane);
+ * below it the layout collapses (switch) to the single URL-derived surface.
+ * 769 preserves the prior `window.innerWidth <= 768 → mobile` engagement point,
+ * so no user sees a layout change at their current width. The value lives here
+ * (consumer owns the selection); WorkspaceLayout never guesses a breakpoint.
+ */
+const INBOX_TWO_PANE_STEP = 769;
 
 type Message = {
   id: number;
@@ -210,6 +221,13 @@ function InboxPageContent() {
   const [input, setInput] = useState("");
   const [selectedSuggestionId, setSelectedSuggestionId] = useState<number | null>(null);
   const [listSearchQuery, setListSearchQuery] = useState("");
+  // SSR-safe scope for the Inbox layout's breakpoint CSS (framing + desktop/mobile
+  // surface visibility). No hydration branch — the media query does the switching.
+  const inboxScope = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  // NOTE: `isMobile` no longer owns layout — WorkspaceLayout + CSS media queries do
+  // (see INBOX_TWO_PANE_STEP). It is retained SOLELY for the mobile-only category
+  // auto-pick effect below, which is navigation logic, not layout. Removing it would
+  // change that behavior, so per the adoption scope it stays as-is.
   const [isMobile, setIsMobile] = useState(false);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -1069,213 +1087,160 @@ function InboxPageContent() {
     <SendNoticeToast message={sendNotice} onClose={() => setSendNotice(null)} />
   ) : null;
 
-  if (!isMobile) {
-    return (
-      <>
-        {reconnectBanner}
-        {sendToast}
-        <div
-          style={{
-            direction: "rtl",
-            minHeight: "100vh",
-            background: "#f8fafc",
-            padding: "16px 20px",
-            boxSizing: "border-box",
-            overflowX: "hidden",
-          }}
-        >
-        <div
-          style={{
-            maxWidth: 1280,
-            margin: "0 auto",
-            display: "grid",
-            gridTemplateColumns: "360px minmax(0, 1fr)",
-            gap: 14,
-            alignItems: "stretch",
-            minHeight: "calc(100vh - 32px)",
-          }}
-        >
-          <section
-            style={{
-              background: "#ffffff",
-              border: "1px solid rgba(15, 23, 42, 0.08)",
-              borderRadius: 22,
-              boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
-              overflow: "hidden",
-              display: "flex",
-              flexDirection: "column",
-              minHeight: 0,
-            }}
-          >
-              <DesktopFocusTabs
-                selected={selectedWorkCategory}
-                onSelect={handlePickDesktopCategory}
-                fallbackCounts={sidebarCounts}
-                searchQuery={listSearchQuery}
-                onSearchQueryChange={setListSearchQuery}
-              />
-              <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-              <ConversationList
-                listPhase="conversation_list"
-                layoutMode="desktop"
-                isMobile={false}
-                selectedWorkCategory={selectedWorkCategory}
-                onChangeWorkCategory={setSelectedWorkCategory}
-                sidebarCounts={sidebarCounts}
-                onCreateConversation={handleCreateConversation}
-                conversations={visibleConversations}
-                items={visibleConversationItems}
-                activeConversationId={activeConversationId}
-                onSelectConversation={handleSelectConversation}
-                searchQuery={listSearchQuery}
-                onSearchQueryChange={setListSearchQuery}
-                getStageLabel={getStageLabel}
-                styles={{
-                  softButtonStyle,
-                  accentButtonStyle,
-                  warmButtonStyle,
-                }}
-              />
-            </div>
-          </section>
-
-          <section
-            style={{
-              minWidth: 0,
-              background: "#ffffff",
-              border: "1px solid rgba(15, 23, 42, 0.08)",
-              borderRadius: 22,
-              boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
-              overflow: "hidden",
-              display: "flex",
-              flexDirection: "column",
-              minHeight: 0,
-            }}
-          >
-              <ConversationView
-                isMobile={false}
-                viewMode={detailViewMode}
-                activeConversationId={activeConversationId}
-                activeConversation={activeConversation}
-                activeItem={activeItem}
-                activeIndicator={activeIndicator}
-                getStageLabel={getStageLabel}
-                messages={messages}
-                suggestions={suggestions}
-                selectedSuggestionId={selectedSuggestionId}
-                input={input}
-                onInputChange={setInput}
-                onCloseConversation={handleCloseConversation}
-                onTakeOverConversation={handleTakeOverConversation}
-                takeOverBusy={takeOverBusy}
-                productLinkPrefill={productLinkPrefill}
-                onChooseSuggestion={handleChooseSuggestion}
-                onDismissSuggestion={handleDismissSuggestion}
-                onManualReply={handleManualReply}
-                onSendBusinessMessage={handleSendBusinessMessage}
-                onSimulateCustomerMessage={handleSimulateCustomerMessage}
-                styles={{
-                  softButtonStyle,
-                  accentButtonStyle,
-                  warmButtonStyle,
-                  dangerButtonStyle,
-                }}
-              />
-          </section>
-        </div>
-      </div>
-      </>
-    );
+  // Single Inbox layout via the WorkspaceLayout primitive (switch + split):
+  //  · start region  = the list surface. Both the desktop surface (focus tabs +
+  //    desktop ConversationList) and the mobile triage surface (mobile
+  //    ConversationList) are rendered as STABLE mounted surfaces; a CSS media
+  //    query at INBOX_TWO_PANE_STEP shows exactly one. No window.innerWidth, no
+  //    remount across the breakpoint.
+  //  · end region    = a single ConversationView across breakpoints; its own CSS
+  //    (breakpointStep) drives back-button / empty-state / sizing.
+  //  · responsive    = switch: below the step, show the URL-derived region
+  //    (detail when a conversation is open, else the list). Above the step both
+  //    show in parallel (desktop two-pane).
+  //  · scrollModel   = split: each region scrolls independently within the
+  //    shell's bounded content height (height:100% chain below).
+  // All decorative framing (centered max-width, inter-card gap, rounded cards)
+  // lives in this consumer's CSS-toggled wrappers — the primitive stays a bare
+  // two-region structure and Customers' shared-scroll adoption is untouched.
+  const inboxCss = `
+[data-inbox="${inboxScope}"] { height: 100%; box-sizing: border-box; background: #f8fafc; direction: rtl; overflow-x: hidden; }
+[data-inbox="${inboxScope}"] > .inbox-frame { height: 100%; box-sizing: border-box; }
+[data-inbox="${inboxScope}"] .list-frame { height: 100%; box-sizing: border-box; }
+[data-inbox="${inboxScope}"] .list-frame > .list-desktop { display: none; }
+[data-inbox="${inboxScope}"] .list-frame > .list-mobile { display: block; height: 100%; }
+[data-inbox="${inboxScope}"] .cv-frame { height: 100%; box-sizing: border-box; min-width: 0; }
+@media (min-width: ${INBOX_TWO_PANE_STEP}px) {
+  [data-inbox="${inboxScope}"] > .inbox-frame { max-width: 1280px; margin: 0 auto; padding: 16px 20px; }
+  [data-inbox="${inboxScope}"] .list-frame > .list-desktop {
+    display: flex; flex-direction: column; height: 100%;
+    background: #ffffff; border: 1px solid rgba(15, 23, 42, 0.08); border-radius: 22px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05); overflow: hidden;
   }
+  [data-inbox="${inboxScope}"] .list-frame > .list-mobile { display: none; }
+  [data-inbox="${inboxScope}"] .cv-frame {
+    margin-inline-start: 14px;
+    background: #ffffff; border: 1px solid rgba(15, 23, 42, 0.08); border-radius: 22px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05); overflow: hidden;
+  }
+}
+`;
 
   return (
     <>
       {reconnectBanner}
       {sendToast}
-      <div
-        style={{
-          direction: "rtl",
-          display: "flex",
-          flexDirection: "column",
-          minHeight: "100vh",
-          alignItems: "stretch",
-          background: "#f8fafc",
-          width: "100%",
-          maxWidth: "100%",
-          overflowX: "hidden",
-          boxSizing: "border-box",
-        }}
-      >
-      {/* Top-level mobile screen is DERIVED from the URL: a valid open
-          conversation → detail; otherwise the list surface. The list is a
-          SINGLE stable ConversationList instance whose content toggles between
-          triage and conversations via `listPhase` (list-internal browsing state)
-          — no remount across that switch. */}
-      {activeConversationId == null ? (
-        <ConversationList
-          listPhase={mobileListPhase}
-          isMobile={isMobile}
-          selectedWorkCategory={selectedWorkCategory}
-          onChangeWorkCategory={handlePickCategory}
-          onBackFromList={handleBackToCategories}
-          sidebarCounts={sidebarCounts}
-          onCreateConversation={handleCreateConversation}
-          conversations={visibleConversations}
-          items={visibleConversationItems}
-          dailyContext={dailyContext}
-          smartCategoryRows={smartCategoryRows}
-          activeConversationId={activeConversationId}
-          onSelectConversation={handleSelectConversation}
-          getStageLabel={getStageLabel}
-          styles={{
-            softButtonStyle,
-            accentButtonStyle,
-            warmButtonStyle,
-          }}
-        />
-      ) : (
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            minHeight: 0,
-            width: "100%",
-            background: "#f8fafc",
-          }}
-        >
-          <ConversationView
-            isMobile={isMobile}
-            viewMode={detailViewMode}
-            activeConversationId={activeConversationId}
-            activeConversation={activeConversation}
-            activeItem={activeItem}
-            activeIndicator={activeIndicator}
-            getStageLabel={getStageLabel}
-            messages={messages}
-            suggestions={suggestions}
-            selectedSuggestionId={selectedSuggestionId}
-            input={input}
-            onInputChange={setInput}
-            onCloseConversation={handleCloseConversation}
-            onTakeOverConversation={handleTakeOverConversation}
-            takeOverBusy={takeOverBusy}
-            productLinkPrefill={productLinkPrefill}
-            onChooseSuggestion={handleChooseSuggestion}
-            onDismissSuggestion={handleDismissSuggestion}
-            onManualReply={handleManualReply}
-            onSendBusinessMessage={handleSendBusinessMessage}
-            onSimulateCustomerMessage={handleSimulateCustomerMessage}
-            onBack={handleBackToConversationList}
-            styles={{
-              softButtonStyle,
-              accentButtonStyle,
-              warmButtonStyle,
-              dangerButtonStyle,
+      <div data-inbox={inboxScope}>
+        <style>{inboxCss}</style>
+        <div className="inbox-frame">
+          <WorkspaceLayout
+            startWidth={360}
+            breakpointStep={INBOX_TWO_PANE_STEP}
+            responsive={{
+              mode: "switch",
+              visible: activeConversationId != null ? "end" : "start",
             }}
+            scrollModel="split"
+            startLabel="רשימת שיחות"
+            endLabel="שיחה"
+            start={
+              <div className="list-frame">
+                {/* Desktop surface: focus tabs + desktop list (shown ≥ step). */}
+                <div className="list-desktop">
+                  <DesktopFocusTabs
+                    selected={selectedWorkCategory}
+                    onSelect={handlePickDesktopCategory}
+                    fallbackCounts={sidebarCounts}
+                    searchQuery={listSearchQuery}
+                    onSearchQueryChange={setListSearchQuery}
+                  />
+                  <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+                    <ConversationList
+                      listPhase="conversation_list"
+                      layoutMode="desktop"
+                      isMobile={false}
+                      selectedWorkCategory={selectedWorkCategory}
+                      onChangeWorkCategory={setSelectedWorkCategory}
+                      sidebarCounts={sidebarCounts}
+                      onCreateConversation={handleCreateConversation}
+                      conversations={visibleConversations}
+                      items={visibleConversationItems}
+                      activeConversationId={activeConversationId}
+                      onSelectConversation={handleSelectConversation}
+                      searchQuery={listSearchQuery}
+                      onSearchQueryChange={setListSearchQuery}
+                      getStageLabel={getStageLabel}
+                      styles={{
+                        softButtonStyle,
+                        accentButtonStyle,
+                        warmButtonStyle,
+                      }}
+                    />
+                  </div>
+                </div>
+                {/* Mobile triage surface (shown < step). Content toggles between
+                    triage and conversations via `listPhase` — no remount. */}
+                <div className="list-mobile">
+                  <ConversationList
+                    listPhase={mobileListPhase}
+                    isMobile={true}
+                    selectedWorkCategory={selectedWorkCategory}
+                    onChangeWorkCategory={handlePickCategory}
+                    onBackFromList={handleBackToCategories}
+                    sidebarCounts={sidebarCounts}
+                    onCreateConversation={handleCreateConversation}
+                    conversations={visibleConversations}
+                    items={visibleConversationItems}
+                    dailyContext={dailyContext}
+                    smartCategoryRows={smartCategoryRows}
+                    activeConversationId={activeConversationId}
+                    onSelectConversation={handleSelectConversation}
+                    getStageLabel={getStageLabel}
+                    styles={{
+                      softButtonStyle,
+                      accentButtonStyle,
+                      warmButtonStyle,
+                    }}
+                  />
+                </div>
+              </div>
+            }
+            end={
+              <div className="cv-frame">
+                <ConversationView
+                  breakpointStep={INBOX_TWO_PANE_STEP}
+                  viewMode={detailViewMode}
+                  activeConversationId={activeConversationId}
+                  activeConversation={activeConversation}
+                  activeItem={activeItem}
+                  activeIndicator={activeIndicator}
+                  getStageLabel={getStageLabel}
+                  messages={messages}
+                  suggestions={suggestions}
+                  selectedSuggestionId={selectedSuggestionId}
+                  input={input}
+                  onInputChange={setInput}
+                  onCloseConversation={handleCloseConversation}
+                  onTakeOverConversation={handleTakeOverConversation}
+                  takeOverBusy={takeOverBusy}
+                  productLinkPrefill={productLinkPrefill}
+                  onChooseSuggestion={handleChooseSuggestion}
+                  onDismissSuggestion={handleDismissSuggestion}
+                  onManualReply={handleManualReply}
+                  onSendBusinessMessage={handleSendBusinessMessage}
+                  onSimulateCustomerMessage={handleSimulateCustomerMessage}
+                  onBack={handleBackToConversationList}
+                  styles={{
+                    softButtonStyle,
+                    accentButtonStyle,
+                    warmButtonStyle,
+                    dangerButtonStyle,
+                  }}
+                />
+              </div>
+            }
           />
         </div>
-      )}
       </div>
     </>
   );
