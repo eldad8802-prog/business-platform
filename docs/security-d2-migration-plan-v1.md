@@ -55,10 +55,10 @@ For each phase: **Scope · Dependencies · Risk · DoD · Evidence · Production
 - **Scope:** create the runtime role as **`NOLOGIN`, `NOBYPASSRLS`, non-superuser, non-owner** in each env (**no credential in P1** — `LOGIN`/password are added at P4); grant `USAGE` on schema, `SELECT/INSERT/UPDATE/DELETE` on app tables (**excluding `_prisma_migrations`**), `USAGE,SELECT` on sequences; configure **default privileges FOR `neondb_owner`** (the table creator) so future tables are auto-granted. Runtime **still connects as owner**.
 - **Dependencies:** PC1–PC3.
 - **Risk:** 🟢 Low — additive; runtime unchanged; zero behavior change.
-- **DoD:** role exists as **`NOLOGIN`** (no usable credential), `rolbypassrls=false`, non-superuser, non-owner; grant-coverage over the app-table surface (+ default privileges verified).
+- **DoD (Neon-verified criteria):** role exists as **`NOLOGIN`**, `rolbypassrls=false`, `rolsuper=false`, **non-owner**, and **member of no group** (no inherited privilege). Grant-coverage over the app-table surface + default privileges verified. *Note: Neon auto-adds the creator (`neondb_owner`) as a member **of** the role with `inherit_option=false` — this is platform behavior, **not** privilege escalation; the correct check is "the role is a member of no group", not "the role has no members".*
 - **Evidence:** a grant-coverage probe — the role can perform the app's read/write surface on every tenant table (run in a non-prod env first).
 - **Production verification:** role + grants present; runtime unaffected (still owner) — no user-facing change.
-- **Rollback boundary:** DB — `DROP OWNED BY <role>; DROP ROLE <role>` (reverse migration, **not** git revert).
+- **Rollback boundary:** DB — **explicit REVOKE** (table DML + sequence privileges + schema `USAGE` + reverse the `ALTER DEFAULT PRIVILEGES`) then `DROP ROLE <role>` (reverse migration, **not** git revert). **`DROP OWNED BY` is NOT the Neon rollback** — `neondb_owner` gets `permission denied` (42501); proven in non-prod. Scripts must be **retry-safe / re-inspect-after-flake** (Neon dev cold-suspend).
 - **Stop conditions:** any table lacks a needed grant → complete grants before proceeding.
 
 ### P2 — Adapter preparation + parity/stability proof (non-prod)
@@ -192,7 +192,7 @@ The pilot table must be:
 
 | Layer | Rollback mechanism | Type |
 |---|---|---|
-| **Runtime role** (P1/P4) | flip runtime env back to owner; `DROP OWNED BY <role>; DROP ROLE <role>` | env + reverse DB migration |
+| **Runtime role** (P1/P4) | flip runtime env back to owner; **explicit REVOKE** (table DML + sequences + schema usage + default privileges) then `DROP ROLE <role>` — **not** `DROP OWNED BY` (permission-denied on Neon, 42501) | env + reverse DB migration |
 | **Runtime adapter/driver** (P3) | revert client to standard engine; redeploy | code/deploy |
 | **Context plumbing** (P5/P6) | code revert (safe — inert without RLS); redeploy | code/deploy |
 | **RLS policy** (P7/P8) | `DROP POLICY ...; ALTER TABLE ... DISABLE ROW LEVEL SECURITY` | reverse DB migration |
@@ -246,7 +246,7 @@ The pilot table must be:
 > **First increment = Phase 1 — Runtime role provisioning.**
 
 - **What:** create the dedicated **`NOLOGIN`, non-`BYPASSRLS`, non-superuser, non-owner** runtime role (**no credential yet** — `LOGIN`/password added at P4) + grants (app tables, excluding `_prisma_migrations`) + **default privileges FOR `neondb_owner`** for future tables — in a **non-production** environment first, then production. **The runtime keeps connecting as owner; no RLS anywhere; no driver/plumbing/code change.**
-- **Why it is the smallest safe advance:** it is **additive** (a new role), **fully reversible** (`DROP OWNED BY` + `DROP ROLE`), **zero runtime/behavior impact** (runtime unchanged), and it lays the **foundational prerequisite** the entire architecture rests on — **without enabling any RLS enforcement on production**.
+- **Why it is the smallest safe advance:** it is **additive** (a new role), **fully reversible** (explicit `REVOKE` + `DROP ROLE`; **not** `DROP OWNED BY` — Neon permission-denied), **zero runtime/behavior impact** (runtime unchanged), and it lays the **foundational prerequisite** the entire architecture rests on — **without enabling any RLS enforcement on production**.
 - **Parallel zero-prod-footprint precursor:** the **adapter parity/stability proof (P2)** on a healthy non-prod branch can run alongside — it touches no production and de-risks the driver decision. (Its dependency install is itself a change, so it is scoped as P2, not folded into P1.)
 - **Explicitly deferred:** driver switch, role switch, context plumbing, and all RLS enablement are **later** increments, each separately approved.
 
