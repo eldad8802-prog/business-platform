@@ -52,10 +52,10 @@ P1 Runtime role provisioning (DB-side; runtime unchanged)
 For each phase: **Scope · Dependencies · Risk · DoD · Evidence · Production verification · Rollback boundary · Stop conditions.**
 
 ### P1 — Runtime role provisioning
-- **Scope:** create the non-bypass runtime role in each env; grant `USAGE` on schema, `SELECT/INSERT/UPDATE/DELETE` on all current tenant tables, `USAGE,SELECT` on sequences; configure **default privileges** so future tables are auto-granted. Runtime **still connects as owner**.
+- **Scope:** create the runtime role as **`NOLOGIN`, `NOBYPASSRLS`, non-superuser, non-owner** in each env (**no credential in P1** — `LOGIN`/password are added at P4); grant `USAGE` on schema, `SELECT/INSERT/UPDATE/DELETE` on app tables (**excluding `_prisma_migrations`**), `USAGE,SELECT` on sequences; configure **default privileges FOR `neondb_owner`** (the table creator) so future tables are auto-granted. Runtime **still connects as owner**.
 - **Dependencies:** PC1–PC3.
 - **Risk:** 🟢 Low — additive; runtime unchanged; zero behavior change.
-- **DoD:** role exists; `rolbypassrls=false`; non-owner; grant-coverage over the full current tenant-table surface (+ default privileges verified).
+- **DoD:** role exists as **`NOLOGIN`** (no usable credential), `rolbypassrls=false`, non-superuser, non-owner; grant-coverage over the app-table surface (+ default privileges verified).
 - **Evidence:** a grant-coverage probe — the role can perform the app's read/write surface on every tenant table (run in a non-prod env first).
 - **Production verification:** role + grants present; runtime unaffected (still owner) — no user-facing change.
 - **Rollback boundary:** DB — `DROP OWNED BY <role>; DROP ROLE <role>` (reverse migration, **not** git revert).
@@ -82,7 +82,7 @@ For each phase: **Scope · Dependencies · Risk · DoD · Evidence · Production
 - **Stop conditions:** elevated errors/latency/connection exhaustion → revert.
 
 ### P4 — Runtime role switch (owner → non-bypass role; adapter; NO RLS) + boot guardrail
-- **Scope:** switch the runtime connection string to authenticate as the **non-bypass role** (via adapter). Add the **boot assertion** (`rolbypassrls=false` + non-owner, else fail boot). Still **no** RLS policies → behavior identical **iff** grants are complete.
+- **Scope:** grant the role **`LOGIN` + password** (deferred from P1) and switch the runtime connection string to authenticate as it (via adapter). Add the **boot assertion** (`rolbypassrls=false` + non-owner, else fail boot). Still **no** RLS policies → behavior identical **iff** grants are complete.
 - **Dependencies:** P1 (grants), P3 (driver).
 - **Risk:** 🟡 Medium — this is the real-world grant-coverage test; a missing grant surfaces as a permission error.
 - **DoD:** app fully functional as the non-bypass role; boot assertion passes; zero permission-denied in logs.
@@ -113,6 +113,7 @@ For each phase: **Scope · Dependencies · Risk · DoD · Evidence · Production
 
 ### P7 — Pilot: ENABLE RLS + policy → read enforcement
 - **Scope:** on the chosen **pilot table** (criteria §5): `ENABLE ROW LEVEL SECURITY` + the tenant policy. Because the runtime is now the non-bypass role (P4), the policy **enforces immediately** for runtime reads.
+- **Precondition (Open Decision — from the Phase-1 Threat Model):** the **RLS policy model must be ratified per table** before RLS is enabled on it. Evidence: **32 of 97 tables have no direct `businessId`** (child tables scoped via a parent FK, plus genuinely-global `Platform*`) — the `business_id`-column policy (architecture §5) does not cover them. Each table (pilot + expansion) needs a decided policy shape: **direct** / **parent-join** / **global-deny**. See §9.
 - **Dependencies:** P5, P6; pilot table selected per §5.
 - **Risk:** 🟡 Medium — first real enforcement; a missed context path fails-closed.
 - **DoD:** cross-tenant **read** blocked (A cannot see B); same-tenant read works; missing-context → zero rows; no context leak under concurrency — all on the pilot table.
@@ -236,6 +237,7 @@ The pilot table must be:
 - **Connection pool sizing / lifecycle** under real serverless concurrency — architecture §12 (Unverified).
 - **Healthy-branch latency budget** — to be measured in P2 (spike numbers were degraded).
 - **`neondb_owner` vs a distinct migration role** — whether to keep the existing owner as the migration role or introduce a separate admin role.
+- **RLS policy model for parent-scoped / global tables** — **32 of 97 tables lack a direct `businessId`** (Phase-1 Threat Model finding). A per-table policy shape (direct / parent-join / global-deny) must be **ratified before RLS is enabled on that table** (blocks P7 pilot + each expansion). Extends architecture §5.
 
 ---
 
@@ -243,7 +245,7 @@ The pilot table must be:
 
 > **First increment = Phase 1 — Runtime role provisioning.**
 
-- **What:** create the dedicated **non-`BYPASSRLS`, non-owner** runtime role + full grants over the current tenant-table surface + **default privileges** for future tables — in a **non-production** environment first, then production. **The runtime keeps connecting as owner; no RLS anywhere; no driver/plumbing/code change.**
+- **What:** create the dedicated **`NOLOGIN`, non-`BYPASSRLS`, non-superuser, non-owner** runtime role (**no credential yet** — `LOGIN`/password added at P4) + grants (app tables, excluding `_prisma_migrations`) + **default privileges FOR `neondb_owner`** for future tables — in a **non-production** environment first, then production. **The runtime keeps connecting as owner; no RLS anywhere; no driver/plumbing/code change.**
 - **Why it is the smallest safe advance:** it is **additive** (a new role), **fully reversible** (`DROP OWNED BY` + `DROP ROLE`), **zero runtime/behavior impact** (runtime unchanged), and it lays the **foundational prerequisite** the entire architecture rests on — **without enabling any RLS enforcement on production**.
 - **Parallel zero-prod-footprint precursor:** the **adapter parity/stability proof (P2)** on a healthy non-prod branch can run alongside — it touches no production and de-risks the driver decision. (Its dependency install is itself a change, so it is scoped as P2, not folded into P1.)
 - **Explicitly deferred:** driver switch, role switch, context plumbing, and all RLS enablement are **later** increments, each separately approved.
