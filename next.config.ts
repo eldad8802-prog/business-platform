@@ -4,6 +4,21 @@ const nextConfig: NextConfig = {
   // Playwright is Node-native; do not bundle it into the serverless output.
   serverExternalPackages: ["playwright", "playwright-core"],
 
+  // Retire the legacy duplicate homepage `/corporate-home` (superseded by
+  // Homepage v1 at `/home`). It has zero internal consumers but was publicly
+  // reachable, so we RETIRE it behind a permanent (308) compatibility redirect
+  // to the canonical `/home` rather than hard-deleting to a 404 — preserving any
+  // external bookmarks / indexed links. `permanent: true` emits HTTP 308.
+  async redirects() {
+    return [
+      {
+        source: "/corporate-home",
+        destination: "/home",
+        permanent: true,
+      },
+    ];
+  },
+
   // Corporate apex (promaxgroup.co.il) serves the public Corporate Home.
   // `beforeFiles` is required: the app's `/` route (app/(shell)/page.tsx)
   // exists, so an `afterFiles`/array rewrite would never fire. This rewrite
