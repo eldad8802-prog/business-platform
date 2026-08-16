@@ -22,8 +22,7 @@ export function CorporateFooter() {
               />
             </div>
             <p className="mt-3 max-w-xs text-sm leading-6 text-gray-500">
-              מערכת ההפעלה לעסק שלך — שיחות, מסמכים, חשבוניות, מלאי ותובנות במקום
-              אחד.
+              מרכזת את היום־יום של העסק שלך — לקוחות, כסף ומסמכים — במקום אחד.
             </p>
           </div>
 
