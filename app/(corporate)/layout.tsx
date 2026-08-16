@@ -15,7 +15,7 @@ import { marketingVars } from "@/components/corporate/marketing-tokens";
 export const metadata: Metadata = {
   title: { default: "Dubiz", template: "%s · Dubiz" },
   description:
-    "Dubiz — מערכת ההפעלה לעסק שלך. שיחות, מסמכים, חשבוניות, מלאי ותובנות במקום אחד. מופעל על ידי PRO MAX GROUP.",
+    "Dubiz מרכזת את היום־יום של העסק שלך — לקוחות, כסף ומסמכים — מהוואטסאפ, מהמייל ומהמסמכים שכבר יש לך. מופעל על ידי PRO MAX GROUP.",
 };
 
 export default function CorporateLayout({
