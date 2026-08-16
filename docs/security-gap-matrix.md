@@ -24,7 +24,7 @@
 | ID | החלטה | סטטוס | מסמך |
 |----|--------|--------|------|
 | **D1** | O2 — Server Session (Postgres) + httpOnly cookie; תנאים C1–C6 | **Approved** (Implementation לא התחיל) | `docs/security-d1-session-architecture-review.md` |
-| **D2** | Hybrid — Prisma Extension + ALS + RLS מדורג (H1–H5 נסגרו) | **D2 Locked** (Implementation לא התחיל) | `docs/security-d2-business-isolation-impact-review.md`, `docs/security-d2-h1-h5-final-decision-package.md` |
+| **D2** | **Goal:** structural DB-backed tenant isolation (RLS). **Runtime arch (Spike-B validated):** dedicated **non-`BYPASSRLS`** runtime role + separate migration/owner role + `@prisma/adapter-neon` (Neon serverless driver) + ALS tenant context + `SET LOCAL` in transaction + `FORCE` RLS, fail-closed | **Goal `LOCKED` · Runtime Arch `VALIDATED` (Spike B) · Impl `NOT STARTED`** | `docs/security-d2-tenant-isolation-architecture-v1.md` (canonical; supersedes the earlier impact-review / decision-package refs, which are **not** in-repo) |
 | **D3** | Upstash Redis (rate limiting) | ✅ **Implemented** (mainline — `lib/security/rate-limiter/redis-backend.ts`) | `docs/security-wave-1-design-review-d1-d2-d3.md` |
 | **D4** | Coupon: QR/token לא ציבורי; marketing מותר; redeem מורשה | ✅ **Verified / Closed** — W1-01 (PR #157, merge `6e9935a`, 2026-07-31) | `docs/security-w1-01-coupon-surface-implementation-plan.md` |
 | **D5** | Gmail token encryption AAD = `businessId`; יישור מודל עם WhatsApp | ✅ **Implemented** (GCM at-rest); ⚠️ אימות AAD=businessId פתוח | Wave 1 — 1.7 |
