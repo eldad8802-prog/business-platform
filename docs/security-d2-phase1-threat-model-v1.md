@@ -60,7 +60,7 @@
 | TH8 | **Future tables missing privileges** | 🟡 | if `ALTER DEFAULT PRIVILEGES` is not set (or set for the wrong creating role), new tables won't auto-grant → P4/P10 breakage. Control: set default privileges **FOR ROLE `neondb_owner`** (the table creator). |
 | TH9 | **Default-privileges mistakes** (wrong schema/role/verbs) | 🟡 | silent until a new table appears. Control: verify default privileges apply to a freshly-created probe table (§7). |
 | TH10 | **Connection-string mistakes** | n/a in P1 | no new connection string is used in P1 (NOLOGIN → none needed). Risk is P4. |
-| TH11 | **Rollback hazards** (role owns objects / active sessions block DROP) | 🟡 | `DROP ROLE` fails if the role owns objects or has grants/sessions. Control: `DROP OWNED BY` + terminate sessions before `DROP ROLE` (proven in the Spike cleanup). NOLOGIN → no sessions. |
+| TH11 | **Rollback hazards** (grants block `DROP ROLE`; `DROP OWNED BY` denied on Neon) | 🟡 | **Non-prod finding:** `DROP OWNED BY <role>` is **permission-denied for `neondb_owner` on Neon** (`42501`). Control (proven clean in non-prod): **explicit REVOKE** (table DML + sequences + schema usage + default privileges) then `DROP ROLE`. NOLOGIN → no sessions. |
 
 **Indirectly-scoped tables (newly found — feeds P7, not P1):** 32 of 97 tables have **no direct `businessId`** (child tables like `BillingDocumentLine`, `OAuthToken`, `PurchaseOrderLine`, and genuinely-global `Platform*`). The architecture's `business_id`-column RLS policy (§5) does **not** cover them. **Not a Phase-1 issue** (Phase 1 = grants only), but a **new precondition for P7** (policy-model must handle parent-scoped + global tables).
 
@@ -74,8 +74,8 @@
 | Missing table grant | table omitted / new table | grant-coverage probe (§7); surfaces at P4 | none in P1; P4 permission errors | grant the missing table | n/a (additive) |
 | Default privileges not applied | `ALTER DEFAULT PRIVILEGES` missing/wrong role | probe: create temp table as owner → check auto-grant | future tables ungranted | set default privileges FOR `neondb_owner` | reset default privileges |
 | Excessive grant (`_prisma_migrations`/DDL) | over-broad `GRANT` | grant audit (§7) | least-privilege violation; if BYPASSRLS → false security | `REVOKE` the excess | as above |
-| Partial DDL apply | connection drop mid-provision | re-run idempotent provisioning; compare to expected state | inconsistent role state (owner unaffected) | re-apply idempotently | `DROP OWNED BY`+`DROP ROLE` |
-| Rollback blocked | role owns objects / active sessions | `DROP ROLE` errors | can't cleanly remove role | terminate sessions + `DROP OWNED BY` | then `DROP ROLE` |
+| Partial DDL apply | connection drop mid-provision (Neon dev cold-suspend) | re-inspect actual PG state; re-run idempotent provisioning | inconsistent role state (owner/runtime unaffected) | re-apply idempotently (retry-safe) | explicit REVOKE + `DROP ROLE` |
+| Rollback blocked (`DROP OWNED BY` denied on Neon) | Neon role-management semantics (`42501`) | `permission denied` on `DROP OWNED BY` | cannot remove via `DROP OWNED BY` | use **explicit REVOKE** of all grants + default privileges | then `DROP ROLE` (proven clean in non-prod) |
 
 ---
 
@@ -83,7 +83,7 @@
 
 - **Breaks:** effectively **nothing user-facing.** The runtime still authenticates as `neondb_owner` and serves normally throughout Phase 1. A half-created role / partial grants is an **inert artifact**.
 - **Does NOT break:** production availability, data integrity, migrations, runtime privileges — all ride on `neondb_owner`, which Phase 1 never touches.
-- **Recoverable:** fully. The only persistent artifacts are a role + grants, removable via terminate-sessions → `DROP OWNED BY` → `DROP ROLE` (proven in the Spike). With **NOLOGIN**, there are no sessions to terminate.
+- **Recoverable:** fully. The only persistent artifacts are a role + grants, removable via **explicit REVOKE** of all grants (+ default privileges) → `DROP ROLE` (proven clean in non-prod; **`DROP OWNED BY` is permission-denied on Neon**). With **NOLOGIN**, there are no sessions to terminate.
 - **Net:** Phase 1's production blast radius is **≈ zero** — this is precisely why it is the correct first step (isolate provisioning from the risky switch).
 
 ---
@@ -96,6 +96,7 @@ Run in **non-prod first, then prod**; each is a concrete query:
 2. **migrations still work** — a no-op/`prisma migrate status` (owner, direct URL) reports healthy; a shadow migration applies cleanly.
 3. **role is non-bypass** — `SELECT rolbypassrls FROM pg_roles WHERE rolname='<runtime>'` → **false**; `rolsuper` → false.
 4. **role is not owner** — `SELECT count(*) FROM pg_tables WHERE tableowner='<runtime>'` → **0**.
+4b. **role is a member of NO group** (the correct Neon check for privilege escalation) — no row in `pg_auth_members` where the role is the *member*. *Neon auto-adds the creator (`neondb_owner`) as a member **of** the role with `inherit_option=false` — platform behavior, **not** escalation; do NOT assert "the role has no members".*
 5. **grants complete** — for every app table the runtime needs, `has_table_privilege('<runtime>','<t>','SELECT/INSERT/UPDATE/DELETE')` → true; sequences `has_sequence_privilege(...,'USAGE,SELECT')` → true. `_prisma_migrations` → **no** grant (excluded).
 6. **default privileges correct** — as owner, create a temp table; assert the runtime role **automatically** has DML on it; drop the temp table.
 7. **NOLOGIN (if adopted)** — `SELECT rolcanlogin` → false (no usable credential until P4).
@@ -106,7 +107,7 @@ Run in **non-prod first, then prod**; each is a concrete query:
 
 Rollback = restore the exact prior state. **Proof obligations, not assertions:**
 1. **Before:** capture that the runtime works as `neondb_owner` (health 200, flows) — the baseline.
-2. **Rollback action:** terminate any `<runtime>` sessions → `DROP OWNED BY <runtime>` → `DROP ROLE <runtime>` → reset any `ALTER DEFAULT PRIVILEGES`.
+2. **Rollback action (Neon-correct):** **explicit REVOKE** table DML + sequences + schema `USAGE` FROM `<runtime>` → reverse the `ALTER DEFAULT PRIVILEGES` → `DROP ROLE <runtime>`. (**Not** `DROP OWNED BY` — permission-denied for `neondb_owner` on Neon, `42501`; proven in non-prod.)
 3. **After — prove the system still works:** re-run the **same** baseline checks (health 200, representative flows, migrations) → identical to "before". 
 4. **Prove the role is gone:** `SELECT count(*) FROM pg_roles WHERE rolname='<runtime>'` → 0; `SELECT ... FROM pg_default_acl` shows no residual default privileges for it.
 Because the runtime never depended on the role in Phase 1, step 3 is guaranteed to pass — but it is **verified, not assumed.**
