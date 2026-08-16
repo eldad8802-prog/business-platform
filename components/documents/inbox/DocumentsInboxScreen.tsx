@@ -7,9 +7,26 @@ import { TOKEN } from "@/lib/design/documents-theme";
 import { glassActionStyle } from "@/lib/design/documents-theme";
 import BackButton from "@/components/ui/back-button";
 import DocumentCard from "./DocumentCard";
+import DocumentsInboxTable from "./DocumentsInboxTable";
 import InboxEmptyState from "./InboxEmptyState";
 import InboxSkeleton from "./InboxSkeleton";
 import MonthSection from "./MonthSection";
+
+/**
+ * Artifact C — single authoritative responsive boundary for the inbox surfaces.
+ * Base (below 1024) shows the existing mobile cards; at/above 1024 (the shell's
+ * desktop/sidebar tier, matching MasterDetailLayout's twoPaneMinWidth) the dense
+ * review table shows instead. One `min-width` boundary, no `max-width` arm → no
+ * fractional dead zone (Artifact B lesson). No JS viewport detection.
+ */
+const responsiveCss = `
+.docs-inbox-desktop { display: none; }
+.docs-inbox-mobile { display: flex; flex-direction: column; gap: 8px; }
+@media (min-width: 1024px) {
+  .docs-inbox-desktop { display: block; }
+  .docs-inbox-mobile { display: none; }
+}
+`;
 
 function groupByMonthDescending(items: InboxListItem[]): string[] {
   const keys = new Set(items.map((i) => i.groupMonth));
@@ -47,6 +64,7 @@ export default function DocumentsInboxScreen({
 
   return (
     <div dir="rtl" style={pageStyle}>
+      <style>{responsiveCss}</style>
       <main style={mainStyle}>
         <header style={headStyle}>
           <BackButton href="/documents" />
@@ -83,15 +101,29 @@ export default function DocumentsInboxScreen({
               <InboxEmptyState variant={items.length === 0 ? "no_documents_month" : "no_pending"} />
             ) : (
               <section style={listStyle}>
-                {monthKeys.map((monthKey) => (
-                  <MonthSection key={monthKey} monthKey={monthKey}>
-                    {pendingItems
-                      .filter((item) => item.groupMonth === monthKey)
-                      .map((item) => (
-                        <DocumentCard key={item.documentId} item={item} />
-                      ))}
-                  </MonthSection>
-                ))}
+                {monthKeys.map((monthKey) => {
+                  const monthItems = pendingItems.filter(
+                    (item) => item.groupMonth === monthKey
+                  );
+                  return (
+                    <MonthSection key={monthKey} monthKey={monthKey}>
+                      {/* Desktop (≥1024): dense review table. Mobile (<1024): the
+                          existing cards. Same data, CSS-toggled — no duplicate
+                          fetch, no viewport hook, grouping stays here. */}
+                      <div className="docs-inbox-desktop">
+                        <DocumentsInboxTable
+                          items={monthItems}
+                          ariaLabel={`מסמכים לאימות — ${monthKey}`}
+                        />
+                      </div>
+                      <div className="docs-inbox-mobile">
+                        {monthItems.map((item) => (
+                          <DocumentCard key={item.documentId} item={item} />
+                        ))}
+                      </div>
+                    </MonthSection>
+                  );
+                })}
               </section>
             )}
 
