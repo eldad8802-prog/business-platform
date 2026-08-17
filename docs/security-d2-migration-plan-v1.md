@@ -58,7 +58,7 @@ For each phase: **Scope · Dependencies · Risk · DoD · Evidence · Production
 - **DoD (Neon-verified criteria):** role exists as **`NOLOGIN`**, `rolbypassrls=false`, `rolsuper=false`, **non-owner**, and **member of no group** (no inherited privilege). Grant-coverage over the app-table surface + default privileges verified. *Note: Neon auto-adds the creator (`neondb_owner`) as a member **of** the role with `inherit_option=false` — this is platform behavior, **not** privilege escalation; the correct check is "the role is a member of no group", not "the role has no members".*
 - **Evidence:** a grant-coverage probe — the role can perform the app's read/write surface on every tenant table (run in a non-prod env first).
 - **Production verification:** role + grants present; runtime unaffected (still owner) — no user-facing change.
-- **Rollback boundary:** DB — **explicit REVOKE** (table DML + sequence privileges + schema `USAGE` + reverse the `ALTER DEFAULT PRIVILEGES`) then `DROP ROLE <role>` (reverse migration, **not** git revert). **`DROP OWNED BY` is NOT the Neon rollback** — `neondb_owner` gets `permission denied` (42501); proven in non-prod. Scripts must be **retry-safe / re-inspect-after-flake** (Neon dev cold-suspend).
+- **Rollback boundary:** DB — **explicit REVOKE** (table DML + sequence privileges + schema `USAGE` + reverse the `ALTER DEFAULT PRIVILEGES`) then `DROP ROLE <role>` (reverse migration, **not** git revert). **`DROP OWNED BY` is NOT the Neon rollback** — `neondb_owner` gets `permission denied` (42501); proven in non-prod. Scripts must be **retry-safe / re-inspect-after-flake** (Neon dev cold-suspend). The rollback restores **effective privileges** to baseline, **not** a byte-identical `relacl` (see §6.1 Rollback invariant).
 - **Stop conditions:** any table lacks a needed grant → complete grants before proceeding.
 
 ### P2 — Adapter preparation + parity/stability proof (non-prod)
@@ -201,6 +201,24 @@ The pilot table must be:
 **Rollback ordering — reverse / LIFO (binding):** layers roll back in the **reverse** of the order they were applied. A layer's rollback assumes **all later layers are already rolled back (or were never applied)** — e.g. the context plumbing (P5) may be removed only once no table has RLS (P7+ already rolled back), since live RLS depends on the plumbing to set context. Never roll back an earlier layer while a later one is still live.
 
 **Rule:** any layer that changed DB/infra state has an explicit **reverse migration** — a git revert alone is insufficient for role/policy/FORCE changes.
+
+### 6.1 Rollback invariant — effective-privilege equivalence (not catalog-byte identity)
+
+A role/grant rollback (P1/P4) is **complete** when it restores the prior **effective-privilege state**, proven by:
+
+- owner privileges identical to baseline (before/after);
+- `PUBLIC` privileges identical to baseline;
+- **absence** of the runtime role (`app_runtime`);
+- **no** additional grantee on any relation/sequence;
+- ownership unchanged;
+- **no** `app_runtime` entry in any default ACL (`pg_default_acl`);
+- objects / business data / runtime behavior unchanged.
+
+It is **not** required to restore `pg_class.relacl` (or `pg_class`/`pg_default_acl` bytes) to their original representation.
+
+**Known PostgreSQL catalog effect (Production evidence, 2026-08-17 · ep-flat-brook):** `GRANT … ON ALL TABLES/SEQUENCES` **materializes** explicit ACL entries on the relations/sequences. After the reverse `REVOKE`, PostgreSQL may leave an **explicit owner-only ACL** where the pristine object had `relacl = NULL`. Because `relacl = NULL` **is** the object's default privileges, an explicit owner-only ACL with the **same** effective grants and **no** extra grantee is a **catalog-representation change, not a privilege change**.
+
+**Verification — effective, not physical:** compare effective privileges (owner before/after, `PUBLIC` before/after, absence of the runtime role, absence of additional grantees, ownership, default-ACL residue, business-object health). A byte/MD5 **fingerprint** of the catalog representation may be retained as a **diagnostic only — never as the security gate.**
 
 ---
 
