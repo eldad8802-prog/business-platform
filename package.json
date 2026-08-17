@@ -18,6 +18,7 @@
     "verify:ria-policy-lineage-schema": "npx tsx lib/referent-identity/ria-policy-lineage.schema.test.ts",
     "verify:business-memory-policy-schema": "npx tsx lib/business-memory/derivation-policy.schema.test.ts",
     "verify:business-memory-evidence-adapter": "npx tsx lib/business-memory/evidence/evidence-adapter.contract.test.ts",
+    "verify:business-memory-deriver": "npx tsx lib/business-memory/derivation/memory-deriver.test.ts",
     "verify:writing-package": "npx tsx lib/features/content/writing-package/verify-writing-package-runtime.ts",
     "verify:obligations-state": "npx tsx lib/services/obligations/obligation-core.verify.test.ts",
     "verify:obligations-service": "npx tsx lib/services/obligations/obligation-service.verify.test.ts",
