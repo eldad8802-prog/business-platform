@@ -77,6 +77,7 @@ async function main(): Promise<void> {
             billingPaymentNote: true,
             billingFooterNote: true,
             billingLogoDataUrl: true,
+            billingSignatureDataUrl: true,
             billingPdfTemplateStyle: true,
           },
         },

@@ -155,6 +155,7 @@ export async function getOrRenderQuotePdf(
           billingPaymentNote: true,
           billingFooterNote: true,
           billingLogoDataUrl: true,
+          billingSignatureDataUrl: true,
           billingPdfTemplateStyle: true,
         },
       },

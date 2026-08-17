@@ -410,6 +410,10 @@ model BusinessProfile {
   billingFooterNote       String?
   /// Small logo as data URL — pdfmake/HTML renderer embed only (no remote fetch)
   billingLogoDataUrl      String?
+  /// Business VISUAL signature/stamp as data URL — presentation only, embedded on
+  /// billing documents (pdfmake/HTML renderer, no remote fetch). NOT a cryptographic
+  /// signature and NOT proof of integrity; same constraints as billingLogoDataUrl.
+  billingSignatureDataUrl String?
   /// CLASSIC | MODERN | COMPACT — drives billing PDF layout presets (business-wide).
   billingPdfTemplateStyle String   @default("CLASSIC")
   createdAt               DateTime @default(now())

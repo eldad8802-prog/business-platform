@@ -88,6 +88,9 @@ export type BillingIssuedSnapshotV1Issuer = {
   phone: string | null;
   email: string | null;
   logoUrl: string | null;
+  /** Business VISUAL signature/stamp (data URL). Presentation only — optional for
+   *  backward compatibility with snapshots frozen before this field existed. */
+  signatureUrl?: string | null;
   bankDetails: unknown | null;
 };
 
@@ -842,6 +845,30 @@ export function buildDocDefinition(
       ...(typeof issuer.bankDetails === "string" &&
       issuer.bankDetails.trim().length > 0
         ? [buildPaymentDetailsBlock(issuer.bankDetails)]
+        : []),
+      // Business VISUAL signature/stamp (presentation only — never labelled as a
+      // cryptographic/digital signature). `fit` preserves aspect ratio so an
+      // arbitrary uploaded image never distorts or overruns the page.
+      ...(isDataImageUrl(issuer.signatureUrl ?? null)
+        ? [
+            {
+              stack: [
+                {
+                  text: rtlLabel("חתימה וחותמת"),
+                  fontSize: 9,
+                  color: "#555",
+                  margin: [0, 0, 0, 4] as [number, number, number, number],
+                },
+                {
+                  image: issuer.signatureUrl as string,
+                  fit: [150, 72] as [number, number],
+                  alignment: "right" as const,
+                },
+              ],
+              alignment: "right" as const,
+              margin: [0, 22, 0, 0] as [number, number, number, number],
+            },
+          ]
         : []),
       {
         text: rtlText(getBillingFooterLegalNote(snapshot)),

@@ -69,6 +69,10 @@ type IssuerSnapshot = {
   phone: string | null;
   email: string | null;
   logoUrl: string | null;
+  /** Business VISUAL signature/stamp (data URL) frozen at issuance. Presentation
+   *  only — not a cryptographic signature. Optional for backward compatibility
+   *  with snapshots frozen before this field existed. */
+  signatureUrl?: string | null;
   bankDetails: unknown | null;
 };
 
@@ -142,6 +146,7 @@ type BusinessProfileForInvoice = {
   billingPaymentNote: string | null;
   billingFooterNote: string | null;
   billingLogoDataUrl: string | null;
+  billingSignatureDataUrl: string | null;
   billingPdfTemplateStyle?: string | null;
 } | null;
 
@@ -239,6 +244,10 @@ export function buildIssuedSnapshot(args: {
     profile && isValidBillingLogoDataUrl(profile.billingLogoDataUrl)
       ? profile.billingLogoDataUrl!.trim()
       : null;
+  const signatureUrl =
+    profile && isValidBillingLogoDataUrl(profile.billingSignatureDataUrl)
+      ? profile.billingSignatureDataUrl!.trim()
+      : null;
 
   const pdfTemplateStyle = parseBillingPdfTemplateStyle(
     profile?.billingPdfTemplateStyle
@@ -272,6 +281,7 @@ export function buildIssuedSnapshot(args: {
     phone: phone,
     email: email,
     logoUrl: logoUrl,
+    signatureUrl: signatureUrl,
     bankDetails: paymentNote,
   };
 
@@ -527,6 +537,7 @@ export async function issueBillingDocument(
             billingPaymentNote: true,
             billingFooterNote: true,
             billingLogoDataUrl: true,
+            billingSignatureDataUrl: true,
             billingPdfTemplateStyle: true,
           },
         },

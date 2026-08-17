@@ -17,6 +17,7 @@ type BusinessProfileForQuote = {
   billingPaymentNote: string | null;
   billingFooterNote: string | null;
   billingLogoDataUrl: string | null;
+  billingSignatureDataUrl: string | null;
   billingPdfTemplateStyle?: string | null;
 } | null;
 
@@ -95,6 +96,10 @@ export function buildQuotePdfSnapshot(args: {
     profile && isValidBillingLogoDataUrl(profile.billingLogoDataUrl)
       ? profile.billingLogoDataUrl!.trim()
       : null;
+  const signatureUrl =
+    profile && isValidBillingLogoDataUrl(profile.billingSignatureDataUrl)
+      ? profile.billingSignatureDataUrl!.trim()
+      : null;
 
   const pdfTemplateStyle = parseBillingPdfTemplateStyle(
     profile?.billingPdfTemplateStyle
@@ -123,6 +128,7 @@ export function buildQuotePdfSnapshot(args: {
     phone,
     email,
     logoUrl,
+    signatureUrl,
     bankDetails: paymentNote,
   };
 
