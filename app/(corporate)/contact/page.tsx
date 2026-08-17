@@ -40,18 +40,8 @@ export default function CorporateContactPage() {
           </div>
 
           <div>
-            <dt className="font-bold text-[var(--mkt-ink)]">כתובת</dt>
-            <dd className="mt-1 text-gray-600">הקבלן 25 דירה 16, ירושלים</dd>
-          </div>
-
-          <div>
             <dt className="font-bold text-[var(--mkt-ink)]">מפעילת השירות</dt>
             <dd className="mt-1 text-gray-600">PRO MAX GROUP</dd>
-          </div>
-
-          <div>
-            <dt className="font-bold text-[var(--mkt-ink)]">עוסק פטור</dt>
-            <dd className="mt-1 text-gray-600">312260110</dd>
           </div>
         </dl>
       </section>
