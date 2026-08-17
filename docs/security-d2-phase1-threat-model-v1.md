@@ -105,12 +105,14 @@ Run in **non-prod first, then prod**; each is a concrete query:
 
 ## 8. Rollback Proof (system returns to working, not just "role deleted")
 
-Rollback = restore the exact prior state. **Proof obligations, not assertions:**
+Rollback = restore the prior **effective-privilege state** — identical *effective* privileges (owner + `PUBLIC`), ownership, memberships, default privileges, and runtime behavior; **not** necessarily a byte-identical catalog representation (see the note after step 4). **Proof obligations, not assertions:**
 1. **Before:** capture that the runtime works as `neondb_owner` (health 200, flows) — the baseline.
 2. **Rollback action (Neon-correct):** **explicit REVOKE** table DML + sequences + schema `USAGE` FROM `<runtime>` → reverse the `ALTER DEFAULT PRIVILEGES` → `DROP ROLE <runtime>`. (**Not** `DROP OWNED BY` — permission-denied for `neondb_owner` on Neon, `42501`; proven in non-prod.)
 3. **After — prove the system still works:** re-run the **same** baseline checks (health 200, representative flows, migrations) → identical to "before". 
 4. **Prove the role is gone:** `SELECT count(*) FROM pg_roles WHERE rolname='<runtime>'` → 0; `SELECT ... FROM pg_default_acl` shows no residual default privileges for it.
 Because the runtime never depended on the role in Phase 1, step 3 is guaranteed to pass — but it is **verified, not assumed.**
+
+> **Catalog-representation caveat (Production evidence, 2026-08-17 · ep-flat-brook):** `GRANT … ON ALL` materializes explicit ACL entries; after the reverse `REVOKE`, PostgreSQL may leave an **explicit owner-only ACL** where the object had `relacl = NULL`. Since `relacl = NULL` *is* the default privileges, this is a **catalog-representation change, not a privilege change** — provided the effective grants are unchanged and **no** additional grantee (and no `app_runtime`) remains. Rollback is verified on **effective privileges**, not a catalog byte/MD5 fingerprint (which may be kept as a **diagnostic only**). See Migration Plan §6.1 (Rollback invariant).
 
 ---
 
