@@ -28,6 +28,7 @@ const PROFILE_FIELDS = [
   "billingPaymentNote",
   "billingFooterNote",
   "billingLogoDataUrl",
+  "billingSignatureDataUrl",
   "billingPdfTemplateStyle",
 ] as const;
 
@@ -85,6 +86,7 @@ export async function GET(req: NextRequest) {
         billingPaymentNote: true,
         billingFooterNote: true,
         billingLogoDataUrl: true,
+        billingSignatureDataUrl: true,
         billingPdfTemplateStyle: true,
       },
     });
@@ -134,10 +136,11 @@ export async function PATCH(req: NextRequest) {
           }
         } else if (typeof raw === "string") {
           let v = raw;
-          if (key !== "billingLogoDataUrl") {
+          if (key !== "billingLogoDataUrl" && key !== "billingSignatureDataUrl") {
             v = v.trim();
           }
-          if (key === "billingLogoDataUrl") {
+          if (key === "billingLogoDataUrl" || key === "billingSignatureDataUrl") {
+            // Same data-URL constraints as the logo (PNG/JPEG/WebP, size-capped).
             validateLogo(v.length > 0 ? v : null);
           }
           if (key === "billingBusinessKind" && v.length > 0) {
@@ -187,6 +190,7 @@ export async function PATCH(req: NextRequest) {
           billingPaymentNote: true,
           billingFooterNote: true,
           billingLogoDataUrl: true,
+          billingSignatureDataUrl: true,
           billingPdfTemplateStyle: true,
         },
       });
@@ -226,6 +230,7 @@ export async function PATCH(req: NextRequest) {
         billingPaymentNote: true,
         billingFooterNote: true,
         billingLogoDataUrl: true,
+        billingSignatureDataUrl: true,
         billingPdfTemplateStyle: true,
       },
     });

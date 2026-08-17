@@ -10,6 +10,7 @@ import {
   emptyInvoiceIdentityForm,
   type InvoiceProfileFormState,
 } from "@/components/billing/BusinessIdentitySetupForm";
+import { BillingSignatureField } from "@/components/billing/BillingSignatureField";
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
@@ -252,6 +253,9 @@ export default function BusinessProfilePage() {
                   }))
                 }
               />
+              <div style={{ marginTop: 16 }}>
+                <BillingSignatureField />
+              </div>
             </section>
 
             <section

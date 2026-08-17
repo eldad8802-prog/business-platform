@@ -819,6 +819,17 @@ export function buildBillingInvoiceHtml(
     </div>
   </div>
 
+  ${
+    // Business VISUAL signature/stamp (presentation only — never a cryptographic
+    // signature). object-fit:contain caps size without distorting the image.
+    isDataImageUrl(issuer.signatureUrl ?? null)
+      ? `<div class="signature-block" style="margin-top:22px;text-align:right;direction:rtl;">
+    <div style="font-size:10px;color:${BRAND_MUTED};margin-bottom:4px;">${dyn("חתימה וחותמת", "label")}</div>
+    <img src="${issuer.signatureUrl as string}" alt="" style="max-width:150px;max-height:72px;object-fit:contain;" />
+  </div>`
+      : ""
+  }
+
   <div class="footer-note">
     ${dyn(getBillingFooterLegalNote(snapshot), "freeText")}
   </div>
