@@ -212,6 +212,7 @@ model Business {
   partyResolutionClaims       PartyResolutionClaim[]
   riaCanonicalReferents       RiaCanonicalReferent[]
   riaPolicyLineages           RiaPolicyLineage[]
+  derivedClaimProjections     DerivedClaimProjection[]
   paymentConnections          BusinessPaymentConnection[]
   paymentRequests             PaymentRequest[]
   businessObligations         BusinessObligation[]
@@ -2910,8 +2911,102 @@ model DerivationPolicyVersion {
 
   policy DerivationPolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
 
+  /// Back-relation for the derived materialization projections pinned to this version (IMPL-4). A
+  /// version is never cascade-deleted by a derived materialization (the Projection FK is RESTRICT) —
+  /// policy history outlives its materializations. This is a virtual relation (no column, no behavior).
+  claimProjections DerivedClaimProjection[]
+
   /// Identity uniqueness ONLY: one row per (policy, version). This is the version's IDENTITY (a version IS
   /// (policy, version)); it does NOT imply order, currentness, precedence, or "one active version".
   @@unique([policyId, version])
   @@index([policyId])
+}
+
+/// Business Memory · Derived Claim Projection (IMPL-4; Contract v1; Claim persistence pre-impl v2 §24).
+/// The first MATERIALIZED, DERIVED, NON-AUTHORITATIVE projection of the Memory Deriver's output — one
+/// materialization slot per (tenant, subject, claimType, policyVersion). It is a DROPPABLE, REBUILDABLE
+/// CACHE, never learned truth: on any conflict, the evidence + policy re-derive it (Contract §5/§8). It
+/// asserts NO winning value, NO currentness, NO confidence. STATE IS NOT STORED — it is a function of the
+/// child candidate rowset (1 = supported, ≥2 = conflicting; no projection = insufficient/withdrawn, whose
+/// distinction lives in the evidence/erasure tier, NOT here). `evidenceSetFingerprint` is a derived
+/// staleness/equality AID (a fingerprint, NOT evidence, NOT authority); explainability rests on the
+/// per-candidate EvidenceLinks. Identity is (tenant, subject, claimType, policyVersion) — NOT "one current
+/// Claim": versions coexist, and a changed evidence set REPLACES this slot transactionally (no Claim
+/// history; canonical history is the evidence). policyVersion FK = RESTRICT (policy history never
+/// cascade-deleted by a Claim); Business FK = Cascade (a derived cache is cleaned when its tenant is
+/// deleted — the derived tier never deletes canonical rows). INERT SUBSTRATE: no writer, no read-path, no
+/// materializer, no VendorLearning/RIA/C1 coupling. Table existence ≠ Business Memory activation.
+model DerivedClaimProjection {
+  id                     Int      @id @default(autoincrement())
+  businessId             Int
+  /// Domain-local subject domain (v1: "vendor"). A governed String slot, NOT an enum, NOT precedence.
+  subjectDomain          String
+  /// Canonical grouping key of the subject within (tenant, domain) — e.g. the normalized vendor key.
+  subjectNormalizedKey   String
+  /// Governed String discriminator of the claim kind (v1: "vendor-category"). NOT an enum, NOT ontology.
+  claimType              String
+  /// The explicitly pinned DerivationPolicyVersion this projection was derived under (INV-2).
+  policyVersionId        Int
+  /// Derived fingerprint of the evidence set the derivation read — a staleness/equality AID ONLY, never
+  /// authority and never sufficient for explainability (the EvidenceLinks are). See pre-impl v2 §11.
+  evidenceSetFingerprint String
+  /// Recorded materialization (last rebuild) time ONLY — NOT effective time, NOT currentness, NOT
+  /// precedence. There is deliberately NO updatedAt: a rebuild is a transactional replace, not a mutation.
+  materializedAt         DateTime @default(now())
+
+  business      Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  policyVersion DerivationPolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  candidates    DerivedClaimCandidate[]
+
+  /// Materialization identity (Persistence Design §4): one projection slot per semantic derivation scope
+  /// under a policy version. NOT "one current/latest/winning Claim" — different policy versions coexist.
+  @@unique([businessId, subjectDomain, subjectNormalizedKey, claimType, policyVersionId])
+  @@index([businessId])
+  @@index([policyVersionId])
+}
+
+/// Business Memory · Derived Claim Candidate (IMPL-4). One proposition the evidence supports for the
+/// projection's subject. It is NOT a winner and NOT a decision — a `conflicting` projection holds two or
+/// more candidates, none preferred. Deleting the projection cascade-drops its candidates (all derived).
+/// There is deliberately NO state/confidence/order/preferred/current field: conflict is represented by
+/// the CO-EXISTENCE of candidate rows, never by ranking one over another.
+model DerivedClaimCandidate {
+  id               Int    @id @default(autoincrement())
+  projectionId     Int
+  /// The typed proposition value (v1: the owner-final category String). No JSON, no ontology payload.
+  propositionValue String
+
+  projection    DerivedClaimProjection     @relation(fields: [projectionId], references: [id], onDelete: Cascade)
+  evidenceLinks DerivedClaimEvidenceLink[]
+
+  /// Two distinct proposition values coexist under one projection — this is exactly what represents a
+  /// candidate-set conflict. Uniqueness is identity only, NOT precedence.
+  @@unique([projectionId, propositionValue])
+  @@index([projectionId])
+}
+
+/// Business Memory · Derived Claim Evidence Link (IMPL-4). A supporting evidence REFERENCE for a
+/// candidate — the explainability anchor (INV-10). It stores a store-agnostic logical reference
+/// (`evidenceKind` + `evidenceRecordId`), NEVER copied raw evidence (INV-13), and has NO FK to
+/// ReviewEvent: the Evidence Adapter remains the only evidence-store seam, so dropping a Claim can never
+/// affect canonical evidence and no unified log is implied. `businessId` is carried for tenant
+/// query-filtering and future composite-FK hardening; in v1 (no writer) same-tenant consistency between a
+/// link and its projection is a WRITER-TIME invariant, not a DB guarantee (pre-impl v2 §18). Deleting the
+/// candidate cascade-drops its links (all derived).
+model DerivedClaimEvidenceLink {
+  id               Int    @id @default(autoincrement())
+  candidateId      Int
+  businessId       Int
+  /// The evidence source kind of the reference (v1: "review-event"). A governed String, NOT an enum.
+  evidenceKind     String
+  /// The logical identity of the canonical evidence record within its store (e.g. a ReviewEvent id).
+  /// SCALAR reference only — deliberately NO FK to ReviewEvent (store-agnostic; INV-13).
+  evidenceRecordId Int
+
+  candidate DerivedClaimCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  /// One link per (candidate, evidence record). Identity only.
+  @@unique([candidateId, evidenceKind, evidenceRecordId])
+  @@index([candidateId])
+  @@index([businessId, evidenceKind, evidenceRecordId])
 }
