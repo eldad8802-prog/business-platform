@@ -1897,6 +1897,15 @@ model BillingDocument {
   pdfHash                 String?
   pdfRenderedAt           DateTime?
   pdfRenderError          String?
+  /// Canonical CRYPTOGRAPHICALLY-SIGNED PDF artifact (Phase 2B). Operational
+  /// (post-issuance) metadata, NOT legal snapshot fields: never part of
+  /// issuedSnapshot/legalSnapshotHash. Distinct from pdfStorageKey/pdfHash (the
+  /// unsigned generated PDF). All three are set together, once, when a document's
+  /// canonical signed PDF is persisted (sign-once); nullable for legacy/unsigned
+  /// documents. The X.509 in the artifact is the source of truth for signer identity.
+  signedPdfStorageKey     String?
+  signedPdfHash           String?
+  signedAt                DateTime?
   createdAt               DateTime               @default(now())
   updatedAt               DateTime               @updatedAt
   business                Business               @relation(fields: [businessId], references: [id], onDelete: Restrict)
