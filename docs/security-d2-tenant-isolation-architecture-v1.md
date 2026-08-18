@@ -7,9 +7,9 @@
 > ### Governance status (binding)
 > - **D2 Security Goal — `LOCKED`.**
 > - **D2 Runtime Architecture — `VALIDATED / READY FOR MIGRATION DESIGN`** (proven feasible in Spike B; not yet built).
-> - **D2 Production Implementation — `NOT STARTED`.**
+> - **D2 Production Implementation — Phase 1 (runtime role provisioning) `COMPLETED / VERIFIED`** in production (2026-08-17, `ep-flat-brook`; role `app_runtime` provisioned + **inert** — the runtime still connects as `neondb_owner`). **Phase 2+** (adapter migration, runtime role switch, tenant-context plumbing, RLS enforcement) — **`NOT STARTED`.** **D2 overall — `OPEN`; Phase 1 provides no isolation.**
 >
-> This document does **not** claim "D2 Implemented" or "RLS Ready for Production". It defines the architecture that a later, separately-approved Migration Plan will implement in a staged rollout.
+> This document does **not** claim "D2 Implemented", "RLS Ready for Production", or that the runtime uses `app_runtime`. Phase 1 provisioned an **inert** prerequisite role only; the staged Migration Plan implements the remaining phases, each separately approved.
 
 ---
 
