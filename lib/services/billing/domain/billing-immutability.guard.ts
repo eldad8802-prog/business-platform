@@ -34,6 +34,11 @@ export const ISSUED_OPERATIONAL_FIELD_NAMES = [
   "pdfHash",
   "pdfRenderedAt",
   "pdfRenderError",
+  // Canonical signed-PDF artifact metadata (Phase 2B) — operational, not legal;
+  // set once when the signed artifact is persisted (post-issuance).
+  "signedPdfStorageKey",
+  "signedPdfHash",
+  "signedAt",
 ] as const;
 
 /** Editable only before ISSUED (draft / pending review). */
