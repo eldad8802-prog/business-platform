@@ -73,7 +73,7 @@ For each phase: **Scope · Dependencies · Risk · DoD · Evidence · Production
 
 ### P3 — Driver switch (runtime → adapter-neon; still owner; NO RLS)
 - **Scope:** switch the runtime data layer to the adapter-neon client. Runtime **still connects as owner**; **no** RLS anywhere. Isolates "does the adapter work under real traffic" from role + RLS variables.
-- **Dependencies:** P2.
+- **Dependencies:** P2. **Prerequisite — Client Centralization (invariant CI-1, architecture §6):** all runtime DB access must route through the single centralized client before P3, else part of real traffic (the deals/opportunities feature's own `new PrismaClient()` — 3 live paths) never exercises the adapter and the P3 proof is **incomplete**. Centralization is only *proof-completeness* here but a **hard prerequisite at P7** (an un-centralized client under FORCE RLS has no tenant context → fail-closed outage on the tables it touches: `collaborationDeal`, `learningEvent`). Dead clients (`lib/deals/generateDeals.ts`, `lib/services/inventory/inventory-alert.service.ts`) may simply be deleted. **Not** a prerequisite for P2 (isolated proof; the live clients use only ordinary reads/writes — no interactive tx / raw SQL — already covered by the P2 parity matrix).
 - **Risk:** 🟡 Medium — real-traffic driver change (connection model, transaction handling).
 - **DoD:** app fully functional on adapter-neon under real traffic; latency/error budgets within tolerance; no connection exhaustion.
 - **Evidence:** Preview + production smoke; error-rate + latency monitoring vs baseline.
