@@ -140,6 +140,8 @@ CREATE POLICY tenant_isolation ON <t>
 - **Lifetime = the transaction only** (`SET LOCAL` / `set_config(..., is_local => true)`). 
 - **No leakage to the next connection/request:** because it is transaction-scoped, a pooled connection reused by another request carries **no** prior tenant context. (Proven no-leak under concurrency — §12.)
 
+**Single client injection point (binding invariant — CI-1):** every production application database access **must** originate from the **one** approved centralized Prisma client / data-access path (`lib/prisma.ts` + the adapter transaction wrapper). The adapter (driver), the runtime role, and the tenant-context GUC can be *guaranteed* only if a single place establishes them. **Any module that constructs its own `new PrismaClient()` bypasses this control point:** it escapes the adapter (P3) and — critically — escapes context-setting (P5), so once RLS is enforced (P7) it connects with **no** `app.current_business_id` → **fail-closed → zero rows / functional outage**, or (if left on the owner) **silently bypasses RLS**. Therefore **no ad-hoc `new PrismaClient()` in runtime code.** Enforcing CI-1 (client centralization) is a **hard prerequisite for P7** (any table such a client touches) and a **proof-completeness prerequisite for P3** — see Migration Plan P3. *Evidence (origin/main `f5d8e3f`): 5 runtime `new PrismaClient()` outside `lib/prisma.ts` — 3 live in the deals/opportunities feature (`app/api/deals/route.ts`, `app/api/deals/[id]/route.ts`, `lib/collaboration/matchingEngine.ts`, all touching `collaborationDeal`/`learningEvent`), 2 dead (`lib/deals/generateDeals.ts`, `lib/services/inventory/inventory-alert.service.ts`).*
+
 ---
 
 ## 7. Transaction Model

@@ -153,6 +153,6 @@ Because the runtime never depended on the role in Phase 1, step 3 is guaranteed 
 
 ## Evidence (read-only, dev DB ep-square-grass)
 - Roles: `neondb_owner` — `rolsuper=false`, **`rolbypassrls=true`**, `rolcanlogin=true`, **`rolcreaterole=true`**; Neon system roles `cloud_admin`(super)/`neon_service`/`neon_superuser` all bypassrls (internal).
-- Schema: **97 base tables** (65 with direct `businessId`, **32 without**), **89 sequences**, 0 views; **all tables owned by `neondb_owner`**; `_prisma_migrations` present.
+- Schema: **97 base tables** (65 with direct `businessId`, **32 without**), **89 sequences**, 0 views; **all tables owned by `neondb_owner`**; `_prisma_migrations` present. *(Counts are **as-of the audit baseline `f2c78de`, 2026-07-31**. The schema has since grown legitimately — **+7 models** by origin/main `f5d8e3f` (indicative model-level count: 103 models, 69 with `businessId`, 34 without). This does not change any D2 decision, but the **exact table/`businessId` counts must be re-derived from the live schema at P7-planning** — do not treat `97/65/32` as current.)*
 
 *End — Threat Model + CCR for Phase 1 only. No role, grant, migration, dependency, Prisma, env, or code change is performed.*
