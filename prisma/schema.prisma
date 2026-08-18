@@ -2884,9 +2884,13 @@ model RiaPolicyLineage {
 /// existence != Business Memory activation.
 model DerivationPolicy {
   id        Int      @id @default(autoincrement())
-  /// Stable governed name/identifier of the derivation-policy family (e.g. "vendor-category"). A governed
-  /// DESCRIPTOR, NOT a DB key/identity: deliberately NOT @@unique (governance — not the database —
-  /// distinguishes policies); no default, no allowed-values list, no validation, no runtime behavior.
+  /// STABLE GOVERNED LINEAGE IDENTITY (POLICY-2). Machine-facing, immutable, environment-independent
+  /// slug of the derivation-policy family (e.g. "vendor-category"). @unique so a future resolver can do a
+  /// deterministic findUnique(key) — it is NOT the DB storage id (which is env-specific and never a
+  /// governed identity) and NOT a display label. It carries no precedence/currentness/selection.
+  key       String   @unique
+  /// Human-facing DESCRIPTOR only — NOT the identity (the identity is `key`). Deliberately NOT unique:
+  /// governance, not the database, owns the lineage identity via `key`. No allowed-values, no behavior.
   name      String
   /// Recorded/storage creation time ONLY — NOT effective time, NOT activation, NOT precedence, NOT "latest".
   createdAt DateTime @default(now())

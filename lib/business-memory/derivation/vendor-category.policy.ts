@@ -27,6 +27,22 @@ import type { DerivedClaimCandidate, DerivedClaimState, DeriveOptions } from "./
 
 export const VENDOR_CATEGORY_POLICY_NAME = "vendor-category" as const;
 
+/**
+ * Business Memory POLICY-2 · governed code↔policy binding descriptor.
+ *
+ * Pins THIS implementation to its canonical governed Policy Version identity (Bootstrap/Resolution v1,
+ * D2 = R1). A future resolver (upstream of the Writer, NEVER inside it) does an EXACT deterministic
+ * lookup: `DerivationPolicy.findUnique(key = policyKey)` → `DerivationPolicyVersion.findUnique(policyId,
+ * version = versionLabel)` → the `policyVersionId`. This descriptor holds ONLY the stable governed
+ * identity — NO DB autoincrement id (env-specific), NO hash, NO serialized policy body, NO current/
+ * latest/default. Changing derivation semantics ⇒ a NEW versionLabel + a NEW governed row (never a
+ * re-label under "v1"). `v1` here means exactly the candidate-set semantics in this file.
+ */
+export const VENDOR_CATEGORY_POLICY = {
+  policyKey: "vendor-category",
+  versionLabel: "v1",
+} as const;
+
 /** An owner-decision item supports a category iff the owner acted on it with a non-empty final value. */
 function supportedCategory(e: OwnerDecisionEvidence): string | null {
   const acted = e.verdicts.category === "confirmed" || e.verdicts.category === "corrected";
