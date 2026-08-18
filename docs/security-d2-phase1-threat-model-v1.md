@@ -4,6 +4,8 @@
 > **This is analysis, not implementation.** Nothing here creates a role, grants, migrations, dependencies, env, or code.
 > **Depends on:** `docs/security-d2-migration-plan-v1.md` (Phase 1) + `docs/security-d2-tenant-isolation-architecture-v1.md`.
 > **Evidence base:** read-only inspection of the dev DB (ep-square-grass), §Evidence.
+>
+> **Execution status (2026-08-17):** Phase 1 was subsequently **executed and verified in production** (`ep-flat-brook`) via the approved Runbook v2 — **P0–P4 passed, 20/20 DoD** — final state = role `app_runtime` provisioned + **inert** (runtime still `neondb_owner`). **Phase 1 = `COMPLETED / VERIFIED`.** This changes **nothing** in the anti-illusion analysis below: Phase 1 provides **no** isolation; **D2 isolation remains `NOT STARTED`** (Phase 2+/RLS pending). One design refinement the production run surfaced (rollback = effective-privilege equivalence, not catalog-byte identity) is recorded in Migration Plan §6.1 and §8 below.
 
 ---
 
@@ -145,7 +147,7 @@ Because the runtime never depended on the role in Phase 1, step 3 is guaranteed 
 
 **Required Migration-Plan update before execution:** Phase 1 → "create role **NOLOGIN**; LOGIN+password added at Phase 4". Record the **P7 precondition** (RLS policy model for the 32 indirectly-scoped/global tables) as an Open Decision.
 
-**Still true after CCR:** Impl `NOT STARTED`; Phase 1 provides **no** isolation and must never be represented as such.
+**Still true after CCR:** Phase 1 is now `COMPLETED / VERIFIED` in production (role **inert**; runtime still `neondb_owner`), but **D2 isolation remains `NOT STARTED`** — Phase 1 provides **no** isolation and must never be represented as such.
 
 ---
 

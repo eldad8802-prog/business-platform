@@ -2,10 +2,10 @@
 
 > **Document type:** Executable **migration plan** — translates the validated D2 architecture into a safe, staged, reversible rollout.
 > **This is planning, not execution.** No role, dependency, Prisma-runtime, env, migration, schema, or production-code change is performed by this document.
-> **Depends on:** `docs/security-d2-tenant-isolation-architecture-v1.md` (the validated architecture — Goal LOCKED, Runtime Arch VALIDATED, Impl NOT STARTED).
+> **Depends on:** `docs/security-d2-tenant-isolation-architecture-v1.md` (the validated architecture — Goal LOCKED, Runtime Arch VALIDATED, Impl: Phase 1 COMPLETED/VERIFIED, Phase 2+ NOT STARTED).
 > **Base:** origin/main.
 >
-> **Governance status (unchanged by this doc):** D2 Goal `LOCKED` · Runtime Architecture `VALIDATED` · **Production Implementation `NOT STARTED`.** This plan defines *how* implementation would proceed; approving the plan does not start it.
+> **Governance status:** D2 Goal `LOCKED` · Runtime Architecture `VALIDATED` · **Production Implementation — Phase 1 (runtime role provisioning) `COMPLETED / VERIFIED`** (production, 2026-08-17; role `app_runtime` provisioned + **inert**, runtime still `neondb_owner`) · **Phase 2+** (adapter migration, runtime role switch, tenant-context plumbing, RLS enforcement) `NOT STARTED` · **D2 overall `OPEN`.** Phase 1 is done and provides **no** isolation; each remaining phase needs separate approval before it starts.
 
 ---
 
