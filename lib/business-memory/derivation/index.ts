@@ -16,4 +16,5 @@ export { deriveVendorCategory } from "./memory-deriver";
 export {
   deriveVendorCategoryCandidates,
   VENDOR_CATEGORY_POLICY_NAME,
+  VENDOR_CATEGORY_POLICY,
 } from "./vendor-category.policy";
