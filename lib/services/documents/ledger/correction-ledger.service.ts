@@ -430,7 +430,15 @@ function buildVerdicts(
   return out;
 }
 
-/** Human verdict captured at approve, before ExtractedData is overwritten. */
+/**
+ * Human verdict captured at approve, before ExtractedData is overwritten.
+ *
+ * Non-fatal (never throws): a ledger failure must never affect the approve flow. It now RETURNS whether
+ * the canonical ReviewEvent was actually persisted (`true`) or the write was caught/failed (`false`) —
+ * a pure acknowledgement so a downstream best-effort consumer (Business Memory shadow) can run ONLY when
+ * the owner-decision evidence was durably committed. The non-fatal behaviour is unchanged; callers that
+ * ignore the return value behave exactly as before.
+ */
 export async function recordReviewEvent(input: {
   documentId: number;
   businessId: number;
@@ -440,7 +448,7 @@ export async function recordReviewEvent(input: {
   profileId: string | null;
   belief: BeliefShape;
   final: FinalShape;
-}): Promise<void> {
+}): Promise<boolean> {
   try {
     const verdicts = buildVerdicts(input.belief, input.final, input.approvedAs);
     await prisma.reviewEvent.create({
@@ -464,8 +472,10 @@ export async function recordReviewEvent(input: {
         rawFinal: jsonSafe(input.final) as object,
       },
     });
+    return true;
   } catch (err) {
     // Never allow a ledger failure to affect the approve flow.
     console.error("[correction-ledger] recordReviewEvent failed:", err);
+    return false;
   }
 }

@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { resolveDocumentOutputProfile } from "@/lib/services/documents/output-profile-resolver.service";
 import { recordReviewEvent } from "@/lib/services/documents/ledger/correction-ledger.service";
 import { normalizeVendorForLearning } from "@/lib/services/documents/vendor-normalization.service";
+import { runShadowMaterialization } from "@/lib/business-memory/shadow";
 
 export async function POST(
   req: Request,
@@ -242,7 +243,7 @@ export async function POST(
     // Phase 1A Correction Ledger — additive, write-only, never throws. Belief is
     // the original engine extraction (document.extractedData, loaded before the
     // upsert overwrite); final is the human-submitted values.
-    await recordReviewEvent({
+    const evidencePersisted = await recordReviewEvent({
       documentId,
       businessId: user.businessId,
       reviewerUserId: user.id,
@@ -259,6 +260,15 @@ export async function POST(
           }
         : null,
       final: body.extracted ?? {},
+    });
+
+    // Business Memory · DARK SHADOW (SHADOW-2). Post-canonical-evidence, best-effort, default-OFF
+    // (BUSINESS_MEMORY_SHADOW). When enabled it awaits the Orchestrator once and isolates every outcome
+    // — it never throws, never retries, never touches VendorLearning, and cannot change this approval.
+    await runShadowMaterialization({
+      businessId: user.businessId,
+      vendorInput: body.extracted?.vendorName ?? null,
+      evidencePersisted,
     });
 
     return Response.json({
