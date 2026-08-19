@@ -25,6 +25,7 @@
     "verify:business-memory-policy-resolver": "npx tsx lib/business-memory/policy/resolver.test.ts",
     "verify:business-memory-orchestrator": "npx tsx lib/business-memory/orchestration/orchestrator.test.ts",
     "verify:business-memory-shadow": "npx tsx lib/business-memory/shadow/shadow.test.ts",
+    "verify:business-memory-claim-evidence": "npx tsx lib/business-memory/shadow/claim-evidence.guard.test.ts",
     "verify:writing-package": "npx tsx lib/features/content/writing-package/verify-writing-package-runtime.ts",
     "verify:obligations-state": "npx tsx lib/services/obligations/obligation-core.verify.test.ts",
     "verify:obligations-service": "npx tsx lib/services/obligations/obligation-service.verify.test.ts",
