@@ -1,0 +1,78 @@
+name: Prod Read-Only Evidence (Business Memory Tenant Discovery)
+
+# Manual, gated, READ-ONLY listing of businesses + their ReviewEvent counts, so the owner can identify
+# their QA-safe tenant's businessId. OPERATIONAL EVIDENCE ONLY — not a product read path. No inputs
+# (fixed query, no injection surface). Minimal, non-sensitive output only (id / name / createdAt / count).
+#
+# Safety controls (mirror ops/evidence/prod-readonly-evidence.yml):
+#   - workflow_dispatch only (no push / schedule triggers)
+#   - environment: production-db  -> human approval before secrets are exposed
+#   - host allowlist: DIRECT_URL must target endpoint ep-flat-brook-am4bhq1y
+#   - SQL static guard: rejects any non-SELECT (write) keyword before connecting
+#   - fixed SQL file path (no path/query input); READ ONLY transaction + session read_only + timeout
+#   - permissions: contents: read; no credential echo
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-readonly-evidence-tenant-discovery
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Read-only tenant discovery evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production-db
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: SQL static guard (SELECT-only)
+        run: |
+          set -euo pipefail
+          SQL_FILE="ops/evidence/business-memory-tenant-discovery.sql"
+          test -f "$SQL_FILE" || { echo "::error::SQL file missing: $SQL_FILE"; exit 1; }
+          FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
+          MATCHES="$(grep -inE "$FORBIDDEN" "$SQL_FILE" || true)"
+          if [ -n "$MATCHES" ]; then
+            echo "::error::Forbidden write keyword found in SQL — aborting before any DB connection."
+            echo "$MATCHES"
+            exit 1
+          fi
+          echo "SQL guard passed: file is SELECT-only."
+
+      - name: Host allowlist assertion (verified Production only)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          ALLOW="ep-flat-brook-am4bhq1y"
+          if [ -z "${DIRECT_URL:-}" ]; then
+            echo "::error::DIRECT_URL secret is not set in the production-db environment."; exit 1
+          fi
+          case "$DIRECT_URL" in
+            *"$ALLOW"*) echo "Host allowlist OK: DIRECT_URL targets endpoint $ALLOW." ;;
+            *) echo "::error::DIRECT_URL does not target the verified Production endpoint ($ALLOW) — aborting."; exit 1 ;;
+          esac
+
+      - name: Install psql client
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Run read-only tenant discovery query
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          PGSSLMODE: require
+        run: |
+          set -euo pipefail
+          psql "$DIRECT_URL" \
+            --no-psqlrc \
+            --set=ON_ERROR_STOP=1 \
+            --file=ops/evidence/business-memory-tenant-discovery.sql
