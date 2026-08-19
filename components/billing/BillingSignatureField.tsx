@@ -103,42 +103,68 @@ export function BillingSignatureField() {
 
   const has = isValidSignature(signatureUrl);
 
+  // Shared button base — guarantees equal height, font, radius, and a ≥44px touch
+  // target for both actions; radius 14 matches the surrounding "זהות עסקית" cards.
+  const buttonBase = {
+    minHeight: 44,
+    fontSize: 14,
+    fontWeight: 600,
+    padding: "0 16px",
+    borderRadius: 14,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: busy ? "not-allowed" : "pointer",
+    whiteSpace: "nowrap" as const,
+  };
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: TOKEN.ink.primary }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <h3
+          style={{
+            margin: 0,
+            fontSize: 14,
+            fontWeight: 700,
+            color: TOKEN.ink.primary,
+          }}
+        >
           חתימה / חותמת של העסק
-        </span>
-        <span style={{ fontSize: 11.5, color: TOKEN.ink.secondary, lineHeight: 1.5 }}>
-          חתימה או חותמת ויזואלית שתופיע על מסמכי הגבייה. זוהי תמונה בלבד — אינה חתימה
-          דיגיטלית או קריפטוגרפית ואינה מהווה אימות של המסמך.
-        </span>
+        </h3>
+        <p style={{ margin: 0, fontSize: 12, color: TOKEN.ink.secondary, lineHeight: 1.5 }}>
+          חתימה או חותמת ויזואלית שתופיע במסמכים ללקוח, כמו חשבוניות והצעות מחיר. זוהי תמונה
+          בלבד — אינה חתימה דיגיטלית או קריפטוגרפית ואינה מהווה אימות של המסמך.
+        </p>
       </div>
 
       <div
         style={{
           display: "flex",
-          alignItems: "center",
+          flexDirection: "column",
           gap: 12,
           border: `1px solid ${TOKEN.border.DEFAULT}`,
-          borderRadius: 12,
-          padding: 12,
+          borderRadius: 14,
+          padding: 14,
           background: TOKEN.surface.card,
         }}
       >
+        {/* Preview on a WHITE background so it reads like it will on a document.
+            The box is generous and responsive; `contain` preserves aspect ratio so a
+            square stamp and a wide signature both render fully without crop/stretch. */}
         <div
-          aria-hidden
           style={{
-            width: 120,
-            height: 60,
-            borderRadius: 8,
+            width: "100%",
+            maxWidth: 260,
+            height: 130,
+            borderRadius: 12,
             border: `1px dashed ${TOKEN.border.DEFAULT}`,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            background: TOKEN.surface.inset,
+            background: "#FFFFFF",
             overflow: "hidden",
-            flexShrink: 0,
+            padding: 8,
+            boxSizing: "border-box",
           }}
         >
           {has ? (
@@ -149,11 +175,11 @@ export function BillingSignatureField() {
               style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
             />
           ) : (
-            <span style={{ fontSize: 11, color: TOKEN.ink.muted }}>אין חתימה</span>
+            <span style={{ fontSize: 12, color: TOKEN.ink.muted }}>אין חתימה</span>
           )}
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           <input
             ref={fileRef}
             type="file"
@@ -169,12 +195,11 @@ export function BillingSignatureField() {
             disabled={busy}
             onClick={() => fileRef.current?.click()}
             style={{
-              fontSize: 13,
-              fontWeight: 600,
-              padding: "8px 14px",
-              borderRadius: 10,
-              border: "none",
-              cursor: busy ? "not-allowed" : "pointer",
+              ...buttonBase,
+              // Fixed min-width covers the longest label so switching to "שומר…"
+              // does not shift the layout.
+              minWidth: 150,
+              border: TOKEN.action.primary.border,
               background: TOKEN.action.primary.background,
               color: TOKEN.action.primary.color,
               opacity: busy ? 0.6 : 1,
@@ -188,14 +213,11 @@ export function BillingSignatureField() {
               disabled={busy}
               onClick={() => void save(null)}
               style={{
-                fontSize: 12.5,
-                fontWeight: 600,
-                padding: "6px 12px",
-                borderRadius: 10,
+                ...buttonBase,
                 border: `1px solid ${TOKEN.border.DEFAULT}`,
-                cursor: busy ? "not-allowed" : "pointer",
                 background: "transparent",
                 color: TOKEN.ink.secondary,
+                opacity: busy ? 0.6 : 1,
               }}
             >
               הסרה
@@ -205,7 +227,9 @@ export function BillingSignatureField() {
       </div>
 
       {error ? (
-        <span style={{ fontSize: 12, color: ERROR_INK }}>{error}</span>
+        <span role="alert" aria-live="assertive" style={{ fontSize: 12, color: ERROR_INK }}>
+          {error}
+        </span>
       ) : null}
     </div>
   );
