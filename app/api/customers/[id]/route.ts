@@ -4,6 +4,8 @@ import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
 import { getCustomerCard } from "@/lib/services/crm/customer-card.read-model";
 import { customerService } from "@/lib/services/crm/customer.service";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 /** Basic CRM fields editable from the card. Tax identity stays in Billing. */
 const BASIC_FIELDS = ["name", "phone", "email", "city", "notes"] as const;
@@ -111,17 +113,26 @@ export async function PATCH(
       );
     }
 
-    const updated = hasLifecycle
-      ? await customerService.setCustomerActiveStatus({
-          businessId: user.businessId,
-          customerId,
-          isActive: body.isActive as boolean,
-        })
-      : await customerService.updateCustomerBasics({
-          businessId: user.businessId,
-          customerId,
-          ...basics,
-        });
+    // P5: server-derived tenant -> ALS -> tenant transaction (GUC) -> RLS backstop.
+    const updated = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          hasLifecycle
+            ? customerService.setCustomerActiveStatus(
+                {
+                  businessId: user.businessId,
+                  customerId,
+                  isActive: body.isActive as boolean,
+                },
+                { tx }
+              )
+            : customerService.updateCustomerBasics(
+                { businessId: user.businessId, customerId, ...basics },
+                { tx }
+              )
+        )
+    );
 
     return NextResponse.json({ customer: toCardCustomer(updated) }, { status: 200 });
   } catch (error) {

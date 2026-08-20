@@ -256,17 +256,20 @@ export const customerService = {
   },
 
   /** Fetch one customer, tenant-scoped. Throws NotFound across businesses. */
-  async getCustomer(input: GetCustomerInput) {
+  async getCustomer(input: GetCustomerInput, options?: TxOptions) {
     assertBusinessId(input.businessId);
     const customerId = normalizeCustomerId(input.customerId);
 
-    const customer = await prisma.customer.findFirst({
-      where: { id: customerId, businessId: input.businessId },
-    });
-    if (!customer) {
-      throw new NotFoundError("Customer not found");
-    }
-    return customer;
+    const run = async (tx: Tx | typeof prisma) => {
+      const customer = await tx.customer.findFirst({
+        where: { id: customerId, businessId: input.businessId },
+      });
+      if (!customer) {
+        throw new NotFoundError("Customer not found");
+      }
+      return customer;
+    };
+    return options?.tx ? run(options.tx) : run(prisma);
   },
 
   /**
@@ -274,7 +277,7 @@ export const customerService = {
    * project the shape they expose. `query` matches name or phone (case-insensitive),
    * matching the legacy billing search behavior.
    */
-  async listCustomers(input: ListCustomersInput) {
+  async listCustomers(input: ListCustomersInput, options?: TxOptions) {
     assertBusinessId(input.businessId);
 
     const q = typeof input.query === "string" ? input.query.trim() : "";
@@ -292,11 +295,13 @@ export const customerService = {
     else if (status === "inactive") where.isActive = false;
 
     const take = clampLimit(input.limit);
-    return prisma.customer.findMany({
-      where,
-      orderBy: buildOrderBy(input.sort),
-      ...(take !== undefined ? { take } : {}),
-    });
+    const run = (tx: Tx | typeof prisma) =>
+      tx.customer.findMany({
+        where,
+        orderBy: buildOrderBy(input.sort),
+        ...(take !== undefined ? { take } : {}),
+      });
+    return options?.tx ? run(options.tx) : run(prisma);
   },
 
   /** Convenience alias — search is list with a query + recent sort + a cap. */
