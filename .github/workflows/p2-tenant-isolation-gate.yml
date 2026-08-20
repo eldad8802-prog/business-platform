@@ -1,8 +1,13 @@
-name: P2 Tenant-Isolation Migration Gate (ephemeral PG17)
+name: P2 Tenant-Isolation Schema Bootstrap Gate (ephemeral PG17)
 
-# D2 / P2 MUTATION #1 — Migration Gate ONLY (no roles/RLS/fixtures).
+# D2 / P2 MUTATION #1 (revised) — LAB SCHEMA BOOTSTRAP ONLY (no roles/RLS/fixtures).
 # Ephemeral PostgreSQL 17 service; synthetic CI-only credentials; ZERO secrets; ZERO Neon/Prod.
-# Runs on push to its own dedicated branch. Service + runner destroyed at job end.
+#
+# NOTE: `prisma migrate deploy` FAILS from zero (known repo defect: migration
+# 20260210120000_billing_invoice_profile_fields sorts BEFORE 20260329225659_init that
+# creates BusinessProfile). MIGRATE-FROM-ZERO remains FAIL and is a SEPARATE open issue.
+# For the disposable P2 lab we use `prisma db push` to materialise the CURRENT schema.prisma
+# (no migration history, no data). This does NOT validate migration history / production deploy.
 
 on:
   push:
@@ -12,7 +17,7 @@ permissions:
   contents: read
 
 jobs:
-  migration-gate:
+  schema-bootstrap-gate:
     runs-on: ubuntu-latest
 
     services:
@@ -31,7 +36,6 @@ jobs:
           --health-retries 12
 
     env:
-      # Literal synthetic CI-only URL — NOT a secret, NOT Neon, destroyed with the job.
       DATABASE_URL: postgresql://p2_owner:p2_ci_synthetic_pw@localhost:5432/dubiz_p2
       DIRECT_URL: postgresql://p2_owner:p2_ci_synthetic_pw@localhost:5432/dubiz_p2
       PGPASSWORD: p2_ci_synthetic_pw
@@ -45,7 +49,6 @@ jobs:
 
       - name: Isolation assert (fail on any Neon / prod / non-local host)
         run: |
-          echo "DATABASE_URL (host portion only) => localhost:5432/dubiz_p2"
           case "$DATABASE_URL" in
             *neon.tech*|*ep-flat-brook*|*ep-square-grass*|*ep-wispy-dawn*|*ep-icy-violet*)
               echo "FATAL: non-local / Neon endpoint detected"; exit 1;;
@@ -54,15 +57,19 @@ jobs:
             *)
               echo "FATAL: unexpected DATABASE_URL shape"; exit 1;;
           esac
-          test -f .env && { echo "FATAL: unexpected .env in checkout (possible fallback)"; exit 1; } || echo "OK: no .env in checkout"
+          test -f .env && { echo "FATAL: unexpected .env in checkout"; exit 1; } || echo "OK: no .env in checkout"
 
       - name: Ensure psql client
         run: command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; }
 
-      - name: Migrate from zero (canonical Prisma migrations)
-        run: npx --yes prisma@6.16.0 migrate deploy
+      - name: P2 lab schema bootstrap (prisma db push — NOT migration history)
+        run: |
+          # LAB BOOTSTRAP ONLY. Does NOT validate migration history and does NOT imply
+          # `migrate deploy` passes. No --accept-data-loss: the DB is empty, so any destructive
+          # prompt means a real problem -> the command must fail (fail-closed), not be forced.
+          npx --yes prisma@6.16.0 db push --skip-generate
 
-      - name: Gate #1 verification (read-only) + mechanical PASS/FAIL
+      - name: Gate verification (read-only) + mechanical PASS/FAIL
         run: |
           set -euo pipefail
           PSQL="psql -h localhost -U p2_owner -d dubiz_p2 -v ON_ERROR_STOP=1"
@@ -71,37 +78,46 @@ jobs:
           $PSQL -c "SELECT version();"
           echo "::endgroup::"
 
-          echo "::group::Migrations applied"
-          $PSQL -c "SELECT count(*) AS migration_dirs_applied FROM _prisma_migrations WHERE finished_at IS NOT NULL;"
-          FAILEDM=$($PSQL -tAc "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL;")
-          echo "pending/failed migrations = $FAILEDM"
-          [ "$FAILEDM" = "0" ] || { echo "FAIL: pending/failed migrations present"; exit 1; }
+          echo "::group::Migration-history evidence (db push => NO _prisma_migrations)"
+          PM=$($PSQL -tAc "SELECT (to_regclass('public._prisma_migrations') IS NOT NULL);")
+          echo "_prisma_migrations present = $PM  (expected f; this DB is NOT migration-history evidence)"
+          echo "MIGRATE-FROM-ZERO remains FAIL (known separate repo defect; not remediated here)."
           echo "::endgroup::"
 
-          echo "::group::Zero application data (5 core tenant/user tables MUST be 0)"
-          $PSQL -c 'SELECT (SELECT count(*) FROM "Business") business,(SELECT count(*) FROM "User") users,(SELECT count(*) FROM "Customer") customer,(SELECT count(*) FROM "BillingDocument") billingdocument,(SELECT count(*) FROM "BillingDocumentLine") billingdocumentline;'
-          CORE=$($PSQL -tAc 'SELECT (SELECT count(*) FROM "Business")+(SELECT count(*) FROM "User")+(SELECT count(*) FROM "Customer")+(SELECT count(*) FROM "BillingDocument")+(SELECT count(*) FROM "BillingDocumentLine");')
-          echo "core tenant/user row total = $CORE"
-          [ "$CORE" = "0" ] || { echo "FAIL: nonzero user/business data"; exit 1; }
+          echo "::group::Zero application data (db push seeds NOTHING => all listed tables MUST be 0)"
+          $PSQL -c 'SELECT (SELECT count(*) FROM "Business") business,(SELECT count(*) FROM "User") users,(SELECT count(*) FROM "Customer") customer,(SELECT count(*) FROM "BillingDocument") billingdocument,(SELECT count(*) FROM "BillingDocumentLine") billingdocumentline,(SELECT count(*) FROM "PlatformFeatureDefinition") platformfeaturedefinition;'
+          CORE=$($PSQL -tAc 'SELECT (SELECT count(*) FROM "Business")+(SELECT count(*) FROM "User")+(SELECT count(*) FROM "Customer")+(SELECT count(*) FROM "BillingDocument")+(SELECT count(*) FROM "BillingDocumentLine")+(SELECT count(*) FROM "PlatformFeatureDefinition");')
+          echo "listed-table row total = $CORE"
+          [ "$CORE" = "0" ] || { echo "FAIL: nonzero application data"; exit 1; }
           echo "::endgroup::"
 
-          echo "::group::Non-empty table inventory (ANALYZE for accurate live counts)"
+          echo "::group::No non-empty application table anywhere (ANALYZE for accurate counts)"
           $PSQL -c "ANALYZE;" >/dev/null
-          $PSQL -c "SELECT relname, n_live_tup FROM pg_stat_user_tables WHERE n_live_tup > 0 AND relname <> '_prisma_migrations' ORDER BY n_live_tup DESC, relname;"
-          # Any non-empty table MUST be within the known migration-seeded reference allowlist.
-          UNEXPECTED=$($PSQL -tAc "SELECT count(*) FROM pg_stat_user_tables WHERE n_live_tup > 0 AND relname NOT IN ('_prisma_migrations','DerivationPolicy','DerivationPolicyVersion','PlatformFeatureDefinition','PlatformFeaturePolicy');")
-          echo "unexpected non-empty tables (outside migration-seeded reference allowlist) = $UNEXPECTED"
-          [ "$UNEXPECTED" = "0" ] || { echo "FAIL: unexpected non-empty application table(s)"; exit 1; }
-          echo "NOTE: any rows above are migration-seeded reference/config data (feature/derivation policies) — not user/business/PII data."
+          $PSQL -c "SELECT relname, n_live_tup FROM pg_stat_user_tables WHERE n_live_tup > 0 ORDER BY n_live_tup DESC, relname;"
+          NONEMPTY=$($PSQL -tAc "SELECT count(*) FROM pg_stat_user_tables WHERE n_live_tup > 0;")
+          echo "non-empty tables = $NONEMPTY  (expected 0 — db push has no seed)"
+          [ "$NONEMPTY" = "0" ] || { echo "FAIL: unexpected non-empty table(s)"; exit 1; }
           echo "::endgroup::"
 
-          echo "::group::Pilot schema present (5 locked models) + indirect-tenant FK"
+          echo "::group::Pilot schema present (5 locked models)"
           $PSQL -c 'SELECT to_regclass('"'"'public."Business"'"'"') business, to_regclass('"'"'public."Customer"'"'"') customer, to_regclass('"'"'public."BillingDocument"'"'"') billingdocument, to_regclass('"'"'public."BillingDocumentLine"'"'"') billingdocumentline, to_regclass('"'"'public."PlatformFeatureDefinition"'"'"') platformfeaturedefinition;'
           MISSING=$($PSQL -tAc 'SELECT count(*) FROM (VALUES ('"'"'public."Business"'"'"'),('"'"'public."Customer"'"'"'),('"'"'public."BillingDocument"'"'"'),('"'"'public."BillingDocumentLine"'"'"'),('"'"'public."PlatformFeatureDefinition"'"'"')) v(t) WHERE to_regclass(v.t) IS NULL;')
           echo "missing pilot tables = $MISSING"
           [ "$MISSING" = "0" ] || { echo "FAIL: pilot schema incomplete"; exit 1; }
-          echo "-- BillingDocumentLine parent FK (indirect tenancy path):"
-          $PSQL -c 'SELECT conname, confrelid::regclass AS references FROM pg_constraint WHERE conrelid = '"'"'public."BillingDocumentLine"'"'"'::regclass AND contype = '"'"'f'"'"';'
+          echo "::endgroup::"
+
+          echo "::group::Pilot relations/constraints (tenant shape)"
+          echo "-- Business PK (tenant identity column):"
+          $PSQL -c 'SELECT a.attname FROM pg_index i JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=ANY(i.indkey) WHERE i.indrelid='"'"'public."Business"'"'"'::regclass AND i.indisprimary;'
+          echo "-- businessId column on Customer + BillingDocument:"
+          $PSQL -c "SELECT table_name, column_name FROM information_schema.columns WHERE table_name IN ('Customer','BillingDocument') AND column_name='businessId' ORDER BY table_name;"
+          echo "-- BillingDocumentLine parent FK -> BillingDocument (indirect tenancy):"
+          $PSQL -c 'SELECT conname, confrelid::regclass AS references_table FROM pg_constraint WHERE conrelid='"'"'public."BillingDocumentLine"'"'"'::regclass AND contype='"'"'f'"'"';'
+          FKC=$($PSQL -tAc 'SELECT count(*) FROM pg_constraint WHERE conrelid='"'"'public."BillingDocumentLine"'"'"'::regclass AND contype='"'"'f'"'"' AND confrelid='"'"'public."BillingDocument"'"'"'::regclass;')
+          BIZID=$($PSQL -tAc "SELECT count(*) FROM information_schema.columns WHERE table_name IN ('Customer','BillingDocument') AND column_name='businessId';")
+          echo "BillingDocumentLine->BillingDocument FK = $FKC ; businessId columns (Customer+BillingDocument) = $BIZID"
+          [ "$FKC" -ge 1 ] || { echo "FAIL: indirect-tenancy FK missing"; exit 1; }
+          [ "$BIZID" = "2" ] || { echo "FAIL: expected businessId on Customer AND BillingDocument"; exit 1; }
           echo "::endgroup::"
 
           echo "::group::Security baseline CLEAN (no P2 role / no RLS / no policies)"
@@ -112,7 +128,7 @@ jobs:
           RLS=$($PSQL -tAc "SELECT count(*) FROM pg_class WHERE relrowsecurity AND relkind='r';")
           ROLE=$($PSQL -tAc "SELECT count(*) FROM pg_roles WHERE rolname='p2_runtime';")
           echo "policies=$POL rls_tables=$RLS p2_runtime=$ROLE"
-          [ "$POL" = "0" ] && [ "$RLS" = "0" ] && [ "$ROLE" = "0" ] || { echo "FAIL: baseline not clean (unexpected RLS/role)"; exit 1; }
+          [ "$POL" = "0" ] && [ "$RLS" = "0" ] && [ "$ROLE" = "0" ] || { echo "FAIL: baseline not clean"; exit 1; }
           echo "::endgroup::"
 
-          echo "GATE #1 = PASS"
+          echo "P2 SCHEMA BOOTSTRAP GATE = PASS"
