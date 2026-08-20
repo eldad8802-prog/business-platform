@@ -1,6 +1,5 @@
-import { PrismaClient, CollaborationActionType } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { CollaborationActionType } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
 
 type MatchingInput = {
   businessId: number;
