@@ -1,13 +1,8 @@
-name: P2 Tenant-Isolation Schema Bootstrap Gate (ephemeral PG17)
+name: P2 Tenant-Isolation Adversarial Proof (ephemeral PG17)
 
-# D2 / P2 MUTATION #1 (revised) — LAB SCHEMA BOOTSTRAP ONLY (no roles/RLS/fixtures).
-# Ephemeral PostgreSQL 17 service; synthetic CI-only credentials; ZERO secrets; ZERO Neon/Prod.
-#
-# NOTE: `prisma migrate deploy` FAILS from zero (known repo defect: migration
-# 20260210120000_billing_invoice_profile_fields sorts BEFORE 20260329225659_init that
-# creates BusinessProfile). MIGRATE-FROM-ZERO remains FAIL and is a SEPARATE open issue.
-# For the disposable P2 lab we use `prisma db push` to materialise the CURRENT schema.prisma
-# (no migration history, no data). This does NOT validate migration history / production deploy.
+# D2 / P2 MUTATION #2 — tenant-isolation adversarial proof on an ephemeral PG17 service.
+# Synthetic CI-only credentials; ZERO secrets; ZERO Neon/Prod. Service destroyed at job end.
+# migrate-from-zero is a KNOWN separate repo defect -> lab schema via `prisma db push`.
 
 on:
   push:
@@ -17,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  schema-bootstrap-gate:
+  adversarial-proof:
     runs-on: ubuntu-latest
 
     services:
@@ -42,93 +37,161 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Isolation assert (fail on any Neon / prod / non-local host)
+      - name: Isolation assert (no Neon / prod)
         run: |
           case "$DATABASE_URL" in
-            *neon.tech*|*ep-flat-brook*|*ep-square-grass*|*ep-wispy-dawn*|*ep-icy-violet*)
-              echo "FATAL: non-local / Neon endpoint detected"; exit 1;;
-            postgresql://p2_owner:*@localhost:5432/dubiz_p2)
-              echo "OK: local ephemeral CI service";;
-            *)
-              echo "FATAL: unexpected DATABASE_URL shape"; exit 1;;
+            *neon.tech*|*ep-flat-brook*|*ep-square-grass*|*ep-wispy-dawn*|*ep-icy-violet*) echo "FATAL non-local"; exit 1;;
+            postgresql://p2_owner:*@localhost:5432/dubiz_p2) echo "OK local ephemeral";;
+            *) echo "FATAL unexpected DATABASE_URL"; exit 1;;
           esac
-          test -f .env && { echo "FATAL: unexpected .env in checkout"; exit 1; } || echo "OK: no .env in checkout"
+          test -f .env && { echo "FATAL unexpected .env"; exit 1; } || echo "OK no .env"
 
       - name: Ensure psql client
         run: command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; }
 
-      - name: P2 lab schema bootstrap (prisma db push — NOT migration history)
-        run: |
-          # LAB BOOTSTRAP ONLY. Does NOT validate migration history and does NOT imply
-          # `migrate deploy` passes. No --accept-data-loss: the DB is empty, so any destructive
-          # prompt means a real problem -> the command must fail (fail-closed), not be forced.
-          npx --yes prisma@6.16.0 db push --skip-generate
+      - name: Schema bootstrap (prisma db push — lab only, not migration history)
+        run: npx --yes prisma@6.16.0 db push --skip-generate
 
-      - name: Gate verification (read-only) + mechanical PASS/FAIL
+      - name: P2 setup — runtime role + fixtures + RLS policies (as owner)
         run: |
           set -euo pipefail
-          PSQL="psql -h localhost -U p2_owner -d dubiz_p2 -v ON_ERROR_STOP=1"
+          psql -h localhost -U p2_owner -d dubiz_p2 -v ON_ERROR_STOP=1 <<'SQL'
+          DROP ROLE IF EXISTS p2_runtime;
+          CREATE ROLE p2_runtime LOGIN PASSWORD 'p2_runtime_ci_pw'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+          GRANT USAGE ON SCHEMA public TO p2_runtime;
+          GRANT SELECT, INSERT, UPDATE, DELETE ON
+            "Business","Customer","BillingDocument","BillingDocumentLine","PlatformFeatureDefinition" TO p2_runtime;
+          GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO p2_runtime;
 
-          echo "::group::PostgreSQL version"
-          $PSQL -c "SELECT version();"
-          echo "::endgroup::"
+          INSERT INTO "Business"(name,"updatedAt") VALUES ('p2-a-business', now());
+          INSERT INTO "Business"(name,"updatedAt") VALUES ('p2-b-business', now());
+          CREATE TABLE p2_meta(k text PRIMARY KEY, business_id int);
+          INSERT INTO p2_meta VALUES
+            ('A',(SELECT id FROM "Business" WHERE name='p2-a-business')),
+            ('B',(SELECT id FROM "Business" WHERE name='p2-b-business'));
+          GRANT SELECT ON p2_meta TO p2_runtime;
 
-          echo "::group::Migration-history evidence (db push => NO _prisma_migrations)"
-          PM=$($PSQL -tAc "SELECT (to_regclass('public._prisma_migrations') IS NOT NULL);")
-          echo "_prisma_migrations present = $PM  (expected f; this DB is NOT migration-history evidence)"
-          echo "MIGRATE-FROM-ZERO remains FAIL (known separate repo defect; not remediated here)."
-          echo "::endgroup::"
+          INSERT INTO "Customer"("businessId",name,"updatedAt") SELECT business_id,'p2-a-customer',now() FROM p2_meta WHERE k='A';
+          INSERT INTO "Customer"("businessId",name,"updatedAt") SELECT business_id,'p2-b-customer',now() FROM p2_meta WHERE k='B';
+          INSERT INTO "BillingDocument"("businessId","documentType","updatedAt") SELECT business_id,'QUOTE',now() FROM p2_meta WHERE k='A';
+          INSERT INTO "BillingDocument"("businessId","documentType","updatedAt") SELECT business_id,'QUOTE',now() FROM p2_meta WHERE k='B';
+          INSERT INTO "BillingDocumentLine"("billingDocumentId","lineIndex",description,quantity,"unitPrice","vatRatePercent","lineSubtotal","vatAmount","lineTotal","updatedAt")
+            SELECT d.id,0,'p2-a-line',1,100,17,100,17,117,now() FROM "BillingDocument" d JOIN p2_meta m ON m.k='A' AND d."businessId"=m.business_id;
+          INSERT INTO "BillingDocumentLine"("billingDocumentId","lineIndex",description,quantity,"unitPrice","vatRatePercent","lineSubtotal","vatAmount","lineTotal","updatedAt")
+            SELECT d.id,0,'p2-b-line',1,200,17,200,34,234,now() FROM "BillingDocument" d JOIN p2_meta m ON m.k='B' AND d."businessId"=m.business_id;
+          INSERT INTO "PlatformFeatureDefinition"(key,"displayName",category) VALUES ('p2-global-feature','P2 Global','p2');
 
-          echo "::group::Zero application data (db push seeds NOTHING => all listed tables MUST be 0)"
-          $PSQL -c 'SELECT (SELECT count(*) FROM "Business") business,(SELECT count(*) FROM "User") users,(SELECT count(*) FROM "Customer") customer,(SELECT count(*) FROM "BillingDocument") billingdocument,(SELECT count(*) FROM "BillingDocumentLine") billingdocumentline,(SELECT count(*) FROM "PlatformFeatureDefinition") platformfeaturedefinition;'
-          CORE=$($PSQL -tAc 'SELECT (SELECT count(*) FROM "Business")+(SELECT count(*) FROM "User")+(SELECT count(*) FROM "Customer")+(SELECT count(*) FROM "BillingDocument")+(SELECT count(*) FROM "BillingDocumentLine")+(SELECT count(*) FROM "PlatformFeatureDefinition");')
-          echo "listed-table row total = $CORE"
-          [ "$CORE" = "0" ] || { echo "FAIL: nonzero application data"; exit 1; }
-          echo "::endgroup::"
+          ALTER TABLE "Business" ENABLE ROW LEVEL SECURITY; ALTER TABLE "Business" FORCE ROW LEVEL SECURITY;
+          CREATE POLICY p2_tenant ON "Business"
+            USING (id = NULLIF(current_setting('app.current_business_id', true), '')::int)
+            WITH CHECK (id = NULLIF(current_setting('app.current_business_id', true), '')::int);
+          ALTER TABLE "Customer" ENABLE ROW LEVEL SECURITY; ALTER TABLE "Customer" FORCE ROW LEVEL SECURITY;
+          CREATE POLICY p2_tenant ON "Customer"
+            USING ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)
+            WITH CHECK ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int);
+          ALTER TABLE "BillingDocument" ENABLE ROW LEVEL SECURITY; ALTER TABLE "BillingDocument" FORCE ROW LEVEL SECURITY;
+          CREATE POLICY p2_tenant ON "BillingDocument"
+            USING ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)
+            WITH CHECK ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int);
+          ALTER TABLE "BillingDocumentLine" ENABLE ROW LEVEL SECURITY; ALTER TABLE "BillingDocumentLine" FORCE ROW LEVEL SECURITY;
+          CREATE POLICY p2_tenant ON "BillingDocumentLine"
+            USING (EXISTS (SELECT 1 FROM "BillingDocument" d WHERE d.id="BillingDocumentLine"."billingDocumentId" AND d."businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int))
+            WITH CHECK (EXISTS (SELECT 1 FROM "BillingDocument" d WHERE d.id="BillingDocumentLine"."billingDocumentId" AND d."businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int));
+          SQL
+          echo "setup complete"
 
-          echo "::group::No non-empty application table anywhere (ANALYZE for accurate counts)"
-          $PSQL -c "ANALYZE;" >/dev/null
-          $PSQL -c "SELECT relname, n_live_tup FROM pg_stat_user_tables WHERE n_live_tup > 0 ORDER BY n_live_tup DESC, relname;"
-          NONEMPTY=$($PSQL -tAc "SELECT count(*) FROM pg_stat_user_tables WHERE n_live_tup > 0;")
-          echo "non-empty tables = $NONEMPTY  (expected 0 — db push has no seed)"
-          [ "$NONEMPTY" = "0" ] || { echo "FAIL: unexpected non-empty table(s)"; exit 1; }
-          echo "::endgroup::"
+      - name: P2 adversarial matrix (as p2_runtime) + mechanical PASS/FAIL
+        run: |
+          set -uo pipefail
+          A_ID=$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT business_id FROM p2_meta WHERE k='A'")
+          B_ID=$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT business_id FROM p2_meta WHERE k='B'")
+          echo "A_ID=$A_ID B_ID=$B_ID"
 
-          echo "::group::Pilot schema present (5 locked models)"
-          $PSQL -c 'SELECT to_regclass('"'"'public."Business"'"'"') business, to_regclass('"'"'public."Customer"'"'"') customer, to_regclass('"'"'public."BillingDocument"'"'"') billingdocument, to_regclass('"'"'public."BillingDocumentLine"'"'"') billingdocumentline, to_regclass('"'"'public."PlatformFeatureDefinition"'"'"') platformfeaturedefinition;'
-          MISSING=$($PSQL -tAc 'SELECT count(*) FROM (VALUES ('"'"'public."Business"'"'"'),('"'"'public."Customer"'"'"'),('"'"'public."BillingDocument"'"'"'),('"'"'public."BillingDocumentLine"'"'"'),('"'"'public."PlatformFeatureDefinition"'"'"')) v(t) WHERE to_regclass(v.t) IS NULL;')
-          echo "missing pilot tables = $MISSING"
-          [ "$MISSING" = "0" ] || { echo "FAIL: pilot schema incomplete"; exit 1; }
-          echo "::endgroup::"
+          # Run the whole matrix as the NON-BYPASS runtime role. ON_ERROR_ROLLBACK keeps the
+          # batch alive across the intentionally-denied write (RLS WITH CHECK violation).
+          OUT=$(PGPASSWORD=p2_runtime_ci_pw psql -h localhost -U p2_runtime -d dubiz_p2 -tA -q \
+                  -v ON_ERROR_STOP=0 -v a_id="$A_ID" -v b_id="$B_ID" 2>&1 <<'SQL'
+          \set ON_ERROR_ROLLBACK on
+          BEGIN;
+          SET LOCAL app.current_business_id = :'a_id';
+          SELECT 'A_own_customer|'||count(*) FROM "Customer" WHERE name LIKE 'p2-a-%';
+          SELECT 'A_own_billdoc|'||count(*) FROM "BillingDocument";
+          SELECT 'A_own_billline|'||count(*) FROM "BillingDocumentLine" WHERE description LIKE 'p2-a-%';
+          WITH i AS (INSERT INTO "Customer"("businessId",name,"updatedAt") VALUES(:a_id,'p2-a-tmp',now()) RETURNING 1) SELECT 'A_insert_own|'||count(*) FROM i;
+          WITH u AS (UPDATE "Customer" SET city='x' WHERE name='p2-a-tmp' RETURNING 1) SELECT 'A_update_own|'||count(*) FROM u;
+          WITH d AS (DELETE FROM "Customer" WHERE name='p2-a-tmp' RETURNING 1) SELECT 'A_delete_own|'||count(*) FROM d;
+          SELECT 'A_see_B_business|'||count(*) FROM "Business" WHERE id=:b_id;
+          SELECT 'A_see_B_customer|'||count(*) FROM "Customer" WHERE "businessId"=:b_id;
+          SELECT 'A_see_B_marker|'||count(*) FROM "Customer" WHERE name LIKE 'p2-b-%';
+          SELECT 'A_broad_customer|'||count(*) FROM "Customer";
+          SELECT 'A_see_B_billdoc|'||count(*) FROM "BillingDocument" WHERE "businessId"=:b_id;
+          SELECT 'A_see_B_billline|'||count(*) FROM "BillingDocumentLine" WHERE description LIKE 'p2-b-%';
+          WITH u AS (UPDATE "Customer" SET city='hacked' WHERE "businessId"=:b_id RETURNING 1) SELECT 'A_update_B|'||count(*) FROM u;
+          WITH d AS (DELETE FROM "Customer" WHERE "businessId"=:b_id RETURNING 1) SELECT 'A_delete_B|'||count(*) FROM d;
+          INSERT INTO "Customer"("businessId",name,"updatedAt") VALUES(:b_id,'p2-evil',now());
+          SELECT 'A_global|'||count(*) FROM "PlatformFeatureDefinition";
+          COMMIT;
+          BEGIN; SELECT 'noctx_customer|'||count(*) FROM "Customer"; COMMIT;
+          BEGIN; SET LOCAL app.current_business_id = ''; SELECT 'emptyctx_customer|'||count(*) FROM "Customer"; COMMIT;
+          BEGIN; SET LOCAL app.current_business_id = :'b_id';
+          SELECT 'B_own_customer|'||count(*) FROM "Customer" WHERE name LIKE 'p2-b-%';
+          SELECT 'B_see_A_marker|'||count(*) FROM "Customer" WHERE name LIKE 'p2-a-%';
+          SELECT 'B_global|'||count(*) FROM "PlatformFeatureDefinition";
+          COMMIT;
+          BEGIN; SET LOCAL app.current_business_id = :'a_id'; SELECT 'iso_txA|'||count(*) FROM "Customer" WHERE name LIKE 'p2-a-%'; COMMIT;
+          BEGIN; SET LOCAL app.current_business_id = :'b_id'; SELECT 'iso_txB|'||count(*) FROM "Customer" WHERE name LIKE 'p2-b-%'; COMMIT;
+          BEGIN; SELECT 'iso_none|'||count(*) FROM "Customer"; COMMIT;
+          BEGIN; SET LOCAL app.current_business_id = :'a_id'; ROLLBACK;
+          BEGIN; SELECT 'iso_afterRB|'||count(*) FROM "Customer"; COMMIT;
+          SQL
+          )
+          echo "---------------- RAW RUNTIME OUTPUT ----------------"
+          echo "$OUT"
+          echo "----------------------------------------------------"
 
-          echo "::group::Pilot relations/constraints (tenant shape)"
-          echo "-- Business PK (tenant identity column):"
-          $PSQL -c 'SELECT a.attname FROM pg_index i JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=ANY(i.indkey) WHERE i.indrelid='"'"'public."Business"'"'"'::regclass AND i.indisprimary;'
-          echo "-- businessId column on Customer + BillingDocument:"
-          $PSQL -c "SELECT table_name, column_name FROM information_schema.columns WHERE table_name IN ('Customer','BillingDocument') AND column_name='businessId' ORDER BY table_name;"
-          echo "-- BillingDocumentLine parent FK -> BillingDocument (indirect tenancy):"
-          $PSQL -c 'SELECT conname, confrelid::regclass AS references_table FROM pg_constraint WHERE conrelid='"'"'public."BillingDocumentLine"'"'"'::regclass AND contype='"'"'f'"'"';'
-          FKC=$($PSQL -tAc 'SELECT count(*) FROM pg_constraint WHERE conrelid='"'"'public."BillingDocumentLine"'"'"'::regclass AND contype='"'"'f'"'"' AND confrelid='"'"'public."BillingDocument"'"'"'::regclass;')
-          BIZID=$($PSQL -tAc "SELECT count(*) FROM information_schema.columns WHERE table_name IN ('Customer','BillingDocument') AND column_name='businessId';")
-          echo "BillingDocumentLine->BillingDocument FK = $FKC ; businessId columns (Customer+BillingDocument) = $BIZID"
-          [ "$FKC" -ge 1 ] || { echo "FAIL: indirect-tenancy FK missing"; exit 1; }
-          [ "$BIZID" = "2" ] || { echo "FAIL: expected businessId on Customer AND BillingDocument"; exit 1; }
-          echo "::endgroup::"
+          PASS=0; FAIL=0
+          has(){ if grep -qxF "$1" <<<"$OUT"; then echo "PASS | $1"; PASS=$((PASS+1)); else echo "FAIL | expected line: $1"; FAIL=$((FAIL+1)); fi; }
+          eq(){ if [ "$2" = "$3" ]; then echo "PASS | $1 ($3)"; PASS=$((PASS+1)); else echo "FAIL | $1 expect=$2 actual=$3"; FAIL=$((FAIL+1)); fi; }
 
-          echo "::group::Security baseline CLEAN (no P2 role / no RLS / no policies)"
-          $PSQL -c "SELECT count(*) AS rls_policies FROM pg_policies;"
-          $PSQL -c "SELECT count(*) AS rls_enabled_tables FROM pg_class WHERE relrowsecurity AND relkind='r';"
-          $PSQL -c "SELECT count(*) AS p2_runtime_role FROM pg_roles WHERE rolname='p2_runtime';"
-          POL=$($PSQL -tAc "SELECT count(*) FROM pg_policies;")
-          RLS=$($PSQL -tAc "SELECT count(*) FROM pg_class WHERE relrowsecurity AND relkind='r';")
-          ROLE=$($PSQL -tAc "SELECT count(*) FROM pg_roles WHERE rolname='p2_runtime';")
-          echo "policies=$POL rls_tables=$RLS p2_runtime=$ROLE"
-          [ "$POL" = "0" ] && [ "$RLS" = "0" ] && [ "$ROLE" = "0" ] || { echo "FAIL: baseline not clean"; exit 1; }
-          echo "::endgroup::"
+          echo "== A. same-tenant allowed =="
+          has "A_own_customer|1"; has "A_own_billdoc|1"; has "A_own_billline|1"
+          has "A_insert_own|1"; has "A_update_own|1"; has "A_delete_own|1"
+          echo "== B. cross-tenant denied (context=A) =="
+          has "A_see_B_business|0"; has "A_see_B_customer|0"; has "A_see_B_marker|0"
+          has "A_broad_customer|1"; has "A_see_B_billdoc|0"; has "A_see_B_billline|0"
+          has "A_update_B|0"; has "A_delete_B|0"
+          # WITH CHECK: the cross-tenant INSERT must have been rejected (control sees zero p2-evil)
+          EVIL=$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT count(*) FROM \"Customer\" WHERE name='p2-evil'")
+          eq "A_insert_as_B_rejected(WITH CHECK)" 0 "$EVIL"
+          grep -qi "row-level security" <<<"$OUT" && echo "PASS | RLS WITH CHECK error surfaced" && PASS=$((PASS+1)) || { echo "FAIL | expected RLS violation error text"; FAIL=$((FAIL+1)); }
+          echo "== C. fail-closed =="
+          has "noctx_customer|0"; has "emptyctx_customer|0"
+          MAL=$(PGPASSWORD=p2_runtime_ci_pw psql -h localhost -U p2_runtime -d dubiz_p2 -tA -v ON_ERROR_STOP=1 2>&1 <<'SQL' || true
+          BEGIN; SET LOCAL app.current_business_id = 'not-an-int'; SELECT count(*) FROM "Customer"; COMMIT;
+          SQL
+          )
+          case "$MAL" in *invalid*|*ERROR*) echo "PASS | malformed-context denied"; PASS=$((PASS+1));; *) echo "FAIL | malformed not denied: [$MAL]"; FAIL=$((FAIL+1));; esac
+          echo "== D. transaction/context isolation =="
+          has "iso_txA|1"; has "iso_txB|1"; has "iso_none|0"; has "iso_afterRB|0"
+          echo "== E. bypass controls =="
+          eq "runtime-non-super-non-bypass" "f/f" "$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT rolsuper||'/'||rolbypassrls FROM pg_roles WHERE rolname='p2_runtime'")"
+          eq "runtime-owns-no-tables" 0 "$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tableowner='p2_runtime'")"
+          eq "control-superuser-sees-both-tenants" 2 "$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc 'SELECT count(*) FROM "Customer"')"
+          has "A_broad_customer|1"   # runtime under A sees exactly its own (already asserted; RLS is the blocker, not missing data)
+          echo "== F. global control (no tenant RLS) =="
+          has "A_global|1"; has "B_global|1"
+          eq "global-visible-no-context" 1 "$(PGPASSWORD=p2_runtime_ci_pw psql -h localhost -U p2_runtime -d dubiz_p2 -tAc 'SELECT count(*) FROM "PlatformFeatureDefinition"')"
+          echo "== RLS active assertions =="
+          eq "force-rls-on-4-tenant-tables" 4 "$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT count(*) FROM pg_class WHERE relrowsecurity AND relforcerowsecurity AND relname IN ('Business','Customer','BillingDocument','BillingDocumentLine')")"
+          eq "four-tenant-policies" 4 "$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT count(*) FROM pg_policies WHERE policyname='p2_tenant'")"
+          eq "global-table-has-no-policy" 0 "$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT count(*) FROM pg_policies WHERE tablename='PlatformFeatureDefinition'")"
 
-          echo "P2 SCHEMA BOOTSTRAP GATE = PASS"
+          echo "======================================================================"
+          echo "TOTALS: PASS=$PASS FAIL=$FAIL"
+          [ "$FAIL" = "0" ] || { echo "P2 TENANT ISOLATION = FAIL"; exit 1; }
+          echo "P2 TENANT ISOLATION = PASS"
