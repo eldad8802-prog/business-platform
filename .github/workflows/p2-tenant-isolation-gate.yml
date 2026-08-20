@@ -179,7 +179,7 @@ jobs:
           echo "== D. transaction/context isolation =="
           has "iso_txA|1"; has "iso_txB|1"; has "iso_none|0"; has "iso_afterRB|0"
           echo "== E. bypass controls =="
-          eq "runtime-non-super-non-bypass" "f/f" "$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT rolsuper||'/'||rolbypassrls FROM pg_roles WHERE rolname='p2_runtime'")"
+          eq "runtime-non-super-non-bypass" "ok" "$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT CASE WHEN NOT rolsuper AND NOT rolbypassrls THEN 'ok' ELSE 'bad' END FROM pg_roles WHERE rolname='p2_runtime'")"
           eq "runtime-owns-no-tables" 0 "$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tableowner='p2_runtime'")"
           eq "control-superuser-sees-both-tenants" 2 "$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc 'SELECT count(*) FROM "Customer"')"
           has "A_broad_customer|1"   # runtime under A sees exactly its own (already asserted; RLS is the blocker, not missing data)
