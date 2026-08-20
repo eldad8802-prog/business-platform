@@ -58,10 +58,18 @@ export async function GET(
 
     const { id } = await context.params;
 
-    const card = await getCustomerCard({
-      businessId: user.businessId,
-      customerId: Number(id),
-    });
+    // P5: the whole multi-table card read runs inside ONE tenant transaction —
+    // server-derived tenant -> ALS -> tenant transaction (GUC) -> RLS backstop.
+    const card = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          getCustomerCard(
+            { businessId: user.businessId, customerId: Number(id) },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json(card, { status: 200 });
   } catch (error) {
