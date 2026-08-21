@@ -14,6 +14,9 @@ import { marketingVars } from "@/components/corporate/marketing-tokens";
  */
 export const metadata: Metadata = {
   title: { default: "Dubiz", template: "%s · Dubiz" },
+  // Explicit machine-readable declaration of the application name, matching the
+  // Google OAuth consent-screen app name. Renders <meta name="application-name">.
+  applicationName: "Dubiz",
   description:
     "Dubiz מרכזת את היום־יום של העסק שלך — לקוחות, כסף ומסמכים — מהוואטסאפ, מהמייל ומהמסמכים שכבר יש לך. מופעל על ידי PRO MAX GROUP.",
 };

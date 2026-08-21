@@ -19,7 +19,11 @@ import { TOKEN } from "@/lib/design/tokens";
  */
 
 export const metadata: Metadata = {
-  title: "בית",
+  // `absolute` so the app name leads the title instead of the generic "בית".
+  // It bypasses the "%s · Dubiz" template from the corporate layout, which
+  // would otherwise append a second "· Dubiz". Homepage only — every other
+  // corporate page keeps the template unchanged.
+  title: { absolute: "Dubiz — ניהול היום־יום של העסק" },
   description:
     "Dubiz מרכזת את היום־יום של העסק שלך — לקוחות, כסף ומסמכים — מהוואטסאפ, מהמייל ומהמסמכים שכבר יש לך. בלי הקמה. מופעל על ידי PRO MAX GROUP.",
 };
@@ -132,6 +136,26 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 export default function CorporateHomePage() {
   return (
     <CorporateContainer className="py-12 sm:py-16">
+      {/*
+       * Application identity line. States, as real visible text above the fold,
+       * that this application is named "Dubiz" and is operated by PRO MAX GROUP
+       * — matching the OAuth consent-screen app name and the identical statement
+       * in the footer, privacy, terms and about pages. Not decoration and not a
+       * marketing message: it is deliberately outside the governed Homepage v1
+       * stage copy (no H1 / eyebrow / support change).
+       */}
+      <p
+        className="mb-7 text-center text-sm sm:mb-9 lg:text-start"
+        style={{ color: C.muted }}
+      >
+        {/* 600 (not 700): Heebo is loaded at 300–600, so font-bold would be
+            synthetically emboldened by the browser. */}
+        <span className="font-semibold" style={{ color: C.ink }}>
+          Dubiz
+        </span>{" "}
+        — מופעל על ידי PRO MAX GROUP
+      </p>
+
       {/* ───────────────────────── STAGE 1 · FOLD ───────────────────────── */}
       <section className="grid items-center gap-8 sm:gap-10 lg:grid-cols-2">
         <div className="text-center lg:text-start">
