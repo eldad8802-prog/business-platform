@@ -63,10 +63,34 @@ async function attrsOf(client, who) {
   return a[0];
 }
 
+async function cleanSlate() {
+  // Self-healing from any prior (failed) run. app_runtime_preview is OUR dedicated
+  // disposable Preview role; p4b-* / p4b_tenant are OUR markers — safe to reset.
+  for (const t of PILOT) await oexec('DROP POLICY IF EXISTS p4b_tenant ON "' + t + '"').catch(() => {});
+  const inMarker = 'IN (SELECT id FROM "Business" WHERE name LIKE \'p4b-%\')';
+  for (const t of ["Appointment", "Conversation", "PaymentRequest", "BillingDocument", "Customer"]) await oexec('DELETE FROM "' + t + '" WHERE "businessId" ' + inMarker).catch(() => {});
+  await oexec("DELETE FROM \"Customer\" WHERE name LIKE 'p4b-%'").catch(() => {});
+  await oexec("DELETE FROM \"User\" WHERE email LIKE '%@p4b.test'").catch(() => {});
+  await oexec("DELETE FROM \"Business\" WHERE name LIKE 'p4b-%'").catch(() => {});
+  const exists = Number((await oq("SELECT count(*)::int AS c FROM pg_roles WHERE rolname='" + ROLE + "'"))[0].c) > 0;
+  if (exists) {
+    for (const s of [
+      "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM " + ROLE,
+      "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM " + ROLE,
+      "REVOKE ALL PRIVILEGES ON SCHEMA public FROM " + ROLE,
+      "REVOKE ALL PRIVILEGES ON DATABASE " + EXPECT_DB + " FROM " + ROLE,
+    ]) await oexec(s).catch(() => {});
+    await oexec("DROP OWNED BY " + ROLE).catch(() => {});
+    await oexec("DROP ROLE IF EXISTS " + ROLE).catch(() => {});
+    const still = Number((await oq("SELECT count(*)::int AS c FROM pg_roles WHERE rolname='" + ROLE + "'"))[0].c);
+    if (still !== 0) throw new Error("could not clear prior " + ROLE + " role — STOP");
+    notes.push("[clean-slate] cleared prior p4b state + role");
+  }
+}
+
 async function provision() {
+  await cleanSlate();
   // STEP 1 — role.
-  const col = await oq("SELECT (SELECT count(*)::int FROM pg_roles WHERE rolname='" + ROLE + "') AS role");
-  if (Number(col[0].role) !== 0) throw new Error(ROLE + " already exists — refusing to reprovision");
   await oexec("CREATE ROLE " + ROLE + " LOGIN PASSWORD '" + PW + "' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT");
   const ra = await oq("SELECT rolcanlogin, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb FROM pg_roles WHERE rolname='" + ROLE + "'");
   const nsm = await oq("SELECT count(*)::int AS c FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.roleid JOIN pg_roles r ON r.oid=m.member WHERE r.rolname='" + ROLE + "' AND g.rolname='neon_superuser'");
@@ -207,24 +231,28 @@ async function routeProof() {
   const dM = await denied(() => rt.$queryRawUnsafe("SELECT count(*) FROM public._prisma_migrations"));
   mark("DDL_DENIAL", dC && dA && dD && dR && dM, "create=" + dC + " alter=" + dA + " drop=" + dD + " createRole=" + dR + " _prisma_migrations=" + dM);
 
-  // CONCURRENCY — plain pooled first; if prepared-statement plumbing fails, retry pgbouncer=true.
-  const als = new AsyncLocalStorage();
+  // CONCURRENCY — each tenant sees exactly its OWN customers (route proofs added
+  // rows to A, so compute expected counts per tenant rather than assume 1).
+  const expA = Number((await owner.$queryRawUnsafe("SELECT count(*)::int AS c FROM \"Customer\" WHERE \"businessId\"=" + ids.bizA))[0].c);
+  const expB = Number((await owner.$queryRawUnsafe("SELECT count(*)::int AS c FROM \"Customer\" WHERE \"businessId\"=" + ids.bizB))[0].c);
   async function concProbe(url) {
     const c = new PrismaClient({ datasourceUrl: url });
     try {
       const N = 12;
       const res = await Promise.allSettled(Array.from({ length: N }, (_, i) => {
         const biz = i % 2 === 0 ? ids.bizA : ids.bizB;
+        const exp = i % 2 === 0 ? expA : expB;
         return c.$transaction(async (tx) => {
           await tx.$queryRaw`SELECT set_config(${GUC}, ${String(biz)}, true)`;
           await tx.$executeRawUnsafe("SELECT pg_sleep(0.02)");
           const got = (await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`)[0].v;
           const seen = Number((await tx.$queryRawUnsafe("SELECT count(*)::int AS c FROM \"Customer\""))[0].c);
-          return { want: String(biz), got, seen };
+          return { want: String(biz), got, seen, exp };
         }, { maxWait: 15000, timeout: 20000 });
       }));
       const ok = res.filter((r) => r.status === "fulfilled").map((r) => r.value);
-      const bad = ok.filter((r) => r.got !== r.want || r.seen !== 1).length;
+      // Isolation: read back own GUC (got===want) AND see exactly own-tenant rows (seen===exp, no cross-leak).
+      const bad = ok.filter((r) => r.got !== r.want || r.seen !== r.exp).length;
       return { total: N, ok: ok.length, bad, err: res.length - ok.length, sample: res.find((r) => r.status === "rejected")?.reason };
     } finally { try { await c.$disconnect(); } catch {} }
   }

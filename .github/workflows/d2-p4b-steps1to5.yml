@@ -142,13 +142,18 @@ jobs:
           cat > .p4b/rollback.mjs <<'TD_EOF'
           import { PrismaClient } from '@prisma/client';
           const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
+          const R = 'app_runtime_preview';
           for (const t of ['Customer','BillingDocument','PaymentRequest','Conversation','Appointment']) {
             try { await c.$executeRawUnsafe('DROP POLICY IF EXISTS p4b_tenant ON "' + t + '"'); } catch {}
             try { await c.$executeRawUnsafe('ALTER TABLE "' + t + '" NO FORCE ROW LEVEL SECURITY'); } catch {}
             try { await c.$executeRawUnsafe('ALTER TABLE "' + t + '" DISABLE ROW LEVEL SECURITY'); } catch {}
           }
-          try { await c.$executeRawUnsafe('DROP OWNED BY app_runtime_preview'); } catch {}
-          try { await c.$executeRawUnsafe('DROP ROLE IF EXISTS app_runtime_preview'); } catch {}
+          const exists = Number((await c.$queryRawUnsafe("SELECT count(*)::int AS c FROM pg_roles WHERE rolname='" + R + "'"))[0].c) > 0;
+          if (exists) {
+            for (const s of ['REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM ' + R, 'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM ' + R, 'REVOKE ALL PRIVILEGES ON SCHEMA public FROM ' + R, 'REVOKE ALL PRIVILEGES ON DATABASE neondb FROM ' + R]) { try { await c.$executeRawUnsafe(s); } catch {} }
+            try { await c.$executeRawUnsafe('DROP OWNED BY ' + R); } catch {}
+            try { await c.$executeRawUnsafe('DROP ROLE IF EXISTS ' + R); } catch {}
+          }
           const r = await c.$queryRaw`SELECT (SELECT count(*)::int FROM pg_roles WHERE rolname='app_runtime_preview') AS role, (SELECT count(*)::int FROM pg_policies WHERE policyname='p4b_tenant') AS pol`;
           console.log('[rollback] role=' + r[0].role + ' p4b_policies=' + r[0].pol);
           await c.$disconnect();
