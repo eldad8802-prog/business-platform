@@ -409,6 +409,12 @@ model BusinessProfile {
   billingAddress          String?
   billingPaymentNote      String?
   billingFooterNote       String?
+  /// Business-wide payment terms in days — when payment on an issued invoice is
+  /// expected, counted from `issuedAt`. NULL means the business never set it and
+  /// the collection read-model falls back to DEFAULT_PAYMENT_TERMS_DAYS.
+  /// Collection-only: NOT part of the frozen legal snapshot, and it has no effect
+  /// on issuance, numbering, PDF content or authority submission.
+  billingPaymentTermsDays Int?
   /// Small logo as data URL — pdfmake/HTML renderer embed only (no remote fetch)
   billingLogoDataUrl      String?
   /// Business VISUAL signature/stamp as data URL — presentation only, embedded on
