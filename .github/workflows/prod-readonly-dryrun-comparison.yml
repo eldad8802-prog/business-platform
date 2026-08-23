@@ -1,0 +1,111 @@
+name: Prod Read-Only Dry-Run Comparison (Business Memory)
+
+# Manual, gated, READ-ONLY dry-run that runs the REAL Business Memory read/derive pipeline against
+# Production ReviewEvent evidence and prints expected-vs-derived per subject (SHADOW-COMPARISON-2). It
+# performs ZERO writes and never materializes a Claim. OPERATIONAL TOOL ONLY — not a product/admin reader.
+#
+# Safety controls:
+#   - workflow_dispatch only (no push / schedule triggers)
+#   - environment: production-db  -> human approval before secrets are exposed
+#   - host allowlist: DIRECT_URL must target endpoint ep-flat-brook-am4bhq1y
+#   - static NO-WRITE guard on the harness sources (no create/update/upsert/delete/*Many/$executeRaw/
+#     materializeClaim/writeClaim/claim-writer import) before running
+#   - the harness forces a READ-ONLY DB session (options=-c default_transaction_read_only=on) and
+#     fail-closes unless the server reports default_transaction_read_only=on
+#   - fixed script path (no arbitrary script/path input); businessId validated as a positive integer;
+#     inputs passed via env (BID/SKEY), never interpolated into a shell command
+#   - permissions: contents: read; no credential echo
+
+on:
+  workflow_dispatch:
+    inputs:
+      businessId:
+        description: "Tenant businessId (positive integer)"
+        required: true
+        type: string
+      subjectNormalizedKey:
+        description: "Optional normalized vendor subject filter (exact match); blank = all subjects"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-readonly-dryrun-comparison
+  cancel-in-progress: false
+
+jobs:
+  dry-run:
+    name: Read-only Business Memory dry-run comparison
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate inputs (businessId must be a positive integer)
+        env:
+          BID: ${{ inputs.businessId }}
+        run: |
+          set -euo pipefail
+          case "$BID" in
+            ''|*[!0-9]*) echo "::error::businessId must be a positive integer."; exit 1 ;;
+          esac
+          echo "Input validation OK."
+
+      - name: Static NO-WRITE guard (harness cannot reach a writer)
+        run: |
+          set -euo pipefail
+          FILES="scripts/business-memory/dry-run-comparison.ts scripts/business-memory/dry-run-comparison.core.ts"
+          for f in $FILES; do
+            test -f "$f" || { echo "::error::missing harness file: $f"; exit 1; }
+          done
+          # (1) Write-call primitives + raw exec + writer function calls (paren-anchored so prose is ignored).
+          #     $queryRaw / $queryRawUnsafe (read introspection) are intentionally NOT forbidden.
+          WRITE='\.(create|update|upsert|delete|createMany|updateMany|deleteMany)\(|\$executeRaw|(materializeClaim|writeClaim)\('
+          W="$(grep -nEH "$WRITE" $FILES || true)"
+          # (2) Writer / orchestrator IMPORT coupling — only actual import statements, not prose/output.
+          I="$(grep -nEH '^[[:space:]]*import ' $FILES | grep -E 'claim-writer|/materialization|/orchestration' || true)"
+          if [ -n "$W$I" ]; then
+            echo "::error::Forbidden write primitive / writer coupling found in harness — aborting."
+            echo "$W"; echo "$I"
+            exit 1
+          fi
+          echo "NO-WRITE guard passed: harness contains no write primitives or writer coupling."
+
+      - name: Host allowlist assertion (verified Production only)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          ALLOW="ep-flat-brook-am4bhq1y"
+          if [ -z "${DIRECT_URL:-}" ]; then
+            echo "::error::DIRECT_URL secret is not set in the production-db environment."; exit 1
+          fi
+          case "$DIRECT_URL" in
+            *"$ALLOW"*) echo "Host allowlist OK: DIRECT_URL targets endpoint $ALLOW." ;;
+            *) echo "::error::DIRECT_URL does not target the verified Production endpoint ($ALLOW) — aborting."; exit 1 ;;
+          esac
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run read-only dry-run comparison
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          PGSSLMODE: require
+          BID: ${{ inputs.businessId }}
+          SKEY: ${{ inputs.subjectNormalizedKey }}
+        run: |
+          set -euo pipefail
+          npx tsx scripts/business-memory/dry-run-comparison.ts
