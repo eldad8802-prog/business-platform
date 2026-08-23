@@ -196,6 +196,17 @@ async function isolationMatrix() {
   const rd = roleDirect;
   const one = (rows) => Number(rows[0].c);
 
+  // Pooled role connection — the transport the runtime actually uses (a single
+  // unpooled connection is not built for concurrency). Used for concurrency +
+  // pooler-reuse probes below.
+  try {
+    rolePooled = new PrismaClient({ datasourceUrl: rolePooledUrl });
+    await rolePooled.$queryRaw`SELECT 1`;
+  } catch (e) {
+    rolePooled = null;
+    notes.push("[pooled-setup] role pooled connection unavailable: " + String(e && e.message ? e.message : e).slice(0, 160));
+  }
+
   // Same-tenant CRUD (A) — all must succeed and stay within A.
   try {
     const out = await tenantTx(rd, BIZ_A, async (tx) => {
@@ -289,23 +300,30 @@ async function isolationMatrix() {
     mark("SEQUENTIAL_ISOLATION", a === String(BIZ_A) && b === String(BIZ_B), "A=" + a + " B_ctx=" + b);
   } catch { mark("SEQUENTIAL_ISOLATION", false, "sequential probe threw"); }
 
-  // Concurrent A/B: 16-wide interleave, each reads exactly its own context.
-  try {
-    const N = 16;
-    const res = await Promise.allSettled(Array.from({ length: N }, (_, i) => {
-      const biz = i % 2 === 0 ? BIZ_A : BIZ_B;
-      return tenantTx(rd, biz, async (tx) => {
-        await tx.$queryRaw`SELECT pg_sleep(0.03)`;
-        const got = (await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`)[0].v;
-        const seen = Number((await tx.$queryRawUnsafe("SELECT count(*)::int AS c FROM " + LAB + ".p4_customer"))[0].c);
-        return { want: String(biz), got, seen };
-      }, "conc#" + i);
-    }));
-    const ok = res.filter((r) => r.status === "fulfilled").map((r) => r.value);
-    const badCtx = ok.filter((r) => r.got !== r.want).length;
-    const badRows = ok.filter((r) => r.seen !== 1).length;
-    mark("CONCURRENT_ISOLATION", res.length === ok.length && badCtx === 0 && badRows === 0, ok.length + "/" + N + " ok, " + badCtx + " ctx-cross, " + badRows + " row-cross");
-  } catch { mark("CONCURRENT_ISOLATION", false, "concurrency threw"); }
+  // Concurrent A/B over the POOLED transport (production transport; P3 proved
+  // pooled concurrency, and a single unpooled connection is not built for it).
+  // 16-wide interleave, each tx must read exactly its own context + its own row.
+  if (!rolePooled) {
+    R.CONCURRENT_ISOLATION = "UNKNOWN";
+    notes.push("[CONCURRENT_ISOLATION] pooled role connection unavailable — not tested");
+  } else {
+    try {
+      const N = 16;
+      const res = await Promise.allSettled(Array.from({ length: N }, (_, i) => {
+        const biz = i % 2 === 0 ? BIZ_A : BIZ_B;
+        return tenantTx(rolePooled, biz, async (tx) => {
+          await tx.$queryRaw`SELECT pg_sleep(0.03)`;
+          const got = (await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`)[0].v;
+          const seen = Number((await tx.$queryRawUnsafe("SELECT count(*)::int AS c FROM " + LAB + ".p4_customer"))[0].c);
+          return { want: String(biz), got, seen };
+        }, "conc#" + i);
+      }));
+      const ok = res.filter((r) => r.status === "fulfilled").map((r) => r.value);
+      const badCtx = ok.filter((r) => r.got !== r.want).length;
+      const badRows = ok.filter((r) => r.seen !== 1).length;
+      mark("CONCURRENT_ISOLATION", res.length === ok.length && badCtx === 0 && badRows === 0, ok.length + "/" + N + " ok (pooled), " + badCtx + " ctx-cross, " + badRows + " row-cross");
+    } catch { mark("CONCURRENT_ISOLATION", false, "concurrency threw"); }
+  }
 
   // Indirect / parent-join tenancy: under A, only A's lines are visible.
   try {
@@ -348,8 +366,12 @@ async function isolationMatrix() {
   // Pooler reuse: attempt to auth as the role over the POOLED endpoint and probe
   // for stale GUC across backend reuse. If the pooler cannot auth a SQL-created
   // role, that is a recorded P4-B finding (not a silent pass).
+  if (!rolePooled) {
+    R.POOLER_REUSE = "UNKNOWN";
+    notes.push("[POOLER_REUSE] pooled role connection unavailable — P4-B must confirm pooler auth for the runtime role (direct-as-role already PASSED)");
+    return;
+  }
   try {
-    rolePooled = new PrismaClient({ datasourceUrl: rolePooledUrl });
     const who = await rolePooled.$queryRaw`SELECT current_user::text AS u`;
     R._pooled_user = who[0].u;
     const tagged = await tenantTx(rolePooled, 555555, async (tx) => Number((await tx.$queryRaw`SELECT pg_backend_pid() AS pid`)[0].pid), "pool-tag");
