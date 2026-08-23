@@ -38,4 +38,11 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     description: "שפה, מטבע ואזור זמן",
     icon: "🌍",
   },
+  {
+    key: "account-privacy",
+    href: "/settings/account",
+    title: "חשבון ופרטיות",
+    description: "מחיקת חשבון והמידע שלך",
+    icon: "🔒",
+  },
 ];

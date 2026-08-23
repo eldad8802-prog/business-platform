@@ -29,6 +29,13 @@ export async function getCurrentUser(req: Request) {
       },
     });
 
+    // Fail closed for a deleted account (Wave 1B): once the business is closed, any
+    // still-valid bearer token must not grant access. Auth is stateless (no session
+    // store), so this is the revocation point.
+    if (user && user.business?.deletedAt) {
+      return null;
+    }
+
     return user;
   } catch (error) {
     console.error("getCurrentUser error:", error);
