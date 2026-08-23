@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { createCouponFromOffer } from "@/lib/services/coupon.service";
 import { handleError } from "@/lib/handle-error";
-import { resolveCouponBaseUrl } from "@/lib/revenue/coupon-base-url";
+import { enableCoupon } from "@/lib/services/revenue/my-coupons.service";
 
+/** Re-activate a disabled coupon that is still in date. Owner-only (see disable). */
 export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -11,20 +11,14 @@ export async function POST(
   try {
     const user = await getCurrentUser(req);
 
-    if (!user) {
+    if (!user?.businessId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { id } = await context.params;
-    const offerId = Number(id);
+    const result = await enableCoupon(id, user.businessId);
 
-    const coupon = await createCouponFromOffer({
-      offerId,
-      businessId: user.businessId,
-      baseUrl: resolveCouponBaseUrl(req),
-    });
-
-    return NextResponse.json({ coupon }, { status: 201 });
+    return NextResponse.json(result, { status: 200 });
   } catch (error) {
     return handleError(error);
   }

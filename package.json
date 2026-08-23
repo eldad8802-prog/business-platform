@@ -47,6 +47,8 @@
     "verify:crm-attachment-storage": "npx tsx lib/services/crm/crm-attachment-storage.test.ts",
     "verify:crm-attachments": "npx tsx lib/services/crm/crm-attachments.service.test.ts",
     "verify:billing-issue-tenant-isolation": "npx tsx lib/services/billing/billing-issue.tenant-isolation.test.ts",
+    "verify:coupon-v1": "npx tsx lib/revenue/coupon-v1.verify.test.ts",
+    "verify:coupon-tenant": "npx tsx lib/services/revenue/coupon-tenant.db.test.ts",
     "verify:gmail-refresh-token-upgrade": "npx tsx lib/services/integrations/gmail/gmail-refresh-token-upgrade.test.ts",
     "verify:documents-previous-net": "npx tsx lib/documents/previous-net.test.ts",
     "verify:documents-previous-year-month": "npx tsx lib/documents/previous-year-month.test.ts",

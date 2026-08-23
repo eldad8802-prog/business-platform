@@ -26,7 +26,7 @@ import {
   type CouponView,
   MY_ACTIVE,
   MY_ENDED,
-  MY_BUSINESS,
+  EMPTY_BUSINESS,
   draftToOwnerCoupon,
 } from "@/components/coupon/coupon-model";
 
@@ -176,11 +176,13 @@ export function MarketingWorld({ onExit }: { onExit?: () => void }) {
 /** How the customer sees this coupon — the SINGLE public entity, in-app. */
 function PublicPreviewScreen({ coupon, onBack }: { coupon: OwnerCoupon; onBack: () => void }) {
   const view: CouponView = {
-    business: MY_BUSINESS,
+    business: EMPTY_BUSINESS,
     benefit: coupon.benefit,
     description: "",
     valid: coupon.validityText,
-    terms: "תנאי שימוש: קופון אחד ללקוח · בתיאום מראש · לא ניתן לכפל עם מבצעים אחרים.",
+    // No invented terms: a preview must not print conditions the business never
+    // set and the system does not enforce (COUPON-04/06).
+    terms: "",
   };
   return (
     <PhoneFrame>
