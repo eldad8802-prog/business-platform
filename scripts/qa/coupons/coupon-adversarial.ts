@@ -5,6 +5,10 @@
  *
  *   TEST_DATABASE_URL=… npx tsx scripts/qa/coupons/coupon-adversarial.ts
  */
+
+// Standalone script: marks the file as a module so its top-level
+// declarations do not collide with sibling scripts in global scope.
+export {};
 const DB = process.env.TEST_DATABASE_URL?.trim();
 if (!DB || !/^postgres(ql)?:\/\//i.test(DB)) {
   console.error("ABORT: set TEST_DATABASE_URL.");
