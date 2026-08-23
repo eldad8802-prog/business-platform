@@ -112,10 +112,12 @@ export function TicketCard({
               position: "absolute",
               top: 8,
               right: 8,
-              fontSize: 10,
+              // 10px was below the legible floor and the 22%-white pill gave
+              // the label almost no separation from the ticket behind it.
+              fontSize: 11.5,
               fontWeight: 600,
               color: "#fff",
-              background: "rgba(255,255,255,0.22)",
+              background: "rgba(0,0,0,0.34)",
               borderRadius: W.radius.pill,
               padding: "2px 8px",
             }}
@@ -147,8 +149,10 @@ export function TicketCard({
           {city ? <span style={{ color: W.muted2, fontWeight: 400 }}>· {city}</span> : null}
         </div>
         <div style={benefitStyle}>{benefit}</div>
+        {/* Expiry was 10.5px in the lightest grey. It is decision-critical for a
+            consumer, so it gets a legible size and a tone with real contrast. */}
         {valid ? (
-          <div style={{ fontSize: 10.5, color: W.muted2, marginTop: 7 }}>
+          <div style={{ fontSize: 12, color: W.muted, marginTop: 7 }}>
             {valid}
           </div>
         ) : null}

@@ -1,24 +1,23 @@
 /**
- * Coupon feature — client data layer (Stage 1 integration).
- * Wires the new design package to the EXISTING backend only. No new APIs.
- *   - GET  /api/revenue/coupons/active        (public marketplace list, ≤6 ranked)
- *   - GET  /api/revenue/coupons/[publicId]/code (token + qrValue)
- *   - POST /api/offers                        (createOffer — the builder's sentence)
- *   - POST /api/offers/[id]/coupon            (issue a coupon = "published")
+ * Coupon feature — client data layer.
+ *
+ *   - GET  /api/revenue/coupons/active          (public marketplace list, ranked)
+ *   - GET  /api/revenue/coupons/[publicId]      (public coupon status)
+ *   - GET  /api/revenue/coupons/[publicId]/code (issuer-only token + QR)
+ *   - GET  /api/revenue/coupons/mine            (owner's coupons)
+ *   - GET  /api/revenue/coupons/my-business     (owner's real identity)
+ *   - POST /api/revenue/coupons                 (atomic publish)
+ *   - POST /api/revenue/coupons/[publicId]/disable | /enable
+ *
+ * Every mutation here returns a discriminated outcome rather than a value that
+ * happens to be truthy. `publishDraft` used to `return { offerId }` when the
+ * coupon call failed — a truthy object the wizard read as success (COUPON-01).
  */
 
 import type { PublicCoupon, CouponDraft, CatKey, CatFamily } from "@/components/coupon/coupon-model";
-import { couponTitle } from "@/components/coupon/coupon-model";
+import { categoryFamily } from "@/components/coupon/coupon-model";
 import type { CouponThema } from "@/lib/design/coupon-consumer";
 
-/** Business category → filter family (food / beauty / health / other). */
-function categoryFamily(cat?: string, sub?: string, model?: string): CatFamily {
-  const s = `${cat || ""} ${sub || ""} ${model || ""}`.toLowerCase();
-  if (/food|restaurant|cafe|coffee|bakery|pizza|sushi|מסעד|קפה|אוכל|מאפ|פיצה|סושי|\bבר\b/.test(s)) return "food";
-  if (/beaut|hair|cosmet|nails|barber|spa|ספר|תספורת|יופי|קוסמט|טיפוח|ציפור/.test(s)) return "beauty";
-  if (/clinic|medical|health|fitness|gym|dental|physio|רפוא|קליניק|בריאות|כושר|טיפול|שיניים|פיזיו/.test(s)) return "health";
-  return "other";
-}
 /** Family → celebratory thema + ticket icon. */
 function visualForFamily(fam: CatFamily): { thema: CouponThema; cat: CatKey } {
   switch (fam) {
@@ -40,7 +39,23 @@ function getToken(): string | null {
   return typeof window !== "undefined" ? localStorage.getItem("token") : null;
 }
 
-/** Short human backup code from a token (display only). */
+function authHeaders(json = false): Record<string, string> {
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (json) headers["Content-Type"] = "application/json";
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+/**
+ * Human backup code (COUPON-04 / Phase 4).
+ *
+ * The coupon's real code IS its `token` — a server-generated UUID, unique by
+ * database constraint, never chosen by the business. This renders the first 8
+ * characters as two upper-case groups for reading aloud at a counter. It is a
+ * *display* of the token, not a second identifier: redemption always takes the
+ * full token, so there is no shorter string that could collide.
+ */
 export function shortCode(token?: string | null): string {
   if (!token) return "";
   const clean = token.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
@@ -62,8 +77,7 @@ type ActiveCard = {
 
 export type GeoPoint = { lat: number; lng: number };
 
-/** Cross-business active coupons → design `PublicCoupon[]` (real business fields).
- *  `near` (opt-in) makes the server compute a real display distance per business. */
+/** Cross-business active coupons → design `PublicCoupon[]` (real business fields). */
 export async function fetchActiveCoupons(limit = 24, near?: GeoPoint | null): Promise<PublicCoupon[]> {
   try {
     const geo = near ? `&lat=${encodeURIComponent(near.lat)}&lng=${encodeURIComponent(near.lng)}` : "";
@@ -77,13 +91,14 @@ export async function fetchActiveCoupons(limit = 24, near?: GeoPoint | null): Pr
       return {
         id: c.publicId,
         business: {
-          name: c.business?.name || "עסק",
-          city: c.business?.city || "",
-          address: c.business?.address || "",
-          hours: c.business?.openingHours || "",
+          // Real values or null — never a plausible-looking stand-in (COUPON-04).
+          name: c.business?.name || null,
+          city: c.business?.city || null,
+          address: c.business?.address || null,
+          hours: c.business?.openingHours || null,
           logo: (c.business?.name || "·").trim().charAt(0) || "·",
           thema: vis.thema,
-          phone: c.business?.phone || undefined,
+          phone: c.business?.phone || null,
         },
         category: vis.cat,
         catFamily: fam,
@@ -113,16 +128,12 @@ export async function fetchCouponStatus(publicId: string): Promise<string | null
   }
 }
 
-/** Token + QR for a coupon (used by "קבל קופון" / share). */
+/** Token + QR for a coupon. Issuer-only server-side; non-issuers resolve to null. */
 export async function fetchCouponCode(publicId: string): Promise<{ token: string; qrValue: string } | null> {
   try {
-    // W1-01: /code is issuer-only. Attach the business bearer token; callers
-    // that are not the issuing business (anonymous / other business) get 401/403
-    // and this resolves to null (no secret is ever returned publicly).
-    const token = getToken();
     const res = await fetch(`/api/revenue/coupons/${publicId}/code`, {
       cache: "no-store",
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      headers: authHeaders(),
     });
     if (!res.ok) return null;
     const d = await res.json();
@@ -133,60 +144,175 @@ export async function fetchCouponCode(publicId: string): Promise<{ token: string
   }
 }
 
-export type PublishResult = {
-  offerId?: number;
-  publicId?: string;
-  qrValue?: string;
-  token?: string;
-} | null;
+/* ------------------------------------------------------ owner identity ---- */
 
-function validityDays(v: string): number {
-  if (v === "שבוע") return 7;
-  if (v === "חודש") return 30;
-  return 14; // שבועיים (default)
-}
+export type BusinessIdentity = {
+  id: number;
+  name: string | null;
+  city: string | null;
+  address: string | null;
+  phone: string | null;
+  openingHours: string | null;
+  category: string | null;
+  subCategory: string | null;
+  businessModel: string | null;
+  nameMissing: boolean;
+  incomplete: string[];
+};
 
-/**
- * Publish = createOffer (the composed sentence) → issue a coupon.
- * Everything the Builder/Terms built collapses into the existing fields:
- * `customerBenefitText`/`title`/`description`/`validUntil`. No new schema.
- */
-export async function publishDraft(draft: CouponDraft): Promise<PublishResult> {
-  const token = getToken();
-  if (!token) return null;
-
-  const until = new Date();
-  until.setDate(until.getDate() + validityDays(draft.validity));
-  until.setHours(23, 59, 59, 999);
-
-  const benefit = couponTitle(draft);
-  const descParts = [draft.description?.trim(), draft.conditions.length ? draft.conditions.join(" · ") : ""].filter(Boolean);
-  const description = descParts.length ? descParts.join(" · ") : undefined;
-
+export async function fetchMyBusiness(): Promise<BusinessIdentity | null> {
   try {
-    const offRes = await fetch("/api/offers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ title: benefit, customerBenefitText: benefit, description, validUntil: until.toISOString() }),
+    const res = await fetch("/api/revenue/coupons/my-business", {
+      cache: "no-store",
+      headers: authHeaders(),
     });
-    if (!offRes.ok) return null;
-    const off = await offRes.json();
-    const offerId: number | undefined = off?.offer?.id;
-    if (!offerId) return null;
-
-    const cpRes = await fetch(`/api/offers/${offerId}/coupon`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!cpRes.ok) return { offerId };
-    const cp = await cpRes.json();
-    return {
-      offerId,
-      publicId: cp?.coupon?.publicId,
-      qrValue: cp?.coupon?.qrValue,
-      token: cp?.coupon?.token,
-    };
+    if (!res.ok) return null;
+    const d = await res.json();
+    return d?.business ?? null;
   } catch {
     return null;
+  }
+}
+
+/* --------------------------------------------------------- my coupons ----- */
+
+export type MyCoupon = {
+  publicId: string;
+  benefit: string;
+  description: string | null;
+  state: "ACTIVE" | "REDEEMED" | "EXPIRED" | "DISABLED";
+  issuedAt: string;
+  expiresAt: string;
+  redeemedAt: string | null;
+  createdAt: string;
+  offerId: number;
+  redemptionCount: number;
+};
+
+/** Distinguishes "no coupons yet" from "could not load" so the UI can say which. */
+export type MyCouponsOutcome =
+  | { ok: true; coupons: MyCoupon[] }
+  | { ok: false; message: string };
+
+export async function fetchMyCoupons(): Promise<MyCouponsOutcome> {
+  try {
+    const res = await fetch("/api/revenue/coupons/mine", {
+      cache: "no-store",
+      headers: authHeaders(),
+    });
+    if (res.status === 401) return { ok: false, message: "יש להתחבר כדי לראות את הקופונים שלך" };
+    if (!res.ok) return { ok: false, message: "לא הצלחנו לטעון את הקופונים שלך" };
+    const d = await res.json();
+    return { ok: true, coupons: Array.isArray(d?.coupons) ? d.coupons : [] };
+  } catch {
+    return { ok: false, message: "אין חיבור לשרת" };
+  }
+}
+
+export type MutationOutcome =
+  | { ok: true; state: MyCoupon["state"] }
+  | {
+      ok: false;
+      message: string;
+      /**
+       * True when the SERVER answered and refused (e.g. "הקופון כבר מומש"),
+       * false when the request never got there.
+       *
+       * The distinction matters: a server refusal means our on-screen state is
+       * provably stale and should be re-read immediately. A network failure
+       * means the opposite — re-reading would fail too, and would replace a
+       * precise per-coupon message with an empty list and a generic error.
+       */
+      serverResponded: boolean;
+    };
+
+async function couponAction(publicId: string, action: "disable" | "enable"): Promise<MutationOutcome> {
+  try {
+    const res = await fetch(`/api/revenue/coupons/${publicId}/${action}`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, message: d?.error || "הפעולה נכשלה", serverResponded: true };
+    }
+    return { ok: true, state: d.state };
+  } catch {
+    return { ok: false, message: "אין חיבור לשרת", serverResponded: false };
+  }
+}
+
+export const disableCoupon = (publicId: string) => couponAction(publicId, "disable");
+export const enableCoupon = (publicId: string) => couponAction(publicId, "enable");
+
+/* ------------------------------------------------------------- publish ---- */
+
+export type PublishedCoupon = {
+  offerId: number;
+  publicId: string;
+  token: string;
+  qrValue: string;
+  benefit: string;
+  description: string | null;
+  expiresAt: string;
+  status: "ACTIVE";
+};
+
+/**
+ * A publish either fully happened or did not happen at all. There is no partial
+ * outcome to represent, because the server writes the Offer and the Coupon in
+ * one transaction.
+ */
+export type PublishOutcome =
+  | { ok: true; coupon: PublishedCoupon }
+  | { ok: false; message: string; fields?: { field: string; message: string }[] };
+
+export type PublishResult = PublishOutcome;
+
+export async function publishDraft(draft: CouponDraft): Promise<PublishOutcome> {
+  if (!getToken()) {
+    return { ok: false, message: "יש להתחבר כדי לפרסם קופון" };
+  }
+
+  // Only an owner-authored title is sent. If they never touched the field — or
+  // typed something and then cleared it — this is empty and the server composes
+  // the canonical sentence itself.
+  const title = draft.titleEdited ? draft.title.trim() : "";
+
+  try {
+    const res = await fetch("/api/revenue/coupons", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        benefitType: draft.benefitType,
+        value: draft.value,
+        scope: draft.scope,
+        title,
+        description: draft.description,
+        minPurchaseEnabled: draft.minPurchaseEnabled,
+        minPurchase: draft.minPurchase,
+        newCustomersOnly: draft.newCustomersOnly,
+        validUntilDate: draft.validUntilDate,
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        message: data?.error || "פרסום הקופון נכשל",
+        fields: Array.isArray(data?.fields) ? data.fields : undefined,
+      };
+    }
+
+    if (!data?.coupon?.publicId) {
+      // Defensive: a 2xx without a coupon is a contract violation, not a success.
+      return { ok: false, message: "פרסום הקופון נכשל" };
+    }
+
+    return { ok: true, coupon: data.coupon as PublishedCoupon };
+  } catch {
+    return { ok: false, message: "אין חיבור לשרת. הקופון לא פורסם." };
   }
 }

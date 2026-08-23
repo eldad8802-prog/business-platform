@@ -121,17 +121,52 @@ export function PublicCouponContent({
 
 /* ---------------------------------------------------- full public screen -- */
 
-function PublicCouponScreen({ coupon, onGet, onBack }: { coupon: PublicCoupon; onGet: () => void; onBack: () => void }) {
+function PublicCouponScreen({ coupon, onGet, onBack, notice, busy }: { coupon: PublicCoupon; onGet: () => void; onBack: () => void; notice?: string | null; busy?: boolean }) {
+  const [copied, setCopied] = useState(false);
+
+  // The coupon's real public page. `coupon.id` IS the opaque publicId.
+  const link = typeof window !== "undefined" ? `${window.location.origin}/revenue/coupons/${coupon.id}` : "";
+
+  const copy = async () => {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt("העתק את הקישור:", link);
+    }
+  };
+
+  const share = () => {
+    if (!link) return;
+    window.open(`https://wa.me/?text=${encodeURIComponent(`${coupon.benefit}\n${link}`)}`, "_blank", "noopener,noreferrer");
+  };
+
   return (
     <PhoneFrame>
       <ScreenHeader absolute action={<BackText light onClick={onBack} />} />
       <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
         <PublicCouponContent view={publicToView(coupon)} topInset={58} />
         <div style={{ padding: "16px 20px 20px", borderTop: `1px solid ${W.line}`, background: W.canvas }}>
-          <PrimaryButton onClick={onGet}>קבל קופון</PrimaryButton>
+          {notice ? (
+            <div role="alert" style={{ marginBottom: 12, padding: 12, borderRadius: W.radius.control, background: W.surface2, border: `1px solid ${W.line}`, fontSize: 13, lineHeight: 1.55, color: W.ink }}>
+              {notice}
+              {coupon.business.phone ? (
+                <a href={`tel:${coupon.business.phone}`} style={{ display: "block", marginTop: 6, fontWeight: 600, color: W.tealDeep, textDecoration: "none" }}>
+                  התקשר ל{coupon.business.name ?? "בית העסק"} ›
+                </a>
+              ) : null}
+            </div>
+          ) : null}
+          <PrimaryButton onClick={busy ? undefined : onGet} disabled={busy}>
+            {busy ? "בודק…" : "קבל קופון"}
+          </PrimaryButton>
+          {/* These were inert buttons with no handler at all. Both now act on the
+              coupon's real public URL. */}
           <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-            <SecondaryButton>שתף</SecondaryButton>
-            <SecondaryButton>העתק קישור</SecondaryButton>
+            <SecondaryButton onClick={share} style={{ flex: 1 }}>שתף</SecondaryButton>
+            <SecondaryButton onClick={copy} style={{ flex: 1 }}>{copied ? "הועתק ✓" : "העתק קישור"}</SecondaryButton>
           </div>
         </div>
       </div>
@@ -141,20 +176,8 @@ function PublicCouponScreen({ coupon, onGet, onBack }: { coupon: PublicCoupon; o
 
 /* ----------------------------------------------------- personal coupon --- */
 
-function QrBox({ size = 168 }: { size?: number }) {
-  const cells = [[36, 6, 6, 6], [48, 0, 6, 12], [62, 6, 6, 6], [6, 36, 6, 6], [18, 44, 6, 6], [42, 40, 8, 8], [58, 36, 6, 6], [70, 48, 6, 6], [86, 40, 6, 6], [40, 58, 6, 6], [54, 66, 6, 6], [66, 60, 6, 6], [80, 70, 6, 6], [42, 78, 6, 6], [56, 88, 6, 6], [70, 82, 6, 6], [88, 82, 6, 6]];
-  const finder = (x: number, y: number) => (<><rect x={x} y={y} width={26} height={26} /><rect x={x + 6} y={y + 6} width={14} height={14} fill="#fff" /><rect x={x + 10} y={y + 10} width={6} height={6} /></>);
-  return (
-    <div style={{ width: size, height: size, margin: "0 auto", background: "#fff", border: `1px solid ${W.line}`, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <svg viewBox="0 0 100 100" width={size * 0.83} height={size * 0.83} shapeRendering="crispEdges" fill={W.ink} aria-hidden>
-        {finder(0, 0)}{finder(74, 0)}{finder(0, 74)}
-        {cells.map((c, i) => <rect key={i} x={c[0]} y={c[1]} width={c[2]} height={c[3]} />)}
-      </svg>
-    </div>
-  );
-}
-
-function PersonalCouponScreen({ coupon, code, onBack }: { coupon: PublicCoupon; code?: { token: string; qrValue: string } | null; onBack: () => void }) {
+/** Reached only with a genuine token — `code` is required, not optional. */
+function PersonalCouponScreen({ coupon, code, onBack }: { coupon: PublicCoupon; code: { token: string; qrValue: string }; onBack: () => void }) {
   const thema = coupon.business.thema;
   return (
     <PhoneFrame>
@@ -169,20 +192,23 @@ function PersonalCouponScreen({ coupon, code, onBack }: { coupon: PublicCoupon; 
             <div style={{ fontSize: 13, fontWeight: 500, opacity: 0.92 }}>{coupon.business.name}</div>
             <div style={{ fontSize: 17, fontWeight: 600, marginTop: 2 }}>{coupon.benefit}</div>
           </div>
+          {/*
+            A QR and a backup code are shown ONLY when a real token backed them.
+            The placeholder `<QrBox />` and the hardcoded "8F2K · 9QX4" that used
+            to fill in here were indistinguishable from a working coupon.
+          */}
           <div style={{ padding: "22px 18px 10px" }}>
-            {code?.qrValue ? (
-              <div style={{ width: 168, height: 168, margin: "0 auto", background: "#fff", border: `1px solid ${W.line}`, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <QRCodeCanvas value={code.qrValue} size={140} />
-              </div>
-            ) : (
-              <QrBox />
-            )}
+            <div style={{ width: 168, height: 168, margin: "0 auto", background: "#fff", border: `1px solid ${W.line}`, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <QRCodeCanvas value={code.qrValue} size={140} />
+            </div>
           </div>
           <div style={{ textAlign: "center", fontSize: 15, fontWeight: 600, letterSpacing: "2px", color: W.ink, padding: "2px 0 4px" }}>
             <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: 0, color: W.muted2, display: "block", marginBottom: 3 }}>קוד לגיבוי</span>
-            {code?.token ? shortCode(code.token) : "8F2K · 9QX4"}
+            {shortCode(code.token)}
           </div>
-          <div style={{ textAlign: "center", fontSize: 12, color: W.muted, padding: "6px 0 18px" }}>{coupon.valid} · קופון אחד ללקוח, לשימוש חד-פעמי</div>
+          {/* "קופון אחד ללקוח" was hardcoded here too — a term no business set
+              and the system cannot enforce. Only the real expiry is stated. */}
+          <div style={{ textAlign: "center", fontSize: 12, color: W.muted, padding: "6px 0 18px" }}>{coupon.valid} · לשימוש חד-פעמי</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, margin: "18px 0 4px", fontSize: 14.5, fontWeight: 600, color: W.tealDeep }}>
           <StrokeIcon size={18} color={W.tealDeep} width={2}><path d="M5 12h14M13 6l6 6-6 6" /></StrokeIcon>
@@ -223,7 +249,7 @@ function Row({ dot, title, coupons, onOpen }: { dot: string; title: string; coup
       <Eyebrow dot={dot}>{title}</Eyebrow>
       <HScrollRow style={{ margin: "0 -20px", padding: "2px 20px" }}>
         {coupons.map((c) => (
-          <TicketCard key={c.id} compact thema={c.business.thema} categoryIcon={CAT[c.category]} business={c.business.name} benefit={c.benefit} valid={c.valid} city={c.business.city} distance={c.distance} ribbon={c.ribbon} onClick={() => onOpen(c)} />
+          <TicketCard key={c.id} compact thema={c.business.thema} categoryIcon={CAT[c.category]} business={c.business.name ?? ""} benefit={c.benefit} valid={c.valid} city={c.business.city ?? undefined} distance={c.distance} ribbon={c.ribbon} onClick={() => onOpen(c)} />
         ))}
       </HScrollRow>
     </div>
@@ -319,7 +345,7 @@ function Marketplace({ onOpen, onCreate, onExit, coupons, onNear, nearActive = f
               <Eyebrow dot={COUPON.accent.violet}>{cityTitle}</Eyebrow>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 12px" }}>
                 {list.map((c) => (
-                  <TicketCard key={c.id} thema={c.business.thema} categoryIcon={CAT[c.category]} business={c.business.name} benefit={c.benefit} valid={c.valid} city={c.business.city} distance={c.distance} onClick={() => onOpen(c)} />
+                  <TicketCard key={c.id} thema={c.business.thema} categoryIcon={CAT[c.category]} business={c.business.name ?? ""} benefit={c.benefit} valid={c.valid} city={c.business.city ?? undefined} distance={c.distance} onClick={() => onOpen(c)} />
                 ))}
               </div>
             </>
@@ -364,14 +390,62 @@ export function ConsumerJourney({
   const [sel, setSel] = useState<PublicCoupon | null>(null);
   const [code, setCode] = useState<{ token: string; qrValue: string } | null>(null);
 
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [claiming, setClaiming] = useState(false);
+
+  /**
+   * Claiming a coupon (COUPON-01, consumer half).
+   *
+   * This used to `setStage("personal")` unconditionally — the same defect the
+   * creation flow had. `getCode` is issuer-only by deliberate security design
+   * (W1-01), so for anyone browsing the marketplace it returns null, and the
+   * personal screen then rendered "הקופון מוכן 🎉" over a placeholder QR and a
+   * hardcoded backup code. That sent a real person to a real business holding a
+   * fabricated code that could never be redeemed.
+   *
+   * The personal screen is now reachable only with a genuine token.
+   */
   const handleGet = async () => {
-    if (sel && getCode) setCode(await getCode(sel.id));
+    if (!sel) return;
+    setClaimError(null);
+
+    if (!getCode) {
+      // Demo mode (the /coupon-design gallery) — no backend behind it. The
+      // sample token is explicit rather than a null that renders as a
+      // real-looking coupon.
+      setCode({ token: "DEMO-0000-0000", qrValue: "https://dubiz.example/demo" });
+      setStage("personal");
+      return;
+    }
+
+    setClaiming(true);
+    const real = await getCode(sel.id);
+    setClaiming(false);
+
+    if (!real?.qrValue) {
+      setClaimError(
+        "הקופון הזה מוצג לתצוגה בלבד. כדי לממש אותו יש לפנות ישירות לבית העסק."
+      );
+      return;
+    }
+
+    setCode(real);
     setStage("personal");
   };
 
   if (stage === "public" && sel)
-    return <PublicCouponScreen coupon={sel} onGet={handleGet} onBack={() => setStage("market")} />;
-  if (stage === "personal" && sel)
+    return (
+      <PublicCouponScreen
+        coupon={sel}
+        onGet={handleGet}
+        onBack={() => { setClaimError(null); setStage("market"); }}
+        notice={claimError}
+        busy={claiming}
+      />
+    );
+  // `code` in the guard is load-bearing: without a real token there is no
+  // personal coupon to show, so the screen is unreachable rather than faked.
+  if (stage === "personal" && sel && code)
     return <PersonalCouponScreen coupon={sel} code={code} onBack={() => setStage("market")} />;
   return <Marketplace coupons={coupons} onOpen={(c) => { setSel(c); setCode(null); setStage("public"); }} onCreate={onCreate} onExit={onExit} onNear={onNear} nearActive={nearActive} locating={locating} />;
 }

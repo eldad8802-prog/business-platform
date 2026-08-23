@@ -7,16 +7,24 @@ import {
   ValidationError,
 } from "@/lib/errors";
 import { logAuditEvent } from "@/lib/services/audit.service";
+import { buildCouponQrValue } from "@/lib/revenue/coupon-base-url";
 
 type CreateCouponFromOfferInput = {
   offerId: number;
   businessId: number;
+  /**
+   * Absolute origin for the coupon's QR target. Resolved by the route via
+   * `resolveCouponBaseUrl` (env override, else the request origin) — see
+   * COUPON-01 in `lib/revenue/coupon-base-url.ts` for why this is no longer
+   * read from `process.env` down here.
+   */
+  baseUrl: string;
 };
 
 export async function createCouponFromOffer(
   input: CreateCouponFromOfferInput
 ) {
-  const { offerId, businessId } = input;
+  const { offerId, businessId, baseUrl } = input;
 
   if (!businessId || Number.isNaN(businessId)) {
     throw new UnauthorizedError();
@@ -83,20 +91,14 @@ export async function createCouponFromOffer(
   }
 
   const token = randomUUID();
-  const baseUrl =
-    process.env.APP_BASE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.NODE_ENV === "development" ? "http://localhost:3000" : "");
 
   if (!baseUrl) {
-    throw new Error(
-      "Missing APP_BASE_URL (or NEXT_PUBLIC_APP_URL). Cannot generate coupon qrValue in production."
-    );
+    // Defensive only — the route always supplies one. A ValidationError (not a
+    // bare Error) so a misconfiguration can never surface as an opaque 500.
+    throw new ValidationError("Cannot generate coupon QR without a base URL");
   }
 
-  const redeemUrl = new URL("/revenue/redeem", baseUrl);
-  redeemUrl.searchParams.set("token", token);
-  const qrValue = redeemUrl.toString();
+  const qrValue = buildCouponQrValue(baseUrl, token);
 
   const coupon = await prisma.coupon.create({
     data: {

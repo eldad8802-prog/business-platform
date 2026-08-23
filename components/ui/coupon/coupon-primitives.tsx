@@ -220,16 +220,20 @@ const btnBase: CSSProperties = {
   gap: 8,
 };
 
-export function PrimaryButton({ children, onClick, style }: { children: ReactNode; onClick?: () => void; style?: CSSProperties }) {
+/** `disabled` is real (not just dimmed) so an invalid step cannot be submitted
+ *  by keyboard or by a fast second tap. */
+export function PrimaryButton({ children, onClick, style, disabled }: { children: ReactNode; onClick?: () => void; style?: CSSProperties; disabled?: boolean }) {
   return (
-    <button type="button" onClick={onClick} style={{ ...btnBase, height: 50, background: W.grad, color: "#fff", fontSize: 15, boxShadow: W.glow, ...style }}>
+    <button type="button" onClick={onClick} disabled={disabled}
+      style={{ ...btnBase, height: 50, background: W.grad, color: "#fff", fontSize: 15, boxShadow: W.glow, ...(disabled ? { opacity: 0.55, cursor: "not-allowed", boxShadow: "none" } : null), ...style }}>
       {children}
     </button>
   );
 }
-export function SecondaryButton({ children, onClick, style }: { children: ReactNode; onClick?: () => void; style?: CSSProperties }) {
+export function SecondaryButton({ children, onClick, style, disabled }: { children: ReactNode; onClick?: () => void; style?: CSSProperties; disabled?: boolean }) {
   return (
-    <button type="button" onClick={onClick} style={{ ...btnBase, height: 44, background: W.surface, color: W.ink, border: `1px solid ${W.line}`, fontSize: 14, ...style }}>
+    <button type="button" onClick={onClick} disabled={disabled}
+      style={{ ...btnBase, height: 44, background: W.surface, color: W.ink, border: `1px solid ${W.line}`, fontSize: 14, ...(disabled ? { opacity: 0.55, cursor: "not-allowed" } : null), ...style }}>
       {children}
     </button>
   );
@@ -242,11 +246,14 @@ export function WaButton({ children, onClick }: { children: ReactNode; onClick?:
     </button>
   );
 }
+/** A real <button>: the old <div onClick> was unreachable by keyboard and
+ *  invisible to assistive tech despite being a primary way out of a screen. */
 export function GhostLink({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
   return (
-    <div onClick={onClick} style={{ textAlign: "center", fontSize: 14, fontWeight: 600, color: W.tealDeep, cursor: "pointer" }}>
+    <button type="button" onClick={onClick}
+      style={{ width: "100%", textAlign: "center", fontSize: 14, fontWeight: 600, color: W.tealDeep, cursor: "pointer", background: "none", border: "none", padding: 10, fontFamily: "inherit" }}>
       {children}
-    </div>
+    </button>
   );
 }
 

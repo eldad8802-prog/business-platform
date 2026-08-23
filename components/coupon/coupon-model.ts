@@ -6,36 +6,62 @@
  */
 
 import type { CouponThema } from "@/lib/design/coupon-consumer";
+import { SCOPE_WHOLE_BUSINESS } from "@/lib/revenue/coupon-benefit";
+
+export { SCOPE_WHOLE_BUSINESS };
 
 export type Direction = "discount" | "gift" | "more" | "price" | "punchcard" | "opening";
-export type BenefitType = "pct" | "amt" | "price" | "giftProduct" | "giftService" | "more" | "other";
 export type CatKey = "coffee" | "pizza" | "gem" | "spark" | "glass" | "activity" | "wrench";
 
+/** Benefit types and their validation live server-side too — one shared authority. */
+import type { BenefitType } from "@/lib/revenue/coupon-benefit";
+export type { BenefitType };
+
+/**
+ * A business as shown on a coupon. Every text field is nullable because the
+ * card must show real data or nothing at all (COUPON-04) — there is no longer a
+ * "העסק שלך" / "תל אביב" fallback that could reach a customer.
+ */
 export type Business = {
-  name: string;
-  city: string;
-  address: string;
-  hours: string;
+  name: string | null;
+  city: string | null;
+  address: string | null;
+  hours: string | null;
   logo: string;
   thema: CouponThema;
-  phone?: string;
+  phone?: string | null;
 };
 
 export type CatFamily = "food" | "beauty" | "health" | "other";
 
-/** The one object the owner builds — threaded through every creation step. */
+/**
+ * The one object the owner builds — threaded through every creation step.
+ *
+ * Shape changed in v1 to hold only what the system can actually honour:
+ *   • `scope` is owner-typed text (or "כל העסק"), not a picked id — there are no
+ *     product/category selectors behind it (COUPON-05).
+ *   • `conditions: string[]` became two concrete terms, one of which now carries
+ *     a required amount (COUPON-06).
+ *   • `validity: "שבועיים"` became a real `validUntilDate` (COUPON-08); the old
+ *     presets survive as shortcuts that write into it.
+ *   • `business` is loaded from the API and may be null while loading.
+ */
 export type CouponDraft = {
-  business: Business;
+  business: Business | null;
   goal: string | null;
   direction: Direction | null;
   benefitType: BenefitType;
   value: string;
+  /** `SCOPE_WHOLE_BUSINESS` or a product/service name the owner typed. */
   scope: string;
   titleEdited: boolean;
   title: string;
   description: string;
-  conditions: string[];
-  validity: string;
+  minPurchaseEnabled: boolean;
+  minPurchase: string;
+  newCustomersOnly: boolean;
+  /** `YYYY-MM-DD`, interpreted as end-of-day Israel time. */
+  validUntilDate: string;
 };
 
 /** Normalized shape the single public-coupon view renders (creation + consumer). */
@@ -187,40 +213,102 @@ export function directionDefault(direction: Direction): { type: BenefitType; val
   }
 }
 
-export const SCOPES = ["כל העסק", "מוצר מסוים", "שירות מסוים", "קטגוריה", "בחירה ידנית"];
 export const MORE_OPTS = ["1+1", "כרטיסייה", "חבילה", "שדרוג"];
-export const CONDITIONS = ["פעם אחת ללקוח", "מינימום רכישה", "לקוחות חדשים", "סניף מסוים"];
-export const VALIDITIES = ["שבוע", "שבועיים", "חודש"];
+
+/**
+ * Validity shortcuts. These are convenience buttons that write a real date into
+ * `validUntilDate` — they are no longer the stored value themselves, so the
+ * owner can always pick an exact end date instead (COUPON-08).
+ */
+export const VALIDITY_PRESETS: { label: string; days: number }[] = [
+  { label: "שבוע", days: 7 },
+  { label: "שבועיים", days: 14 },
+  { label: "חודש", days: 30 },
+];
+
+/** `YYYY-MM-DD` for "today + n days", in the viewer's local (Israeli) calendar. */
+export function dateInDays(days: number, from: Date = new Date()): string {
+  const d = new Date(from.getTime());
+  d.setDate(d.getDate() + days);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
 /* ------------------------------------------------------- derivations ------ */
 
+/**
+ * Preview text for a partially-built draft.
+ *
+ * Distinct from the server's `composeBenefitSentence`, which only ever runs on
+ * validated input: this one is allowed to show a "—" placeholder because it is
+ * a live preview of something still being typed. The placeholder can never be
+ * persisted — the server composes the stored sentence itself from validated
+ * parts, so the audit's "50₪ על קטגוריה" cannot be written (COUPON-12).
+ */
 export function segmentText(type: BenefitType, value: string): string {
+  const v = (value ?? "").trim();
   switch (type) {
-    case "pct": return `${value || "—"}% הנחה`;
-    case "amt": return `${value || "—"}₪ הנחה`;
-    case "price": return `במחיר ${value || "—"}₪`;
+    case "pct": return `${v || "—"}% הנחה`;
+    case "amt": return `${v || "—"}₪ הנחה`;
+    case "price": return `במחיר ${v || "—"}₪`;
     case "giftProduct":
-    case "giftService": return `${value || "…"} מתנה`;
-    case "more": return value || "יותר תמורה";
-    case "other": return value || "הטבה";
+    case "giftService": return v ? `${v} מתנה` : "מתנה";
+    case "more": return v || "יותר תמורה";
+    case "other": return v || "הטבה";
   }
 }
 
 export function benefitSentence(d: CouponDraft): string {
-  return `${segmentText(d.benefitType, d.value)} על ${d.scope}`;
+  const segment = segmentText(d.benefitType, d.value);
+  const scope = (d.scope ?? "").trim();
+  return scope ? `${segment} על ${scope}` : segment;
 }
 
+/**
+ * The EFFECTIVE title — what the coupon is actually called. Falls back to the
+ * composed sentence so a preview is never blank.
+ */
 export function couponTitle(d: CouponDraft): string {
-  return d.titleEdited && d.title ? d.title : benefitSentence(d);
+  return d.titleEdited && d.title.trim() ? d.title.trim() : benefitSentence(d);
+}
+
+/**
+ * What the title INPUT shows — deliberately different from `couponTitle`.
+ *
+ * Auto-copy follows the draft until the owner types; from then on the field is
+ * theirs. Clearing it must leave it cleared: routing the input through
+ * `couponTitle` made a deleted title snap straight back to the generated
+ * sentence, so the owner could not empty the field at all. Publishing an empty
+ * title simply lets the server compose the canonical sentence.
+ */
+export function titleInputValue(d: CouponDraft): string {
+  return d.titleEdited ? d.title : benefitSentence(d);
+}
+
+/** The terms line, built from the two terms v1 can actually state. */
+export function draftTermsText(d: CouponDraft): string {
+  const parts: string[] = [];
+  const amount = d.minPurchase.trim();
+  if (d.minPurchaseEnabled && amount) parts.push(`בקנייה מעל ${amount}₪`);
+  if (d.newCustomersOnly) parts.push("ללקוחות חדשים בלבד");
+  return parts.join(" · ");
+}
+
+function formatValidUntil(isoDate: string): string {
+  if (!isoDate) return "";
+  const d = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return "";
+  return `תקף עד ${d.toLocaleDateString("he-IL", { day: "numeric", month: "numeric" })}`;
 }
 
 export function draftToView(d: CouponDraft): CouponView {
+  const terms = draftTermsText(d);
   return {
-    business: d.business,
+    business: d.business ?? EMPTY_BUSINESS,
     benefit: couponTitle(d),
     description: d.description,
-    valid: `תקף ${d.validity}`,
-    terms: d.conditions.length ? `תנאי שימוש: ${d.conditions.join(" · ")}` : "",
+    valid: formatValidUntil(d.validUntilDate),
+    terms: terms ? `תנאי שימוש: ${terms}` : "",
   };
 }
 
@@ -231,7 +319,11 @@ export function publicToView(c: PublicCoupon): CouponView {
     description: c.description,
     valid: c.valid,
     remaining: c.remaining,
-    terms: "תנאי שימוש: קופון אחד ללקוח · בתיאום מראש · לא ניתן לכפל עם מבצעים אחרים.",
+    // Terms come from the coupon's own description or not at all. This used to
+    // print a fixed "קופון אחד ללקוח · בתיאום מראש · לא ניתן לכפל עם מבצעים
+    // אחרים" onto every real consumer coupon — terms no business had agreed to
+    // and the system does not enforce.
+    terms: "",
   };
 }
 
@@ -241,22 +333,77 @@ function biz(name: string, thema: CouponThema, logo: string, address: string): B
   return { name, city: "תל אביב", address, hours: "א׳–ה׳ 8:00–18:00", logo, thema };
 }
 
-/** The owner's own business used across the creation flow (one identity). */
-export const MY_BUSINESS: Business = biz("העסק שלך", "teal", "ע", "הכתובת שלך");
+/**
+ * Placeholder identity used ONLY while the real business is still loading, and
+ * by the `/coupon-design` gallery. It is deliberately empty rather than
+ * plausible: the previous `MY_BUSINESS = biz("העסק שלך", …, "הכתובת שלך")` with
+ * city "תל אביב" and fixed opening hours looked like production data on a real
+ * coupon preview (COUPON-04).
+ */
+export const EMPTY_BUSINESS: Business = {
+  name: null,
+  city: null,
+  address: null,
+  hours: null,
+  logo: "·",
+  thema: "teal",
+  phone: null,
+};
+
+/** Map the real business identity from the API onto the coupon's business card. */
+export function businessFromIdentity(identity: {
+  name: string | null;
+  city: string | null;
+  address: string | null;
+  openingHours: string | null;
+  phone: string | null;
+  category: string | null;
+  subCategory: string | null;
+  businessModel: string | null;
+}): Business {
+  const fam = categoryFamily(identity.category, identity.subCategory, identity.businessModel);
+  return {
+    name: identity.name,
+    city: identity.city,
+    address: identity.address,
+    hours: identity.openingHours,
+    phone: identity.phone,
+    logo: (identity.name ?? "·").trim().charAt(0) || "·",
+    thema: THEMA_BY_FAMILY[fam],
+  };
+}
+
+const THEMA_BY_FAMILY: Record<CatFamily, CouponThema> = {
+  food: "orange",
+  beauty: "pink",
+  health: "teal",
+  other: "purple",
+};
+
+/** Business category → coupon visual family. Shared with the marketplace mapper. */
+export function categoryFamily(cat?: string | null, sub?: string | null, model?: string | null): CatFamily {
+  const s = `${cat || ""} ${sub || ""} ${model || ""}`.toLowerCase();
+  if (/food|restaurant|cafe|coffee|bakery|pizza|sushi|מסעד|קפה|אוכל|מאפ|פיצה|סושי|\bבר\b/.test(s)) return "food";
+  if (/beaut|hair|cosmet|nails|barber|spa|ספר|תספורת|יופי|קוסמט|טיפוח|ציפור/.test(s)) return "beauty";
+  if (/clinic|medical|health|fitness|gym|dental|physio|רפוא|קליניק|בריאות|כושר|טיפול|שיניים|פיזיו/.test(s)) return "health";
+  return "other";
+}
 
 export function initialDraft(): CouponDraft {
   return {
-    business: MY_BUSINESS,
+    business: null,
     goal: null,
     direction: null,
     benefitType: "pct",
     value: "20",
-    scope: "כל העסק",
+    scope: SCOPE_WHOLE_BUSINESS,
     titleEdited: false,
     title: "",
     description: "",
-    conditions: ["פעם אחת ללקוח"],
-    validity: "שבועיים",
+    minPurchaseEnabled: false,
+    minPurchase: "",
+    newCustomersOnly: false,
+    validUntilDate: dateInDays(14),
   };
 }
 
@@ -307,12 +454,12 @@ export type OwnerCoupon = {
 };
 
 export const MY_ACTIVE: OwnerCoupon[] = [
-  { id: "a1", benefit: "20% הנחה על כל העסק", status: "active", validityText: "נגמר בעוד 5 ימים", metric: "38 מתוך 50 נותרו", thema: MY_BUSINESS.thema },
-  { id: "a2", benefit: "קפה + מאפה מתנה", status: "active", validityText: "נגמר מחר", metric: "12 מתוך 50 נותרו", thema: MY_BUSINESS.thema },
+  { id: "a1", benefit: "20% הנחה על כל העסק", status: "active", validityText: "נגמר בעוד 5 ימים", metric: "38 מתוך 50 נותרו", thema: EMPTY_BUSINESS.thema },
+  { id: "a2", benefit: "קפה + מאפה מתנה", status: "active", validityText: "נגמר מחר", metric: "12 מתוך 50 נותרו", thema: EMPTY_BUSINESS.thema },
 ];
 export const MY_ENDED: OwnerCoupon[] = [
-  { id: "e1", benefit: "1+1 על קינוחים", status: "ended", validityText: "הסתיים ב-28.6", metric: "מומש 31 פעמים", thema: MY_BUSINESS.thema },
-  { id: "e2", benefit: "טיפול ראשון ב-50%", status: "ended", validityText: "הסתיים ב-15.6", metric: "מומש 18 פעמים", thema: MY_BUSINESS.thema },
+  { id: "e1", benefit: "1+1 על קינוחים", status: "ended", validityText: "הסתיים ב-28.6", metric: "מומש 31 פעמים", thema: EMPTY_BUSINESS.thema },
+  { id: "e2", benefit: "טיפול ראשון ב-50%", status: "ended", validityText: "הסתיים ב-15.6", metric: "מומש 18 פעמים", thema: EMPTY_BUSINESS.thema },
 ];
 
 let _ownerSeq = 100;
@@ -323,8 +470,8 @@ export function draftToOwnerCoupon(d: CouponDraft): OwnerCoupon {
     id: `new-${_ownerSeq}`,
     benefit: couponTitle(d),
     status: "active",
-    validityText: `נגמר בעוד ${d.validity}`,
+    validityText: formatValidUntil(d.validUntilDate),
     metric: "חדש · טרם מומש",
-    thema: d.business.thema,
+    thema: (d.business ?? EMPTY_BUSINESS).thema,
   };
 }

@@ -16,6 +16,7 @@ const W = TOKEN.warm;
 export function LiveCouponDisplay({
   label = "כך הלקוח יראה את זה",
   stripText,
+  stripLoading = false,
   sentence,
   sub,
   thema = "teal",
@@ -24,6 +25,8 @@ export function LiveCouponDisplay({
   label?: string;
   /** Colored strip line (e.g. business name). */
   stripText: string;
+  /** Show a skeleton in place of `stripText` while the identity is loading. */
+  stripLoading?: boolean;
   /** The composed benefit sentence (the live `customerBenefitText`). */
   sentence: string;
   /** Sub-line: validity + conditions readout. */
@@ -73,9 +76,33 @@ export function LiveCouponDisplay({
             padding: "11px 16px",
             fontSize: 12.5,
             fontWeight: 500,
+            minHeight: 38,
+            display: "flex",
+            alignItems: "center",
           }}
         >
-          {stripText}
+          {/*
+            F-1: while the real business identity is still loading this strip
+            was simply blank, under a label promising "כך הלקוח יראה". A blank
+            name reads as "my coupon has no business name on it". A skeleton
+            reads as "still loading", which is what is actually true.
+          */}
+          {stripLoading ? (
+            <span
+              aria-label="טוען את פרטי העסק"
+              style={{
+                display: "inline-block",
+                width: 132,
+                height: 11,
+                borderRadius: 6,
+                background: "rgba(255,255,255,0.35)",
+                animation: "dubizCouponStripPulse 1.2s ease-in-out infinite",
+              }}
+            />
+          ) : (
+            stripText
+          )}
+          <style>{`@keyframes dubizCouponStripPulse{0%,100%{opacity:.45}50%{opacity:.85}}`}</style>
         </div>
         <div style={{ padding: 16 }}>
           <div
