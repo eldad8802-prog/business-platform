@@ -56,17 +56,18 @@ console.log("[identity] DIRECT_URL   endpoint=" + directId.endpoint + " mode=" +
 
 // Synthetic, lab-only credential. Generated in-process; never logged, never persisted.
 const ROLE_PW = "p4x" + randomBytes(18).toString("base64url");
-function withRole(raw, pgbouncer) {
+function withRole(raw, { pgbouncer = false, connectionLimit } = {}) {
   const u = new URL(raw);
   u.username = ROLE;
   u.password = ROLE_PW;
   // Prisma over PgBouncer (Neon pooled endpoint) MUST disable prepared statements,
   // else concurrent interactive transactions collide on prepared-statement names.
   if (pgbouncer) u.searchParams.set("pgbouncer", "true");
+  if (connectionLimit) u.searchParams.set("connection_limit", String(connectionLimit));
   return u.toString();
 }
-const roleDirectUrl = withRole(process.env.DIRECT_URL, false);
-const rolePooledUrl = withRole(process.env.DATABASE_URL, true);
+const roleDirectUrl = withRole(process.env.DIRECT_URL, { connectionLimit: 10 });
+const rolePooledUrl = withRole(process.env.DATABASE_URL, { pgbouncer: true });
 
 // ---------------------------------------------------------------------------
 // Result ledger
@@ -303,31 +304,26 @@ async function isolationMatrix() {
     mark("SEQUENTIAL_ISOLATION", a === String(BIZ_A) && b === String(BIZ_B), "A=" + a + " B_ctx=" + b);
   } catch { mark("SEQUENTIAL_ISOLATION", false, "sequential probe threw"); }
 
-  // Concurrent A/B over the POOLED transport (production transport; P3 proved
-  // pooled concurrency, and a single unpooled connection is not built for it).
-  // 16-wide interleave, each tx must read exactly its own context + its own row.
-  if (!rolePooled) {
-    R.CONCURRENT_ISOLATION = "UNKNOWN";
-    notes.push("[CONCURRENT_ISOLATION] pooled role connection unavailable — not tested");
-  } else {
-    try {
-      const N = 16;
-      const res = await Promise.allSettled(Array.from({ length: N }, (_, i) => {
-        const biz = i % 2 === 0 ? BIZ_A : BIZ_B;
-        return tenantTx(rolePooled, biz, async (tx) => {
-          // $executeRawUnsafe: pg_sleep returns void; $queryRaw can't deserialize it.
-          await tx.$executeRawUnsafe("SELECT pg_sleep(0.03)");
-          const got = (await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`)[0].v;
-          const seen = Number((await tx.$queryRawUnsafe("SELECT count(*)::int AS c FROM " + LAB + ".p4_customer"))[0].c);
-          return { want: String(biz), got, seen };
-        }, "conc#" + i);
-      }));
-      const ok = res.filter((r) => r.status === "fulfilled").map((r) => r.value);
-      const badCtx = ok.filter((r) => r.got !== r.want).length;
-      const badRows = ok.filter((r) => r.seen !== 1).length;
-      mark("CONCURRENT_ISOLATION", res.length === ok.length && badCtx === 0 && badRows === 0, ok.length + "/" + N + " ok (pooled), " + badCtx + " ctx-cross, " + badRows + " row-cross");
-    } catch { mark("CONCURRENT_ISOLATION", false, "concurrency threw"); }
-  }
+  // Concurrent A/B over the role's DIRECT connection (the transport on which a
+  // SQL-created Neon role is fully served — see POOLER_REUSE finding). 16-wide
+  // interleave; each tx must read exactly its own context + its own row.
+  try {
+    const N = 16;
+    const res = await Promise.allSettled(Array.from({ length: N }, (_, i) => {
+      const biz = i % 2 === 0 ? BIZ_A : BIZ_B;
+      return tenantTx(rd, biz, async (tx) => {
+        // $executeRawUnsafe: pg_sleep returns void; $queryRaw can't deserialize it.
+        await tx.$executeRawUnsafe("SELECT pg_sleep(0.03)");
+        const got = (await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`)[0].v;
+        const seen = Number((await tx.$queryRawUnsafe("SELECT count(*)::int AS c FROM " + LAB + ".p4_customer"))[0].c);
+        return { want: String(biz), got, seen };
+      }, "conc#" + i);
+    }));
+    const ok = res.filter((r) => r.status === "fulfilled").map((r) => r.value);
+    const badCtx = ok.filter((r) => r.got !== r.want).length;
+    const badRows = ok.filter((r) => r.seen !== 1).length;
+    mark("CONCURRENT_ISOLATION", res.length === ok.length && badCtx === 0 && badRows === 0, ok.length + "/" + N + " ok (direct), " + badCtx + " ctx-cross, " + badRows + " row-cross");
+  } catch { mark("CONCURRENT_ISOLATION", false, "concurrency threw"); }
 
   // Indirect / parent-join tenancy: under A, only A's lines are visible.
   try {
