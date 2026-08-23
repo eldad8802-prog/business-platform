@@ -56,14 +56,17 @@ console.log("[identity] DIRECT_URL   endpoint=" + directId.endpoint + " mode=" +
 
 // Synthetic, lab-only credential. Generated in-process; never logged, never persisted.
 const ROLE_PW = "p4x" + randomBytes(18).toString("base64url");
-function withRole(raw) {
+function withRole(raw, pgbouncer) {
   const u = new URL(raw);
   u.username = ROLE;
   u.password = ROLE_PW;
+  // Prisma over PgBouncer (Neon pooled endpoint) MUST disable prepared statements,
+  // else concurrent interactive transactions collide on prepared-statement names.
+  if (pgbouncer) u.searchParams.set("pgbouncer", "true");
   return u.toString();
 }
-const roleDirectUrl = withRole(process.env.DIRECT_URL);
-const rolePooledUrl = withRole(process.env.DATABASE_URL);
+const roleDirectUrl = withRole(process.env.DIRECT_URL, false);
+const rolePooledUrl = withRole(process.env.DATABASE_URL, true);
 
 // ---------------------------------------------------------------------------
 // Result ledger
