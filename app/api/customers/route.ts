@@ -6,6 +6,8 @@ import {
   customerService,
   type CustomerLifecycleFilter,
 } from "@/lib/services/crm/customer.service";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 const DEFAULT_LIMIT = 50;
 
@@ -59,13 +61,17 @@ export async function GET(req: NextRequest) {
         : Number(limitParam);
     const status = parseStatus(searchParams.get("status"));
 
-    const customers = await customerService.listCustomers({
-      businessId: user.businessId,
-      query: q,
-      limit,
-      sort: "recent",
-      status,
-    });
+    // P5: server-derived tenant -> ALS -> tenant transaction (GUC) -> RLS backstop.
+    const customers = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          customerService.listCustomers(
+            { businessId: user.businessId, query: q, limit, sort: "recent", status },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json(
       { customers: customers.map(toListRow) },
@@ -93,14 +99,25 @@ export async function POST(req: NextRequest) {
       body = {};
     }
 
-    const customer = await customerService.createCustomer({
-      businessId: user.businessId,
-      name: body.name as string,
-      phone: (body.phone as string | null | undefined) ?? null,
-      email: (body.email as string | null | undefined) ?? null,
-      city: (body.city as string | null | undefined) ?? null,
-      notes: (body.notes as string | null | undefined) ?? null,
-    });
+    // P5: businessId is ALWAYS the server-derived user.businessId — any client-supplied
+    // businessId in the body is never read here and never reaches the DB authority.
+    const customer = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          customerService.createCustomer(
+            {
+              businessId: user.businessId,
+              name: body.name as string,
+              phone: (body.phone as string | null | undefined) ?? null,
+              email: (body.email as string | null | undefined) ?? null,
+              city: (body.city as string | null | undefined) ?? null,
+              notes: (body.notes as string | null | undefined) ?? null,
+            },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json({ customer: toListRow(customer) }, { status: 201 });
   } catch (error) {

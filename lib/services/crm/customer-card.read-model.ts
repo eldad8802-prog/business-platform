@@ -8,8 +8,12 @@
  * directly testable.
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { NotFoundError, UnauthorizedError, ValidationError } from "@/lib/errors";
+
+/** Prisma interactive-transaction client (P5 tenant transaction). */
+type CardTx = Prisma.TransactionClient;
 
 const RELATION_TAKE = 20;
 
@@ -103,7 +107,8 @@ function maxDate(dates: Array<Date | null | undefined>): Date | null {
 }
 
 export async function getCustomerCard(
-  input: GetCustomerCardInput
+  input: GetCustomerCardInput,
+  options?: { tx?: CardTx }
 ): Promise<CustomerCard> {
   if (!input.businessId || Number.isNaN(input.businessId)) {
     throw new UnauthorizedError("Invalid business id");
@@ -114,8 +119,14 @@ export async function getCustomerCard(
   }
   const businessId = input.businessId;
   const scope = { businessId, customerId };
+  // P5: when a tenant transaction is supplied, the ENTIRE multi-table card read
+  // runs on it — one logical transaction, under the transaction-local GUC / RLS.
+  // Every table below (Customer + BillingDocument + PaymentRequest + Conversation
+  // + Appointment) has a DIRECT businessId, so each is covered by a direct RLS
+  // policy. The app-level `businessId` filters are RETAINED as defense-in-depth.
+  const db = options?.tx ?? prisma;
 
-  const customer = await prisma.customer.findFirst({
+  const customer = await db.customer.findFirst({
     where: { id: customerId, businessId },
   });
   if (!customer) {
@@ -132,7 +143,7 @@ export async function getCustomerCard(
     appointments,
     appointmentsTotal,
   ] = await Promise.all([
-    prisma.billingDocument.findMany({
+    db.billingDocument.findMany({
       where: scope,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: RELATION_TAKE,
@@ -147,8 +158,8 @@ export async function getCustomerCard(
         createdAt: true,
       },
     }),
-    prisma.billingDocument.count({ where: scope }),
-    prisma.paymentRequest.findMany({
+    db.billingDocument.count({ where: scope }),
+    db.paymentRequest.findMany({
       where: scope,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: RELATION_TAKE,
@@ -164,8 +175,8 @@ export async function getCustomerCard(
         paidAt: true,
       },
     }),
-    prisma.paymentRequest.count({ where: scope }),
-    prisma.conversation.findMany({
+    db.paymentRequest.count({ where: scope }),
+    db.conversation.findMany({
       where: scope,
       orderBy: [{ lastMessageAt: "desc" }, { startedAt: "desc" }, { id: "desc" }],
       take: RELATION_TAKE,
@@ -178,8 +189,8 @@ export async function getCustomerCard(
         closedAt: true,
       },
     }),
-    prisma.conversation.count({ where: scope }),
-    prisma.appointment.findMany({
+    db.conversation.count({ where: scope }),
+    db.appointment.findMany({
       where: scope,
       orderBy: [{ startsAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       take: RELATION_TAKE,
@@ -191,7 +202,7 @@ export async function getCustomerCard(
         createdAt: true,
       },
     }),
-    prisma.appointment.count({ where: scope }),
+    db.appointment.count({ where: scope }),
   ]);
 
   const lastActivity = maxDate([
