@@ -6,6 +6,12 @@
  * whole screen — replacing a precise per-coupon message with an empty list.
  */
 import { chromium } from "playwright";
+
+const results = [];
+const check = (name, cond, detail = "") => {
+  results.push({ name, ok: Boolean(cond) });
+  console.log(`${cond ? "PASS" : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`);
+};
 const BASE = "http://localhost:3000";
 
 const b = await chromium.launch();
@@ -46,7 +52,14 @@ console.log("after network failure:", JSON.stringify({
   messageShown: /אין חיבור לשרת/.test(body),
   refetchTriggered: mineCallsAfter > 0,
 }));
-console.log(`\n→ list preserved on network failure? ${!body.includes("לא הצלחנו לטעון") && !body.includes("עדיין לא יצרת קופון") ? "YES" : "NO"}`);
-console.log(`→ no pointless refetch? ${mineCallsAfter === 0 ? "YES" : `NO (${mineCallsAfter} calls)`}`);
+check("F-2: a network failure does not blank the list", !body.includes("לא הצלחנו לטעון") && !body.includes("עדיין לא יצרת קופון"));
+check("F-2: a network failure triggers no refetch", mineCallsAfter === 0, `${mineCallsAfter} calls`);
+
+check("F-2: the coupon card survives the failed action", await p.locator("text=66% הנחה על כל העסק").first().isVisible().catch(() => false));
+check("F-2: the network error is explained", /אין חיבור לשרת/.test(body));
 
 await b.close();
+
+const failed = results.filter((r) => !r.ok);
+console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
+if (failed.length) { console.log("FAILED:\n" + failed.map((f) => " - " + f.name).join("\n")); process.exit(1); }

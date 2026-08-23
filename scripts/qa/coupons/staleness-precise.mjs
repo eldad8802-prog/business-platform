@@ -4,6 +4,12 @@
  * button, which are unambiguous.
  */
 import { chromium } from "playwright";
+
+const results = [];
+const check = (name, cond, detail = "") => {
+  results.push({ name, ok: Boolean(cond) });
+  console.log(`${cond ? "PASS" : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`);
+};
 const BASE = "http://localhost:3000";
 const P = "SmokeTest!2026";
 
@@ -46,7 +52,7 @@ console.log(`customer redeemed elsewhere: HTTP ${red.status()}`);
 await owner.waitForTimeout(7000);
 const sitting = await state();
 console.log("A) owner SITTING, 7s later:", JSON.stringify(sitting));
-console.log(`   → live-updates without interaction? ${sitting.pillRedeemed && !sitting.hasStop ? "YES" : "NO — screen is STALE"}`);
+check("sitting on the screen does not live-update (documented: no polling)", sitting.hasStop, "still offers השבת");
 
 if (sitting.hasStop) {
   await owner.locator("button", { hasText: /^השבת קופון$/ }).first().click();
@@ -56,18 +62,25 @@ if (sitting.hasStop) {
   const msg = (body.match(/.*(כבר מומש|לא ניתן להשבית|רענן).*/) || ["(none)"])[0].trim();
   console.log(`   clicking the stale stop button → message: "${msg.slice(0, 80)}"`);
   console.log(`   state AFTER the rejected click:`, JSON.stringify(afterClick));
-  console.log(`   → does the card self-correct once the server tells it the truth? ${afterClick.pillRedeemed && !afterClick.hasStop ? "YES" : "NO — still shows פעיל + השבת"}`);
+  check("F-2: the refusal is explained to the owner", /כבר מומש|לא ניתן להשבית|רענן/.test(msg), msg.slice(0, 60));
+  check("F-2: the card self-corrects once the server contradicts it", !afterClick.hasStop && !afterClick.pillActive, JSON.stringify(afterClick));
 }
 
 await owner.goto(`${BASE}/revenue?view=browse`, { waitUntil: "networkidle" });
 await owner.goto(`${BASE}/revenue`, { waitUntil: "networkidle" });
 await owner.waitForTimeout(2500);
 const nav = await state();
-console.log("B) after navigate away+back:", JSON.stringify(nav), `→ truthful? ${nav.pillRedeemed && !nav.hasStop ? "YES" : "NO"}`);
+check("navigating away and back shows the truth", !nav.hasStop && !nav.pillActive, JSON.stringify(nav));
 
 await owner.reload({ waitUntil: "networkidle" });
 await owner.waitForTimeout(2500);
 const rel = await state();
-console.log("C) after hard reload:      ", JSON.stringify(rel), `→ truthful? ${rel.pillRedeemed && !rel.hasStop ? "YES" : "NO"}`);
+check("a hard reload shows the truth", !rel.hasStop && !rel.pillActive, JSON.stringify(rel));
+
+check("the redemption that drove this test actually happened", red.status() === 200, `HTTP ${red.status()}`);
 
 await b.close();
+
+const failed = results.filter((r) => !r.ok);
+console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
+if (failed.length) { console.log("FAILED:\n" + failed.map((f) => " - " + f.name).join("\n")); process.exit(1); }
