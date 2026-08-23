@@ -148,6 +148,12 @@ model Business {
   name                      String
   archivedAt                DateTime?
   archivedByUserId          Int?
+  /// Account-deletion lifecycle (Wave 1B). deletionRequestedAt = when the sole
+  /// user initiated deletion; deletedAt = when the erasure completed. Operational,
+  /// nullable, additive. When deletedAt is set the tenant is closed and login fails
+  /// closed. Never used to run an active account.
+  deletionRequestedAt       DateTime?
+  deletedAt                 DateTime?
   createdAt                 DateTime                        @default(now())
   updatedAt                 DateTime                        @updatedAt
   billingDocuments          BillingDocument[]
