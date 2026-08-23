@@ -1,0 +1,123 @@
+# D2 / P4-B-POOLCHECK — SQL-created NOBYPASSRLS role via the Neon pooler (PREVIEW ONLY)
+#
+# Decides firsthand whether a SQL-created LOGIN + NOBYPASSRLS + least-privilege
+# role can connect through the Neon POOLED endpoint after provisioning
+# propagation. Owner URI bootstrapped via NEON_API_KEY; the role itself is
+# created via SQL (never the Neon API). No Vercel/DATABASE_URL change, no public
+# RLS, no app_runtime, no control-plane conversion. Secrets masked/never printed.
+
+name: d2/p4b-poolcheck — sql role via pooler (preview only)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - d2/p4b-poolcheck
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d2-p4b-poolcheck
+  cancel-in-progress: false
+
+env:
+  NEON_BASE: https://console.neon.tech/api/v2
+  P4_PROJECT_ID: orange-shape-16620903
+  P4_BRANCH_ID: br-red-scene-amth33qx
+  P4_EXPECT_ENDPOINT: ep-wispy-dawn-amr74bwz
+  P4_EXPECT_DB: neondb
+  P4_EXPECT_HOST_SUFFIX: us-east-1.aws.neon.tech
+  P4_DENY_ENDPOINTS: ep-flat-brook-am4bhq1y ep-winter-bread-ami5o8p5
+
+jobs:
+  gate_a_identity:
+    name: Gate A — Preview target identity (Neon API lookup)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      gate_a: ${{ steps.verify.outputs.gate_a }}
+    steps:
+      - name: Verify project/branch/endpoint/database via Neon API
+        id: verify
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${NEON_API_KEY:-}" ]; then echo "::error::repo secret NEON_API_KEY is missing"; exit 1; fi
+          api() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "$1"; }
+          for d in ${P4_DENY_ENDPOINTS}; do [ "${P4_EXPECT_ENDPOINT}" = "$d" ] && { echo "::error::expected endpoint denied"; exit 1; }; done
+          proj=$(api "${NEON_BASE}/projects/${P4_PROJECT_ID}"); region=$(printf '%s' "$proj" | jq -r '.project.region_id')
+          br=$(api "${NEON_BASE}/projects/${P4_PROJECT_ID}/branches/${P4_BRANCH_ID}"); br_id=$(printf '%s' "$br" | jq -r '.branch.id')
+          ep=$(api "${NEON_BASE}/projects/${P4_PROJECT_ID}/endpoints/${P4_EXPECT_ENDPOINT}")
+          ep_id=$(printf '%s' "$ep" | jq -r '.endpoint.id'); ep_branch=$(printf '%s' "$ep" | jq -r '.endpoint.branch_id'); ep_host=$(printf '%s' "$ep" | jq -r '.endpoint.host')
+          echo "region=${region} branch=${br_id} endpoint=${ep_id} endpoint_branch=${ep_branch} host=${ep_host}"
+          fail=0
+          [ "$br_id" = "${P4_BRANCH_ID}" ] || { echo "::error::branch mismatch"; fail=1; }
+          [ "$ep_id" = "${P4_EXPECT_ENDPOINT}" ] || { echo "::error::endpoint mismatch"; fail=1; }
+          [ "$ep_branch" = "${P4_BRANCH_ID}" ] || { echo "::error::endpoint not on branch"; fail=1; }
+          case "$ep_host" in *"${P4_EXPECT_HOST_SUFFIX}") : ;; *) echo "::error::suffix mismatch"; fail=1 ;; esac
+          case "$ep_host" in ${P4_EXPECT_ENDPOINT}.*) : ;; *) echo "::error::prefix mismatch"; fail=1 ;; esac
+          case "$region" in *us-east-1*) : ;; *) echo "::error::region not us-east-1"; fail=1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "$ep_host" in *"$d"*) echo "::error::DENY endpoint"; fail=1 ;; esac; done
+          if [ "$fail" -ne 0 ]; then echo "gate_a=FAIL" >> "$GITHUB_OUTPUT"; exit 1; fi
+          echo "gate_a=PASS" >> "$GITHUB_OUTPUT"; echo "GATE A = PASS"
+
+  gate_b_poolcheck:
+    name: Gate B — P4-B-POOLCHECK (p4_poolcheck_lab)
+    needs: gate_a_identity
+    if: needs.gate_a_identity.outputs.gate_a == 'PASS'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .p4bpc/battery.mjs
+
+      - name: Fetch owner URIs (Neon API) + run P4-B-POOLCHECK battery
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          uri() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=$1" | jq -r '.uri'; }
+          DBP="$(uri true)"; DBD="$(uri false)"
+          echo "::add-mask::${DBP}"; echo "::add-mask::${DBD}"
+          for u in "${DBP}" "${DBD}"; do
+            [ -n "$u" ] && [ "$u" != "null" ] || { echo "::error::empty owner URI"; exit 1; }
+            case "$u" in *"${P4_EXPECT_ENDPOINT}"*"${P4_EXPECT_HOST_SUFFIX}"*) : ;; *) echo "::error::owner URI endpoint mismatch"; exit 1 ;; esac
+            for d in ${P4_DENY_ENDPOINTS}; do case "$u" in *"$d"*) echo "::error::owner URI DENY"; exit 1 ;; esac; done
+          done
+          DATABASE_URL="${DBP}" DIRECT_URL="${DBD}" \
+          P4_EXPECT_ENDPOINT="${P4_EXPECT_ENDPOINT}" P4_EXPECT_DB="${P4_EXPECT_DB}" \
+          P4_EXPECT_HOST_SUFFIX="${P4_EXPECT_HOST_SUFFIX}" P4_DENY_ENDPOINTS="${P4_DENY_ENDPOINTS}" \
+          node .p4bpc/battery.mjs
+
+      - name: Teardown safety net (always)
+        if: always()
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          DBD="$(curl -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri')"
+          echo "::add-mask::${DBD}"
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || { echo "no owner URI"; exit 0; }
+          mkdir -p .p4bpc
+          cat > .p4bpc/net.mjs <<'TD_EOF'
+          import { PrismaClient } from '@prisma/client';
+          const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
+          await c.$executeRawUnsafe('DROP SCHEMA IF EXISTS p4_poolcheck_lab CASCADE');
+          try { await c.$executeRawUnsafe('DROP OWNED BY p4_poolcheck_runtime'); } catch {}
+          try { await c.$executeRawUnsafe('DROP ROLE IF EXISTS p4_poolcheck_runtime'); } catch {}
+          const r = await c.$queryRaw`SELECT (SELECT count(*)::int FROM pg_roles WHERE rolname='p4_poolcheck_runtime') AS role, (SELECT count(*)::int FROM information_schema.schemata WHERE schema_name='p4_poolcheck_lab') AS lab`;
+          console.log('[net] role=' + r[0].role + ' lab=' + r[0].lab);
+          await c.$disconnect();
+          if (r[0].role !== 0 || r[0].lab !== 0) process.exit(1);
+          TD_EOF
+          DIRECT_URL="${DBD}" node .p4bpc/net.mjs
