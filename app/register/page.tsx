@@ -504,9 +504,12 @@ export default function RegisterPage() {
 
         <form style={bodyStyle} onSubmit={handleRegister} noValidate>
           <div style={fieldWrapStyle}>
-            <label style={labelStyle}>שם מלא</label>
+            <label style={labelStyle} htmlFor="reg-name">שם מלא</label>
             <div style={inputShellStyle}>
               <input
+                id="reg-name"
+                aria-invalid={touched.name && !!errors.name}
+                aria-describedby="reg-name-msg"
                 value={name}
                 onChange={(e) => {
                   setName(e.target.value);
@@ -533,16 +536,19 @@ export default function RegisterPage() {
             </div>
 
             {touched.name && errors.name ? (
-              <p style={fieldErrorStyle}>{errors.name}</p>
+              <p id="reg-name-msg" role="alert" style={fieldErrorStyle}>{errors.name}</p>
             ) : (
-              <p style={helperTextStyle}>השם שלך כפי שתרצה שיופיע במערכת.</p>
+              <p id="reg-name-msg" style={helperTextStyle}>השם שלך כפי שתרצה שיופיע במערכת.</p>
             )}
           </div>
 
           <div style={fieldWrapStyle}>
-            <label style={labelStyle}>שם העסק</label>
+            <label style={labelStyle} htmlFor="reg-business">שם העסק</label>
             <div style={inputShellStyle}>
               <input
+                id="reg-business"
+                aria-invalid={touched.businessName && !!errors.businessName}
+                aria-describedby="reg-business-msg"
                 value={businessName}
                 onChange={(e) => {
                   setBusinessName(e.target.value);
@@ -572,19 +578,22 @@ export default function RegisterPage() {
             </div>
 
             {touched.businessName && errors.businessName ? (
-              <p style={fieldErrorStyle}>{errors.businessName}</p>
+              <p id="reg-business-msg" role="alert" style={fieldErrorStyle}>{errors.businessName}</p>
             ) : (
-              <p style={helperTextStyle}>
+              <p id="reg-business-msg" style={helperTextStyle}>
                 זהו השם הראשוני של העסק שלך במערכת. בהמשך תוכל לעדכן פרטים נוספים.
               </p>
             )}
           </div>
 
           <div style={fieldWrapStyle}>
-            <label style={labelStyle}>אימייל</label>
+            <label style={labelStyle} htmlFor="reg-email">אימייל</label>
             <div style={inputShellStyle}>
               <input
                 type="email"
+                id="reg-email"
+                aria-invalid={touched.email && !!errors.email}
+                aria-describedby="reg-email-msg"
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
@@ -612,19 +621,22 @@ export default function RegisterPage() {
             </div>
 
             {touched.email && errors.email ? (
-              <p style={fieldErrorStyle}>{errors.email}</p>
+              <p id="reg-email-msg" role="alert" style={fieldErrorStyle}>{errors.email}</p>
             ) : (
-              <p style={helperTextStyle}>
+              <p id="reg-email-msg" style={helperTextStyle}>
                 השתמש באימייל פעיל שיהיה שייך לחשבון שלך.
               </p>
             )}
           </div>
 
           <div style={fieldWrapStyle}>
-            <label style={labelStyle}>סיסמה</label>
+            <label style={labelStyle} htmlFor="reg-password">סיסמה</label>
             <div style={inputShellStyle}>
               <input
                 type={showPassword ? "text" : "password"}
+                id="reg-password"
+                aria-invalid={touched.password && !!errors.password}
+                aria-describedby="reg-password-msg"
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
@@ -664,6 +676,9 @@ export default function RegisterPage() {
                 type="button"
                 onClick={() => setShowPassword((prev) => !prev)}
                 style={passwordToggleStyle}
+                aria-label={showPassword ? "הסתר סיסמה" : "הצג סיסמה"}
+                aria-pressed={showPassword}
+                aria-controls="reg-password"
               >
                 {showPassword ? "הסתר" : "הצג"}
               </button>
@@ -679,19 +694,22 @@ export default function RegisterPage() {
             </div>
 
             {touched.password && errors.password ? (
-              <p style={fieldErrorStyle}>{errors.password}</p>
+              <p id="reg-password-msg" role="alert" style={fieldErrorStyle}>{errors.password}</p>
             ) : (
-              <p style={helperTextStyle}>
+              <p id="reg-password-msg" style={helperTextStyle}>
                 מומלץ להשתמש בשילוב של אותיות, מספרים ותווים מיוחדים.
               </p>
             )}
           </div>
 
           <div style={fieldWrapStyle}>
-            <label style={labelStyle}>אימות סיסמה</label>
+            <label style={labelStyle} htmlFor="reg-confirm">אימות סיסמה</label>
             <div style={inputShellStyle}>
               <input
                 type={showConfirmPassword ? "text" : "password"}
+                id="reg-confirm"
+                aria-invalid={touched.confirmPassword && !!errors.confirmPassword}
+                aria-describedby="reg-confirm-msg"
                 value={confirmPassword}
                 onChange={(e) => {
                   setConfirmPassword(e.target.value);
@@ -724,21 +742,26 @@ export default function RegisterPage() {
                 type="button"
                 onClick={() => setShowConfirmPassword((prev) => !prev)}
                 style={passwordToggleStyle}
+                aria-label={showConfirmPassword ? "הסתר סיסמה" : "הצג סיסמה"}
+                aria-pressed={showConfirmPassword}
+                aria-controls="reg-confirm"
               >
                 {showConfirmPassword ? "הסתר" : "הצג"}
               </button>
             </div>
 
             {touched.confirmPassword && errors.confirmPassword ? (
-              <p style={fieldErrorStyle}>{errors.confirmPassword}</p>
+              <p id="reg-confirm-msg" role="alert" style={fieldErrorStyle}>{errors.confirmPassword}</p>
             ) : (
-              <p style={helperTextStyle}>
+              <p id="reg-confirm-msg" style={helperTextStyle}>
                 כדי לוודא שלא נפלה טעות בהקלדה, הזן שוב את הסיסמה.
               </p>
             )}
           </div>
 
-          {errors.form && <div style={formErrorStyle}>{errors.form}</div>}
+          {errors.form && (
+            <div role="alert" aria-live="assertive" style={formErrorStyle}>{errors.form}</div>
+          )}
 
           <PrimaryCta type="submit" block disabled={isSubmitDisabled}>
             {loading ? "יוצר חשבון..." : "צור חשבון"}
