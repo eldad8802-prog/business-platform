@@ -1,7 +1,7 @@
 name: Prod Read-Only Evidence (CardCom E2E)
 
 # Manual, gated, READ-ONLY verification of the completed CardCom Sandbox E2E.
-# Runs ONLY the SELECT queries in ops/evidence/cardcom-e2e-evidence.sql against
+# Runs ONLY the SELECT queries in the SELECTED ops/evidence/*.sql file against
 # the verified Production database. No writes, no migrations, no schema changes.
 #
 # Safety controls:
@@ -13,7 +13,16 @@ name: Prod Read-Only Evidence (CardCom E2E)
 #   - secrets are never printed (GitHub masks them; host is matched, not echoed)
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      sql_file:
+        description: 'Which read-only evidence query set to run'
+        required: false
+        default: 'ops/evidence/cardcom-e2e-evidence.sql'
+        type: choice
+        options:
+          - 'ops/evidence/cardcom-e2e-evidence.sql'
+          - 'ops/evidence/migration-state-evidence.sql'
 
 permissions:
   contents: read
@@ -33,9 +42,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: SQL static guard (SELECT-only)
+        env:
+          SQL_FILE_INPUT: ${{ inputs.sql_file }}
         run: |
           set -euo pipefail
-          SQL_FILE="ops/evidence/cardcom-e2e-evidence.sql"
+          SQL_FILE="${SQL_FILE_INPUT:-ops/evidence/cardcom-e2e-evidence.sql}"
+          echo "Selected evidence file: $SQL_FILE"
           test -f "$SQL_FILE" || { echo "::error::SQL file missing: $SQL_FILE"; exit 1; }
           FORBIDDEN='\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|copy|call|do|vacuum|comment|commit|upsert|replace|lock|nextval|setval|reindex|cluster|refresh)\b'
           MATCHES="$(grep -inE "$FORBIDDEN" "$SQL_FILE" || true)"
@@ -70,9 +82,11 @@ jobs:
         env:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           PGSSLMODE: require
+          SQL_FILE_INPUT: ${{ inputs.sql_file }}
         run: |
           set -euo pipefail
+          SQL_FILE="${SQL_FILE_INPUT:-ops/evidence/cardcom-e2e-evidence.sql}"
           psql "$DIRECT_URL" \
             --no-psqlrc \
             --set=ON_ERROR_STOP=1 \
-            --file=ops/evidence/cardcom-e2e-evidence.sql
+            --file="$SQL_FILE"
