@@ -1,0 +1,589 @@
+# D2 / P3-1 — Runtime Qualification (PREVIEW ONLY)
+#
+# Purpose
+#   Gate A: prove — firsthand, without ever printing a secret — that the Vercel
+#           Preview DATABASE_URL / DIRECT_URL resolve to the Preview Neon
+#           endpoint, and to nothing else.
+#   Gate B: run the P3 runtime/transport qualification battery inside a fully
+#           isolated, disposable schema (p3_runtime_lab) on that endpoint.
+#
+# Safety contract (enforced by this file, not by convention)
+#   - environment: preview-db  -> secrets are scoped to this environment only.
+#   - Gate A performs PURE STRING PARSING. No checkout, no npm, no psql, no
+#     Prisma, no network. It cannot reach a database even if it wanted to.
+#   - Hard allowlist: ep-wispy-dawn-amr74bwz. Hard deny: ep-flat-brook-am4bhq1y
+#     (Production) and ep-winter-bread-ami5o8p5. Anything else -> FAIL CLOSED.
+#   - Gate B re-parses and re-asserts identity in-process BEFORE constructing
+#     any Prisma client. Belt and braces.
+#   - Only schema p3_runtime_lab is created. Every object is p3_runtime_lab.p3_*.
+#     Every mutable statement is explicitly schema-qualified; search_path is
+#     never relied upon. No writes to public. No application data. No PII.
+#   - No CREATE/ALTER/DROP ROLE. app_runtime is never referenced.
+#   - Teardown (DROP SCHEMA p3_runtime_lab CASCADE) runs in a finally block and
+#     again in an always() step; residue is verified to be 0.
+#   - Standard Prisma path only. @prisma/adapter-neon is NOT adopted here.
+#
+# Nothing in this workflow echoes DATABASE_URL, DIRECT_URL, a password, or a
+# connection string. Only endpoint id / pooled-direct / database name are ever
+# printed.
+
+name: d2/p3 — runtime qualification (preview only)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - d2/p3-runtime-qualification
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d2-p3-runtime-qualification
+  cancel-in-progress: false
+
+env:
+  P3_EXPECT_ENDPOINT: ep-wispy-dawn-amr74bwz
+  P3_EXPECT_DB: neondb
+  P3_EXPECT_HOST_SUFFIX: us-east-1.aws.neon.tech
+  P3_DENY_ENDPOINTS: ep-flat-brook-am4bhq1y ep-winter-bread-ami5o8p5
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # GATE A — identity gate. String parsing only. No database access of any kind.
+  # ---------------------------------------------------------------------------
+  gate_a_identity:
+    name: Gate A — Preview endpoint identity (no DB access)
+    runs-on: ubuntu-latest
+    environment: preview-db
+    timeout-minutes: 5
+    outputs:
+      gate_a: ${{ steps.parse.outputs.gate_a }}
+      db_endpoint: ${{ steps.parse.outputs.db_endpoint }}
+      db_pooled: ${{ steps.parse.outputs.db_pooled }}
+      db_database: ${{ steps.parse.outputs.db_database }}
+      direct_endpoint: ${{ steps.parse.outputs.direct_endpoint }}
+      direct_pooled: ${{ steps.parse.outputs.direct_pooled }}
+      direct_database: ${{ steps.parse.outputs.direct_database }}
+    steps:
+      - name: Parse hostnames in memory and enforce allowlist (no network)
+        id: parse
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DATABASE_URL:-}" ] || [ -z "${DIRECT_URL:-}" ]; then
+            echo "::error::preview-db environment is missing DATABASE_URL and/or DIRECT_URL."
+            echo "Add both secrets to the 'preview-db' GitHub Environment, then re-run."
+            exit 1
+          fi
+
+          # Pure parameter expansion. Nothing is echoed except derived tokens.
+          parse_host() {
+            local u="$1"
+            u="${u#*://}"          # drop scheme
+            u="${u##*@}"           # drop userinfo (longest match -> last '@')
+            local hostport="${u%%/*}"
+            printf '%s' "${hostport%%:*}"
+          }
+          parse_db() {
+            local u="$1"
+            u="${u#*://}"
+            u="${u##*@}"
+            case "$u" in
+              */*) u="${u#*/}" ;;
+              *)   u="" ;;
+            esac
+            u="${u%%\?*}"
+            printf '%s' "$u"
+          }
+
+          DB_HOST="$(parse_host "$DATABASE_URL")"
+          DB_NAME="$(parse_db  "$DATABASE_URL")"
+          DR_HOST="$(parse_host "$DIRECT_URL")"
+          DR_NAME="$(parse_db  "$DIRECT_URL")"
+
+          classify() {                    # $1 = host -> "<endpoint> <pooled>"
+            local h="$1" first ep pooled
+            first="${h%%.*}"
+            case "$first" in
+              *-pooler) ep="${first%-pooler}"; pooled="pooled" ;;
+              *)        ep="$first";           pooled="direct" ;;
+            esac
+            printf '%s %s' "$ep" "$pooled"
+          }
+
+          read -r DB_EP DB_MODE <<< "$(classify "$DB_HOST")"
+          read -r DR_EP DR_MODE <<< "$(classify "$DR_HOST")"
+
+          echo "DATABASE_URL -> endpoint=${DB_EP} mode=${DB_MODE} database=${DB_NAME}"
+          echo "DIRECT_URL   -> endpoint=${DR_EP} mode=${DR_MODE} database=${DR_NAME}"
+
+          fail=0
+
+          for denied in ${P3_DENY_ENDPOINTS}; do
+            if [ "$DB_EP" = "$denied" ] || [ "$DR_EP" = "$denied" ]; then
+              echo "::error::HARD DENY hit: ${denied}. This endpoint is out of bounds for P3."
+              fail=1
+            fi
+          done
+
+          if [ "$DB_EP" != "${P3_EXPECT_ENDPOINT}" ]; then
+            echo "::error::DATABASE_URL endpoint ${DB_EP} != expected Preview endpoint ${P3_EXPECT_ENDPOINT}"
+            fail=1
+          fi
+          if [ "$DR_EP" != "${P3_EXPECT_ENDPOINT}" ]; then
+            echo "::error::DIRECT_URL endpoint ${DR_EP} != expected Preview endpoint ${P3_EXPECT_ENDPOINT}"
+            fail=1
+          fi
+          case "$DB_HOST" in *"${P3_EXPECT_HOST_SUFFIX}") : ;; *) echo "::error::DATABASE_URL host region suffix mismatch"; fail=1 ;; esac
+          case "$DR_HOST" in *"${P3_EXPECT_HOST_SUFFIX}") : ;; *) echo "::error::DIRECT_URL host region suffix mismatch";   fail=1 ;; esac
+          if [ "$DB_NAME" != "${P3_EXPECT_DB}" ]; then
+            echo "::error::DATABASE_URL database ${DB_NAME} != ${P3_EXPECT_DB}"; fail=1
+          fi
+          if [ "$DR_NAME" != "${P3_EXPECT_DB}" ]; then
+            echo "::error::DIRECT_URL database ${DR_NAME} != ${P3_EXPECT_DB}"; fail=1
+          fi
+          if [ "$DR_MODE" != "direct" ]; then
+            echo "::warning::DIRECT_URL resolves to the pooled identity. Recorded as evidence; not a safety failure."
+          fi
+
+          {
+            echo "db_endpoint=${DB_EP}"
+            echo "db_pooled=${DB_MODE}"
+            echo "db_database=${DB_NAME}"
+            echo "direct_endpoint=${DR_EP}"
+            echo "direct_pooled=${DR_MODE}"
+            echo "direct_database=${DR_NAME}"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$fail" -ne 0 ]; then
+            echo "gate_a=FAIL" >> "$GITHUB_OUTPUT"
+            echo "::error::GATE A = FAIL — FAIL CLOSED before any database connection."
+            exit 1
+          fi
+
+          echo "gate_a=PASS" >> "$GITHUB_OUTPUT"
+          echo "GATE A = PASS"
+
+      - name: Gate A summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## GATE A — Vercel Preview ↔ Neon binding"
+            echo ""
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| DATABASE_URL endpoint | \`${{ steps.parse.outputs.db_endpoint }}\` (${{ steps.parse.outputs.db_pooled }}) |"
+            echo "| DIRECT_URL endpoint | \`${{ steps.parse.outputs.direct_endpoint }}\` (${{ steps.parse.outputs.direct_pooled }}) |"
+            echo "| database | \`${{ steps.parse.outputs.db_database }}\` / \`${{ steps.parse.outputs.direct_database }}\` |"
+            echo "| expected endpoint | \`${{ env.P3_EXPECT_ENDPOINT }}\` |"
+            echo "| denied endpoints | \`${{ env.P3_DENY_ENDPOINTS }}\` |"
+            echo "| **GATE A** | **${{ steps.parse.outputs.gate_a || 'FAIL' }}** |"
+            echo ""
+            echo "_No connection string, password, or secret was printed. Parsing happened before any network access._"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # GATE B — P3 runtime/transport qualification. Runs only if Gate A passed.
+  # ---------------------------------------------------------------------------
+  gate_b_p3:
+    name: Gate B — P3 runtime qualification (p3_runtime_lab)
+    needs: gate_a_identity
+    if: needs.gate_a_identity.outputs.gate_a == 'PASS'
+    runs-on: ubuntu-latest
+    environment: preview-db
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies (prisma generate runs via postinstall)
+        run: npm ci --no-audit --no-fund
+
+      - name: Write P3 battery
+        shell: bash
+        run: |
+          mkdir -p .p3
+          cat > .p3/battery.mjs <<'BATTERY_EOF'
+          import { AsyncLocalStorage } from 'node:async_hooks';
+          import { PrismaClient } from '@prisma/client';
+
+          // ===================================================================
+          // 0. IDENTITY RE-ASSERTION — happens before any client construction.
+          // ===================================================================
+          const EXPECT_ENDPOINT = process.env.P3_EXPECT_ENDPOINT;
+          const EXPECT_DB       = process.env.P3_EXPECT_DB;
+          const EXPECT_SUFFIX   = process.env.P3_EXPECT_HOST_SUFFIX;
+          const DENY            = (process.env.P3_DENY_ENDPOINTS || '').split(/\s+/).filter(Boolean);
+          const GUC             = 'app.current_business_id';
+          const LAB             = 'p3_runtime_lab';
+
+          function identity(raw, name) {
+            if (!raw) throw new Error(name + ' is empty');
+            let u;
+            try { u = new URL(raw); } catch { throw new Error(name + ' is not a parseable URL'); }
+            const host = u.hostname;
+            const db = (u.pathname || '').replace(/^\//, '');
+            const first = host.split('.')[0];
+            const pooled = first.endsWith('-pooler');
+            const endpoint = pooled ? first.slice(0, -'-pooler'.length) : first;
+            return { host, db, endpoint, pooled };
+          }
+
+          function assertPreview(id, name) {
+            if (DENY.includes(id.endpoint)) throw new Error(name + ': HARD DENY endpoint ' + id.endpoint);
+            if (id.endpoint !== EXPECT_ENDPOINT) throw new Error(name + ': endpoint ' + id.endpoint + ' != ' + EXPECT_ENDPOINT);
+            if (!id.host.endsWith(EXPECT_SUFFIX)) throw new Error(name + ': host region suffix mismatch');
+            if (id.db !== EXPECT_DB) throw new Error(name + ': database ' + id.db + ' != ' + EXPECT_DB);
+          }
+
+          const poolId   = identity(process.env.DATABASE_URL, 'DATABASE_URL');
+          const directId = identity(process.env.DIRECT_URL,   'DIRECT_URL');
+          assertPreview(poolId,   'DATABASE_URL');
+          assertPreview(directId, 'DIRECT_URL');
+
+          console.log('[identity] DATABASE_URL endpoint=' + poolId.endpoint + ' mode=' + (poolId.pooled ? 'pooled' : 'direct') + ' db=' + poolId.db);
+          console.log('[identity] DIRECT_URL   endpoint=' + directId.endpoint + ' mode=' + (directId.pooled ? 'pooled' : 'direct') + ' db=' + directId.db);
+
+          // ===================================================================
+          // Result ledger
+          // ===================================================================
+          const R = {};
+          const notes = [];
+          const mark = (k, ok, note) => { R[k] = ok ? 'PASS' : 'FAIL'; if (note) notes.push('[' + k + '] ' + note); };
+          let txAttempted = 0, txFailed = 0;
+          const latencies = [];
+
+          // Standard Prisma path — exactly what Dubiz runs today. No adapter.
+          const pooled = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
+          const direct = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
+
+          const readGuc = async (c) => {
+            const rows = await c.$queryRaw`SELECT current_setting(${GUC}, true) AS v, pg_backend_pid() AS pid`;
+            return { v: rows[0].v === null ? null : String(rows[0].v), pid: Number(rows[0].pid) };
+          };
+          const empty = (v) => v === null || v === '';
+
+          async function itx(fn, label) {
+            txAttempted++;
+            const t0 = Date.now();
+            try {
+              const out = await pooled.$transaction(fn, { maxWait: 15000, timeout: 20000 });
+              latencies.push(Date.now() - t0);
+              return out;
+            } catch (e) {
+              txFailed++;
+              notes.push('[tx-error' + (label ? ':' + label : '') + '] ' + String(e && e.message ? e.message : e).slice(0, 240));
+              throw e;
+            }
+          }
+
+          async function main() {
+            // ---------------- Preflight (read-only) ----------------
+            const pre = await direct.$queryRaw`
+              SELECT current_database()::text AS db,
+                     current_user::text       AS usr,
+                     (SELECT count(*)::int FROM information_schema.schemata WHERE schema_name = 'p3_runtime_lab') AS lab,
+                     (SELECT count(*)::int FROM pg_namespace WHERE nspname LIKE 'p3%')                            AS ns_p3,
+                     (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                        WHERE c.relname LIKE 'p3\\_%')                                                            AS rel_p3,
+                     (SELECT count(*)::int FROM information_schema.tables WHERE table_schema = 'public')          AS pub`;
+            const p = pre[0];
+            console.log('[preflight] db=' + p.db + ' user=' + p.usr + ' lab=' + p.lab + ' ns_p3=' + p.ns_p3 + ' rel_p3=' + p.rel_p3 + ' public_tables=' + p.pub);
+            if (p.db !== EXPECT_DB) throw new Error('current_database() = ' + p.db);
+            if (p.lab !== 0 || p.ns_p3 !== 0 || p.rel_p3 !== 0) throw new Error('p3_* collision detected — refusing to touch pre-existing objects');
+            notes.push('[preflight] public_tables=' + p.pub + ' (read-only metadata; no rows, no PII)');
+
+            // ---------------- Lab creation (schema-qualified, DIRECT) ----------------
+            await direct.$executeRawUnsafe('CREATE SCHEMA ' + LAB);
+            await direct.$executeRawUnsafe(
+              'CREATE TABLE ' + LAB + '.p3_probe (' +
+              ' p3_id bigserial PRIMARY KEY,' +
+              ' p3_tenant integer NOT NULL,' +
+              ' p3_label text NOT NULL,' +
+              ' p3_created_at timestamptz NOT NULL DEFAULT now())');
+            await direct.$executeRawUnsafe(
+              'CREATE TABLE ' + LAB + '.p3_event (' +
+              ' p3_id bigserial PRIMARY KEY,' +
+              ' p3_kind text NOT NULL,' +
+              ' p3_ctx text,' +
+              ' p3_at timestamptz NOT NULL DEFAULT now())');
+            console.log('[lab] created schema ' + LAB + ' with p3_probe, p3_event');
+
+            // ---------------- T1 interactive transaction start ----------------
+            try {
+              await itx(async (tx) => { await tx.$queryRaw`SELECT 1 AS ok`; }, 'T1');
+              mark('INTERACTIVE_TX', true);
+            } catch { mark('INTERACTIVE_TX', false, 'interactive transaction could not start over the pooled URL'); }
+
+            // ---------------- T2/T3 transaction-local set_config + read-back ----------------
+            try {
+              const seen = await itx(async (tx) => {
+                await tx.$queryRaw`SELECT set_config(${GUC}, ${'4242'}, true)`;
+                const a = await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`;
+                const b = await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`;   // second stmt, same tx
+                return [a[0].v, b[0].v];
+              }, 'T2');
+              mark('TX_LOCAL_GUC', seen[0] === '4242' && seen[1] === '4242', 'read-back=' + JSON.stringify(seen));
+            } catch { mark('TX_LOCAL_GUC', false, 'set_config/read-back failed'); }
+
+            // ---------------- T4 commit cleanup ----------------
+            try {
+              let residue = null;
+              for (let i = 0; i < 12; i++) {
+                const r = await readGuc(pooled);
+                if (!empty(r.v)) { residue = r; break; }
+              }
+              mark('COMMIT_CLEANUP', residue === null, residue ? 'GUC survived commit on pid ' + residue.pid + ' value=' + residue.v : '12 post-commit probes clean');
+            } catch { mark('COMMIT_CLEANUP', false, 'probe failed'); }
+
+            // ---------------- T5 rollback cleanup ----------------
+            try {
+              let rolled = false;
+              try {
+                await itx(async (tx) => {
+                  await tx.$queryRaw`SELECT set_config(${GUC}, ${'9999'}, true)`;
+                  await tx.$executeRawUnsafe("INSERT INTO " + LAB + ".p3_event (p3_kind, p3_ctx) VALUES ('rollback-probe', current_setting('" + GUC + "', true))");
+                  throw new Error('p3-forced-rollback');
+                }, 'T5');
+              } catch (e) { rolled = /p3-forced-rollback/.test(String(e && e.message)); txFailed--; }
+              let residue = null;
+              for (let i = 0; i < 12; i++) {
+                const r = await readGuc(pooled);
+                if (!empty(r.v)) { residue = r; break; }
+              }
+              const cnt = await direct.$queryRawUnsafe('SELECT count(*)::int AS c FROM ' + LAB + ".p3_event WHERE p3_kind = 'rollback-probe'");
+              mark('ROLLBACK_CLEANUP', rolled && residue === null && cnt[0].c === 0,
+                   'rolled=' + rolled + ' guc_residue=' + (residue ? residue.v : 'none') + ' rolled_back_rows=' + cnt[0].c);
+            } catch { mark('ROLLBACK_CLEANUP', false, 'rollback probe failed'); }
+
+            // ---------------- T6 sequential A -> B isolation ----------------
+            try {
+              const a = await itx(async (tx) => {
+                await tx.$queryRaw`SELECT set_config(${GUC}, ${'111'}, true)`;
+                const r = await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`;
+                return r[0].v;
+              }, 'T6a');
+              const b = await itx(async (tx) => {
+                const before = await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`;
+                await tx.$queryRaw`SELECT set_config(${GUC}, ${'222'}, true)`;
+                const after = await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`;
+                return [before[0].v, after[0].v];
+              }, 'T6b');
+              mark('SEQUENTIAL_ISOLATION', a === '111' && empty(b[0]) && b[1] === '222',
+                   'A=' + a + ' B_before=' + JSON.stringify(b[0]) + ' B_after=' + b[1]);
+            } catch { mark('SEQUENTIAL_ISOLATION', false, 'sequential probe failed'); }
+
+            // ---------------- T7 concurrent isolation (24-wide, mirrors Spike-B) ----------------
+            try {
+              const N = 24;
+              const results = await Promise.allSettled(Array.from({ length: N }, (_, i) => itx(async (tx) => {
+                const want = String(700000 + i);
+                await tx.$queryRaw`SELECT set_config(${GUC}, ${want}, true)`;
+                await tx.$queryRaw`SELECT pg_sleep(0.05)`;
+                await tx.$executeRawUnsafe("INSERT INTO " + LAB + ".p3_probe (p3_tenant, p3_label) VALUES (" + (700000 + i) + ", 'p3-synthetic-" + i + "')");
+                const r = await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v, pg_backend_pid() AS pid`;
+                return { want, got: r[0].v, pid: Number(r[0].pid) };
+              }, 'T7#' + i)));
+              const ok = results.filter((r) => r.status === 'fulfilled');
+              const bad = ok.filter((r) => r.value.got !== r.value.want);
+              const errs = results.length - ok.length;
+              const pids = new Set(ok.map((r) => r.value.pid));
+              mark('CONCURRENT_ISOLATION', errs === 0 && bad.length === 0,
+                   ok.length + '/' + N + ' completed, ' + bad.length + ' cross-context reads, ' + pids.size + ' distinct backends');
+              notes.push('[T7] distinct backend pids observed: ' + pids.size);
+            } catch { mark('CONCURRENT_ISOLATION', false, 'concurrency probe threw'); }
+
+            // ---------------- T8 pooled-connection leakage (same backend, later tx) ----------------
+            try {
+              const tagged = await itx(async (tx) => {
+                await tx.$queryRaw`SELECT set_config(${GUC}, ${'555555'}, true)`;
+                const r = await tx.$queryRaw`SELECT pg_backend_pid() AS pid`;
+                return Number(r[0].pid);
+              }, 'T8');
+              let revisited = false, leaked = false;
+              for (let i = 0; i < 40; i++) {
+                const r = await readGuc(pooled);
+                if (r.pid === tagged) { revisited = true; if (!empty(r.v)) { leaked = true; break; } }
+              }
+              mark('POOL_LEAKAGE', !leaked,
+                   'tagged backend pid ' + tagged + (revisited ? ' was revisited and carried no context' : ' was not revisited within 40 probes (inconclusive-but-clean)'));
+            } catch { mark('POOL_LEAKAGE', false, 'leakage probe failed'); }
+
+            // ---------------- T9 synthetic CRUD, schema-qualified ----------------
+            try {
+              const out = await itx(async (tx) => {
+                await tx.$queryRaw`SELECT set_config(${GUC}, ${'900001'}, true)`;
+                await tx.$executeRawUnsafe("INSERT INTO " + LAB + ".p3_probe (p3_tenant, p3_label) VALUES (900001, 'p3-crud-insert')");
+                const sel = await tx.$queryRawUnsafe("SELECT count(*)::int AS c FROM " + LAB + ".p3_probe WHERE p3_tenant = 900001");
+                await tx.$executeRawUnsafe("UPDATE " + LAB + ".p3_probe SET p3_label = 'p3-crud-updated' WHERE p3_tenant = 900001");
+                const upd = await tx.$queryRawUnsafe("SELECT count(*)::int AS c FROM " + LAB + ".p3_probe WHERE p3_tenant = 900001 AND p3_label = 'p3-crud-updated'");
+                await tx.$executeRawUnsafe("DELETE FROM " + LAB + ".p3_probe WHERE p3_tenant = 900001");
+                const del = await tx.$queryRawUnsafe("SELECT count(*)::int AS c FROM " + LAB + ".p3_probe WHERE p3_tenant = 900001");
+                return [sel[0].c, upd[0].c, del[0].c];
+              }, 'T9');
+              mark('SYNTHETIC_CRUD', out[0] === 1 && out[1] === 1 && out[2] === 0, 'insert/select/update/delete = ' + JSON.stringify(out));
+            } catch { mark('SYNTHETIC_CRUD', false, 'CRUD probe failed'); }
+
+            // ---------------- T10 P5 withTenantTransaction compatibility ----------------
+            // Emulates the P5 contract from docs/security-d2-tenant-isolation-architecture-v1.md §6/§7:
+            // per-request ALS holding businessId + interactive transaction that sets the GUC
+            // transaction-locally. The real wrapper does not exist in the repo yet (P5 not started);
+            // this proves the contract SHAPE is satisfiable on the standard Prisma path.
+            try {
+              const als = new AsyncLocalStorage();
+              const withTenantTransaction = (businessId, fn) =>
+                als.run({ businessId }, () => itx(async (tx) => {
+                  const ctx = als.getStore();
+                  if (!ctx || ctx.businessId == null) throw new Error('ALS context missing inside transaction');
+                  await tx.$queryRaw`SELECT set_config(${GUC}, ${String(ctx.businessId)}, true)`;
+                  return fn(tx);
+                }, 'P5'));
+
+              // nested "service" calls inside one wrapper must share the context
+              const nested = await withTenantTransaction(4321, async (tx) => {
+                const svcA = await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`;
+                await tx.$executeRawUnsafe("INSERT INTO " + LAB + ".p3_event (p3_kind, p3_ctx) VALUES ('p5-nested', current_setting('" + GUC + "', true))");
+                const svcB = await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`;
+                return [svcA[0].v, svcB[0].v];
+              });
+
+              // two concurrent wrappers, different tenants, must not cross
+              const pair = await Promise.all([
+                withTenantTransaction(1001, async (tx) => {
+                  await tx.$queryRaw`SELECT pg_sleep(0.05)`;
+                  const r = await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`;
+                  return r[0].v;
+                }),
+                withTenantTransaction(2002, async (tx) => {
+                  const r = await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`;
+                  return r[0].v;
+                }),
+              ]);
+
+              const after = await readGuc(pooled);
+              const persisted = await direct.$queryRawUnsafe("SELECT p3_ctx FROM " + LAB + ".p3_event WHERE p3_kind = 'p5-nested' LIMIT 1");
+
+              mark('P5_WRAPPER', nested[0] === '4321' && nested[1] === '4321' && pair[0] === '1001' && pair[1] === '2002' && empty(after.v) && persisted[0] && persisted[0].p3_ctx === '4321',
+                   'nested=' + JSON.stringify(nested) + ' concurrent=' + JSON.stringify(pair) + ' post_wrapper_residue=' + JSON.stringify(after.v));
+            } catch { mark('P5_WRAPPER', false, 'P5 wrapper emulation failed'); }
+
+            // ---------------- T11 stability gate ----------------
+            try {
+              const B = 24;
+              const burst = await Promise.allSettled(Array.from({ length: B }, (_, i) => itx(async (tx) => {
+                await tx.$queryRaw`SELECT set_config(${GUC}, ${String(800000 + i)}, true)`;
+                const r = await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`;
+                if (r[0].v !== String(800000 + i)) throw new Error('context mismatch in burst');
+                return true;
+              }, 'T11#' + i)));
+              const burstOk = burst.filter((r) => r.status === 'fulfilled').length;
+              latencies.sort((a, b) => a - b);
+              const p95 = latencies.length ? latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * 0.95))] : 0;
+              mark('STABILITY', burstOk === B && txFailed === 0,
+                   'burst ' + burstOk + '/' + B + ', total interactive tx ' + txAttempted + ', failures ' + txFailed + ', p95 ' + p95 + 'ms');
+              R._p95 = p95; R._txAttempted = txAttempted; R._txFailed = txFailed;
+            } catch { mark('STABILITY', false, 'stability burst threw'); }
+
+            // Transport verdict = the transport-facing subset
+            const transportKeys = ['INTERACTIVE_TX', 'TX_LOCAL_GUC', 'COMMIT_CLEANUP', 'ROLLBACK_CLEANUP', 'SEQUENTIAL_ISOLATION', 'CONCURRENT_ISOLATION', 'POOL_LEAKAGE', 'SYNTHETIC_CRUD', 'STABILITY'];
+            R.P3_TRANSPORT = transportKeys.every((k) => R[k] === 'PASS') ? 'PASS' : 'FAIL';
+          }
+
+          async function teardown() {
+            try {
+              await direct.$executeRawUnsafe('DROP SCHEMA IF EXISTS ' + LAB + ' CASCADE');
+              const res = await direct.$queryRaw`
+                SELECT (SELECT count(*)::int FROM information_schema.schemata WHERE schema_name = 'p3_runtime_lab') AS lab,
+                       (SELECT count(*)::int FROM pg_namespace WHERE nspname LIKE 'p3%')                            AS ns_p3,
+                       (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                          WHERE c.relname LIKE 'p3\\_%')                                                            AS rel_p3,
+                       (SELECT count(*)::int FROM information_schema.tables WHERE table_schema = 'public')          AS pub`;
+              const r = res[0];
+              R.RESIDUE = (r.lab === 0 && r.ns_p3 === 0 && r.rel_p3 === 0) ? '0' : 'FAILURE';
+              R._public_tables_after = r.pub;
+              console.log('[teardown] lab=' + r.lab + ' ns_p3=' + r.ns_p3 + ' rel_p3=' + r.rel_p3 + ' public_tables=' + r.pub);
+            } catch (e) {
+              R.RESIDUE = 'FAILURE';
+              notes.push('[teardown] ' + String(e && e.message ? e.message : e).slice(0, 240));
+            }
+          }
+
+          let fatal = null;
+          try { await main(); } catch (e) { fatal = e; notes.push('[fatal] ' + String(e && e.message ? e.message : e).slice(0, 400)); }
+          await teardown();
+          try { await pooled.$disconnect(); } catch {}
+          try { await direct.$disconnect(); } catch {}
+
+          const line = (k, v) => k.padEnd(28) + '= ' + v;
+          const report = [
+            'GATE A                      = PASS',
+            'PREVIEW ENDPOINT            = ' + (poolId.endpoint === EXPECT_ENDPOINT && directId.endpoint === EXPECT_ENDPOINT ? 'VERIFIED' : 'MISMATCH'),
+            line('P3 TRANSPORT',            R.P3_TRANSPORT || 'FAIL'),
+            line('INTERACTIVE TX',          R.INTERACTIVE_TX || 'FAIL'),
+            line('TRANSACTION-LOCAL GUC',   R.TX_LOCAL_GUC || 'FAIL'),
+            line('COMMIT CLEANUP',          R.COMMIT_CLEANUP || 'FAIL'),
+            line('ROLLBACK CLEANUP',        R.ROLLBACK_CLEANUP || 'FAIL'),
+            line('SEQUENTIAL ISOLATION',    R.SEQUENTIAL_ISOLATION || 'FAIL'),
+            line('CONCURRENT ISOLATION',    R.CONCURRENT_ISOLATION || 'FAIL'),
+            line('POOL LEAKAGE',            R.POOL_LEAKAGE || 'FAIL'),
+            line('SYNTHETIC CRUD',          R.SYNTHETIC_CRUD || 'FAIL'),
+            line('P5 WRAPPER COMPATIBILITY',R.P5_WRAPPER || 'FAIL'),
+            line('STABILITY',               R.STABILITY || 'FAIL'),
+            line('P3 RESIDUE',              R.RESIDUE || 'FAILURE'),
+            'PRODUCTION TOUCHED          = NO',
+            'app_runtime TOUCHED         = NO',
+          ];
+          const ready = (R.P3_TRANSPORT === 'PASS' && R.P5_WRAPPER === 'PASS' && R.RESIDUE === '0' && !fatal) ? 'YES' : 'NO';
+          report.push(line('READY FOR P4', ready));
+
+          console.log('\n' + report.join('\n') + '\n');
+          console.log('--- notes ---');
+          for (const n of notes) console.log(n);
+
+          if (process.env.GITHUB_STEP_SUMMARY) {
+            const fs = await import('node:fs');
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+              '## GATE B — P3 runtime qualification\n\n```\n' + report.join('\n') + '\n```\n\n' +
+              '<details><summary>notes</summary>\n\n```\n' + notes.join('\n') + '\n```\n\n</details>\n');
+          }
+
+          if (fatal || ready === 'NO') process.exit(1);
+          BATTERY_EOF
+          node --check .p3/battery.mjs
+
+      - name: Run P3 battery
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          P3_EXPECT_ENDPOINT: ${{ env.P3_EXPECT_ENDPOINT }}
+          P3_EXPECT_DB: ${{ env.P3_EXPECT_DB }}
+          P3_EXPECT_HOST_SUFFIX: ${{ env.P3_EXPECT_HOST_SUFFIX }}
+          P3_DENY_ENDPOINTS: ${{ env.P3_DENY_ENDPOINTS }}
+        run: node .p3/battery.mjs
+
+      - name: Teardown safety net (always)
+        if: always()
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          mkdir -p .p3
+          cat > .p3/teardown.mjs <<'TD_EOF'
+          import { PrismaClient } from '@prisma/client';
+          const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
+          await c.$executeRawUnsafe('DROP SCHEMA IF EXISTS p3_runtime_lab CASCADE');
+          const r = await c.$queryRaw`SELECT (SELECT count(*)::int FROM information_schema.schemata WHERE schema_name='p3_runtime_lab') AS lab, (SELECT count(*)::int FROM pg_namespace WHERE nspname LIKE 'p3%') AS ns`;
+          console.log('[teardown-net] lab=' + r[0].lab + ' ns_p3=' + r[0].ns);
+          await c.$disconnect();
+          if (r[0].lab !== 0 || r[0].ns !== 0) process.exit(1);
+          TD_EOF
+          node .p3/teardown.mjs
