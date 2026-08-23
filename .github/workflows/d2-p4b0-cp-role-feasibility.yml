@@ -1,0 +1,121 @@
+# D2 / P4-B0 — Control-plane role least-privilege feasibility (PREVIEW ONLY)
+#
+# Create a disposable role via the Neon API (control plane), inspect its
+# neon_superuser membership, prove pooled direct-auth, REVOKE neon_superuser,
+# re-prove pooled direct-auth + least-privilege posture, run a minimal RLS
+# sanity, and tear everything down. No Vercel/DATABASE_URL change. No public RLS.
+# app_runtime never referenced. NEON_API_KEY + connection URIs are masked/never
+# printed. Only endpoint id / role / db / sanitized results are shown.
+
+name: d2/p4b0 — cp role feasibility (preview only)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - d2/p4b0-cp-role-feasibility
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d2-p4b0-cp-role-feasibility
+  cancel-in-progress: false
+
+env:
+  NEON_BASE: https://console.neon.tech/api/v2
+  P4_PROJECT_ID: orange-shape-16620903
+  P4_BRANCH_ID: br-red-scene-amth33qx
+  P4_EXPECT_ENDPOINT: ep-wispy-dawn-amr74bwz
+  P4_EXPECT_DB: neondb
+  P4_EXPECT_HOST_SUFFIX: us-east-1.aws.neon.tech
+  P4_DENY_ENDPOINTS: ep-flat-brook-am4bhq1y ep-winter-bread-ami5o8p5
+
+jobs:
+  gate_a_identity:
+    name: Gate A — Preview target identity (Neon API lookup)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      gate_a: ${{ steps.verify.outputs.gate_a }}
+    steps:
+      - name: Verify project/branch/endpoint/database via Neon API
+        id: verify
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${NEON_API_KEY:-}" ]; then echo "::error::repo secret NEON_API_KEY is missing"; exit 1; fi
+          api() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "$1"; }
+          for d in ${P4_DENY_ENDPOINTS}; do [ "${P4_EXPECT_ENDPOINT}" = "$d" ] && { echo "::error::expected endpoint is denied"; exit 1; }; done
+          proj=$(api "${NEON_BASE}/projects/${P4_PROJECT_ID}"); region=$(printf '%s' "$proj" | jq -r '.project.region_id')
+          br=$(api "${NEON_BASE}/projects/${P4_PROJECT_ID}/branches/${P4_BRANCH_ID}"); br_id=$(printf '%s' "$br" | jq -r '.branch.id')
+          ep=$(api "${NEON_BASE}/projects/${P4_PROJECT_ID}/endpoints/${P4_EXPECT_ENDPOINT}")
+          ep_id=$(printf '%s' "$ep" | jq -r '.endpoint.id'); ep_branch=$(printf '%s' "$ep" | jq -r '.endpoint.branch_id'); ep_host=$(printf '%s' "$ep" | jq -r '.endpoint.host')
+          echo "project=${P4_PROJECT_ID} region=${region} branch=${br_id} endpoint=${ep_id} endpoint_branch=${ep_branch}"
+          echo "endpoint_host=${ep_host}"
+          fail=0
+          [ "$br_id" = "${P4_BRANCH_ID}" ] || { echo "::error::branch id mismatch"; fail=1; }
+          [ "$ep_id" = "${P4_EXPECT_ENDPOINT}" ] || { echo "::error::endpoint id mismatch"; fail=1; }
+          [ "$ep_branch" = "${P4_BRANCH_ID}" ] || { echo "::error::endpoint not on expected branch"; fail=1; }
+          case "$ep_host" in *"${P4_EXPECT_HOST_SUFFIX}") : ;; *) echo "::error::host suffix mismatch"; fail=1 ;; esac
+          case "$ep_host" in ${P4_EXPECT_ENDPOINT}.*) : ;; *) echo "::error::host prefix mismatch"; fail=1 ;; esac
+          case "$region" in *us-east-1*) : ;; *) echo "::error::region not us-east-1"; fail=1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "$ep_host" in *"$d"*) echo "::error::DENY endpoint present"; fail=1 ;; esac; done
+          if [ "$fail" -ne 0 ]; then echo "gate_a=FAIL" >> "$GITHUB_OUTPUT"; exit 1; fi
+          echo "gate_a=PASS" >> "$GITHUB_OUTPUT"; echo "GATE A = PASS"
+
+  gate_b_p4b0:
+    name: Gate B — P4-B0 feasibility (p4b0_runtime_lab)
+    needs: gate_a_identity
+    if: needs.gate_a_identity.outputs.gate_a == 'PASS'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .p4b0/battery.mjs
+
+      - name: Fetch owner URI (Neon API) + run P4-B0 battery
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DBD="$(curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri')"
+          echo "::add-mask::${DBD}"
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || { echo "::error::empty owner URI"; exit 1; }
+          case "${DBD}" in *"${P4_EXPECT_ENDPOINT}"*"${P4_EXPECT_HOST_SUFFIX}"*) : ;; *) echo "::error::owner URI endpoint mismatch"; exit 1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "${DBD}" in *"$d"*) echo "::error::owner URI hits DENY"; exit 1 ;; esac; done
+          DIRECT_URL="${DBD}" node .p4b0/battery.mjs
+
+      - name: Teardown safety net (always)
+        if: always()
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          # Best-effort control-plane role delete.
+          curl -sS -X DELETE -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/branches/${P4_BRANCH_ID}/roles/p4b0_runtime_lab" >/dev/null 2>&1 || true
+          DBD="$(curl -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri')"
+          echo "::add-mask::${DBD}"
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || { echo "no owner URI for net"; exit 0; }
+          mkdir -p .p4b0
+          cat > .p4b0/net.mjs <<'TD_EOF'
+          import { PrismaClient } from '@prisma/client';
+          const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
+          await c.$executeRawUnsafe('DROP SCHEMA IF EXISTS p4b0_runtime_lab CASCADE');
+          try { await c.$executeRawUnsafe('DROP OWNED BY p4b0_runtime_lab'); } catch {}
+          try { await c.$executeRawUnsafe('DROP ROLE IF EXISTS p4b0_runtime_lab'); } catch {}
+          const r = await c.$queryRaw`SELECT (SELECT count(*)::int FROM pg_roles WHERE rolname='p4b0_runtime_lab') AS role, (SELECT count(*)::int FROM information_schema.schemata WHERE schema_name='p4b0_runtime_lab') AS lab`;
+          console.log('[net] role=' + r[0].role + ' lab=' + r[0].lab);
+          await c.$disconnect();
+          if (r[0].role !== 0 || r[0].lab !== 0) process.exit(1);
+          TD_EOF
+          DIRECT_URL="${DBD}" node .p4b0/net.mjs
