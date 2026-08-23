@@ -64,34 +64,28 @@ async function attrsOf(client, who) {
 }
 
 async function cleanSlate() {
-  // Self-healing from any prior (failed) run. app_runtime_preview is OUR dedicated
-  // disposable Preview role; p4b-* / p4b_tenant are OUR markers — safe to reset.
+  // Self-healing from any prior (failed) run — clear OUR markers only (p4b-* / p4b_tenant).
+  // NOTE: never drop+recreate the role in the same run — Neon's pooler caches the role
+  // OID and a same-run recreate yields "invalid role OID" via the pooled endpoint.
   for (const t of PILOT) await oexec('DROP POLICY IF EXISTS p4b_tenant ON "' + t + '"').catch(() => {});
   const inMarker = 'IN (SELECT id FROM "Business" WHERE name LIKE \'p4b-%\')';
   for (const t of ["Appointment", "Conversation", "PaymentRequest", "BillingDocument", "Customer"]) await oexec('DELETE FROM "' + t + '" WHERE "businessId" ' + inMarker).catch(() => {});
   await oexec("DELETE FROM \"Customer\" WHERE name LIKE 'p4b-%'").catch(() => {});
   await oexec("DELETE FROM \"User\" WHERE email LIKE '%@p4b.test'").catch(() => {});
   await oexec("DELETE FROM \"Business\" WHERE name LIKE 'p4b-%'").catch(() => {});
-  const exists = Number((await oq("SELECT count(*)::int AS c FROM pg_roles WHERE rolname='" + ROLE + "'"))[0].c) > 0;
-  if (exists) {
-    for (const s of [
-      "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM " + ROLE,
-      "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM " + ROLE,
-      "REVOKE ALL PRIVILEGES ON SCHEMA public FROM " + ROLE,
-      "REVOKE ALL PRIVILEGES ON DATABASE " + EXPECT_DB + " FROM " + ROLE,
-    ]) await oexec(s).catch(() => {});
-    await oexec("DROP OWNED BY " + ROLE).catch(() => {});
-    await oexec("DROP ROLE IF EXISTS " + ROLE).catch(() => {});
-    const still = Number((await oq("SELECT count(*)::int AS c FROM pg_roles WHERE rolname='" + ROLE + "'"))[0].c);
-    if (still !== 0) throw new Error("could not clear prior " + ROLE + " role — STOP");
-    notes.push("[clean-slate] cleared prior p4b state + role");
-  }
 }
 
 async function provision() {
   await cleanSlate();
-  // STEP 1 — role.
-  await oexec("CREATE ROLE " + ROLE + " LOGIN PASSWORD '" + PW + "' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT");
+  // STEP 1 — role: create fresh, or REUSE a leftover (rotate password only — OID
+  // preserved so the pooler keeps serving it). This is also the persistent-role model.
+  const exists = Number((await oq("SELECT count(*)::int AS c FROM pg_roles WHERE rolname='" + ROLE + "'"))[0].c) > 0;
+  if (exists) {
+    await oexec("ALTER ROLE " + ROLE + " LOGIN PASSWORD '" + PW + "'");
+    notes.push("[role] reused existing " + ROLE + " (password rotated, OID preserved)");
+  } else {
+    await oexec("CREATE ROLE " + ROLE + " LOGIN PASSWORD '" + PW + "' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT");
+  }
   const ra = await oq("SELECT rolcanlogin, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb FROM pg_roles WHERE rolname='" + ROLE + "'");
   const nsm = await oq("SELECT count(*)::int AS c FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.roleid JOIN pg_roles r ON r.oid=m.member WHERE r.rolname='" + ROLE + "' AND g.rolname='neon_superuser'");
   const own = await oq("SELECT count(*)::int AS c FROM pg_tables WHERE tableowner='" + ROLE + "'");
