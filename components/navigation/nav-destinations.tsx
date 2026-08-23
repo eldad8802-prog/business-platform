@@ -23,15 +23,17 @@ export type NavDestination = {
   primary?: boolean;
 };
 
-/** Active-route test — shared by every nav surface. Mirrors the bottom bar:
- *  home ("/") is also active on the authenticated home route ("/app"). */
+/** Active-route test — shared by every nav surface. The authenticated home is
+ *  "/app"; "/" is also treated as home for the brief pre-redirect moment on
+ *  non-primary hosts (on the primary domain "/" is the public site and never
+ *  shows the app nav). */
 export function isNavActive(pathname: string, href: string): boolean {
-  if (href === "/") return pathname === "/" || pathname === "/app";
+  if (href === "/app") return pathname === "/app" || pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 export const NAV_DESTINATIONS: NavDestination[] = [
-  { key: "home", label: "בית", href: "/", icon: IconHome, primary: true },
+  { key: "home", label: "בית", href: "/app", icon: IconHome, primary: true },
   { key: "chats", label: "שיחות", href: "/inbox", icon: IconChat, primary: true },
   { key: "docs", label: "מסמכים", href: "/documents", icon: IconDocs, primary: true },
   { key: "inventory", label: "מלאי", href: "/inventory", icon: IconInventory, primary: true },
