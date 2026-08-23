@@ -315,7 +315,8 @@ async function isolationMatrix() {
       const res = await Promise.allSettled(Array.from({ length: N }, (_, i) => {
         const biz = i % 2 === 0 ? BIZ_A : BIZ_B;
         return tenantTx(rolePooled, biz, async (tx) => {
-          await tx.$queryRaw`SELECT pg_sleep(0.03)`;
+          // $executeRawUnsafe: pg_sleep returns void; $queryRaw can't deserialize it.
+          await tx.$executeRawUnsafe("SELECT pg_sleep(0.03)");
           const got = (await tx.$queryRaw`SELECT current_setting(${GUC}, true) AS v`)[0].v;
           const seen = Number((await tx.$queryRawUnsafe("SELECT count(*)::int AS c FROM " + LAB + ".p4_customer"))[0].c);
           return { want: String(biz), got, seen };
