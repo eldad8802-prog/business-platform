@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useAccessibleDialog } from "@/components/ui/use-accessible-dialog";
 import { TOKEN } from "@/lib/design/tokens";
 import { WA_COPY } from "./wa-copy";
 import { IconPower } from "./wa-icons";
@@ -24,22 +24,17 @@ export function WhatsAppDisconnectDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !busy) onCancel();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [busy, onCancel]);
-
   const c = WA_COPY.disconnect;
+  const dialogRef = useAccessibleDialog<HTMLDivElement>({
+    isOpen: true,
+    onClose: () => {
+      if (!busy) onCancel();
+    },
+  });
 
   return (
     <div
       dir="rtl"
-      role="dialog"
-      aria-modal="true"
-      aria-label={c.title}
       onClick={onCancel}
       style={{
         position: "fixed",
@@ -52,6 +47,10 @@ export function WhatsAppDisconnectDialog({
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={c.title}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "100%",

@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState, type ComponentProps } from "react";
 import { Scanner } from "@yudiel/react-qr-scanner";
-import { useModalDismiss } from "@/components/inventory/use-modal-dismiss";
+import { useAccessibleDialog } from "@/components/ui/use-accessible-dialog";
 import BackButton from "@/components/ui/back-button";
 
 /**
@@ -104,7 +104,7 @@ function BarcodeScannerBody({
   const lastCodeRef = useRef<string | null>(null);
   const lastTimeRef = useRef(0);
 
-  useModalDismiss({ isOpen: true, onClose });
+  const dialogRef = useAccessibleDialog<HTMLDivElement>({ isOpen: true, onClose });
 
   const accept = useCallback(
     (raw: string, { fromManual = false }: { fromManual?: boolean } = {}) => {
@@ -169,6 +169,10 @@ function BarcodeScannerBody({
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="סורק ברקוד"
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "100%",

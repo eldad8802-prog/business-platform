@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createInventoryMovement } from "@/lib/api/inventory";
+import { useAccessibleDialog } from "@/components/ui/use-accessible-dialog";
 
 type Mode = "ADD" | "REMOVE";
 
@@ -84,6 +85,13 @@ export default function MovementModal({
     return () => window.removeEventListener("keydown", handleEscape);
   }, [open, loading, onClose]);
 
+  // Called unconditionally (before the early return) per rules-of-hooks; only
+  // activates the trap/scroll-lock while the modal is actually open.
+  const dialogRef = useAccessibleDialog<HTMLDivElement>({
+    isOpen: open && itemId !== null,
+    onClose,
+  });
+
   if (!open || itemId === null) {
     return null;
   }
@@ -144,6 +152,10 @@ export default function MovementModal({
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="movement-modal-title"
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "100%",
@@ -165,7 +177,7 @@ export default function MovementModal({
           }}
         >
           <div>
-            <div style={{ fontSize: "17px", fontWeight: 600, color: "var(--inv-text)" }}>
+            <div id="movement-modal-title" style={{ fontSize: "17px", fontWeight: 600, color: "var(--inv-text)" }}>
               {mode === "ADD" ? "הוספת מלאי" : "הפחתת מלאי"}
             </div>
 
