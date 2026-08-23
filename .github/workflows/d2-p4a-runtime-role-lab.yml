@@ -1,27 +1,30 @@
 # D2 / P4-A — Real Neon non-bypass role lab (PREVIEW ONLY)
 #
-# Gate A: prove — firsthand, without printing a secret — that Preview
-#         DATABASE_URL / DIRECT_URL resolve to the Preview Neon endpoint only.
-# Gate B: provision a dedicated non-bypass LOGIN role + isolated p4_runtime_lab
-#         schema on that endpoint, then run the tenant-isolation battery through a
-#         connection that authenticates DIRECTLY as the role (Option A), and tear
-#         it all down.
+# Connection bootstrap: the existing repo secret NEON_API_KEY is used INSIDE the
+# runner ONLY to (a) verify the exact Preview target identity and (b) fetch an
+# owner connection URI for that target (provisioning + teardown). No DATABASE_URL
+# / DIRECT_URL GitHub secret is required or created. Nothing is printed but
+# endpoint id / role / database / sanitized results.
+#
+# Gate A: identity — verify project/branch/endpoint/database via the Neon API and
+#         enforce the allowlist. No connection URI is fetched here.
+# Gate B: fetch owner URI (API) -> provision role p4_runtime_lab + p4_runtime_lab
+#         schema -> run the tenant-isolation battery through a client that
+#         authenticates DIRECTLY as the role (Option A) -> teardown.
 #
 # Safety contract (enforced by this file):
-#   - environment: preview-db  -> secrets scoped to this environment only.
-#   - Gate A is pure string parsing. No checkout, no npm, no psql, no network.
-#   - Hard allowlist: ep-wispy-dawn-amr74bwz. Hard deny: ep-flat-brook-am4bhq1y
-#     (Production) + ep-winter-bread-ami5o8p5. Anything else -> FAIL CLOSED.
-#   - Gate B re-asserts identity in-process before constructing any client.
-#   - Only schema p4_runtime_lab + role p4_runtime_lab are created; every object
-#     is p4_runtime_lab.p4_*. No writes to public. No app data. No PII.
-#   - app_runtime is never referenced. No Legacy Web Access change.
-#   - Teardown (DROP SCHEMA CASCADE + DROP ROLE) runs in the battery's finally and
-#     again in an always() safety-net step; residue is verified to be 0.
-#   - Standard Prisma path only. @prisma/adapter-neon is NOT adopted.
-#
-# Nothing echoes DATABASE_URL / DIRECT_URL / a password / a connection string.
-# Only endpoint id / pooled-direct / database name / sanitized results are printed.
+#   - Hard allowlist endpoint ep-wispy-dawn-amr74bwz / branch br-red-scene-amth33qx
+#     / project orange-shape-16620903 / db neondb. Hard deny ep-flat-brook-am4bhq1y
+#     + ep-winter-bread-ami5o8p5. Any mismatch -> FAIL CLOSED.
+#   - NEON_API_KEY and every connection URI are masked; never echoed; never written
+#     to a tracked file or artifact.
+#   - Neon API is used ONLY for identity lookup + connection-uri retrieval. No
+#     project/branch/endpoint/role/config mutation via the API.
+#   - Only schema p4_runtime_lab + role p4_runtime_lab are created (via SQL, as
+#     owner); every object is p4_runtime_lab.p4_*. No writes to public. No PII.
+#   - app_runtime never referenced. No Legacy Web Access change. No new branch.
+#   - Teardown (DROP SCHEMA CASCADE + DROP ROLE) in battery finally + always() net;
+#     residue verified 0. Standard Prisma only; @prisma/adapter-neon NOT adopted.
 
 name: d2/p4a — runtime role lab (preview only)
 
@@ -39,6 +42,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  NEON_BASE: https://console.neon.tech/api/v2
+  P4_PROJECT_ID: orange-shape-16620903
+  P4_BRANCH_ID: br-red-scene-amth33qx
   P4_EXPECT_ENDPOINT: ep-wispy-dawn-amr74bwz
   P4_EXPECT_DB: neondb
   P4_EXPECT_HOST_SUFFIX: us-east-1.aws.neon.tech
@@ -46,59 +52,58 @@ env:
 
 jobs:
   gate_a_identity:
-    name: Gate A — Preview endpoint identity (no DB access)
+    name: Gate A — Preview target identity (Neon API lookup, no connection URI)
     runs-on: ubuntu-latest
-    environment: preview-db
     timeout-minutes: 5
     outputs:
-      gate_a: ${{ steps.parse.outputs.gate_a }}
+      gate_a: ${{ steps.verify.outputs.gate_a }}
     steps:
-      - name: Parse hostnames in memory and enforce allowlist (no network)
-        id: parse
+      - name: Verify project/branch/endpoint/database via Neon API
+        id: verify
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${DATABASE_URL:-}" ] || [ -z "${DIRECT_URL:-}" ]; then
-            echo "::error::preview-db environment is missing DATABASE_URL and/or DIRECT_URL."
-            exit 1
-          fi
-          parse_host() { local u="$1"; u="${u#*://}"; u="${u##*@}"; local hp="${u%%/*}"; printf '%s' "${hp%%:*}"; }
-          parse_db()   { local u="$1"; u="${u#*://}"; u="${u##*@}"; case "$u" in */*) u="${u#*/}";; *) u="";; esac; u="${u%%\?*}"; printf '%s' "$u"; }
-          classify()   { local h="$1" first ep pooled; first="${h%%.*}"; case "$first" in *-pooler) ep="${first%-pooler}"; pooled="pooled";; *) ep="$first"; pooled="direct";; esac; printf '%s %s' "$ep" "$pooled"; }
+          if [ -z "${NEON_API_KEY:-}" ]; then echo "::error::repo secret NEON_API_KEY is missing"; exit 1; fi
+          api() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "$1"; }
 
-          DB_HOST="$(parse_host "$DATABASE_URL")"; DB_NAME="$(parse_db "$DATABASE_URL")"
-          DR_HOST="$(parse_host "$DIRECT_URL")";   DR_NAME="$(parse_db "$DIRECT_URL")"
-          read -r DB_EP DB_MODE <<< "$(classify "$DB_HOST")"
-          read -r DR_EP DR_MODE <<< "$(classify "$DR_HOST")"
-          echo "DATABASE_URL -> endpoint=${DB_EP} mode=${DB_MODE} database=${DB_NAME}"
-          echo "DIRECT_URL   -> endpoint=${DR_EP} mode=${DR_MODE} database=${DR_NAME}"
+          # Hard-coded expected identity. Anything else -> fail closed.
+          EID="${P4_EXPECT_ENDPOINT}"; BID="${P4_BRANCH_ID}"; PID="${P4_PROJECT_ID}"; DB="${P4_EXPECT_DB}"
+          for d in ${P4_DENY_ENDPOINTS}; do
+            if [ "$EID" = "$d" ]; then echo "::error::expected endpoint is a DENY endpoint"; exit 1; fi
+          done
+
+          proj=$(api "${NEON_BASE}/projects/${PID}")
+          region=$(printf '%s' "$proj" | jq -r '.project.region_id')
+          br=$(api "${NEON_BASE}/projects/${PID}/branches/${BID}")
+          br_id=$(printf '%s' "$br" | jq -r '.branch.id')
+          ep=$(api "${NEON_BASE}/projects/${PID}/endpoints/${EID}")
+          ep_id=$(printf '%s' "$ep" | jq -r '.endpoint.id')
+          ep_branch=$(printf '%s' "$ep" | jq -r '.endpoint.branch_id')
+          ep_host=$(printf '%s' "$ep" | jq -r '.endpoint.host')
+
+          echo "project=${PID} region=${region}"
+          echo "branch=${br_id} endpoint=${ep_id} endpoint_branch=${ep_branch}"
+          echo "endpoint_host=${ep_host}"
 
           fail=0
-          for denied in ${P4_DENY_ENDPOINTS}; do
-            if [ "$DB_EP" = "$denied" ] || [ "$DR_EP" = "$denied" ]; then
-              echo "::error::HARD DENY hit: ${denied}."; fail=1
-            fi
-          done
-          [ "$DB_EP" = "${P4_EXPECT_ENDPOINT}" ] || { echo "::error::DATABASE_URL endpoint ${DB_EP} != ${P4_EXPECT_ENDPOINT}"; fail=1; }
-          [ "$DR_EP" = "${P4_EXPECT_ENDPOINT}" ] || { echo "::error::DIRECT_URL endpoint ${DR_EP} != ${P4_EXPECT_ENDPOINT}"; fail=1; }
-          case "$DB_HOST" in *"${P4_EXPECT_HOST_SUFFIX}") : ;; *) echo "::error::DATABASE_URL region suffix mismatch"; fail=1 ;; esac
-          case "$DR_HOST" in *"${P4_EXPECT_HOST_SUFFIX}") : ;; *) echo "::error::DIRECT_URL region suffix mismatch"; fail=1 ;; esac
-          [ "$DB_NAME" = "${P4_EXPECT_DB}" ] || { echo "::error::DATABASE_URL database ${DB_NAME} != ${P4_EXPECT_DB}"; fail=1; }
-          [ "$DR_NAME" = "${P4_EXPECT_DB}" ] || { echo "::error::DIRECT_URL database ${DR_NAME} != ${P4_EXPECT_DB}"; fail=1; }
+          [ "$br_id" = "$BID" ] || { echo "::error::branch id mismatch"; fail=1; }
+          [ "$ep_id" = "$EID" ] || { echo "::error::endpoint id mismatch"; fail=1; }
+          [ "$ep_branch" = "$BID" ] || { echo "::error::endpoint not on expected branch"; fail=1; }
+          case "$ep_host" in *"${P4_EXPECT_HOST_SUFFIX}") : ;; *) echo "::error::endpoint host region suffix mismatch"; fail=1 ;; esac
+          case "$ep_host" in ${EID}.*) : ;; *) echo "::error::endpoint host does not start with expected endpoint id"; fail=1 ;; esac
+          case "$region" in *us-east-1*) : ;; *) echo "::error::project region is not us-east-1"; fail=1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "$ep_host" in *"$d"*) echo "::error::DENY endpoint present"; fail=1 ;; esac; done
 
-          if [ "$fail" -ne 0 ]; then echo "gate_a=FAIL" >> "$GITHUB_OUTPUT"; echo "::error::GATE A = FAIL — FAIL CLOSED before any DB connection."; exit 1; fi
-          echo "gate_a=PASS" >> "$GITHUB_OUTPUT"
-          echo "GATE A = PASS"
+          if [ "$fail" -ne 0 ]; then echo "gate_a=FAIL" >> "$GITHUB_OUTPUT"; echo "::error::GATE A = FAIL"; exit 1; fi
+          echo "gate_a=PASS" >> "$GITHUB_OUTPUT"; echo "GATE A = PASS"
 
   gate_b_p4a:
     name: Gate B — P4-A role lab (p4_runtime_lab)
     needs: gate_a_identity
     if: needs.gate_a_identity.outputs.gate_a == 'PASS'
     runs-on: ubuntu-latest
-    environment: preview-db
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -110,20 +115,43 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Sanity-check battery syntax
         run: node --check .p4a/battery.mjs
-      - name: Run P4-A battery (authenticates DIRECTLY as the non-bypass role)
+
+      - name: Fetch owner URI (Neon API) + run P4-A battery
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DIRECT_URL: ${{ secrets.DIRECT_URL }}
-          P4_EXPECT_ENDPOINT: ${{ env.P4_EXPECT_ENDPOINT }}
-          P4_EXPECT_DB: ${{ env.P4_EXPECT_DB }}
-          P4_EXPECT_HOST_SUFFIX: ${{ env.P4_EXPECT_HOST_SUFFIX }}
-          P4_DENY_ENDPOINTS: ${{ env.P4_DENY_ENDPOINTS }}
-        run: node .p4a/battery.mjs
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          api() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "$1"; }
+          get_uri() {  # $1 = pooled(true|false)
+            api "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=$1" | jq -r '.uri'
+          }
+          DBP="$(get_uri true)"; DBD="$(get_uri false)"
+          # Mask immediately — belt and braces (they are never echoed regardless).
+          echo "::add-mask::${DBP}"; echo "::add-mask::${DBD}"
+          [ -n "${DBP}" ] && [ "${DBP}" != "null" ] || { echo "::error::empty pooled owner URI"; exit 1; }
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || { echo "::error::empty direct owner URI"; exit 1; }
+          # Identity re-assert on the URIs (host must be the expected endpoint; deny prod).
+          for u in "${DBP}" "${DBD}"; do
+            case "$u" in *"${P4_EXPECT_ENDPOINT}"*"${P4_EXPECT_HOST_SUFFIX}"*) : ;; *) echo "::error::owner URI is not the expected Preview endpoint"; exit 1 ;; esac
+            for d in ${P4_DENY_ENDPOINTS}; do case "$u" in *"$d"*) echo "::error::owner URI hits a DENY endpoint"; exit 1 ;; esac; done
+          done
+          DATABASE_URL="${DBP}" DIRECT_URL="${DBD}" \
+          P4_EXPECT_ENDPOINT="${P4_EXPECT_ENDPOINT}" P4_EXPECT_DB="${P4_EXPECT_DB}" \
+          P4_EXPECT_HOST_SUFFIX="${P4_EXPECT_HOST_SUFFIX}" P4_DENY_ENDPOINTS="${P4_DENY_ENDPOINTS}" \
+          node .p4a/battery.mjs
+
       - name: Teardown safety net (always)
         if: always()
         env:
-          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
         run: |
+          set -euo pipefail
+          DBD="$(curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri')"
+          echo "::add-mask::${DBD}"
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || { echo "no owner URI for teardown"; exit 0; }
+          case "${DBD}" in *"${P4_EXPECT_ENDPOINT}"*) : ;; *) echo "::error::teardown URI endpoint mismatch"; exit 1 ;; esac
           mkdir -p .p4a
           cat > .p4a/teardown.mjs <<'TD_EOF'
           import { PrismaClient } from '@prisma/client';
@@ -136,4 +164,4 @@ jobs:
           await c.$disconnect();
           if (r[0].lab !== 0 || r[0].role !== 0 || r[0].rel !== 0) process.exit(1);
           TD_EOF
-          node .p4a/teardown.mjs
+          DIRECT_URL="${DBD}" node .p4a/teardown.mjs
