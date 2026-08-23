@@ -22,7 +22,7 @@ const EXPECT_ENDPOINT = process.env.P4_EXPECT_ENDPOINT;
 const EXPECT_DB = process.env.P4_EXPECT_DB;
 const SUFFIX = process.env.P4_EXPECT_HOST_SUFFIX;
 const DENY = (process.env.P4_DENY_ENDPOINTS || "").split(/\s+/).filter(Boolean);
-const ROLE = "app_runtime_preview";
+const ROLE = "app_runtime_preview_p4b"; // fresh, never drop-recreated (Neon pooler caches role OID)
 const GUC = "app.current_business_id";
 
 const R = {};
@@ -313,7 +313,7 @@ const report = [
   L("PGBOUNCER=true", R.PGBOUNCER_REQUIRED || "UNRESOLVED"),
   L("SYNTHETIC RESIDUE", R.SYNTHETIC_RESIDUE || "FAILURE"),
   L("COLLATERAL (pilot totals)", R._collateral || "?"),
-  L("PERSISTENT PREVIEW MUTATIONS", "role app_runtime_preview + least-privilege grants + FORCE RLS(p4b_tenant) on " + PILOT.join(",")),
+  L("PERSISTENT PREVIEW MUTATIONS", "role " + ROLE + " + least-privilege grants + FORCE RLS(p4b_tenant) on " + PILOT.join(",")),
   L("PRODUCTION TOUCHED", "NO"),
   L("P4-B STEPS 1-5", R.STEPS),
 ];

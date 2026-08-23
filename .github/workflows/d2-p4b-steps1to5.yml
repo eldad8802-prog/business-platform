@@ -142,21 +142,22 @@ jobs:
           cat > .p4b/rollback.mjs <<'TD_EOF'
           import { PrismaClient } from '@prisma/client';
           const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
-          const R = 'app_runtime_preview';
+          const R = 'app_runtime_preview_p4b';
           for (const t of ['Customer','BillingDocument','PaymentRequest','Conversation','Appointment']) {
             try { await c.$executeRawUnsafe('DROP POLICY IF EXISTS p4b_tenant ON "' + t + '"'); } catch {}
             try { await c.$executeRawUnsafe('ALTER TABLE "' + t + '" NO FORCE ROW LEVEL SECURITY'); } catch {}
             try { await c.$executeRawUnsafe('ALTER TABLE "' + t + '" DISABLE ROW LEVEL SECURITY'); } catch {}
           }
+          // Revoke grants but DO NOT drop the role — dropping+recreating the same name
+          // pollutes Neon's pooler OID cache. A dormant NOBYPASSRLS role with no grants
+          // is effectively pre-P4-B; it is reused (password-rotated) on the next run.
           const exists = Number((await c.$queryRawUnsafe("SELECT count(*)::int AS c FROM pg_roles WHERE rolname='" + R + "'"))[0].c) > 0;
           if (exists) {
-            for (const s of ['REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM ' + R, 'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM ' + R, 'REVOKE ALL PRIVILEGES ON SCHEMA public FROM ' + R, 'REVOKE ALL PRIVILEGES ON DATABASE neondb FROM ' + R]) { try { await c.$executeRawUnsafe(s); } catch {} }
-            try { await c.$executeRawUnsafe('DROP OWNED BY ' + R); } catch {}
-            try { await c.$executeRawUnsafe('DROP ROLE IF EXISTS ' + R); } catch {}
+            for (const s of ['REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM ' + R, 'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM ' + R, 'REVOKE ALL PRIVILEGES ON SCHEMA public FROM ' + R]) { try { await c.$executeRawUnsafe(s); } catch {} }
           }
-          const r = await c.$queryRaw`SELECT (SELECT count(*)::int FROM pg_roles WHERE rolname='app_runtime_preview') AS role, (SELECT count(*)::int FROM pg_policies WHERE policyname='p4b_tenant') AS pol`;
-          console.log('[rollback] role=' + r[0].role + ' p4b_policies=' + r[0].pol);
+          const r = await c.$queryRaw`SELECT (SELECT count(*)::int FROM pg_policies WHERE policyname='p4b_tenant') AS pol, (SELECT count(*)::int FROM "Business" WHERE name LIKE 'p4b-%') AS biz`;
+          console.log('[rollback] p4b_policies=' + r[0].pol + ' p4b_business=' + r[0].biz + ' (role kept dormant, grants revoked)');
           await c.$disconnect();
-          if (r[0].role !== 0 || r[0].pol !== 0) process.exit(1);
+          if (r[0].pol !== 0) process.exit(1);
           TD_EOF
           DIRECT_URL="${DBD}" node .p4b/rollback.mjs
