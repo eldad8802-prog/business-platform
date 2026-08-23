@@ -446,7 +446,7 @@ export async function GET(req: Request) {
             const tenant = 600000 + width * 1000 + i;
             const marker = String(tenant);
             await tx.$queryRaw`SELECT set_config(${GUC}, ${marker}, true)`;
-            await tx.$queryRaw`SELECT pg_sleep(0.03)`;
+            await tx.$queryRaw`SELECT pg_sleep(0.03)::text AS slept`;
             await tx.$executeRawUnsafe(
               `INSERT INTO ${LAB}.p3_probe (p3_marker, p3_tenant) VALUES ('p3-conc-${width}-${i}', ${tenant})`,
             );
