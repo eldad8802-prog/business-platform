@@ -19,10 +19,14 @@ name: d2/p7 — wave 1 preview apply+proof (neon)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [feat/d2-p7-wave1]
-    paths:
-      - ".p7w1/preview-apply.trigger"
+    inputs:
+      verify_only:
+        description: "READ-ONLY substrate verification (no apply, no fixtures, no runtime session)"
+        type: boolean
+        default: false
+  # push trigger disarmed post-apply (P4-B pattern): the Wave-1 substrate is
+  # applied+proven; the transient W1_RUNTIME_URL secret is deleted. Once this
+  # workflow lands on main, workflow_dispatch (incl. verify_only) is available.
 
 permissions:
   contents: read
@@ -92,24 +96,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [ -n "${W1_RUNTIME_URL:-}" ] || { echo "::error::W1_RUNTIME_URL missing (transient secret not set)"; exit 1; }
-          echo "::add-mask::${W1_RUNTIME_URL}"
+          VERIFY_ONLY="${{ inputs.verify_only && '1' || '' }}"
+          [ -n "${W1_RUNTIME_URL:-}" ] || [ "${VERIFY_ONLY}" = "1" ] || { echo "::error::W1_RUNTIME_URL missing (transient secret not set)"; exit 1; }
+          [ -z "${W1_RUNTIME_URL:-}" ] || echo "::add-mask::${W1_RUNTIME_URL}"
           uri() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=$1" | jq -r '.uri'; }
           DBP="$(uri true)"; DBD="$(uri false)"
           echo "::add-mask::${DBP}"; echo "::add-mask::${DBD}"
-          for u in "${DBP}" "${DBD}" "${W1_RUNTIME_URL}"; do
+          for u in "${DBP}" "${DBD}" ${W1_RUNTIME_URL:+"${W1_RUNTIME_URL}"}; do
             [ -n "$u" ] && [ "$u" != "null" ] || { echo "::error::empty URI"; exit 1; }
             case "$u" in *"${P4_EXPECT_ENDPOINT}"*) : ;; *) echo "::error::URI endpoint mismatch"; exit 1 ;; esac
             for d in ${P4_DENY_ENDPOINTS}; do case "$u" in *"$d"*) echo "::error::URI DENY"; exit 1 ;; esac; done
           done
-          BATTERY_TARGET=neon \
+          BATTERY_TARGET=neon W1_VERIFY_ONLY="${VERIFY_ONLY}" \
           DATABASE_URL="${DBP}" DIRECT_URL="${DBD}" \
-          RUNTIME_URL="${W1_RUNTIME_URL}" RUNTIME_ROLE=app_runtime_preview_p4b \
+          RUNTIME_URL="${W1_RUNTIME_URL:-}" RUNTIME_ROLE=app_runtime_preview_p4b \
           STORAGE_PROVIDER=local LOCAL_STORAGE_ROOT=/tmp/p7w1-storage \
           npx tsx .p7w1/battery.mjs
 
       - name: Fixtures cleanup net (always — marker-based backstop)
-        if: always()
+        if: always() && !inputs.verify_only
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
         shell: bash
@@ -136,7 +141,7 @@ jobs:
           DIRECT_URL="${DBD}" node .p7w1/fixnet.gen.mjs || true
 
       - name: Rollback on failure (restore pre-Wave-1 posture)
-        if: failure()
+        if: failure() && !inputs.verify_only
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
         shell: bash

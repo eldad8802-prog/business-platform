@@ -56,11 +56,13 @@ function assertEndpointSafety(url, label) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const VERIFY_ONLY = process.env.W1_VERIFY_ONLY === "1";
+
 async function main() {
   if (!process.env.DIRECT_URL) throw new Error("DIRECT_URL missing");
-  if (!RUNTIME_URL) throw new Error("RUNTIME_URL missing");
+  if (!RUNTIME_URL && !VERIFY_ONLY) throw new Error("RUNTIME_URL missing");
   assertEndpointSafety(process.env.DIRECT_URL, "DIRECT_URL");
-  assertEndpointSafety(RUNTIME_URL, "RUNTIME_URL");
+  if (RUNTIME_URL) assertEndpointSafety(RUNTIME_URL, "RUNTIME_URL");
 
   const owner = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
   await owner.$queryRaw`SELECT 1`;
@@ -94,6 +96,9 @@ async function main() {
     const colCount = Number((await owner.$queryRawUnsafe(
       `SELECT count(*)::int AS c FROM information_schema.columns WHERE table_name='Business' AND column_name='deletionRequestedAt'`
     ))[0].c);
+    if (colCount === 0 && VERIFY_ONLY) {
+      throw new Error("verify-only: schema catch-up pending — run the full apply mode first");
+    }
     if (colCount === 0) {
       await owner.$executeRawUnsafe(`ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "deletionRequestedAt" TIMESTAMP(3)`);
       await owner.$executeRawUnsafe(`ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "deletedAt" TIMESTAMP(3)`);
@@ -101,6 +106,30 @@ async function main() {
     } else {
       console.log("[catch-up] Business deletion-lifecycle columns already present");
     }
+  }
+
+  // READ-ONLY substrate verification (post-merge closure checks): pre-state
+  // above already proved drift-free policies, pilot intactness and role
+  // posture. Here we only COUNT — no apply, no fixtures, no runtime session.
+  if (VERIFY_ONLY) {
+    const w1 = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w1_tenant'`))[0].c);
+    ok("verify-only: 13 Wave-1 policies present", w1 === 13, `found ${w1}`);
+    const forcedV = Number((await owner.$queryRawUnsafe(
+      `SELECT count(*)::int AS c FROM pg_class WHERE relname = ANY(ARRAY[${WAVE1_TABLES.map((t) => `'${t}'`).join(",")}]) AND relrowsecurity AND relforcerowsecurity`
+    ))[0].c);
+    ok("verify-only: 13 tables ENABLE+FORCE", forcedV === 13, `found ${forcedV}`);
+    const resV = await owner.$queryRawUnsafe(
+      `SELECT (SELECT count(*)::int FROM "Business" WHERE name LIKE '${MARK}%') AS biz,
+              (SELECT count(*)::int FROM "User" WHERE email LIKE '%@p7w1.test') AS usr`
+    );
+    ok("verify-only: synthetic residue = 0", Number(resV[0].biz) === 0 && Number(resV[0].usr) === 0, JSON.stringify(resV[0]));
+    const grantSel = (await owner.$queryRawUnsafe(`SELECT has_table_privilege('${ROLE}', '"BusinessObligation"', 'SELECT') AS a, has_table_privilege('${ROLE}', '"Task"', 'SELECT') AS b`))[0];
+    ok("verify-only: grants posture (obligation=yes, Task=no)", grantSel.a === true && grantSel.b === false, JSON.stringify(grantSel));
+    await owner.$disconnect();
+    console.log(`\n[battery] target=${TARGET} mode=verify-only PASS=${pass} FAIL=${fail}`);
+    if (fail > 0) { console.log("FAILURES:\n - " + failures.join("\n - ")); process.exit(1); }
+    console.log("ALL CHECKS PASS");
+    return;
   }
 
   // ---------- Phase 2 (pg only): create lab runtime role ----------
