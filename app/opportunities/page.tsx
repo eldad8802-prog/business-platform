@@ -557,8 +557,8 @@ export default function OpportunitiesPage() {
             <div>
               <h1 style={titleStyle}>שיתופי פעולה</h1>
               <p style={subtitleStyle}>
-                שכבה 1 — הזדמנויות לפעולה. כאן תראה פעולות עסקיות שהמערכת
-                זיהתה עבורך ויכולות לייצר לך הכנסה נוספת בצורה פשוטה ומהירה.
+                הזדמנויות לפעולה — פעולות עסקיות שהמערכת זיהתה עבורך,
+                שיכולות לייצר לך הכנסה נוספת בצורה פשוטה ומהירה.
               </p>
             </div>
 
@@ -594,7 +594,7 @@ export default function OpportunitiesPage() {
           <div style={emptyStyle}>טוען שיתופי פעולה...</div>
         ) : (
           <>
-            <h2 style={sectionTitleStyle}>שכבה 2 — פעולות מדורגות</h2>
+            <h2 style={sectionTitleStyle}>פעולות מדורגות</h2>
 
             {activeDeals.length === 0 ? (
               <div style={emptyStyle}>
