@@ -85,6 +85,22 @@ async function main() {
       throw new Error(`DRIFT: runtime role posture unexpected: ${JSON.stringify(posture)} — STOP`);
     }
     console.log("[pre-state] pilot substrate intact (5 policies), role posture verified NOBYPASSRLS");
+
+    // Schema catch-up: the Preview branch DB predates main's additive
+    // account-deletion migration (20260823120000). The current Prisma client
+    // writes Business.deletionRequestedAt on create, so ANY current-main
+    // runtime against this DB fails P2022 (pre-existing env drift; Wave 1
+    // merely exposes it). Apply the canonical migration idempotently.
+    const colCount = Number((await owner.$queryRawUnsafe(
+      `SELECT count(*)::int AS c FROM information_schema.columns WHERE table_name='Business' AND column_name='deletionRequestedAt'`
+    ))[0].c);
+    if (colCount === 0) {
+      await owner.$executeRawUnsafe(`ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "deletionRequestedAt" TIMESTAMP(3)`);
+      await owner.$executeRawUnsafe(`ALTER TABLE "Business" ADD COLUMN IF NOT EXISTS "deletedAt" TIMESTAMP(3)`);
+      console.log("[catch-up] applied pending canonical migration add_business_deletion_lifecycle (additive, nullable)");
+    } else {
+      console.log("[catch-up] Business deletion-lifecycle columns already present");
+    }
   }
 
   // ---------- Phase 2 (pg only): create lab runtime role ----------
