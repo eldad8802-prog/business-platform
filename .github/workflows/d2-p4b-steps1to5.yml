@@ -10,10 +10,7 @@
 name: d2/p4b — steps 1-5 (preview only)
 
 on:
-  workflow_dispatch:
-  push:
-    branches:
-      - feat/d2-p4b-integration
+  workflow_dispatch:   # push trigger removed for Step 6 — re-running Steps 1-5 would rotate the runtime password
 
 permissions:
   contents: read

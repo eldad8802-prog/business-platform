@@ -1,0 +1,77 @@
+# D2 / P4-B Step 6 prep — pre-cutover revalidation + runtime password rotation (PREVIEW ONLY)
+#
+# workflow_dispatch only. Revalidates the persistent Step-5 substrate (role posture,
+# pilot RLS policies, endpoint identity) and rotates the runtime role password to the
+# value in the transient secret P4B_RUNTIME_PW (masked; never printed). No Vercel
+# change, no fixtures, no RLS change. The OID is preserved (ALTER, not recreate).
+
+name: d2/p4b — step6 prep (revalidate + rotate password)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NEON_BASE: https://console.neon.tech/api/v2
+  P4_PROJECT_ID: orange-shape-16620903
+  P4_BRANCH_ID: br-red-scene-amth33qx
+  P4_EXPECT_ENDPOINT: ep-wispy-dawn-amr74bwz
+  P4_EXPECT_DB: neondb
+  P4_EXPECT_HOST_SUFFIX: us-east-1.aws.neon.tech
+  P4_DENY_ENDPOINTS: ep-flat-brook-am4bhq1y ep-winter-bread-ami5o8p5
+  ROLE: app_runtime_preview_p4b
+
+jobs:
+  prep:
+    name: Revalidate + rotate password
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Revalidate substrate + rotate runtime password
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          P4B_RUNTIME_PW: ${{ secrets.P4B_RUNTIME_PW }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${NEON_API_KEY:-}" ] || { echo "::error::NEON_API_KEY missing"; exit 1; }
+          [ -n "${P4B_RUNTIME_PW:-}" ] || { echo "::error::P4B_RUNTIME_PW missing"; exit 1; }
+          echo "::add-mask::${P4B_RUNTIME_PW}"
+          api() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "$1"; }
+          # Identity revalidation.
+          ep=$(api "${NEON_BASE}/projects/${P4_PROJECT_ID}/endpoints/${P4_EXPECT_ENDPOINT}")
+          ep_id=$(printf '%s' "$ep" | jq -r '.endpoint.id'); ep_host=$(printf '%s' "$ep" | jq -r '.endpoint.host')
+          [ "$ep_id" = "${P4_EXPECT_ENDPOINT}" ] || { echo "::error::endpoint drift"; exit 1; }
+          case "$ep_host" in *"${P4_EXPECT_HOST_SUFFIX}") : ;; *) echo "::error::host drift"; exit 1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "$ep_host" in *"$d"*) echo "::error::DENY"; exit 1 ;; esac; done
+          DBD="$(api "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri')"
+          echo "::add-mask::${DBD}"
+          mkdir -p .p4b
+          cat > .p4b/prep.mjs <<'PREP_EOF'
+          import { PrismaClient } from '@prisma/client';
+          const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
+          const ROLE = process.env.ROLE, PW = process.env.P4B_RUNTIME_PW;
+          const a = await c.$queryRawUnsafe("SELECT rolcanlogin, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb FROM pg_roles WHERE rolname='" + ROLE + "'");
+          if (!a.length) throw new Error('role ' + ROLE + ' missing — STOP');
+          const ns = Number((await c.$queryRawUnsafe("SELECT count(*)::int AS c FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.roleid JOIN pg_roles r ON r.oid=m.member WHERE r.rolname='" + ROLE + "' AND g.rolname='neon_superuser'"))[0].c);
+          const owns = Number((await c.$queryRawUnsafe("SELECT count(*)::int AS c FROM pg_tables WHERE tableowner='" + ROLE + "'"))[0].c);
+          const pol = Number((await c.$queryRawUnsafe("SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p4b_tenant'"))[0].c);
+          const posture = a[0].rolcanlogin === true && a[0].rolsuper === false && a[0].rolbypassrls === false && a[0].rolcreaterole === false && a[0].rolcreatedb === false && ns === 0 && owns === 0;
+          console.log('[revalidate] login=' + a[0].rolcanlogin + ' super=' + a[0].rolsuper + ' bypassrls=' + a[0].rolbypassrls + ' createrole=' + a[0].rolcreaterole + ' createdb=' + a[0].rolcreatedb + ' neon_superuser=' + ns + ' owns=' + owns + ' pilot_rls_policies=' + pol);
+          if (!posture) throw new Error('posture drift — STOP');
+          if (pol !== 5) throw new Error('expected 5 pilot RLS policies, found ' + pol + ' — STOP');
+          await c.$executeRawUnsafe("ALTER ROLE " + ROLE + " LOGIN PASSWORD '" + PW + "'");
+          console.log('[rotate] password rotated for ' + ROLE + ' (OID preserved)');
+          await c.$disconnect();
+          PREP_EOF
+          DIRECT_URL="${DBD}" ROLE="${ROLE}" P4B_RUNTIME_PW="${P4B_RUNTIME_PW}" node .p4b/prep.mjs
+          echo "PREP OK"
