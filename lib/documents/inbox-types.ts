@@ -65,8 +65,11 @@ export type InboxFinancialPulse = {
     recordCount: number;
   };
   inboxDocumentCounts: {
+    /** needs_review documents whose createdAt falls in the selected month. */
     pendingReview: number;
     approvedDocuments: number;
+    /** needs_review documents across ALL time (the backlog). Month-independent. */
+    totalPendingReview: number;
   };
 };
 

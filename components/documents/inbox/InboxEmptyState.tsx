@@ -1,6 +1,7 @@
 "use client";
 
 import { TOKEN } from "@/lib/design/documents-theme";
+import { emptyMonthCopy } from "@/lib/documents/backlog-view";
 
 export type InboxEmptyVariant =
   | "no_documents_month"
@@ -22,12 +23,30 @@ const COPY: Record<InboxEmptyVariant, { title: string; body: string }> = {
   },
 };
 
+/**
+ * Month-scoped title so an empty view never reads as a global claim (F-21).
+ * When a month name is provided we name it explicitly; the backlog banner
+ * (rendered separately) discloses any pending work in other months.
+ */
+function resolveTitle(
+  variant: InboxEmptyVariant,
+  monthName?: string
+): string {
+  const name = monthName?.trim();
+  if (!name) return COPY[variant].title;
+  if (variant === "no_pending") return emptyMonthCopy(name);
+  if (variant === "no_documents_month") return `אין מסמכים ב${name}`;
+  return `אין מסמכים מאושרים ב${name}`;
+}
+
 export default function InboxEmptyState({
   variant,
+  monthName,
 }: {
   variant: InboxEmptyVariant;
+  monthName?: string;
 }) {
-  const copy = COPY[variant];
+  const copy = { ...COPY[variant], title: resolveTitle(variant, monthName) };
   return (
     <section dir="rtl" style={emptyStyle}>
       <div style={iconStyle} aria-hidden>

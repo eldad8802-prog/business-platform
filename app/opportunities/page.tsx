@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
 import BackButton from "@/components/ui/back-button";
+import { DEALS_ERROR, resolveDealsOutcome } from "./deals-fetch-contract";
 
 type DealStatus = "NEW" | "ACCEPTED" | "DISMISSED";
 type DealActionType = "SEND_LEAD" | "COUPON" | "REFERRAL";
@@ -30,6 +31,26 @@ export default function OpportunitiesPage() {
   const [generating, setGenerating] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+
+  // Auth: this feature calls tenant-scoped APIs that authenticate via the
+  // stateless Bearer token (see lib/auth.ts). Read it the same way every other
+  // authenticated screen does, and fail closed to /login when it's missing or
+  // rejected — never surface a raw server "Unauthorized" as business data.
+  const readToken = (): string | null => {
+    try {
+      return typeof window !== "undefined"
+        ? localStorage.getItem("token")
+        : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const redirectToLogin = () => {
+    if (typeof window !== "undefined") {
+      window.location.replace(`${window.location.origin}/login`);
+    }
+  };
 
   const sortedDeals = useMemo(() => {
     return [...deals].sort((a, b) => {
@@ -60,22 +81,35 @@ export default function OpportunitiesPage() {
     try {
       setError("");
 
+      const token = readToken();
+      if (!token) {
+        redirectToLogin();
+        return [];
+      }
+
       const res = await fetch("/api/deals", {
         method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
         cache: "no-store",
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to fetch deals");
+      const outcome = resolveDealsOutcome("fetch", res);
+      if (outcome.kind === "unauthorized") {
+        redirectToLogin();
+        return [];
+      }
+      if (outcome.kind === "error") {
+        throw new Error(outcome.message);
       }
 
+      const data = await res.json();
       const normalizedDeals = Array.isArray(data) ? data : [];
       setDeals(normalizedDeals);
       return normalizedDeals;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch deals");
+      setError(err instanceof Error ? err.message : DEALS_ERROR.fetch);
       return [];
     }
   };
@@ -85,29 +119,40 @@ export default function OpportunitiesPage() {
       setGenerating(true);
       setError("");
 
+      const token = readToken();
+      if (!token) {
+        redirectToLogin();
+        return;
+      }
+
+      // The server derives the tenant from the authenticated user
+      // (user.businessId) and reads only category/subCategory from the body —
+      // it never trusts a client-supplied businessId.
       const res = await fetch("/api/deals/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          businessId: 1,
           category: "Beauty",
           subCategory: "Hair Salon",
         }),
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(
-          data?.details || data?.error || "Failed to generate deals"
-        );
+      const outcome = resolveDealsOutcome("generate", res);
+      if (outcome.kind === "unauthorized") {
+        redirectToLogin();
+        return;
+      }
+      if (outcome.kind === "error") {
+        throw new Error(outcome.message);
       }
 
+      const data = await res.json();
       setDeals(Array.isArray(data) ? data : []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate deals");
+      setError(err instanceof Error ? err.message : DEALS_ERROR.generate);
     } finally {
       setGenerating(false);
     }
@@ -121,27 +166,36 @@ export default function OpportunitiesPage() {
       setActionLoadingId(dealId);
       setError("");
 
+      const token = readToken();
+      if (!token) {
+        redirectToLogin();
+        return;
+      }
+
       const res = await fetch(`/api/deals/${dealId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ action }),
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(
-          data?.details || data?.error || "Failed to update deal"
-        );
+      const outcome = resolveDealsOutcome("update", res);
+      if (outcome.kind === "unauthorized") {
+        redirectToLogin();
+        return;
+      }
+      if (outcome.kind === "error") {
+        throw new Error(outcome.message);
       }
 
+      const data = await res.json();
       setDeals((prev) =>
         prev.map((deal) => (deal.id === dealId ? data : deal))
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update deal");
+      setError(err instanceof Error ? err.message : DEALS_ERROR.update);
     } finally {
       setActionLoadingId(null);
     }
@@ -150,13 +204,12 @@ export default function OpportunitiesPage() {
   useEffect(() => {
     const run = async () => {
       setLoading(true);
-
-      const existingDeals = await fetchDeals();
-
-      if (existingDeals.length === 0) {
-        await generateDeals();
-      }
-
+      // Load existing opportunities only. We intentionally do NOT auto-generate
+      // on an empty list: generation currently seeds from a hardcoded category
+      // (see generateDeals), so auto-running it would surface fabricated matches
+      // as real business data. The empty state offers an explicit generate
+      // action instead.
+      await fetchDeals();
       setLoading(false);
     };
 
@@ -504,8 +557,8 @@ export default function OpportunitiesPage() {
             <div>
               <h1 style={titleStyle}>שיתופי פעולה</h1>
               <p style={subtitleStyle}>
-                שכבה 1 — הזדמנויות לפעולה. כאן תראה פעולות עסקיות שהמערכת
-                זיהתה עבורך ויכולות לייצר לך הכנסה נוספת בצורה פשוטה ומהירה.
+                הזדמנויות לפעולה — פעולות עסקיות שהמערכת זיהתה עבורך,
+                שיכולות לייצר לך הכנסה נוספת בצורה פשוטה ומהירה.
               </p>
             </div>
 
@@ -541,7 +594,7 @@ export default function OpportunitiesPage() {
           <div style={emptyStyle}>טוען שיתופי פעולה...</div>
         ) : (
           <>
-            <h2 style={sectionTitleStyle}>שכבה 2 — פעולות מדורגות</h2>
+            <h2 style={sectionTitleStyle}>פעולות מדורגות</h2>
 
             {activeDeals.length === 0 ? (
               <div style={emptyStyle}>

@@ -1,11 +1,18 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useDocumentsInbox } from "@/hooks/useDocumentsInbox";
 import type { InboxListItem } from "@/lib/documents/inbox-types";
 import { TOKEN } from "@/lib/design/documents-theme";
 import { glassActionStyle } from "@/lib/design/documents-theme";
+import { getCurrentYearMonthJerusalem } from "@/lib/utils/jerusalem-month-range";
+import {
+  buildMonthOptions,
+  computeOlderBacklog,
+  pickBacklogCtaMonth,
+} from "@/lib/documents/backlog-view";
 import BackButton from "@/components/ui/back-button";
+import BacklogBanner from "./BacklogBanner";
 import DocumentCard from "./DocumentCard";
 import DocumentsInboxTable from "./DocumentsInboxTable";
 import InboxEmptyState from "./InboxEmptyState";
@@ -48,8 +55,31 @@ export default function DocumentsInboxScreen({
 }: {
   authToken: string | null;
 }) {
-  const { scope, items, pagination, loading, loadingMore, error, refetch, loadMore } =
-    useDocumentsInbox(authToken);
+  // Seed the viewed month from the URL (?month=YYYY-MM) so refresh/back keep it.
+  const initialMonth = useMemo(() => readMonthFromUrl(), []);
+
+  const {
+    scope,
+    selectedMonth,
+    pendingMonths,
+    financialPulse,
+    items,
+    pagination,
+    loading,
+    loadingMore,
+    error,
+    refetch,
+    setMonth,
+    loadMore,
+  } = useDocumentsInbox(authToken, { initialMonth });
+
+  const handleMonthChange = useCallback(
+    (next: string | null) => {
+      writeMonthToUrl(next);
+      setMonth(next);
+    },
+    [setMonth]
+  );
 
   const pendingItems = useMemo(
     () => items.filter((item) => item.status === "needs_review"),
@@ -59,6 +89,34 @@ export default function DocumentsInboxScreen({
     () => groupByMonthDescending(pendingItems),
     [pendingItems]
   );
+
+  const currentMonth = getCurrentYearMonthJerusalem();
+  const viewedMonth = selectedMonth ?? scope?.month ?? currentMonth;
+  const viewedMonthName = monthLabel(viewedMonth);
+
+  // Month options: current month is always reachable, plus every month that
+  // holds a backlog, plus whatever is currently selected (so the control always
+  // shows its own value).
+  const monthOptions = useMemo(
+    () =>
+      buildMonthOptions(
+        currentMonth,
+        [selectedMonth, ...pendingMonths].filter(
+          (m): m is string => typeof m === "string" && m.length > 0
+        )
+      ),
+    [currentMonth, selectedMonth, pendingMonths]
+  );
+
+  // Authoritative month count (server), not just what's loaded on this page.
+  const counts = financialPulse?.inboxDocumentCounts;
+  const monthPending = counts?.pendingReview ?? pendingItems.length;
+  const totalPending = counts?.totalPendingReview ?? monthPending;
+  const older = computeOlderBacklog({
+    totalPending,
+    monthPending,
+  });
+  const ctaMonth = pickBacklogCtaMonth(pendingMonths, viewedMonth);
 
   const displayError = error === "Server error" ? "שגיאת שרת" : error;
 
@@ -70,7 +128,7 @@ export default function DocumentsInboxScreen({
           <BackButton href="/documents" />
           <div style={{ minWidth: 0, textAlign: "center" }}>
             <h1 style={titleStyle}>תור אימות</h1>
-            <div style={subtitleStyle}>{monthLabel(scope?.month)}</div>
+            <div style={subtitleStyle}>{viewedMonthName}</div>
           </div>
           <div aria-hidden style={{ width: 52 }} />
         </header>
@@ -91,14 +149,46 @@ export default function DocumentsInboxScreen({
 
         {!loading && !error ? (
           <>
-            <section style={bandStyle}>
+            {monthOptions.length > 1 ? (
+              <div style={selectorRowStyle}>
+                <label htmlFor="inbox-month" style={selectorLabelStyle}>
+                  חודש
+                </label>
+                <select
+                  id="inbox-month"
+                  value={viewedMonth}
+                  onChange={(e) => handleMonthChange(e.target.value)}
+                  style={selectStyle}
+                >
+                  {monthOptions.map((m) => (
+                    <option key={m} value={m}>
+                      {monthLabel(m)}
+                      {m === currentMonth ? " (החודש)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
+            <section style={bandStyle} aria-live="polite">
               <WarningIcon />
-              <span>{pendingItems.length.toLocaleString("he-IL")}</span>
-              <span>מסמכים ממתינים לאימות</span>
+              <span>{monthPending.toLocaleString("he-IL")}</span>
+              <span>מסמכים ממתינים לאימות ב{viewedMonthName}</span>
             </section>
 
+            {older.show ? (
+              <BacklogBanner
+                olderCount={older.olderCount}
+                ctaMonthName={ctaMonth ? monthLabel(ctaMonth) : null}
+                onShowOlder={() => ctaMonth && handleMonthChange(ctaMonth)}
+              />
+            ) : null}
+
             {pendingItems.length === 0 ? (
-              <InboxEmptyState variant={items.length === 0 ? "no_documents_month" : "no_pending"} />
+              <InboxEmptyState
+                variant={items.length === 0 ? "no_documents_month" : "no_pending"}
+                monthName={viewedMonthName}
+              />
             ) : (
               <section style={listStyle}>
                 {monthKeys.map((monthKey) => {
@@ -148,6 +238,22 @@ export default function DocumentsInboxScreen({
   );
 }
 
+/** Read a valid ?month=YYYY-MM from the URL, else null (server default). */
+function readMonthFromUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  const m = new URLSearchParams(window.location.search).get("month");
+  return m && /^\d{4}-\d{2}$/.test(m) ? m : null;
+}
+
+/** Persist the viewed month in the URL without adding history noise. */
+function writeMonthToUrl(next: string | null): void {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (next) url.searchParams.set("month", next);
+  else url.searchParams.delete("month");
+  window.history.replaceState(window.history.state, "", url.toString());
+}
+
 function WarningIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -191,6 +297,33 @@ const subtitleStyle = {
   color: TOKEN.ink.muted,
   fontSize: TOKEN.font.meta,
   fontWeight: TOKEN.weight.semibold,
+} as const;
+
+const selectorRowStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  marginBottom: 12,
+} as const;
+
+const selectorLabelStyle = {
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.semibold,
+} as const;
+
+const selectStyle = {
+  flex: "0 1 auto",
+  minHeight: 40,
+  padding: "8px 12px",
+  borderRadius: TOKEN.radius.card,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  background: TOKEN.surface.card,
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.semibold,
+  fontFamily: "inherit",
+  cursor: "pointer",
 } as const;
 
 const bandStyle = {

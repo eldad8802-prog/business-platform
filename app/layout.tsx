@@ -27,8 +27,12 @@ const rubik = Rubik({
 });
 
 export const metadata: Metadata = {
-  title: "Business Platform",
-  description: "Business platform app",
+  // Brand default + suffix template for the whole app. Any page/section that
+  // sets its own title renders as "<title> · Dubiz"; anything without a title
+  // falls back to "Dubiz" (never a generic product-name fallback). Route groups
+  // may override this (the public (corporate) group defines its own).
+  title: { default: "Dubiz", template: "%s · Dubiz" },
+  description: "Dubiz — ניהול היום־יום של העסק",
 };
 
 export const viewport: Viewport = {

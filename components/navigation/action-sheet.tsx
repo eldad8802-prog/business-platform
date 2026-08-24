@@ -216,7 +216,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
             textAlign: "right",
           }}
         >
-          בחירה מהירה — ללא המלצות דינמיות
+          קיצורי דרך לפעולות הנפוצות
         </p>
 
         <div
