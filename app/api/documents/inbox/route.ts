@@ -11,6 +11,10 @@ import {
 } from "@/lib/utils/jerusalem-month-range";
 import { derivePreviousNet } from "@/lib/documents/previous-net";
 import { previousYearMonth } from "@/lib/documents/previous-year-month";
+import {
+  countPendingReviewAllTime,
+  listPendingReviewMonths,
+} from "@/lib/documents/pending-review";
 
 export const runtime = "nodejs";
 
@@ -185,6 +189,16 @@ export async function GET(req: Request) {
 
     const businessId = user.businessId;
 
+    // Backlog = total needs_review across ALL time, plus the distinct Jerusalem
+    // months that hold it. Month-independent, so it's computed once and shared
+    // by both the summary and full responses. `totalPendingReview` uses the same
+    // canonical selector as the Attention paperwork insight, so the two surfaces
+    // never disagree on "total pending".
+    const [totalPendingReview, pendingMonths] = await Promise.all([
+      countPendingReviewAllTime(businessId),
+      listPendingReviewMonths(businessId),
+    ]);
+
     if (summaryOnly) {
       // Previous calendar month (Jerusalem), for the net cash-flow delta. Reuses
       // the exact same half-open window logic — just shifted one month back via a
@@ -305,6 +319,7 @@ export async function GET(req: Request) {
           month: resolvedMonth,
           timezone: TIMEZONE_LABEL,
         },
+        pendingMonths,
         financialPulse: {
           period: {
             month: resolvedMonth,
@@ -320,6 +335,7 @@ export async function GET(req: Request) {
           inboxDocumentCounts: {
             pendingReview,
             approvedDocuments,
+            totalPendingReview,
           },
         },
         previousNet,
@@ -512,6 +528,7 @@ export async function GET(req: Request) {
         month: resolvedMonth,
         timezone: TIMEZONE_LABEL,
       },
+      pendingMonths,
       financialPulse: {
         period: {
           month: resolvedMonth,
@@ -527,6 +544,7 @@ export async function GET(req: Request) {
         inboxDocumentCounts: {
           pendingReview,
           approvedDocuments,
+          totalPendingReview,
         },
       },
       items,

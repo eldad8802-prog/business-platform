@@ -23,6 +23,8 @@ type ApiItem = {
 type ApiSuccessBody = {
   success: true;
   scope: InboxScope;
+  /** Distinct Jerusalem months (YYYY-MM) that hold pending docs, newest first. */
+  pendingMonths: string[];
   financialPulse: InboxFinancialPulse;
   items: ApiItem[];
   pagination: InboxPagination;
@@ -46,6 +48,7 @@ function normalizeItem(raw: ApiItem): InboxListItem {
 
 export type DocumentsInboxSnapshot = {
   scope: InboxScope;
+  pendingMonths: string[];
   financialPulse: InboxFinancialPulse;
   items: InboxListItem[];
   pagination: InboxPagination;
@@ -153,6 +156,7 @@ export async function fetchDocumentsInbox(
 
   return {
     scope: body.scope,
+    pendingMonths: Array.isArray(body.pendingMonths) ? body.pendingMonths : [],
     financialPulse: body.financialPulse,
     items: body.items.map(normalizeItem),
     pagination: body.pagination,

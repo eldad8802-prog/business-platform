@@ -11,6 +11,10 @@ import type {
 
 export type UseDocumentsInboxResult = {
   scope: InboxScope | null;
+  /** The month the UI is showing (resolved from the server, else the request). */
+  selectedMonth: string | null;
+  /** Distinct Jerusalem months that hold pending docs, newest first. */
+  pendingMonths: string[];
   financialPulse: InboxFinancialPulse | null;
   items: InboxListItem[];
   pagination: InboxPagination | null;
@@ -18,6 +22,8 @@ export type UseDocumentsInboxResult = {
   loadingMore: boolean;
   error: string | null;
   refetch: () => void;
+  /** Switch the viewed month (null = server default = current Jerusalem month). */
+  setMonth: (month: string | null) => void;
   /**
    * Re-fetch the first page WITHOUT toggling `loading` (no skeleton flash).
    * Used for background polling while documents are still `processing`.
@@ -26,8 +32,15 @@ export type UseDocumentsInboxResult = {
   loadMore: () => void;
 };
 
-export function useDocumentsInbox(authToken: string | null): UseDocumentsInboxResult {
+export function useDocumentsInbox(
+  authToken: string | null,
+  options?: { initialMonth?: string | null }
+): UseDocumentsInboxResult {
+  const [month, setMonthState] = useState<string | null>(
+    options?.initialMonth ?? null
+  );
   const [scope, setScope] = useState<InboxScope | null>(null);
+  const [pendingMonths, setPendingMonths] = useState<string[]>([]);
   const [financialPulse, setFinancialPulse] =
     useState<InboxFinancialPulse | null>(null);
   const [items, setItems] = useState<InboxListItem[]>([]);
@@ -45,8 +58,12 @@ export function useDocumentsInbox(authToken: string | null): UseDocumentsInboxRe
     setLoading(true);
     setError(null);
     try {
-      const snap = await fetchDocumentsInbox(authToken);
+      const snap = await fetchDocumentsInbox(
+        authToken,
+        month ? { month } : undefined
+      );
       setScope(snap.scope);
+      setPendingMonths(snap.pendingMonths);
       setFinancialPulse(snap.financialPulse);
       setItems(snap.items);
       setPagination(snap.pagination);
@@ -59,7 +76,7 @@ export function useDocumentsInbox(authToken: string | null): UseDocumentsInboxRe
     } finally {
       setLoading(false);
     }
-  }, [authToken]);
+  }, [authToken, month]);
 
   const loadMore = useCallback(async () => {
     if (
@@ -94,8 +111,12 @@ export function useDocumentsInbox(authToken: string | null): UseDocumentsInboxRe
   const refetchQuiet = useCallback(async () => {
     if (!authToken) return;
     try {
-      const snap = await fetchDocumentsInbox(authToken);
+      const snap = await fetchDocumentsInbox(
+        authToken,
+        month ? { month } : undefined
+      );
       setScope(snap.scope);
+      setPendingMonths(snap.pendingMonths);
       setFinancialPulse(snap.financialPulse);
       setItems(snap.items);
       setPagination(snap.pagination);
@@ -103,7 +124,7 @@ export function useDocumentsInbox(authToken: string | null): UseDocumentsInboxRe
     } catch {
       // Poll failures are transient — keep showing the current list.
     }
-  }, [authToken]);
+  }, [authToken, month]);
 
   useEffect(() => {
     runInitial();
@@ -113,9 +134,17 @@ export function useDocumentsInbox(authToken: string | null): UseDocumentsInboxRe
     runInitial();
   }, [runInitial]);
 
+  const setMonth = useCallback((next: string | null) => {
+    setMonthState(next);
+  }, []);
+
+  const selectedMonth = scope?.month ?? month ?? null;
+
   return useMemo(
     () => ({
       scope,
+      selectedMonth,
+      pendingMonths,
       financialPulse,
       items,
       pagination,
@@ -123,11 +152,14 @@ export function useDocumentsInbox(authToken: string | null): UseDocumentsInboxRe
       loadingMore,
       error,
       refetch,
+      setMonth,
       refetchQuiet,
       loadMore,
     }),
     [
       scope,
+      selectedMonth,
+      pendingMonths,
       financialPulse,
       items,
       pagination,
@@ -135,6 +167,7 @@ export function useDocumentsInbox(authToken: string | null): UseDocumentsInboxRe
       loadingMore,
       error,
       refetch,
+      setMonth,
       refetchQuiet,
       loadMore,
     ]
