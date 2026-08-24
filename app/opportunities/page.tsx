@@ -31,6 +31,11 @@ export default function OpportunitiesPage() {
   const [generating, setGenerating] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  // Fail-safe generation state (F-25 · 4B): when the server cannot tailor
+  // recommendations it returns a structured status instead of fabricating deals.
+  const [generationNotice, setGenerationNotice] = useState<
+    "no_profile" | "incomplete_profile" | "no_matches" | null
+  >(null);
 
   // Auth: this feature calls tenant-scoped APIs that authenticate via the
   // stateless Bearer token (see lib/auth.ts). Read it the same way every other
@@ -118,6 +123,7 @@ export default function OpportunitiesPage() {
     try {
       setGenerating(true);
       setError("");
+      setGenerationNotice(null);
 
       const token = readToken();
       if (!token) {
@@ -125,19 +131,14 @@ export default function OpportunitiesPage() {
         return;
       }
 
-      // The server derives the tenant from the authenticated user
-      // (user.businessId) and reads only category/subCategory from the body —
-      // it never trusts a client-supplied businessId.
+      // Business identity (category/subCategory) is derived server-side from the
+      // authenticated tenant's BusinessProfile. The client sends NO identity and
+      // cannot influence which recommendations are generated (F-25 · 4A).
       const res = await fetch("/api/deals/generate", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          category: "Beauty",
-          subCategory: "Hair Salon",
-        }),
       });
 
       const outcome = resolveDealsOutcome("generate", res);
@@ -150,7 +151,18 @@ export default function OpportunitiesPage() {
       }
 
       const data = await res.json();
-      setDeals(Array.isArray(data) ? data : []);
+      if (data?.status === "ok") {
+        setDeals(Array.isArray(data.deals) ? data.deals : []);
+      } else {
+        // Fail-safe: no tailored matches → no fabricated deals, a clear notice.
+        setDeals([]);
+        setGenerationNotice(
+          data?.status === "no_profile" ||
+            data?.status === "incomplete_profile"
+            ? data.status
+            : "no_matches"
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : DEALS_ERROR.generate);
     } finally {
@@ -598,20 +610,58 @@ export default function OpportunitiesPage() {
 
             {activeDeals.length === 0 ? (
               <div style={emptyStyle}>
-                אין כרגע פעולות זמינות.
-                <div style={{ marginTop: 12 }}>
-                  <button
-                    type="button"
-                    onClick={generateDeals}
-                    disabled={generating}
-                    style={{
-                      ...primaryButtonStyle,
-                      opacity: generating ? 0.7 : 1,
-                    }}
-                  >
-                    {generating ? "מייצר פעולות..." : "צור פעולות חדשות"}
-                  </button>
-                </div>
+                {generationNotice === "no_profile" ? (
+                  <>
+                    כדי לקבל התאמות מותאמות לעסק שלך, יש להשלים תחילה את פרטי
+                    העסק.
+                    <div style={{ marginTop: 12 }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          window.location.href = "/onboarding";
+                        }}
+                        style={primaryButtonStyle}
+                      >
+                        השלמת פרטי העסק
+                      </button>
+                    </div>
+                  </>
+                ) : generationNotice === "incomplete_profile" ? (
+                  <>
+                    יש להשלים את תחום העסק ותת-התחום בפרטי העסק כדי לקבל התאמות
+                    מתאימות.
+                    <div style={{ marginTop: 12 }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          window.location.href = "/onboarding";
+                        }}
+                        style={primaryButtonStyle}
+                      >
+                        עדכון פרטי העסק
+                      </button>
+                    </div>
+                  </>
+                ) : generationNotice === "no_matches" ? (
+                  <>עדיין אין התאמות מתאימות לעסק שלך. נעדכן אותך כשיהיו.</>
+                ) : (
+                  <>
+                    אין כרגע פעולות זמינות.
+                    <div style={{ marginTop: 12 }}>
+                      <button
+                        type="button"
+                        onClick={generateDeals}
+                        disabled={generating}
+                        style={{
+                          ...primaryButtonStyle,
+                          opacity: generating ? 0.7 : 1,
+                        }}
+                      >
+                        {generating ? "מייצר פעולות..." : "צור פעולות חדשות"}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <div style={listStyle}>
