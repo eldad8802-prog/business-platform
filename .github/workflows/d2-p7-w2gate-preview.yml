@@ -16,10 +16,8 @@ name: d2/p7 — w2gate preview apply+proof (neon)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [feat/d2-p7-w2gate-admin-foundation]
-    paths:
-      - ".p7w2g/preview-apply.trigger"
+  # push trigger disarmed post-apply (proven pattern): the admin substrate is
+  # applied+proven and the transient secrets are deleted.
 
 permissions:
   contents: read
