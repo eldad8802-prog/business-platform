@@ -118,7 +118,7 @@ jobs:
           DBD="$(curl -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri')"
           echo "::add-mask::${DBD}"
           [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || exit 0
-          cat > /tmp/p7w1-fixnet.mjs <<'FIX_EOF'
+          cat > .p7w1/fixnet.gen.mjs <<'FIX_EOF'
           import { PrismaClient } from '@prisma/client';
           const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
           const bids = 'SELECT id FROM "Business" WHERE name LIKE \'p7w1-%\'';
@@ -133,7 +133,7 @@ jobs:
           console.log('[fixnet] residue business=' + r[0].biz);
           await c.$disconnect();
           FIX_EOF
-          DIRECT_URL="${DBD}" node /tmp/p7w1-fixnet.mjs || true
+          DIRECT_URL="${DBD}" node .p7w1/fixnet.gen.mjs || true
 
       - name: Rollback on failure (restore pre-Wave-1 posture)
         if: failure()
@@ -146,7 +146,7 @@ jobs:
           DBD="$(curl -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri')"
           echo "::add-mask::${DBD}"
           [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || exit 0
-          cat > /tmp/p7w1-rollback.mjs <<'RB_EOF'
+          cat > .p7w1/rollback.gen.mjs <<'RB_EOF'
           import { readFileSync } from 'node:fs';
           import { PrismaClient } from '@prisma/client';
           const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
@@ -159,4 +159,4 @@ jobs:
           await c.$disconnect();
           if (Number(r[0].c) !== 0) process.exit(1);
           RB_EOF
-          DIRECT_URL="${DBD}" node /tmp/p7w1-rollback.mjs
+          DIRECT_URL="${DBD}" node .p7w1/rollback.gen.mjs

@@ -417,4 +417,9 @@ async function main() {
   console.log("ALL CHECKS PASS");
 }
 
-main().catch((e) => { console.error("[battery] FATAL:", e?.message ?? e); process.exit(1); });
+main().catch(async (e) => {
+  const { inspect } = await import("node:util");
+  console.error("[battery] FATAL:", inspect(e, { depth: 4 }).slice(0, 2000));
+  if (e?.stack) console.error(String(e.stack).split("\n").slice(0, 8).join("\n"));
+  process.exit(1);
+});
