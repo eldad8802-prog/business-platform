@@ -1,4 +1,4 @@
-import { CollaborationActionType } from "@prisma/client";
+import { CollaborationActionType, type CollaborationDeal } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { TenantTx } from "@/lib/tenant/transaction";
 
@@ -22,10 +22,61 @@ type ScoredCandidate = Candidate & {
   priority: number;
 };
 
+/** Outcome of a generation attempt. `no_matches` means no real rule applied and
+ * — per F-25 · 4B — nothing was fabricated. */
+export type MatchingResult =
+  | { status: "ok"; deals: CollaborationDeal[] }
+  | { status: "no_matches" };
+
+/**
+ * Pure candidate selection from the (server-derived) business identity.
+ * Deliberately has NO generic fallback (F-25 · 4B): an unsupported or missing
+ * category/subCategory returns [] so the caller surfaces a fail-safe state
+ * instead of fabricating a generic collaboration that isn't tailored to the
+ * business. Kept pure (no DB) so this coverage is unit-testable.
+ */
+export function selectCandidates(
+  category: string | null | undefined,
+  subCategory?: string | null
+): Candidate[] {
+  const candidates: Candidate[] = [];
+
+  if (category === "Beauty" && subCategory === "Hair Salon") {
+    candidates.push(
+      {
+        title: "שיתוף פעולה עם קוסמטיקאית",
+        description: "שלח לקוחות וקבל עמלה על כל לקוחה",
+        partnerType: "Cosmetician",
+        actionType: CollaborationActionType.REFERRAL,
+        estimatedValue: 250,
+      },
+      {
+        title: "קופון משותף עם מכון ציפורניים",
+        description: "הצע חבילה משולבת ללקוחות",
+        partnerType: "Nail Studio",
+        actionType: CollaborationActionType.COUPON,
+        estimatedValue: 180,
+      }
+    );
+  }
+
+  if (category === "Fitness") {
+    candidates.push({
+      title: "שיתוף פעולה עם תזונאי",
+      description: "הפנה לקוחות וקבל עמלה",
+      partnerType: "Nutritionist",
+      actionType: CollaborationActionType.REFERRAL,
+      estimatedValue: 300,
+    });
+  }
+
+  return candidates;
+}
+
 export async function runMatchingEngine(
   input: MatchingInput,
   options?: { tx?: TenantTx }
-) {
+): Promise<MatchingResult> {
   // D2/P7 Wave 1: bind to the tenant transaction when provided. A TenantTx is
   // a single interactive transaction — writes below are sequential, never
   // Promise.all on the same tx.
@@ -42,48 +93,16 @@ export async function runMatchingEngine(
   });
 
   if (existingNewDeals.length > 0) {
-    return existingNewDeals;
+    return { status: "ok", deals: existingNewDeals };
   }
 
-  // 2. Candidate Selection
-  const candidates: Candidate[] = [];
+  // 2. Candidate Selection — from the server-derived identity only.
+  const candidates = selectCandidates(category, subCategory);
 
-  if (category === "Beauty" && subCategory === "Hair Salon") {
-    candidates.push({
-      title: "שיתוף פעולה עם קוסמטיקאית",
-      description: "שלח לקוחות וקבל עמלה על כל לקוחה",
-      partnerType: "Cosmetician",
-      actionType: CollaborationActionType.REFERRAL,
-      estimatedValue: 250,
-    });
-
-    candidates.push({
-      title: "קופון משותף עם מכון ציפורניים",
-      description: "הצע חבילה משולבת ללקוחות",
-      partnerType: "Nail Studio",
-      actionType: CollaborationActionType.COUPON,
-      estimatedValue: 180,
-    });
-  }
-
-  if (category === "Fitness") {
-    candidates.push({
-      title: "שיתוף פעולה עם תזונאי",
-      description: "הפנה לקוחות וקבל עמלה",
-      partnerType: "Nutritionist",
-      actionType: CollaborationActionType.REFERRAL,
-      estimatedValue: 300,
-    });
-  }
-
+  // Fail-safe (F-25 · 4B): no real rule matched → do NOT fabricate a generic
+  // deal. The caller surfaces a user-facing "no matches yet" state instead.
   if (candidates.length === 0) {
-    candidates.push({
-      title: "שיתוף פעולה כללי",
-      description: "מצא עסק משלים והחלף לקוחות",
-      partnerType: "General Partner",
-      actionType: CollaborationActionType.REFERRAL,
-      estimatedValue: 200,
-    });
+    return { status: "no_matches" };
   }
 
   // 3. Scoring
@@ -180,8 +199,9 @@ export async function runMatchingEngine(
     });
   }
 
-  return db.collaborationDeal.findMany({
+  const deals = await db.collaborationDeal.findMany({
     where: { businessId, status: "NEW" },
     orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
   });
+  return { status: "ok", deals };
 }
