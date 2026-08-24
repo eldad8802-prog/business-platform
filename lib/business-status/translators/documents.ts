@@ -5,23 +5,19 @@ export function translateDocumentsNeedsReview(
   rows: DocumentNeedsReviewRaw[]
 ): BusinessStatusItemBuild[] {
   return rows.map((d) => {
-    const vendor = d.vendorName?.trim() || null;
-    const summaryParts = [
-      vendor ? `ספק: ${vendor}` : null,
-      d.amount != null && Number.isFinite(d.amount)
-        ? `סכום: ${d.amount}`
-        : null,
-      d.confidenceScore != null
-        ? `ביטחון חילוץ: ${Math.round(d.confidenceScore * 100) / 100}`
-        : null,
-    ].filter(Boolean);
-
+    // Trust contract (F-22A): these rows are all `needs_review` — the extraction
+    // is a proposal the system has NOT verified. We must not present the
+    // extracted fields (vendor/amount) as facts here, nor leak the raw internal
+    // aggregate confidence score (an internal review-routing signal, e.g. 0.07)
+    // into a business-facing card. The detected values live behind the
+    // "ביקורת מסמך" CTA, where the review surface shows per-field uncertainty.
+    // So the summary states the state, not unverified values.
     return {
       itemId: `documents:needs_review:${d.id}`,
       domain: "documents",
       semanticCategory: "ACTION_REQUIRED",
       title: "מסמך ממתין לביקורת",
-      summary: summaryParts.length > 0 ? summaryParts.join(" · ") : null,
+      summary: "חילוץ ראשוני — דורש אימות",
       severity: "MEDIUM",
       entityRef: { type: "document", id: d.id },
       state: "open",
