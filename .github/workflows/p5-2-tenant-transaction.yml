@@ -1,0 +1,109 @@
+name: P5-2 Tenant Transaction Wrapper (ephemeral PG17)
+
+# D2 / P5-2 — ALS -> withTenantTransaction -> transaction-local GUC -> RLS, proven
+# end-to-end via the REAL canonical Prisma client running as a NON-BYPASS runtime role.
+# Ephemeral postgres:17; synthetic CI-only creds; ZERO secrets; ZERO Neon/Prod.
+# migrate-from-zero is a KNOWN separate repo defect -> lab schema via `prisma db push`.
+
+on:
+  push:
+    branches: [feat/d2-p7-w0a-p5-substrate]
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/tenant/**"
+      - "lib/prisma.ts"
+      - "prisma/schema.prisma"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  p5-2-proof:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: p2_owner
+          POSTGRES_PASSWORD: p2_ci_synthetic_pw
+          POSTGRES_DB: dubiz_p2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U p2_owner -d dubiz_p2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      # OWNER url for schema/setup steps (superuser in the postgres image).
+      DATABASE_URL: postgresql://p2_owner:p2_ci_synthetic_pw@localhost:5432/dubiz_p2
+      DIRECT_URL: postgresql://p2_owner:p2_ci_synthetic_pw@localhost:5432/dubiz_p2
+      PGPASSWORD: p2_ci_synthetic_pw
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Isolation assert (no Neon / prod)
+        run: |
+          case "$DATABASE_URL" in
+            *neon.tech*|*ep-flat-brook*|*ep-square-grass*|*ep-wispy-dawn*|*ep-icy-violet*) echo "FATAL non-local"; exit 1;;
+            postgresql://p2_owner:*@localhost:5432/dubiz_p2) echo "OK local ephemeral";;
+            *) echo "FATAL unexpected DATABASE_URL"; exit 1;;
+          esac
+          test -f .env && { echo "FATAL unexpected .env"; exit 1; } || echo "OK no .env"
+
+      - name: Ensure psql client
+        run: command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; }
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Schema bootstrap (prisma db push — lab only, generates client)
+        run: npx prisma db push
+
+      - name: Provision runtime role + fixtures + RLS on Customer (as owner)
+        run: |
+          set -euo pipefail
+          psql -h localhost -U p2_owner -d dubiz_p2 -v ON_ERROR_STOP=1 <<'SQL'
+          DROP ROLE IF EXISTS p2_runtime;
+          CREATE ROLE p2_runtime LOGIN PASSWORD 'p2_runtime_ci_pw'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+          GRANT USAGE ON SCHEMA public TO p2_runtime;
+          GRANT SELECT, INSERT, UPDATE, DELETE ON "Business","Customer" TO p2_runtime;
+          GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO p2_runtime;
+          INSERT INTO "Business"(name,"updatedAt") VALUES ('p2-a-business', now());
+          INSERT INTO "Business"(name,"updatedAt") VALUES ('p2-b-business', now());
+          CREATE TABLE p2_meta(k text PRIMARY KEY, business_id int);
+          INSERT INTO p2_meta VALUES
+            ('A',(SELECT id FROM "Business" WHERE name='p2-a-business')),
+            ('B',(SELECT id FROM "Business" WHERE name='p2-b-business'));
+          GRANT SELECT ON p2_meta TO p2_runtime;
+          INSERT INTO "Customer"("businessId",name,"updatedAt") SELECT business_id,'p2-a-customer',now() FROM p2_meta WHERE k='A';
+          INSERT INTO "Customer"("businessId",name,"updatedAt") SELECT business_id,'p2-b-customer',now() FROM p2_meta WHERE k='B';
+          ALTER TABLE "Customer" ENABLE ROW LEVEL SECURITY; ALTER TABLE "Customer" FORCE ROW LEVEL SECURITY;
+          CREATE POLICY p2_tenant ON "Customer"
+            USING ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)
+            WITH CHECK ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int);
+          SQL
+          A_ID=$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT business_id FROM p2_meta WHERE k='A'")
+          B_ID=$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT business_id FROM p2_meta WHERE k='B'")
+          echo "P2_A_ID=$A_ID" >> "$GITHUB_ENV"
+          echo "P2_B_ID=$B_ID" >> "$GITHUB_ENV"
+          echo "provisioned: A=$A_ID B=$B_ID"
+
+      - name: P5-2 integration proof (canonical Prisma as NON-BYPASS runtime role)
+        env:
+          # override: the APP connects as the non-bypass runtime role, so RLS actually enforces.
+          DATABASE_URL: postgresql://p2_runtime:p2_runtime_ci_pw@localhost:5432/dubiz_p2
+          DIRECT_URL: postgresql://p2_runtime:p2_runtime_ci_pw@localhost:5432/dubiz_p2
+        run: |
+          echo "runtime role attrs (must be non-super / non-bypass):"
+          psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT 'super='||rolsuper||' bypassrls='||rolbypassrls FROM pg_roles WHERE rolname='p2_runtime'"
+          npx tsx lib/tenant/transaction.integration.test.ts

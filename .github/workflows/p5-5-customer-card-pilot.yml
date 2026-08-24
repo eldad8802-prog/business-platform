@@ -1,0 +1,166 @@
+name: P5-5 Customer Card Multi-Table RLS Pilot (ephemeral PG17)
+
+# D2 / P5-5 — the Customer Card [id] GET read-model driven by a real Bearer token, proving
+# a MULTI-TABLE tenant-scoped read stays isolated under RLS:
+#   Bearer -> getCurrentUser -> server-derived businessId -> ALS -> withTenantTransaction
+#   -> transaction-local GUC -> RLS on Customer + BillingDocument + PaymentRequest
+#   + Conversation + Appointment, with the canonical Prisma client as a NON-BYPASS role.
+# Every card table has a DIRECT businessId -> a direct RLS policy each. User/Business stay
+# bootstrap-global (NO tenant RLS — Option A). Ephemeral postgres:17; synthetic CI-only
+# creds; ZERO secrets; ZERO Neon/Prod. migrate-from-zero is a KNOWN repo defect -> lab
+# schema via `prisma db push`.
+
+on:
+  push:
+    branches: [feat/d2-p7-w0a-p5-substrate]
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/tenant/**"
+      - "lib/prisma.ts"
+      - "app/api/customers/**"
+      - "lib/services/crm/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  customer-card-pilot:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: p2_owner
+          POSTGRES_PASSWORD: p2_ci_synthetic_pw
+          POSTGRES_DB: dubiz_p2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U p2_owner -d dubiz_p2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://p2_owner:p2_ci_synthetic_pw@localhost:5432/dubiz_p2
+      DIRECT_URL: postgresql://p2_owner:p2_ci_synthetic_pw@localhost:5432/dubiz_p2
+      PGPASSWORD: p2_ci_synthetic_pw
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Isolation assert (no Neon / prod)
+        run: |
+          case "$DATABASE_URL" in
+            *neon.tech*|*ep-flat-brook*|*ep-square-grass*|*ep-wispy-dawn*|*ep-icy-violet*) echo "FATAL non-local"; exit 1;;
+            postgresql://p2_owner:*@localhost:5432/dubiz_p2) echo "OK local ephemeral";;
+            *) echo "FATAL unexpected DATABASE_URL"; exit 1;;
+          esac
+          test -f .env && { echo "FATAL unexpected .env"; exit 1; } || echo "OK no .env"
+
+      - name: Ensure psql client
+        run: command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; }
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Schema bootstrap (prisma db push — lab only, generates client)
+        run: npx prisma db push
+
+      - name: Provision fixtures + RLS on card tables (as owner)
+        run: |
+          set -euo pipefail
+          psql -h localhost -U p2_owner -d dubiz_p2 -v ON_ERROR_STOP=1 <<'SQL'
+          DROP ROLE IF EXISTS p2_runtime;
+          CREATE ROLE p2_runtime LOGIN PASSWORD 'p2_runtime_ci_pw'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+          GRANT USAGE ON SCHEMA public TO p2_runtime;
+          GRANT SELECT ON "Business","User" TO p2_runtime;   -- auth-bootstrap reads (pre-context; no RLS)
+          GRANT SELECT ON "Customer","BillingDocument","PaymentRequest","Conversation","Appointment" TO p2_runtime;
+          GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO p2_runtime;
+
+          -- Tenants + users + one customer each.
+          INSERT INTO "Business"(name,"updatedAt") VALUES ('p5-card-a-business', now()),('p5-card-b-business', now());
+          INSERT INTO "User"(email,password,"businessId","updatedAt")
+            SELECT 'a@card.test','x',id,now() FROM "Business" WHERE name='p5-card-a-business';
+          INSERT INTO "User"(email,password,"businessId","updatedAt")
+            SELECT 'b@card.test','x',id,now() FROM "Business" WHERE name='p5-card-b-business';
+          INSERT INTO "Customer"("businessId",name,"updatedAt")
+            SELECT id,'p5-card-a-customer',now() FROM "Business" WHERE name='p5-card-a-business';
+          INSERT INTO "Customer"("businessId",name,"updatedAt")
+            SELECT id,'p5-card-b-customer',now() FROM "Business" WHERE name='p5-card-b-business';
+
+          -- Capture ids for the test env.
+          CREATE TABLE p2_meta(k text PRIMARY KEY, v int);
+          INSERT INTO p2_meta VALUES
+            ('A_BIZ', (SELECT id FROM "Business" WHERE name='p5-card-a-business')),
+            ('B_BIZ', (SELECT id FROM "Business" WHERE name='p5-card-b-business')),
+            ('A_USER',(SELECT id FROM "User" WHERE email='a@card.test')),
+            ('B_USER',(SELECT id FROM "User" WHERE email='b@card.test')),
+            ('A_CUST',(SELECT id FROM "Customer" WHERE name='p5-card-a-customer')),
+            ('B_CUST',(SELECT id FROM "Customer" WHERE name='p5-card-b-customer'));
+
+          -- A's OWN related rows (one per section): businessId=A, customerId=CustomerA.
+          INSERT INTO "BillingDocument"("businessId","documentType","customerId","updatedAt")
+            VALUES ((SELECT v FROM p2_meta WHERE k='A_BIZ'),'TAX_INVOICE',(SELECT v FROM p2_meta WHERE k='A_CUST'),now());
+          INSERT INTO "PaymentRequest"("businessId","provider","amount","customerId","updatedAt")
+            VALUES ((SELECT v FROM p2_meta WHERE k='A_BIZ'),'TRANZILA',100,(SELECT v FROM p2_meta WHERE k='A_CUST'),now());
+          INSERT INTO "Conversation"("businessId","channel","customerId","updatedAt")
+            VALUES ((SELECT v FROM p2_meta WHERE k='A_BIZ'),'WHATSAPP',(SELECT v FROM p2_meta WHERE k='A_CUST'),now());
+          INSERT INTO "Appointment"("businessId","createdByActor","sourceChannel","createdByUserId","customerId","startsAt","updatedAt")
+            VALUES ((SELECT v FROM p2_meta WHERE k='A_BIZ'),'OWNER','INBOX_WEB',(SELECT v FROM p2_meta WHERE k='A_USER'),(SELECT v FROM p2_meta WHERE k='A_CUST'),now(),now());
+
+          -- B's OWN related rows: businessId=B, customerId=CustomerB.
+          INSERT INTO "BillingDocument"("businessId","documentType","customerId","updatedAt")
+            VALUES ((SELECT v FROM p2_meta WHERE k='B_BIZ'),'TAX_INVOICE',(SELECT v FROM p2_meta WHERE k='B_CUST'),now());
+          INSERT INTO "PaymentRequest"("businessId","provider","amount","customerId","updatedAt")
+            VALUES ((SELECT v FROM p2_meta WHERE k='B_BIZ'),'TRANZILA',200,(SELECT v FROM p2_meta WHERE k='B_CUST'),now());
+          INSERT INTO "Conversation"("businessId","channel","customerId","updatedAt")
+            VALUES ((SELECT v FROM p2_meta WHERE k='B_BIZ'),'WHATSAPP',(SELECT v FROM p2_meta WHERE k='B_CUST'),now());
+          INSERT INTO "Appointment"("businessId","createdByActor","sourceChannel","createdByUserId","customerId","startsAt","updatedAt")
+            VALUES ((SELECT v FROM p2_meta WHERE k='B_BIZ'),'OWNER','INBOX_WEB',(SELECT v FROM p2_meta WHERE k='B_USER'),(SELECT v FROM p2_meta WHERE k='B_CUST'),now(),now());
+
+          -- MIXED-DATA POISONING CONTROL: B-OWNED rows that REFERENCE customer A
+          -- (businessId=B, customerId=CustomerA). A read-model that forgot a businessId
+          -- filter, or an RLS gap, would surface these on A's card. They MUST stay invisible.
+          INSERT INTO "BillingDocument"("businessId","documentType","customerId","updatedAt")
+            VALUES ((SELECT v FROM p2_meta WHERE k='B_BIZ'),'TAX_INVOICE',(SELECT v FROM p2_meta WHERE k='A_CUST'),now());
+          INSERT INTO "PaymentRequest"("businessId","provider","amount","customerId","updatedAt")
+            VALUES ((SELECT v FROM p2_meta WHERE k='B_BIZ'),'TRANZILA',999,(SELECT v FROM p2_meta WHERE k='A_CUST'),now());
+          INSERT INTO "Conversation"("businessId","channel","customerId","updatedAt")
+            VALUES ((SELECT v FROM p2_meta WHERE k='B_BIZ'),'WHATSAPP',(SELECT v FROM p2_meta WHERE k='A_CUST'),now());
+          INSERT INTO "Appointment"("businessId","createdByActor","sourceChannel","createdByUserId","customerId","startsAt","updatedAt")
+            VALUES ((SELECT v FROM p2_meta WHERE k='B_BIZ'),'OWNER','INBOX_WEB',(SELECT v FROM p2_meta WHERE k='B_USER'),(SELECT v FROM p2_meta WHERE k='A_CUST'),now(),now());
+
+          -- RLS: ENABLE + FORCE + direct policy (USING + WITH CHECK) on all card tables.
+          DO $rls$
+          DECLARE t text;
+          BEGIN
+            FOREACH t IN ARRAY ARRAY['Customer','BillingDocument','PaymentRequest','Conversation','Appointment'] LOOP
+              EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+              EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
+              EXECUTE format($p$CREATE POLICY p2_tenant ON %I
+                USING ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)
+                WITH CHECK ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)$p$, t);
+            END LOOP;
+          END
+          $rls$;
+          SQL
+          for k in A_BIZ B_BIZ A_USER B_USER A_CUST B_CUST; do
+            V=$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT v FROM p2_meta WHERE k='$k'")
+            echo "$k=$V" >> "$GITHUB_ENV"
+          done
+          echo "provisioned ids + RLS on 5 card tables"
+
+      - name: P5-5 Customer Card multi-table pilot proof (NON-BYPASS runtime role)
+        env:
+          DATABASE_URL: postgresql://p2_runtime:p2_runtime_ci_pw@localhost:5432/dubiz_p2
+          DIRECT_URL: postgresql://p2_runtime:p2_runtime_ci_pw@localhost:5432/dubiz_p2
+          AUTH_TOKEN_SECRET: p2_ci_auth_secret_synthetic_not_a_real_secret
+        run: |
+          echo "runtime role attrs:"; psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT 'super='||rolsuper||' bypassrls='||rolbypassrls FROM pg_roles WHERE rolname='p2_runtime'"
+          npx tsx lib/tenant/customer-card-pilot.integration.test.ts

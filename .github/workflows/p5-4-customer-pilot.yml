@@ -1,0 +1,117 @@
+name: P5-4 Customer Pilot Integration (ephemeral PG17)
+
+# D2 / P5-4 — real Customer route handlers driven by real Bearer tokens, proving the full
+# pilot chain: auth -> server-derived businessId -> ALS -> withTenantTransaction -> GUC -> RLS,
+# with the canonical Prisma client running as a NON-BYPASS runtime role.
+# Ephemeral postgres:17; synthetic CI-only creds; ZERO secrets; ZERO Neon/Prod.
+# migrate-from-zero is a KNOWN separate repo defect -> lab schema via `prisma db push`.
+# RLS is enabled on Customer ONLY: auth-bootstrap reads (User/Business) happen pre-context,
+# so tenant RLS on those tables is out of pilot scope (broader-rollout consideration).
+
+on:
+  push:
+    branches: [feat/d2-p7-w0a-p5-substrate]
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/tenant/**"
+      - "lib/prisma.ts"
+      - "app/api/customers/**"
+      - "lib/services/crm/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  customer-pilot:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: p2_owner
+          POSTGRES_PASSWORD: p2_ci_synthetic_pw
+          POSTGRES_DB: dubiz_p2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U p2_owner -d dubiz_p2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://p2_owner:p2_ci_synthetic_pw@localhost:5432/dubiz_p2
+      DIRECT_URL: postgresql://p2_owner:p2_ci_synthetic_pw@localhost:5432/dubiz_p2
+      PGPASSWORD: p2_ci_synthetic_pw
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Isolation assert (no Neon / prod)
+        run: |
+          case "$DATABASE_URL" in
+            *neon.tech*|*ep-flat-brook*|*ep-square-grass*|*ep-wispy-dawn*|*ep-icy-violet*) echo "FATAL non-local"; exit 1;;
+            postgresql://p2_owner:*@localhost:5432/dubiz_p2) echo "OK local ephemeral";;
+            *) echo "FATAL unexpected DATABASE_URL"; exit 1;;
+          esac
+          test -f .env && { echo "FATAL unexpected .env"; exit 1; } || echo "OK no .env"
+
+      - name: Ensure psql client
+        run: command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; }
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Schema bootstrap (prisma db push — lab only, generates client)
+        run: npx prisma db push
+
+      - name: Provision users/customers + RLS on Customer (as owner)
+        run: |
+          set -euo pipefail
+          psql -h localhost -U p2_owner -d dubiz_p2 -v ON_ERROR_STOP=1 <<'SQL'
+          DROP ROLE IF EXISTS p2_runtime;
+          CREATE ROLE p2_runtime LOGIN PASSWORD 'p2_runtime_ci_pw'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+          GRANT USAGE ON SCHEMA public TO p2_runtime;
+          GRANT SELECT ON "Business","User" TO p2_runtime;               -- auth-bootstrap reads (pre-context; no RLS)
+          GRANT SELECT, INSERT, UPDATE, DELETE ON "Customer" TO p2_runtime;
+          GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO p2_runtime;
+
+          INSERT INTO "Business"(name,"updatedAt") VALUES ('p2-a-business', now());
+          INSERT INTO "Business"(name,"updatedAt") VALUES ('p2-b-business', now());
+          CREATE TABLE p2_meta(k text PRIMARY KEY, v int);
+          INSERT INTO p2_meta VALUES
+            ('A_BIZ',(SELECT id FROM "Business" WHERE name='p2-a-business')),
+            ('B_BIZ',(SELECT id FROM "Business" WHERE name='p2-b-business'));
+          INSERT INTO "User"(email,password,"businessId","updatedAt") SELECT 'a@p2.test','x',v,now() FROM p2_meta WHERE k='A_BIZ';
+          INSERT INTO "User"(email,password,"businessId","updatedAt") SELECT 'b@p2.test','x',v,now() FROM p2_meta WHERE k='B_BIZ';
+          INSERT INTO p2_meta VALUES
+            ('A_USER',(SELECT id FROM "User" WHERE email='a@p2.test')),
+            ('B_USER',(SELECT id FROM "User" WHERE email='b@p2.test'));
+          INSERT INTO "Customer"("businessId",name,"updatedAt") SELECT v,'p2-a-customer',now() FROM p2_meta WHERE k='A_BIZ';
+          INSERT INTO "Customer"("businessId",name,"updatedAt") SELECT v,'p2-b-customer',now() FROM p2_meta WHERE k='B_BIZ';
+          INSERT INTO p2_meta VALUES ('B_CUST',(SELECT id FROM "Customer" WHERE name='p2-b-customer'));
+
+          ALTER TABLE "Customer" ENABLE ROW LEVEL SECURITY; ALTER TABLE "Customer" FORCE ROW LEVEL SECURITY;
+          CREATE POLICY p2_tenant ON "Customer"
+            USING ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)
+            WITH CHECK ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int);
+          SQL
+          for k in A_BIZ B_BIZ A_USER B_USER B_CUST; do
+            V=$(psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT v FROM p2_meta WHERE k='$k'")
+            echo "$k=$V" >> "$GITHUB_ENV"
+          done
+          echo "provisioned ids captured"
+
+      - name: P5-4 Customer pilot integration proof (NON-BYPASS runtime role)
+        env:
+          DATABASE_URL: postgresql://p2_runtime:p2_runtime_ci_pw@localhost:5432/dubiz_p2
+          DIRECT_URL: postgresql://p2_runtime:p2_runtime_ci_pw@localhost:5432/dubiz_p2
+          AUTH_TOKEN_SECRET: p2_ci_auth_secret_synthetic_not_a_real_secret
+        run: |
+          echo "runtime role attrs:"; psql -h localhost -U p2_owner -d dubiz_p2 -tAc "SELECT 'super='||rolsuper||' bypassrls='||rolbypassrls FROM pg_roles WHERE rolname='p2_runtime'"
+          npx tsx lib/tenant/customer-pilot.integration.test.ts

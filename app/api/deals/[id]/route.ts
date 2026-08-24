@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
-import {
-  PrismaClient,
-  CollaborationDealStatus,
-} from "@prisma/client";
+import { CollaborationDealStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
-
-const prisma = new PrismaClient();
+import { prisma } from "@/lib/prisma";
 
 export async function PATCH(request: Request) {
   try {
