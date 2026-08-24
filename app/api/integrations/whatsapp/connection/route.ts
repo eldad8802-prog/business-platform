@@ -27,6 +27,7 @@
 
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { requirePlatformAdminOrResponse } from "@/lib/auth/platform-admin";
 import {
   findPublicByBusinessId,
   manualSeedConnection,
@@ -53,13 +54,12 @@ export async function POST(req: Request) {
     );
   }
 
-  // ── Gate 2: auth + role ─────────────────────────────────────────────
-  const user = await getCurrentUser(req);
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  if (user.role !== "PLATFORM_ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // ── Gate 2: canonical platform-admin auth (role + allowlist, fail-closed).
+  // D2/P7-W2-GATE hardening: this admin-semantics route must never be
+  // reachable through a weaker path than requirePlatformAdmin.
+  const adminOrResponse = await requirePlatformAdminOrResponse(req);
+  if (adminOrResponse instanceof NextResponse) {
+    return adminOrResponse;
   }
 
   // ── Body parsing ────────────────────────────────────────────────────
