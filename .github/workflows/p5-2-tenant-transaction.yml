@@ -7,7 +7,14 @@ name: P5-2 Tenant Transaction Wrapper (ephemeral PG17)
 
 on:
   push:
-    branches: [feat/d2-p5-tenant-transaction]
+    branches: [feat/d2-p7-w0a-p5-substrate]
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/tenant/**"
+      - "lib/prisma.ts"
+      - "prisma/schema.prisma"
+  workflow_dispatch:
 
 permissions:
   contents: read

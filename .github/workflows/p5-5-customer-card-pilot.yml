@@ -12,7 +12,15 @@ name: P5-5 Customer Card Multi-Table RLS Pilot (ephemeral PG17)
 
 on:
   push:
-    branches: [feat/d2-p5-customer-card-pilot]
+    branches: [feat/d2-p7-w0a-p5-substrate]
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/tenant/**"
+      - "lib/prisma.ts"
+      - "app/api/customers/**"
+      - "lib/services/crm/**"
+  workflow_dispatch:
 
 permissions:
   contents: read

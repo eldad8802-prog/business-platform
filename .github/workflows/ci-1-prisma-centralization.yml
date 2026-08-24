@@ -1,15 +1,17 @@
 name: CI-1 Prisma Client Centralization Guard
 
-# D2 / P5-3 — enforce the CI-1 invariant: production tenant-scoped runtime code must
-# use the canonical Prisma client (lib/prisma.ts) and must not instantiate ad-hoc
-# `new PrismaClient(...)`. Runs on this branch now (proof); once merged, enforces on
-# pushes to main and all PRs to main.
+# D2 / P5-3 (canonicalized in P7-W0a) — enforce the CI-1 invariant: production
+# tenant-scoped runtime code must use the canonical Prisma client (lib/prisma.ts)
+# and must not instantiate ad-hoc `new PrismaClient(...)`. Enforces on pushes to
+# main and all PRs to main; also runnable locally via
+# `npm run verify:prisma-centralization`, so the guard is not a CI-only artifact.
 
 on:
   push:
-    branches: [feat/d2-p5-prisma-centralization, main]
+    branches: [feat/d2-p7-w0a-p5-substrate, main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
