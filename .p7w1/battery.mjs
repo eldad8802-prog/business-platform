@@ -28,6 +28,7 @@ const WAVE1_TABLES = [
   "BusinessObligation", "BusinessObligationOrientation", "CrmNote", "CrmAttachment",
   "PricingProfile", "PricingCalculation", "Task", "CollaborationDeal", "Lead",
   "Deal", "BusinessService", "ServiceCostProfile", "PricingRecommendation",
+  "BusinessProfile",
 ];
 
 let pass = 0, fail = 0;
@@ -113,11 +114,11 @@ async function main() {
   // posture. Here we only COUNT — no apply, no fixtures, no runtime session.
   if (VERIFY_ONLY) {
     const w1 = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w1_tenant'`))[0].c);
-    ok("verify-only: 13 Wave-1 policies present", w1 === 13, `found ${w1}`);
+    ok("verify-only: 14 Wave-1 policies present", w1 === 14, `found ${w1}`);
     const forcedV = Number((await owner.$queryRawUnsafe(
       `SELECT count(*)::int AS c FROM pg_class WHERE relname = ANY(ARRAY[${WAVE1_TABLES.map((t) => `'${t}'`).join(",")}]) AND relrowsecurity AND relforcerowsecurity`
     ))[0].c);
-    ok("verify-only: 13 tables ENABLE+FORCE", forcedV === 13, `found ${forcedV}`);
+    ok("verify-only: 14 tables ENABLE+FORCE", forcedV === 14, `found ${forcedV}`);
     const resV = await owner.$queryRawUnsafe(
       `SELECT (SELECT count(*)::int FROM "Business" WHERE name LIKE '${MARK}%') AS biz,
               (SELECT count(*)::int FROM "User" WHERE email LIKE '%@p7w1.test') AS usr`
@@ -158,21 +159,22 @@ async function main() {
     return statements.length;
   };
   const nPol = await applySqlFile("prisma/migrations/20260824210000_d2_p7_wave1_tenant_rls/migration.sql");
+  const nBp = await applySqlFile("prisma/migrations/20260825120000_d2_p7_wave1_businessprofile_rls/migration.sql");
   const nGrant = await applySqlFile("scripts/security/d2-p7-wave1-grants.sql", true);
-  console.log(`[apply] policy statements=${nPol} grant statements=${nGrant}`);
+  console.log(`[apply] policy statements=${nPol}+${nBp} grant statements=${nGrant}`);
 
   const polCount = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w1_tenant'`))[0].c);
-  ok("13 p7w1_tenant policies installed", polCount === 13, `found ${polCount}`);
+  ok("14 p7w1_tenant policies installed", polCount === 14, `found ${polCount}`);
   const forced = Number((await owner.$queryRawUnsafe(
     `SELECT count(*)::int AS c FROM pg_class WHERE relname = ANY(ARRAY[${WAVE1_TABLES.map((t) => `'${t}'`).join(",")}]) AND relrowsecurity AND relforcerowsecurity`
   ))[0].c);
-  ok("13 tables ENABLE+FORCE RLS", forced === 13, `found ${forced}`);
+  ok("14 tables ENABLE+FORCE RLS", forced === 14, `found ${forced}`);
 
   // ---------- Phase 4: fixtures (owner) ----------
   const cleanup = async () => {
     const bids = `SELECT id FROM "Business" WHERE name LIKE '${MARK}%'`;
     for (const t of ["LearningEvent", "CrmAttachment", "CrmNote", "PricingCalculation", "PricingProfile",
-      "CollaborationDeal", "BusinessObligation", "BusinessObligationOrientation", "Task", "Deal", "Lead", "Customer", "Supplier"]) {
+      "CollaborationDeal", "BusinessObligation", "BusinessObligationOrientation", "Task", "Deal", "Lead", "BusinessProfile", "Customer", "Supplier"]) {
       await owner.$executeRawUnsafe(`DELETE FROM "${t}" WHERE "businessId" IN (${bids})`);
     }
     await owner.$executeRawUnsafe(`DELETE FROM "ServiceCostProfile" WHERE "businessServiceId" IN (SELECT id FROM "BusinessService" WHERE "businessId" IN (${bids}))`);
@@ -205,6 +207,8 @@ async function main() {
   await owner.task.create({ data: { businessId: bizA.id, title: `${MARK}task-A` } });
   await owner.deal.create({ data: { businessId: bizA.id, quotedPrice: 1 } });
   await owner.lead.create({ data: { businessId: bizA.id, customerName: `${MARK}lead-A` } });
+  await owner.businessProfile.create({ data: { businessId: bizA.id, category: "Fitness", subCategory: "Studio" } });
+  await owner.businessProfile.create({ data: { businessId: bizB.id, category: "Beauty", subCategory: "Hair" } });
   console.log(`[fixtures] A=${bizA.id} B=${bizB.id}`);
 
   // ---------- Phase 5: runtime clients + adversarial SQL matrix ----------
@@ -236,6 +240,20 @@ async function main() {
   ok("wrong-tenant DELETE = 0 rows", delCross.count === 0);
   const bStillThere = await owner.crmNote.findUnique({ where: { id: noteB.id } });
   ok("B's note untouched (owner verify)", bStillThere !== null);
+
+  console.log("--- BusinessProfile (F-25 server-owned identity) ---");
+  const bpSeen = await rtx(rt1, bizA.id, (t) => t.businessProfile.findMany({}));
+  ok("A reads only own BusinessProfile", bpSeen.length === 1 && bpSeen[0].businessId === bizA.id, `got ${bpSeen.length}`);
+  const bpCross = await rtx(rt1, bizA.id, (t) => t.businessProfile.findFirst({ where: { businessId: bizB.id } }));
+  ok("A cannot read B's BusinessProfile (cross-tenant)", bpCross === null);
+  const bpNoCtx = await rt1.$queryRawUnsafe(`SELECT count(*)::int AS c FROM "BusinessProfile"`);
+  ok("BusinessProfile no context -> 0 rows (fail-closed)", Number(bpNoCtx[0].c) === 0);
+  await expectThrow("BusinessProfile INSERT denied (SELECT-only grant)", () =>
+    rtx(rt1, bizA.id, (t) => t.businessProfile.create({ data: { businessId: bizA.id + 5000, category: "X" } })),
+    ["permission denied"]);
+  await expectThrow("BusinessProfile UPDATE denied (SELECT-only grant)", () =>
+    rtx(rt1, bizA.id, (t) => t.businessProfile.update({ where: { businessId: bizA.id }, data: { category: "Evil" } })),
+    ["permission denied"]);
 
   console.log("--- BusinessObligationOrientation (businessId PK) ---");
   const oriB = await rtx(rt1, bizA.id, (t) => t.businessObligationOrientation.findMany({}));
@@ -438,9 +456,10 @@ async function main() {
     const canSelect = (await owner.$queryRawUnsafe(`SELECT has_table_privilege('${ROLE}', '"BusinessObligation"', 'SELECT') AS p`))[0].p;
     ok("rollback: grants revoked", canSelect === false);
     await applySqlFile("prisma/migrations/20260824210000_d2_p7_wave1_tenant_rls/migration.sql");
+    await applySqlFile("prisma/migrations/20260825120000_d2_p7_wave1_businessprofile_rls/migration.sql");
     await applySqlFile("scripts/security/d2-p7-wave1-grants.sql", true);
     const polReapplied = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w1_tenant'`))[0].c);
-    ok("re-apply after rollback (idempotency)", polReapplied === 13, `found ${polReapplied}`);
+    ok("re-apply after rollback (idempotency)", polReapplied === 14, `found ${polReapplied}`);
   }
 
   // ---------- Phase 8: cleanup + residue ----------

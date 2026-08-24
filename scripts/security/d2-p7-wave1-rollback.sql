@@ -5,7 +5,7 @@
 -- cache), the P4-B pilot substrate (p4b_tenant policies + pilot grants), or
 -- any non-Wave-1 object. :ROLE = the environment's runtime role.
 
--- Policies + RLS off (13 tables)
+-- Policies + RLS off (14 tables)
 DROP POLICY IF EXISTS p7w1_tenant ON "BusinessObligation";
 ALTER TABLE "BusinessObligation" NO FORCE ROW LEVEL SECURITY;
 ALTER TABLE "BusinessObligation" DISABLE ROW LEVEL SECURITY;
@@ -45,6 +45,9 @@ ALTER TABLE "ServiceCostProfile" DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS p7w1_tenant ON "PricingRecommendation";
 ALTER TABLE "PricingRecommendation" NO FORCE ROW LEVEL SECURITY;
 ALTER TABLE "PricingRecommendation" DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p7w1_tenant ON "BusinessProfile";
+ALTER TABLE "BusinessProfile" NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE "BusinessProfile" DISABLE ROW LEVEL SECURITY;
 
 -- Revoke Wave-1 grants (exactly the set from d2-p7-wave1-grants.sql)
 REVOKE ALL PRIVILEGES ON "BusinessObligation" FROM :ROLE;
@@ -59,6 +62,7 @@ REVOKE ALL PRIVILEGES ON SEQUENCE "PricingProfile_id_seq" FROM :ROLE;
 REVOKE ALL PRIVILEGES ON "PricingCalculation" FROM :ROLE;
 REVOKE ALL PRIVILEGES ON SEQUENCE "PricingCalculation_id_seq" FROM :ROLE;
 REVOKE ALL PRIVILEGES ON "CollaborationDeal" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON "BusinessProfile" FROM :ROLE;
 REVOKE ALL PRIVILEGES ON "BusinessService" FROM :ROLE;
 REVOKE ALL PRIVILEGES ON "ServiceCostProfile" FROM :ROLE;
 REVOKE ALL PRIVILEGES ON SEQUENCE "ServiceCostProfile_id_seq" FROM :ROLE;

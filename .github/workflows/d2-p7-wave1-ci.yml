@@ -15,6 +15,7 @@ on:
     paths:
       - "lib/tenant/**"
       - "prisma/migrations/20260824210000_d2_p7_wave1_tenant_rls/**"
+      - "prisma/migrations/20260825120000_d2_p7_wave1_businessprofile_rls/**"
       - "scripts/security/d2-p7-wave1-*.sql"
       - ".p7w1/**"
       - "app/api/obligations/**"
