@@ -1,7 +1,10 @@
 import type { ReactNode } from "react";
+import type { Metadata } from "next";
 import packageJson from "../../package.json";
 import { SettingsSystemFooter } from "@/components/settings/SettingsSystemFooter";
 import { ShellChrome } from "@/components/navigation/shell-chrome";
+
+export const metadata: Metadata = { title: "הגדרות" };
 
 // Settings is a primary navigation destination (the bottom bar's "עוד"/"פרופיל"
 // tab points here), so it inherits the one shared bottom bar via ShellChrome.
