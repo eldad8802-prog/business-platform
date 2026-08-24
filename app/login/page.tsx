@@ -415,10 +415,13 @@ export default function LoginPage() {
 
         <form style={bodyStyle} onSubmit={handleLogin} noValidate>
           <div style={fieldWrapStyle}>
-            <label style={labelStyle}>אימייל</label>
+            <label style={labelStyle} htmlFor="login-email">אימייל</label>
             <div style={inputShellStyle}>
               <input
                 type="email"
+                id="login-email"
+                aria-invalid={touched.email && !!errors.email}
+                aria-describedby="login-email-msg"
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
@@ -447,19 +450,22 @@ export default function LoginPage() {
             </div>
 
             {touched.email && errors.email ? (
-              <p style={fieldErrorStyle}>{errors.email}</p>
+              <p id="login-email-msg" role="alert" style={fieldErrorStyle}>{errors.email}</p>
             ) : (
-              <p style={helperTextStyle}>
+              <p id="login-email-msg" style={helperTextStyle}>
                 השתמש באימייל שאיתו נרשמת למערכת.
               </p>
             )}
           </div>
 
           <div style={fieldWrapStyle}>
-            <label style={labelStyle}>סיסמה</label>
+            <label style={labelStyle} htmlFor="login-password">סיסמה</label>
             <div style={inputShellStyle}>
               <input
                 type={showPassword ? "text" : "password"}
+                id="login-password"
+                aria-invalid={touched.password && !!errors.password}
+                aria-describedby="login-password-msg"
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
@@ -489,19 +495,24 @@ export default function LoginPage() {
                 type="button"
                 onClick={() => setShowPassword((prev) => !prev)}
                 style={passwordToggleStyle}
+                aria-label={showPassword ? "הסתר סיסמה" : "הצג סיסמה"}
+                aria-pressed={showPassword}
+                aria-controls="login-password"
               >
                 {showPassword ? "הסתר" : "הצג"}
               </button>
             </div>
 
             {touched.password && errors.password ? (
-              <p style={fieldErrorStyle}>{errors.password}</p>
+              <p id="login-password-msg" role="alert" style={fieldErrorStyle}>{errors.password}</p>
             ) : (
-              <p style={helperTextStyle}>הסיסמה חייבת להכיל לפחות 6 תווים.</p>
+              <p id="login-password-msg" style={helperTextStyle}>הסיסמה חייבת להכיל לפחות 6 תווים.</p>
             )}
           </div>
 
-          {errors.form && <div style={formErrorStyle}>{errors.form}</div>}
+          {errors.form && (
+            <div role="alert" aria-live="assertive" style={formErrorStyle}>{errors.form}</div>
+          )}
 
           <PrimaryCta type="submit" block disabled={isSubmitDisabled}>
             {loading ? "מתחבר..." : "התחבר למערכת"}
