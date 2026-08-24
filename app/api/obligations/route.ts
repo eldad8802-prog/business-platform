@@ -7,6 +7,8 @@ import {
   recognizeObligation,
 } from "@/lib/services/obligations/obligation.service";
 import { obligationServiceDeps } from "@/lib/services/obligations/obligations.deps";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { toObligationApi } from "@/lib/services/obligations/obligation-api.serializer";
 import type { RecurrenceCadence } from "@/lib/services/obligations/obligations.types";
 
@@ -64,17 +66,24 @@ export async function POST(req: NextRequest) {
       throw new ValidationError("amount is required");
     }
 
-    const obligation = await recognizeObligation(
-      {
-        businessId: user.businessId,
-        obligeeName: String(body.obligeeName),
-        amount: body.amount as string | number,
-        currency: typeof body.currency === "string" ? body.currency : undefined,
-        dueAt: parseDueAt(body.dueAt),
-        recurrence: parseRecurrence(body.recurrence),
-        note: typeof body.note === "string" ? body.note : null,
-      },
-      obligationServiceDeps()
+    const obligation = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          recognizeObligation(
+            {
+              businessId: user.businessId,
+              obligeeName: String(body.obligeeName),
+              amount: body.amount as string | number,
+              currency:
+                typeof body.currency === "string" ? body.currency : undefined,
+              dueAt: parseDueAt(body.dueAt),
+              recurrence: parseRecurrence(body.recurrence),
+              note: typeof body.note === "string" ? body.note : null,
+            },
+            obligationServiceDeps({ tx })
+          )
+        )
     );
 
     return NextResponse.json(toObligationApi(obligation), { status: 201 });
@@ -102,10 +111,15 @@ export async function GET(req: NextRequest) {
       limit = num;
     }
 
-    const records = await listObligations(
-      user.businessId,
-      obligationServiceDeps(),
-      { includeClosed, limit }
+    const records = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          listObligations(user.businessId, obligationServiceDeps({ tx }), {
+            includeClosed,
+            limit,
+          })
+        )
     );
 
     return NextResponse.json(

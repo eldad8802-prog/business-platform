@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../lib/prisma";
 import { getCurrentUser } from "../../../../lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 export async function GET(req: Request) {
   try {
@@ -16,7 +17,11 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const includeInactive = url.searchParams.get("includeInactive") === "true";
 
-    const profiles = await prisma.pricingProfile.findMany({
+    const profiles = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.pricingProfile.findMany({
       where: {
         businessId: user.businessId,
         ...(includeInactive ? {} : { isActive: true }),
@@ -38,7 +43,9 @@ export async function GET(req: Request) {
         createdAt: true,
         updatedAt: true,
       },
-    });
+          })
+        )
+    );
 
     return NextResponse.json({
       count: profiles.length,
@@ -114,7 +121,11 @@ export async function POST(req: Request) {
       );
     }
 
-    const profile = await prisma.pricingProfile.create({
+    const profile = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.pricingProfile.create({
       data: {
         businessId: user.businessId,
         name: body.name.trim(),
@@ -140,7 +151,9 @@ export async function POST(req: Request) {
         createdAt: true,
         updatedAt: true,
       },
-    });
+          })
+        )
+    );
 
     return NextResponse.json(
       {

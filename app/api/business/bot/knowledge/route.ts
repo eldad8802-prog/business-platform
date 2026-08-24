@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
 import { coerceKnowledge, validateKnowledge } from "@/lib/features/bot";
 
 /**
@@ -23,14 +25,15 @@ const KNOWLEDGE_SELECT = {
   faq: true,
 } satisfies Prisma.BusinessBotKnowledgeSelect;
 
-async function loadBridges(businessId: number) {
-  const [settings, servicesCount] = await Promise.all([
-    prisma.businessBotSettings.findUnique({
-      where: { businessId },
-      select: { productLinkEnabled: true, productLinkUrl: true },
-    }),
-    prisma.businessService.count({ where: { businessId, active: true } }),
-  ]);
+async function loadBridges(db: TenantTx | typeof prisma, businessId: number) {
+  // Sequential — a TenantTx must not run concurrent queries.
+  const settings = await db.businessBotSettings.findUnique({
+    where: { businessId },
+    select: { productLinkEnabled: true, productLinkUrl: true },
+  });
+  const servicesCount = await db.businessService.count({
+    where: { businessId, active: true },
+  });
   return {
     productLinkEnabled: !!settings?.productLinkEnabled,
     productLinkSet: !!(settings?.productLinkUrl ?? "").trim(),
@@ -43,13 +46,20 @@ export async function GET(req: Request) {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);
 
-    const [bot, bridges] = await Promise.all([
-      prisma.businessBot.findUnique({
-        where: { businessId: user.businessId },
-        select: { knowledge: { select: KNOWLEDGE_SELECT } },
-      }),
-      loadBridges(user.businessId),
-    ]);
+    // D2/P7 Wave 1: BusinessService is FORCE-RLS'd — this read must carry the
+    // tenant GUC or the services count silently reads as zero.
+    const { bot, bridges } = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const botRow = await tx.businessBot.findUnique({
+            where: { businessId: user.businessId },
+            select: { knowledge: { select: KNOWLEDGE_SELECT } },
+          });
+          const bridgeData = await loadBridges(tx, user.businessId);
+          return { bot: botRow, bridges: bridgeData };
+        })
+    );
 
     const knowledge = coerceKnowledge(bot?.knowledge ?? null);
     return NextResponse.json({

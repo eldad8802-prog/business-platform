@@ -1,6 +1,22 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../../lib/prisma";
 import { getCurrentUser } from "../../../../../lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+const PROFILE_SELECT = {
+  id: true,
+  businessId: true,
+  name: true,
+  type: true,
+  category: true,
+  defaultMaterialCost: true,
+  defaultLaborMinutes: true,
+  defaultHourlyRate: true,
+  defaultOverheadPercent: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
 export async function GET(
   req: Request,
@@ -20,26 +36,19 @@ export async function GET(
       return NextResponse.json({ error: "Invalid profile id" }, { status: 400 });
     }
 
-    const profile = await prisma.pricingProfile.findFirst({
-      where: {
-        id: profileId,
-        businessId: user.businessId,
-      },
-      select: {
-        id: true,
-        businessId: true,
-        name: true,
-        type: true,
-        category: true,
-        defaultMaterialCost: true,
-        defaultLaborMinutes: true,
-        defaultHourlyRate: true,
-        defaultOverheadPercent: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    const profile = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.pricingProfile.findFirst({
+            where: {
+              id: profileId,
+              businessId: user.businessId,
+            },
+            select: PROFILE_SELECT,
+          })
+        )
+    );
 
     if (!profile) {
       return NextResponse.json(
@@ -75,20 +84,6 @@ export async function PATCH(
 
     if (Number.isNaN(profileId)) {
       return NextResponse.json({ error: "Invalid profile id" }, { status: 400 });
-    }
-
-    const existingProfile = await prisma.pricingProfile.findFirst({
-      where: {
-        id: profileId,
-        businessId: user.businessId,
-      },
-    });
-
-    if (!existingProfile) {
-      return NextResponse.json(
-        { error: "Pricing profile not found" },
-        { status: 404 }
-      );
     }
 
     const body = await req.json();
@@ -191,24 +186,32 @@ export async function PATCH(
       updateData.isActive = body.isActive;
     }
 
-    const updatedProfile = await prisma.pricingProfile.update({
-      where: { id: profileId },
-      data: updateData,
-      select: {
-        id: true,
-        businessId: true,
-        name: true,
-        type: true,
-        category: true,
-        defaultMaterialCost: true,
-        defaultLaborMinutes: true,
-        defaultHourlyRate: true,
-        defaultOverheadPercent: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    // Tenant-scoped write: the businessId predicate lives in the UPDATE itself
+    // (updateMany), not only in a preceding read — no id-only mutation window.
+    const updatedProfile = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const result = await tx.pricingProfile.updateMany({
+            where: { id: profileId, businessId: user.businessId },
+            data: updateData,
+          });
+          if (result.count === 0) {
+            return null;
+          }
+          return tx.pricingProfile.findFirst({
+            where: { id: profileId, businessId: user.businessId },
+            select: PROFILE_SELECT,
+          });
+        })
+    );
+
+    if (!updatedProfile) {
+      return NextResponse.json(
+        { error: "Pricing profile not found" },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -242,38 +245,31 @@ export async function DELETE(
       return NextResponse.json({ error: "Invalid profile id" }, { status: 400 });
     }
 
-    const existingProfile = await prisma.pricingProfile.findFirst({
-      where: {
-        id: profileId,
-        businessId: user.businessId,
-      },
-    });
+    // Soft delete, tenant-scoped in the UPDATE itself (same hardening as PATCH).
+    const deletedProfile = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const result = await tx.pricingProfile.updateMany({
+            where: { id: profileId, businessId: user.businessId },
+            data: { isActive: false },
+          });
+          if (result.count === 0) {
+            return null;
+          }
+          return tx.pricingProfile.findFirst({
+            where: { id: profileId, businessId: user.businessId },
+            select: PROFILE_SELECT,
+          });
+        })
+    );
 
-    if (!existingProfile) {
+    if (!deletedProfile) {
       return NextResponse.json(
         { error: "Pricing profile not found" },
         { status: 404 }
       );
     }
-
-    const deletedProfile = await prisma.pricingProfile.update({
-      where: { id: profileId },
-      data: { isActive: false },
-      select: {
-        id: true,
-        businessId: true,
-        name: true,
-        type: true,
-        category: true,
-        defaultMaterialCost: true,
-        defaultLaborMinutes: true,
-        defaultHourlyRate: true,
-        defaultOverheadPercent: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
 
     return NextResponse.json({
       success: true,

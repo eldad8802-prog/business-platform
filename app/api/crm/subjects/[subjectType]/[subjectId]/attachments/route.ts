@@ -6,6 +6,8 @@ import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
 import { crmAttachmentsService } from "@/lib/services/crm/crm-attachments.service";
 import { MAX_ATTACHMENT_BYTES } from "@/lib/services/crm/crm-attachment-storage";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -20,12 +22,21 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
     const { subjectType, subjectId } = await ctx.params;
 
-    const attachments = await crmAttachmentsService.listAttachments({
-      businessId: user.businessId,
-      subjectType,
-      subjectId: Number(subjectId),
-      actingUserId: user.id,
-    });
+    const attachments = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          crmAttachmentsService.listAttachments(
+            {
+              businessId: user.businessId,
+              subjectType,
+              subjectId: Number(subjectId),
+              actingUserId: user.id,
+            },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json({ attachments }, { status: 200 });
   } catch (error) {
@@ -69,15 +80,28 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const attachment = await crmAttachmentsService.uploadAttachment({
-      businessId: user.businessId,
-      subjectType,
-      subjectId: Number(subjectId),
-      uploadedByUserId: user.id,
-      buffer,
-      originalFileName: file.name,
-      mimeType: file.type,
-    });
+    // The upload writes object storage between tenant-scoped queries, so the
+    // tenant transaction gets an extended timeout (never the default 5s race).
+    const attachment = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(
+          (tx) =>
+            crmAttachmentsService.uploadAttachment(
+              {
+                businessId: user.businessId,
+                subjectType,
+                subjectId: Number(subjectId),
+                uploadedByUserId: user.id,
+                buffer,
+                originalFileName: file.name,
+                mimeType: file.type,
+              },
+              { tx }
+            ),
+          { timeoutMs: 25_000 }
+        )
+    );
 
     return NextResponse.json({ attachment }, { status: 201 });
   } catch (error) {

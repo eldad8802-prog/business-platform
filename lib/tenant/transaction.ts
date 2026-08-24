@@ -39,13 +39,25 @@ export type TenantTx = Prisma.TransactionClient;
  */
 export async function withTenantTransaction<T>(
   fn: (tx: TenantTx) => Promise<T>,
+  options?: {
+    /**
+     * Interactive-transaction timeout override (ms). Only for operations that
+     * legitimately hold non-DB I/O inside the tenant transaction (e.g. an
+     * attachment upload writing object storage between tenant-scoped queries).
+     * Defaults to Prisma's standard interactive-transaction timeout.
+     */
+    timeoutMs?: number;
+  },
 ): Promise<T> {
   // Read the trusted, server-derived tenant BEFORE opening a transaction.
   const { businessId } = getTenantContextOrThrow();
 
-  return prisma.$transaction(async (tx) => {
-    // Transaction-local (is_local = true). Parameterized — never string-interpolated.
-    await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(businessId)}, true)`;
-    return fn(tx);
-  });
+  return prisma.$transaction(
+    async (tx) => {
+      // Transaction-local (is_local = true). Parameterized — never string-interpolated.
+      await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(businessId)}, true)`;
+      return fn(tx);
+    },
+    options?.timeoutMs ? { timeout: options.timeoutMs } : undefined,
+  );
 }

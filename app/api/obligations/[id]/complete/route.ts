@@ -4,6 +4,8 @@ import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
 import { completeObligation } from "@/lib/services/obligations/obligation.service";
 import { obligationServiceDeps } from "@/lib/services/obligations/obligations.deps";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { toObligationApi } from "@/lib/services/obligations/obligation-api.serializer";
 
 export const runtime = "nodejs";
@@ -31,10 +33,16 @@ export async function POST(
     const { id } = await context.params;
     const obligationId = parseObligationId(id);
 
-    const result = await completeObligation(
-      user.businessId,
-      obligationId,
-      obligationServiceDeps()
+    const result = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          completeObligation(
+            user.businessId,
+            obligationId,
+            obligationServiceDeps({ tx })
+          )
+        )
     );
 
     return NextResponse.json(

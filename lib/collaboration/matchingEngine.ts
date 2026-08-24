@@ -1,5 +1,6 @@
 import { CollaborationActionType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import type { TenantTx } from "@/lib/tenant/transaction";
 
 type MatchingInput = {
   businessId: number;
@@ -21,11 +22,18 @@ type ScoredCandidate = Candidate & {
   priority: number;
 };
 
-export async function runMatchingEngine(input: MatchingInput) {
+export async function runMatchingEngine(
+  input: MatchingInput,
+  options?: { tx?: TenantTx }
+) {
+  // D2/P7 Wave 1: bind to the tenant transaction when provided. A TenantTx is
+  // a single interactive transaction — writes below are sequential, never
+  // Promise.all on the same tx.
+  const db = options?.tx ?? prisma;
   const { businessId, category, subCategory } = input;
 
   // 1. מונעים כפילויות: אם כבר יש deals פתוחים, מחזירים אותם
-  const existingNewDeals = await prisma.collaborationDeal.findMany({
+  const existingNewDeals = await db.collaborationDeal.findMany({
     where: {
       businessId,
       status: "NEW",
@@ -125,10 +133,12 @@ export async function runMatchingEngine(input: MatchingInput) {
 
   const topDeals = scored.slice(0, 3);
 
-  // 5. Deal Creation
-  const createdDeals = await Promise.all(
-    topDeals.map((deal) =>
-      prisma.collaborationDeal.create({
+  // 5. Deal Creation (sequential — an interactive tx client must not run
+  // concurrent queries)
+  const createdDeals = [];
+  for (const deal of topDeals) {
+    createdDeals.push(
+      await db.collaborationDeal.create({
         data: {
           businessId,
           title: deal.title,
@@ -143,36 +153,34 @@ export async function runMatchingEngine(input: MatchingInput) {
           status: "NEW",
         },
       })
-    )
-  );
+    );
+  }
 
   // 6. Passive Learning: DEAL_CREATED
-  await Promise.all(
-    createdDeals.map((deal) =>
-      prisma.learningEvent.create({
-        data: {
-          businessId: deal.businessId,
-          eventType: "DEAL_CREATED",
-          entityType: "COLLABORATION_DEAL",
-          entityId: null,
-          payload: {
-            dealId: deal.id,
-            title: deal.title,
-            partnerType: deal.partnerType,
-            actionType: deal.actionType,
-            estimatedValue: deal.estimatedValue,
-            matchScore: deal.matchScore,
-            reasonText: deal.reasonText,
-            priority: deal.priority,
-            sourceType: deal.sourceType,
-            status: deal.status,
-          },
+  for (const deal of createdDeals) {
+    await db.learningEvent.create({
+      data: {
+        businessId: deal.businessId,
+        eventType: "DEAL_CREATED",
+        entityType: "COLLABORATION_DEAL",
+        entityId: null,
+        payload: {
+          dealId: deal.id,
+          title: deal.title,
+          partnerType: deal.partnerType,
+          actionType: deal.actionType,
+          estimatedValue: deal.estimatedValue,
+          matchScore: deal.matchScore,
+          reasonText: deal.reasonText,
+          priority: deal.priority,
+          sourceType: deal.sourceType,
+          status: deal.status,
         },
-      })
-    )
-  );
+      },
+    });
+  }
 
-  return prisma.collaborationDeal.findMany({
+  return db.collaborationDeal.findMany({
     where: { businessId, status: "NEW" },
     orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
   });

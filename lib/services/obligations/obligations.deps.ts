@@ -7,9 +7,18 @@
 
 import { createObligationPrismaStore } from "./obligation-store.prisma";
 import type { ObligationServiceDeps } from "./obligation.service";
+import type { TenantTx } from "@/lib/tenant/transaction";
 
-export function obligationServiceDeps(): ObligationServiceDeps {
+/**
+ * D2/P7 Wave 1: routes wrap the service call in
+ * runWithTenantContext -> withTenantTransaction and pass the transaction here,
+ * binding the store to the GUC-carrying connection (RLS defense-in-depth).
+ * Without options the store binds to the canonical singleton as before.
+ */
+export function obligationServiceDeps(options?: {
+  tx?: TenantTx;
+}): ObligationServiceDeps {
   return {
-    store: createObligationPrismaStore(),
+    store: createObligationPrismaStore(options?.tx),
   };
 }

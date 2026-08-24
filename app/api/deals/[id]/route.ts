@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { CollaborationDealStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 export async function PATCH(request: Request) {
   try {
@@ -40,41 +41,58 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const existingDeal = await prisma.collaborationDeal.findFirst({
-      where: { id: dealId, businessId: user.businessId },
-    });
+    // One tenant transaction: the status write carries the businessId predicate
+    // itself (updateMany — no id-only mutation), and the learning event lands
+    // atomically with it.
+    const updatedDeal = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const existingDeal = await tx.collaborationDeal.findFirst({
+            where: { id: dealId, businessId: user.businessId },
+          });
 
-    if (!existingDeal) {
+          if (!existingDeal) {
+            return null;
+          }
+
+          await tx.collaborationDeal.updateMany({
+            where: { id: dealId, businessId: user.businessId },
+            data: { status },
+          });
+
+          await tx.learningEvent.create({
+            data: {
+              businessId: existingDeal.businessId,
+              eventType,
+              entityType: "COLLABORATION_DEAL",
+              entityId: null,
+              payload: {
+                dealId: existingDeal.id,
+                title: existingDeal.title,
+                partnerType: existingDeal.partnerType,
+                actionType: existingDeal.actionType,
+                estimatedValue: existingDeal.estimatedValue,
+                matchScore: existingDeal.matchScore,
+                priority: existingDeal.priority,
+                sourceType: existingDeal.sourceType,
+                newStatus: status,
+              },
+            },
+          });
+
+          return tx.collaborationDeal.findFirst({
+            where: { id: dealId, businessId: user.businessId },
+          });
+        })
+    );
+
+    if (!updatedDeal) {
       return NextResponse.json(
         { error: "Deal not found", dealId },
         { status: 404 }
       );
     }
-
-    const updatedDeal = await prisma.collaborationDeal.update({
-      where: { id: dealId },
-      data: { status },
-    });
-
-    await prisma.learningEvent.create({
-      data: {
-        businessId: existingDeal.businessId,
-        eventType,
-        entityType: "COLLABORATION_DEAL",
-        entityId: null,
-        payload: {
-          dealId: existingDeal.id,
-          title: existingDeal.title,
-          partnerType: existingDeal.partnerType,
-          actionType: existingDeal.actionType,
-          estimatedValue: existingDeal.estimatedValue,
-          matchScore: existingDeal.matchScore,
-          priority: existingDeal.priority,
-          sourceType: existingDeal.sourceType,
-          newStatus: status,
-        },
-      },
-    });
 
     return NextResponse.json(updatedDeal);
   } catch (error) {
