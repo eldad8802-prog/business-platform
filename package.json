@@ -37,6 +37,7 @@
     "verify:business-memory-corpus": "npx tsx lib/business-memory/shadow/reviewevent-corpus.guard.test.ts",
     "verify:business-memory-dryrun-guard": "npx tsx lib/business-memory/shadow/dry-run-comparison.guard.test.ts",
     "verify:business-memory-dryrun-fixtures": "npx tsx lib/business-memory/shadow/dry-run-comparison.fixture.test.ts",
+    "verify:business-memory-claim-reader": "npx tsx lib/business-memory/read/claim-reader.test.ts",
     "verify:writing-package": "npx tsx lib/features/content/writing-package/verify-writing-package-runtime.ts",
     "verify:obligations-state": "npx tsx lib/services/obligations/obligation-core.verify.test.ts",
     "verify:obligations-service": "npx tsx lib/services/obligations/obligation-service.verify.test.ts",
