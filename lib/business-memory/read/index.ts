@@ -25,3 +25,11 @@ export type {
   ResolvedPolicyIdentity,
 } from "./coordinator.contract";
 export { resolveVendorCategoryWithMemory, defaultCoordinatorDeps } from "./coordinator";
+export { isReadEnabled } from "./read-config";
+export {
+  categorySuggestionWithComparison,
+  defaultComparisonDeps,
+  type ComparisonDeps,
+  type ComparisonLog,
+  type ComparisonResult,
+} from "./comparison-read";

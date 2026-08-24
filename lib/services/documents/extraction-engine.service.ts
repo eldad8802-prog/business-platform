@@ -1,6 +1,8 @@
 import { normalizeText } from "./normalize-text.service";
 import { extractFields } from "./extract-fields.service";
-import { decideCategory } from "./category-decision.service";
+// Business Memory READ-4: comparison-only wrapper over the incumbent decideCategory. Dark by default
+// (BUSINESS_MEMORY_READ OFF) => identical to decideCategory; ON => same value + a comparison log only.
+import { categorySuggestionWithComparison } from "@/lib/business-memory/read/comparison-read";
 
 export async function runExtractionEngine(
   businessId: number,
@@ -10,7 +12,7 @@ export async function runExtractionEngine(
 
   const fields = extractFields(normalized);
 
-  const categoryResult = await decideCategory(
+  const categoryResult = await categorySuggestionWithComparison(
     businessId,
     fields.vendorName,
     normalized

@@ -5,7 +5,9 @@ import { extractDocumentEntities } from "./entities/entity-extraction.service";
 import { classifyUnderstandingAmountsForEligibility } from "./amount-eligibility.service";
 import { buildAmountPublishDecisionLog } from "./amount-publish-decision.service";
 import { decideDocumentExtraction } from "./entities/document-decision.service";
-import { decideCategory } from "./category-decision.service";
+// Business Memory READ-4: comparison-only wrapper over the incumbent decideCategory. Dark by default
+// (BUSINESS_MEMORY_READ OFF) => identical to decideCategory; ON => same value + a comparison log only.
+import { categorySuggestionWithComparison } from "@/lib/business-memory/read/comparison-read";
 import { normalizeFinancialDocument } from "./financial-normalization.service";
 import {
   detectDocumentType,
@@ -634,7 +636,7 @@ export async function runUnifiedDocumentIntelligence(params: {
     buildShadowComparisonLog({ decision, shadowResolved, entities })
   );
 
-  const categoryResult = await decideCategory(
+  const categoryResult = await categorySuggestionWithComparison(
     businessId,
     decision.vendorName,
     cleanedText
