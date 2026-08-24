@@ -13,3 +13,15 @@ export type {
   ClaimIdentityWhere,
 } from "./read-claim.contract";
 export { readClaim } from "./claim-reader";
+export type {
+  IncumbentDecision,
+  FallbackReason,
+  MemoryOutcome,
+  CoordinatorObservation,
+  VendorCategoryDecision,
+  CoordinatorInput,
+  CoordinatorDeps,
+  EvidenceIdentity,
+  ResolvedPolicyIdentity,
+} from "./coordinator.contract";
+export { resolveVendorCategoryWithMemory, defaultCoordinatorDeps } from "./coordinator";
