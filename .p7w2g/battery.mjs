@@ -194,8 +194,12 @@ async function main() {
   const custB = await owner.customer.create({ data: { businessId: bizB.id, name: `${MARK}cust-B` } });
   await owner.conversation.create({ data: { businessId: bizA.id, channel: "WHATSAPP" } });
   await owner.conversation.create({ data: { businessId: bizB.id, channel: "WHATSAPP" } });
-  await owner.billingDocument.create({ data: { businessId: bizA.id, documentType: "TAX_INVOICE" } });
-  await owner.billingDocument.create({ data: { businessId: bizB.id, documentType: "TAX_INVOICE" } });
+  // Raw inserts + narrow selects for BillingDocument: the Preview branch DB
+  // lags some additive main migrations (e.g. signedPdf* columns), and a full
+  // Prisma model row would P2022. The battery only needs (id, businessId).
+  await owner.$executeRawUnsafe(
+    `INSERT INTO "BillingDocument" ("businessId","documentType","updatedAt") VALUES (${bizA.id},'TAX_INVOICE',now()),(${bizB.id},'TAX_INVOICE',now())`
+  );
   await owner.task.create({ data: { businessId: bizA.id, title: `${MARK}task` } });
   await owner.platformAuditEvent.create({ data: { actorUserId: adminUser.id, action: `${MARK}seed-1` } });
   await owner.platformAuditEvent.create({ data: { actorUserId: adminUser.id, action: `${MARK}seed-2` } });
@@ -236,7 +240,10 @@ async function main() {
   console.log("--- admin global read (A+B) ---");
   const aConv = await adm.conversation.findMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
   ok("admin reads Conversation across tenants", aConv.length === 2, `got ${aConv.length}`);
-  const aBill = await adm.billingDocument.findMany({ where: { businessId: { in: [bizA.id, bizB.id] } } });
+  const aBill = await adm.billingDocument.findMany({
+    where: { businessId: { in: [bizA.id, bizB.id] } },
+    select: { id: true, businessId: true },
+  });
   ok("admin reads BillingDocument across tenants", aBill.length === 2, `got ${aBill.length}`);
   const aUsers = await adm.user.findMany({ where: { email: { endsWith: "@p7w2g.test" } } });
   ok("admin reads User (bootstrap-global)", aUsers.length === 3, `got ${aUsers.length}`);
