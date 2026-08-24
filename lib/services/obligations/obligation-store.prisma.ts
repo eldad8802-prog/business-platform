@@ -9,6 +9,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import type { TenantTx } from "@/lib/tenant/transaction";
 import type {
   CreateObligationRow,
   ListObligationsOptions,
@@ -65,10 +66,18 @@ function toRecord(row: ObligationDbRow): ObligationRecord {
   };
 }
 
-export function createObligationPrismaStore(): ObligationStore {
+/**
+ * D2/P7 Wave 1: the store binds to either the canonical singleton or a tenant
+ * transaction client (`withTenantTransaction`'s `tx`), so every query runs on
+ * the connection whose `app.current_business_id` GUC was set — making the RLS
+ * backstop effective in addition to the explicit `businessId` predicates below.
+ */
+export function createObligationPrismaStore(
+  db: TenantTx | typeof prisma = prisma
+): ObligationStore {
   return {
     async createObligation(row: CreateObligationRow) {
-      const created = await prisma.businessObligation.create({
+      const created = await db.businessObligation.create({
         data: {
           businessId: row.businessId,
           obligeeName: row.obligeeName,
@@ -93,7 +102,7 @@ export function createObligationPrismaStore(): ObligationStore {
     ) {
       // businessId-scoped update: updateMany guarantees we never mutate another
       // tenant's row, then re-read for the mapped record.
-      const result = await prisma.businessObligation.updateMany({
+      const result = await db.businessObligation.updateMany({
         where: { id, businessId },
         data: {
           obligeeName: patch.obligeeName,
@@ -114,12 +123,12 @@ export function createObligationPrismaStore(): ObligationStore {
           `BusinessObligation ${id} not found for business ${businessId}`
         );
       }
-      const row = await prisma.businessObligation.findUnique({ where: { id } });
+      const row = await db.businessObligation.findUnique({ where: { id } });
       return toRecord(row as ObligationDbRow);
     },
 
     async findObligationById(businessId: number, id: number) {
-      const row = await prisma.businessObligation.findFirst({
+      const row = await db.businessObligation.findFirst({
         where: { id, businessId },
       });
       return row ? toRecord(row) : null;
@@ -129,7 +138,7 @@ export function createObligationPrismaStore(): ObligationStore {
       businessId: number,
       options?: ListObligationsOptions
     ) {
-      const rows = await prisma.businessObligation.findMany({
+      const rows = await db.businessObligation.findMany({
         where: {
           businessId,
           ...(options?.states && options.states.length > 0
@@ -143,7 +152,7 @@ export function createObligationPrismaStore(): ObligationStore {
     },
 
     async getOrientation(businessId: number): Promise<OrientationRecord> {
-      const row = await prisma.businessObligationOrientation.findUnique({
+      const row = await db.businessObligationOrientation.findUnique({
         where: { businessId },
       });
       if (!row) {
@@ -160,7 +169,7 @@ export function createObligationPrismaStore(): ObligationStore {
       businessId: number,
       orientedAt: Date
     ): Promise<OrientationRecord> {
-      const row = await prisma.businessObligationOrientation.upsert({
+      const row = await db.businessObligationOrientation.upsert({
         where: { businessId },
         create: { businessId, oriented: true, orientedAt },
         update: { oriented: true, orientedAt },

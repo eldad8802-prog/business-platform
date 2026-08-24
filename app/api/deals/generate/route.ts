@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { runMatchingEngine } from "@/lib/collaboration/matchingEngine";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 export async function POST(req: Request) {
   try {
@@ -13,11 +15,20 @@ export async function POST(req: Request) {
 
     const { category, subCategory } = body;
 
-    const deals = await runMatchingEngine({
-      businessId: user.businessId,
-      category,
-      subCategory,
-    });
+    const deals = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          runMatchingEngine(
+            {
+              businessId: user.businessId,
+              category,
+              subCategory,
+            },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json(deals);
   } catch (error: any) {

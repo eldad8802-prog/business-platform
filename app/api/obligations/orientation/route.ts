@@ -6,6 +6,8 @@ import {
   markOriented,
 } from "@/lib/services/obligations/obligation.service";
 import { obligationServiceDeps } from "@/lib/services/obligations/obligations.deps";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { toOrientationApi } from "@/lib/services/obligations/obligation-api.serializer";
 
 export const runtime = "nodejs";
@@ -16,9 +18,12 @@ export async function GET(req: NextRequest) {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);
 
-    const orientation = await getOrientation(
-      user.businessId,
-      obligationServiceDeps()
+    const orientation = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          getOrientation(user.businessId, obligationServiceDeps({ tx }))
+        )
     );
     return NextResponse.json(toOrientationApi(orientation), { status: 200 });
   } catch (error) {
@@ -32,9 +37,12 @@ export async function POST(req: NextRequest) {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);
 
-    const orientation = await markOriented(
-      user.businessId,
-      obligationServiceDeps()
+    const orientation = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          markOriented(user.businessId, obligationServiceDeps({ tx }))
+        )
     );
     return NextResponse.json(toOrientationApi(orientation), { status: 200 });
   } catch (error) {

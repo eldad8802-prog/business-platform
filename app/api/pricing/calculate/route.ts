@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 import { normalizeInput } from "@/lib/pricing/normalize";
 import { calculatePricing } from "@/lib/pricing/calculate";
@@ -88,8 +89,6 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    let profile = null;
-
     if (body.pricingProfileId !== undefined && body.pricingProfileId !== null) {
       const pricingProfileId = Number(body.pricingProfileId);
 
@@ -99,24 +98,34 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
-
-      profile = await prisma.pricingProfile.findFirst({
-        where: {
-          id: pricingProfileId,
-          businessId: user.businessId,
-          isActive: true,
-        },
-      });
-
-      if (!profile) {
-        return NextResponse.json(
-          { error: "Pricing profile not found" },
-          { status: 404 }
-        );
-      }
     }
 
-    const normalized = normalizeInput({
+    // One tenant transaction for the whole logical operation: profile read,
+    // pure computation, calculation insert — all on the GUC-carrying tx.
+    const outcome = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          let profile = null;
+
+          if (
+            body.pricingProfileId !== undefined &&
+            body.pricingProfileId !== null
+          ) {
+            profile = await tx.pricingProfile.findFirst({
+              where: {
+                id: Number(body.pricingProfileId),
+                businessId: user.businessId,
+                isActive: true,
+              },
+            });
+
+            if (!profile) {
+              return { profileNotFound: true as const };
+            }
+          }
+
+          const normalized = normalizeInput({
       materialCost: body.materialCost ?? profile?.defaultMaterialCost ?? 0,
       laborMinutes: body.laborMinutes ?? profile?.defaultLaborMinutes ?? 0,
       hourlyRate: body.hourlyRate ?? profile?.defaultHourlyRate ?? 0,
@@ -159,7 +168,7 @@ export async function POST(req: Request) {
       recommendedPrice: result.recommendedPrice,
     });
 
-    const savedCalculation = await prisma.pricingCalculation.create({
+    const savedCalculation = await tx.pricingCalculation.create({
       data: {
         businessId: user.businessId,
         pricingProfileId: profile?.id ?? null,
@@ -184,6 +193,44 @@ export async function POST(req: Request) {
         explanationText: explanation,
       },
     });
+
+    return {
+      profileNotFound: false as const,
+      profile,
+      normalized,
+      result,
+      marketStatus,
+      profitAmount,
+      profitPercent,
+      profitIndicator,
+      profitIndicatorLabel,
+      explanation,
+      transparency,
+      savedCalculation,
+    };
+        })
+    );
+
+    if (outcome.profileNotFound) {
+      return NextResponse.json(
+        { error: "Pricing profile not found" },
+        { status: 404 }
+      );
+    }
+
+    const {
+      profile,
+      normalized,
+      result,
+      marketStatus,
+      profitAmount,
+      profitPercent,
+      profitIndicator,
+      profitIndicatorLabel,
+      explanation,
+      transparency,
+      savedCalculation,
+    } = outcome;
 
     return NextResponse.json({
       calculationId: savedCalculation.id,

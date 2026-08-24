@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { crmAttachmentsService } from "@/lib/services/crm/crm-attachments.service";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 export const runtime = "nodejs";
 
@@ -30,11 +32,21 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
     const { attachmentId } = await ctx.params;
 
-    const { body, contentType, displayFileName } =
-      await crmAttachmentsService.getAttachmentForDownload({
-        businessId: user.businessId,
-        attachmentId: Number(attachmentId),
-      });
+    const { body, contentType, displayFileName } = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(
+          (tx) =>
+            crmAttachmentsService.getAttachmentForDownload(
+              {
+                businessId: user.businessId,
+                attachmentId: Number(attachmentId),
+              },
+              { tx }
+            ),
+          { timeoutMs: 25_000 }
+        )
+    );
 
     // Copy into a fresh, non-shared ArrayBuffer so the body is a plain
     // BufferSource (TS 5.7+ tightened Buffer/Uint8Array assignability to BodyInit).

@@ -4,6 +4,8 @@ import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
 import { updateObligation } from "@/lib/services/obligations/obligation.service";
 import { obligationServiceDeps } from "@/lib/services/obligations/obligations.deps";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { toObligationApi } from "@/lib/services/obligations/obligation-api.serializer";
 import type { RecurrenceCadence } from "@/lib/services/obligations/obligations.types";
 
@@ -70,11 +72,17 @@ export async function PATCH(
       input.note = body.note == null ? null : String(body.note);
     }
 
-    const updated = await updateObligation(
-      user.businessId,
-      obligationId,
-      input,
-      obligationServiceDeps()
+    const updated = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          updateObligation(
+            user.businessId,
+            obligationId,
+            input,
+            obligationServiceDeps({ tx })
+          )
+        )
     );
 
     return NextResponse.json(toObligationApi(updated), { status: 200 });

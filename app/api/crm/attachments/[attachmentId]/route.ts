@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { crmAttachmentsService } from "@/lib/services/crm/crm-attachments.service";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 type Ctx = { params: Promise<{ attachmentId: string }> };
 
@@ -13,11 +15,24 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
 
     const { attachmentId } = await ctx.params;
 
-    const result = await crmAttachmentsService.deleteAttachment({
-      businessId: user.businessId,
-      attachmentId: Number(attachmentId),
-      actingUserId: user.id,
-    });
+    // Storage delete happens between the tenant-scoped read and metadata
+    // delete — extended timeout, same reasoning as the upload route.
+    const result = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(
+          (tx) =>
+            crmAttachmentsService.deleteAttachment(
+              {
+                businessId: user.businessId,
+                attachmentId: Number(attachmentId),
+                actingUserId: user.id,
+              },
+              { tx }
+            ),
+          { timeoutMs: 25_000 }
+        )
+    );
 
     return NextResponse.json({ success: true, ...result }, { status: 200 });
   } catch (error) {

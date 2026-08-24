@@ -13,6 +13,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import type { TenantTx } from "@/lib/tenant/transaction";
 import { NotFoundError, UnauthorizedError, ValidationError } from "@/lib/errors";
 
 export const CRM_SUBJECT_TYPES = ["CUSTOMER", "SUPPLIER"] as const;
@@ -61,8 +62,10 @@ function normalizeSubjectId(value: number): number {
  *    (identical response — no cross-tenant information leak).
  */
 export async function resolveCrmSubject(
-  input: ResolveCrmSubjectInput
+  input: ResolveCrmSubjectInput,
+  options?: { tx?: TenantTx }
 ): Promise<ResolvedCrmSubject> {
+  const db = options?.tx ?? prisma;
   assertBusinessId(input.businessId);
 
   const subjectType = parseCrmSubjectType(input.subjectType);
@@ -73,13 +76,13 @@ export async function resolveCrmSubject(
 
   let displayName: string | null = null;
   if (subjectType === "CUSTOMER") {
-    const c = await prisma.customer.findFirst({
+    const c = await db.customer.findFirst({
       where: { id: subjectId, businessId: input.businessId },
       select: { name: true },
     });
     displayName = c?.name ?? null;
   } else {
-    const s = await prisma.supplier.findFirst({
+    const s = await db.supplier.findFirst({
       where: { id: subjectId, businessId: input.businessId },
       select: { name: true },
     });

@@ -4,6 +4,8 @@ import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
 import { snoozeObligation } from "@/lib/services/obligations/obligation.service";
 import { obligationServiceDeps } from "@/lib/services/obligations/obligations.deps";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { toObligationApi } from "@/lib/services/obligations/obligation-api.serializer";
 
 export const runtime = "nodejs";
@@ -46,11 +48,17 @@ export async function POST(
       throw new ValidationError("followUpAt must be a valid date");
     }
 
-    const updated = await snoozeObligation(
-      user.businessId,
-      obligationId,
-      followUpAt,
-      obligationServiceDeps()
+    const updated = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          snoozeObligation(
+            user.businessId,
+            obligationId,
+            followUpAt,
+            obligationServiceDeps({ tx })
+          )
+        )
     );
 
     return NextResponse.json(toObligationApi(updated), { status: 200 });

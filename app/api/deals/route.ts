@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 // 📌 GET deals
 export async function GET(req: Request) {
@@ -10,10 +11,16 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const deals = await prisma.collaborationDeal.findMany({
-      where: { businessId: user.businessId },
-      orderBy: { createdAt: "desc" },
-    });
+    const deals = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.collaborationDeal.findMany({
+            where: { businessId: user.businessId },
+            orderBy: { createdAt: "desc" },
+          })
+        )
+    );
 
     return NextResponse.json(deals);
   } catch (error) {

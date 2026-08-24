@@ -1,0 +1,71 @@
+-- D2 / P7 Wave 1 — full rollback (policies + RLS + grants).
+--
+-- Restores the pre-Wave-1 database posture. Does NOT touch the runtime role
+-- itself (never drop/recreate persistent runtime roles — Neon pooler OID
+-- cache), the P4-B pilot substrate (p4b_tenant policies + pilot grants), or
+-- any non-Wave-1 object. :ROLE = the environment's runtime role.
+
+-- Policies + RLS off (13 tables)
+DROP POLICY IF EXISTS p7w1_tenant ON "BusinessObligation";
+ALTER TABLE "BusinessObligation" NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE "BusinessObligation" DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p7w1_tenant ON "BusinessObligationOrientation";
+ALTER TABLE "BusinessObligationOrientation" NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE "BusinessObligationOrientation" DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p7w1_tenant ON "CrmNote";
+ALTER TABLE "CrmNote" NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE "CrmNote" DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p7w1_tenant ON "CrmAttachment";
+ALTER TABLE "CrmAttachment" NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE "CrmAttachment" DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p7w1_tenant ON "PricingProfile";
+ALTER TABLE "PricingProfile" NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE "PricingProfile" DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p7w1_tenant ON "PricingCalculation";
+ALTER TABLE "PricingCalculation" NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE "PricingCalculation" DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p7w1_tenant ON "Task";
+ALTER TABLE "Task" NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE "Task" DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p7w1_tenant ON "CollaborationDeal";
+ALTER TABLE "CollaborationDeal" NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE "CollaborationDeal" DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p7w1_tenant ON "Lead";
+ALTER TABLE "Lead" NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE "Lead" DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p7w1_tenant ON "Deal";
+ALTER TABLE "Deal" NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE "Deal" DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p7w1_tenant ON "BusinessService";
+ALTER TABLE "BusinessService" NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE "BusinessService" DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p7w1_tenant ON "ServiceCostProfile";
+ALTER TABLE "ServiceCostProfile" NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE "ServiceCostProfile" DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p7w1_tenant ON "PricingRecommendation";
+ALTER TABLE "PricingRecommendation" NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE "PricingRecommendation" DISABLE ROW LEVEL SECURITY;
+
+-- Revoke Wave-1 grants (exactly the set from d2-p7-wave1-grants.sql)
+REVOKE ALL PRIVILEGES ON "BusinessObligation" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON SEQUENCE "BusinessObligation_id_seq" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON "BusinessObligationOrientation" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON "CrmNote" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON SEQUENCE "CrmNote_id_seq" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON "CrmAttachment" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON SEQUENCE "CrmAttachment_id_seq" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON "PricingProfile" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON SEQUENCE "PricingProfile_id_seq" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON "PricingCalculation" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON SEQUENCE "PricingCalculation_id_seq" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON "CollaborationDeal" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON "BusinessService" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON "ServiceCostProfile" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON SEQUENCE "ServiceCostProfile_id_seq" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON "PricingRecommendation" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON SEQUENCE "PricingRecommendation_id_seq" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON "LearningEvent" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON SEQUENCE "LearningEvent_id_seq" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON "Supplier" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON "BusinessBot" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON "BusinessBotSettings" FROM :ROLE;

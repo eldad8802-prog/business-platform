@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { crmNotesService } from "@/lib/services/crm/crm-notes.service";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 type Ctx = { params: Promise<{ noteId: string }> };
 
@@ -20,12 +22,21 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       payload = {};
     }
 
-    const note = await crmNotesService.updateNote({
-      businessId: user.businessId,
-      noteId: Number(noteId),
-      actingUserId: user.id,
-      body: payload.body as string,
-    });
+    const note = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          crmNotesService.updateNote(
+            {
+              businessId: user.businessId,
+              noteId: Number(noteId),
+              actingUserId: user.id,
+              body: payload.body as string,
+            },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json({ note }, { status: 200 });
   } catch (error) {
@@ -41,11 +52,20 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
 
     const { noteId } = await ctx.params;
 
-    const result = await crmNotesService.deleteNote({
-      businessId: user.businessId,
-      noteId: Number(noteId),
-      actingUserId: user.id,
-    });
+    const result = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          crmNotesService.deleteNote(
+            {
+              businessId: user.businessId,
+              noteId: Number(noteId),
+              actingUserId: user.id,
+            },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json({ success: true, ...result }, { status: 200 });
   } catch (error) {

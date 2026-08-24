@@ -8,6 +8,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import type { TenantTx } from "@/lib/tenant/transaction";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import {
   resolveCrmSubject,
@@ -123,8 +124,15 @@ function normalizeNoteId(value: number): number {
   return n;
 }
 
-async function loadOwnedNote(businessId: number, noteId: number): Promise<NoteRow> {
-  const row = await prisma.crmNote.findFirst({
+/** Bind to the tenant transaction when provided (D2/P7 Wave 1 RLS backstop). */
+type TxOptions = { tx?: TenantTx };
+
+async function loadOwnedNote(
+  db: TenantTx | typeof prisma,
+  businessId: number,
+  noteId: number
+): Promise<NoteRow> {
+  const row = await db.crmNote.findFirst({
     where: { id: noteId, businessId },
     select: NOTE_SELECT,
   });
@@ -136,14 +144,21 @@ async function loadOwnedNote(businessId: number, noteId: number): Promise<NoteRo
 
 export const crmNotesService = {
   /** Newest-first, capped at NOTES_LIST_LIMIT. Subject is validated + tenant-scoped. */
-  async listNotes(input: ListNotesInput): Promise<CrmNoteDTO[]> {
-    await resolveCrmSubject({
-      businessId: input.businessId,
-      subjectType: input.subjectType,
-      subjectId: input.subjectId,
-    });
+  async listNotes(
+    input: ListNotesInput,
+    options?: TxOptions
+  ): Promise<CrmNoteDTO[]> {
+    const db = options?.tx ?? prisma;
+    await resolveCrmSubject(
+      {
+        businessId: input.businessId,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+      },
+      options
+    );
 
-    const rows = await prisma.crmNote.findMany({
+    const rows = await db.crmNote.findMany({
       where: {
         businessId: input.businessId,
         subjectType: input.subjectType as CrmSubjectType,
@@ -158,12 +173,16 @@ export const crmNotesService = {
   },
 
   /** Count only — for the Customer Card read-model (no list, no N+1). */
-  async countNotes(input: {
-    businessId: number;
-    subjectType: CrmSubjectType | string;
-    subjectId: number;
-  }): Promise<number> {
-    return prisma.crmNote.count({
+  async countNotes(
+    input: {
+      businessId: number;
+      subjectType: CrmSubjectType | string;
+      subjectId: number;
+    },
+    options?: TxOptions
+  ): Promise<number> {
+    const db = options?.tx ?? prisma;
+    return db.crmNote.count({
       where: {
         businessId: input.businessId,
         subjectType: input.subjectType as CrmSubjectType,
@@ -172,15 +191,22 @@ export const crmNotesService = {
     });
   },
 
-  async createNote(input: CreateNoteInput): Promise<CrmNoteDTO> {
-    const subject = await resolveCrmSubject({
-      businessId: input.businessId,
-      subjectType: input.subjectType,
-      subjectId: input.subjectId,
-    });
+  async createNote(
+    input: CreateNoteInput,
+    options?: TxOptions
+  ): Promise<CrmNoteDTO> {
+    const db = options?.tx ?? prisma;
+    const subject = await resolveCrmSubject(
+      {
+        businessId: input.businessId,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+      },
+      options
+    );
     const body = normalizeBody(input.body);
 
-    const row = await prisma.crmNote.create({
+    const row = await db.crmNote.create({
       data: {
         businessId: input.businessId,
         subjectType: subject.subjectType,
@@ -195,15 +221,19 @@ export const crmNotesService = {
   },
 
   /** Author-only. Only the body changes — never subject/business/author. */
-  async updateNote(input: UpdateNoteInput): Promise<CrmNoteDTO> {
+  async updateNote(
+    input: UpdateNoteInput,
+    options?: TxOptions
+  ): Promise<CrmNoteDTO> {
+    const db = options?.tx ?? prisma;
     const noteId = normalizeNoteId(input.noteId);
-    const existing = await loadOwnedNote(input.businessId, noteId);
+    const existing = await loadOwnedNote(db, input.businessId, noteId);
     if (!canModify(existing, input.actingUserId)) {
       throw new ForbiddenError("Only the note author can edit this note");
     }
     const body = normalizeBody(input.body);
 
-    const row = await prisma.crmNote.update({
+    const row = await db.crmNote.update({
       where: { id: noteId },
       data: { body },
       select: NOTE_SELECT,
@@ -212,13 +242,17 @@ export const crmNotesService = {
   },
 
   /** Author-only hard delete. */
-  async deleteNote(input: DeleteNoteInput): Promise<{ id: number }> {
+  async deleteNote(
+    input: DeleteNoteInput,
+    options?: TxOptions
+  ): Promise<{ id: number }> {
+    const db = options?.tx ?? prisma;
     const noteId = normalizeNoteId(input.noteId);
-    const existing = await loadOwnedNote(input.businessId, noteId);
+    const existing = await loadOwnedNote(db, input.businessId, noteId);
     if (!canModify(existing, input.actingUserId)) {
       throw new ForbiddenError("Only the note author can delete this note");
     }
-    await prisma.crmNote.delete({ where: { id: noteId } });
+    await db.crmNote.delete({ where: { id: noteId } });
     return { id: noteId };
   },
 };

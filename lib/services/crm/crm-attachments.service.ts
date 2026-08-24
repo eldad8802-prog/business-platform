@@ -6,6 +6,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import type { TenantTx } from "@/lib/tenant/transaction";
 import {
   AppError,
   ForbiddenError,
@@ -85,8 +86,15 @@ function normalizeAttachmentId(value: number): number {
   return n;
 }
 
-async function loadOwnedAttachment(businessId: number, attachmentId: number): Promise<AttachmentRow> {
-  const row = await prisma.crmAttachment.findFirst({
+/** Bind to the tenant transaction when provided (D2/P7 Wave 1 RLS backstop). */
+type TxOptions = { tx?: TenantTx };
+
+async function loadOwnedAttachment(
+  db: TenantTx | typeof prisma,
+  businessId: number,
+  attachmentId: number
+): Promise<AttachmentRow> {
+  const row = await db.crmAttachment.findFirst({
     where: { id: attachmentId, businessId },
     select: ATTACHMENT_SELECT,
   });
@@ -115,13 +123,20 @@ export type UploadAttachmentInput = {
 
 export const crmAttachmentsService = {
   /** Newest-first, capped. Subject validated + tenant-scoped. */
-  async listAttachments(input: ListAttachmentsInput): Promise<CrmAttachmentDTO[]> {
-    await resolveCrmSubject({
-      businessId: input.businessId,
-      subjectType: input.subjectType,
-      subjectId: input.subjectId,
-    });
-    const rows = await prisma.crmAttachment.findMany({
+  async listAttachments(
+    input: ListAttachmentsInput,
+    options?: TxOptions
+  ): Promise<CrmAttachmentDTO[]> {
+    const db = options?.tx ?? prisma;
+    await resolveCrmSubject(
+      {
+        businessId: input.businessId,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+      },
+      options
+    );
+    const rows = await db.crmAttachment.findMany({
       where: {
         businessId: input.businessId,
         subjectType: input.subjectType as CrmSubjectType,
@@ -134,12 +149,16 @@ export const crmAttachmentsService = {
     return rows.map((r) => toDTO(r as AttachmentRow, input.actingUserId));
   },
 
-  async countAttachments(input: {
-    businessId: number;
-    subjectType: CrmSubjectType | string;
-    subjectId: number;
-  }): Promise<number> {
-    return prisma.crmAttachment.count({
+  async countAttachments(
+    input: {
+      businessId: number;
+      subjectType: CrmSubjectType | string;
+      subjectId: number;
+    },
+    options?: TxOptions
+  ): Promise<number> {
+    const db = options?.tx ?? prisma;
+    return db.crmAttachment.count({
       where: {
         businessId: input.businessId,
         subjectType: input.subjectType as CrmSubjectType,
@@ -154,12 +173,19 @@ export const crmAttachmentsService = {
    * If the DB write fails after the object landed, the orphan object is deleted
    * (best-effort, logged) and the failure is surfaced — never a false success.
    */
-  async uploadAttachment(input: UploadAttachmentInput): Promise<CrmAttachmentDTO> {
-    const subject = await resolveCrmSubject({
-      businessId: input.businessId,
-      subjectType: input.subjectType,
-      subjectId: input.subjectId,
-    });
+  async uploadAttachment(
+    input: UploadAttachmentInput,
+    options?: TxOptions
+  ): Promise<CrmAttachmentDTO> {
+    const db = options?.tx ?? prisma;
+    const subject = await resolveCrmSubject(
+      {
+        businessId: input.businessId,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+      },
+      options
+    );
 
     const sizeBytes = input.buffer.length;
     const validated = validateAttachmentUpload({
@@ -186,7 +212,7 @@ export const crmAttachmentsService = {
     // 2. Create the metadata row; compensate on failure.
     let row: AttachmentRow;
     try {
-      row = (await prisma.crmAttachment.create({
+      row = (await db.crmAttachment.create({
         data: {
           businessId: input.businessId,
           subjectType: subject.subjectType,
@@ -212,13 +238,17 @@ export const crmAttachmentsService = {
   },
 
   /** Load bytes for the authenticated download route. Tenant-scoped. */
-  async getAttachmentForDownload(input: { businessId: number; attachmentId: number }): Promise<{
+  async getAttachmentForDownload(
+    input: { businessId: number; attachmentId: number },
+    options?: TxOptions
+  ): Promise<{
     body: Buffer;
     contentType: string;
     displayFileName: string;
   }> {
+    const db = options?.tx ?? prisma;
     const attachmentId = normalizeAttachmentId(input.attachmentId);
-    const row = await loadOwnedAttachment(input.businessId, attachmentId);
+    const row = await loadOwnedAttachment(db, input.businessId, attachmentId);
     try {
       const { body, contentType } = await readAttachmentObject(row.storageKey);
       return { body, contentType: row.mimeType || contentType, displayFileName: row.originalFileName };
@@ -239,13 +269,17 @@ export const crmAttachmentsService = {
    *   5. a metadata-delete failure after the object is gone surfaces a
    *      reconciliation error — never a false success.
    */
-  async deleteAttachment(input: {
-    businessId: number;
-    attachmentId: number;
-    actingUserId: number;
-  }): Promise<{ id: number }> {
+  async deleteAttachment(
+    input: {
+      businessId: number;
+      attachmentId: number;
+      actingUserId: number;
+    },
+    options?: TxOptions
+  ): Promise<{ id: number }> {
+    const db = options?.tx ?? prisma;
     const attachmentId = normalizeAttachmentId(input.attachmentId);
-    const row = await loadOwnedAttachment(input.businessId, attachmentId);
+    const row = await loadOwnedAttachment(db, input.businessId, attachmentId);
     if (!canModify(row, input.actingUserId)) {
       throw new ForbiddenError("Only the uploader can delete this file");
     }
@@ -263,7 +297,7 @@ export const crmAttachmentsService = {
     }
 
     try {
-      await prisma.crmAttachment.delete({ where: { id: attachmentId } });
+      await db.crmAttachment.delete({ where: { id: attachmentId } });
     } catch (dbError) {
       console.error(
         "[crm-attachment] object deleted but metadata delete failed — reconciliation needed",
