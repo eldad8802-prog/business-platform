@@ -8,10 +8,7 @@
 name: d2/p4b — step6 prep (revalidate + rotate password)
 
 on:
-  workflow_dispatch:
-  push:
-    branches:
-      - feat/d2-p4b-integration   # idempotent: rotates to the constant P4B_RUNTIME_PW secret
+  workflow_dispatch:   # rotation done; push trigger removed (transient secret deleted)
 
 permissions:
   contents: read
