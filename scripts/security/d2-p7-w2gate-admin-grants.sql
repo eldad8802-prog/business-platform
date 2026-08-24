@@ -18,6 +18,10 @@
 -- _prisma_migrations, CREATE on schema, ownership, role management,
 -- BYPASSRLS, GRANT ALL.
 
+-- Schema visibility (Neon does not give SQL-created roles USAGE via PUBLIC).
+-- USAGE only — CREATE stays denied.
+GRANT USAGE ON SCHEMA public TO app_admin;
+
 GRANT SELECT ON "Conversation" TO app_admin;
 GRANT SELECT ON "BillingDocument" TO app_admin;
 GRANT SELECT ON "User" TO app_admin;

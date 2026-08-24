@@ -17,3 +17,4 @@ REVOKE ALL PRIVILEGES ON "Business" FROM app_admin;
 REVOKE ALL PRIVILEGES ON "PlatformFeaturePolicy" FROM app_admin;
 REVOKE ALL PRIVILEGES ON "PlatformAuditEvent" FROM app_admin;
 REVOKE ALL PRIVILEGES ON SEQUENCE "PlatformAuditEvent_id_seq" FROM app_admin;
+REVOKE ALL PRIVILEGES ON SCHEMA public FROM app_admin;
