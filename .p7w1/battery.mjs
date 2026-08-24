@@ -39,9 +39,9 @@ function ok(name, cond, detail = "") {
 async function expectThrow(name, fn, patterns = []) {
   try { await fn(); ok(name, false, "no error thrown"); }
   catch (e) {
-    const msg = String(e?.message ?? e);
+    const msg = [e?.message, e?.meta?.message, e?.code, String(e)].filter(Boolean).join(" | ");
     const matched = patterns.length === 0 || patterns.some((p) => msg.includes(p));
-    ok(name, matched, matched ? "" : `unexpected error: ${msg.slice(0, 140)}`);
+    ok(name, matched, matched ? "" : `unexpected error: ${msg.slice(0, 180)}`);
   }
 }
 
@@ -261,7 +261,9 @@ async function main() {
 
   console.log("--- least privilege ---");
   await expectThrow("DDL denied", () => rt1.$executeRawUnsafe(`CREATE TABLE p7w1_evil (id int)`), ["permission denied"]);
-  await expectThrow("_prisma_migrations denied", () => rt1.$queryRawUnsafe(`SELECT count(*) FROM _prisma_migrations`), ["permission denied"]);
+  // On the ephemeral lab the schema comes from `db push`, so the table may not
+  // exist at all — absence and permission-denied are both a denial.
+  await expectThrow("_prisma_migrations denied", () => rt1.$queryRawUnsafe(`SELECT count(*) FROM _prisma_migrations`), ["permission denied", "does not exist", "42501", "42P01"]);
   await expectThrow("Task ungranted (SELECT denied)", () => rtx(rt1, bizA.id, (t) => t.task.findMany({})), ["permission denied"]);
   await expectThrow("Deal ungranted (SELECT denied)", () => rtx(rt1, bizA.id, (t) => t.deal.findMany({})), ["permission denied"]);
   await expectThrow("Lead ungranted (SELECT denied)", () => rtx(rt1, bizA.id, (t) => t.lead.findMany({})), ["permission denied"]);
@@ -287,7 +289,10 @@ async function main() {
   }));
   ok("obligations POST 201", res.status === 201, `status=${res.status}`);
   const createdObl = await res.json();
-  ok("malicious tenant hint ignored (server-derived)", createdObl.businessId === bizA.id, `got businessId=${createdObl.businessId}`);
+  // The API serializer does not expose businessId — verify the persisted tenant
+  // through the owner connection (authoritative).
+  const createdOblRow = await owner.businessObligation.findUnique({ where: { id: createdObl.id } });
+  ok("malicious tenant hint ignored (server-derived)", createdOblRow?.businessId === bizA.id, `persisted businessId=${createdOblRow?.businessId}`);
   res = await obligationsRoute.GET(jreq("/api/obligations?includeClosed=1", "GET", tokA));
   const oblList = await res.json();
   const oblIds = oblList.obligations.map((o) => o.id);

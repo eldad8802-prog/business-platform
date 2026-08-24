@@ -49,8 +49,10 @@ GRANT USAGE, SELECT ON SEQUENCE "ServiceCostProfile_id_seq" TO :ROLE;
 GRANT SELECT, INSERT ON "PricingRecommendation" TO :ROLE;
 GRANT USAGE, SELECT ON SEQUENCE "PricingRecommendation_id_seq" TO :ROLE;
 
--- Non-Wave-1 side requirements of Wave-1 routes (no RLS on these yet)
-GRANT INSERT ON "LearningEvent" TO :ROLE;
+-- Non-Wave-1 side requirements of Wave-1 routes (no RLS on these yet).
+-- LearningEvent needs SELECT alongside INSERT: Prisma `create` runs
+-- INSERT ... RETURNING, and RETURNING requires SELECT on the returned columns.
+GRANT SELECT, INSERT ON "LearningEvent" TO :ROLE;
 GRANT USAGE, SELECT ON SEQUENCE "LearningEvent_id_seq" TO :ROLE;
 GRANT SELECT ON "Supplier" TO :ROLE;
 GRANT SELECT ON "BusinessBot" TO :ROLE;
