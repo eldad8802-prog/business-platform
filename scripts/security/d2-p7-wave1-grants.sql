@@ -42,6 +42,13 @@ GRANT USAGE, SELECT ON SEQUENCE "PricingCalculation_id_seq" TO :ROLE;
 -- Deals (CollaborationDeal id is a uuid string — no sequence)
 GRANT SELECT, INSERT, UPDATE ON "CollaborationDeal" TO :ROLE;
 
+-- BusinessProfile — F-25: deals-generate derives the business category/
+-- subCategory (server-owned identity) from the authenticated tenant's profile.
+-- Read-only under the runtime role: SELECT only, NO write grants, no sequence
+-- (the runtime never inserts BusinessProfile). RLS-protected in
+-- 20260825120000_d2_p7_wave1_businessprofile_rls.
+GRANT SELECT ON "BusinessProfile" TO :ROLE;
+
 -- BusinessService + indirect children (proof-driven minimal on the children)
 GRANT SELECT ON "BusinessService" TO :ROLE;
 GRANT SELECT, INSERT ON "ServiceCostProfile" TO :ROLE;
