@@ -134,8 +134,11 @@ async function main() {
     // already-merged canonical migrations (e.g. the RIA and business-memory
     // substrate tables). For every MISSING Wave-2 table, apply the canonical
     // migration file that CREATEs it, in chronological order, and record it.
+    // Dependency closure: DerivedClaimProjection FKs the GLOBAL-class
+    // DerivationPolicy/Version tables (#218) — created if missing, never RLS'd.
+    const CATCHUP_SET = [...WAVE2, "DerivationPolicy", "DerivationPolicyVersion"];
     const missing = [];
-    for (const t of WAVE2) {
+    for (const t of CATCHUP_SET) {
       const reg = (await owner.$queryRawUnsafe(`SELECT to_regclass('public."${t}"')::text AS r`))[0].r;
       if (!reg) missing.push(t);
     }
