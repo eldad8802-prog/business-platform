@@ -170,6 +170,9 @@ async function main() {
     }
     await applySqlFile("prisma/migrations/20260825090000_d2_p7_w2gate_admin_read/migration.sql");
     await applySqlFile("scripts/security/d2-p7-w2gate-admin-grants.sql", { ":LOGIN_ROLE": ADMIN_LOGIN });
+    // Wave-1 runtime baseline (the real Preview already carries it — e.g. the
+    // LearningEvent S,I grant that Wave-2 routes rely on).
+    await applySqlFile("scripts/security/d2-p7-wave1-grants.sql", { ":ROLE": RT_ROLE });
     // Conversation tenant policy (pilot-equivalent) so overview's Conversation
     // reads behave like Preview.
     for (const t of ["Conversation"]) {
