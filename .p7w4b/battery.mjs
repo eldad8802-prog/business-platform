@@ -271,7 +271,7 @@ async function main() {
   res = await postWa(waPayload(PN_A, `${MARK}w1`, "x"), "sha256=" + "0".repeat(64));
   ok("bad signature -> 401", res.status === 401);
 
-  res = await postWa(waPayload(PN_A, `${MARK}w1`, "שלום A", { businessId: bizB.id }));
+  res = await postWa(waPayload(PN_A, `${MARK}w1`, "מתי אתם פתוחים?", { businessId: bizB.id }));
   const msgA = await owner.message.findFirst({ where: { businessId: bizA.id, providerMessageId: `${MARK}w1` } });
   ok("A intake persisted under A (forged payload businessId ignored)", res.status === 200 && !!msgA);
   const anaA = msgA ? await owner.messageAnalysis.findUnique({ where: { messageId: msgA.id } }) : null;
