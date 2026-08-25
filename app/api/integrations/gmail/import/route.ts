@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { Prisma } from "@prisma/client";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { prisma } from "@/lib/prisma";
 import { getGmailAccessTokenForBusiness } from "@/lib/services/integrations/gmail/gmail-auth.service";
 import { isGmailConnectionOwnedByBusiness } from "@/lib/services/integrations/gmail/gmail-connection.service";
@@ -50,18 +53,29 @@ function safeNullableNumber(v: unknown): number | null {
 }
 
 export async function POST(req: NextRequest) {
+  const user = await getCurrentUser(req);
+  if (!user) {
+    return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
+  }
+  // D2/P7-W4C: the whole import flow runs under the session tenant context.
+  // Gmail/OCR/storage network work stays OUTSIDE any tenant transaction; the
+  // ctx-aware Gmail services run their DB steps on short tenant txs, and the
+  // route-level DB ops below are wrapped explicitly.
+  return runWithTenantContext({ businessId: user.businessId }, () =>
+    handleAuthedImport(req, user)
+  );
+}
+
+async function handleAuthedImport(
+  req: NextRequest,
+  user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>
+) {
   let cleanup: (() => Promise<void>) | null = null;
   let storedFileName: string | null = null;
-  let businessId: number | null = null;
+  const businessId: number = user.businessId;
   let permanentFilePersisted = false;
 
   try {
-    const user = await getCurrentUser(req);
-    if (!user) {
-      return NextResponse.json({ error: "לא מחובר" }, { status: 401 });
-    }
-    businessId = user.businessId;
-
     const json = (await req.json().catch(() => null)) as Partial<ImportRequestBody> | null;
     if (!json) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
@@ -125,12 +139,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Dedup fast-path by message+attachment BEFORE downloading bytes.
-    const preDedup = await checkEmailImportDedup({
-      businessId: user.businessId,
-      provider: "gmail",
-      messageId: body.messageId,
-      attachmentId: body.attachmentId,
-    });
+    const preDedup = await withTenantTransaction((tx) =>
+      checkEmailImportDedup(
+        {
+          businessId: user.businessId,
+          provider: "gmail",
+          messageId: body.messageId,
+          attachmentId: body.attachmentId,
+        },
+        { tx }
+      )
+    );
     if (!preDedup.ok) {
       return NextResponse.json({
         success: true,
@@ -170,13 +189,18 @@ export async function POST(req: NextRequest) {
     const contentHashSha256 = sha256Hex(bytes);
 
     // Dedup by hash AFTER hashing bytes.
-    const hashDedup = await checkEmailImportDedup({
-      businessId: user.businessId,
-      provider: "gmail",
-      messageId: body.messageId,
-      attachmentId: body.attachmentId,
-      contentHashSha256,
-    });
+    const hashDedup = await withTenantTransaction((tx) =>
+      checkEmailImportDedup(
+        {
+          businessId: user.businessId,
+          provider: "gmail",
+          messageId: body.messageId,
+          attachmentId: body.attachmentId,
+          contentHashSha256,
+        },
+        { tx }
+      )
+    );
     if (!hashDedup.ok) {
       return NextResponse.json({
         success: true,
@@ -259,24 +283,45 @@ export async function POST(req: NextRequest) {
     }
     permanentFilePersisted = true;
 
-    const emailImport = await prisma.emailAttachmentImport.create({
-      data: {
-        businessId: user.businessId,
-        connectionId,
-        provider: "gmail",
-        messageId: body.messageId,
-        attachmentId: body.attachmentId,
-        filename: body.filename,
-        mimeType: body.mimeType,
-        sizeBytes: body.sizeBytes,
-        fromEmail: body.fromEmail,
-        subject: body.subject,
-        sentAt: body.sentAt ? new Date(body.sentAt) : null,
-        contentHashSha256,
-        status: "imported",
-        documentId,
-      },
-    });
+    // Final import record on a tenant transaction; a concurrent duplicate
+    // (dedup pre-checks are advisory — the DB uniques are the guarantee)
+    // resolves as a duplicate-skip instead of a 500.
+    let emailImport;
+    try {
+      emailImport = await withTenantTransaction((tx) =>
+        tx.emailAttachmentImport.create({
+          data: {
+            businessId: user.businessId,
+            connectionId,
+            provider: "gmail",
+            messageId: body.messageId,
+            attachmentId: body.attachmentId,
+            filename: body.filename,
+            mimeType: body.mimeType,
+            sizeBytes: body.sizeBytes,
+            fromEmail: body.fromEmail,
+            subject: body.subject,
+            sentAt: body.sentAt ? new Date(body.sentAt) : null,
+            contentHashSha256,
+            status: "imported",
+            documentId,
+          },
+        })
+      );
+    } catch (raceErr) {
+      if (
+        raceErr instanceof Prisma.PrismaClientKnownRequestError &&
+        raceErr.code === "P2002"
+      ) {
+        return NextResponse.json({
+          success: true,
+          imported: false,
+          skipped: "duplicate",
+          reason: "concurrent_duplicate",
+        });
+      }
+      throw raceErr;
+    }
 
     return NextResponse.json({
       success: true,

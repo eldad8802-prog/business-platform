@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { disconnectGmailConnection } from "@/lib/services/integrations/gmail/gmail-connection.service";
+import { runWithTenantContext } from "@/lib/tenant/context";
 
 export const runtime = "nodejs";
 
@@ -29,10 +30,16 @@ export async function POST(req: Request) {
   }
 
   try {
-    const connection = await disconnectGmailConnection({
-      businessId: user.businessId,
-      connectionId,
-    });
+    // D2/P7-W4C: tenant context wraps the whole phased disconnect (read tx →
+    // external revoke → atomic write tx inside the service).
+    const connection = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        disconnectGmailConnection({
+          businessId: user.businessId,
+          connectionId,
+        })
+    );
     if (!connection) {
       return NextResponse.json(
         { disconnected: false, reason: "no_connection" },

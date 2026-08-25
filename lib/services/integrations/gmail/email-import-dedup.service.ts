@@ -1,4 +1,7 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+
+type TxOptions = { tx?: Prisma.TransactionClient };
 
 export type DedupResult =
   | { ok: true }
@@ -10,8 +13,9 @@ export async function checkEmailImportDedup(params: {
   messageId: string;
   attachmentId: string;
   contentHashSha256?: string;
-}): Promise<DedupResult> {
-  const byMessageAttachment = await prisma.emailAttachmentImport.findFirst({
+}, options?: TxOptions): Promise<DedupResult> {
+  const db = options?.tx ?? prisma;
+  const byMessageAttachment = await db.emailAttachmentImport.findFirst({
     where: {
       businessId: params.businessId,
       provider: params.provider,
@@ -26,7 +30,7 @@ export async function checkEmailImportDedup(params: {
   }
 
   if (params.contentHashSha256) {
-    const byHash = await prisma.emailAttachmentImport.findFirst({
+    const byHash = await db.emailAttachmentImport.findFirst({
       where: {
         businessId: params.businessId,
         contentHashSha256: params.contentHashSha256,

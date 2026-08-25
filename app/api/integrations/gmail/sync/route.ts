@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
 import { discoverGmailAttachments } from "@/lib/services/integrations/gmail/gmail-discovery.service";
 import { GmailReauthRequiredError } from "@/lib/services/integrations/gmail/gmail-errors";
 import { isGmailConnectionOwnedByBusiness } from "@/lib/services/integrations/gmail/gmail-connection.service";
@@ -26,21 +27,21 @@ export async function GET(req: NextRequest) {
       if (!Number.isInteger(parsed) || parsed <= 0) {
         return NextResponse.json({ error: "connectionId לא תקין" }, { status: 400 });
       }
-      const owned = await isGmailConnectionOwnedByBusiness({
+      const owned = await runWithTenantContext({ businessId: user.businessId }, () => isGmailConnectionOwnedByBusiness({
         businessId: user.businessId,
         connectionId: parsed,
-      });
+      }));
       if (!owned) {
         return NextResponse.json({ error: "החשבון לא נמצא" }, { status: 404 });
       }
       connectionId = parsed;
     }
 
-    const summary = await discoverGmailAttachments({
+    const summary = await runWithTenantContext({ businessId: user.businessId }, () => discoverGmailAttachments({
       businessId: user.businessId,
       connectionId,
       maxMessages,
-    });
+    }));
 
     return NextResponse.json({
       success: true,

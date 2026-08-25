@@ -116,11 +116,40 @@ run_guard() {
     fi
   done
 
+  # ── CI-W4C-1: gmail callback tenant authority stays the verified state ──
+  GC="app/api/integrations/gmail/callback/route.ts"
+  if [ -f "$GC" ]; then
+    grep -q "verifiedState.state.businessId" "$GC" || {
+      echo "CI-W4C-1 FAIL: callback no longer derives tenant from the verified state"; fail=1; }
+  fi
+
+  # ── CI-W4C-2: EmailConnection must HAVE tenant RLS (not bootstrap) and
+  #    OAuthToken must keep its parent-join policy ──
+  W4C_MIG="prisma/migrations/20260826200000_d2_p7_w4c_gmail_tenant_rls/migration.sql"
+  if [ -f "$W4C_MIG" ]; then
+    grep -q 'CREATE POLICY p7w4c_tenant ON "EmailConnection"' "$W4C_MIG" || {
+      echo "CI-W4C-2 FAIL: EmailConnection lost its tenant policy"; fail=1; }
+    grep -q '"OAuthToken"."connectionId"' "$W4C_MIG" || {
+      echo "CI-W4C-2 FAIL: OAuthToken lost its parent-join policy"; fail=1; }
+  fi
+  if [ -f docs/security-d2-provider-bootstrap-allowlist-v1.md ] && grep -qE '^\| .EmailConnection' docs/security-d2-provider-bootstrap-allowlist-v1.md; then
+    echo "CI-W4C-2 FAIL: EmailConnection listed as a bootstrap table"; fail=1
+  fi
+
+  # ── CI-W4C-3: no global-Prisma W4C writes in the Gmail services/route ──
+  W4C_WRITE_RX="prisma\.(emailConnection|oAuthToken|emailAttachmentImport)\.(create|update|upsert|delete)"
+  W4C_FILES="lib/services/integrations/gmail/gmail-auth.service.ts lib/services/integrations/gmail/gmail-connection.service.ts lib/services/integrations/gmail/gmail-discovery.service.ts lib/services/integrations/gmail/email-import-dedup.service.ts app/api/integrations/gmail/import/route.ts app/api/integrations/gmail/callback/route.ts"
+  for wf in $W4C_FILES; do
+    if [ -f "$wf" ] && grep -nE "$W4C_WRITE_RX" "$wf" >/dev/null; then
+      echo "CI-W4C-3 FAIL: $wf writes a W4C table on the global client"; fail=1
+    fi
+  done
+
   if [ "$fail" -ne 0 ]; then
     echo "W4-CONTEXT-GUARD FAILED"
     return 1
   fi
-  echo "W4-CONTEXT-GUARD OK — CI-W4-1..5 + CI-W4B-1..3 clean."
+  echo "W4-CONTEXT-GUARD OK — CI-W4-1..5 + CI-W4B-1..3 + CI-W4C-1..3 clean."
 }
 
 self_test() {
@@ -169,6 +198,12 @@ TS
     printf 'CREATE POLICY x ON "Message";\n' > "$T/prisma/migrations/m1/migration.sql"
     printf 'model Message {\n  @@unique([businessId, providerMessageId])\n}\n' > "$T/prisma/schema.prisma"
     printf 'const db = options?.tx ?? prisma;\n' > "$T/lib/services/conversation/inbound-message-pipeline.service.ts"
+    mkdir -p "$T/prisma/migrations/w4c" "$T/lib/services/integrations/gmail" "$T/app/api/integrations/gmail/import"
+    printf 'CREATE POLICY p7w4c_tenant ON "EmailConnection";\nx "OAuthToken"."connectionId" x\n' > "$T/prisma/migrations/w4c/../20260826200000_d2_p7_w4c_gmail_tenant_rls_placeholder.sql"
+    mkdir -p "$T/prisma/migrations/20260826200000_d2_p7_w4c_gmail_tenant_rls"
+    printf 'CREATE POLICY p7w4c_tenant ON "EmailConnection";\nUSING x "OAuthToken"."connectionId" x\n' > "$T/prisma/migrations/20260826200000_d2_p7_w4c_gmail_tenant_rls/migration.sql"
+    printf '// clean\n' > "$T/lib/services/integrations/gmail/gmail-auth.service.ts"
+    printf 'const businessId = verifiedState.state.businessId;\n' >> "$T/app/api/integrations/gmail/callback/route.ts"
     cat > "$T/docs/security-d2-provider-bootstrap-allowlist-v1.md" <<'MD'
 POSApiKey WhatsAppConnection PaymentWebhookEvent
 MD
@@ -239,6 +274,18 @@ TS
   local T9="$BASE/v9"; make_clean_tree "$T9"
   printf 'await prisma.replySuggestion.create({});\n' >> "$T9/lib/services/conversation/inbound-message-pipeline.service.ts"
   check "CI-W4B-3 catches global-client W4B write" FAIL "$T9"
+
+  local T10="$BASE/v10"; make_clean_tree "$T10"
+  printf '// no verified state\n' > "$T10/app/api/integrations/gmail/callback/route.ts"
+  check "CI-W4C-1 catches lost verified-state authority" FAIL "$T10"
+
+  local T11="$BASE/v11"; make_clean_tree "$T11"
+  printf '%s\n' '-- no policies' > "$T11/prisma/migrations/20260826200000_d2_p7_w4c_gmail_tenant_rls/migration.sql"
+  check "CI-W4C-2 catches lost EmailConnection/OAuthToken policy" FAIL "$T11"
+
+  local T12="$BASE/v12"; make_clean_tree "$T12"
+  printf 'await prisma.oAuthToken.update({});\n' >> "$T12/lib/services/integrations/gmail/gmail-auth.service.ts"
+  check "CI-W4C-3 catches global-client W4C write" FAIL "$T12"
 
   echo "self-test: ok=$ok bad=$bad"
   [ "$bad" -eq 0 ]
