@@ -184,6 +184,9 @@ async function main() {
       await owner.$executeRawUnsafe(`CREATE ROLE ${ADMIN_LOGIN} LOGIN PASSWORD '${ADMIN_PW}' NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION INHERIT`);
     }
     await applySqlFile("prisma/migrations/20260825090000_d2_p7_w2gate_admin_read/migration.sql");
+    // Wave-2 substrate too, so the lab mirrors Preview and the rollback proof
+    // can assert prior-wave policies (24 tenant + 3rd admin) stay untouched.
+    await applySqlFile("prisma/migrations/20260825150000_d2_p7_wave2_tenant_rls/migration.sql");
     await applySqlFile("scripts/security/d2-p7-w2gate-admin-grants.sql", { ":LOGIN_ROLE": ADMIN_LOGIN });
     await applySqlFile("scripts/security/d2-p7-wave2-grants.sql", { ":ROLE": RT_ROLE });
   }
