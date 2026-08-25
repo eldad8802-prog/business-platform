@@ -68,6 +68,4 @@ jobs:
           ADMIN_LOGIN_ROLE: app_admin_lab
           W2G_ADMIN_PW: p7w2g_ci_synthetic_admin_pw
           AUTH_TOKEN_SECRET: p7w4c_ci_auth_secret_synthetic
-          ADMIN_LOGIN_ROLE: app_admin_lab
-          W2G_ADMIN_PW: p7w2g_ci_synthetic_admin_pw
         run: npx tsx .p7w4c/battery.mjs
