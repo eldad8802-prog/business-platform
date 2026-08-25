@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { InventoryMovementReason } from "@prisma/client";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
 import { createPendingMatch } from "@/lib/services/inventory/pending-match.service";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
@@ -101,24 +103,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    // 🛑 מניעת כפילות (רק אם כבר עובדה בפועל)
-    const existingProcessedSale = await prisma.inventoryExternalSale.findUnique({
-      where: {
-        businessId_externalSaleId: {
-          businessId,
-          externalSaleId,
-        },
-      },
-    });
-
-    if (existingProcessedSale) {
-      return NextResponse.json({
-        success: true,
-        skipped: true,
-        message: "Sale already processed",
-      });
-    }
-
     const validItems: POSSaleItem[] = items
       .map((item: POSSaleItem) => ({
         sku: item.sku ?? null,
@@ -133,6 +117,27 @@ export async function POST(request: NextRequest) {
         { error: "Sale has no valid items" },
         { status: 400 }
       );
+    }
+
+    // D2/P7 Wave 3: the trusted, server-resolved businessId (POSApiKey row /
+    // env fallback — never the request body) becomes the explicit tenant
+    // context, and the WHOLE ingest (dedup, matching, movements/pending,
+    // external-sale record) runs atomically on one GUC-carrying transaction.
+    const outcome = await runWithTenantContext({ businessId }, () =>
+      withTenantTransaction(
+        async (tx) => {
+    // 🛑 מניעת כפילות (רק אם כבר עובדה בפועל)
+    const existingProcessedSale = await tx.inventoryExternalSale.findUnique({
+      where: {
+        businessId_externalSaleId: {
+          businessId,
+          externalSaleId,
+        },
+      },
+    });
+
+    if (existingProcessedSale) {
+      return { kind: "skipped" as const };
     }
 
     const matchedItems: {
@@ -158,7 +163,7 @@ export async function POST(request: NextRequest) {
         if (item.sku) posOrConditions.push({ sku: item.sku });
         if (item.barcode) posOrConditions.push({ barcode: item.barcode });
 
-        const mapping = await prisma.pOSProductMapping.findFirst({
+        const mapping = await tx.pOSProductMapping.findFirst({
           where: { businessId, source, OR: posOrConditions },
           select: { itemId: true },
         });
@@ -179,13 +184,13 @@ export async function POST(request: NextRequest) {
       let inventoryItem = null;
 
       if (item.sku) {
-        inventoryItem = await prisma.inventoryItem.findFirst({
+        inventoryItem = await tx.inventoryItem.findFirst({
           where: { businessId, sku: item.sku, isActive: true },
         });
       }
 
       if (!inventoryItem && item.barcode) {
-        inventoryItem = await prisma.inventoryItem.findFirst({
+        inventoryItem = await tx.inventoryItem.findFirst({
           where: { businessId, barcode: item.barcode, isActive: true },
         });
       }
@@ -214,53 +219,54 @@ export async function POST(request: NextRequest) {
     if (unmatchedItems.length > 0) {
       const firstUnmatched = unmatchedItems[0];
 
-      const pendingMatch = await createPendingMatch({
-        businessId,
-        externalSaleId,
-        metadata: {
+      const pendingMatch = await createPendingMatch(
+        {
+          businessId,
           externalSaleId,
-          sku: firstUnmatched.sku,
-          barcode: firstUnmatched.barcode,
-          name: firstUnmatched.name,
-          quantity: unmatchedItems.reduce(
-            (sum, item) => sum + item.quantity,
-            0
-          ),
-          source,
-          unmatchedItems,
-          allItems: validItems.map((item) => ({
-            sku: item.sku ?? null,
-            barcode: item.barcode ?? null,
-            name: item.name ?? null,
-            quantity: item.quantity,
-          })),
+          metadata: {
+            externalSaleId,
+            sku: firstUnmatched.sku,
+            barcode: firstUnmatched.barcode,
+            name: firstUnmatched.name,
+            quantity: unmatchedItems.reduce(
+              (sum, item) => sum + item.quantity,
+              0
+            ),
+            source,
+            unmatchedItems,
+            allItems: validItems.map((item) => ({
+              sku: item.sku ?? null,
+              barcode: item.barcode ?? null,
+              name: item.name ?? null,
+              quantity: item.quantity,
+            })),
+          },
         },
-      });
+        { tx }
+      );
 
-      return NextResponse.json({
-        success: true,
-        pending: true,
-        message: "Sale contains unmatched items and was moved to pending",
-        pendingMatch,
-      });
+      return { kind: "pending" as const, pendingMatch };
     }
 
     // 📦 אם הכל תואם → מבצעים movement רגיל
     const movements = [];
 
     for (const matchedItem of matchedItems) {
-      const movement = await inventoryService.removeStock({
-        businessId,
-        itemId: matchedItem.itemId,
-        quantityDelta: matchedItem.quantity,
-        reason: InventoryMovementReason.SALE,
-      });
+      const movement = await inventoryService.removeStock(
+        {
+          businessId,
+          itemId: matchedItem.itemId,
+          quantityDelta: matchedItem.quantity,
+          reason: InventoryMovementReason.SALE,
+        },
+        { tx }
+      );
 
       movements.push(movement);
     }
 
-    // 💾 רק אחרי עיבוד מלא
-    await prisma.inventoryExternalSale.create({
+    // 💾 רק אחרי עיבוד מלא — אטומי עם התנועות
+    await tx.inventoryExternalSale.create({
       data: {
         businessId,
         externalSaleId,
@@ -268,10 +274,33 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    return { kind: "processed" as const, movements };
+        },
+        { timeoutMs: 20_000 }
+      )
+    );
+
+    if (outcome.kind === "skipped") {
+      return NextResponse.json({
+        success: true,
+        skipped: true,
+        message: "Sale already processed",
+      });
+    }
+
+    if (outcome.kind === "pending") {
+      return NextResponse.json({
+        success: true,
+        pending: true,
+        message: "Sale contains unmatched items and was moved to pending",
+        pendingMatch: outcome.pendingMatch,
+      });
+    }
+
     return NextResponse.json({
       success: true,
       pending: false,
-      movements,
+      movements: outcome.movements,
     });
   } catch (err) {
     console.error("POS SALE ERROR:", err);

@@ -8,6 +8,8 @@ import {
   NegativeInventoryError,
 } from "@/lib/services/inventory/inventory.errors";
 import { getSupplierPurchaseHistory } from "@/lib/services/inventory/supplier-purchase-history.read-model";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 function parseSupplierId(value: string): number {
   const supplierId = Number(value);
@@ -60,12 +62,21 @@ export async function GET(
     const supplierId = parseSupplierId(params.id);
     const { searchParams } = new URL(request.url);
 
-    const history = await getSupplierPurchaseHistory({
-      businessId: user.businessId,
-      supplierId,
-      limit: parseIntParam(searchParams.get("limit")),
-      offset: parseIntParam(searchParams.get("offset")),
-    });
+    const history = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          getSupplierPurchaseHistory(
+            {
+              businessId: user.businessId,
+              supplierId,
+              limit: parseIntParam(searchParams.get("limit")),
+              offset: parseIntParam(searchParams.get("offset")),
+            },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json(history);
   } catch (error) {

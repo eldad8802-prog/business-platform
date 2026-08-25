@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,10 +10,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const categories = await prisma.inventoryCategory.findMany({
-      where: { businessId: user.businessId },
-      orderBy: { name: "asc" },
-    });
+    const categories = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.inventoryCategory.findMany({
+            where: { businessId: user.businessId },
+            orderBy: { name: "asc" },
+          })
+        )
+    );
 
     return NextResponse.json({
       success: true,
@@ -46,27 +53,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const existing = await prisma.inventoryCategory.findFirst({
-      where: {
-        businessId: user.businessId,
-        name,
-      },
-    });
+    const result = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const existing = await tx.inventoryCategory.findFirst({
+            where: {
+              businessId: user.businessId,
+              name,
+            },
+          });
+          if (existing) {
+            return { category: existing, alreadyExists: true };
+          }
+          const created = await tx.inventoryCategory.create({
+            data: {
+              businessId: user.businessId,
+              name,
+            },
+          });
+          return { category: created, alreadyExists: false };
+        })
+    );
 
-    if (existing) {
+    if (result.alreadyExists) {
       return NextResponse.json({
         success: true,
-        category: existing,
+        category: result.category,
         alreadyExists: true,
       });
     }
 
-    const category = await prisma.inventoryCategory.create({
-      data: {
-        businessId: user.businessId,
-        name,
-      },
-    });
+    const category = result.category;
 
     return NextResponse.json(
       {

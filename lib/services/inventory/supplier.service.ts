@@ -143,7 +143,8 @@ export const supplierService = {
     return run(prisma);
   },
 
-  async listSuppliers(input: ListSuppliersInput) {
+  async listSuppliers(input: ListSuppliersInput, options?: TxOptions) {
+    const db = options?.tx ?? prisma;
     assertBusinessId(input.businessId);
 
     const status = input.status ?? "active";
@@ -160,18 +161,19 @@ export const supplierService = {
       where.name = { contains: query, mode: "insensitive" };
     }
 
-    return prisma.supplier.findMany({
+    return db.supplier.findMany({
       where,
       orderBy: [{ name: "asc" }, { id: "asc" }],
       take: normalizeLimit(input.limit),
     });
   },
 
-  async getSupplier(input: GetSupplierInput) {
+  async getSupplier(input: GetSupplierInput, options?: TxOptions) {
+    const db = options?.tx ?? prisma;
     assertBusinessId(input.businessId);
     const supplierId = normalizeSupplierId(input.supplierId);
 
-    const supplier = await prisma.supplier.findFirst({
+    const supplier = await db.supplier.findFirst({
       where: { id: supplierId, businessId: input.businessId },
     });
 
@@ -241,7 +243,8 @@ export const supplierService = {
    * Soft duplicate detection. Returns likely existing matches by normalized
    * name / phone / email. Never blocks and never merges — purely advisory.
    */
-  async findPossibleMatches(input: FindPossibleSupplierMatchesInput) {
+  async findPossibleMatches(input: FindPossibleSupplierMatchesInput, options?: TxOptions) {
+    const db = options?.tx ?? prisma;
     assertBusinessId(input.businessId);
 
     const name = normalizeName(input.name);
@@ -263,7 +266,7 @@ export const supplierService = {
 
     if (or.length === 0) return [];
 
-    const candidates = await prisma.supplier.findMany({
+    const candidates = await db.supplier.findMany({
       where: { businessId: input.businessId, OR: or },
       orderBy: [{ name: "asc" }, { id: "asc" }],
       take: normalizeLimit(input.limit),

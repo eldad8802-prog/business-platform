@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { InventoryDraftStatus } from "@prisma/client";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { getInventoryAuthenticatedUserBasic as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
   InventoryError,
@@ -57,23 +58,6 @@ export async function POST(request: NextRequest) {
     const user = await getAuthenticatedUser(request);
     const draftId = parseDraftIdFromRequest(request);
 
-    const draft = await prisma.inventoryDraft.findFirst({
-      where: {
-        id: draftId,
-        businessId: user.businessId,
-      },
-    });
-
-    if (!draft) {
-      throw new InventoryNotFoundError("Inventory draft not found");
-    }
-
-    if (draft.status !== InventoryDraftStatus.PENDING_REVIEW) {
-      throw new InventoryValidationError(
-        "Only PENDING_REVIEW drafts can be merged"
-      );
-    }
-
     const body = await request.json();
 
     const targetItemId = Number(body.targetItemId);
@@ -82,24 +66,55 @@ export async function POST(request: NextRequest) {
       throw new InventoryValidationError("targetItemId is required");
     }
 
-    const targetItem = await prisma.inventoryItem.findFirst({
-      where: {
-        id: targetItemId,
-        businessId: user.businessId,
-      },
-    });
+    const { updatedDraft, targetItem } = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const draft = await tx.inventoryDraft.findFirst({
+            where: {
+              id: draftId,
+              businessId: user.businessId,
+            },
+          });
 
-    if (!targetItem) {
-      throw new InventoryNotFoundError("Target item not found");
-    }
+          if (!draft) {
+            throw new InventoryNotFoundError("Inventory draft not found");
+          }
 
-    const updatedDraft = await prisma.inventoryDraft.update({
-      where: { id: draft.id },
-      data: {
-        status: InventoryDraftStatus.MERGED,
-        mergedToItemId: targetItem.id,
-      },
-    });
+          if (draft.status !== InventoryDraftStatus.PENDING_REVIEW) {
+            throw new InventoryValidationError(
+              "Only PENDING_REVIEW drafts can be merged"
+            );
+          }
+
+          // Tenant-scoped target: a foreign item looks non-existent.
+          const item = await tx.inventoryItem.findFirst({
+            where: {
+              id: targetItemId,
+              businessId: user.businessId,
+            },
+          });
+
+          if (!item) {
+            throw new InventoryNotFoundError("Target item not found");
+          }
+
+          const flipped = await tx.inventoryDraft.updateMany({
+            where: { id: draft.id, businessId: user.businessId },
+            data: {
+              status: InventoryDraftStatus.MERGED,
+              mergedToItemId: item.id,
+            },
+          });
+          if (flipped.count !== 1) {
+            throw new InventoryNotFoundError("Inventory draft not found");
+          }
+          const after = await tx.inventoryDraft.findFirst({
+            where: { id: draft.id, businessId: user.businessId },
+          });
+          return { updatedDraft: after, targetItem: item };
+        })
+    );
 
     return NextResponse.json({
       success: true,

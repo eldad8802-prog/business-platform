@@ -1,4 +1,7 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+
+type TxOptions = { tx?: Prisma.TransactionClient };
 
 type SuggestedAction =
   | {
@@ -23,15 +26,19 @@ type InventoryInsight = {
 };
 
 export const inventoryIntelligenceService = {
-  async getInsights(businessId: number): Promise<InventoryInsight[]> {
-    const pending = await prisma.inventoryPendingMatch.findMany({
+  async getInsights(
+    businessId: number,
+    options?: TxOptions
+  ): Promise<InventoryInsight[]> {
+    const db = options?.tx ?? prisma;
+    const pending = await db.inventoryPendingMatch.findMany({
       where: {
         businessId,
         status: "PENDING",
       },
     });
 
-    const items = await prisma.inventoryItem.findMany({
+    const items = await db.inventoryItem.findMany({
       where: {
         businessId,
         isActive: true,

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import {
   InventoryMovementReason,
   InventoryMovementType,
 } from "@prisma/client";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
 import { getInventoryAuthenticatedUserBasic as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
@@ -88,15 +89,24 @@ export async function POST(request: NextRequest) {
       "reason"
     );
 
-    const movement = await inventoryService.createMovement({
-      businessId: user.businessId,
-      itemId,
-      movementType,
-      reason,
-      quantityDelta,
-      note: typeof body.note === "string" ? body.note : undefined,
-      createdByUserId: user.id,
-    });
+    const movement = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          inventoryService.createMovement(
+            {
+              businessId: user.businessId,
+              itemId,
+              movementType,
+              reason,
+              quantityDelta,
+              note: typeof body.note === "string" ? body.note : undefined,
+              createdByUserId: user.id,
+            },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json(
       {
@@ -127,21 +137,27 @@ export async function GET(request: NextRequest) {
 
     const limit = limitParam ? Number(limitParam) : 50;
 
-    const movements = await prisma.inventoryMovement.findMany({
-      where,
-      orderBy: {
-        createdAt: "desc",
-      },
-      take: limit,
-      include: {
-        item: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    });
+    const movements = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.inventoryMovement.findMany({
+            where,
+            orderBy: {
+              createdAt: "desc",
+            },
+            take: limit,
+            include: {
+              item: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          })
+        )
+    );
 
     return NextResponse.json({
       success: true,

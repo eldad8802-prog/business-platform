@@ -34,12 +34,16 @@ type ApproveSupplierPurchaseInput = {
 
 const APPROVAL_TRANSACTION_OPTIONS = { timeout: 15_000 };
 
+type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+type TxOptions = { tx?: Tx };
+
 export async function approveSupplierPurchase(
-  input: ApproveSupplierPurchaseInput
+  input: ApproveSupplierPurchaseInput,
+  options?: TxOptions
 ) {
   const { draftId, businessId, userId, lines } = input;
 
-  return prisma.$transaction(async (tx) => {
+  const run = async (tx: Tx) => {
     // Atomic transition: only one concurrent approval can win.
     const transition = await tx.supplierPurchaseDraft.updateMany({
       where: {
@@ -248,5 +252,10 @@ export async function approveSupplierPurchase(
       success: true,
       draftId: draft.id,
     };
-  }, APPROVAL_TRANSACTION_OPTIONS);
+  };
+
+  if (options?.tx) {
+    return run(options.tx);
+  }
+  return prisma.$transaction(run, APPROVAL_TRANSACTION_OPTIONS);
 }

@@ -1,3 +1,5 @@
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import {
@@ -39,12 +41,23 @@ export async function POST(
         );
       }
 
-      const result = await resolvePendingMatchWithExistingItem({
-        pendingMatchId,
-        businessId: user.businessId,
-        userId: user.id,
-        itemId,
-      });
+      const result = await runWithTenantContext(
+        { businessId: user.businessId },
+        () =>
+          withTenantTransaction(
+            (tx) =>
+              resolvePendingMatchWithExistingItem(
+                {
+                  pendingMatchId,
+                  businessId: user.businessId,
+                  userId: user.id,
+                  itemId,
+                },
+                { tx }
+              ),
+            { timeoutMs: 15_000 }
+          )
+      );
 
       return NextResponse.json(result);
     }
@@ -57,7 +70,12 @@ export async function POST(
         );
       }
 
-      const result = await resolvePendingMatchWithNewItem({
+      const result = await runWithTenantContext(
+        { businessId: user.businessId },
+        () =>
+          withTenantTransaction(
+            (tx) =>
+              resolvePendingMatchWithNewItem({
         pendingMatchId,
         businessId: user.businessId,
         userId: user.id,
@@ -71,17 +89,29 @@ export async function POST(
           sku: body.itemData.sku ?? null,
           barcode: body.itemData.barcode ?? null,
         },
-      });
+              }, { tx }),
+            { timeoutMs: 15_000 }
+          )
+      );
 
       return NextResponse.json(result);
     }
 
     if (body.action === "REJECT") {
-      const result = await rejectPendingMatch({
-        pendingMatchId,
-        businessId: user.businessId,
-        userId: user.id,
-      });
+      const result = await runWithTenantContext(
+        { businessId: user.businessId },
+        () =>
+          withTenantTransaction((tx) =>
+            rejectPendingMatch(
+              {
+                pendingMatchId,
+                businessId: user.businessId,
+                userId: user.id,
+              },
+              { tx }
+            )
+          )
+      );
 
       return NextResponse.json(result);
     }

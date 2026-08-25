@@ -1,3 +1,5 @@
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { supplierService } from "@/lib/services/inventory/supplier.service";
@@ -58,10 +60,16 @@ export async function GET(
     const params = await context.params;
     const supplierId = parseSupplierId(params.id);
 
-    const supplier = await supplierService.getSupplier({
-      businessId: user.businessId,
-      supplierId,
-    });
+    const supplier = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          supplierService.getSupplier(
+            { businessId: user.businessId, supplierId },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json({ supplier });
   } catch (error) {
@@ -79,7 +87,11 @@ export async function PATCH(
     const supplierId = parseSupplierId(params.id);
     const body = await request.json();
 
-    const supplier = await supplierService.updateSupplier({
+    const supplier = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          supplierService.updateSupplier({
       businessId: user.businessId,
       supplierId,
       ...(body?.name !== undefined ? { name: body.name } : {}),
@@ -90,7 +102,9 @@ export async function PATCH(
         ? { defaultLeadTimeDays: body.defaultLeadTimeDays }
         : {}),
       ...(body?.isActive !== undefined ? { isActive: body.isActive } : {}),
-    });
+          }, { tx })
+        )
+    );
 
     return NextResponse.json({ supplier });
   } catch (error) {

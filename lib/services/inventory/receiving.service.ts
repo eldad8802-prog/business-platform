@@ -330,7 +330,8 @@ export const receivingService = {
     return prisma.$transaction(run, TRANSACTION_OPTIONS);
   },
 
-  async listReceivingSessions(input: ListReceivingSessionsInput) {
+  async listReceivingSessions(input: ListReceivingSessionsInput, options?: TxOptions) {
+    const db = options?.tx ?? prisma;
     assertBusinessId(input.businessId);
 
     const purchaseOrderId = normalizePositiveInt(
@@ -338,7 +339,7 @@ export const receivingService = {
       "purchaseOrderId"
     );
 
-    return prisma.receivingSession.findMany({
+    return db.receivingSession.findMany({
       where: {
         businessId: input.businessId,
         purchaseOrderId,
@@ -352,7 +353,8 @@ export const receivingService = {
     });
   },
 
-  async getReceivingSession(input: GetReceivingSessionInput) {
+  async getReceivingSession(input: GetReceivingSessionInput, options?: TxOptions) {
+    const db = options?.tx ?? prisma;
     assertBusinessId(input.businessId);
 
     const receivingSessionId = normalizePositiveInt(
@@ -360,7 +362,7 @@ export const receivingService = {
       "receivingSessionId"
     );
 
-    const receivingSession = await prisma.receivingSession.findFirst({
+    const receivingSession = await db.receivingSession.findFirst({
       where: {
         id: receivingSessionId,
         businessId: input.businessId,

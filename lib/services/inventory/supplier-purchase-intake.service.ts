@@ -4,6 +4,7 @@ import {
   SupplierLineStatus,
   SupplierPurchaseDraftStatus,
 } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { findInventoryMatches } from "@/lib/services/inventory/inventory-matching.service";
 import { decideInventoryAction } from "@/lib/services/inventory/inventory-decision.service";
@@ -86,9 +87,13 @@ function mapDecisionToLineStatus(
   return SupplierLineStatus.NEEDS_REVIEW;
 }
 
+type TxOptions = { tx?: Prisma.TransactionClient };
+
 export async function createSupplierPurchaseDraft(
-  input: CreateSupplierPurchaseDraftInput
+  input: CreateSupplierPurchaseDraftInput,
+  options?: TxOptions
 ) {
+  const db = options?.tx ?? prisma;
   const {
     businessId,
     supplierName,
@@ -115,7 +120,7 @@ export async function createSupplierPurchaseDraft(
     unitType: line.unitType ?? InventoryUnitType.UNIT,
   }));
 
-  const draft = await prisma.supplierPurchaseDraft.create({
+  const draft = await db.supplierPurchaseDraft.create({
     data: {
       businessId,
       supplierName: normalizeText(supplierName),
@@ -149,17 +154,20 @@ export async function createSupplierPurchaseDraft(
       detectedCategory: null,
     };
 
-    const matches = await findInventoryMatches({
-      businessId,
-      draft: matchingDraftShape,
-    });
+    const matches = await findInventoryMatches(
+      {
+        businessId,
+        draft: matchingDraftShape,
+      },
+      options
+    );
 
     const decision = decideInventoryAction(matches);
     const supplierDecision = mapDecisionToSupplierDecision(decision);
     const lineStatus = mapDecisionToLineStatus(supplierDecision);
     const topMatch = matches[0] ?? null;
 
-    const updatedLine = await prisma.supplierPurchaseDraftLine.update({
+    const updatedLine = await db.supplierPurchaseDraftLine.update({
       where: { id: line.id },
       data: {
         matchedItemId:

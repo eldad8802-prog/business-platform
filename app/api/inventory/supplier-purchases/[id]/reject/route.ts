@@ -1,3 +1,5 @@
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { SupplierPurchaseDraftStatus } from "@prisma/client";
@@ -61,33 +63,39 @@ export async function POST(
     const params = await context.params;
     const draftId = parseDraftId(params.id);
 
-    const draft = await prisma.supplierPurchaseDraft.findFirst({
-      where: {
-        id: draftId,
-        businessId: user.businessId,
-      },
-    });
-
-    if (!draft) {
-      throw new InventoryNotFoundError("Supplier draft not found");
-    }
-
-    if (draft.status !== SupplierPurchaseDraftStatus.PENDING_REVIEW) {
-      throw new InventoryValidationError("Draft already processed");
-    }
-
-    await prisma.supplierPurchaseDraft.update({
-      where: {
-        id: draft.id,
-      },
-      data: {
-        status: SupplierPurchaseDraftStatus.REJECTED,
-      },
-    });
+    const rejectedId = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          // Atomic tenant-scoped transition — no id-only mutation window.
+          const transition = await tx.supplierPurchaseDraft.updateMany({
+            where: {
+              id: draftId,
+              businessId: user.businessId,
+              status: SupplierPurchaseDraftStatus.PENDING_REVIEW,
+            },
+            data: {
+              status: SupplierPurchaseDraftStatus.REJECTED,
+              rejectedAt: new Date(),
+            },
+          });
+          if (transition.count !== 1) {
+            const exists = await tx.supplierPurchaseDraft.findFirst({
+              where: { id: draftId, businessId: user.businessId },
+              select: { id: true },
+            });
+            if (!exists) {
+              throw new InventoryNotFoundError("Supplier draft not found");
+            }
+            throw new InventoryValidationError("Draft already processed");
+          }
+          return draftId;
+        })
+    );
 
     return NextResponse.json({
       success: true,
-      draftId: draft.id,
+      draftId: rejectedId,
     });
   } catch (error) {
     return handleInventoryError(error);

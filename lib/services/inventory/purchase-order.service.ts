@@ -411,14 +411,15 @@ export const purchaseOrderService = {
     return prisma.$transaction(run, TRANSACTION_OPTIONS);
   },
 
-  async listPurchaseOrders(input: ListPurchaseOrdersInput) {
+  async listPurchaseOrders(input: ListPurchaseOrdersInput, options?: TxOptions) {
+    const db = options?.tx ?? prisma;
     const { businessId, status } = input;
 
     if (!businessId || Number.isNaN(businessId)) {
       throw new InventoryUnauthorizedError("Invalid business id");
     }
 
-    const purchaseOrders = await prisma.purchaseOrder.findMany({
+    const purchaseOrders = await db.purchaseOrder.findMany({
       where: {
         businessId,
         ...(status ? { status } : {}),
@@ -432,14 +433,16 @@ export const purchaseOrderService = {
       take: normalizeLimit(input.limit),
     });
 
-    return Promise.all(
-      purchaseOrders.map((purchaseOrder) =>
-        withPurchaseOrderLineQuantities(prisma, purchaseOrder)
-      )
-    );
+    // Sequential — a TenantTx must not run concurrent queries.
+    const out = [];
+    for (const purchaseOrder of purchaseOrders) {
+      out.push(await withPurchaseOrderLineQuantities(db, purchaseOrder));
+    }
+    return out;
   },
 
-  async getPurchaseOrder(input: GetPurchaseOrderInput) {
+  async getPurchaseOrder(input: GetPurchaseOrderInput, options?: TxOptions) {
+    const db = options?.tx ?? prisma;
     const { businessId, purchaseOrderId } = input;
 
     if (!businessId || Number.isNaN(businessId)) {
@@ -450,7 +453,7 @@ export const purchaseOrderService = {
       throw new InventoryValidationError("Invalid purchase order id");
     }
 
-    const purchaseOrder = await prisma.purchaseOrder.findFirst({
+    const purchaseOrder = await db.purchaseOrder.findFirst({
       where: {
         id: purchaseOrderId,
         businessId,
@@ -466,7 +469,7 @@ export const purchaseOrderService = {
       throw new InventoryNotFoundError("Purchase order not found");
     }
 
-    return withPurchaseOrderLineQuantities(prisma, purchaseOrder);
+    return withPurchaseOrderLineQuantities(db, purchaseOrder);
   },
 
   async setPurchaseOrderLineRemainingDecision(

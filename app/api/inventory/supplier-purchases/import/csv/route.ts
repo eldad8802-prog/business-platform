@@ -1,3 +1,5 @@
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createSupplierPurchaseDraft } from "@/lib/services/inventory/supplier-purchase-intake.service";
@@ -163,7 +165,11 @@ export async function POST(request: NextRequest) {
           `Order ${order.orderId}: missing externalOrderId; skipping strong dedupe`
         );
       } else {
-        const existing = await prisma.supplierPurchaseDraft.findFirst({
+        const existing = await runWithTenantContext(
+          { businessId: user.businessId },
+          () =>
+            withTenantTransaction((tx) =>
+              tx.supplierPurchaseDraft.findFirst({
           where: {
             businessId: user.businessId,
             source: input.source ?? "CSV",
@@ -171,7 +177,9 @@ export async function POST(request: NextRequest) {
             status: SupplierPurchaseDraftStatus.PENDING_REVIEW,
           },
           select: { id: true },
-        });
+              })
+            )
+        );
 
         if (existing) {
           skippedOrders.push({
@@ -183,7 +191,14 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const result = await createSupplierPurchaseDraft(input);
+      const result = await runWithTenantContext(
+        { businessId: user.businessId },
+        () =>
+          withTenantTransaction(
+            (tx) => createSupplierPurchaseDraft(input, { tx }),
+            { timeoutMs: 15_000 }
+          )
+      );
 
       draftsCreated.push({
         draftId: result.draft.id,

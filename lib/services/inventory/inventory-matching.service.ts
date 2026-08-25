@@ -1,4 +1,7 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+
+type TxOptions = { tx?: Prisma.TransactionClient };
 
 export async function findInventoryMatches({
   businessId,
@@ -6,8 +9,9 @@ export async function findInventoryMatches({
 }: {
   businessId: number;
   draft: any;
-}) {
-  const items = await prisma.inventoryItem.findMany({
+}, options?: TxOptions) {
+  const db = options?.tx ?? prisma;
+  const items = await db.inventoryItem.findMany({
     where: {
       businessId,
       isActive: true,
