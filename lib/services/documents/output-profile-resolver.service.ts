@@ -4,19 +4,29 @@ import {
   OUTPUT_PROFILE_CACHE_TTL_MS_UNIFIED,
   OUTPUT_PROFILE_UNIFIED_CONFIDENCE_THRESHOLD,
 } from "@/lib/constants/output-profile-cache";
+import { prisma } from "@/lib/prisma";
 import {
   buildDocumentOutputProfile,
   type DocumentOutputProfile,
   type DocumentOutputProfileSource,
 } from "@/lib/services/documents/document-output-profile.service";
+import type { DocumentType } from "@/lib/services/documents/document-type.service";
 import { runUnifiedDocumentIntelligence } from "@/lib/services/documents/unified-extraction-engine.service";
 
-type CacheSource = "stored" | "unified" | "fallback_no_ocr";
+type CacheSource = "snapshot" | "stored" | "unified" | "fallback_no_ocr";
 
 type OutputProfileCacheEntry = {
   documentId: number;
   outputProfile: DocumentOutputProfile;
   source: CacheSource;
+  /**
+   * Fingerprint of the document state the profile was computed FROM. A profile
+   * computed while OCR was still running (no ocrText, no ExtractedData) must
+   * never be served once extraction has landed — that exact staleness put real
+   * receipts on the quote_or_order path and produced approved-without-
+   * FinancialRecord documents in production (Integrity Blueprint §3).
+   */
+  stateKey: string;
   computedAtMs: number;
   expiresAtMs: number;
   lastAccessAtMs: number;
@@ -61,6 +71,76 @@ function evictIfNeeded() {
 
 function toIso(ms: number): string {
   return new Date(ms).toISOString();
+}
+
+const KNOWN_DOCUMENT_TYPES: ReadonlySet<string> = new Set([
+  "invoice",
+  "receipt",
+  "donation_receipt",
+  "bank_transfer",
+  "quote",
+  "non_financial",
+]);
+
+type SnapshotForProfile = {
+  id: number;
+  documentType: string | null;
+  isFinancial: boolean | null;
+  guardrailRoute: string | null;
+  financialEvidenceLevel: string | null;
+  confidenceScore: number | null;
+  vendorName: string | null;
+  category: string | null;
+  rawResult: unknown;
+};
+
+function isEvidenceLevel(
+  v: string | null
+): v is DocumentOutputProfileSource["financialEvidenceLevel"] {
+  return v === "strong" || v === "weak" || v === "negative" || v === "uncertain";
+}
+
+/**
+ * Rebuild the profile source from the engine's PERSISTED belief at extraction
+ * time (ExtractionSnapshot). This is the root-cause fix for the unreachable
+ * `financial_transaction` profile: the live pipeline routes receipts/invoices
+ * through the real guardrail and records `guardrailRoute` + `documentType` on
+ * the snapshot, but review/approve used to reconstruct a source with
+ * `guardrailRoute:"unknown"` — so the financial profile could never resolve and
+ * real receipts fell to quote_or_order/unknown_review (Integrity Blueprint §3).
+ */
+function buildSourceFromSnapshot(params: {
+  snapshot: SnapshotForProfile;
+  documentStatus: string;
+}): DocumentOutputProfileSource | null {
+  const s = params.snapshot;
+
+  // A snapshot with no routing belief (legacy row / failed extraction) cannot
+  // seed a profile — fall back to the stored heuristic.
+  if (!s.guardrailRoute && s.isFinancial == null) return null;
+
+  const documentType: DocumentType =
+    s.documentType && KNOWN_DOCUMENT_TYPES.has(s.documentType)
+      ? (s.documentType as DocumentType)
+      : "receipt";
+
+  const raw = s.rawResult as { searchableText?: unknown } | null;
+  const searchableText =
+    raw && typeof raw.searchableText === "string" && raw.searchableText.trim()
+      ? raw.searchableText
+      : [s.vendorName, s.category].filter(Boolean).join(" ");
+
+  return {
+    documentType,
+    isFinancial: s.isFinancial ?? false,
+    guardrailRoute: s.guardrailRoute ?? "unknown",
+    searchableText,
+    needsReview: params.documentStatus !== "approved",
+    confidence: s.confidenceScore ?? 0,
+    financialEvidenceLevel: isEvidenceLevel(s.financialEvidenceLevel)
+      ? s.financialEvidenceLevel
+      : "uncertain",
+  };
 }
 
 function buildSourceFromStored(params: {
@@ -129,8 +209,19 @@ export async function resolveDocumentOutputProfile(params: {
   outputProfileDebug?: OutputProfileCacheEntry["debug"];
 }> {
   const now = nowMs();
+
+  // State fingerprint: a cached profile is only valid for the SAME document
+  // state it was computed from. Without this, a GET issued while OCR was still
+  // running seeded a no-OCR ("quote") profile that approve then consumed within
+  // the TTL — the production mechanism behind approved-without-FinancialRecord.
+  const stateKey = [
+    params.documentStatus,
+    params.ocrText && params.ocrText.trim().length > 0 ? "ocr" : "no_ocr",
+    params.extracted ? "extracted" : "no_extracted",
+  ].join("|");
+
   const cached = cache.get(params.documentId);
-  if (cached && !isExpired(cached, now)) {
+  if (cached && !isExpired(cached, now) && cached.stateKey === stateKey) {
     cached.lastAccessAtMs = now;
     cache.set(params.documentId, cached);
     return {
@@ -146,6 +237,60 @@ export async function resolveDocumentOutputProfile(params: {
               : {}),
           }
         : undefined,
+    };
+  }
+
+  // Preferred source: the engine's persisted belief at extraction time.
+  // Best-effort — a read failure degrades to the stored/no-OCR heuristics.
+  let snapshotSource: DocumentOutputProfileSource | null = null;
+  try {
+    const snapshot = await prisma.extractionSnapshot.findFirst({
+      where: { documentId: params.documentId, businessId: params.businessId },
+      orderBy: { id: "desc" },
+      select: {
+        id: true,
+        documentType: true,
+        isFinancial: true,
+        guardrailRoute: true,
+        financialEvidenceLevel: true,
+        confidenceScore: true,
+        vendorName: true,
+        category: true,
+        rawResult: true,
+      },
+    });
+    if (snapshot) {
+      snapshotSource = buildSourceFromSnapshot({
+        snapshot,
+        documentStatus: params.documentStatus,
+      });
+    }
+  } catch (err) {
+    console.error("[output-profile] snapshot read failed (non-fatal):", err);
+  }
+
+  if (snapshotSource) {
+    const outputProfile = buildDocumentOutputProfile(snapshotSource);
+    const entry: OutputProfileCacheEntry = {
+      documentId: params.documentId,
+      outputProfile,
+      source: "snapshot",
+      stateKey,
+      computedAtMs: now,
+      expiresAtMs: now + OUTPUT_PROFILE_CACHE_TTL_MS_STORED,
+      lastAccessAtMs: now,
+      debug: params.debug
+        ? { cacheHit: false, unifiedAttempted: false }
+        : undefined,
+    };
+    cache.set(params.documentId, entry);
+    evictIfNeeded();
+
+    return {
+      outputProfile,
+      outputProfileSource: "snapshot",
+      outputProfileComputedAt: toIso(now),
+      outputProfileDebug: entry.debug,
     };
   }
 
@@ -165,6 +310,7 @@ export async function resolveDocumentOutputProfile(params: {
       documentId: params.documentId,
       outputProfile,
       source: "fallback_no_ocr",
+      stateKey,
       computedAtMs: now,
       expiresAtMs: now + OUTPUT_PROFILE_CACHE_TTL_MS_STORED,
       lastAccessAtMs: now,
@@ -204,6 +350,7 @@ export async function resolveDocumentOutputProfile(params: {
       documentId: params.documentId,
       outputProfile: storedProfile,
       source: "stored",
+      stateKey,
       computedAtMs: now,
       expiresAtMs: now + OUTPUT_PROFILE_CACHE_TTL_MS_STORED,
       lastAccessAtMs: now,
@@ -232,6 +379,7 @@ export async function resolveDocumentOutputProfile(params: {
     documentId: params.documentId,
     outputProfile: unified.outputProfile,
     source: "unified",
+    stateKey,
     computedAtMs: now,
     expiresAtMs: now + OUTPUT_PROFILE_CACHE_TTL_MS_UNIFIED,
     lastAccessAtMs: now,

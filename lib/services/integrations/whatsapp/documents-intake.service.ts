@@ -320,6 +320,9 @@ export async function processWhatsAppDocumentsIntake(
         mimeType: mediaResult.mimeType,
         ocrText: rawText,
         fileUrl: storedFileName,
+        contentHashSha256,
+        originalFilename: mediaResult.filename ?? null,
+        sizeBytes: mediaResult.sizeBytes ?? null,
       });
     } catch {
       return fail("create_document_failed");

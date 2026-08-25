@@ -1192,6 +1192,18 @@ model Document {
   mimeType        String
   ocrText         String?
   status          String
+  /// SHA-256 of the original file bytes (hex, lowercase). Duplicate-defense
+  /// identity: same business + same hash = the same file ingested again.
+  /// Nullable — rows created before the dedup wave carry no hash until the
+  /// backfill script runs. Deliberately NOT unique: a duplicate upload is a
+  /// user decision to surface, not a DB constraint violation.
+  contentHashSha256 String?
+  /// Uploader's original filename (or attachment filename on email/WhatsApp).
+  /// Display + duplicate triage only — stored object names remain MIME-derived
+  /// and never trust this value.
+  originalFilename  String?
+  /// Original file size in bytes as validated at intake.
+  sizeBytes         Int?
   createdAt       DateTime                  @default(now())
   business        Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
   emailImport     EmailAttachmentImport?
@@ -1201,6 +1213,7 @@ model Document {
 
   @@index([businessId, createdAt])
   @@index([businessId, status, createdAt])
+  @@index([businessId, contentHashSha256])
 }
 
 model WhatsAppAttachmentImport {

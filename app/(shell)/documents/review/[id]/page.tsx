@@ -72,6 +72,15 @@ export default function ReviewPage() {
   const [document, setDocument] = useState<ApiDocument | null>(null);
   const [outputProfile, setOutputProfile] = useState<OutputProfile | null>(null);
   const [extractionMeta, setExtractionMeta] = useState<ExtractionConfidenceMeta | null>(null);
+  const [duplicateSignals, setDuplicateSignals] = useState<
+    Array<{
+      level: "exact_file" | "same_transaction";
+      documentId: number;
+      vendorName: string | null;
+      amount: number | null;
+      hasFinancialRecord: boolean;
+    }>
+  >([]);
 
   const [fileBlobUrl, setFileBlobUrl] = useState<string | null>(null);
   const [fileStatus, setFileStatus] = useState<"idle" | "loading" | "ready" | "missing">(
@@ -123,6 +132,12 @@ export default function ReviewPage() {
         setDocument(json.document);
         setOutputProfile(json.outputProfile);
         setExtractionMeta(buildExtractionMeta(json.extracted as ApiExtracted | null));
+        setDuplicateSignals(
+          Array.isArray((json as { duplicateSignals?: unknown }).duplicateSignals)
+            ? ((json as { duplicateSignals?: unknown })
+                .duplicateSignals as typeof duplicateSignals)
+            : []
+        );
         setApprovedAs(null);
         setShowFieldDetails(false);
         setNextPendingDocumentId(null);
@@ -467,10 +482,8 @@ export default function ReviewPage() {
 
   const handleDecisionPrimaryApprove = useCallback(() => {
     if (reviewMode !== "financial") {
-      if (isUnknown) {
-        setReviewMode("financial");
-        return;
-      }
+      // Document-only save always goes through the explicit confirm dialog —
+      // the financial path is offered via the dedicated "רשום כספית" switch.
       setDocumentOnlyConfirmOpen(true);
       return;
     }
@@ -482,7 +495,18 @@ export default function ReviewPage() {
       return;
     }
     void approveFinancial();
-  }, [reviewMode, isUnknown, draft, approveFinancial]);
+  }, [reviewMode, draft, approveFinancial]);
+
+  const handleSwitchToFinancial = useCallback(() => {
+    setReviewMode("financial");
+    // Jump straight to completing whatever financial field is missing, so the
+    // switch lands the user in an actionable state.
+    const missing = firstMissingFinancialField(draft);
+    if (missing) {
+      setEditField(missing);
+      setEditModalOpen(true);
+    }
+  }, [draft]);
 
   if (pageLoading) {
     return <DocumentsReviewSkeleton />;
@@ -524,6 +548,30 @@ export default function ReviewPage() {
 
         {error ? <div style={alertError}>{error}</div> : null}
 
+        {state === "decision" && duplicateSignals.length > 0 ? (
+          <div style={duplicateWarnStyle} role="alert">
+            <strong style={duplicateWarnTitleStyle}>
+              {duplicateSignals[0].level === "exact_file"
+                ? "נראה שהמסמך הזה כבר הועלה"
+                : "ייתכן שהעסקה הזו כבר נרשמה"}
+            </strong>
+            <span style={duplicateWarnTextStyle}>
+              {duplicateSignals.some((s) => s.hasFinancialRecord)
+                ? "קיימת כבר רשומה כספית עם אותם ספק, סכום ותאריך. אישור כספי נוסף יכפיל את ההוצאה."
+                : "קיים מסמך דומה מאוד במערכת. בדוק לפני אישור כספי."}
+            </span>
+            <button
+              type="button"
+              style={duplicateWarnLinkStyle}
+              onClick={() =>
+                router.push(`/documents/review/${duplicateSignals[0].documentId}`)
+              }
+            >
+              פתח את המסמך הקיים
+            </button>
+          </div>
+        ) : null}
+
         {state === "decision" ? (
           <ReviewDecisionPanel
             reviewMode={reviewMode}
@@ -554,9 +602,9 @@ export default function ReviewPage() {
             actions={{
               loading,
               reviewMode,
-              isUnknown,
               onApproveDocumentOnly: () => setDocumentOnlyConfirmOpen(true),
               onPrimaryApprove: handleDecisionPrimaryApprove,
+              onSwitchToFinancial: handleSwitchToFinancial,
             }}
           />
         ) : null}
@@ -623,11 +671,12 @@ export default function ReviewPage() {
 
         {documentOnlyConfirmOpen ? (
           <ReviewOverlayShell
-            title="שמור כמסמך עזר?"
+            title="שמור כמסמך מידע?"
             onClose={() => setDocumentOnlyConfirmOpen(false)}
           >
             <p style={confirmTextStyle}>
-              המסמך יישמר ללא רישום כספי. אפשר יהיה למצוא אותו ברשומות.
+              המסמך יישמר כמסמך מידע בלבד — ללא רישום כספי. הוא לא ייכלל
+              בהוצאות, בדוחות או בחבילת רואה החשבון.
             </p>
             <div style={confirmActionGridStyle}>
               <button
@@ -647,7 +696,7 @@ export default function ReviewPage() {
                   void approveDocumentOnly();
                 }}
               >
-                שמור כמסמך עזר
+                שמור כמסמך מידע
               </button>
             </div>
           </ReviewOverlayShell>
@@ -958,6 +1007,40 @@ const confirmTextStyle = {
   fontSize: TOKEN.font.body,
   fontWeight: TOKEN.weight.semibold,
   lineHeight: 1.6,
+} as const;
+
+const duplicateWarnStyle = {
+  border: `1px solid ${TOKEN.semantic.attention.border}`,
+  borderRadius: TOKEN.radius.card,
+  background: TOKEN.semantic.attention.bgSoft,
+  color: TOKEN.semantic.attention.ink,
+  padding: TOKEN.space.lg,
+  display: "grid",
+  gap: 6,
+  marginBottom: 12,
+} as const;
+
+const duplicateWarnTitleStyle = {
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+} as const;
+
+const duplicateWarnTextStyle = {
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.semibold,
+  lineHeight: 1.5,
+} as const;
+
+const duplicateWarnLinkStyle = {
+  justifySelf: "start",
+  border: "none",
+  background: "transparent",
+  padding: 0,
+  color: TOKEN.semantic.attention.ink,
+  fontSize: TOKEN.font.meta,
+  fontWeight: TOKEN.weight.bold,
+  textDecoration: "underline",
+  cursor: "pointer",
 } as const;
 
 const confirmActionGridStyle = {

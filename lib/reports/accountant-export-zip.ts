@@ -1,4 +1,4 @@
-import type archiver from "archiver";
+import archiver from "archiver";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import {
@@ -274,20 +274,49 @@ async function buildAccountantXlsxBuffer(
       to: { row: lastDataRow, column: 8 },
     };
 
-    const sumAmount = records.reduce(
-      (acc, rec) => acc + Number(rec.amount),
+    // Direction-aware totals: income and expense must never be summed into one
+    // figure on an accountant-facing report (they are opposing signs).
+    const sumExpense = records.reduce(
+      (acc, rec) => acc + (rec.direction === "income" ? 0 : Number(rec.amount)),
       0
     );
-    const totalRowIndex = lastDataRow + 1;
-    const totalRow = ws.getRow(totalRowIndex);
-    totalRow.getCell(1).value = "סה״כ";
-    totalRow.getCell(1).font = { bold: true };
-    totalRow.getCell(4).value = {
-      formula: `SUM(D2:D${lastDataRow})`,
-      result: sumAmount,
+    const sumIncome = records.reduce(
+      (acc, rec) => acc + (rec.direction === "income" ? Number(rec.amount) : 0),
+      0
+    );
+
+    const writeTotalRow = (
+      rowIndex: number,
+      label: string,
+      directionHe: string,
+      cached: number
+    ) => {
+      const row = ws.getRow(rowIndex);
+      row.getCell(1).value = label;
+      row.getCell(1).font = { bold: true };
+      row.getCell(4).value = {
+        formula: `SUMIF(E2:E${lastDataRow},"${directionHe}",D2:D${lastDataRow})`,
+        result: cached,
+      };
+      row.getCell(4).numFmt = "#,##0.00";
+      row.getCell(4).font = { bold: true };
     };
-    totalRow.getCell(4).numFmt = "#,##0.00";
-    totalRow.getCell(4).font = { bold: true };
+
+    // "expense" bucket intentionally uses the same catch-all the data rows use:
+    // anything that is not income renders as הוצאה/לא ידוע. SUMIF on הוצאה would
+    // silently drop "לא ידוע" rows, so the expense total subtracts income instead.
+    const expenseRowIndex = lastDataRow + 1;
+    const incomeRowIndex = lastDataRow + 2;
+    const expenseRow = ws.getRow(expenseRowIndex);
+    expenseRow.getCell(1).value = "סה״כ הוצאות";
+    expenseRow.getCell(1).font = { bold: true };
+    expenseRow.getCell(4).value = {
+      formula: `SUM(D2:D${lastDataRow})-SUMIF(E2:E${lastDataRow},"הכנסה",D2:D${lastDataRow})`,
+      result: sumExpense,
+    };
+    expenseRow.getCell(4).numFmt = "#,##0.00";
+    expenseRow.getCell(4).font = { bold: true };
+    writeTotalRow(incomeRowIndex, "סה״כ הכנסות", "הכנסה", sumIncome);
   }
 
   const buf = await workbook.xlsx.writeBuffer();
@@ -346,6 +375,14 @@ export async function appendAccountantPackToArchive(
 
   const seenDocIds = new Set<number>();
 
+  type FetchTarget = {
+    docId: number;
+    folder: "approved" | "pending";
+    basename: string;
+  };
+
+  const targets: FetchTarget[] = [];
+
   for (const r of records) {
     const doc = r.document;
     if (!doc?.id || seenDocIds.has(doc.id)) continue;
@@ -365,20 +402,46 @@ export async function appendAccountantPackToArchive(
       continue;
     }
 
-    try {
-      const buffer = await readDocumentObject(businessId, basename);
-      const ext = basename.split(".").pop() || "file";
-      const entryName = `${folder}/doc-${doc.id}.${ext}`;
-      archive.append(buffer, { name: entryName });
+    targets.push({ docId: doc.id, folder, basename });
+  }
+
+  // Storage reads run with bounded concurrency: a real month is dozens of
+  // originals, and fetching them one-by-one puts N×RTT on a serverless clock.
+  // Order of ZIP entries is preserved by appending from the ordered results.
+  const fetched = await mapWithConcurrency(
+    targets,
+    EXPORT_FILE_FETCH_CONCURRENCY,
+    async (t) => {
+      try {
+        return { t, buffer: await readDocumentObject(businessId, t.basename) };
+      } catch (e) {
+        return { t, buffer: null, error: e as unknown };
+      }
+    }
+  );
+
+  for (const item of fetched) {
+    const { t } = item;
+    if (item.buffer) {
+      const ext = t.basename.split(".").pop() || "file";
+      const entryName = `${t.folder}/doc-${t.docId}.${ext}`;
+      // store: originals are already-compressed media (PDF/JPEG/PNG) —
+      // re-DEFLATE-ing them burns CPU for ~0% size gain.
+      archive.append(item.buffer, { name: entryName, store: true });
       manifestFiles.push(entryName);
-      if (folder === "approved") approvedFiles += 1;
+      if (t.folder === "approved") approvedFiles += 1;
       else pendingFiles += 1;
-    } catch (e) {
-      if (e instanceof StorageObjectNotFoundError) {
-        missingLines.push(`document ${doc.id}: קובץ לא נמצא (${doc.fileUrl})`);
+    } else {
+      if (item.error instanceof StorageObjectNotFoundError) {
+        missingLines.push(`document ${t.docId}: קובץ לא נמצא (${t.basename})`);
       } else {
-        console.error("File read failed for export:", doc.id, doc.fileUrl, e);
-        missingLines.push(`document ${doc.id}: כשל בקריאה (${doc.fileUrl})`);
+        console.error(
+          "File read failed for export:",
+          t.docId,
+          t.basename,
+          item.error
+        );
+        missingLines.push(`document ${t.docId}: כשל בקריאה (${t.basename})`);
       }
       missingCount += 1;
     }
@@ -422,4 +485,77 @@ export async function appendAccountantPackToArchive(
       ? missingLines.join("\n") + "\n"
       : "(אין קבצים חסרים)\n";
   archive.append(missingBody, { name: "_meta/missing-files.txt" });
+}
+
+const EXPORT_FILE_FETCH_CONCURRENCY = 5;
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const i = next;
+      next += 1;
+      results[i] = await fn(items[i]);
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(limit, Math.max(items.length, 1)) },
+    () => worker()
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * Runs `build` against a fresh zip archiver and collects the full output into
+ * a Buffer.
+ *
+ * The output collector is attached BEFORE anything is appended and BEFORE
+ * `finalize()` is awaited. `finalize()` only resolves once the underlying
+ * zip-stream has flushed to a consumer — awaiting it with no consumer attached
+ * deadlocks as soon as the archive outgrows the internal stream buffers
+ * (~1MB), which is exactly the historic 504 on real months. Mirrors the proven
+ * collect pattern in lib/services/billing/uniform/uniform-export-package.service.ts.
+ */
+export async function collectArchiveToBuffer(
+  build: (archive: archiver.Archiver) => Promise<void>
+): Promise<Buffer> {
+  const archive = archiver("zip", { zlib: { level: 6 } });
+
+  const chunks: Buffer[] = [];
+  const collected = new Promise<void>((resolve, reject) => {
+    archive.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+    archive.on("warning", (err) => {
+      // ENOENT-style warnings mean a silently incomplete archive — treat as fatal.
+      reject(err);
+    });
+    archive.on("error", reject);
+    archive.on("end", resolve);
+  });
+
+  await build(archive);
+  // Awaited together: if the archive errors while finalize() is in flight, the
+  // rejection must be observed immediately (not after finalize settles).
+  await Promise.all([archive.finalize(), collected]);
+
+  return Buffer.concat(chunks);
+}
+
+/** Builds the full accountant pack as a single in-memory ZIP Buffer. */
+export async function buildAccountantPackZipBuffer(
+  businessId: number,
+  body: AccountantPackBody
+): Promise<Buffer> {
+  return collectArchiveToBuffer((archive) =>
+    appendAccountantPackToArchive(archive, businessId, body)
+  );
 }

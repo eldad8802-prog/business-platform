@@ -8,6 +8,10 @@ export async function createDocumentFromOcrText(params: {
   mimeType: string;
   ocrText: string;
   fileUrl: string;
+  /** Duplicate-defense identity of the original bytes (Wave 1B). */
+  contentHashSha256?: string | null;
+  originalFilename?: string | null;
+  sizeBytes?: number | null;
 }): Promise<{
   documentId: number;
   extractedDataId: number;
@@ -33,6 +37,9 @@ export async function createDocumentFromOcrText(params: {
       mimeType: params.mimeType,
       status: "needs_review",
       ocrText: params.ocrText,
+      contentHashSha256: params.contentHashSha256 ?? null,
+      originalFilename: params.originalFilename?.trim().slice(0, 255) || null,
+      sizeBytes: params.sizeBytes ?? null,
     },
   });
 
