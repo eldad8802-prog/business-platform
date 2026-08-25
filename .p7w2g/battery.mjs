@@ -73,11 +73,13 @@ function splitSql(sql) {
   return out;
 }
 
+const VERIFY_ONLY = process.env.W2G_VERIFY_ONLY === "1";
+
 async function main() {
   if (!process.env.DIRECT_URL) throw new Error("DIRECT_URL missing");
-  if (!RUNTIME_URL) throw new Error("RUNTIME_URL missing");
+  if (!RUNTIME_URL && !VERIFY_ONLY) throw new Error("RUNTIME_URL missing");
   assertEndpointSafety(process.env.DIRECT_URL, "DIRECT_URL");
-  assertEndpointSafety(RUNTIME_URL, "RUNTIME_URL");
+  if (RUNTIME_URL) assertEndpointSafety(RUNTIME_URL, "RUNTIME_URL");
 
   const owner = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
   await owner.$queryRaw`SELECT 1`;
@@ -102,11 +104,42 @@ async function main() {
   if (TARGET === "neon") {
     const pilot = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p4b_tenant'`))[0].c);
     if (pilot !== 5) throw new Error(`DRIFT: pilot p4b_tenant=${pilot}, expected 5 — STOP`);
+    // Wave-1 grows additively (13 at IMPL-1 time; #264 added BusinessProfile
+    // → 14 once applied to Preview). Gate on a sane floor, report the count.
     const w1 = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w1_tenant'`))[0].c);
-    if (w1 !== 13) throw new Error(`DRIFT: wave1 p7w1_tenant=${w1}, expected 13 — STOP`);
+    if (w1 < 13 || w1 > 14) throw new Error(`DRIFT: wave1 p7w1_tenant=${w1}, expected 13-14 — STOP`);
     const rt = (await owner.$queryRawUnsafe(`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname='app_runtime_preview_p4b'`))[0];
     if (!rt || rt.rolsuper || rt.rolbypassrls) throw new Error("DRIFT: tenant runtime role posture — STOP");
-    console.log("[pre-state] pilot=5, wave1=13, tenant runtime posture OK");
+    console.log(`[pre-state] pilot=5, wave1=${w1}, tenant runtime posture OK`);
+  }
+
+  // READ-ONLY substrate verification (merge-closure checks). Counts + posture
+  // only — no role creation/rotation, no apply, no fixtures, no sessions.
+  if (VERIFY_ONLY) {
+    const grpV = (await owner.$queryRawUnsafe(`SELECT rolcanlogin, rolsuper, rolbypassrls FROM pg_roles WHERE rolname='app_admin'`))[0];
+    ok("verify-only: app_admin exists, NOLOGIN, NOBYPASSRLS", grpV && !grpV.rolcanlogin && !grpV.rolsuper && !grpV.rolbypassrls, JSON.stringify(grpV));
+    const lgV = (await owner.$queryRawUnsafe(`SELECT rolcanlogin, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb FROM pg_roles WHERE rolname='${ADMIN_LOGIN}'`))[0];
+    ok("verify-only: admin login posture unchanged", lgV && lgV.rolcanlogin && !lgV.rolsuper && !lgV.rolbypassrls && !lgV.rolcreaterole && !lgV.rolcreatedb, JSON.stringify(lgV));
+    const ownsV = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_tables WHERE tableowner IN ('app_admin','${ADMIN_LOGIN}')`))[0].c);
+    ok("verify-only: admin roles own zero tables", ownsV === 0);
+    const nsV = Number((await owner.$queryRawUnsafe(
+      `SELECT count(*)::int AS c FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.roleid JOIN pg_roles r ON r.oid=m.member WHERE r.rolname IN ('app_admin','${ADMIN_LOGIN}') AND g.rolname='neon_superuser'`
+    ))[0].c);
+    ok("verify-only: no neon_superuser membership", nsV === 0);
+    const admPolV = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7adm_read'`))[0].c);
+    ok("verify-only: p7adm_read x2 intact", admPolV === 2, `found ${admPolV}`);
+    const resV = await owner.$queryRawUnsafe(
+      `SELECT (SELECT count(*)::int FROM "Business" WHERE name LIKE '${MARK}%') AS biz,
+              (SELECT count(*)::int FROM "User" WHERE email LIKE '%@p7w2g.test') AS usr`
+    );
+    ok("verify-only: synthetic residue = 0", Number(resV[0].biz) === 0 && Number(resV[0].usr) === 0, JSON.stringify(resV[0]));
+    const gsel = (await owner.$queryRawUnsafe(`SELECT has_table_privilege('app_admin', '"Conversation"', 'SELECT') AS a, has_table_privilege('app_admin', '"Conversation"', 'UPDATE') AS b`))[0];
+    ok("verify-only: grant posture (SELECT yes, UPDATE no)", gsel.a === true && gsel.b === false, JSON.stringify(gsel));
+    await owner.$disconnect();
+    console.log(`\n[battery] target=${TARGET} mode=verify-only PASS=${pass} FAIL=${fail}`);
+    if (fail > 0) { console.log("FAILURES:\n - " + failures.join("\n - ")); process.exit(1); }
+    console.log("ALL CHECKS PASS");
+    return;
   }
 
   // ---------- Phase 2 (pg only): tenant lab substrate ----------

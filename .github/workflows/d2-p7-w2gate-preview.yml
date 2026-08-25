@@ -16,6 +16,11 @@ name: d2/p7 — w2gate preview apply+proof (neon)
 
 on:
   workflow_dispatch:
+    inputs:
+      verify_only:
+        description: "READ-ONLY substrate verification (no roles/apply/fixtures/sessions)"
+        type: boolean
+        default: false
   # push trigger disarmed post-apply (proven pattern): the admin substrate is
   # applied+proven and the transient secrets are deleted.
 
@@ -86,25 +91,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [ -n "${W1_RUNTIME_URL:-}" ] || { echo "::error::W1_RUNTIME_URL missing (transient secret)"; exit 1; }
-          [ -n "${W2G_ADMIN_PW:-}" ] || { echo "::error::W2G_ADMIN_PW missing (transient secret)"; exit 1; }
-          echo "::add-mask::${W1_RUNTIME_URL}"; echo "::add-mask::${W2G_ADMIN_PW}"
+          VERIFY_ONLY="${{ inputs.verify_only && '1' || '' }}"
+          if [ "${VERIFY_ONLY}" != "1" ]; then
+            [ -n "${W1_RUNTIME_URL:-}" ] || { echo "::error::W1_RUNTIME_URL missing (transient secret)"; exit 1; }
+            [ -n "${W2G_ADMIN_PW:-}" ] || { echo "::error::W2G_ADMIN_PW missing (transient secret)"; exit 1; }
+          fi
+          [ -z "${W1_RUNTIME_URL:-}" ] || echo "::add-mask::${W1_RUNTIME_URL}"
+          [ -z "${W2G_ADMIN_PW:-}" ] || echo "::add-mask::${W2G_ADMIN_PW}"
           uri() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=$1" | jq -r '.uri'; }
           DBP="$(uri true)"; DBD="$(uri false)"
           echo "::add-mask::${DBP}"; echo "::add-mask::${DBD}"
-          for u in "${DBP}" "${DBD}" "${W1_RUNTIME_URL}"; do
+          for u in "${DBP}" "${DBD}" ${W1_RUNTIME_URL:+"${W1_RUNTIME_URL}"}; do
             [ -n "$u" ] && [ "$u" != "null" ] || { echo "::error::empty URI"; exit 1; }
             case "$u" in *"${P4_EXPECT_ENDPOINT}"*) : ;; *) echo "::error::URI endpoint mismatch"; exit 1 ;; esac
             for d in ${P4_DENY_ENDPOINTS}; do case "$u" in *"$d"*) echo "::error::URI DENY"; exit 1 ;; esac; done
           done
-          BATTERY_TARGET=neon \
+          BATTERY_TARGET=neon W2G_VERIFY_ONLY="${VERIFY_ONLY}" \
           DATABASE_URL="${DBP}" DIRECT_URL="${DBD}" \
-          RUNTIME_URL="${W1_RUNTIME_URL}" \
-          ADMIN_LOGIN_ROLE=app_admin_preview W2G_ADMIN_PW="${W2G_ADMIN_PW}" \
+          RUNTIME_URL="${W1_RUNTIME_URL:-}" \
+          ADMIN_LOGIN_ROLE=app_admin_preview W2G_ADMIN_PW="${W2G_ADMIN_PW:-}" \
           npx tsx .p7w2g/battery.mjs
 
       - name: Fixtures cleanup net (always — marker-based backstop)
-        if: always()
+        if: always() && !inputs.verify_only
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
         shell: bash
@@ -129,7 +138,7 @@ jobs:
           DIRECT_URL="${DBD}" node .p7w2g/fixnet.gen.mjs || true
 
       - name: Rollback on failure (restore pre-gate admin posture)
-        if: failure()
+        if: failure() && !inputs.verify_only
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
         shell: bash
