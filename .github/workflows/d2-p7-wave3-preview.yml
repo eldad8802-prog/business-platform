@@ -10,15 +10,15 @@
 name: d2/p7 — wave 3 preview apply+proof (neon)
 
 on:
-  push:
-    branches: [feat/d2-p7-wave3]
-    paths: [".p7w3/preview-apply.trigger"]
   workflow_dispatch:
     inputs:
       verify_only:
         description: "READ-ONLY substrate verification (no apply/fixtures/sessions)"
         type: boolean
         default: false
+  # push trigger disarmed post-apply (proven pattern): substrate applied+proven
+  # (run 32865771943, PASS=55 FAIL=0), transient secrets deleted;
+  # workflow_dispatch (incl. verify_only) remains.
 
 permissions:
   contents: read
