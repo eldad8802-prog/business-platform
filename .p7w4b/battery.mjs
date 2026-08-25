@@ -210,7 +210,7 @@ async function main() {
     data: {
       businessId: bizA.id, enabled: true, showDraftSuggestionsInInbox: true,
       welcomeMessage: "שלום! איך אפשר לעזור?",
-      questions: ["מה השם?", "מה השירות המבוקש?"],
+      questions: { items: ["מה השם?", "מה השירות המבוקש?"] },
     },
   });
   await owner.businessBotSettings.create({
@@ -277,7 +277,9 @@ async function main() {
   const anaA = msgA ? await owner.messageAnalysis.findUnique({ where: { messageId: msgA.id } }) : null;
   ok("MessageAnalysis written for A's message (indirect WITH CHECK ok)", !!anaA);
   const sugA = await owner.replySuggestion.count({ where: { businessId: bizA.id } });
-  ok("starter-bot ReplySuggestion drafted under A", sugA >= 1, `count=${sugA}`);
+  ok("starter-bot ReplySuggestion drafted under A (webhook pipeline write under RLS)", sugA >= 1, `count=${sugA}`);
+  const sugForeign = await owner.replySuggestion.count({ where: { businessId: { not: bizA.id } } });
+  ok("zero foreign suggestions after A intake", sugForeign === 0, `count=${sugForeign}`);
 
   res = await postWa(waPayload(PN_B, `${MARK}w2`, "שלום B"));
   const msgB = await owner.message.findFirst({ where: { businessId: bizB.id, providerMessageId: `${MARK}w2` } });
