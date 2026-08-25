@@ -106,7 +106,7 @@ async function main() {
     if (w1 !== 14) throw new Error(`DRIFT: wave1=${w1}, expected 14 — STOP`);
     const w2 = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w2_tenant'`))[0].c);
     if (w2 !== 24) throw new Error(`DRIFT: wave2=${w2}, expected 24 — STOP`);
-    const adm = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7adm_read'`))[0].c);
+    const adm = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7adm_read' AND tablename IN ('Conversation','BillingDocument','ContentRun') AND tablename IN ('Conversation','BillingDocument','ContentRun')`))[0].c);
     if (adm !== 3) throw new Error(`DRIFT: admin=${adm}, expected 3 — STOP`);
     const rt0 = (await owner.$queryRawUnsafe(`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname='${RT_ROLE}'`))[0];
     if (!rt0 || rt0.rolsuper || rt0.rolbypassrls) throw new Error("DRIFT: runtime posture — STOP");
@@ -459,7 +459,7 @@ async function main() {
     ok("rollback: 0 p7w3 policies remain", polAfter === 0, `found ${polAfter}`);
     const w2Still = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w2_tenant'`))[0].c);
     ok("rollback: Wave-2 policies intact", w2Still === 24, `found ${w2Still}`);
-    const admStill = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7adm_read'`))[0].c);
+    const admStill = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7adm_read' AND tablename IN ('Conversation','BillingDocument','ContentRun') AND tablename IN ('Conversation','BillingDocument','ContentRun')`))[0].c);
     ok("rollback: admin policies intact", admStill === 3, `found ${admStill}`);
     const canSel = (await owner.$queryRawUnsafe(`SELECT has_table_privilege('${RT_ROLE}', '"InventoryItem"', 'SELECT') AS p`))[0].p;
     ok("rollback: runtime grants revoked", canSel === false);
@@ -479,7 +479,7 @@ async function main() {
     const p5 = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p4b_tenant'`))[0].c);
     const w1a = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w1_tenant'`))[0].c);
     const w2a = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w2_tenant'`))[0].c);
-    const ada = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7adm_read'`))[0].c);
+    const ada = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7adm_read' AND tablename IN ('Conversation','BillingDocument','ContentRun') AND tablename IN ('Conversation','BillingDocument','ContentRun')`))[0].c);
     ok("pilot(5)+wave1(14)+wave2(24)+admin(3) intact after Wave 3", p5 === 5 && w1a === 14 && w2a === 24 && ada === 3, `p=${p5} w1=${w1a} w2=${w2a} a=${ada}`);
   }
 

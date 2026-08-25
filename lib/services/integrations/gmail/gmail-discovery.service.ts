@@ -1,4 +1,20 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
+import { getTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+// D2/P7-W4C: run a single DB step on a short tenant transaction when a tenant
+// context is established (all Gmail routes set one); outside a context the
+// step runs directly (pure unit tests). Under an established context there is
+// NO fallback to the global client. External Google calls NEVER run inside.
+async function dbStep<T>(
+  fn: (db: Prisma.TransactionClient | typeof prisma) => Promise<T>
+): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    return withTenantTransaction((tx) => fn(tx));
+  }
+  return fn(prisma);
+}
 import {
   decryptToken,
   encryptToken,
@@ -115,7 +131,7 @@ export async function discoverGmailAttachments(params: {
   foundAttachments: number;
   attachments: GmailAttachmentMetadata[];
 }> {
-  const connection = await prisma.emailConnection.findFirst({
+  const connection = await dbStep((db) => db.emailConnection.findFirst({
     where: {
       businessId: params.businessId,
       provider: "gmail",
@@ -123,14 +139,15 @@ export async function discoverGmailAttachments(params: {
       ...(params.connectionId ? { id: params.connectionId } : {}),
     },
     include: { token: true },
-  });
+  }));
 
   if (!connection || !connection.token) {
     throw new GmailReauthRequiredError("no_connection");
   }
+  const tokenRow = connection.token;
 
-  const accessToken = decryptToken(connection.token.accessTokenEncrypted);
-  const refreshToken = decryptToken(connection.token.refreshTokenEncrypted);
+  const accessToken = decryptToken(tokenRow.accessTokenEncrypted);
+  const refreshToken = decryptToken(tokenRow.refreshTokenEncrypted);
   if (!accessToken) {
     throw new GmailReauthRequiredError(
       "token_undecryptable",
@@ -145,7 +162,7 @@ export async function discoverGmailAttachments(params: {
   }
 
   const now = Date.now();
-  const expiresMs = new Date(connection.token.expiresAt).getTime();
+  const expiresMs = new Date(tokenRow.expiresAt).getTime();
   const needsRefresh = !Number.isFinite(expiresMs) || expiresMs <= now + 60_000;
 
   let effectiveAccessToken = accessToken;
@@ -161,21 +178,21 @@ export async function discoverGmailAttachments(params: {
 
     const newExpiresAt = new Date(Date.now() + Math.max(0, refreshed.expires_in) * 1000);
 
-    await prisma.oAuthToken.update({
+    await dbStep((db) => db.oAuthToken.update({
       where: { connectionId: connection.id },
       data: {
         accessTokenEncrypted: enc.encrypted,
         expiresAt: newExpiresAt,
-        tokenType: refreshed.token_type ?? connection.token.tokenType,
+        tokenType: refreshed.token_type ?? tokenRow.tokenType,
         encryptionKeyId: enc.keyId,
         // Best-effort, fail-safe: upgrade a legacy plaintext (enc_v0) refresh
         // token to gcm_v1 in-place. Absent field => no upgrade; never blocks refresh.
         ...legacyRefreshTokenUpgrade(
-          connection.token.refreshTokenEncrypted,
+          tokenRow.refreshTokenEncrypted,
           refreshToken
         ),
       },
-    });
+    }));
 
     effectiveAccessToken = refreshed.access_token;
   }

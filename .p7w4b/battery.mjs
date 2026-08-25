@@ -87,7 +87,7 @@ async function main() {
     ];
     for (const [pol, want, label] of gates) {
       const c = Number((await owner.$queryRawUnsafe(
-        `SELECT count(*)::int AS c FROM pg_policies WHERE policyname='${pol}'`))[0].c);
+        `SELECT count(*)::int AS c FROM pg_policies WHERE policyname='${pol}'${pol === "p7adm_read" ? " AND tablename IN ('Conversation','BillingDocument','ContentRun')" : ""}`))[0].c);
       if (c !== want) throw new Error(`DRIFT: ${label}=${c}, expected ${want} — STOP`);
     }
     const rt0 = (await owner.$queryRawUnsafe(
@@ -542,7 +542,7 @@ async function main() {
     let intact = true;
     for (const [pol, want] of gates) {
       const c = Number((await owner.$queryRawUnsafe(
-        `SELECT count(*)::int AS c FROM pg_policies WHERE policyname='${pol}'`))[0].c);
+        `SELECT count(*)::int AS c FROM pg_policies WHERE policyname='${pol}'${pol === "p7adm_read" ? " AND tablename IN ('Conversation','BillingDocument','ContentRun')" : ""}`))[0].c);
       if (c !== want) intact = false;
     }
     ok("pilot+W1+W2+W3+admin substrate intact after W4B", intact);

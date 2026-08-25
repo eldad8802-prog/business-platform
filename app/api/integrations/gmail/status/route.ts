@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 export const runtime = "nodejs";
 
@@ -11,19 +12,25 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const connections = await prisma.emailConnection.findMany({
-      where: {
-        businessId: user.businessId,
-        provider: "gmail",
-      },
-      select: {
-        id: true,
-        emailAddress: true,
-        status: true,
-        lastSyncedAt: true,
-      },
-      orderBy: { id: "desc" },
-    });
+    const connections = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.emailConnection.findMany({
+            where: {
+              businessId: user.businessId,
+              provider: "gmail",
+            },
+            select: {
+              id: true,
+              emailAddress: true,
+              status: true,
+              lastSyncedAt: true,
+            },
+            orderBy: { id: "desc" },
+          })
+        )
+    );
 
     // Backward-compatible summary fields: the first still-connected account.
     // IntegrationStatusCards and the current single-account import flow read
