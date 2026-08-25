@@ -36,6 +36,12 @@ export type ResolveBusinessResult =
 let cachedEnvMap: PhoneNumberBusinessMap | null | undefined;
 
 function envFallbackEnabled(): boolean {
+  // D2/P7-W4A hard guard: the env-map fallback is a dev/test convenience
+  // ONLY. It is structurally impossible in production — an env flag cannot
+  // re-enable it there — and it is reached only on a TRUE DB miss (DB errors
+  // now propagate out of resolveBusinessIdByPhoneNumberId instead of being
+  // swallowed into "not found").
+  if (process.env.NODE_ENV === "production") return false;
   return process.env.WHATSAPP_ALLOW_ENV_FALLBACK === "1";
 }
 

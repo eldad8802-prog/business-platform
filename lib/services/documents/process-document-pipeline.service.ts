@@ -24,6 +24,7 @@ import os from "os";
 import path from "path";
 import { mkdir, unlink, writeFile } from "fs/promises";
 import { prisma } from "@/lib/prisma";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import {
   runGoogleVisionOCR,
   runGoogleVisionOCRWithGeometry,
@@ -129,14 +130,14 @@ export async function processDocumentPipeline(
 
     // Advance the EXISTING Document row (created by Phase 1) to its ready state.
     // The file is already stored, so this is a metadata-only transition.
-    await prisma.document.update({
-      where: { id: documentId },
-      data: {
-        status: "needs_review",
-        ocrText: rawText || null,
-      },
-    });
-
+    //
+    // D2/P7-W4A: the core Document/ExtractedData writes run on ONE tenant
+    // transaction (GUC-carrying), established from the explicit runTenantJob
+    // context. All external work (OCR above) already finished — the
+    // transaction holds no network I/O. The ledger/telemetry writes below
+    // stay best-effort outside the transaction on purpose (their failure
+    // must never roll back the document state transition; their tables get
+    // RLS + tx-threading in W4D).
     // Gap 1 — truthful extraction outcome, captured for EVERY document (incl.
     // failures) so the learning ledger never suffers survivorship bias. See
     // docs/documents-learning-mechanism-architecture-v1.md §5.
@@ -146,9 +147,18 @@ export async function processDocumentPipeline(
         ? "extraction_failed"
         : "empty_ocr";
 
-    if (extracted) {
-      // upsert (not create): a retry may already have an ExtractedData row.
-      await prisma.extractedData.upsert({
+    await withTenantTransaction(async (tx) => {
+      await tx.document.update({
+        where: { id: documentId, businessId },
+        data: {
+          status: "needs_review",
+          ocrText: rawText || null,
+        },
+      });
+
+      if (extracted) {
+        // upsert (not create): a retry may already have an ExtractedData row.
+        await tx.extractedData.upsert({
         where: { documentId },
         create: {
           documentId,
@@ -173,8 +183,9 @@ export async function processDocumentPipeline(
           date: extracted.date,
           confidenceScore: extracted.confidence,
         },
-      });
-    }
+        });
+      }
+    });
 
     // Phase 1A Correction Ledger — additive, write-only, never throws. Recorded
     // for EVERY document: a no-extraction doc (empty OCR / extraction failure)
@@ -210,10 +221,12 @@ export async function processDocumentPipeline(
     // stored, so the retry only re-runs OCR/extraction, never re-uploads.
     console.error("PROCESS_DOCUMENT_FATAL:", fatal);
     try {
-      await prisma.document.update({
-        where: { id: documentId },
-        data: { status: "failed" },
-      });
+      await withTenantTransaction((tx) =>
+        tx.document.update({
+          where: { id: documentId, businessId },
+          data: { status: "failed" },
+        })
+      );
     } catch (statusError) {
       console.error("PROCESS_DOCUMENT_FAILED_STATUS_WRITE:", statusError);
     }

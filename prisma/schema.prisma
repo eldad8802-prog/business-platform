@@ -894,7 +894,13 @@ model Message {
   analysis                  MessageAnalysis?
   sourceForSuggestions      ReplySuggestion[]   @relation("SuggestionSourceMessage")
   sentSuggestionFor         ReplySuggestion?    @relation("SuggestionSentMessage")
-  appointments              Appointment[]
+  appointments              Appointment[]
+
+  // D2/P7-W4A: DB-level replay idempotency for provider-delivered messages.
+  // Tenant-scoped so identical provider ids in different businesses never
+  // cross-dedup; NULL providerMessageId rows (app-created messages) are
+  // unconstrained under Postgres NULL-distinct semantics.
+  @@unique([businessId, providerMessageId])
 }
 
 model MessageAnalysis {

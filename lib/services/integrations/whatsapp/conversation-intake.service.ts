@@ -52,7 +52,11 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import type { Conversation, Customer, Message } from "@prisma/client";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+type Db = Prisma.TransactionClient | typeof prisma;
 import { normalizeCustomerPhone } from "./phone";
 import {
   logEvent,
@@ -92,10 +96,11 @@ export type WhatsAppConversationIntakeOutcome =
  * businesses receiving the same hypothetical wamid would not collide.
  */
 async function findExistingByWamid(
+  db: Db,
   businessId: number,
   wamid: string
 ): Promise<Message | null> {
-  return prisma.message.findFirst({
+  return db.message.findFirst({
     where: { businessId, providerMessageId: wamid },
     select: {
       id: true,
@@ -136,16 +141,17 @@ async function findExistingByWamid(
 }
 
 async function upsertCustomer(
+  db: Db,
   businessId: number,
   normalizedPhone: string
 ): Promise<{ customer: Customer; created: boolean }> {
-  const existing = await prisma.customer.findUnique({
+  const existing = await db.customer.findUnique({
     where: { businessId_phone: { businessId, phone: normalizedPhone } },
   });
   if (existing) {
     return { customer: existing, created: false };
   }
-  const customer = await prisma.customer.create({
+  const customer = await db.customer.create({
     data: {
       businessId,
       name: normalizedPhone,
@@ -156,15 +162,16 @@ async function upsertCustomer(
 }
 
 async function findOrCreateOpenConversation(args: {
+  db: Db;
   businessId: number;
   customerId: number;
 }): Promise<{ conversation: Conversation; created: boolean }> {
-  const { businessId, customerId } = args;
+  const { db, businessId, customerId } = args;
 
   // Reuse rule: most-recently-active OPEN WhatsApp conversation.
   // Closed/Archived → create new (explicit lifecycle reset by owner).
   // Future hook: MAX_CONVERSATION_IDLE_DAYS — not implemented in MVP-1.
-  const existing = await prisma.conversation.findFirst({
+  const existing = await db.conversation.findFirst({
     where: {
       businessId,
       customerId,
@@ -176,7 +183,7 @@ async function findOrCreateOpenConversation(args: {
 
   if (existing) return { conversation: existing, created: false };
 
-  const created = await prisma.conversation.create({
+  const created = await db.conversation.create({
     data: {
       businessId,
       customerId,
@@ -200,12 +207,6 @@ export async function processWhatsAppConversationIntake(
     textLength: input.text.length,
   });
 
-  // ── Step 1: wamid idempotency ─────────────────────────────────────────
-  const existing = await findExistingByWamid(input.businessId, input.wamid);
-  if (existing) {
-    return { status: "skipped_duplicate", messageId: existing.id };
-  }
-
   // ── Step 2: canonicalize sender phone ─────────────────────────────────
   const normalizedPhone = normalizeCustomerPhone(input.senderPhone);
   if (!normalizedPhone) {
@@ -213,24 +214,92 @@ export async function processWhatsAppConversationIntake(
   }
 
   try {
-    // ── Step 3: customer ─────────────────────────────────────────────────
-    const { customer, created: customerWasCreated } = await upsertCustomer(
-      input.businessId,
-      normalizedPhone
-    );
+    // D2/P7-W4A Phase A: dedup + customer + conversation + message
+    // persistence run on ONE tenant transaction (GUC-carrying, established
+    // from the explicit runTenantJob context set by the webhook). The shared
+    // pipeline (Phase B/C — analysis, bot policy, optional LLM call)
+    // deliberately runs AFTER the transaction: no external I/O ever executes
+    // while the tenant transaction is held.
+    const persisted = await withTenantTransaction(async (tx) => {
+      // ── Step 1: wamid idempotency (advisory pre-check; the DB-level
+      // (businessId, providerMessageId) unique is the real guarantee) ─────
+      const existing = await findExistingByWamid(
+        tx,
+        input.businessId,
+        input.wamid
+      );
+      if (existing) {
+        return { kind: "duplicate" as const, messageId: existing.id };
+      }
+
+      // ── Step 3: customer ───────────────────────────────────────────────
+      const { customer, created: customerWasCreated } = await upsertCustomer(
+        tx,
+        input.businessId,
+        normalizedPhone
+      );
+
+      // ── Step 4: conversation ───────────────────────────────────────────
+      const { conversation, created: conversationWasCreated } =
+        await findOrCreateOpenConversation({
+          db: tx,
+          businessId: input.businessId,
+          customerId: customer.id,
+        });
+
+      // ── Step 5: persist inbound Message + update conversation counters ─
+      const now = new Date();
+      const message = await tx.message.create({
+        data: {
+          conversationId: conversation.id,
+          businessId: input.businessId,
+          customerId: customer.id,
+          channel: "WHATSAPP",
+          direction: "INBOUND",
+          senderType: "CUSTOMER",
+          messageType: "text",
+          contentText: input.text,
+          providerMessageId: input.wamid,
+          sentAt: now,
+        },
+      });
+
+      await tx.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          lastMessageAt: now,
+          customerLastInboundAt: now,
+          unansweredInboundCount: { increment: 1 },
+        },
+      });
+
+      return {
+        kind: "intaken" as const,
+        customer,
+        customerWasCreated,
+        conversation,
+        conversationWasCreated,
+        message,
+      };
+    });
+
+    if (persisted.kind === "duplicate") {
+      return { status: "skipped_duplicate", messageId: persisted.messageId };
+    }
+
+    const {
+      customer,
+      customerWasCreated,
+      conversation,
+      conversationWasCreated,
+      message,
+    } = persisted;
     logEvent("CUSTOMER_RESOLVED", {
       source: "webhook",
       businessId: input.businessId,
       customerId: customer.id,
       created: customerWasCreated,
     });
-
-    // ── Step 4: conversation ─────────────────────────────────────────────
-    const { conversation, created: conversationWasCreated } =
-      await findOrCreateOpenConversation({
-        businessId: input.businessId,
-        customerId: customer.id,
-      });
     logEvent("CONVERSATION_RESOLVED", {
       source: "webhook",
       businessId: input.businessId,
@@ -239,40 +308,17 @@ export async function processWhatsAppConversationIntake(
       created: conversationWasCreated,
     });
 
-    // ── Step 5: persist inbound Message + update conversation counters ──
-    const now = new Date();
-    const message = await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        businessId: input.businessId,
-        customerId: customer.id,
-        channel: "WHATSAPP",
-        direction: "INBOUND",
-        senderType: "CUSTOMER",
-        messageType: "text",
-        contentText: input.text,
-        providerMessageId: input.wamid,
-        sentAt: now,
-      },
-    });
-
-    await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: {
-        lastMessageAt: now,
-        customerLastInboundAt: now,
-        unansweredInboundCount: { increment: 1 },
-      },
-    });
-
     // Re-read the updated conversation so the pipeline sees the freshest
     // counters (some downstream helpers compare against
     // `customerLastInboundAt`).
-    const refreshedConversation = await prisma.conversation.findUniqueOrThrow({
-      where: { id: conversation.id },
-    });
+    const refreshedConversation = await withTenantTransaction((tx) =>
+      tx.conversation.findUniqueOrThrow({
+        where: { id: conversation.id },
+      })
+    );
 
-    // ── Step 6: shared pipeline (analysis + bot policy + drafts) ────────
+    // ── Step 6: shared pipeline (analysis + bot policy + drafts) — outside
+    // any transaction (may call an LLM provider) ─────────────────────────
     const pipelineResult = await runInboundMessagePipeline({
       conversation: refreshedConversation,
       message,
@@ -290,6 +336,20 @@ export async function processWhatsAppConversationIntake(
       starterBotDraftCreated: pipelineResult.starterBotDraftCreated,
     };
   } catch (err) {
+    // Concurrency-safe replay: when two deliveries of the same wamid race,
+    // both pass the advisory pre-check and the (businessId, providerMessageId)
+    // unique aborts the second transaction. Resolve it as the duplicate it is.
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      const existing = await withTenantTransaction((tx) =>
+        findExistingByWamid(tx, input.businessId, input.wamid)
+      );
+      if (existing) {
+        return { status: "skipped_duplicate", messageId: existing.id };
+      }
+    }
     const reason = err instanceof Error ? err.message : String(err);
     console.warn("[whatsapp-conversation-intake] failed:", reason);
     return { status: "failed", reason };
