@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { inventoryIntelligenceService } from "@/lib/services/inventory/inventory-intelligence.service";
 
 export async function GET(req: NextRequest) {
@@ -13,10 +15,13 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const insights =
-      await inventoryIntelligenceService.getInsights(
-        user.businessId
-      );
+    const insights = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          inventoryIntelligenceService.getInsights(user.businessId, { tx })
+        )
+    );
 
     return NextResponse.json({
       success: true,

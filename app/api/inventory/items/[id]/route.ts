@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { InventoryUnitType } from "@prisma/client";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { getInventoryAuthenticatedUserBasic as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
   InventoryError,
@@ -120,22 +121,28 @@ export async function GET(request: NextRequest) {
     const user = await getAuthenticatedUser(request);
     const itemId = parseItemIdFromRequest(request);
 
-    const item = await prisma.inventoryItem.findFirst({
-      where: {
-        id: itemId,
-        businessId: user.businessId,
-      },
-      include: {
-        alerts: {
-          where: {
-            isResolved: false,
-          },
-          orderBy: {
-            createdAt: "desc",
-          },
-        },
-      },
-    });
+    const item = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.inventoryItem.findFirst({
+            where: {
+              id: itemId,
+              businessId: user.businessId,
+            },
+            include: {
+              alerts: {
+                where: {
+                  isResolved: false,
+                },
+                orderBy: {
+                  createdAt: "desc",
+                },
+              },
+            },
+          })
+        )
+    );
 
     if (!item) {
       throw new InventoryNotFoundError("Inventory item not found");
@@ -154,18 +161,6 @@ export async function PATCH(request: NextRequest) {
   try {
     const user = await getAuthenticatedUser(request);
     const itemId = parseItemIdFromRequest(request);
-
-    const existingItem = await prisma.inventoryItem.findFirst({
-      where: {
-        id: itemId,
-        businessId: user.businessId,
-      },
-    });
-
-    if (!existingItem) {
-      throw new InventoryNotFoundError("Inventory item not found");
-    }
-
     const body = await request.json();
 
     const data: {
@@ -259,35 +254,51 @@ export async function PATCH(request: NextRequest) {
           : null;
     }
 
-    if (body.categoryId !== undefined) {
-      if (body.categoryId === null) {
-        data.categoryId = null;
-      } else {
-        const parsedCategoryId = Number(body.categoryId);
-
-        if (Number.isNaN(parsedCategoryId)) {
-          throw new InventoryValidationError("Invalid categoryId");
-        }
-
-        const category = await prisma.inventoryCategory.findFirst({
-          where: {
-            id: parsedCategoryId,
-            businessId: user.businessId,
-          },
-        });
-
-        if (!category) {
-          throw new InventoryValidationError("Category not found");
-        }
-
-        data.categoryId = parsedCategoryId;
-      }
+    const parsedCategoryIdRaw =
+      body.categoryId !== undefined && body.categoryId !== null
+        ? Number(body.categoryId)
+        : null;
+    if (parsedCategoryIdRaw !== null && Number.isNaN(parsedCategoryIdRaw)) {
+      throw new InventoryValidationError("Invalid categoryId");
     }
 
-    const updatedItem = await prisma.inventoryItem.update({
-      where: { id: itemId },
-      data,
-    });
+    const updatedItem = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          if (body.categoryId !== undefined) {
+            if (body.categoryId === null) {
+              data.categoryId = null;
+            } else {
+              const category = await tx.inventoryCategory.findFirst({
+                where: {
+                  id: parsedCategoryIdRaw as number,
+                  businessId: user.businessId,
+                },
+              });
+
+              if (!category) {
+                throw new InventoryValidationError("Category not found");
+              }
+
+              data.categoryId = parsedCategoryIdRaw as number;
+            }
+          }
+
+          // Tenant-scoped write: the businessId predicate lives in the UPDATE
+          // itself — no id-only mutation window.
+          const result = await tx.inventoryItem.updateMany({
+            where: { id: itemId, businessId: user.businessId },
+            data,
+          });
+          if (result.count !== 1) {
+            throw new InventoryNotFoundError("Inventory item not found");
+          }
+          return tx.inventoryItem.findFirst({
+            where: { id: itemId, businessId: user.businessId },
+          });
+        })
+    );
 
     return NextResponse.json({
       success: true,

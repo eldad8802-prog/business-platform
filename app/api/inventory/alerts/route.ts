@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { InventoryAlertType } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 export async function GET(request: NextRequest) {
   try {
@@ -37,7 +38,11 @@ export async function GET(request: NextRequest) {
       where.isResolved = false;
     }
 
-    const alerts = await prisma.inventoryAlert.findMany({
+    const alerts = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.inventoryAlert.findMany({
       where,
       orderBy: {
         createdAt: "desc",
@@ -54,7 +59,9 @@ export async function GET(request: NextRequest) {
           },
         },
       },
-    });
+          })
+        )
+    );
 
     return NextResponse.json({
       success: true,

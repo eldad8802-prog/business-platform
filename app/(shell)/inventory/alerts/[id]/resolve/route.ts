@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 export async function PATCH(
   request: NextRequest,
@@ -22,23 +23,29 @@ export async function PATCH(
       );
     }
 
-    const alert = await prisma.inventoryAlert.findFirst({
-      where: { id: alertId, businessId: user.businessId },
-    });
+    // Tenant-scoped write: the businessId predicate lives in the UPDATE itself
+    // (no id-only mutation window) inside a tenant transaction.
+    const resolvedCount = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.inventoryAlert
+            .updateMany({
+              where: { id: alertId, businessId: user.businessId },
+              data: {
+                isResolved: true,
+              },
+            })
+            .then((r) => r.count)
+        )
+    );
 
-    if (!alert) {
+    if (resolvedCount !== 1) {
       return NextResponse.json(
         { error: "Alert not found" },
         { status: 404 }
       );
     }
-
-    await prisma.inventoryAlert.update({
-      where: { id: alertId },
-      data: {
-        isResolved: true,
-      },
-    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

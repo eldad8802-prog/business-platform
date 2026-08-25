@@ -1,3 +1,5 @@
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
@@ -39,7 +41,11 @@ export async function GET(req: NextRequest) {
 
     // Fetch the last 50 APPROVED drafts that have a non-null supplierName and approvedAt.
     // matchedItemId-filtered lines only — unmatched lines carry no reliable item identity.
-    const drafts = await prisma.supplierPurchaseDraft.findMany({
+    const drafts = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.supplierPurchaseDraft.findMany({
       where: {
         businessId: user.businessId,
         status: "APPROVED",
@@ -60,7 +66,9 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { approvedAt: "desc" },
       take: 50,
-    });
+          })
+        )
+    );
 
     // Group drafts by exact supplierName.
     type DraftRow = (typeof drafts)[number];

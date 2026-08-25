@@ -126,8 +126,8 @@ async function main() {
       `SELECT count(*)::int AS c FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.roleid JOIN pg_roles r ON r.oid=m.member WHERE r.rolname IN ('app_admin','${ADMIN_LOGIN}') AND g.rolname='neon_superuser'`
     ))[0].c);
     ok("verify-only: no neon_superuser membership", nsV === 0);
-    const admPolV = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7adm_read'`))[0].c);
-    ok("verify-only: p7adm_read x2 intact", admPolV === 2, `found ${admPolV}`);
+    const admPolV = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7adm_read' AND tablename IN ('Conversation','BillingDocument')`))[0].c);
+    ok("verify-only: p7adm_read x2 intact (gate tables; later waves add their own)", admPolV === 2, `found ${admPolV}`);
     const resV = await owner.$queryRawUnsafe(
       `SELECT (SELECT count(*)::int FROM "Business" WHERE name LIKE '${MARK}%') AS biz,
               (SELECT count(*)::int FROM "User" WHERE email LIKE '%@p7w2g.test') AS usr`
@@ -203,7 +203,7 @@ async function main() {
     `SELECT count(*)::int AS c FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.roleid JOIN pg_roles r ON r.oid=m.member WHERE r.rolname IN ('app_admin','${ADMIN_LOGIN}') AND g.rolname='neon_superuser'`
   ))[0].c);
   ok("no neon_superuser membership", ns === 0, `found ${ns}`);
-  const admPol = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7adm_read'`))[0].c);
+  const admPol = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7adm_read' AND tablename IN ('Conversation','BillingDocument')`))[0].c);
   ok("2 additive p7adm_read policies installed", admPol === 2, `found ${admPol}`);
 
   // ---------- Phase 5: fixtures ----------
@@ -377,7 +377,7 @@ async function main() {
   if (TARGET === "pg") {
     console.log("--- rollback proof ---");
     await applySqlFile("scripts/security/d2-p7-w2gate-admin-rollback.sql", ADMIN_LOGIN);
-    const polAfter = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7adm_read'`))[0].c);
+    const polAfter = Number((await owner.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7adm_read' AND tablename IN ('Conversation','BillingDocument')`))[0].c);
     ok("rollback: 0 p7adm_read policies remain", polAfter === 0, `found ${polAfter}`);
     const canSel = (await owner.$queryRawUnsafe(`SELECT has_table_privilege('app_admin', '"Conversation"', 'SELECT') AS p`))[0].p;
     ok("rollback: admin grants revoked", canSel === false);

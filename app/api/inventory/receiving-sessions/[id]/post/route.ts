@@ -1,3 +1,5 @@
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { receivingService } from "@/lib/services/inventory/receiving.service";
@@ -57,11 +59,22 @@ export async function POST(
     const params = await context.params;
     const receivingSessionId = parseReceivingSessionId(params.id);
 
-    const result = await receivingService.postReceivingSession({
-      businessId: user.businessId,
-      receivingSessionId,
-      postedByUserId: user.id,
-    });
+    const result = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(
+          (tx) =>
+            receivingService.postReceivingSession(
+              {
+                businessId: user.businessId,
+                receivingSessionId,
+                postedByUserId: user.id,
+              },
+              { tx }
+            ),
+          { timeoutMs: 15_000 }
+        )
+    );
 
     return NextResponse.json({
       success: true,

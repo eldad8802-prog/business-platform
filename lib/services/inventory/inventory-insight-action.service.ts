@@ -1,7 +1,9 @@
-import { InventoryUnitType } from "@prisma/client";
+import { InventoryUnitType, type Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
 import { resolvePendingMatchWithExistingItem } from "@/lib/services/inventory/pending-match.service";
+
+type TxOptions = { tx?: Prisma.TransactionClient };
 
 type CreateItemFromInsightInput = {
   businessId: number;
@@ -25,10 +27,15 @@ function getPendingQuantity(metadata: any): number {
   return Number.isFinite(quantity) && quantity > 0 ? quantity : 0;
 }
 
-async function getMatchingPendingMatches(businessId: number, key: string) {
+async function getMatchingPendingMatches(
+  businessId: number,
+  key: string,
+  options?: TxOptions
+) {
+  const db = options?.tx ?? prisma;
   const normalizedKey = key.trim();
 
-  const pendingMatches = await prisma.inventoryPendingMatch.findMany({
+  const pendingMatches = await db.inventoryPendingMatch.findMany({
     where: {
       businessId,
       status: "PENDING",
@@ -45,7 +52,10 @@ async function getMatchingPendingMatches(businessId: number, key: string) {
 }
 
 export const inventoryInsightActionService = {
-  async createItemFromInsight(input: CreateItemFromInsightInput) {
+  async createItemFromInsight(
+    input: CreateItemFromInsightInput,
+    options?: TxOptions
+  ) {
     const { businessId, userId, key } = input;
 
     if (!businessId || Number.isNaN(businessId)) {
@@ -63,7 +73,8 @@ export const inventoryInsightActionService = {
     const normalizedKey = key.trim();
     const matchingPendingMatches = await getMatchingPendingMatches(
       businessId,
-      normalizedKey
+      normalizedKey,
+      options
     );
 
     if (matchingPendingMatches.length === 0) {
@@ -97,17 +108,20 @@ export const inventoryInsightActionService = {
       sku: firstMetadata?.sku || normalizedKey,
       barcode: firstMetadata?.barcode || undefined,
       createdByUserId: userId,
-    });
+    }, options);
 
     const resolved = [];
 
     for (const pending of matchingPendingMatches) {
-      const result = await resolvePendingMatchWithExistingItem({
-        pendingMatchId: pending.id,
-        businessId,
-        userId,
-        itemId: item.id,
-      });
+      const result = await resolvePendingMatchWithExistingItem(
+        {
+          pendingMatchId: pending.id,
+          businessId,
+          userId,
+          itemId: item.id,
+        },
+        options
+      );
 
       resolved.push(result);
     }
@@ -122,7 +136,10 @@ export const inventoryInsightActionService = {
     };
   },
 
-  async linkExistingFromInsight(input: LinkExistingFromInsightInput) {
+  async linkExistingFromInsight(
+    input: LinkExistingFromInsightInput,
+    options?: TxOptions
+  ) {
     const { businessId, userId, key, itemId } = input;
 
     if (!businessId || Number.isNaN(businessId)) {
@@ -142,8 +159,9 @@ export const inventoryInsightActionService = {
     }
 
     const normalizedKey = key.trim();
+    const db = options?.tx ?? prisma;
 
-    const item = await prisma.inventoryItem.findFirst({
+    const item = await db.inventoryItem.findFirst({
       where: {
         id: itemId,
         businessId,
@@ -157,7 +175,8 @@ export const inventoryInsightActionService = {
 
     const matchingPendingMatches = await getMatchingPendingMatches(
       businessId,
-      normalizedKey
+      normalizedKey,
+      options
     );
 
     if (matchingPendingMatches.length === 0) {
@@ -167,12 +186,15 @@ export const inventoryInsightActionService = {
     const resolved = [];
 
     for (const pending of matchingPendingMatches) {
-      const result = await resolvePendingMatchWithExistingItem({
-        pendingMatchId: pending.id,
-        businessId,
-        userId,
-        itemId: item.id,
-      });
+      const result = await resolvePendingMatchWithExistingItem(
+        {
+          pendingMatchId: pending.id,
+          businessId,
+          userId,
+          itemId: item.id,
+        },
+        options
+      );
 
       resolved.push(result);
     }

@@ -1,3 +1,5 @@
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { receivingService } from "@/lib/services/inventory/receiving.service";
@@ -57,10 +59,16 @@ export async function GET(
     const params = await context.params;
     const receivingSessionId = parseReceivingSessionId(params.id);
 
-    const receivingSession = await receivingService.getReceivingSession({
-      businessId: user.businessId,
-      receivingSessionId,
-    });
+    const receivingSession = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          receivingService.getReceivingSession(
+            { businessId: user.businessId, receivingSessionId },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json({
       success: true,

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { inventoryInsightActionService } from "@/lib/services/inventory/inventory-insight-action.service";
 
 export async function POST(req: NextRequest) {
@@ -17,12 +19,22 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.action === "CREATE_ITEM_FROM_INSIGHT") {
-      const result =
-        await inventoryInsightActionService.createItemFromInsight({
-          businessId: user.businessId,
-          userId: user.id,
-          key: body.key,
-        });
+      const result = await runWithTenantContext(
+        { businessId: user.businessId },
+        () =>
+          withTenantTransaction(
+            (tx) =>
+              inventoryInsightActionService.createItemFromInsight(
+                {
+                  businessId: user.businessId,
+                  userId: user.id,
+                  key: body.key,
+                },
+                { tx }
+              ),
+            { timeoutMs: 15_000 }
+          )
+      );
 
       return NextResponse.json(result);
     }
@@ -37,13 +49,23 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const result =
-        await inventoryInsightActionService.linkExistingFromInsight({
-          businessId: user.businessId,
-          userId: user.id,
-          key: body.key,
-          itemId,
-        });
+      const result = await runWithTenantContext(
+        { businessId: user.businessId },
+        () =>
+          withTenantTransaction(
+            (tx) =>
+              inventoryInsightActionService.linkExistingFromInsight(
+                {
+                  businessId: user.businessId,
+                  userId: user.id,
+                  key: body.key,
+                  itemId,
+                },
+                { tx }
+              ),
+            { timeoutMs: 15_000 }
+          )
+      );
 
       return NextResponse.json(result);
     }

@@ -1,3 +1,5 @@
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { receivingService } from "@/lib/services/inventory/receiving.service";
@@ -58,14 +60,23 @@ export async function POST(
     const purchaseOrderId = parsePurchaseOrderId(params.id);
     const body = await request.json();
 
-    const receivingSession = await receivingService.createReceivingSession({
-      businessId: user.businessId,
-      purchaseOrderId,
-      createdByUserId: user.id,
-      receivedAt: body.receivedAt ?? null,
-      note: body.note ?? null,
-      lines: body.lines,
-    });
+    const receivingSession = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          receivingService.createReceivingSession(
+            {
+              businessId: user.businessId,
+              purchaseOrderId,
+              createdByUserId: user.id,
+              receivedAt: body.receivedAt ?? null,
+              note: body.note ?? null,
+              lines: body.lines,
+            },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json(
       {
@@ -88,10 +99,16 @@ export async function GET(
     const params = await context.params;
     const purchaseOrderId = parsePurchaseOrderId(params.id);
 
-    const receivingSessions = await receivingService.listReceivingSessions({
-      businessId: user.businessId,
-      purchaseOrderId,
-    });
+    const receivingSessions = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          receivingService.listReceivingSessions(
+            { businessId: user.businessId, purchaseOrderId },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json({
       success: true,

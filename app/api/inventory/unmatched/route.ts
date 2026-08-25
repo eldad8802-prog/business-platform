@@ -1,3 +1,5 @@
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getOpenPendingMatches } from "@/lib/services/inventory/pending-match.service";
@@ -10,7 +12,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const pendingMatches = await getOpenPendingMatches(user.businessId);
+    const pendingMatches = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          getOpenPendingMatches(user.businessId, { tx })
+        )
+    );
 
     return NextResponse.json({
       success: true,

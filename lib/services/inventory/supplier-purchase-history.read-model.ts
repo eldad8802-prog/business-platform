@@ -99,18 +99,20 @@ function normalizeId(value: number, field: string): number {
 }
 
 export async function getSupplierPurchaseHistory(
-  input: GetSupplierPurchaseHistoryInput
+  input: GetSupplierPurchaseHistoryInput,
+  options?: { tx?: import("@prisma/client").Prisma.TransactionClient }
 ): Promise<SupplierPurchaseHistory> {
   if (!input.businessId || Number.isNaN(input.businessId)) {
     throw new InventoryUnauthorizedError("Invalid business id");
   }
+  const db = options?.tx ?? prisma;
   const businessId = input.businessId;
   const supplierId = normalizeId(input.supplierId, "supplier id");
   const limit = normalizeLimit(input.limit);
   const offset = normalizeOffset(input.offset);
 
   // Tenant-safe existence: a supplier of another business looks non-existent.
-  const supplier = await prisma.supplier.findFirst({
+  const supplier = await db.supplier.findFirst({
     where: { id: supplierId, businessId },
     select: { id: true },
   });
@@ -121,28 +123,30 @@ export async function getSupplierPurchaseHistory(
   // Relation is by ENTITY only — double-scoped, never by supplierName.
   const scope = { businessId, supplierId } as const;
 
-  const [total, openCount, lastAgg, rows] = await Promise.all([
-    prisma.purchaseOrder.count({ where: scope }),
-    prisma.purchaseOrder.count({
-      where: { ...scope, status: { in: OPEN_PURCHASE_ORDER_STATUSES } },
-    }),
-    prisma.purchaseOrder.aggregate({ where: scope, _max: { createdAt: true } }),
-    prisma.purchaseOrder.findMany({
-      where: scope,
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      skip: offset,
-      take: limit,
-      select: {
-        id: true,
-        supplierId: true,
-        supplierName: true,
-        status: true,
-        orderDate: true,
-        createdAt: true,
-        _count: { select: { lines: true } },
-      },
-    }),
-  ]);
+  // Sequential — a TenantTx must not run concurrent queries.
+  const total = await db.purchaseOrder.count({ where: scope });
+  const openCount = await db.purchaseOrder.count({
+    where: { ...scope, status: { in: OPEN_PURCHASE_ORDER_STATUSES } },
+  });
+  const lastAgg = await db.purchaseOrder.aggregate({
+    where: scope,
+    _max: { createdAt: true },
+  });
+  const rows = await db.purchaseOrder.findMany({
+    where: scope,
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    skip: offset,
+    take: limit,
+    select: {
+      id: true,
+      supplierId: true,
+      supplierName: true,
+      status: true,
+      orderDate: true,
+      createdAt: true,
+      _count: { select: { lines: true } },
+    },
+  });
 
   const items: SupplierPurchaseOrderItem[] = rows.map((r) => ({
     id: r.id,

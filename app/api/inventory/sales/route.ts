@@ -1,3 +1,5 @@
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { InventoryMovementReason } from "@prisma/client";
@@ -69,20 +71,32 @@ export async function POST(request: NextRequest) {
       };
     });
 
-    const movements = [];
-
-    for (const saleItem of normalizedItems) {
-      const movement = await inventoryService.removeStock({
-        businessId: user.businessId,
-        itemId: saleItem.itemId,
-        quantityDelta: saleItem.quantity,
-        reason: InventoryMovementReason.SALE,
-        note: note || undefined,
-        createdByUserId: user.id,
-      });
-
-      movements.push(movement);
-    }
+    // One tenant transaction — all sale movements are atomic.
+    const movements = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(
+          async (tx) => {
+            const out = [];
+            for (const saleItem of normalizedItems) {
+              const movement = await inventoryService.removeStock(
+                {
+                  businessId: user.businessId,
+                  itemId: saleItem.itemId,
+                  quantityDelta: saleItem.quantity,
+                  reason: InventoryMovementReason.SALE,
+                  note: note || undefined,
+                  createdByUserId: user.id,
+                },
+                { tx }
+              );
+              out.push(movement);
+            }
+            return out;
+          },
+          { timeoutMs: 15_000 }
+        )
+    );
 
     return NextResponse.json(
       {

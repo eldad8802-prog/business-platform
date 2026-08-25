@@ -1,3 +1,5 @@
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { purchaseOrderService } from "@/lib/services/inventory/purchase-order.service";
@@ -57,10 +59,16 @@ export async function GET(
     const params = await context.params;
     const purchaseOrderId = parsePurchaseOrderId(params.id);
 
-    const purchaseOrder = await purchaseOrderService.getPurchaseOrder({
-      businessId: user.businessId,
-      purchaseOrderId,
-    });
+    const purchaseOrder = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          purchaseOrderService.getPurchaseOrder(
+            { businessId: user.businessId, purchaseOrderId },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json({
       success: true,

@@ -1,3 +1,5 @@
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createSupplierPurchaseDraft } from "@/lib/services/inventory/supplier-purchase-intake.service";
@@ -46,21 +48,27 @@ export async function GET(request: NextRequest) {
   try {
     const user = await getAuthenticatedUser(request);
 
-    const drafts = await prisma.supplierPurchaseDraft.findMany({
-      where: {
-        businessId: user.businessId,
-      },
-      include: {
-        lines: {
-          orderBy: {
-            id: "asc",
-          },
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+    const drafts = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.supplierPurchaseDraft.findMany({
+            where: {
+              businessId: user.businessId,
+            },
+            include: {
+              lines: {
+                orderBy: {
+                  id: "asc",
+                },
+              },
+            },
+            orderBy: {
+              createdAt: "desc",
+            },
+          })
+        )
+    );
 
     return NextResponse.json({
       success: true,
@@ -82,15 +90,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await createSupplierPurchaseDraft({
-      businessId: user.businessId,
-      supplierName: body.supplierName ?? null,
-      externalOrderId: body.externalOrderId ?? null,
-      source: body.source ?? "MANUAL",
-      orderDate: body.orderDate ?? null,
-      createdByUserId: user.id,
-      lines: body.lines,
-    });
+    const result = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(
+          (tx) =>
+            createSupplierPurchaseDraft(
+              {
+                businessId: user.businessId,
+                supplierName: body.supplierName ?? null,
+                externalOrderId: body.externalOrderId ?? null,
+                source: body.source ?? "MANUAL",
+                orderDate: body.orderDate ?? null,
+                createdByUserId: user.id,
+                lines: body.lines,
+              },
+              { tx }
+            ),
+          { timeoutMs: 15_000 }
+        )
+    );
 
     return NextResponse.json(result, { status: 201 });
   } catch (error) {

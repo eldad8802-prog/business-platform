@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { getVelocityMap } from "@/lib/services/inventory/inventory-velocity.service";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 export async function GET(req: NextRequest) {
   try {
@@ -11,7 +13,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
     }
 
-    const items = await prisma.inventoryItem.findMany({
+    const items = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.inventoryItem.findMany({
       where: {
         businessId: user.businessId,
         isActive: true,
@@ -23,7 +29,9 @@ export async function GET(req: NextRequest) {
         minimumQuantity: true,
         reorderPoint: true,
       },
-    });
+          })
+        )
+    );
 
     // ── Existing reorder logic — unchanged ────────────────────────────────────
     const suggestions = items
@@ -60,10 +68,17 @@ export async function GET(req: NextRequest) {
     const currentQtyMap = new Map(
       suggestions.map((s) => [s.itemId, s.currentQuantity])
     );
-    const velocityMap = await getVelocityMap(
-      user.businessId,
-      suggestions.map((s) => s.itemId),
-      currentQtyMap
+    const velocityMap = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          getVelocityMap(
+            user.businessId,
+            suggestions.map((s) => s.itemId),
+            currentQtyMap,
+            { tx }
+          )
+        )
     );
 
     const enriched = suggestions.map((s) => {

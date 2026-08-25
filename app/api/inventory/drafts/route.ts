@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { InventoryDraftStatus, InventoryUnitType } from "@prisma/client";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { findInventoryMatches } from "@/lib/services/inventory/inventory-matching.service";
 import { decideInventoryAction } from "@/lib/services/inventory/inventory-decision.service";
 import { getInventoryAuthenticatedUserBasic as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
@@ -86,33 +87,42 @@ export async function POST(request: NextRequest) {
     const user = await getAuthenticatedUser(request);
     const body = await request.json();
 
-    const draft = await prisma.inventoryDraft.create({
-      data: {
-        businessId: user.businessId,
-        imageUrl: typeof body.imageUrl === "string" ? body.imageUrl : null,
-        detectedName:
-          typeof body.detectedName === "string" ? body.detectedName : null,
-        detectedCategory:
-          typeof body.detectedCategory === "string"
-            ? body.detectedCategory
-            : null,
-        detectedBarcode:
-          typeof body.detectedBarcode === "string"
-            ? body.detectedBarcode
-            : null,
-        detectedUnitType: parseUnitType(body.detectedUnitType),
-        confidenceScore: parseOptionalConfidence(body.confidenceScore),
-        status: InventoryDraftStatus.PENDING_REVIEW,
-        createdByUserId: user.id,
-      },
-    });
+    const { draft, matches, decision } = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const created = await tx.inventoryDraft.create({
+            data: {
+              businessId: user.businessId,
+              imageUrl: typeof body.imageUrl === "string" ? body.imageUrl : null,
+              detectedName:
+                typeof body.detectedName === "string" ? body.detectedName : null,
+              detectedCategory:
+                typeof body.detectedCategory === "string"
+                  ? body.detectedCategory
+                  : null,
+              detectedBarcode:
+                typeof body.detectedBarcode === "string"
+                  ? body.detectedBarcode
+                  : null,
+              detectedUnitType: parseUnitType(body.detectedUnitType),
+              confidenceScore: parseOptionalConfidence(body.confidenceScore),
+              status: InventoryDraftStatus.PENDING_REVIEW,
+              createdByUserId: user.id,
+            },
+          });
 
-    const matches = await findInventoryMatches({
-      businessId: user.businessId,
-      draft,
-    });
-
-    const decision = decideInventoryAction(matches);
+          const matchList = await findInventoryMatches(
+            { businessId: user.businessId, draft: created },
+            { tx }
+          );
+          return {
+            draft: created,
+            matches: matchList,
+            decision: decideInventoryAction(matchList),
+          };
+        })
+    );
 
     return NextResponse.json(
       {
@@ -145,37 +155,38 @@ export async function GET(request: NextRequest) {
       where.status = parseDraftStatus(statusParam);
     }
 
-    const drafts = await prisma.inventoryDraft.findMany({
-      where,
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+    // One tenant transaction; sequential enrichment (a TenantTx must not run
+    // concurrent queries).
+    const draftsWithMatchesAndDecision = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const drafts = await tx.inventoryDraft.findMany({
+            where,
+            orderBy: {
+              createdAt: "desc",
+            },
+          });
 
-  const draftsWithMatchesAndDecision = await Promise.all(
-  drafts.map(async (draft) => {
-    if (draft.status !== InventoryDraftStatus.PENDING_REVIEW) {
-      return {
-        ...draft,
-        matches: [],
-        decision: null,
-      };
-    }
-
-    const matches = await findInventoryMatches({
-      businessId: user.businessId,
-      draft,
-    });
-
-    const decision = decideInventoryAction(matches);
-
-    return {
-      ...draft,
-      matches,
-      decision,
-    };
-  })
-);
+          const enriched = [];
+          for (const draft of drafts) {
+            if (draft.status !== InventoryDraftStatus.PENDING_REVIEW) {
+              enriched.push({ ...draft, matches: [], decision: null });
+              continue;
+            }
+            const matches = await findInventoryMatches(
+              { businessId: user.businessId, draft },
+              { tx }
+            );
+            enriched.push({
+              ...draft,
+              matches,
+              decision: decideInventoryAction(matches),
+            });
+          }
+          return enriched;
+        })
+    );
 
     return NextResponse.json({
       success: true,

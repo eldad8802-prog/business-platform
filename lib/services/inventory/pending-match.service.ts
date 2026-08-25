@@ -1,5 +1,9 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
+
+type Tx = Prisma.TransactionClient;
+type TxOptions = { tx?: Tx };
 
 type PendingMatchMetadata = {
   externalSaleId: string;
@@ -28,10 +32,13 @@ type CreatePendingMatchInput = {
   metadata: PendingMatchMetadata;
 };
 
-export async function createPendingMatch(input: CreatePendingMatchInput) {
+export async function createPendingMatch(
+  input: CreatePendingMatchInput,
+  options?: TxOptions
+) {
   const { businessId, externalSaleId, metadata } = input;
 
-  return prisma.$transaction(async (tx) => {
+  const run = async (tx: Tx) => {
     const existing = await tx.inventoryPendingMatch.findUnique({
       where: {
         businessId_externalSaleId: {
@@ -67,11 +74,20 @@ export async function createPendingMatch(input: CreatePendingMatchInput) {
     });
 
     return pending;
-  });
+  };
+
+  if (options?.tx) {
+    return run(options.tx);
+  }
+  return prisma.$transaction(run);
 }
 
-export async function getOpenPendingMatches(businessId: number) {
-  return prisma.inventoryPendingMatch.findMany({
+export async function getOpenPendingMatches(
+  businessId: number,
+  options?: TxOptions
+) {
+  const db = options?.tx ?? prisma;
+  return db.inventoryPendingMatch.findMany({
     where: {
       businessId,
       status: "PENDING",
@@ -90,11 +106,13 @@ type ResolveWithExistingItemInput = {
 };
 
 export async function resolvePendingMatchWithExistingItem(
-  input: ResolveWithExistingItemInput
+  input: ResolveWithExistingItemInput,
+  options?: TxOptions
 ) {
   const { pendingMatchId, businessId, userId, itemId } = input;
+  const db = options?.tx ?? prisma;
 
-  const pending = await prisma.inventoryPendingMatch.findFirst({
+  const pending = await db.inventoryPendingMatch.findFirst({
     where: {
       id: pendingMatchId,
       businessId,
@@ -108,16 +126,19 @@ export async function resolvePendingMatchWithExistingItem(
 
   const metadata = pending.metadata as PendingMatchMetadata;
 
-  // 🔥 יצירת movement רק דרך service
-  await inventoryService.removeStock({
-    businessId,
-    itemId,
-    quantityDelta: metadata.quantity,
-    reason: "SALE",
-    createdByUserId: userId,
-  });
+  // 🔥 יצירת movement רק דרך service (על אותו tx כשסופק)
+  await inventoryService.removeStock(
+    {
+      businessId,
+      itemId,
+      quantityDelta: metadata.quantity,
+      reason: "SALE",
+      createdByUserId: userId,
+    },
+    options
+  );
 
-  return prisma.$transaction(async (tx) => {
+  const run = async (tx: Tx) => {
     // 🔥 עכשיו האירוע נחשב processed
     await tx.inventoryExternalSale.create({
       data: {
@@ -214,7 +235,12 @@ export async function resolvePendingMatchWithExistingItem(
       pendingMatchId,
       resolvedItemId: itemId,
     };
-  });
+  };
+
+  if (options?.tx) {
+    return run(options.tx);
+  }
+  return prisma.$transaction(run);
 }
 
 type ResolveWithNewItemInput = {
@@ -234,11 +260,13 @@ type ResolveWithNewItemInput = {
 };
 
 export async function resolvePendingMatchWithNewItem(
-  input: ResolveWithNewItemInput
+  input: ResolveWithNewItemInput,
+  options?: TxOptions
 ) {
   const { pendingMatchId, businessId, userId, itemData } = input;
+  const db = options?.tx ?? prisma;
 
-  const pending = await prisma.inventoryPendingMatch.findFirst({
+  const pending = await db.inventoryPendingMatch.findFirst({
     where: {
       id: pendingMatchId,
       businessId,
@@ -250,7 +278,7 @@ export async function resolvePendingMatchWithNewItem(
     throw new Error("Pending match not found");
   }
 
-  const item = await prisma.inventoryItem.create({
+  const item = await db.inventoryItem.create({
     data: {
       businessId,
       name: itemData.name,
@@ -265,22 +293,28 @@ export async function resolvePendingMatchWithNewItem(
     },
   });
 
-  return resolvePendingMatchWithExistingItem({
-    pendingMatchId,
-    businessId,
-    userId,
-    itemId: item.id,
-  });
+  return resolvePendingMatchWithExistingItem(
+    {
+      pendingMatchId,
+      businessId,
+      userId,
+      itemId: item.id,
+    },
+    options
+  );
 }
 
-export async function rejectPendingMatch(input: {
-  pendingMatchId: number;
-  businessId: number;
-  userId: number;
-}) {
+export async function rejectPendingMatch(
+  input: {
+    pendingMatchId: number;
+    businessId: number;
+    userId: number;
+  },
+  options?: TxOptions
+) {
   const { pendingMatchId, businessId, userId } = input;
 
-  return prisma.$transaction(async (tx) => {
+  const run = async (tx: Tx) => {
     const pending = await tx.inventoryPendingMatch.findUnique({
       where: { id: pendingMatchId },
     });
@@ -318,5 +352,10 @@ export async function rejectPendingMatch(input: {
       pendingMatchId,
       status: "REJECTED",
     };
-  });
+  };
+
+  if (options?.tx) {
+    return run(options.tx);
+  }
+  return prisma.$transaction(run);
 }

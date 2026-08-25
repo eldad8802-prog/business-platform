@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { InventoryDraftStatus, InventoryUnitType } from "@prisma/client";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
 import { getInventoryAuthenticatedUserBasic as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
@@ -96,8 +97,13 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getAuthenticatedUser(request);
     const draftId = parseDraftIdFromRequest(request);
+    const body = await request.json();
 
-    const draft = await prisma.inventoryDraft.findFirst({
+    const { updatedDraft, createdItem } = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+    const draft = await tx.inventoryDraft.findFirst({
       where: {
         id: draftId,
         businessId: user.businessId,
@@ -113,8 +119,6 @@ export async function POST(request: NextRequest) {
         "Only PENDING_REVIEW drafts can be approved"
       );
     }
-
-    const body = await request.json();
 
     const finalName =
       typeof body.name === "string" && body.name.trim()
@@ -134,7 +138,7 @@ export async function POST(request: NextRequest) {
       throw new InventoryValidationError("unitType is required for approval");
     }
 
-    const createdItem = await inventoryService.createItemWithInitialStock({
+    const item = await inventoryService.createItemWithInitialStock({
       businessId: user.businessId,
       name: finalName,
       unitType: finalUnitType,
@@ -153,14 +157,25 @@ export async function POST(request: NextRequest) {
           ? body.imageUrl
           : draft.imageUrl || undefined,
       createdByUserId: user.id,
-    });
+    }, { tx });
 
-    const updatedDraft = await prisma.inventoryDraft.update({
-      where: { id: draft.id },
+    // Tenant-scoped status flip inside the same transaction (no id-only window).
+    const flipped = await tx.inventoryDraft.updateMany({
+      where: { id: draft.id, businessId: user.businessId },
       data: {
         status: InventoryDraftStatus.APPROVED,
       },
     });
+    if (flipped.count !== 1) {
+      throw new InventoryNotFoundError("Inventory draft not found");
+    }
+    const after = await tx.inventoryDraft.findFirst({
+      where: { id: draft.id, businessId: user.businessId },
+    });
+
+    return { updatedDraft: after, createdItem: item };
+        })
+    );
 
     return NextResponse.json({
       success: true,

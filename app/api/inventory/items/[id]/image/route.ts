@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { saveInventoryImage } from "@/lib/services/inventory/inventory-image.service";
 import { StorageConfigError } from "@/lib/storage/storage.errors";
 
@@ -23,12 +25,18 @@ export async function POST(request: NextRequest) {
     }
     const itemId = getItemId(request);
 
-    const item = await prisma.inventoryItem.findFirst({
-      where: {
-        id: itemId,
-        businessId: user.businessId,
-      },
-    });
+    const item = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.inventoryItem.findFirst({
+            where: {
+              id: itemId,
+              businessId: user.businessId,
+            },
+          })
+        )
+    );
 
     if (!item) {
       return NextResponse.json(
@@ -52,10 +60,23 @@ export async function POST(request: NextRequest) {
       file,
     });
 
-    const updated = await prisma.inventoryItem.update({
-      where: { id: itemId },
-      data: { imageUrl },
-    });
+    // Tenant-scoped write inside a tenant transaction (no id-only window).
+    const updated = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const result = await tx.inventoryItem.updateMany({
+            where: { id: itemId, businessId: user.businessId },
+            data: { imageUrl },
+          });
+          if (result.count !== 1) {
+            throw new Error("INVALID_ID");
+          }
+          return tx.inventoryItem.findFirst({
+            where: { id: itemId, businessId: user.businessId },
+          });
+        })
+    );
 
     return NextResponse.json({
       success: true,

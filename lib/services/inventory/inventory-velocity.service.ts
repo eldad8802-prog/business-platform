@@ -41,13 +41,15 @@ function computeUrgency(
 export async function getVelocityMap(
   businessId: number,
   itemIds: number[],
-  currentQtyMap: Map<number, number>
+  currentQtyMap: Map<number, number>,
+  options?: { tx?: import("@prisma/client").Prisma.TransactionClient }
 ): Promise<Map<number, ItemVelocity>> {
   if (itemIds.length === 0) return new Map();
 
+  const db = options?.tx ?? prisma;
   const since = new Date(Date.now() - WINDOW_DAYS * MS_PER_DAY);
 
-  const rows = await prisma.inventoryMovement.groupBy({
+  const rows = await db.inventoryMovement.groupBy({
     by: ["itemId"],
     where: {
       businessId,

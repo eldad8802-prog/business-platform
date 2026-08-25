@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PurchaseOrderStatus } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { purchaseOrderService } from "@/lib/services/inventory/purchase-order.service";
 import { getInventoryAuthenticatedUser as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
@@ -70,19 +71,28 @@ export async function POST(request: NextRequest) {
     const user = await getAuthenticatedUser(request);
     const body = await request.json();
 
-    const purchaseOrder = await purchaseOrderService.createPurchaseOrder({
-      businessId: user.businessId,
-      createdByUserId: user.id,
-      supplierId: body.supplierId ?? null,
-      supplierName: body.supplierName ?? null,
-      externalOrderId: body.externalOrderId ?? null,
-      source: body.source ?? "MANUAL",
-      orderDate: body.orderDate ?? null,
-      status: body.status ?? null,
-      sourceSupplierPurchaseDraftId:
-        body.sourceSupplierPurchaseDraftId ?? null,
-      lines: body.lines,
-    });
+    const purchaseOrder = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          purchaseOrderService.createPurchaseOrder(
+            {
+              businessId: user.businessId,
+              createdByUserId: user.id,
+              supplierId: body.supplierId ?? null,
+              supplierName: body.supplierName ?? null,
+              externalOrderId: body.externalOrderId ?? null,
+              source: body.source ?? "MANUAL",
+              orderDate: body.orderDate ?? null,
+              status: body.status ?? null,
+              sourceSupplierPurchaseDraftId:
+                body.sourceSupplierPurchaseDraftId ?? null,
+              lines: body.lines,
+            },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json(
       {
@@ -102,11 +112,20 @@ export async function GET(request: NextRequest) {
     const status = parseStatus(request.nextUrl.searchParams.get("status"));
     const limit = parseLimit(request.nextUrl.searchParams.get("limit"));
 
-    const purchaseOrders = await purchaseOrderService.listPurchaseOrders({
-      businessId: user.businessId,
-      status,
-      limit,
-    });
+    const purchaseOrders = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          purchaseOrderService.listPurchaseOrders(
+            {
+              businessId: user.businessId,
+              status,
+              limit,
+            },
+            { tx }
+          )
+        )
+    );
 
     return NextResponse.json({
       success: true,

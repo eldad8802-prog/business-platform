@@ -1,3 +1,5 @@
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { approveSupplierPurchase } from "@/lib/services/inventory/supplier-purchase-approval.service";
@@ -66,12 +68,23 @@ export async function POST(
       throw new InventoryValidationError("lines are required");
     }
 
-    const result = await approveSupplierPurchase({
-      draftId,
-      businessId: user.businessId,
-      userId: user.id,
-      lines: body.lines,
-    });
+    const result = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(
+          (tx) =>
+            approveSupplierPurchase(
+              {
+                draftId,
+                businessId: user.businessId,
+                userId: user.id,
+                lines: body.lines,
+              },
+              { tx }
+            ),
+          { timeoutMs: 20_000 }
+        )
+    );
 
     return NextResponse.json(result);
   } catch (error) {

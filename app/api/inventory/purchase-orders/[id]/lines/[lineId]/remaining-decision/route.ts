@@ -1,3 +1,5 @@
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { purchaseOrderService } from "@/lib/services/inventory/purchase-order.service";
@@ -63,16 +65,23 @@ export async function PATCH(
     const body = await request.json();
 
     const purchaseOrderLine =
-      await purchaseOrderService.setPurchaseOrderLineRemainingDecision({
-        businessId: user.businessId,
-        purchaseOrderId,
-        purchaseOrderLineId,
-        decidedByUserId: user.id,
-        remainingDecision: body.remainingDecision,
-        remainingDecisionQty: body.remainingDecisionQty ?? null,
-        expectedAt: body.expectedAt ?? null,
-        remainingDecisionNote: body.remainingDecisionNote ?? null,
-      });
+      await runWithTenantContext({ businessId: user.businessId }, () =>
+        withTenantTransaction((tx) =>
+          purchaseOrderService.setPurchaseOrderLineRemainingDecision(
+            {
+              businessId: user.businessId,
+              purchaseOrderId,
+              purchaseOrderLineId,
+              decidedByUserId: user.id,
+              remainingDecision: body.remainingDecision,
+              remainingDecisionQty: body.remainingDecisionQty ?? null,
+              expectedAt: body.expectedAt ?? null,
+              remainingDecisionNote: body.remainingDecisionNote ?? null,
+            },
+            { tx }
+          )
+        )
+      );
 
     return NextResponse.json({
       success: true,
