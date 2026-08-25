@@ -439,7 +439,7 @@ function buildVerdicts(
  * the owner-decision evidence was durably committed. The non-fatal behaviour is unchanged; callers that
  * ignore the return value behave exactly as before.
  */
-export async function recordReviewEvent(input: {
+export type ReviewEventInput = {
   documentId: number;
   businessId: number;
   reviewerUserId: number;
@@ -448,30 +448,42 @@ export async function recordReviewEvent(input: {
   profileId: string | null;
   belief: BeliefShape;
   final: FinalShape;
-}): Promise<boolean> {
+};
+
+/**
+ * Pure builder for the append-only ReviewEvent row. Extracted so the approve
+ * route can write the owner-decision evidence INSIDE its approval transaction
+ * (evidence and financial truth commit or fail together), while any other
+ * caller keeps the best-effort `recordReviewEvent` wrapper below.
+ */
+export function buildReviewEventCreateData(
+  input: ReviewEventInput
+): Prisma.ReviewEventUncheckedCreateInput {
+  const verdicts = buildVerdicts(input.belief, input.final, input.approvedAs);
+  return {
+    documentId: input.documentId,
+    businessId: input.businessId,
+    reviewerUserId: input.reviewerUserId,
+
+    approvedAs: input.approvedAs,
+    explicitFinancial: input.explicitFinancial,
+    profileId: input.profileId,
+
+    // Memory Scope (raw — belief vs human-confirmed)
+    vendorBelief: input.belief?.vendorName ?? null,
+    vendorFinal: input.final.vendorName ?? null,
+    directionBelief: input.belief?.direction ?? null,
+    directionFinal: input.final.direction ?? null,
+
+    verdicts: jsonSafe(verdicts) as object,
+    rawBelief: jsonSafe(input.belief) as object,
+    rawFinal: jsonSafe(input.final) as object,
+  };
+}
+
+export async function recordReviewEvent(input: ReviewEventInput): Promise<boolean> {
   try {
-    const verdicts = buildVerdicts(input.belief, input.final, input.approvedAs);
-    await prisma.reviewEvent.create({
-      data: {
-        documentId: input.documentId,
-        businessId: input.businessId,
-        reviewerUserId: input.reviewerUserId,
-
-        approvedAs: input.approvedAs,
-        explicitFinancial: input.explicitFinancial,
-        profileId: input.profileId,
-
-        // Memory Scope (raw — belief vs human-confirmed)
-        vendorBelief: input.belief?.vendorName ?? null,
-        vendorFinal: input.final.vendorName ?? null,
-        directionBelief: input.belief?.direction ?? null,
-        directionFinal: input.final.direction ?? null,
-
-        verdicts: jsonSafe(verdicts) as object,
-        rawBelief: jsonSafe(input.belief) as object,
-        rawFinal: jsonSafe(input.final) as object,
-      },
-    });
+    await prisma.reviewEvent.create({ data: buildReviewEventCreateData(input) });
     return true;
   } catch (err) {
     // Never allow a ledger failure to affect the approve flow.

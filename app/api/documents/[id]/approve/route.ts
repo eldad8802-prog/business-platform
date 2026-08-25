@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { runTenantJob } from "@/lib/tenant/job";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { resolveDocumentOutputProfile } from "@/lib/services/documents/output-profile-resolver.service";
-import { recordReviewEvent } from "@/lib/services/documents/ledger/correction-ledger.service";
+import { buildReviewEventCreateData } from "@/lib/services/documents/ledger/correction-ledger.service";
 import { normalizeVendorForLearning } from "@/lib/services/documents/vendor-normalization.service";
 import { runShadowMaterialization } from "@/lib/business-memory/shadow";
 
@@ -35,8 +37,6 @@ export async function POST(
       return Response.json({ error: "אין הרשאה" }, { status: 403 });
     }
 
-    const wasAlreadyApproved = document.status === "approved";
-
     const body = (await req.json().catch(() => null)) as
       | null
       | {
@@ -69,7 +69,12 @@ export async function POST(
         null,
       direction:
         body.extracted?.direction ??
-        (document.extractedData?.direction as any) ??
+        (document.extractedData?.direction as
+          | "expense"
+          | "income"
+          | "unknown"
+          | null
+          | undefined) ??
         null,
       category:
         body.extracted?.category ??
@@ -99,32 +104,29 @@ export async function POST(
 
     const profileId = profile.outputProfile.profileId;
 
+    // Financial approval follows the USER'S explicit intent first, the profile
+    // second. `explicitFinancial:true` allows a financial approval from ANY
+    // profile (the human is the final authority; the machine belief is still
+    // recorded on the ReviewEvent via profileId). `explicitFinancial:false` is
+    // an explicit "save as informational document" and is honored even when the
+    // profile says financial — so a document-only save can never silently
+    // create a FinancialRecord from stored values. Only a legacy caller that
+    // sends no intent falls back to the profile alone.
     const allowFinancial =
-      profileId === "financial_transaction" ||
-      (profileId === "unknown_review" && body.explicitFinancial === true);
+      body.explicitFinancial === true ||
+      (profileId === "financial_transaction" &&
+        body.explicitFinancial !== false);
 
-    // Update extractedData (idempotent via upsert)
-    const extractedData = await prisma.extractedData.upsert({
-      where: { documentId },
-      create: {
-        documentId,
-        amount: merged.amount ?? undefined,
-        vendorName: merged.vendorName ?? undefined,
-        category: merged.category ?? undefined,
-        direction: merged.direction ?? undefined,
-        date: merged.date ? new Date(merged.date) : undefined,
-        confidenceScore: merged.confidenceScore ?? undefined,
-      },
-      update: {
-        amount: merged.amount ?? undefined,
-        vendorName: merged.vendorName ?? undefined,
-        category: merged.category ?? undefined,
-        direction: merged.direction ?? undefined,
-        date: merged.date ? new Date(merged.date) : undefined,
-      },
-    });
-
-    let record: any = null;
+    // Financial validations run BEFORE any write: a rejected approval must not
+    // leave the user's draft persisted on ExtractedData (pre-fix, the upsert
+    // ran first and a 400 still mutated stored state).
+    let financial: {
+      amount: number;
+      vendorName: string;
+      category: string;
+      direction: "income" | "expense";
+      date: Date;
+    } | null = null;
 
     if (allowFinancial) {
       const amount = typeof merged.amount === "number" ? merged.amount : NaN;
@@ -157,93 +159,13 @@ export async function POST(
         );
       }
 
-      const existingRecord = await prisma.financialRecord.findFirst({
-        where: { documentId },
-      });
-
-      if (existingRecord) {
-        record = await prisma.financialRecord.update({
-          where: { id: existingRecord.id },
-          data: {
-            amount,
-            vendorName,
-            category,
-            direction,
-            date,
-          },
-        });
-      } else {
-        record = await prisma.financialRecord.create({
-          data: {
-            documentId,
-            businessId: user.businessId,
-            amount,
-            vendorName,
-            category,
-            direction,
-            date,
-          },
-        });
-      }
-
-      // Vendor learning only when we actually create/update a financial record,
-      // and only on first approval — avoids usageCount inflation on duplicate approve/retry.
-      if (!wasAlreadyApproved) {
-        // Gap 2 — capture a stable normalized vendor key ALONGSIDE the raw name.
-        // The row is still keyed/found by the raw `vendorName` (no rekey/merge);
-        // the normalized key is recorded for per-vendor analysis and a future
-        // rekey. See docs/documents-learning-mechanism-architecture-v1.md §5.
-        //
-        // Best-effort / never-throws: vendor learning is non-critical, so any
-        // failure here — including schema drift where `vendorNameNormalized`
-        // does not exist yet during a code-before-migration window — must NEVER
-        // fail the approval. Mirrors recordExtractionSnapshot.
-        try {
-          const vendorNameNormalized =
-            normalizeVendorForLearning(vendorName).normalizedKey;
-          await prisma.vendorLearning.upsert({
-            where: {
-              businessId_vendorName: {
-                businessId: user.businessId,
-                vendorName,
-              },
-            },
-            update: {
-              usageCount: { increment: 1 },
-              category,
-              confidence: { increment: 0.02 },
-              lastUsedAt: new Date(),
-              vendorNameNormalized,
-            },
-            create: {
-              businessId: user.businessId,
-              vendorName,
-              vendorNameNormalized,
-              category,
-              confidence: 0.8,
-              usageCount: 1,
-              isGlobal: false,
-            },
-          });
-        } catch (vendorLearningError) {
-          console.error(
-            "[approve] vendorLearning.upsert failed (non-fatal):",
-            vendorLearningError
-          );
-        }
-      }
+      financial = { amount, vendorName, category, direction, date };
     }
 
-    // 🧠 LEARNING (רק לפי עסק — בלי global)
-    await prisma.document.update({
-      where: { id: documentId },
-      data: { status: "approved" },
-    });
-
-    // Phase 1A Correction Ledger — additive, write-only, never throws. Belief is
-    // the original engine extraction (document.extractedData, loaded before the
-    // upsert overwrite); final is the human-submitted values.
-    const evidencePersisted = await recordReviewEvent({
+    // Belief is the engine extraction as loaded ABOVE (before the upsert
+    // overwrite below) — this ordering is load-bearing for the learning ledger:
+    // re-reading after the upsert would destroy the belief-vs-final signal.
+    const reviewEventData = buildReviewEventCreateData({
       documentId,
       businessId: user.businessId,
       reviewerUserId: user.id,
@@ -262,20 +184,137 @@ export async function POST(
       final: body.extracted ?? {},
     });
 
+    // ATOMIC APPROVAL (Wave 1A): the financially-coupled state — ExtractedData,
+    // FinancialRecord, Document.status and the owner-decision ReviewEvent —
+    // commits in ONE tenant transaction or not at all. A user-visible financial
+    // approval can no longer land without its FinancialRecord, and approval
+    // evidence can no longer be silently lost while the approval "succeeds".
+    // VendorLearning and the Business Memory shadow stay OUTSIDE the
+    // transaction on purpose: learning is best-effort and must never roll back
+    // financial truth (and the shadow contract requires evidence to be durably
+    // committed before it runs).
+    const txResult = await runTenantJob({ businessId: user.businessId }, () =>
+      withTenantTransaction(async (tx) => {
+        const extractedData = await tx.extractedData.upsert({
+          where: { documentId },
+          create: {
+            documentId,
+            amount: merged.amount ?? undefined,
+            vendorName: merged.vendorName ?? undefined,
+            category: merged.category ?? undefined,
+            direction: merged.direction ?? undefined,
+            date: merged.date ? new Date(merged.date) : undefined,
+            confidenceScore: merged.confidenceScore ?? undefined,
+          },
+          update: {
+            amount: merged.amount ?? undefined,
+            vendorName: merged.vendorName ?? undefined,
+            category: merged.category ?? undefined,
+            direction: merged.direction ?? undefined,
+            date: merged.date ? new Date(merged.date) : undefined,
+          },
+        });
+
+        let record: unknown = null;
+        if (financial) {
+          record = await tx.financialRecord.upsert({
+            where: { documentId },
+            create: {
+              documentId,
+              businessId: user.businessId,
+              amount: financial.amount,
+              vendorName: financial.vendorName,
+              category: financial.category,
+              direction: financial.direction,
+              date: financial.date,
+            },
+            update: {
+              amount: financial.amount,
+              vendorName: financial.vendorName,
+              category: financial.category,
+              direction: financial.direction,
+              date: financial.date,
+            },
+          });
+        }
+
+        // Conditional transition — atomic first-approval detection. Replaces
+        // the racy read-modify-write on document.status that could double-count
+        // vendor learning under concurrent approves.
+        const transitioned = await tx.document.updateMany({
+          where: {
+            id: documentId,
+            businessId: user.businessId,
+            status: { not: "approved" },
+          },
+          data: { status: "approved" },
+        });
+
+        await tx.reviewEvent.create({ data: reviewEventData });
+
+        return {
+          extractedData,
+          record,
+          firstApproval: transitioned.count === 1,
+        };
+      })
+    );
+
+    // 🧠 LEARNING — after commit, best-effort, never fails the approval.
+    // Only on a financial approval, and only on the FIRST approval of this
+    // document (atomic guard above) — avoids usageCount inflation on duplicate
+    // approve/retry. See docs/documents-learning-mechanism-architecture-v1.md §5.
+    if (financial && txResult.firstApproval) {
+      try {
+        const vendorNameNormalized =
+          normalizeVendorForLearning(financial.vendorName).normalizedKey;
+        await prisma.vendorLearning.upsert({
+          where: {
+            businessId_vendorName: {
+              businessId: user.businessId,
+              vendorName: financial.vendorName,
+            },
+          },
+          update: {
+            usageCount: { increment: 1 },
+            category: financial.category,
+            confidence: { increment: 0.02 },
+            lastUsedAt: new Date(),
+            vendorNameNormalized,
+          },
+          create: {
+            businessId: user.businessId,
+            vendorName: financial.vendorName,
+            vendorNameNormalized,
+            category: financial.category,
+            confidence: 0.8,
+            usageCount: 1,
+            isGlobal: false,
+          },
+        });
+      } catch (vendorLearningError) {
+        console.error(
+          "[approve] vendorLearning.upsert failed (non-fatal):",
+          vendorLearningError
+        );
+      }
+    }
+
     // Business Memory · DARK SHADOW (SHADOW-2). Post-canonical-evidence, best-effort, default-OFF
     // (BUSINESS_MEMORY_SHADOW). When enabled it awaits the Orchestrator once and isolates every outcome
     // — it never throws, never retries, never touches VendorLearning, and cannot change this approval.
+    // The transaction above committed, so the owner-decision evidence is durably persisted.
     await runShadowMaterialization({
       businessId: user.businessId,
       vendorInput: body.extracted?.vendorName ?? null,
-      evidencePersisted,
+      evidencePersisted: true,
     });
 
     return Response.json({
       success: true,
       approvedAs: allowFinancial ? "financial" : "document",
-      record,
-      extractedData,
+      record: txResult.record,
+      extractedData: txResult.extractedData,
       outputProfile: profile.outputProfile,
     });
   } catch (error) {
