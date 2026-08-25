@@ -75,6 +75,9 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",
     "@aws-sdk/s3-request-presigner": "^3.1059.0",
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/ios": "^8.5.0",
     "@google-cloud/vision": "^5.3.5",
     "@napi-rs/canvas": "^0.1.100",
     "@prisma/client": "^6.16.0",
@@ -102,6 +105,7 @@
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
     "@tailwindcss/postcss": "^4",
     "@types/archiver": "^7.0.0",
     "@types/bcrypt": "^6.0.0",
