@@ -1,4 +1,7 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+
+type TxOptions = { tx?: Prisma.TransactionClient };
 
 /**
  * Reply Suggestions Rewrite v1 — template-only (no LLM / embeddings).
@@ -471,7 +474,7 @@ export async function generateReplySuggestions(
   message: MessageInput,
   analysis: AnalysisInput,
   contextMessages: ContextMessage[]
-) {
+, options?: TxOptions) {
   const previousMessages = getPreviousMessages(message, contextMessages);
   const contextText = buildContextText(previousMessages);
   const trigger = getTriggerText(message, contextMessages);
@@ -484,7 +487,8 @@ export async function generateReplySuggestions(
   for (let i = 0; i < rankedDrafts.length; i++) {
     const draftRow = rankedDrafts[i];
 
-    const item = await prisma.replySuggestion.create({
+    const db = options?.tx ?? prisma;
+    const item = await db.replySuggestion.create({
       data: {
         businessId: message.businessId,
         conversationId: message.conversationId,

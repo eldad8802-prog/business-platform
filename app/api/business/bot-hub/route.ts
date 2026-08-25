@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { isValidProductLinkUrl } from "@/lib/inbox-view/product-link-capability";
 import {
   parseBotControlHandoffRules,
@@ -68,8 +70,11 @@ export async function GET(req: Request) {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);
 
-    const [settings, bot] = await Promise.all([
-      prisma.businessBotSettings.findUnique({
+    const { settings, bot } = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const settings = await tx.businessBotSettings.findUnique({
         where: { businessId: user.businessId },
         select: {
           enabled: true,
@@ -82,8 +87,8 @@ export async function GET(req: Request) {
           productLinkEnabled: true,
           productLinkUrl: true,
         },
-      }),
-      prisma.businessBot.findUnique({
+          });
+          const bot = await tx.businessBot.findUnique({
         where: { businessId: user.businessId },
         include: {
           profile: true,
@@ -105,8 +110,10 @@ export async function GET(req: Request) {
             },
           },
         },
-      }),
-    ]);
+          });
+          return { settings, bot };
+        })
+    );
 
     const identity = {
       displayName: bot?.displayName ?? null,

@@ -1,0 +1,82 @@
+# D2 / P7-W4B — WhatsApp tenant-isolation battery on ephemeral PG17.
+# Real webhook under FORCE RLS, media path with stubbed externals, bot/reply
+# tenant proofs, MessageAnalysis parent-join, real /api/message +
+# reply-suggestion routes, rollback proof, idempotent re-apply.
+# Synthetic CI-only creds; ZERO secrets; ZERO Neon.
+
+name: d2/p7 — w4b whatsapp battery (ephemeral PG17)
+
+on:
+  push:
+    branches: [feat/d2-p7-w4b]
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20260826150000_d2_p7_w4b_whatsapp_tenant_rls/**"
+      - "scripts/security/d2-p7-w4b-*.sql"
+      - ".p7w4b/**"
+      - "app/api/integrations/whatsapp/**"
+      - "app/api/message/**"
+      - "app/api/conversations/**"
+      - "app/api/inbox/attention/**"
+      - "app/api/reply-suggestion/**"
+      - "app/api/business/bot-settings/**"
+      - "app/api/business/bot-hub/**"
+      - "lib/services/integrations/whatsapp/**"
+      - "lib/services/conversation/**"
+      - "lib/conversation-state/**"
+      - "lib/conversation-context/**"
+      - "lib/reply-suggestions/**"
+      - "lib/learning/**"
+      - "lib/tenant/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  w4b-battery:
+    name: W4B battery (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: p7w4b_owner
+          POSTGRES_PASSWORD: p7w4b_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_p7w4b
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U p7w4b_owner -d dubiz_p7w4b"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .p7w4b/battery.mjs
+
+      - name: Push schema (lab; migrate-from-zero is a known separate defect)
+        env:
+          DATABASE_URL: postgresql://p7w4b_owner:p7w4b_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w4b
+          DIRECT_URL: postgresql://p7w4b_owner:p7w4b_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w4b
+        run: npx prisma db push --skip-generate
+
+      - name: Run W4B battery
+        env:
+          BATTERY_TARGET: pg
+          DATABASE_URL: postgresql://p7w4b_owner:p7w4b_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w4b
+          DIRECT_URL: postgresql://p7w4b_owner:p7w4b_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w4b
+          RUNTIME_URL: postgresql://wave1_runtime:p7w1_ci_synthetic_pw@localhost:5432/dubiz_p7w4b
+          ADMIN_LOGIN_ROLE: app_admin_lab
+          W2G_ADMIN_PW: p7w2g_ci_synthetic_admin_pw
+          AUTH_TOKEN_SECRET: p7w4b_ci_auth_secret_synthetic
+        run: npx tsx .p7w4b/battery.mjs

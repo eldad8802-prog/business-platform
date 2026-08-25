@@ -1,8 +1,19 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
-export async function updateLearningFromAction(suggestionId: number) {
-  const suggestion = await prisma.replySuggestion.findUnique({
-    where: { id: suggestionId },
+type TxOptions = { tx?: Prisma.TransactionClient };
+
+// D2/P7-W4B: businessId is now REQUIRED so the confidence-score write is an
+// atomic tenant-scoped mutation (updateMany with the tenant predicate) —
+// a foreign suggestion id can no longer become a mutation handle.
+export async function updateLearningFromAction(
+  suggestionId: number,
+  businessId: number,
+  options?: TxOptions
+) {
+  const db = options?.tx ?? prisma;
+  const suggestion = await db.replySuggestion.findFirst({
+    where: { id: suggestionId, businessId },
   });
 
   if (!suggestion) {
@@ -31,8 +42,8 @@ export async function updateLearningFromAction(suggestionId: number) {
     scoreBoost += 50;
   }
 
-  await prisma.replySuggestion.update({
-    where: { id: suggestionId },
+  await db.replySuggestion.updateMany({
+    where: { id: suggestionId, businessId },
     data: {
       confidenceScore: (suggestion.confidenceScore ?? 0) + scoreBoost,
     },

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { HUMAN_TAKEOVER_OUTCOME_REASON } from "@/lib/features/conversation/bot-control";
 
 const PENDING_BOT_DRAFT_STATUSES = ["GENERATED", "SHOWN", "SELECTED"] as const;
@@ -27,39 +29,49 @@ export async function POST(req: Request) {
       );
     }
 
-    const conversation = await prisma.conversation.findFirst({
-      where: {
-        id: conversationId,
-        businessId: user.businessId,
-      },
-      select: { id: true, status: true },
-    });
+    const found = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const conversation = await tx.conversation.findFirst({
+            where: {
+              id: conversationId,
+              businessId: user.businessId,
+            },
+            select: { id: true, status: true },
+          });
 
-    if (!conversation) {
+          if (!conversation) return false;
+
+          const now = new Date();
+
+          await tx.replySuggestion.updateMany({
+            where: {
+              businessId: user.businessId,
+              conversationId,
+              suggestionType: "STARTER_BOT_DRAFT",
+              status: { in: [...PENDING_BOT_DRAFT_STATUSES] },
+            },
+            data: {
+              status: "DISMISSED",
+              dismissedAt: now,
+            },
+          });
+
+          // Tenant-scoped atomic transition (no id-only update).
+          await tx.conversation.updateMany({
+            where: { id: conversationId, businessId: user.businessId },
+            data: {
+              outcomeReason: HUMAN_TAKEOVER_OUTCOME_REASON,
+            },
+          });
+          return true;
+        })
+    );
+
+    if (!found) {
       return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
     }
-
-    const now = new Date();
-
-    await prisma.replySuggestion.updateMany({
-      where: {
-        businessId: user.businessId,
-        conversationId,
-        suggestionType: "STARTER_BOT_DRAFT",
-        status: { in: [...PENDING_BOT_DRAFT_STATUSES] },
-      },
-      data: {
-        status: "DISMISSED",
-        dismissedAt: now,
-      },
-    });
-
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: {
-        outcomeReason: HUMAN_TAKEOVER_OUTCOME_REASON,
-      },
-    });
 
     return NextResponse.json({
       success: true,

@@ -31,8 +31,9 @@
  * never returns anything sensitive (no tokens, no full message text).
  */
 
-import type { Conversation, Message } from "@prisma/client";
+import type { Conversation, Message, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { analyzeMessage } from "@/lib/conversation-analysis/analyze-message";
 import { generateReplySuggestions } from "@/lib/reply-suggestions/generate-reply-suggestions";
 import { getContextMessages } from "@/lib/conversation-context/get-context-messages";
@@ -137,21 +138,27 @@ type BotSettingsObserveRow = {
 // ─── Sub-step helpers (kept in this file so the orchestration stays in
 //     one place — these are not exported) ──────────────────────────────────
 
-async function updateLatestSentSuggestionOutcome(params: {
-  conversationId: number;
-  currentMessageCreatedAt: Date;
-  previousStage: StageLabel;
-  currentStage: StageLabel;
-}) {
+async function updateLatestSentSuggestionOutcome(
+  db: Prisma.TransactionClient | typeof prisma,
+  params: {
+    businessId: number;
+    conversationId: number;
+    currentMessageCreatedAt: Date;
+    previousStage: StageLabel;
+    currentStage: StageLabel;
+  }
+) {
   const {
+    businessId,
     conversationId,
     currentMessageCreatedAt,
     previousStage,
     currentStage,
   } = params;
 
-  const latestSentSuggestion = await prisma.replySuggestion.findFirst({
+  const latestSentSuggestion = await db.replySuggestion.findFirst({
     where: {
+      businessId,
       conversationId,
       status: "SENT",
       sentAt: { not: null, lte: currentMessageCreatedAt },
@@ -187,9 +194,14 @@ async function updateLatestSentSuggestionOutcome(params: {
     return latestSentSuggestion;
   }
 
-  return prisma.replySuggestion.update({
-    where: { id: latestSentSuggestion.id },
+  // Atomic, tenant-scoped transition — a foreign suggestion id can never be
+  // a mutation handle.
+  await db.replySuggestion.updateMany({
+    where: { id: latestSentSuggestion.id, businessId },
     data: dataToUpdate,
+  });
+  return db.replySuggestion.findFirst({
+    where: { id: latestSentSuggestion.id, businessId },
   });
 }
 
@@ -208,29 +220,42 @@ export async function runInboundMessagePipeline(
 ): Promise<InboundPipelineResult> {
   const { conversation, message, businessId, source } = params;
 
+  // D2/P7-W4B: the pipeline REQUIRES an established tenant context (webhook
+  // runTenantJob / api-message runWithTenantContext). Each DB group below
+  // runs on its own SHORT tenant transaction; external/LLM-capable work
+  // (maybeCreateBotLlmDraft's OpenAI call) never executes inside one.
+
   // 1. Context window from prior messages (excluding the message we just
   //    persisted).
-  const contextMessages = await getContextMessages(message.conversationId, 5);
+  const contextMessages = await withTenantTransaction((tx) =>
+    getContextMessages(message.conversationId, 5, { tx })
+  );
   const previousMessages = contextMessages.filter((m) => m.id !== message.id);
 
   // 2. Pure NLU.
   const analysis = analyzeMessage(message.contentText ?? "", previousMessages);
 
-  // 3. Persist MessageAnalysis + write back labels on the Message itself.
-  await prisma.messageAnalysis.create({
-    data: {
-      messageId: message.id,
-      intent: analysis.intent,
-      stage: analysis.stage,
-    },
-  });
+  // 3. Persist MessageAnalysis + write back labels on the Message itself —
+  //    one atomic tenant transaction; the label write is tenant-scoped.
+  const labelledMessage = await withTenantTransaction(async (tx) => {
+    await tx.messageAnalysis.create({
+      data: {
+        messageId: message.id,
+        intent: analysis.intent,
+        stage: analysis.stage,
+      },
+    });
 
-  const labelledMessage = await prisma.message.update({
-    where: { id: message.id },
-    data: {
-      intentLabel: analysis.intent,
-      stageLabel: analysis.stage,
-    },
+    await tx.message.updateMany({
+      where: { id: message.id, businessId },
+      data: {
+        intentLabel: analysis.intent,
+        stageLabel: analysis.stage,
+      },
+    });
+    return tx.message.findFirstOrThrow({
+      where: { id: message.id, businessId },
+    });
   });
 
   emit(source, "MESSAGE_ANALYZED", {
@@ -243,11 +268,16 @@ export async function runInboundMessagePipeline(
 
   // 4. Conversation state machine.
   try {
-    await applyMessageEvent({
-      message: labelledMessage,
-      conversation,
-      analysis,
-    });
+    await withTenantTransaction((tx) =>
+      applyMessageEvent(
+        {
+          message: labelledMessage,
+          conversation,
+          analysis,
+        },
+        { tx }
+      )
+    );
   } catch (error) {
     console.warn(
       "[inbound-pipeline] conversation-state writer failed:",
@@ -263,8 +293,9 @@ export async function runInboundMessagePipeline(
 
   try {
     try {
-      botRow = await prisma.businessBotSettings.findUnique({
-        where: { businessId },
+      botRow = await withTenantTransaction((tx) =>
+        tx.businessBotSettings.findUnique({
+          where: { businessId },
         select: {
           enabled: true,
           showDraftSuggestionsInInbox: true,
@@ -276,7 +307,8 @@ export async function runInboundMessagePipeline(
           finalActionPayload: true,
           handoffRules: true,
         },
-      });
+        })
+      );
     } catch (settingsErr) {
       console.warn(
         "[inbound-pipeline] bot-settings load failed:",
@@ -309,13 +341,15 @@ export async function runInboundMessagePipeline(
 
     let inboundMessageCount = 0;
     try {
-      inboundMessageCount = await prisma.message.count({
-        where: {
-          conversationId: conversation.id,
-          direction: "INBOUND",
-          senderType: "CUSTOMER",
-        },
-      });
+      inboundMessageCount = await withTenantTransaction((tx) =>
+        tx.message.count({
+          where: {
+            conversationId: conversation.id,
+            direction: "INBOUND",
+            senderType: "CUSTOMER",
+          },
+        })
+      );
     } catch (countErr) {
       console.warn(
         "[inbound-pipeline] inbound message count failed:",
@@ -357,10 +391,15 @@ export async function runInboundMessagePipeline(
     if (policy.decision === "STARTER_BOT_ELIGIBLE" && botRow) {
       let starterBotFlowAlreadyCompleted = false;
       try {
-        starterBotFlowAlreadyCompleted = await isStarterBotFlowCompletedSent({
-          businessId,
-          conversationId: conversation.id,
-        });
+        starterBotFlowAlreadyCompleted = await withTenantTransaction((tx) =>
+          isStarterBotFlowCompletedSent(
+            {
+              businessId,
+              conversationId: conversation.id,
+            },
+            { tx }
+          )
+        );
       } catch (completedCheckErr) {
         console.warn(
           "[inbound-pipeline] starter-bot flow completion check failed:",
@@ -373,10 +412,15 @@ export async function runInboundMessagePipeline(
         try {
           let derivedNextQuestionIndex = 0;
           try {
-            derivedNextQuestionIndex = await deriveStarterBotNextQuestionIndex({
-              businessId,
-              conversationId: conversation.id,
-            });
+            derivedNextQuestionIndex = await withTenantTransaction((tx) =>
+              deriveStarterBotNextQuestionIndex(
+                {
+                  businessId,
+                  conversationId: conversation.id,
+                },
+                { tx }
+              )
+            );
           } catch (deriveErr) {
             console.warn(
               "[inbound-pipeline] derive starter-bot nextQuestionIndex failed:",
@@ -471,23 +515,24 @@ export async function runInboundMessagePipeline(
             starterDraft.replyText.trim().length > 0
           ) {
             try {
-              const existingBotDraft = await prisma.replySuggestion.findFirst({
-                where: {
-                  businessId,
-                  conversationId: conversation.id,
-                  messageId: labelledMessage.id,
-                  suggestionType: "STARTER_BOT_DRAFT",
-                },
-              });
+              const draftCreated = await withTenantTransaction(async (tx) => {
+                const existingBotDraft = await tx.replySuggestion.findFirst({
+                  where: {
+                    businessId,
+                    conversationId: conversation.id,
+                    messageId: labelledMessage.id,
+                    suggestionType: "STARTER_BOT_DRAFT",
+                  },
+                });
 
-              if (!existingBotDraft) {
+                if (existingBotDraft) return false;
                 const variantType =
                   starterDraft.replyKind &&
                   starterDraft.replyKind.trim().length > 0
                     ? starterDraft.replyKind
                     : "BOT_DRAFT";
 
-                await prisma.replySuggestion.create({
+                await tx.replySuggestion.create({
                   data: {
                     businessId,
                     conversationId: conversation.id,
@@ -502,6 +547,9 @@ export async function runInboundMessagePipeline(
                     status: "GENERATED",
                   },
                 });
+                return true;
+              });
+              if (draftCreated) {
                 starterBotDraftCreated = true;
                 emit(source, "STARTER_BOT_DRAFT_CREATED", {
                   conversationId: conversation.id,
@@ -535,12 +583,15 @@ export async function runInboundMessagePipeline(
     .reverse()
     .find((m) => m.stageLabel);
 
-  const updatedOutcomeSuggestion = await updateLatestSentSuggestionOutcome({
-    conversationId: message.conversationId,
-    currentMessageCreatedAt: message.createdAt,
-    previousStage: previousMessageWithStage?.stageLabel,
-    currentStage: analysis.stage,
-  });
+  const updatedOutcomeSuggestion = await withTenantTransaction((tx) =>
+    updateLatestSentSuggestionOutcome(tx, {
+      businessId,
+      conversationId: message.conversationId,
+      currentMessageCreatedAt: message.createdAt,
+      previousStage: previousMessageWithStage?.stageLabel,
+      currentStage: analysis.stage,
+    })
+  );
 
   // 8. Auto-suggestions (LLM) + mode filter.
   const mode = getSuggestionMode(analysis, labelledMessage.contentText ?? "");
@@ -564,7 +615,11 @@ export async function runInboundMessagePipeline(
     }) && policyDecision !== "HANDOFF_REQUIRED";
 
   const generatedSuggestions = offerAutoSuggestions
-    ? await generateReplySuggestions(labelledMessage, analysis, contextMessages)
+    ? await withTenantTransaction((tx) =>
+        generateReplySuggestions(labelledMessage, analysis, contextMessages, {
+          tx,
+        })
+      )
     : [];
 
   let suggestions: unknown[] = [];

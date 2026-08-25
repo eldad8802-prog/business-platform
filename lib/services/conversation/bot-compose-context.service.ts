@@ -7,7 +7,19 @@
  * touch bot-control, the draft-only gate, or any send path.
  */
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+async function dbStep<T>(
+  fn: (db: Prisma.TransactionClient | typeof prisma) => Promise<T>
+): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    return withTenantTransaction((tx) => fn(tx));
+  }
+  return fn(prisma);
+}
 import { buildBotComposeContext, type BotComposeContext } from "@/lib/features/bot";
 
 function envOn(name: string): boolean {
@@ -59,7 +71,7 @@ export async function loadBotComposeContext(
   const includeKnowledge = options?.includeKnowledge ?? false;
   const includeGoalsApproach = options?.includeGoalsApproach ?? false;
 
-  const bot = await prisma.businessBot.findUnique({
+  const bot = await dbStep((db) => db.businessBot.findUnique({
     where: { businessId },
     select: {
       displayName: true,
@@ -71,7 +83,7 @@ export async function loadBotComposeContext(
         ? { select: { goalKey: true } }
         : false,
     },
-  });
+  }));
   if (!bot) return null;
 
   return buildBotComposeContext({

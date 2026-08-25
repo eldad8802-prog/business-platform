@@ -6,6 +6,9 @@ import { getContextMessages } from "@/lib/conversation-context/get-context-messa
 import { getSuggestionMode } from "@/lib/decision/get-suggestion-mode";
 import { applyMessageEvent } from "@/lib/conversation-state/conversation-state.service";
 import { getCurrentUser } from "@/lib/auth";
+import type { Prisma } from "@prisma/client";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { sendWhatsAppTextForBusiness } from "@/lib/services/integrations/whatsapp/outbound-send.service";
 import { evaluateBotGuardrails } from "@/lib/features/conversation/guardrails";
 import {
@@ -52,21 +55,27 @@ function getStageRank(stage: StageLabel): number {
   return stageRank[stage] ?? 0;
 }
 
-async function updateLatestSentSuggestionOutcome(params: {
-  conversationId: number;
-  currentMessageCreatedAt: Date;
-  previousStage: StageLabel;
-  currentStage: StageLabel;
-}) {
+async function updateLatestSentSuggestionOutcome(
+  db: Prisma.TransactionClient | typeof prisma,
+  params: {
+    businessId: number;
+    conversationId: number;
+    currentMessageCreatedAt: Date;
+    previousStage: StageLabel;
+    currentStage: StageLabel;
+  }
+) {
   const {
+    businessId,
     conversationId,
     currentMessageCreatedAt,
     previousStage,
     currentStage,
   } = params;
 
-  const latestSentSuggestion = await prisma.replySuggestion.findFirst({
+  const latestSentSuggestion = await db.replySuggestion.findFirst({
     where: {
+      businessId,
       conversationId,
       status: "SENT",
       sentAt: {
@@ -109,12 +118,14 @@ async function updateLatestSentSuggestionOutcome(params: {
     return latestSentSuggestion;
   }
 
-  const updatedSuggestion = await prisma.replySuggestion.update({
-    where: { id: latestSentSuggestion.id },
+  // Atomic tenant-scoped transition — no id-only mutation window.
+  await db.replySuggestion.updateMany({
+    where: { id: latestSentSuggestion.id, businessId },
     data: dataToUpdate,
   });
-
-  return updatedSuggestion;
+  return db.replySuggestion.findFirst({
+    where: { id: latestSentSuggestion.id, businessId },
+  });
 }
 
 export async function GET(req: Request) {
@@ -147,12 +158,47 @@ export async function GET(req: Request) {
       );
     }
 
-    const conversation = await prisma.conversation.findFirst({
-      where: {
-        id: conversationId,
-        businessId: user.businessId,
-      },
-    });
+    const { conversation, messages, suggestions } = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const conversation = await tx.conversation.findFirst({
+            where: {
+              id: conversationId,
+              businessId: user.businessId,
+            },
+          });
+
+          if (!conversation) {
+            return { conversation: null, messages: [], suggestions: [] };
+          }
+
+          const messages = await tx.message.findMany({
+            where: { conversationId, businessId: user.businessId },
+            orderBy: { createdAt: "asc" },
+          });
+
+          const lastInboundCustomerMessage = [...messages]
+            .reverse()
+            .find(
+              (m) => m.direction === "INBOUND" && m.senderType === "CUSTOMER"
+            );
+
+          let suggestions: any[] = [];
+
+          if (lastInboundCustomerMessage) {
+            suggestions = await tx.replySuggestion.findMany({
+              where: {
+                businessId: user.businessId,
+                conversationId,
+                messageId: lastInboundCustomerMessage.id,
+              },
+              orderBy: { createdAt: "desc" },
+            });
+          }
+          return { conversation, messages, suggestions };
+        })
+    );
 
     if (!conversation) {
       return NextResponse.json(
@@ -162,27 +208,6 @@ export async function GET(req: Request) {
         },
         { status: 200 }
       );
-    }
-
-    const messages = await prisma.message.findMany({
-      where: { conversationId },
-      orderBy: { createdAt: "asc" },
-    });
-
-    const lastInboundCustomerMessage = [...messages]
-      .reverse()
-      .find((m) => m.direction === "INBOUND" && m.senderType === "CUSTOMER");
-
-    let suggestions: any[] = [];
-
-    if (lastInboundCustomerMessage) {
-      suggestions = await prisma.replySuggestion.findMany({
-        where: {
-          conversationId,
-          messageId: lastInboundCustomerMessage.id,
-        },
-        orderBy: { createdAt: "desc" },
-      });
     }
 
     return NextResponse.json(
@@ -226,12 +251,39 @@ export async function POST(req: Request) {
       );
     }
 
-    const conversation = await prisma.conversation.findFirst({
-      where: {
-        id: conversationId,
-        businessId: user.businessId,
+    // D2/P7-W4B: the whole handler body runs under the session tenant context;
+    // every DB group below is a SHORT tenant transaction, and the external
+    // WhatsApp send / LLM work stays outside any transaction.
+    return await runWithTenantContext({ businessId: user.businessId }, () =>
+      handleAuthedPost(user, body, conversationId)
+    );
+  } catch (error: any) {
+    console.error("POST /api/message error:", error);
+
+    return NextResponse.json(
+      {
+        error: "Failed to create message",
+        details: error?.message || String(error),
       },
-    });
+      { status: 500 }
+    );
+  }
+}
+
+async function handleAuthedPost(
+  user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>,
+  body: any,
+  conversationId: number
+) {
+  try {
+    const conversation = await withTenantTransaction((tx) =>
+      tx.conversation.findFirst({
+        where: {
+          id: conversationId,
+          businessId: user.businessId,
+        },
+      })
+    );
 
     if (!conversation) {
       return NextResponse.json(
@@ -243,19 +295,21 @@ export async function POST(req: Request) {
     const direction = body.direction ?? "INBOUND";
     const senderType = body.senderType ?? "CUSTOMER";
 
-    const createdMessage = await prisma.message.create({
-      data: {
-        conversationId,
-        businessId: user.businessId,
-        customerId: body.customerId ?? null,
-        channel: body.channel ?? "WHATSAPP",
-        messageType: body.messageType ?? "TEXT",
-        direction,
-        senderType,
-        contentText: body.contentText ?? null,
-        generatedFromSuggestionId: body.generatedFromSuggestionId ?? null,
-      },
-    });
+    const createdMessage = await withTenantTransaction((tx) =>
+      tx.message.create({
+        data: {
+          conversationId,
+          businessId: user.businessId,
+          customerId: body.customerId ?? null,
+          channel: body.channel ?? "WHATSAPP",
+          messageType: body.messageType ?? "TEXT",
+          direction,
+          senderType,
+          contentText: body.contentText ?? null,
+          generatedFromSuggestionId: body.generatedFromSuggestionId ?? null,
+        },
+      })
+    );
 
     if (!(direction === "INBOUND" && senderType === "CUSTOMER")) {
       // ── WhatsApp outbound delivery (Stage 1: text only) ─────────────────
@@ -276,10 +330,12 @@ export async function POST(req: Request) {
       if (isWhatsAppOutbound) {
         let recipientPhone: string | null = null;
         if (conversation.customerId) {
-          const customer = await prisma.customer.findFirst({
-            where: { id: conversation.customerId, businessId: user.businessId },
-            select: { phone: true },
-          });
+          const customer = await withTenantTransaction((tx) =>
+            tx.customer.findFirst({
+              where: { id: conversation.customerId!, businessId: user.businessId },
+              select: { phone: true },
+            })
+          );
           recipientPhone = customer?.phone ?? null;
         }
 
@@ -291,36 +347,51 @@ export async function POST(req: Request) {
 
         const now = new Date();
         if (outcome.ok) {
-          messageForResponse = await prisma.message.update({
-            where: { id: createdMessage.id },
-            data: {
-              sendStatus: "SENT",
-              providerMessageId: outcome.providerMessageId,
-              sentAt: now,
-              sendAttemptedAt: now,
-            },
+          messageForResponse = await withTenantTransaction(async (tx) => {
+            await tx.message.updateMany({
+              where: { id: createdMessage.id, businessId: user.businessId },
+              data: {
+                sendStatus: "SENT",
+                providerMessageId: outcome.providerMessageId,
+                sentAt: now,
+                sendAttemptedAt: now,
+              },
+            });
+            return tx.message.findFirstOrThrow({
+              where: { id: createdMessage.id, businessId: user.businessId },
+            });
           });
           whatsappSend = { status: "SENT" };
         } else {
-          messageForResponse = await prisma.message.update({
-            where: { id: createdMessage.id },
-            data: {
-              sendStatus: "FAILED",
-              sendAttemptedAt: now,
-              sendErrorCode: outcome.code.slice(0, 64),
-              sendErrorMessage: outcome.message.slice(0, 500),
-            },
+          messageForResponse = await withTenantTransaction(async (tx) => {
+            await tx.message.updateMany({
+              where: { id: createdMessage.id, businessId: user.businessId },
+              data: {
+                sendStatus: "FAILED",
+                sendAttemptedAt: now,
+                sendErrorCode: outcome.code.slice(0, 64),
+                sendErrorMessage: outcome.message.slice(0, 500),
+              },
+            });
+            return tx.message.findFirstOrThrow({
+              where: { id: createdMessage.id, businessId: user.businessId },
+            });
           });
           whatsappSend = { status: "FAILED", reason: outcome.reason };
         }
       }
 
       try {
-        await applyMessageEvent({
-          message: messageForResponse,
-          conversation,
-          analysis: null,
-        });
+        await withTenantTransaction((tx) =>
+          applyMessageEvent(
+            {
+              message: messageForResponse,
+              conversation,
+              analysis: null,
+            },
+            { tx }
+          )
+        );
       } catch (error) {
         console.warn(
           "conversation-state writer (non-customer-inbound) failed:",
@@ -342,7 +413,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const contextMessages = await getContextMessages(createdMessage.conversationId, 5);
+    const contextMessages = await withTenantTransaction((tx) =>
+      getContextMessages(createdMessage.conversationId, 5, { tx })
+    );
 
     const previousMessages = contextMessages.filter(
       (message) => message.id !== createdMessage.id
@@ -350,28 +423,38 @@ export async function POST(req: Request) {
 
     const analysis = analyzeMessage(body.contentText || "", previousMessages);
 
-    await prisma.messageAnalysis.create({
-      data: {
-        messageId: createdMessage.id,
-        intent: analysis.intent,
-        stage: analysis.stage,
-      },
-    });
+    const message = await withTenantTransaction(async (tx) => {
+      await tx.messageAnalysis.create({
+        data: {
+          messageId: createdMessage.id,
+          intent: analysis.intent,
+          stage: analysis.stage,
+        },
+      });
 
-    const message = await prisma.message.update({
-      where: { id: createdMessage.id },
-      data: {
-        intentLabel: analysis.intent,
-        stageLabel: analysis.stage,
-      },
+      await tx.message.updateMany({
+        where: { id: createdMessage.id, businessId: user.businessId },
+        data: {
+          intentLabel: analysis.intent,
+          stageLabel: analysis.stage,
+        },
+      });
+      return tx.message.findFirstOrThrow({
+        where: { id: createdMessage.id, businessId: user.businessId },
+      });
     });
 
     try {
-      await applyMessageEvent({
-        message,
-        conversation,
-        analysis,
-      });
+      await withTenantTransaction((tx) =>
+        applyMessageEvent(
+          {
+            message,
+            conversation,
+            analysis,
+          },
+          { tx }
+        )
+      );
     } catch (error) {
       console.warn(
         "conversation-state writer (customer-inbound) failed:",
@@ -401,8 +484,9 @@ export async function POST(req: Request) {
 
     try {
       try {
-        botRow = await prisma.businessBotSettings.findUnique({
-          where: { businessId: user.businessId },
+        botRow = await withTenantTransaction((tx) =>
+          tx.businessBotSettings.findUnique({
+            where: { businessId: user.businessId },
           select: {
             enabled: true,
             showDraftSuggestionsInInbox: true,
@@ -414,7 +498,8 @@ export async function POST(req: Request) {
             finalActionPayload: true,
             handoffRules: true,
           },
-        });
+          })
+        );
       } catch (settingsErr) {
         console.warn("bot-settings observe-only load failed:", settingsErr);
       }
@@ -443,13 +528,15 @@ export async function POST(req: Request) {
 
       let inboundMessageCount = 0;
       try {
-        inboundMessageCount = await prisma.message.count({
-          where: {
-            conversationId: conversation.id,
-            direction: "INBOUND",
-            senderType: "CUSTOMER",
-          },
-        });
+        inboundMessageCount = await withTenantTransaction((tx) =>
+          tx.message.count({
+            where: {
+              conversationId: conversation.id,
+              direction: "INBOUND",
+              senderType: "CUSTOMER",
+            },
+          })
+        );
       } catch (countErr) {
         console.warn("inbound message count failed:", countErr);
       }
@@ -493,10 +580,15 @@ export async function POST(req: Request) {
       if (policy.decision === "STARTER_BOT_ELIGIBLE" && botRow) {
         let starterBotFlowAlreadyCompleted = false;
         try {
-          starterBotFlowAlreadyCompleted = await isStarterBotFlowCompletedSent({
-            businessId: user.businessId,
-            conversationId: conversation.id,
-          });
+          starterBotFlowAlreadyCompleted = await withTenantTransaction((tx) =>
+            isStarterBotFlowCompletedSent(
+              {
+                businessId: user.businessId,
+                conversationId: conversation.id,
+              },
+              { tx }
+            )
+          );
         } catch (completedCheckErr) {
           console.warn(
             "starter-bot flow completion check failed:",
@@ -516,10 +608,15 @@ export async function POST(req: Request) {
           try {
             let derivedNextQuestionIndex = 0;
             try {
-              derivedNextQuestionIndex = await deriveStarterBotNextQuestionIndex({
-                businessId: user.businessId,
-                conversationId: conversation.id,
-              });
+              derivedNextQuestionIndex = await withTenantTransaction((tx) =>
+                deriveStarterBotNextQuestionIndex(
+                  {
+                    businessId: user.businessId,
+                    conversationId: conversation.id,
+                  },
+                  { tx }
+                )
+              );
             } catch (deriveErr) {
               console.warn("derive starter-bot nextQuestionIndex failed:", deriveErr);
               derivedNextQuestionIndex = 0;
@@ -633,37 +730,40 @@ export async function POST(req: Request) {
               starterDraft.replyText.trim().length > 0
             ) {
               try {
-                const existingBotDraft = await prisma.replySuggestion.findFirst({
-                  where: {
-                    businessId: user.businessId,
-                    conversationId: conversation.id,
-                    messageId: message.id,
-                    suggestionType: "STARTER_BOT_DRAFT",
-                  },
-                });
-
-                if (!existingBotDraft) {
-                  const variantType =
-                    starterDraft.replyKind && starterDraft.replyKind.trim().length > 0
-                      ? starterDraft.replyKind
-                      : "BOT_DRAFT";
-
-                  await prisma.replySuggestion.create({
-                    data: {
+                await withTenantTransaction(async (tx) => {
+                  const existingBotDraft = await tx.replySuggestion.findFirst({
+                    where: {
                       businessId: user.businessId,
                       conversationId: conversation.id,
                       messageId: message.id,
                       suggestionType: "STARTER_BOT_DRAFT",
-                      strategyType: "STARTER_BOT",
-                      variantType,
-                      variantIndex: 0,
-                      text: starterDraft.replyText.trim(),
-                      toneLabel: "bot",
-                      strategyLabel: "Starter Bot",
-                      status: "GENERATED",
                     },
                   });
-                }
+
+                  if (!existingBotDraft) {
+                    const variantType =
+                      starterDraft.replyKind &&
+                      starterDraft.replyKind.trim().length > 0
+                        ? starterDraft.replyKind
+                        : "BOT_DRAFT";
+
+                    await tx.replySuggestion.create({
+                      data: {
+                        businessId: user.businessId,
+                        conversationId: conversation.id,
+                        messageId: message.id,
+                        suggestionType: "STARTER_BOT_DRAFT",
+                        strategyType: "STARTER_BOT",
+                        variantType,
+                        variantIndex: 0,
+                        text: starterDraft.replyText.trim(),
+                        toneLabel: "bot",
+                        strategyLabel: "Starter Bot",
+                        status: "GENERATED",
+                      },
+                    });
+                  }
+                });
               } catch (botDraftSuggestionErr) {
                 console.warn(
                   "starter-bot ReplySuggestion draft create failed:",
@@ -687,12 +787,15 @@ export async function POST(req: Request) {
       .reverse()
       .find((message) => message.stageLabel);
 
-    const updatedOutcomeSuggestion = await updateLatestSentSuggestionOutcome({
-      conversationId: createdMessage.conversationId,
-      currentMessageCreatedAt: createdMessage.createdAt,
-      previousStage: previousMessageWithStage?.stageLabel,
-      currentStage: analysis.stage,
-    });
+    const updatedOutcomeSuggestion = await withTenantTransaction((tx) =>
+      updateLatestSentSuggestionOutcome(tx, {
+        businessId: user.businessId,
+        conversationId: createdMessage.conversationId,
+        currentMessageCreatedAt: createdMessage.createdAt,
+        previousStage: previousMessageWithStage?.stageLabel,
+        currentStage: analysis.stage,
+      })
+    );
 
     const mode = getSuggestionMode(
       analysis,
@@ -716,7 +819,9 @@ export async function POST(req: Request) {
       }) && !botRequiresHandoff;
 
     const generatedSuggestions = offerAutoSuggestions
-      ? await generateReplySuggestions(message, analysis, contextMessages)
+      ? await withTenantTransaction((tx) =>
+          generateReplySuggestions(message, analysis, contextMessages, { tx })
+        )
       : [];
 
     let suggestions: any[] = [];

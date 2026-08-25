@@ -9,6 +9,8 @@ import {
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 50;
@@ -155,7 +157,11 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const limit = parseLimit(searchParams.get("limit"));
 
-    const openConversationRows = await prisma.conversation.findMany({
+    // D2/P7-W4B: all reads for the attention computation run on ONE
+    // read-only tenant transaction (Message/ReplySuggestion are FORCE-RLS'd).
+    return await runWithTenantContext({ businessId: user.businessId }, () =>
+      withTenantTransaction(async (tx) => {
+    const openConversationRows = await tx.conversation.findMany({
       where: {
         businessId,
         status: "OPEN",
@@ -178,7 +184,7 @@ export async function GET(req: Request) {
     let waitingForReply: AttentionItem[] = [];
 
     if (openIds.length > 0) {
-      const recentMessages = await prisma.message.findMany({
+      const recentMessages = await tx.message.findMany({
         where: {
           businessId,
           conversationId: { in: openIds },
@@ -221,7 +227,7 @@ export async function GET(req: Request) {
 
       let waitingWithOpenSuggestion = new Set<number>();
       if (waitingConvIds.length > 0) {
-        const suggestionRows = await prisma.replySuggestion.findMany({
+        const suggestionRows = await tx.replySuggestion.findMany({
           where: {
             businessId,
             conversationId: { in: waitingConvIds },
@@ -259,7 +265,7 @@ export async function GET(req: Request) {
     let pendingSmartSuggestion: AttentionItem[] = [];
 
     if (openIds.length > 0) {
-      const pendingSuggestions = await prisma.replySuggestion.findMany({
+      const pendingSuggestions = await tx.replySuggestion.findMany({
         where: {
           businessId,
           conversationId: { in: openIds },
@@ -293,7 +299,7 @@ export async function GET(req: Request) {
       const convIdsNeeded = [...new Set(picked.map((s) => s.conversationId))];
       const convRows =
         convIdsNeeded.length > 0
-          ? await prisma.conversation.findMany({
+          ? await tx.conversation.findMany({
               where: {
                 id: { in: convIdsNeeded },
                 businessId,
@@ -343,7 +349,7 @@ export async function GET(req: Request) {
       ...pendingIdSet,
     ]);
 
-    const closedConversations = await prisma.conversation.findMany({
+    const closedConversations = await tx.conversation.findMany({
       where: {
         businessId,
         status: "CLOSED",
@@ -371,7 +377,7 @@ export async function GET(req: Request) {
     let lastMessageSnippetByClosedId = new Map<number, string | null>();
 
     if (closedIds.length > 0) {
-      const msgsForClosed = await prisma.message.findMany({
+      const msgsForClosed = await tx.message.findMany({
         where: {
           businessId,
           conversationId: { in: closedIds },
@@ -413,6 +419,8 @@ export async function GET(req: Request) {
       pendingSmartSuggestion,
       recentlyHandled,
     });
+      })
+    );
   } catch (error: unknown) {
     console.error("GET /api/inbox/attention error:", error);
 
