@@ -21,6 +21,11 @@ GRANT SELECT, INSERT ON "ContentRun" TO :ROLE;
 GRANT USAGE, SELECT ON SEQUENCE "ContentRun_id_seq" TO :ROLE;
 GRANT SELECT, INSERT ON "ContentVariant" TO :ROLE;
 GRANT USAGE, SELECT ON SEQUENCE "ContentVariant_id_seq" TO :ROLE;
+-- ContentRender: proof-driven minimal (the depth-2 adversarial proof is the
+-- only current consumer — renders are provider-side today; expands when a
+-- real persistence path lands).
+GRANT SELECT, INSERT ON "ContentRender" TO :ROLE;
+GRANT USAGE, SELECT ON SEQUENCE "ContentRender_id_seq" TO :ROLE;
 
 -- Usage quota counters (content/render)
 GRANT SELECT, INSERT, UPDATE ON "Usage" TO :ROLE;
