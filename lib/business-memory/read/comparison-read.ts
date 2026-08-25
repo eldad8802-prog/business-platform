@@ -17,6 +17,7 @@ import { decideCategory } from "@/lib/services/documents/category-decision.servi
 import { resolveVendorCategoryWithMemory, defaultCoordinatorDeps } from "./coordinator";
 import type { CoordinatorDeps, IncumbentDecision, VendorCategoryDecision } from "./coordinator.contract";
 import { isReadEnabled } from "./read-config";
+import { persistComparisonObservation } from "./comparison-sink";
 
 export type ComparisonResult = "agree" | "disagree" | "not-applicable";
 
@@ -50,11 +51,14 @@ export function defaultComparisonDeps(): ComparisonDeps {
     runCoordinator: (input, deps) => resolveVendorCategoryWithMemory(input, deps),
     buildCoordinatorDeps: () => defaultCoordinatorDeps(),
     log: (entry) => {
+      // Ephemeral runtime log (kept) + durable telemetry sink (queryable via a gated SELECT). Both are
+      // best-effort and can never affect the product result.
       try {
         console.info(JSON.stringify(entry));
       } catch {
         /* logging must never affect the product result */
       }
+      void persistComparisonObservation(entry);
     },
   };
 }
