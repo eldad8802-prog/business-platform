@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { coerceSelectedGoalKeys, validateSetupPatch } from "@/lib/features/bot";
 
 /**
@@ -56,17 +57,21 @@ export async function GET(req: Request) {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);
 
-    const bot = await prisma.businessBot.findUnique({
-      where: { businessId: user.businessId },
-      select: { id: true },
-    });
-    if (!bot) {
-      return NextResponse.json({ success: true, persisted: false, draft: defaultDraft() });
-    }
-    const row = await prisma.businessBotSetupDraft.findUnique({
-      where: { botId: bot.id },
-      select: DRAFT_SELECT,
-    });
+    const row = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const bot = await tx.businessBot.findUnique({
+            where: { businessId: user.businessId },
+            select: { id: true },
+          });
+          if (!bot) return null;
+          return tx.businessBotSetupDraft.findUnique({
+            where: { botId: bot.id },
+            select: DRAFT_SELECT,
+          });
+        })
+    );
     if (!row) {
       return NextResponse.json({ success: true, persisted: false, draft: defaultDraft() });
     }
@@ -110,20 +115,24 @@ export async function PATCH(req: Request) {
       createExtra.status = patch.status;
     }
 
-    const row = await prisma.$transaction(async (tx) => {
-      const bot = await tx.businessBot.upsert({
-        where: { businessId: user.businessId },
-        update: {},
-        create: { businessId: user.businessId },
-        select: { id: true },
-      });
-      return tx.businessBotSetupDraft.upsert({
-        where: { botId: bot.id },
-        update,
-        create: { botId: bot.id, ...createExtra },
-        select: DRAFT_SELECT,
-      });
-    });
+    const row = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const bot = await tx.businessBot.upsert({
+            where: { businessId: user.businessId },
+            update: {},
+            create: { businessId: user.businessId },
+            select: { id: true },
+          });
+          return tx.businessBotSetupDraft.upsert({
+            where: { botId: bot.id },
+            update,
+            create: { botId: bot.id, ...createExtra },
+            select: DRAFT_SELECT,
+          });
+        })
+    );
 
     return NextResponse.json({ success: true, persisted: true, draft: serialize(row) });
   } catch (error) {
@@ -137,15 +146,18 @@ export async function DELETE(req: Request) {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);
 
-    const bot = await prisma.businessBot.findUnique({
-      where: { businessId: user.businessId },
-      select: { id: true },
-    });
-    if (bot) {
-      await prisma.businessBotSetupDraft
-        .delete({ where: { botId: bot.id } })
-        .catch(() => undefined); // idempotent reset
-    }
+    await runWithTenantContext({ businessId: user.businessId }, () =>
+      withTenantTransaction(async (tx) => {
+        const bot = await tx.businessBot.findUnique({
+          where: { businessId: user.businessId },
+          select: { id: true },
+        });
+        if (bot) {
+          // deleteMany = idempotent reset (0 rows is fine)
+          await tx.businessBotSetupDraft.deleteMany({ where: { botId: bot.id } });
+        }
+      })
+    );
     return NextResponse.json({ success: true, persisted: false, draft: defaultDraft() });
   } catch (error) {
     console.error("BOT_SETUP_DELETE_ERROR:", error);

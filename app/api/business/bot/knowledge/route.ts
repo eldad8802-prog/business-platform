@@ -98,20 +98,24 @@ export async function PUT(req: Request) {
       faq: k.faq as unknown as Prisma.InputJsonValue,
     };
 
-    const row = await prisma.$transaction(async (tx) => {
-      const bot = await tx.businessBot.upsert({
-        where: { businessId: user.businessId },
-        update: {},
-        create: { businessId: user.businessId },
-        select: { id: true },
-      });
-      return tx.businessBotKnowledge.upsert({
-        where: { botId: bot.id },
-        update: data,
-        create: { botId: bot.id, ...data },
-        select: KNOWLEDGE_SELECT,
-      });
-    });
+    const row = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const bot = await tx.businessBot.upsert({
+            where: { businessId: user.businessId },
+            update: {},
+            create: { businessId: user.businessId },
+            select: { id: true },
+          });
+          return tx.businessBotKnowledge.upsert({
+            where: { botId: bot.id },
+            update: data,
+            create: { botId: bot.id, ...data },
+            select: KNOWLEDGE_SELECT,
+          });
+        })
+    );
 
     return NextResponse.json({
       success: true,

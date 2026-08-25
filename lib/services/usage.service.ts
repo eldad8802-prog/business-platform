@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
+import type { TenantTx } from "@/lib/tenant/transaction";
 
 type Plan = "FREE" | "PRO" | "PREMIUM";
+
+/** D2/P7 Wave 2: bind to the tenant transaction when provided (RLS backstop). */
+type TxOptions = { tx?: TenantTx };
 
 function getLimits(plan: Plan) {
   if (plan === "FREE") {
@@ -26,12 +30,14 @@ function getWeekKey() {
 
 export async function checkUsage(
   businessId: number,
-  plan: Plan
+  plan: Plan,
+  options?: TxOptions
 ) {
+  const db = options?.tx ?? prisma;
   const limits = getLimits(plan);
   const weekKey = getWeekKey();
 
-  const usage = await prisma.usage.findFirst({
+  const usage = await db.usage.findFirst({
     where: {
       businessId,
       type: "video_generation",
@@ -50,11 +56,13 @@ export async function checkUsage(
 }
 
 export async function incrementUsage(
-  businessId: number
+  businessId: number,
+  options?: TxOptions
 ) {
+  const db = options?.tx ?? prisma;
   const weekKey = getWeekKey();
 
-  const existing = await prisma.usage.findFirst({
+  const existing = await db.usage.findFirst({
     where: {
       businessId,
       type: "video_generation",
@@ -63,7 +71,7 @@ export async function incrementUsage(
   });
 
   if (!existing) {
-    await prisma.usage.create({
+    await db.usage.create({
       data: {
         businessId,
         type: "video_generation",
@@ -75,7 +83,7 @@ export async function incrementUsage(
     return;
   }
 
-  await prisma.usage.update({
+  await db.usage.update({
     where: { id: existing.id },
     data: {
       count: existing.count + 1,

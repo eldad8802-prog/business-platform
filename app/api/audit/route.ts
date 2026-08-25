@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
-import { prisma } from "@/lib/prisma";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { ValidationError } from "@/lib/errors";
 
 export async function GET(req: NextRequest) {
@@ -38,19 +39,24 @@ export async function GET(req: NextRequest) {
       ...(entityType ? { entityType } : {}),
     };
 
-    const [events, total] = await Promise.all([
-      prisma.learningEvent.findMany({
-        where,
-        orderBy: {
-          createdAt: "desc",
-        },
-        skip,
-        take: limit,
-      }),
-      prisma.learningEvent.count({
-        where,
-      }),
-    ]);
+    // Sequential inside one tenant transaction (a TenantTx must not run
+    // concurrent queries).
+    const { events, total } = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const eventRows = await tx.learningEvent.findMany({
+            where,
+            orderBy: {
+              createdAt: "desc",
+            },
+            skip,
+            take: limit,
+          });
+          const count = await tx.learningEvent.count({ where });
+          return { events: eventRows, total: count };
+        })
+    );
 
     return NextResponse.json(
       {

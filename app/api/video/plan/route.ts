@@ -13,6 +13,8 @@ import { buildCreativeBlueprint } from "@/lib/features/content/creative-blueprin
 import { buildRenderBlueprint } from "@/lib/features/content/render-blueprint/render-blueprint.engine";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { persistContentPlanV1 } from "@/lib/services/content-plan-persistence-v1.service";
 import {
   normalizeContentGoalPromptForStorage,
@@ -208,15 +210,22 @@ export async function POST(req: Request) {
 
     const result = await buildVideoPlan({ ...planInput, blueprint });
 
-    await persistContentPlanV1({
-      user: { id: user.id, businessId: user.businessId },
-      body,
-      resolvedBusinessType,
-      profileCategory: dbCategory,
-      profileSubCategory: dbSubCategory,
-      variants: result.variants,
-      selectedPlatform: body.selectedPlatform ?? "instagram",
-    });
+    await runWithTenantContext({ businessId: user.businessId }, () =>
+      withTenantTransaction((tx) =>
+        persistContentPlanV1(
+          {
+            user: { id: user.id, businessId: user.businessId },
+            body,
+            resolvedBusinessType,
+            profileCategory: dbCategory,
+            profileSubCategory: dbSubCategory,
+            variants: result.variants,
+            selectedPlatform: body.selectedPlatform ?? "instagram",
+          },
+          { tx }
+        )
+      )
+    );
 
     const renderBlueprint = buildRenderBlueprint(
       blueprint,

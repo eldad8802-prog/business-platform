@@ -1,5 +1,6 @@
 import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 type Platform = "instagram" | "tiktok" | "facebook" | "other";
 
@@ -114,7 +115,9 @@ export async function POST(req: Request) {
     return Response.json({ error: "invalid_metrics" }, { status: 400 });
   }
 
-  await prisma.learningEvent.create({
+  await runWithTenantContext({ businessId: user.businessId }, () =>
+    withTenantTransaction((tx) =>
+      tx.learningEvent.create({
     data: {
       businessId: user.businessId,
       eventType: "CONTENT_POST_PERFORMANCE_RECORDED",
@@ -138,7 +141,9 @@ export async function POST(req: Request) {
         ...(note ? { note } : {}),
       },
     },
-  });
+      })
+    )
+  );
 
   return Response.json({ success: true });
 }

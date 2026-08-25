@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePlatformAdminOrResponse } from "@/lib/auth/platform-admin";
+import { getPrismaAdmin } from "@/lib/prisma-admin";
 import { handleError } from "@/lib/handle-error";
 import {
   PLATFORM_AUDIT_ACTIONS,
@@ -16,12 +17,17 @@ export async function GET(req: NextRequest) {
 
     const overview = await getPlatformAdminOverview();
 
-    await logPlatformAuditEvent({
-      actorUserId: auth.id,
-      action: PLATFORM_AUDIT_ACTIONS.OVERVIEW_VIEWED,
-      targetType: "SYSTEM",
-      req,
-    });
+    // Migrated route (D2/P7 Wave 2): overview reads + the audit append run as
+    // the admin role — no tenant-Prisma fallback on this path.
+    await logPlatformAuditEvent(
+      {
+        actorUserId: auth.id,
+        action: PLATFORM_AUDIT_ACTIONS.OVERVIEW_VIEWED,
+        targetType: "SYSTEM",
+        req,
+      },
+      { db: getPrismaAdmin() }
+    );
 
     return NextResponse.json(overview, { status: 200 });
   } catch (error) {

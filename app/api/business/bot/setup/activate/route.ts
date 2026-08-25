@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import {
   coerceSelectedGoalKeys,
   materializeSettingsFromBase,
@@ -30,21 +31,30 @@ export async function POST(req: Request) {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);
 
-    const bot = await prisma.businessBot.findUnique({
-      where: { businessId: user.businessId },
-      select: { id: true },
-    });
-    const draft = bot
-      ? await prisma.businessBotSetupDraft.findUnique({
-          where: { botId: bot.id },
-          select: {
-            id: true,
-            status: true,
-            assembledBase: true,
-            selectedGoalKeys: true,
-          },
+    const loaded = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const botRow = await tx.businessBot.findUnique({
+            where: { businessId: user.businessId },
+            select: { id: true },
+          });
+          const draftRow = botRow
+            ? await tx.businessBotSetupDraft.findUnique({
+                where: { botId: botRow.id },
+                select: {
+                  id: true,
+                  status: true,
+                  assembledBase: true,
+                  selectedGoalKeys: true,
+                },
+              })
+            : null;
+          return { bot: botRow, draft: draftRow };
         })
-      : null;
+    );
+    const bot = loaded.bot;
+    const draft = loaded.draft;
 
     if (!bot || !draft) {
       return NextResponse.json(
@@ -76,7 +86,8 @@ export async function POST(req: Request) {
     const mat = materializeSettingsFromBase(base);
     const sources = base.sources;
 
-    await prisma.$transaction(async (tx) => {
+    await runWithTenantContext({ businessId: user.businessId }, () =>
+      withTenantTransaction(async (tx) => {
       // Controlled write — ONLY the allowed fields. Create defaults stay OFF
       // (enabled:false, mode:STARTER, channel:WHATSAPP) — activation never
       // flips the bot on.
@@ -115,7 +126,8 @@ export async function POST(req: Request) {
           } as unknown as Prisma.InputJsonValue,
         },
       });
-    });
+      })
+    );
 
     return NextResponse.json({
       success: true,

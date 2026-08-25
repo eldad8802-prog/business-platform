@@ -1,0 +1,76 @@
+# D2 / P7 Wave 2 — adversarial battery on ephemeral PG17 (bot-children /
+# content / learning / party / RIA / memory cluster + admin interaction).
+# Full provision, proof matrix, real tenant + admin routes, rollback proof,
+# idempotent re-apply. Synthetic CI-only creds; ZERO secrets; ZERO Neon.
+
+name: d2/p7 — wave 2 battery (ephemeral PG17)
+
+on:
+  push:
+    branches: [feat/d2-p7-wave2]
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20260825150000_d2_p7_wave2_tenant_rls/**"
+      - "scripts/security/d2-p7-wave2-*.sql"
+      - ".p7w2/**"
+      - "app/api/business/bot/**"
+      - "app/api/audit/**"
+      - "app/api/content/**"
+      - "app/api/video/plan/**"
+      - "app/api/platform-admin/overview/**"
+      - "lib/services/platform-admin/platform-overview.service.ts"
+      - "lib/services/usage.service.ts"
+      - "lib/services/content-plan-persistence-v1.service.ts"
+      - "lib/tenant/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wave2-battery:
+    name: Wave-2 battery (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: p7w2_owner
+          POSTGRES_PASSWORD: p7w2_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_p7w2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U p7w2_owner -d dubiz_p7w2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .p7w2/battery.mjs
+
+      - name: Push schema (lab; migrate-from-zero is a known separate defect)
+        env:
+          DATABASE_URL: postgresql://p7w2_owner:p7w2_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w2
+          DIRECT_URL: postgresql://p7w2_owner:p7w2_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w2
+        run: npx prisma db push --skip-generate
+
+      - name: Run Wave-2 battery
+        env:
+          BATTERY_TARGET: pg
+          DATABASE_URL: postgresql://p7w2_owner:p7w2_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w2
+          DIRECT_URL: postgresql://p7w2_owner:p7w2_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w2
+          RUNTIME_URL: postgresql://wave1_runtime:p7w1_ci_synthetic_pw@localhost:5432/dubiz_p7w2
+          ADMIN_LOGIN_ROLE: app_admin_lab
+          W2G_ADMIN_PW: p7w2g_ci_synthetic_admin_pw
+          AUTH_TOKEN_SECRET: p7w2_ci_auth_secret_synthetic_not_a_real_secret
+        run: npx tsx .p7w2/battery.mjs
