@@ -7,7 +7,25 @@ import {
 import { runGoogleVisionOCR } from "@/lib/services/documents/google-vision-ocr.service";
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
 import { writeTempOcrFile } from "@/lib/services/integrations/gmail/temp-ocr-file.service";
+import { Prisma } from "@prisma/client";
+import { getTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { getAccessTokenForBusiness } from "./connection.service";
+
+/**
+ * D2/P7-W4B: run a single DB step on a short tenant transaction when a tenant
+ * context is established (the webhook path always is — runTenantJob). Outside
+ * a context (pure unit tests with stubbed deps) the step runs directly. Under
+ * an established context there is NO fallback to the global client.
+ */
+async function dbStep<T>(
+  fn: (tx?: Prisma.TransactionClient) => Promise<T>
+): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    return withTenantTransaction((tx) => fn(tx));
+  }
+  return fn(undefined);
+}
 import { fetchAndValidateWhatsAppMedia } from "./media-fetch.service";
 import type { MediaFetchDeps, MediaFetchResult } from "./media-fetch.types";
 import type { DocumentsIntakeMediaType } from "./routing.types";
@@ -113,10 +131,15 @@ export async function processWhatsAppDocumentsIntake(
   input: WhatsAppDocumentsIntakeInput,
   deps: WhatsAppIntakeDeps = defaultWhatsAppIntakeDeps
 ): Promise<WhatsAppIntakeOutcome> {
-  const wamidDedup = await deps.checkWamidDedup({
-    businessId: input.businessId,
-    wamid: input.wamid,
-  });
+  const wamidDedup = await dbStep((tx) =>
+    deps.checkWamidDedup(
+      {
+        businessId: input.businessId,
+        wamid: input.wamid,
+      },
+      { tx }
+    )
+  );
   if (!wamidDedup.ok) {
     return { status: "skipped_duplicate", reason: "wamid" };
   }
@@ -131,15 +154,20 @@ export async function processWhatsAppDocumentsIntake(
       // No usable token for this business (not connected / revoked). Fail in a
       // controlled way — do NOT fall back to any global token. The token value
       // itself is never logged or surfaced.
-      const failed = await deps.createFailedImport({
-        businessId: input.businessId,
-        wamid: input.wamid,
-        mediaId: input.mediaId,
-        phoneNumberId: input.phoneNumberId,
-        fromPhone: input.sender,
-        mediaType: input.mediaType,
-        error: "media_fetch:missing_access_token",
-      });
+      const failed = await dbStep((tx) =>
+        deps.createFailedImport(
+          {
+            businessId: input.businessId,
+            wamid: input.wamid,
+            mediaId: input.mediaId,
+            phoneNumberId: input.phoneNumberId,
+            fromPhone: input.sender,
+            mediaType: input.mediaType,
+            error: "media_fetch:missing_access_token",
+          },
+          { tx }
+        )
+      );
       return {
         status: "failed",
         reason: "missing_access_token",
@@ -154,15 +182,20 @@ export async function processWhatsAppDocumentsIntake(
     mediaFetchDeps
   );
   if (!mediaResult.ok) {
-    const failed = await deps.createFailedImport({
-      businessId: input.businessId,
-      wamid: input.wamid,
-      mediaId: input.mediaId,
-      phoneNumberId: input.phoneNumberId,
-      fromPhone: input.sender,
-      mediaType: input.mediaType,
-      error: `media_fetch:${mediaResult.reason}`,
-    });
+    const failed = await dbStep((tx) =>
+      deps.createFailedImport(
+        {
+          businessId: input.businessId,
+          wamid: input.wamid,
+          mediaId: input.mediaId,
+          phoneNumberId: input.phoneNumberId,
+          fromPhone: input.sender,
+          mediaType: input.mediaType,
+          error: `media_fetch:${mediaResult.reason}`,
+        },
+        { tx }
+      )
+    );
     return {
       status: "failed",
       reason: mediaResult.reason,
@@ -172,25 +205,55 @@ export async function processWhatsAppDocumentsIntake(
 
   const contentHashSha256 = deps.sha256Hex(mediaResult.buffer);
 
-  const hashDedup = await deps.checkHashDedup({
-    businessId: input.businessId,
-    contentHashSha256,
-  });
+  const hashDedup = await dbStep((tx) =>
+    deps.checkHashDedup(
+      {
+        businessId: input.businessId,
+        contentHashSha256,
+      },
+      { tx }
+    )
+  );
   if (!hashDedup.ok) {
     return { status: "skipped_duplicate", reason: "content_hash" };
   }
 
-  const claim = await deps.claimProcessing({
-    businessId: input.businessId,
-    wamid: input.wamid,
-    mediaId: input.mediaId,
-    phoneNumberId: input.phoneNumberId,
-    fromPhone: input.sender,
-    mimeType: mediaResult.mimeType,
-    sizeBytes: mediaResult.sizeBytes,
-    filename: mediaResult.filename,
-    contentHashSha256,
-  });
+  // The claim INSERT gets its own transaction: a P2002 race aborts only this
+  // tx; the wamid-vs-hash disambiguation then runs on a fresh transaction.
+  let claim: Awaited<ReturnType<typeof deps.claimProcessing>>;
+  try {
+    claim = await dbStep((tx) =>
+      deps.claimProcessing(
+        {
+          businessId: input.businessId,
+          wamid: input.wamid,
+          mediaId: input.mediaId,
+          phoneNumberId: input.phoneNumberId,
+          fromPhone: input.sender,
+          mimeType: mediaResult.mimeType,
+          sizeBytes: mediaResult.sizeBytes,
+          filename: mediaResult.filename,
+          contentHashSha256,
+        },
+        { tx }
+      )
+    );
+  } catch (claimErr) {
+    if (
+      claimErr instanceof Prisma.PrismaClientKnownRequestError &&
+      claimErr.code === "P2002"
+    ) {
+      const byWamid = await dbStep((tx) =>
+        deps.checkWamidDedup(
+          { businessId: input.businessId, wamid: input.wamid },
+          { tx }
+        )
+      );
+      claim = { ok: false, reason: byWamid.ok ? "content_hash" : "wamid" };
+    } else {
+      throw claimErr;
+    }
+  }
   if (!claim.ok) {
     return { status: "skipped_duplicate", reason: claim.reason };
   }
@@ -201,7 +264,12 @@ export async function processWhatsAppDocumentsIntake(
   let documentCreated = false;
 
   const fail = async (reason: string): Promise<WhatsAppIntakeOutcome> => {
-    await deps.markFailed({ importId, error: reason });
+    await dbStep((tx) =>
+      deps.markFailed(
+        { importId, businessId: input.businessId, error: reason },
+        { tx }
+      )
+    );
     if (storedFileName && !documentCreated) {
       try {
         await deps.deleteDocument(input.businessId, storedFileName);
@@ -258,10 +326,16 @@ export async function processWhatsAppDocumentsIntake(
     }
 
     documentCreated = true;
-    await deps.markImported({
-      importId,
-      documentId: created.documentId,
-    });
+    await dbStep((tx) =>
+      deps.markImported(
+        {
+          importId,
+          businessId: input.businessId,
+          documentId: created.documentId,
+        },
+        { tx }
+      )
+    );
 
     return {
       status: "imported",

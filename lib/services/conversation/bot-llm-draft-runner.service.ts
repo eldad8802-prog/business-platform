@@ -10,7 +10,22 @@
  * Injectable deps make the gating + persistence decisions testable without a DB
  * or a real model.
  */
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+// D2/P7-W4B: each DB dep runs on a short tenant transaction when a tenant
+// context is established (webhook/api-message paths always are). The OpenAI
+// call dep never runs inside a transaction.
+async function dbStep<T>(
+  fn: (db: Prisma.TransactionClient | typeof prisma) => Promise<T>
+): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    return withTenantTransaction((tx) => fn(tx));
+  }
+  return fn(prisma);
+}
 import { parseBotControlHandoffRules } from "@/lib/features/conversation/bot-control";
 import type { BotGuardrailContextMessage } from "@/lib/features/conversation/guardrails";
 import {
@@ -118,14 +133,18 @@ export function defaultBotLlmDraftRunnerDeps(): BotLlmDraftRunnerDeps {
     complete: completeBotLlmDraftOpenAI,
     loadComposeContext: (businessId, opts) => loadBotComposeContext(businessId, opts),
     countInboundCustomer: (conversationId) =>
-      prisma.message.count({
-        where: { conversationId, direction: "INBOUND", senderType: "CUSTOMER" },
-      }),
+      dbStep((db) =>
+        db.message.count({
+          where: { conversationId, direction: "INBOUND", senderType: "CUSTOMER" },
+        })
+      ),
     priorSuggestions: async ({ businessId, conversationId, messageId }) => {
-      const rows = await prisma.replySuggestion.findMany({
-        where: { businessId, conversationId, messageId },
-        select: { suggestionType: true, text: true },
-      });
+      const rows = await dbStep((db) =>
+        db.replySuggestion.findMany({
+          where: { businessId, conversationId, messageId },
+          select: { suggestionType: true, text: true },
+        })
+      );
       return {
         items: rows.map((r) => ({
           suggestionType: r.suggestionType,
@@ -139,13 +158,16 @@ export function defaultBotLlmDraftRunnerDeps(): BotLlmDraftRunnerDeps {
       console.info("[bot-llm-draft] SHADOW_METRIC", record);
     },
     hasExistingLlmDraft: async ({ businessId, conversationId, messageId }) => {
-      const existing = await prisma.replySuggestion.findFirst({
-        where: { businessId, conversationId, messageId, suggestionType: "LLM_DRAFT" },
-      });
+      const existing = await dbStep((db) =>
+        db.replySuggestion.findFirst({
+          where: { businessId, conversationId, messageId, suggestionType: "LLM_DRAFT" },
+        })
+      );
       return existing != null;
     },
     createLlmDraft: async ({ businessId, conversationId, messageId, text }) => {
-      await prisma.replySuggestion.create({
+      await dbStep((db) =>
+        db.replySuggestion.create({
         data: {
           businessId,
           conversationId,
@@ -159,7 +181,8 @@ export function defaultBotLlmDraftRunnerDeps(): BotLlmDraftRunnerDeps {
           strategyLabel: "LLM Draft",
           status: "GENERATED",
         },
-      });
+        })
+      );
     },
   };
 }

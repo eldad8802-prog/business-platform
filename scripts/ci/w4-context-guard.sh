@@ -94,11 +94,33 @@ run_guard() {
     echo "CI-W4-5 FAIL: $DOC missing"; fail=1
   fi
 
+  # ── CI-W4B-1: WhatsAppConnection must NEVER receive tenant RLS ──────────
+  if grep -rn "ROW LEVEL SECURITY" prisma/migrations --include="*.sql" 2>/dev/null | grep -q "WhatsAppConnection"; then
+    echo "CI-W4B-1 FAIL: a migration puts RLS on WhatsAppConnection (provider bootstrap)"; fail=1
+  fi
+
+  # ── CI-W4B-2: Message dedup stays tenant-scoped ──────────────────────────
+  if [ -f prisma/schema.prisma ] && ! grep -q "@@unique(\[businessId, providerMessageId\])" prisma/schema.prisma; then
+    echo "CI-W4B-2 FAIL: Message lost its tenant-scoped provider unique"; fail=1
+  fi
+
+  # ── CI-W4B-3: no global-Prisma W4B writes in post-Phase-A paths ──────────
+  # These files were tx-threaded in W4B; a reappearing prisma.<model>.write
+  # would bypass the tenant transaction. The "?? prisma" fallback declaration
+  # lines are the sanctioned pattern and are excluded.
+  W4B_WRITE_RX="prisma\.(message|messageAnalysis|replySuggestion|businessBotSettings|whatsAppAttachmentImport)\.(create|update|upsert|delete)"
+  W4B_FILES="lib/services/conversation/inbound-message-pipeline.service.ts lib/reply-suggestions/generate-reply-suggestions.ts lib/services/integrations/whatsapp/whatsapp-import-row.service.ts lib/services/integrations/whatsapp/conversation-intake.service.ts lib/learning/update-learning.ts"
+  for wf in $W4B_FILES; do
+    if [ -f "$wf" ] && grep -nE "$W4B_WRITE_RX" "$wf" >/dev/null; then
+      echo "CI-W4B-3 FAIL: $wf writes a W4B table on the global client"; fail=1
+    fi
+  done
+
   if [ "$fail" -ne 0 ]; then
     echo "W4-CONTEXT-GUARD FAILED"
     return 1
   fi
-  echo "W4-CONTEXT-GUARD OK — CI-W4-1..5 clean."
+  echo "W4-CONTEXT-GUARD OK — CI-W4-1..5 + CI-W4B-1..3 clean."
 }
 
 self_test() {
@@ -143,6 +165,10 @@ TS
     cat > "$T/app/api/integrations/gmail/connect/route.ts" <<'TS'
 // clean
 TS
+    mkdir -p "$T/prisma/migrations/m1" "$T/lib/services/conversation" "$T/lib/reply-suggestions" "$T/lib/learning"
+    printf 'CREATE POLICY x ON "Message";\n' > "$T/prisma/migrations/m1/migration.sql"
+    printf 'model Message {\n  @@unique([businessId, providerMessageId])\n}\n' > "$T/prisma/schema.prisma"
+    printf 'const db = options?.tx ?? prisma;\n' > "$T/lib/services/conversation/inbound-message-pipeline.service.ts"
     cat > "$T/docs/security-d2-provider-bootstrap-allowlist-v1.md" <<'MD'
 POSApiKey WhatsAppConnection PaymentWebhookEvent
 MD
@@ -201,6 +227,18 @@ TS
   local T6="$BASE/v6"; make_clean_tree "$T6"
   rm "$T6/docs/security-d2-provider-bootstrap-allowlist-v1.md"
   check "CI-W4-5 catches missing allowlist doc" FAIL "$T6"
+
+  local T7="$BASE/v7"; make_clean_tree "$T7"
+  printf 'ALTER TABLE "WhatsAppConnection" ENABLE ROW LEVEL SECURITY;\n' >> "$T7/prisma/migrations/m1/migration.sql"
+  check "CI-W4B-1 catches RLS on WhatsAppConnection" FAIL "$T7"
+
+  local T8="$BASE/v8"; make_clean_tree "$T8"
+  printf 'model Message {\n}\n' > "$T8/prisma/schema.prisma"
+  check "CI-W4B-2 catches lost Message unique" FAIL "$T8"
+
+  local T9="$BASE/v9"; make_clean_tree "$T9"
+  printf 'await prisma.replySuggestion.create({});\n' >> "$T9/lib/services/conversation/inbound-message-pipeline.service.ts"
+  check "CI-W4B-3 catches global-client W4B write" FAIL "$T9"
 
   echo "self-test: ok=$ok bad=$bad"
   [ "$bad" -eq 0 ]

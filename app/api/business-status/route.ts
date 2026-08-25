@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getBusinessStatusSnapshot } from "@/lib/business-status/business-status.service";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
 
 export async function GET(req: Request) {
   try {
@@ -12,7 +13,12 @@ export async function GET(req: Request) {
     }
 
     const businessId = user.businessId;
-    const snapshot = await getBusinessStatusSnapshot(businessId);
+    // D2/P7-W4B: the snapshot loaders read FORCE-RLS'd tables (Message,
+    // ReplySuggestion) — run under the session tenant context so their
+    // context-aware tenant transactions engage.
+    const snapshot = await runWithTenantContext({ businessId }, () =>
+      getBusinessStatusSnapshot(businessId)
+    );
 
     return NextResponse.json(snapshot);
   } catch (error: unknown) {

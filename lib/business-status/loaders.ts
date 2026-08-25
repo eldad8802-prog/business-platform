@@ -9,6 +9,20 @@ import {
 } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { getTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+// D2/P7-W4B: reads of FORCE-RLS'd tables run on a short tenant transaction
+// when a tenant context is established (the business-status route always
+// sets one); outside a context they read directly (legacy/tests).
+async function dbStep<T>(
+  fn: (db: Prisma.TransactionClient | typeof prisma) => Promise<T>
+): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    return withTenantTransaction((tx) => fn(tx));
+  }
+  return fn(prisma);
+}
 
 import {
   BS_ATTENTION_PENDING_SUGGESTION_CAP,
@@ -126,7 +140,7 @@ export async function loadAttentionWaiting(
 
   if (openIds.length === 0) return [];
 
-  const recentMessages = await prisma.message.findMany({
+  const recentMessages = await dbStep((db) => db.message.findMany({
     where: { businessId, conversationId: { in: openIds } },
     orderBy: { createdAt: "desc" },
     select: {
@@ -136,7 +150,7 @@ export async function loadAttentionWaiting(
       contentText: true,
       createdAt: true,
     },
-  });
+  }));
 
   const lastByConv = pickLatestMessagePerConversation(recentMessages);
 
@@ -165,14 +179,14 @@ export async function loadAttentionWaiting(
 
   let withSuggestion = new Set<number>();
   if (waitingConvIds.length > 0) {
-    const suggestionRows = await prisma.replySuggestion.findMany({
+    const suggestionRows = await dbStep((db) => db.replySuggestion.findMany({
       where: {
         businessId,
         conversationId: { in: waitingConvIds },
         status: { in: PENDING_SUGGESTION_STATUSES },
       },
       select: { conversationId: true },
-    });
+    }));
     withSuggestion = new Set(suggestionRows.map((r) => r.conversationId));
   }
 
@@ -207,7 +221,7 @@ export async function loadAttentionPendingSuggestions(
   const openIds = openRows.map((r) => r.id);
   if (openIds.length === 0) return [];
 
-  const pendingSuggestions = await prisma.replySuggestion.findMany({
+  const pendingSuggestions = await dbStep((db) => db.replySuggestion.findMany({
     where: {
       businessId,
       conversationId: { in: openIds },
@@ -219,7 +233,7 @@ export async function loadAttentionPendingSuggestions(
       text: true,
       createdAt: true,
     },
-  });
+  }));
 
   const seenConv = new Set<number>();
   const picked: typeof pendingSuggestions = [];

@@ -1,4 +1,7 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+
+type TxOptions = { tx?: Prisma.TransactionClient };
 import type {
   Conversation,
   ConversationStage,
@@ -141,7 +144,8 @@ function computeCloseProbability(params: {
 }
 
 export async function applyMessageEvent(
-  input: ApplyMessageEventInput
+  input: ApplyMessageEventInput,
+  options?: TxOptions
 ): Promise<void> {
   if (!isConversationStateWriterEnabled()) {
     return;
@@ -206,7 +210,8 @@ export async function applyMessageEvent(
 
   // 6. lastAnalysisAt — only stamped when analysis actually ran
   // 7. ONE write
-  await prisma.conversation.update({
+  const db = options?.tx ?? prisma;
+  await db.conversation.update({
     where: { id: conversation.id },
     data: {
       lastMessageAt,

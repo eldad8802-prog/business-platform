@@ -1,4 +1,7 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+
+type TxOptions = { tx?: Prisma.TransactionClient };
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
 
 export type WhatsAppDedupResult =
@@ -15,11 +18,15 @@ export function syntheticContentHashForPreBytesFailure(
   );
 }
 
-export async function checkWhatsAppImportWamidDedup(params: {
-  businessId: number;
-  wamid: string;
-}): Promise<WhatsAppDedupResult> {
-  const existing = await prisma.whatsAppAttachmentImport.findFirst({
+export async function checkWhatsAppImportWamidDedup(
+  params: {
+    businessId: number;
+    wamid: string;
+  },
+  options?: TxOptions
+): Promise<WhatsAppDedupResult> {
+  const db = options?.tx ?? prisma;
+  const existing = await db.whatsAppAttachmentImport.findFirst({
     where: {
       businessId: params.businessId,
       wamid: params.wamid,
@@ -34,11 +41,15 @@ export async function checkWhatsAppImportWamidDedup(params: {
   return { ok: true };
 }
 
-export async function checkWhatsAppImportHashDedup(params: {
-  businessId: number;
-  contentHashSha256: string;
-}): Promise<WhatsAppDedupResult> {
-  const existing = await prisma.whatsAppAttachmentImport.findFirst({
+export async function checkWhatsAppImportHashDedup(
+  params: {
+    businessId: number;
+    contentHashSha256: string;
+  },
+  options?: TxOptions
+): Promise<WhatsAppDedupResult> {
+  const db = options?.tx ?? prisma;
+  const existing = await db.whatsAppAttachmentImport.findFirst({
     where: {
       businessId: params.businessId,
       contentHashSha256: params.contentHashSha256,

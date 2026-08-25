@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { serializeInboxItem } from "@/lib/inbox-view/inbox-item.serializer";
 import { computeProductCatalogEnabled } from "@/lib/inbox-view/product-link-capability";
 import { findStarterBotTerminalConversationFlags } from "@/lib/features/conversation/starter-bot";
@@ -18,7 +20,11 @@ export async function GET(req: Request) {
       );
     }
 
-    const conversations = await prisma.conversation.findMany({
+    const { conversations, starterFlags, botProduct } = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const conversations = await tx.conversation.findMany({
       where: {
         businessId: user.businessId,
       },
@@ -52,40 +58,48 @@ export async function GET(req: Request) {
       },
     });
 
-    const conversationIds = conversations.map((c) => c.id);
-    let starterBotHandoffIds: ReadonlySet<number> = new Set();
-    let starterBotCompletedIds: ReadonlySet<number> = new Set();
-    try {
-      const flags = await findStarterBotTerminalConversationFlags({
-        businessId: user.businessId,
-        conversationIds,
-      });
-      starterBotHandoffIds = flags.handoffConversationIds;
-      starterBotCompletedIds = flags.completedConversationIds;
-    } catch (e) {
-      console.warn("inbox starter-bot terminal flags query failed:", e);
-    }
+          const conversationIds = conversations.map((c) => c.id);
+          let starterFlags: Awaited<
+            ReturnType<typeof findStarterBotTerminalConversationFlags>
+          > | null = null;
+          try {
+            starterFlags = await findStarterBotTerminalConversationFlags(
+              {
+                businessId: user.businessId,
+                conversationIds,
+              },
+              { tx }
+            );
+          } catch (e) {
+            console.warn("inbox starter-bot terminal flags query failed:", e);
+          }
+
+          const botProduct = await tx.businessBotSettings.findUnique({
+            where: { businessId: user.businessId },
+            select: {
+              productLinkEnabled: true,
+              productLinkUrl: true,
+              productLinkIntro: true,
+            },
+          });
+
+          return { conversations, starterFlags, botProduct };
+        })
+    );
+
+    const starterBotHandoffIds: ReadonlySet<number> =
+      starterFlags?.handoffConversationIds ?? new Set();
+    const starterBotCompletedIds: ReadonlySet<number> =
+      starterFlags?.completedConversationIds ?? new Set();
 
     let productCatalogEnabled = false;
     let productLinkPrefill: { intro: string | null; url: string } | null = null;
-    try {
-      const botProduct = await prisma.businessBotSettings.findUnique({
-        where: { businessId: user.businessId },
-        select: {
-          productLinkEnabled: true,
-          productLinkUrl: true,
-          productLinkIntro: true,
-        },
-      });
-      productCatalogEnabled = computeProductCatalogEnabled(botProduct);
-      if (productCatalogEnabled && botProduct?.productLinkUrl) {
-        productLinkPrefill = {
-          intro: botProduct.productLinkIntro ?? null,
-          url: botProduct.productLinkUrl.trim(),
-        };
-      }
-    } catch (e) {
-      console.warn("inbox product-link settings load failed:", e);
+    productCatalogEnabled = computeProductCatalogEnabled(botProduct);
+    if (productCatalogEnabled && botProduct?.productLinkUrl) {
+      productLinkPrefill = {
+        intro: botProduct.productLinkIntro ?? null,
+        url: botProduct.productLinkUrl.trim(),
+      };
     }
 
     const now = new Date();
@@ -138,21 +152,27 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
 
-    const conversation = await prisma.conversation.create({
-      data: {
-        businessId: user.businessId,
-        customerId: body.customerId ?? null,
-        leadId: body.leadId ?? null,
-        channel: body.channel ?? "WHATSAPP",
-        status: "OPEN",
-        currentStage: "NEW",
-        startedAt: new Date(),
-      },
-      include: {
-        customer: true,
-        lead: true,
-      },
-    });
+    const conversation = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.conversation.create({
+            data: {
+              businessId: user.businessId,
+              customerId: body.customerId ?? null,
+              leadId: body.leadId ?? null,
+              channel: body.channel ?? "WHATSAPP",
+              status: "OPEN",
+              currentStage: "NEW",
+              startedAt: new Date(),
+            },
+            include: {
+              customer: true,
+              lead: true,
+            },
+          })
+        )
+    );
 
     return NextResponse.json(
       {

@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 // POST generate suggestions
 export async function POST(req: Request) {
@@ -20,19 +22,21 @@ export async function POST(req: Request) {
       );
     }
 
-    const message = await prisma.message.findUnique({
-      where: { id: messageId },
-    });
+    const message = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.message.findFirst({
+            where: { id: messageId, businessId: user.businessId },
+          })
+        )
+    );
 
     if (!message) {
       return NextResponse.json(
         { error: "Message not found" },
         { status: 404 }
       );
-    }
-
-    if (message.businessId !== user.businessId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const text = message.contentText || "";
@@ -66,11 +70,18 @@ export async function POST(req: Request) {
       ];
     }
 
-    const created = await Promise.all(
-      suggestions.map((s, index) =>
-        prisma.replySuggestion.create({
-          data: {
-            businessId: message.businessId,
+    // Sequential creates on ONE tenant transaction (never Promise.all on an
+    // interactive tx).
+    const created = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const rows = [];
+          for (const [index, s] of suggestions.entries()) {
+            rows.push(
+              await tx.replySuggestion.create({
+                data: {
+                  businessId: message.businessId,
             conversationId: message.conversationId,
             messageId: message.id,
 
@@ -79,14 +90,17 @@ export async function POST(req: Request) {
             variantType: "default",
             variantIndex: index,
 
-            text: s.text,
-            strategyLabel: s.strategy,
-            toneLabel: s.tone,
+                  text: s.text,
+                  strategyLabel: s.strategy,
+                  toneLabel: s.tone,
 
-            status: "GENERATED",
-          },
+                  status: "GENERATED",
+                },
+              })
+            );
+          }
+          return rows;
         })
-      )
     );
 
     return NextResponse.json(created, { status: 201 });

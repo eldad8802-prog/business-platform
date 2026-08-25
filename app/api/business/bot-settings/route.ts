@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import {
   isValidProductLinkUrl,
   MAX_PRODUCT_LINK_INTRO_CHARS,
@@ -107,10 +109,16 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const row = await prisma.businessBotSettings.findUnique({
-      where: { businessId: user.businessId },
-      select: SETTINGS_SELECT,
-    });
+    const row = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.businessBotSettings.findUnique({
+            where: { businessId: user.businessId },
+            select: SETTINGS_SELECT,
+          })
+        )
+    );
 
     if (!row) {
       return NextResponse.json({
@@ -305,10 +313,16 @@ export async function PATCH(req: Request) {
       );
     }
 
-    const existingForProduct = await prisma.businessBotSettings.findUnique({
-      where: { businessId: user.businessId },
-      select: { productLinkEnabled: true, productLinkUrl: true },
-    });
+    const existingForProduct = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.businessBotSettings.findUnique({
+            where: { businessId: user.businessId },
+            select: { productLinkEnabled: true, productLinkUrl: true },
+          })
+        )
+    );
 
     const effectiveProductEnabled =
       patch.productLinkEnabled !== undefined
@@ -364,12 +378,18 @@ export async function PATCH(req: Request) {
     create.productLinkIntro =
       patch.productLinkIntro !== undefined ? patch.productLinkIntro : null;
 
-    const row = await prisma.businessBotSettings.upsert({
-      where: { businessId: user.businessId },
-      update: patch,
-      create,
-      select: SETTINGS_SELECT,
-    });
+    const row = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.businessBotSettings.upsert({
+            where: { businessId: user.businessId },
+            update: patch,
+            create,
+            select: SETTINGS_SELECT,
+          })
+        )
+    );
 
     const { id, updatedAt, ...rest } = row;
     return NextResponse.json({

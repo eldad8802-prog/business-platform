@@ -1,4 +1,7 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+
+type TxOptions = { tx?: Prisma.TransactionClient };
 
 const STARTER_BOT_DRAFT = "STARTER_BOT_DRAFT" as const;
 
@@ -33,13 +36,17 @@ const TERMINAL_BOT_VARIANT_TYPES = ["COMPLETE", "HANDOFF", "FINAL_ACTION"] as co
  *
  * If the query fails or signals are ambiguous, callers should treat the result as 0.
  */
-export async function deriveStarterBotNextQuestionIndex(params: {
-  businessId: number;
-  conversationId: number;
-}): Promise<number> {
+export async function deriveStarterBotNextQuestionIndex(
+  params: {
+    businessId: number;
+    conversationId: number;
+  },
+  options?: TxOptions
+): Promise<number> {
   const { businessId, conversationId } = params;
+  const db = options?.tx ?? prisma;
 
-  const rows = await prisma.replySuggestion.findMany({
+  const rows = await db.replySuggestion.findMany({
     where: {
       businessId,
       conversationId,
@@ -57,13 +64,17 @@ export async function deriveStarterBotNextQuestionIndex(params: {
  * True once a terminal Starter Bot draft was **sent** (same signals as derive count).
  * Used to stop issuing further `STARTER_BOT_DRAFT` rows for this conversation.
  */
-export async function isStarterBotFlowCompletedSent(params: {
-  businessId: number;
-  conversationId: number;
-}): Promise<boolean> {
+export async function isStarterBotFlowCompletedSent(
+  params: {
+    businessId: number;
+    conversationId: number;
+  },
+  options?: TxOptions
+): Promise<boolean> {
   const { businessId, conversationId } = params;
+  const db = options?.tx ?? prisma;
 
-  const row = await prisma.replySuggestion.findFirst({
+  const row = await db.replySuggestion.findFirst({
     where: {
       businessId,
       conversationId,
@@ -83,10 +94,11 @@ export async function isStarterBotFlowCompletedSent(params: {
 export async function findStarterBotTerminalConversationFlags(params: {
   businessId: number;
   conversationIds: readonly number[];
-}): Promise<{
+}, options?: TxOptions): Promise<{
   handoffConversationIds: ReadonlySet<number>;
   completedConversationIds: ReadonlySet<number>;
 }> {
+  const db = options?.tx ?? prisma;
   const uniqueIds = [...new Set(params.conversationIds)].filter((id) => id > 0);
   if (uniqueIds.length === 0) {
     return {
@@ -95,7 +107,7 @@ export async function findStarterBotTerminalConversationFlags(params: {
     };
   }
 
-  const rows = await prisma.replySuggestion.findMany({
+  const rows = await db.replySuggestion.findMany({
     where: {
       businessId: params.businessId,
       conversationId: { in: uniqueIds },
