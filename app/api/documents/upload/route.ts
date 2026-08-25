@@ -21,6 +21,7 @@ import {
   readSessionIdFromRequest,
   recordProductUsageEvent,
 } from "@/lib/services/product-usage/record-product-usage-event";
+import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
 
 export const runtime = "nodejs";
 // Phase 2 (OCR + extraction) runs in `after()`, which keeps the serverless
@@ -196,6 +197,61 @@ export async function POST(req: Request) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
+    const contentHashSha256 = sha256Hex(buffer);
+    const originalFilename =
+      typeof file.name === "string" && file.name.trim()
+        ? file.name.trim().slice(0, 255)
+        : null;
+
+    // Duplicate defense (Wave 1B): the exact same bytes already ingested for
+    // this business is a HARD duplicate. Surfaced as a decision, not silently
+    // accepted — approving both would double the expense. The owner can still
+    // force the upload with allowDuplicate ("העלה בכל זאת"), which is recorded.
+    const allowDuplicate = formData.get("allowDuplicate") === "true";
+    if (!allowDuplicate) {
+      const existing = await prisma.document.findFirst({
+        where: {
+          businessId: user.businessId,
+          contentHashSha256,
+          status: { not: "failed" },
+        },
+        orderBy: { id: "desc" },
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+          extractedData: {
+            select: { vendorName: true, amount: true, date: true },
+          },
+          financialRecord: {
+            select: { vendorName: true, amount: true, date: true },
+          },
+        },
+      });
+      if (existing) {
+        const known = existing.financialRecord ?? existing.extractedData;
+        return NextResponse.json(
+          {
+            error: "נראה שהמסמך הזה כבר הועלה",
+            duplicate: {
+              documentId: existing.id,
+              status: existing.status,
+              uploadedAt: existing.createdAt.toISOString(),
+              vendorName: known?.vendorName ?? null,
+              amount: known?.amount ?? null,
+              date: known?.date ? known.date.toISOString() : null,
+            },
+          },
+          { status: 409 }
+        );
+      }
+    } else {
+      console.warn("[upload] duplicate override accepted", {
+        businessId: user.businessId,
+        userId: user.id,
+        contentHashSha256,
+      });
+    }
 
     // Persist the original source file FIRST, unconditionally. A real storage
     // failure stays fatal (no stored file = no valid Document) and is handled by
@@ -223,6 +279,9 @@ export async function POST(req: Request) {
         mimeType: file.type || "image/jpeg",
         status: "processing",
         ocrText: null,
+        contentHashSha256,
+        originalFilename,
+        sizeBytes: file.size,
       },
     });
     documentPersisted = true;

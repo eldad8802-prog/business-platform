@@ -262,6 +262,9 @@ async function handleAuthedImport(
         mimeType: body.mimeType,
         ocrText: rawText,
         fileUrl: storedFileName,
+        contentHashSha256,
+        originalFilename: body.filename,
+        sizeBytes: effectiveSize || null,
       });
       documentId = created.documentId;
       extractedDataId = created.extractedDataId;
@@ -277,6 +280,9 @@ async function handleAuthedImport(
           mimeType: body.mimeType,
           status: "needs_review",
           ocrText: null,
+          contentHashSha256,
+          originalFilename: body.filename?.trim().slice(0, 255) || null,
+          sizeBytes: effectiveSize || null,
         },
       });
       documentId = bareDocument.id;

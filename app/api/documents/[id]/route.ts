@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { resolveDocumentOutputProfile } from "@/lib/services/documents/output-profile-resolver.service";
+import { findDuplicateSignals } from "@/lib/services/documents/duplicate-signals.service";
 
 export async function GET(
   req: Request,
@@ -71,6 +72,12 @@ export async function GET(
       debug,
     });
 
+    // Duplicate-defense WARN tier — never blocks the review, degrades to [].
+    const duplicateSignals = await findDuplicateSignals({
+      businessId: user.businessId,
+      documentId: document.id,
+    });
+
     return Response.json({
       success: true,
       document: {
@@ -83,6 +90,7 @@ export async function GET(
         createdAt: document.createdAt.toISOString(),
       },
       extracted: document.extractedData,
+      duplicateSignals,
       outputProfile: resolved.outputProfile,
       outputProfileSource: resolved.outputProfileSource,
       outputProfileComputedAt: resolved.outputProfileComputedAt,

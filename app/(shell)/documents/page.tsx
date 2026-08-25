@@ -126,6 +126,17 @@ export default function DocumentsHome() {
         },
       });
 
+      // Duplicate defense (409): the same file already exists — send the user
+      // to the existing document instead of ingesting a second copy. The
+      // dedicated upload screen offers the explicit "העלה בכל זאת" override.
+      if (res.status === 409 && isJsonResponse(res)) {
+        const dup = await res.json().catch(() => null);
+        if (dup?.duplicate?.documentId) {
+          router.push(`/documents/review/${dup.duplicate.documentId}`);
+          return;
+        }
+      }
+
       // Never call res.json() blindly: an error response can carry a non-JSON
       // body (e.g. Vercel's text/plain 413 "FUNCTION_PAYLOAD_TOO_LARGE"), and
       // parsing it would throw a raw, user-hostile SyntaxError. Resolve the

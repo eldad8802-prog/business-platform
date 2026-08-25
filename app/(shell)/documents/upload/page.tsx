@@ -10,14 +10,28 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+type DuplicateInfo = {
+  documentId: number;
+  uploadedAt: string | null;
+  vendorName: string | null;
+  amount: number | null;
+};
+
 export default function DocumentsUploadPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [processingName, setProcessingName] = useState("");
   const [error, setError] = useState("");
+  const [duplicate, setDuplicate] = useState<{
+    file: File;
+    info: DuplicateInfo;
+  } | null>(null);
 
-  async function upload(file: File | null | undefined) {
+  async function upload(
+    file: File | null | undefined,
+    options?: { allowDuplicate?: boolean }
+  ) {
     if (!file) return;
     const token = window.localStorage.getItem("token");
     if (!token) {
@@ -28,14 +42,38 @@ export default function DocumentsUploadPage() {
     try {
       setProcessingName(file.name);
       setError("");
+      setDuplicate(null);
       const body = new FormData();
       body.append("file", file);
+      if (options?.allowDuplicate) {
+        body.append("allowDuplicate", "true");
+      }
       const response = await fetch("/api/documents/upload", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body,
       });
       const data = await response.json().catch(() => ({}));
+
+      // Duplicate defense: the same file already exists for this business.
+      // Not an error — a decision the owner makes explicitly.
+      if (response.status === 409 && data?.duplicate?.documentId) {
+        setProcessingName("");
+        setDuplicate({
+          file,
+          info: {
+            documentId: Number(data.duplicate.documentId),
+            uploadedAt: data.duplicate.uploadedAt ?? null,
+            vendorName: data.duplicate.vendorName ?? null,
+            amount:
+              typeof data.duplicate.amount === "number"
+                ? data.duplicate.amount
+                : null,
+          },
+        });
+        return;
+      }
+
       if (!response.ok || !data?.documentId) {
         throw new Error(data?.error || "Upload failed");
       }
@@ -105,6 +143,54 @@ export default function DocumentsUploadPage() {
         ) : null}
 
         {error ? <div style={errorStyle}>{error}</div> : null}
+
+        {duplicate ? (
+          <div style={duplicateBoxStyle}>
+            <strong style={duplicateTitleStyle}>
+              נראה שהמסמך הזה כבר הועלה
+            </strong>
+            <div style={duplicateMetaStyle}>
+              {[
+                duplicate.info.vendorName,
+                duplicate.info.amount != null
+                  ? `₪${duplicate.info.amount.toLocaleString("he-IL")}`
+                  : null,
+                duplicate.info.uploadedAt
+                  ? new Date(duplicate.info.uploadedAt).toLocaleDateString(
+                      "he-IL"
+                    )
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || "קובץ זהה לחלוטין קיים במערכת"}
+            </div>
+            <div style={duplicateActionsStyle}>
+              <button
+                type="button"
+                style={duplicatePrimaryStyle}
+                onClick={() =>
+                  router.push(`/documents/review/${duplicate.info.documentId}`)
+                }
+              >
+                פתח את המסמך הקיים
+              </button>
+              <button
+                type="button"
+                style={duplicateSecondaryStyle}
+                onClick={() => void upload(duplicate.file, { allowDuplicate: true })}
+              >
+                העלה בכל זאת
+              </button>
+              <button
+                type="button"
+                style={duplicateSecondaryStyle}
+                onClick={() => setDuplicate(null)}
+              >
+                ביטול
+              </button>
+            </div>
+          </div>
+        ) : null}
       </main>
     </div>
   );
@@ -247,4 +333,51 @@ const errorStyle = {
   padding: TOKEN.space.lg,
   fontSize: TOKEN.font.body,
   fontWeight: TOKEN.weight.bold,
+} as const;
+
+const duplicateBoxStyle = {
+  marginTop: 14,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.card,
+  background: TOKEN.surface.card,
+  boxShadow: TOKEN.shadow.elevated,
+  padding: TOKEN.space.lg,
+  display: "grid",
+  gap: 10,
+} as const;
+
+const duplicateTitleStyle = {
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.title,
+  fontWeight: TOKEN.weight.bold,
+} as const;
+
+const duplicateMetaStyle = {
+  color: TOKEN.ink.muted,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.semibold,
+} as const;
+
+const duplicateActionsStyle = {
+  display: "grid",
+  gap: 8,
+} as const;
+
+const duplicatePrimaryStyle = {
+  ...glassActionStyle({ fullWidth: true, height: 44 }),
+  width: "100%",
+  minHeight: 44,
+  fontSize: TOKEN.font.body,
+} as const;
+
+const duplicateSecondaryStyle = {
+  width: "100%",
+  minHeight: 44,
+  border: `1px solid ${TOKEN.border.DEFAULT}`,
+  borderRadius: TOKEN.radius.card,
+  background: TOKEN.surface.inset,
+  color: TOKEN.ink.primary,
+  fontSize: TOKEN.font.body,
+  fontWeight: TOKEN.weight.bold,
+  cursor: "pointer",
 } as const;
