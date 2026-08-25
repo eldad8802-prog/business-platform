@@ -27,6 +27,12 @@ export type {
 export { resolveVendorCategoryWithMemory, defaultCoordinatorDeps } from "./coordinator";
 export { isReadEnabled } from "./read-config";
 export {
+  persistComparisonObservation,
+  buildComparisonUsageEvent,
+  READ_COMPARISON_FEATURE_KEY,
+  type ComparisonUsageEvent,
+} from "./comparison-sink";
+export {
   categorySuggestionWithComparison,
   defaultComparisonDeps,
   type ComparisonDeps,

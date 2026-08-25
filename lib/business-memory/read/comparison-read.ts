@@ -17,6 +17,7 @@ import { decideCategory } from "@/lib/services/documents/category-decision.servi
 import { resolveVendorCategoryWithMemory, defaultCoordinatorDeps } from "./coordinator";
 import type { CoordinatorDeps, IncumbentDecision, VendorCategoryDecision } from "./coordinator.contract";
 import { isReadEnabled } from "./read-config";
+import { persistComparisonObservation } from "./comparison-sink";
 
 export type ComparisonResult = "agree" | "disagree" | "not-applicable";
 
@@ -40,7 +41,10 @@ export interface ComparisonDeps {
     deps: CoordinatorDeps,
   ) => Promise<VendorCategoryDecision>;
   buildCoordinatorDeps: () => CoordinatorDeps;
-  log: (entry: ComparisonLog) => void;
+  // Awaitable: the caller AWAITS this so the durable telemetry write gets a reliable chance to complete
+  // within the invocation (serverless can freeze after response — a detached write may be dropped). It
+  // stays best-effort: it must never throw, and the caller wraps it so a failure can't affect the result.
+  log: (entry: ComparisonLog) => void | Promise<void>;
 }
 
 export function defaultComparisonDeps(): ComparisonDeps {
@@ -49,12 +53,17 @@ export function defaultComparisonDeps(): ComparisonDeps {
     isReadEnabled: () => isReadEnabled(),
     runCoordinator: (input, deps) => resolveVendorCategoryWithMemory(input, deps),
     buildCoordinatorDeps: () => defaultCoordinatorDeps(),
-    log: (entry) => {
+    log: async (entry) => {
+      // Ephemeral runtime log (kept) + durable telemetry sink (queryable via a gated SELECT). Both are
+      // best-effort and can never affect the product result. The durable write is AWAITED (below, by the
+      // caller) so it is not detached from the invocation lifecycle; persistComparisonObservation never
+      // throws, so awaiting stays safe.
       try {
         console.info(JSON.stringify(entry));
       } catch {
         /* logging must never affect the product result */
       }
+      await persistComparisonObservation(entry);
     },
   };
 }
@@ -106,7 +115,9 @@ export async function categorySuggestionWithComparison(
     };
     const decision = await deps.runCoordinator({ businessId, vendorName, text }, coordinatorDeps);
     try {
-      deps.log(buildLog(decision, incumbent));
+      // AWAITED so the durable telemetry write completes within the invocation (not a detached promise
+      // that a serverless freeze could drop). Wrapped so a logging failure never affects the result.
+      await deps.log(buildLog(decision, incumbent));
     } catch {
       /* logging failure never affects the product result */
     }

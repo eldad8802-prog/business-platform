@@ -41,6 +41,8 @@
     "verify:business-memory-read-coordinator": "npx tsx lib/business-memory/read/coordinator.test.ts",
     "verify:business-memory-read-config": "npx tsx lib/business-memory/read/read-config.test.ts",
     "verify:business-memory-comparison-read": "npx tsx lib/business-memory/read/comparison-read.test.ts",
+    "verify:business-memory-comparison-sink": "npx tsx lib/business-memory/read/comparison-sink.test.ts",
+    "verify:business-memory-read-comparison-evidence": "npx tsx lib/business-memory/read/read-comparison-evidence.guard.test.ts",
     "verify:writing-package": "npx tsx lib/features/content/writing-package/verify-writing-package-runtime.ts",
     "verify:obligations-state": "npx tsx lib/services/obligations/obligation-core.verify.test.ts",
     "verify:obligations-service": "npx tsx lib/services/obligations/obligation-service.verify.test.ts",

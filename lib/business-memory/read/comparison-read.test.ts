@@ -108,6 +108,28 @@ async function main(): Promise<void> {
     check("logger throw → no throw, returns incumbent", threw === false && r?.category === "general");
   }
 
+  section("Durable log is AWAITED — completes within the invocation (not detached)");
+  {
+    // An async log that resolves on a later microtask; the wrapper must await it before returning.
+    let logDone = false;
+    const base = makeDeps({ enabled: true, result: supportedFresh("general") });
+    const deps: ComparisonDeps = {
+      ...base.deps,
+      log: async () => { await Promise.resolve(); await Promise.resolve(); logDone = true; },
+    };
+    const r = await run(deps);
+    check("async log completed BEFORE the wrapper returned", logDone === true);
+    check("effective still incumbent after awaited log", r.category === "general");
+  }
+  {
+    // Async log rejection is still caught → incumbent, never throws.
+    let threw = false; let r;
+    const base = makeDeps({ enabled: true, result: supportedFresh("fuel") });
+    const deps: ComparisonDeps = { ...base.deps, log: async () => { throw new Error("async log boom"); } };
+    try { r = await run(deps); } catch { threw = true; }
+    check("async log rejection → no throw, returns incumbent", threw === false && r?.category === "general");
+  }
+
   section("Privacy — comparison log carries no vendor/subject/category/evidence");
   {
     const { deps, calls } = makeDeps({ enabled: true, result: supportedFresh("fuel") });
