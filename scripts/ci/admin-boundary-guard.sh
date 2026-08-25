@@ -57,7 +57,9 @@ done < <(find "$ROOT/app/api/platform-admin" "$ROOT/app/api/dev" -name "route.ts
 # ---------- CI-4: no tenant Prisma inside admin services (ratchet) ----------
 # Legacy = admin services still on the tenant singleton, pending migration.
 # This list may only shrink; removing an entry after migrating it is mandatory.
-CI4_LEGACY_REGEX="platform-(overview|attention|businesses|business-detail|usage-overview|audit)\.service\.ts"
+# Ratchet history: platform-audit-list migrated (W2-GATE); platform-overview
+# migrated (Wave 2).
+CI4_LEGACY_REGEX="platform-(attention|businesses|business-detail|usage-overview|audit)\.service\.ts"
 ci4="$(
   grep -rnE "from ['\"]@/lib/prisma['\"]" \
     "$ROOT/lib/services/platform-admin" \

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import {
   GOAL_CATALOG_VERSION,
   coerceKnowledge,
@@ -37,23 +38,31 @@ export async function GET(req: Request) {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);
 
-    const bot = await prisma.businessBot.findUnique({
-      where: { businessId: user.businessId },
-      select: { id: true },
-    });
-    if (!bot) {
+    const result = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const bot = await tx.businessBot.findUnique({
+            where: { businessId: user.businessId },
+            select: { id: true },
+          });
+          if (!bot) {
+            return null;
+          }
+          return tx.botGoalSelection.findMany({
+            where: { botId: bot.id },
+            select: { goalKey: true, goalVersion: true, selectedAt: true },
+          });
+        })
+    );
+    if (!result) {
       return NextResponse.json({ success: true, persisted: false, selected: [] });
     }
-
-    const rows = await prisma.botGoalSelection.findMany({
-      where: { botId: bot.id },
-      select: { goalKey: true, goalVersion: true, selectedAt: true },
-    });
 
     return NextResponse.json({
       success: true,
       persisted: true,
-      selected: serialize(rows),
+      selected: serialize(result),
     });
   } catch (error) {
     console.error("BOT_GOALS_GET_ERROR:", error);
@@ -79,7 +88,10 @@ export async function PUT(req: Request) {
     }
     const desired = parsed.value;
 
-    const rows = await prisma.$transaction(async (tx) => {
+    const rows = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
       const bot = await tx.businessBot.upsert({
         where: { businessId: user.businessId },
         update: {},
@@ -118,16 +130,15 @@ export async function PUT(req: Request) {
       // bot (had prior goals, or an activated setup, or real knowledge). Never
       // on a first-time selection. Stored only — no runtime effect.
       if (toAdd.length > 0) {
-        const [draft, knowledgeRow] = await Promise.all([
-          tx.businessBotSetupDraft.findUnique({
-            where: { botId: bot.id },
-            select: { activatedAt: true },
-          }),
-          tx.businessBotKnowledge.findUnique({
-            where: { botId: bot.id },
-            select: { hours: true, address: true, notes: true, faq: true },
-          }),
-        ]);
+        // Sequential — a TenantTx must not run concurrent queries.
+        const draft = await tx.businessBotSetupDraft.findUnique({
+          where: { botId: bot.id },
+          select: { activatedAt: true },
+        });
+        const knowledgeRow = await tx.businessBotKnowledge.findUnique({
+          where: { botId: bot.id },
+          select: { hours: true, address: true, notes: true, faq: true },
+        });
         const knowledge = coerceKnowledge(knowledgeRow);
         const established =
           existingKeys.size > 0 ||
@@ -170,7 +181,8 @@ export async function PUT(req: Request) {
         where: { botId: bot.id },
         select: { goalKey: true, goalVersion: true, selectedAt: true },
       });
-    });
+        })
+    );
 
     return NextResponse.json({
       success: true,

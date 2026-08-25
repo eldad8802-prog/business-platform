@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import {
   coerceStoredProfile,
   validateBotPatch,
@@ -39,10 +40,17 @@ export async function GET(req: Request) {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);
 
-    const bot = await prisma.businessBot.findUnique({
-      where: { businessId: user.businessId },
-      include: { profile: true },
-    });
+    // The profile include reads a Wave-2 RLS'd child — GUC required.
+    const bot = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.businessBot.findUnique({
+            where: { businessId: user.businessId },
+            include: { profile: true },
+          })
+        )
+    );
 
     if (!bot) {
       return NextResponse.json({
@@ -103,7 +111,10 @@ export async function PATCH(req: Request) {
       }
     }
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
       const bot = await tx.businessBot.upsert({
         where: { businessId: user.businessId },
         update: identityUpdate,
@@ -127,7 +138,8 @@ export async function PATCH(req: Request) {
       }
 
       return { bot, profileRow };
-    });
+        })
+    );
 
     return NextResponse.json({
       success: true,

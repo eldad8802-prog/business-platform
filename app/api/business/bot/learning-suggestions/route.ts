@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 /**
  * Learning suggestions list (Stage 8) — PROPOSED items the owner can review.
@@ -14,28 +15,34 @@ export async function GET(req: Request) {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);
 
-    const bot = await prisma.businessBot.findUnique({
-      where: { businessId: user.businessId },
-      select: { id: true },
-    });
-    if (!bot) {
+    const rows = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const bot = await tx.businessBot.findUnique({
+            where: { businessId: user.businessId },
+            select: { id: true },
+          });
+          if (!bot) return null;
+          return tx.businessBotLearningSuggestion.findMany({
+            where: { botId: bot.id, status: "PROPOSED" },
+            orderBy: { createdAt: "desc" },
+            select: {
+              id: true,
+              type: true,
+              status: true,
+              title: true,
+              description: true,
+              payload: true,
+              evidence: true,
+              createdAt: true,
+            },
+          });
+        })
+    );
+    if (!rows) {
       return NextResponse.json({ success: true, count: 0, suggestions: [] });
     }
-
-    const rows = await prisma.businessBotLearningSuggestion.findMany({
-      where: { botId: bot.id, status: "PROPOSED" },
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        type: true,
-        status: true,
-        title: true,
-        description: true,
-        payload: true,
-        evidence: true,
-        createdAt: true,
-      },
-    });
 
     return NextResponse.json({
       success: true,

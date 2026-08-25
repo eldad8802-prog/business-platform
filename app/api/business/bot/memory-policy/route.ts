@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { coerceMemoryPolicy, validateMemoryPolicy } from "@/lib/features/bot";
 
 /**
@@ -27,10 +28,17 @@ export async function GET(req: Request) {
     const user = await getCurrentUser(req);
     if (!user) return authRequiredResponse(req);
 
-    const bot = await prisma.businessBot.findUnique({
-      where: { businessId: user.businessId },
-      select: { memoryPolicy: { select: POLICY_SELECT } },
-    });
+    // The memoryPolicy include reads a Wave-2 RLS'd child — GUC required.
+    const bot = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.businessBot.findUnique({
+            where: { businessId: user.businessId },
+            select: { memoryPolicy: { select: POLICY_SELECT } },
+          })
+        )
+    );
 
     return NextResponse.json({
       success: true,
@@ -61,20 +69,24 @@ export async function PUT(req: Request) {
     }
     const data = { ...parsed.value, lastConfiguredAt: new Date() };
 
-    const row = await prisma.$transaction(async (tx) => {
-      const bot = await tx.businessBot.upsert({
-        where: { businessId: user.businessId },
-        update: {},
-        create: { businessId: user.businessId },
-        select: { id: true },
-      });
-      return tx.businessBotMemoryPolicy.upsert({
-        where: { botId: bot.id },
-        update: data,
-        create: { botId: bot.id, ...data },
-        select: POLICY_SELECT,
-      });
-    });
+    const row = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const bot = await tx.businessBot.upsert({
+            where: { businessId: user.businessId },
+            update: {},
+            create: { businessId: user.businessId },
+            select: { id: true },
+          });
+          return tx.businessBotMemoryPolicy.upsert({
+            where: { botId: bot.id },
+            update: data,
+            create: { botId: bot.id, ...data },
+            select: POLICY_SELECT,
+          });
+        })
+    );
 
     return NextResponse.json({
       success: true,

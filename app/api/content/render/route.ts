@@ -1,4 +1,6 @@
 import { checkUsage, incrementUsage } from "@/lib/services/usage.service";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { createCreatomateRender } from "@/lib/services/creatomate.service";
 import type { RenderBlueprint } from "@/lib/features/content/render-blueprint/types";
 import { getCurrentUser } from "@/lib/auth";
@@ -56,7 +58,9 @@ export async function POST(req: Request) {
     const businessId = user.businessId;
     const plan = "FREE" as const;
 
-    const usage = await checkUsage(businessId, plan);
+    const usage = await runWithTenantContext({ businessId }, () =>
+      withTenantTransaction((tx) => checkUsage(businessId, plan, { tx }))
+    );
     console.log("RENDER USAGE CHECK:", usage);
 
     const body = (await req.json()) as {
@@ -160,7 +164,9 @@ export async function POST(req: Request) {
 
     console.log("CREATE RENDER RESULT:", render);
 
-    await incrementUsage(businessId);
+    await runWithTenantContext({ businessId }, () =>
+      withTenantTransaction((tx) => incrementUsage(businessId, { tx }))
+    );
 
     return Response.json({
       success: true,

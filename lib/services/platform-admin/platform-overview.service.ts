@@ -6,7 +6,7 @@ import {
   EmailConnectionStatus,
   WhatsAppAttachmentImportStatus,
 } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { getPrismaAdmin } from "@/lib/prisma-admin";
 import { PLATFORM_SYSTEM_BUSINESS_NAME } from "./constants";
 import type { PlatformAdminOverviewResponse } from "./types";
 
@@ -60,43 +60,43 @@ export async function getPlatformAdminOverview(): Promise<PlatformAdminOverviewR
     gmailConnected,
     whatsappImportsFailed,
   ] = await Promise.all([
-    prisma.business.count({ where: businessWhere }),
-    prisma.user.count({
+    getPrismaAdmin().business.count({ where: businessWhere }),
+    getPrismaAdmin().user.count({
       where: {
         business: businessWhere,
       },
     }),
-    prisma.billingDocument.groupBy({
+    getPrismaAdmin().billingDocument.groupBy({
       by: ["status"],
       _count: { _all: true },
     }),
-    prisma.billingDocument.count({
+    getPrismaAdmin().billingDocument.count({
       where: { pdfRenderStatus: BillingPdfRenderStatus.FAILED },
     }),
-    prisma.document.count({
+    getPrismaAdmin().document.count({
       where: { status: DOCUMENT_NEEDS_REVIEW_STATUS },
     }),
-    prisma.contentRun.count({
+    getPrismaAdmin().contentRun.count({
       where: { status: ContentRunStatus.FAILED },
     }),
-    prisma.contentRun.count({
+    getPrismaAdmin().contentRun.count({
       where: {
         status: ContentRunStatus.FAILED,
         createdAt: { gte: runsFailedSince },
       },
     }),
-    prisma.conversation.count(),
-    prisma.conversation.count({
+    getPrismaAdmin().conversation.count(),
+    getPrismaAdmin().conversation.count({
       where: { status: ConversationStatus.OPEN },
     }),
-    prisma.conversation.count({
+    getPrismaAdmin().conversation.count({
       where: { lastMessageAt: { gte: activeRecentSince } },
     }),
-    prisma.emailConnection.count(),
-    prisma.emailConnection.count({
+    getPrismaAdmin().emailConnection.count(),
+    getPrismaAdmin().emailConnection.count({
       where: { status: EmailConnectionStatus.connected },
     }),
-    prisma.whatsAppAttachmentImport.count({
+    getPrismaAdmin().whatsAppAttachmentImport.count({
       where: { status: WhatsAppAttachmentImportStatus.failed },
     }),
   ]);

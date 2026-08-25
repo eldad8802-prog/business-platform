@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 /**
  * Dismiss a learning suggestion (Stage 8) — STATUS FLIP ONLY. No runtime effect.
@@ -19,25 +20,32 @@ export async function POST(
       return NextResponse.json({ error: "Invalid id" }, { status: 400 });
     }
 
-    const bot = await prisma.businessBot.findUnique({
-      where: { businessId: user.businessId },
-      select: { id: true },
-    });
-    const row = bot
-      ? await prisma.businessBotLearningSuggestion.findFirst({
-          where: { id: sid, botId: bot.id },
-          select: { id: true, status: true },
+    const found = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          const bot = await tx.businessBot.findUnique({
+            where: { businessId: user.businessId },
+            select: { id: true },
+          });
+          const row = bot
+            ? await tx.businessBotLearningSuggestion.findFirst({
+                where: { id: sid, botId: bot.id },
+                select: { id: true, status: true },
+              })
+            : null;
+          if (!row) return false;
+          if (row.status === "PROPOSED") {
+            await tx.businessBotLearningSuggestion.update({
+              where: { id: row.id },
+              data: { status: "DISMISSED", dismissedAt: new Date() },
+            });
+          }
+          return true;
         })
-      : null;
-    if (!row) {
+    );
+    if (!found) {
       return NextResponse.json({ error: "Suggestion not found" }, { status: 404 });
-    }
-
-    if (row.status === "PROPOSED") {
-      await prisma.businessBotLearningSuggestion.update({
-        where: { id: row.id },
-        data: { status: "DISMISSED", dismissedAt: new Date() },
-      });
     }
 
     return NextResponse.json({ success: true, status: "DISMISSED" });

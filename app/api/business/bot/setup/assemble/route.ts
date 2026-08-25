@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import {
   assembleBase,
   coerceSelectedGoalKeys,
@@ -44,7 +45,10 @@ export async function POST(req: Request) {
       goals = r.value;
     }
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
       const bot = await tx.businessBot.upsert({
         where: { businessId: user.businessId },
         update: {},
@@ -85,7 +89,8 @@ export async function POST(req: Request) {
       });
 
       return { row, snapshot, effectiveGoals };
-    });
+        })
+    );
 
     return NextResponse.json({
       success: true,

@@ -12,6 +12,7 @@ import type { GrowthSemantics } from "@/lib/features/content/growth-semantics/ty
 import type { RenderBlueprint } from "@/lib/features/content/render-blueprint/types";
 import type { ContentInsightAnswer } from "@/lib/features/content/question-engine/types";
 import { prisma } from "@/lib/prisma";
+import type { TenantTx } from "@/lib/tenant/transaction";
 import { ContentRunStatus, ContentVariantStatus, Prisma } from "@prisma/client";
 
 const PERSISTENCE_SCHEMA_VERSION = 1;
@@ -127,7 +128,7 @@ export async function persistContentPlanV1(params: {
   profileSubCategory: string | undefined;
   variants: VideoPlanVariantForPersistence[];
   selectedPlatform: SelectedPlatform;
-}): Promise<void> {
+}, options?: { tx?: TenantTx }): Promise<void> {
   try {
     const { user, body, resolvedBusinessType, profileCategory, profileSubCategory, variants } =
       params;
@@ -153,7 +154,9 @@ export async function persistContentPlanV1(params: {
       }
     }
 
-    await prisma.$transaction(async (tx) => {
+    // D2/P7 Wave 2: when a tenant transaction is provided, run inside it (the
+    // GUC-carrying tx) instead of opening a bare $transaction.
+    const runInTx = async (tx: TenantTx) => {
       const run = await tx.contentRun.create({
         data: {
           businessId: user.businessId,
@@ -199,7 +202,13 @@ export async function persistContentPlanV1(params: {
           },
         });
       }
-    });
+    };
+
+    if (options?.tx) {
+      await runInTx(options.tx);
+    } else {
+      await prisma.$transaction(runInTx);
+    }
   } catch (err) {
     console.error("content plan persistence failed:", err);
   }
