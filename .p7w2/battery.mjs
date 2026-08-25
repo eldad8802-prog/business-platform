@@ -15,7 +15,7 @@
  * migrated platform-admin/overview route on the sanctioned admin client.
  * Synthetic p7w2-* fixtures only; secrets never printed.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 
 const TARGET = process.env.BATTERY_TARGET === "neon" ? "neon" : "pg";
@@ -120,7 +120,7 @@ async function main() {
     const rt0 = (await owner.$queryRawUnsafe(`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname='${RT_ROLE}'`))[0];
     if (!rt0 || rt0.rolsuper || rt0.rolbypassrls) throw new Error("DRIFT: runtime role posture — STOP");
 
-    // Step-1 additive catch-up: pending BusinessProfile Wave-1 migration (#264).
+    // Step-1 additive catch-up (a): pending BusinessProfile Wave-1 migration (#264).
     const bpApplied = w1 === 14;
     if (!bpApplied) {
       await applySqlFile("prisma/migrations/20260825120000_d2_p7_wave1_businessprofile_rls/migration.sql");
@@ -128,6 +128,47 @@ async function main() {
       console.log("[catch-up] applied pending Wave-1 BusinessProfile RLS migration + runtime SELECT grant");
     } else {
       console.log("[catch-up] BusinessProfile Wave-1 policy already present");
+    }
+
+    // Step-1 additive catch-up (b): the Preview branch DB predates several
+    // already-merged canonical migrations (e.g. the RIA and business-memory
+    // substrate tables). For every MISSING Wave-2 table, apply the canonical
+    // migration file that CREATEs it, in chronological order, and record it.
+    const missing = [];
+    for (const t of WAVE2) {
+      const reg = (await owner.$queryRawUnsafe(`SELECT to_regclass('public."${t}"')::text AS r`))[0].r;
+      if (!reg) missing.push(t);
+    }
+    if (missing.length > 0) {
+      console.log(`[catch-up] missing Wave-2 tables on Preview: ${missing.join(", ")}`);
+      const dirs = readdirSync("prisma/migrations", { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name)
+        .sort();
+      for (const dir of dirs) {
+        let sql;
+        try { sql = readFileSync(`prisma/migrations/${dir}/migration.sql`, "utf8"); } catch { continue; }
+        const creates = [...sql.matchAll(/CREATE TABLE "?([A-Za-z]+)"?/g)].map((m) => m[1]);
+        const needed = creates.filter((t) => missing.includes(t));
+        if (needed.length === 0) continue;
+        const stillMissing = [];
+        for (const t of needed) {
+          const reg = (await owner.$queryRawUnsafe(`SELECT to_regclass('public."${t}"')::text AS r`))[0].r;
+          if (!reg) stillMissing.push(t);
+        }
+        if (stillMissing.length === 0) continue;
+        console.log(`[catch-up] applying canonical migration ${dir} (creates: ${needed.join(", ")})`);
+        await applySqlFile(`prisma/migrations/${dir}/migration.sql`);
+      }
+      const after = [];
+      for (const t of missing) {
+        const reg = (await owner.$queryRawUnsafe(`SELECT to_regclass('public."${t}"')::text AS r`))[0].r;
+        if (!reg) after.push(t);
+      }
+      if (after.length > 0) throw new Error(`catch-up incomplete — still missing: ${after.join(", ")}`);
+      console.log("[catch-up] all Wave-2 tables now present");
+    } else {
+      console.log("[catch-up] all Wave-2 tables already present");
     }
     console.log(`[pre-state] pilot=5, wave1(before)=${w1}, w2gate-admin=2, runtime posture OK`);
   }
