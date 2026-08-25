@@ -27,3 +27,11 @@ GRANT USAGE, SELECT ON SEQUENCE "WhatsAppAttachmentImport_id_seq" TO :ROLE;
 --   DELETE          - meta-data erase route (deleteMetaDataByBusinessId)
 GRANT SELECT, INSERT, UPDATE, DELETE ON "WhatsAppConnection" TO :ROLE;
 GRANT USAGE, SELECT ON SEQUENCE "WhatsAppConnection_id_seq" TO :ROLE;
+
+-- Pilot-table grant CATCH-UP required by the newly context-wired WhatsApp
+-- intake: the P4-B pilot posture granted Conversation SELECT-only, but the
+-- intake (Phase-A tenant tx) creates conversations and updates their
+-- counters. Customer already has pilot DML. Conversation RLS itself is the
+-- pilot policy — untouched here.
+GRANT INSERT, UPDATE ON "Conversation" TO :ROLE;
+GRANT USAGE, SELECT ON SEQUENCE "Conversation_id_seq" TO :ROLE;

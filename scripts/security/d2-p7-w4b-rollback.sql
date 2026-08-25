@@ -32,3 +32,8 @@ REVOKE ALL PRIVILEGES ON SEQUENCE "BusinessBotSettings_id_seq" FROM :ROLE;
 REVOKE ALL PRIVILEGES ON SEQUENCE "ReplySuggestion_id_seq" FROM :ROLE;
 REVOKE ALL PRIVILEGES ON SEQUENCE "WhatsAppAttachmentImport_id_seq" FROM :ROLE;
 REVOKE ALL PRIVILEGES ON SEQUENCE "WhatsAppConnection_id_seq" FROM :ROLE;
+
+-- Restore the pilot SELECT-only posture on Conversation (never REVOKE ALL —
+-- the pilot SELECT grant must survive a W4B rollback).
+REVOKE INSERT, UPDATE ON "Conversation" FROM :ROLE;
+REVOKE ALL PRIVILEGES ON SEQUENCE "Conversation_id_seq" FROM :ROLE;
