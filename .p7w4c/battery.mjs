@@ -52,7 +52,24 @@ function assertEndpointSafety(url, label) {
 }
 
 function splitSql(sql) {
-  return sql.split(/;\s*\r?\n/).map((x) => x.replace(/^\s*--.*$/gm, "").trim()).filter(Boolean);
+  // Keeps $$-quoted DO blocks atomic (the W2-GATE migration uses one).
+  const out = [];
+  let buf = "";
+  let inDollar = false;
+  for (const line of sql.split(/\r?\n/)) {
+    const stripped = line.replace(/--.*$/, "");
+    const dollarCount = (stripped.match(/\$\$/g) || []).length;
+    if (dollarCount % 2 === 1) inDollar = !inDollar;
+    buf += line + "\n";
+    if (!inDollar && /;\s*$/.test(stripped)) {
+      const stmt = buf.replace(/^\s*--.*$/gm, "").trim();
+      if (stmt) out.push(stmt.replace(/;\s*$/, ""));
+      buf = "";
+    }
+  }
+  const tail = buf.replace(/^\s*--.*$/gm, "").trim();
+  if (tail) out.push(tail);
+  return out;
 }
 
 async function main() {
