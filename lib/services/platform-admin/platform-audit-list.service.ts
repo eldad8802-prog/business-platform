@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { getPrismaAdmin } from "@/lib/prisma-admin";
 import { ValidationError } from "@/lib/errors";
 import {
   formatActorDisplay,
@@ -77,10 +77,10 @@ async function getAuditSummary(): Promise<PlatformAdminAuditResponse["summary"]>
   const since7d = daysAgo(7);
 
   const [events24h, uniqueAdmins, actionGroups] = await Promise.all([
-    prisma.platformAuditEvent.count({
+    getPrismaAdmin().platformAuditEvent.count({
       where: { createdAt: { gte: since24h } },
     }),
-    prisma.platformAuditEvent.findMany({
+    getPrismaAdmin().platformAuditEvent.findMany({
       where: {
         createdAt: { gte: since7d },
         actorUserId: { not: null },
@@ -88,7 +88,7 @@ async function getAuditSummary(): Promise<PlatformAdminAuditResponse["summary"]>
       distinct: ["actorUserId"],
       select: { actorUserId: true },
     }),
-    prisma.platformAuditEvent.groupBy({
+    getPrismaAdmin().platformAuditEvent.groupBy({
       by: ["action"],
       where: { createdAt: { gte: since7d } },
       _count: { _all: true },
@@ -162,7 +162,7 @@ export async function listPlatformAuditEvents(
 
   const [summary, rows, total] = await Promise.all([
     getAuditSummary(),
-    prisma.platformAuditEvent.findMany({
+    getPrismaAdmin().platformAuditEvent.findMany({
       where,
       orderBy: { createdAt: "desc" },
       skip,
@@ -182,7 +182,7 @@ export async function listPlatformAuditEvents(
         },
       },
     }),
-    prisma.platformAuditEvent.count({ where }),
+    getPrismaAdmin().platformAuditEvent.count({ where }),
   ]);
 
   return {

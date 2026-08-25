@@ -27,41 +27,53 @@ function parsePlatformAdminEmails(): Set<string> {
 function isEmailAllowlisted(email: string): boolean {
   const allowlist = parsePlatformAdminEmails();
   if (allowlist.size === 0) {
-    // Fail closed in production: an unset/empty PLATFORM_ADMIN_EMAILS must
-    // never grant platform-admin access. Outside production we keep the
-    // convenient open behavior so local dev/test do not require the env.
-    return process.env.NODE_ENV !== "production";
+    // Fail closed EVERYWHERE (D2/P7-W2-GATE hardening): an unset/empty
+    // PLATFORM_ADMIN_EMAILS denies all platform-admin access in every
+    // environment. There is deliberately NO dev/test bypass — once an admin
+    // DB credential exists, no admin surface may be reachable through a
+    // weaker auth path. Local dev/tests must set an explicit allowlist.
+    return false;
   }
   return allowlist.has(email.trim().toLowerCase());
 }
 
 /**
+ * Pure access decision (exported for the mechanical test matrix): throws
+ * UnauthorizedError for a missing user, ForbiddenError for wrong role or a
+ * non-allowlisted email. An unset/empty allowlist denies EVERYONE.
+ */
+export function assertPlatformAdminAccess(
+  user: { role: UserRole; email: string } | null
+): void {
+  if (!user) {
+    throw new UnauthorizedError();
+  }
+  if (user.role !== UserRole.PLATFORM_ADMIN) {
+    throw new ForbiddenError();
+  }
+  if (!isEmailAllowlisted(user.email)) {
+    throw new ForbiddenError();
+  }
+}
+
+/**
  * Requires a valid Bearer token, PLATFORM_ADMIN role, and membership in
- * PLATFORM_ADMIN_EMAILS. In production an unset/empty allowlist denies all
- * access (fail closed); in dev/test an empty allowlist is permissive.
+ * PLATFORM_ADMIN_EMAILS. An unset/empty allowlist denies all access in EVERY
+ * environment (fail closed — no dev/test bypass).
  */
 export async function requirePlatformAdmin(
   req: Request
 ): Promise<PlatformAdminUser> {
   const user = await getCurrentUser(req);
 
-  if (!user) {
-    throw new UnauthorizedError();
-  }
-
-  if (user.role !== UserRole.PLATFORM_ADMIN) {
-    throw new ForbiddenError();
-  }
-
-  if (!isEmailAllowlisted(user.email)) {
-    throw new ForbiddenError();
-  }
+  assertPlatformAdminAccess(user);
+  const admin = user as NonNullable<typeof user>;
 
   return {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    role: user.role,
+    id: admin.id,
+    email: admin.email,
+    name: admin.name,
+    role: admin.role,
   };
 }
 

@@ -8,7 +8,7 @@ name: CI-1 Prisma Client Centralization Guard
 
 on:
   push:
-    branches: [feat/d2-p7-w0a-p5-substrate, main]
+    branches: [feat/d2-p7-w2gate-admin-foundation, main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -38,5 +38,29 @@ jobs:
           fi
           echo "NEGATIVE-PROOF PASS: guard caught the synthetic offender"; rm -rf "$NEG"
 
+      - name: Admin-boundary guard CI-2/3/4 (positive — must pass)
+        run: bash scripts/ci/admin-boundary-guard.sh .
+
+      - name: Admin-boundary negative proofs (synthetic offenders must be caught)
+        run: |
+          NEG="$(mktemp -d)"
+          mkdir -p "$NEG/app/api/customers" "$NEG/app/api/platform-admin/x" "$NEG/lib/services/platform-admin"
+          printf 'import { getPrismaAdmin } from "@/lib/prisma-admin";\n' > "$NEG/app/api/customers/route.ts"
+          if bash scripts/ci/admin-boundary-guard.sh "$NEG" >/dev/null 2>&1; then echo "CI-2 NEGATIVE FAIL"; exit 1; fi
+          rm "$NEG/app/api/customers/route.ts"
+          printf 'export async function GET(){return null}\n' > "$NEG/app/api/platform-admin/x/route.ts"
+          if bash scripts/ci/admin-boundary-guard.sh "$NEG" >/dev/null 2>&1; then echo "CI-3 NEGATIVE FAIL"; exit 1; fi
+          rm "$NEG/app/api/platform-admin/x/route.ts"
+          printf 'import { prisma } from "@/lib/prisma";\n' > "$NEG/lib/services/platform-admin/new-thing.service.ts"
+          if bash scripts/ci/admin-boundary-guard.sh "$NEG" >/dev/null 2>&1; then echo "CI-4 NEGATIVE FAIL"; exit 1; fi
+          rm -rf "$NEG"
+          echo "ADMIN-BOUNDARY NEGATIVE PROOFS PASS (CI-2, CI-3, CI-4)"
+
+      - name: npm ci (needed for @prisma/client in auth matrix test)
+        run: npm ci --no-audit --no-fund
+
+      - name: Platform-admin auth fail-closed matrix (Step 0 hardening)
+        run: npx tsx lib/auth/platform-admin.test.ts
+
       - name: P5-1 tenant context unit test (regression — must still pass)
-        run: npx --yes tsx lib/tenant/context.test.ts
+        run: npx tsx lib/tenant/context.test.ts

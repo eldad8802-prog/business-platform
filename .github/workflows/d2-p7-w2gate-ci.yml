@@ -1,0 +1,76 @@
+# D2 / P7-W2-GATE — admin read foundation battery on ephemeral PG17.
+#
+# Provisions the tenant lab substrate + the app_admin group + a lab admin login
+# role, applies the CANONICAL admin migration + per-env grants artifact, runs
+# the full admin proof matrix (tenant unchanged, admin A+B reads, loud denials,
+# approved audit write, targeted write via runtime+context, REAL audit route
+# under canonical fail-closed auth), proves the rollback artifact, re-applies.
+# Synthetic CI-only creds; ZERO secrets; ZERO Neon.
+
+name: d2/p7 — w2gate admin battery (ephemeral PG17)
+
+on:
+  push:
+    branches: [feat/d2-p7-w2gate-admin-foundation]
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/prisma-admin.ts"
+      - "lib/auth/platform-admin.ts"
+      - "app/api/platform-admin/**"
+      - "lib/services/platform-admin/**"
+      - "prisma/migrations/20260825090000_d2_p7_w2gate_admin_read/**"
+      - "scripts/security/d2-p7-w2gate-*.sql"
+      - "scripts/ci/admin-boundary-guard.sh"
+      - ".p7w2g/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  w2gate-battery:
+    name: W2-GATE admin battery (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: p7w2g_owner
+          POSTGRES_PASSWORD: p7w2g_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_p7w2g
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U p7w2g_owner -d dubiz_p7w2g"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .p7w2g/battery.mjs
+
+      - name: Push schema (lab; migrate-from-zero is a known separate defect)
+        env:
+          DATABASE_URL: postgresql://p7w2g_owner:p7w2g_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w2g
+          DIRECT_URL: postgresql://p7w2g_owner:p7w2g_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w2g
+        run: npx prisma db push --skip-generate
+
+      - name: Run W2-GATE admin battery
+        env:
+          BATTERY_TARGET: pg
+          DATABASE_URL: postgresql://p7w2g_owner:p7w2g_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w2g
+          DIRECT_URL: postgresql://p7w2g_owner:p7w2g_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w2g
+          RUNTIME_URL: postgresql://wave1_runtime:p7w1_ci_synthetic_pw@localhost:5432/dubiz_p7w2g
+          ADMIN_LOGIN_ROLE: app_admin_lab
+          W2G_ADMIN_PW: p7w2g_ci_synthetic_admin_pw
+          AUTH_TOKEN_SECRET: p7w2g_ci_auth_secret_synthetic_not_a_real_secret
+        run: npx tsx .p7w2g/battery.mjs

@@ -9,7 +9,9 @@
 # scan node_modules, generated code, build outputs, or scripts/ (isolated tooling).
 #
 # Explicit, minimal allowlist (NOT a broad app/** or lib/** exception):
-#   - lib/prisma.ts           the canonical singleton (the one permitted instantiation)
+#   - lib/prisma.ts           the canonical tenant singleton
+#   - lib/prisma-admin.ts     the SANCTIONED admin client (D2/P7-W2-GATE; its
+#                             import surface is enforced by admin-boundary-guard)
 #   - *.test.ts / *.deps.ts   test / dependency-injection seam files
 #   - **/__mocks__/**         test mocks
 #
@@ -25,6 +27,7 @@ matches="$(
     "$ROOT/app" "$ROOT/lib" \
     --include="*.ts" --include="*.tsx" 2>/dev/null \
     | grep -vE "(^|/)lib/prisma\.ts:" \
+    | grep -vE "(^|/)lib/prisma-admin\.ts:" \
     | grep -vE "\.test\.ts:|\.deps\.ts:|/__mocks__/" \
     || true
 )"

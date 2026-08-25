@@ -54,12 +54,19 @@ export async function createPlatformAuditEventTx(
 
 /**
  * Best-effort platform audit write — never throws to callers.
+ *
+ * D2/P7-W2-GATE migration ratchet: migrated admin routes pass the sanctioned
+ * admin client (`{ db: getPrismaAdmin() }`) so the append runs as the admin
+ * role; not-yet-migrated routes still default to the tenant singleton. The
+ * default is removed as the remaining admin routes migrate — never add new
+ * callers relying on it.
  */
 export async function logPlatformAuditEvent(
-  input: LogPlatformAuditEventInput
+  input: LogPlatformAuditEventInput,
+  options?: { db?: PrismaTx }
 ): Promise<void> {
   try {
-    await createPlatformAuditEventTx(prisma, input);
+    await createPlatformAuditEventTx(options?.db ?? prisma, input);
   } catch (error) {
     console.error("logPlatformAuditEvent error:", error);
   }
