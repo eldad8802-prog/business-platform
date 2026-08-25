@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { after } from "next/server";
+import { runTenantJob } from "@/lib/tenant/job";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
@@ -99,16 +100,20 @@ export async function POST(
 
     const sessionId = readSessionIdFromRequest(req);
 
+    // D2/P7-W4A: explicit tenant handoff — businessId comes from the
+    // ownership-checked Document row and is re-established via runTenantJob.
     after(() =>
-      processDocumentPipeline({
-        documentId: document.id,
-        businessId: document.businessId,
-        userId: user.id,
-        sessionId,
-        buffer,
-        mimeType: document.mimeType,
-        sourceChannel: "reprocess",
-      })
+      runTenantJob({ businessId: document.businessId }, () =>
+        processDocumentPipeline({
+          documentId: document.id,
+          businessId: document.businessId,
+          userId: user.id,
+          sessionId,
+          buffer,
+          mimeType: document.mimeType,
+          sourceChannel: "reprocess",
+        })
+      )
     );
 
     return NextResponse.json({ success: true, status: "processing" });

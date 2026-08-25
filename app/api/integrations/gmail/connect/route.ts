@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { buildGmailAuthorizeUrl } from "@/lib/services/integrations/gmail/oauth-url.service";
 import { createPkcePair } from "@/lib/services/integrations/gmail/pkce-cookie.service";
-import { createOauthState } from "@/lib/services/integrations/gmail/state-cookie.service";
+import { createSignedGmailState } from "@/lib/services/integrations/gmail/signed-state.service";
 
 export const runtime = "nodejs";
 
 const COOKIE_STATE = "gmail_oauth_state";
 const COOKIE_VERIFIER = "gmail_oauth_code_verifier";
-const COOKIE_BUSINESS_ID = "gmail_oauth_business_id";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -46,7 +45,14 @@ export async function GET(req: NextRequest) {
       redirectBase
     ).toString();
 
-    const state = createOauthState();
+    // D2/P7-W4A: the state is a tamper-evident envelope that BINDS the
+    // server-derived tenant identity (businessId + userId) to this OAuth
+    // round-trip. The callback derives the tenant from the verified state —
+    // a standalone businessId cookie is no longer an authority.
+    const state = createSignedGmailState({
+      businessId: user.businessId,
+      userId: user.id,
+    });
     const { codeVerifier, codeChallenge } = createPkcePair();
 
     const authorizeUrl = buildGmailAuthorizeUrl({
@@ -64,9 +70,12 @@ export async function GET(req: NextRequest) {
     const res = NextResponse.json({ url: authorizeUrl });
     const opts = cookieOptions(req);
 
+    // Double-submit binding: the same signed state also travels as an
+    // httpOnly cookie, so the callback only accepts the state from the
+    // browser session that initiated the flow (and it is single-use — the
+    // cookie is cleared on every callback outcome).
     res.cookies.set(COOKIE_STATE, state, opts);
     res.cookies.set(COOKIE_VERIFIER, codeVerifier, opts);
-    res.cookies.set(COOKIE_BUSINESS_ID, String(user.businessId), opts);
 
     return res;
   } catch (error) {

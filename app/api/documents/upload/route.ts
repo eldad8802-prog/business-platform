@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import { after } from "next/server";
+import { runTenantJob } from "@/lib/tenant/job";
 import { getCurrentUser } from "@/lib/auth";
 import { processDocumentPipeline } from "@/lib/services/documents/process-document-pipeline.service";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
@@ -230,16 +231,21 @@ export async function POST(req: Request) {
     // serverless invocation until it settles, so it survives client navigation
     // (unlike a client-triggered follow-up request). The pipeline never throws;
     // it flips the document to needs_review/failed on its own.
+    // D2/P7-W4A: the continuation runs under an EXPLICIT tenant context —
+    // the server-derived businessId travels in the closure and is
+    // re-established via runTenantJob (never inherited from request ALS).
     after(() =>
-      processDocumentPipeline({
-        documentId: document.id,
-        businessId: user.businessId,
-        userId: user.id,
-        sessionId,
-        buffer,
-        mimeType,
-        sourceChannel: "upload",
-      })
+      runTenantJob({ businessId: user.businessId }, () =>
+        processDocumentPipeline({
+          documentId: document.id,
+          businessId: user.businessId,
+          userId: user.id,
+          sessionId,
+          buffer,
+          mimeType,
+          sourceChannel: "upload",
+        })
+      )
     );
 
     return NextResponse.json({

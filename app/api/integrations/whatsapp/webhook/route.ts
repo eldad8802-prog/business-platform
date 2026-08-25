@@ -18,6 +18,7 @@ import {
 } from "@/lib/services/integrations/whatsapp/webhook-verify.service";
 import { logEvent } from "@/lib/services/integrations/whatsapp/webhook-events";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
+import { runTenantJob } from "@/lib/tenant/job";
 
 export const runtime = "nodejs";
 
@@ -132,14 +133,19 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        const outcome = await processWhatsAppDocumentsIntake({
-          businessId: decision.businessId,
-          phoneNumberId: decision.phoneNumberId,
-          sender: decision.sender,
-          wamid: decision.wamid,
-          mediaType: decision.mediaType,
-          mediaId: decision.mediaId,
-        });
+        // D2/P7-W4A: the trusted, server-resolved businessId (WhatsAppConnection
+        // lookup by phone_number_id — never a payload field) becomes the
+        // explicit tenant context for the whole per-message intake.
+        const outcome = await runTenantJob({ businessId: decision.businessId }, () =>
+          processWhatsAppDocumentsIntake({
+            businessId: decision.businessId,
+            phoneNumberId: decision.phoneNumberId,
+            sender: decision.sender,
+            wamid: decision.wamid,
+            mediaType: decision.mediaType,
+            mediaId: decision.mediaId,
+          })
+        );
         console.info(
           "[whatsapp-webhook-intake]",
           documentsIntakeLogFields(
@@ -152,13 +158,16 @@ export async function POST(req: NextRequest) {
       }
 
       if (decision.kind === "CONVERSATION_INTAKE") {
-        const outcome = await processWhatsAppConversationIntake({
-          businessId: decision.businessId,
-          phoneNumberId: decision.phoneNumberId,
-          senderPhone: decision.senderPhone,
-          wamid: decision.wamid,
-          text: decision.text,
-        });
+        // D2/P7-W4A: explicit tenant context from the trusted mapping (see above).
+        const outcome = await runTenantJob({ businessId: decision.businessId }, () =>
+          processWhatsAppConversationIntake({
+            businessId: decision.businessId,
+            phoneNumberId: decision.phoneNumberId,
+            senderPhone: decision.senderPhone,
+            wamid: decision.wamid,
+            text: decision.text,
+          })
+        );
         console.info(
           "[whatsapp-webhook-conversation-intake]",
           conversationIntakeLogFields(

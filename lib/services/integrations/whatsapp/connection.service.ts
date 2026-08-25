@@ -83,17 +83,17 @@ export async function resolveBusinessIdByPhoneNumberId(
   if (typeof phoneNumberId !== "string" || phoneNumberId.length === 0) {
     return null;
   }
-  try {
-    const row = await prisma.whatsAppConnection.findUnique({
-      where: { phoneNumberId },
-      select: { businessId: true, status: true },
-    });
-    if (!row) return null;
-    if (row.status !== "CONNECTED") return null;
-    return row.businessId;
-  } catch {
-    return null;
-  }
+  // D2/P7-W4A: a DB failure must PROPAGATE, never read as "not found" —
+  // the old swallow-and-return-null pattern let a transient DB error hit the
+  // env fallback map, silently rerouting tenant resolution. Now only a true
+  // miss / non-CONNECTED row yields null.
+  const row = await prisma.whatsAppConnection.findUnique({
+    where: { phoneNumberId },
+    select: { businessId: true, status: true },
+  });
+  if (!row) return null;
+  if (row.status !== "CONNECTED") return null;
+  return row.businessId;
 }
 
 /**
