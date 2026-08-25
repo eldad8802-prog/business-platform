@@ -82,7 +82,6 @@ jobs:
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           W1_RUNTIME_URL: ${{ secrets.W1_RUNTIME_URL }}
-          W2G_ADMIN_PW: ${{ secrets.W2G_ADMIN_PW }}
           AUTH_TOKEN_SECRET: p7w4b_ci_auth_secret_synthetic
         shell: bash
         run: |
@@ -90,10 +89,8 @@ jobs:
           VERIFY_ONLY="${{ inputs.verify_only && '1' || '' }}"
           if [ "${VERIFY_ONLY}" != "1" ]; then
             [ -n "${W1_RUNTIME_URL:-}" ] || { echo "::error::W1_RUNTIME_URL missing (transient secret)"; exit 1; }
-            [ -n "${W2G_ADMIN_PW:-}" ] || { echo "::error::W2G_ADMIN_PW missing (transient secret)"; exit 1; }
           fi
           [ -z "${W1_RUNTIME_URL:-}" ] || echo "::add-mask::${W1_RUNTIME_URL}"
-          [ -z "${W2G_ADMIN_PW:-}" ] || echo "::add-mask::${W2G_ADMIN_PW}"
           uri() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=$1" | jq -r '.uri'; }
           DBP="$(uri true)"; DBD="$(uri false)"
           echo "::add-mask::${DBP}"; echo "::add-mask::${DBD}"
@@ -105,7 +102,6 @@ jobs:
           BATTERY_TARGET=neon W4B_VERIFY_ONLY="${VERIFY_ONLY}" \
           DATABASE_URL="${DBP}" DIRECT_URL="${DBD}" \
           RUNTIME_URL="${W1_RUNTIME_URL:-}" \
-          ADMIN_LOGIN_ROLE=app_admin_preview W2G_ADMIN_PW="${W2G_ADMIN_PW:-}" \
           npx tsx .p7w4b/battery.mjs
 
       - name: Fixtures cleanup net (always — marker-based backstop)
