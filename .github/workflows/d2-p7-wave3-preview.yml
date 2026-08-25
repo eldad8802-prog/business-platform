@@ -10,14 +10,15 @@
 name: d2/p7 — wave 3 preview apply+proof (neon)
 
 on:
+  push:
+    branches: [feat/d2-p7-wave3]
+    paths: [".p7w3/preview-apply.trigger"]
   workflow_dispatch:
     inputs:
       verify_only:
         description: "READ-ONLY substrate verification (no apply/fixtures/sessions)"
         type: boolean
         default: false
-  # push trigger disarmed post-apply (proven pattern): substrate applied+proven,
-  # transient secrets deleted; workflow_dispatch (incl. verify_only) remains.
 
 permissions:
   contents: read
@@ -120,7 +121,7 @@ jobs:
           cat > .p7w3/fixnet.gen.mjs <<'FIX_EOF'
           import { PrismaClient } from '@prisma/client';
           const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
-          const bids = 'SELECT id FROM "Business" WHERE name LIKE 'p7w3-%'';
+          const bids = `SELECT id FROM "Business" WHERE name LIKE 'p7w3-%'`;
           await c.$executeRawUnsafe('DELETE FROM "ReceivingLine" WHERE "receivingSessionId" IN (SELECT id FROM "ReceivingSession" WHERE "businessId" IN (' + bids + '))');
           await c.$executeRawUnsafe('DELETE FROM "ReceivingSession" WHERE "businessId" IN (' + bids + ')');
           await c.$executeRawUnsafe('DELETE FROM "PurchaseOrderLine" WHERE "purchaseOrderId" IN (SELECT id FROM "PurchaseOrder" WHERE "businessId" IN (' + bids + '))');
@@ -128,15 +129,15 @@ jobs:
           await c.$executeRawUnsafe('DELETE FROM "SupplierPurchaseDraftLine" WHERE "draftId" IN (SELECT id FROM "SupplierPurchaseDraft" WHERE "businessId" IN (' + bids + '))');
           for (const t of ['SupplierPurchaseDraft','Supplier','POSProductMapping','InventoryExternalSale','InventoryPendingMatch','InventoryAlert','InventoryMovement','InventoryDraft','InventoryItem','InventoryCategory','POSApiKey'])
             await c.$executeRawUnsafe('DELETE FROM "' + t + '" WHERE "businessId" IN (' + bids + ')');
-          await c.$executeRawUnsafe('DELETE FROM "User" WHERE email LIKE '%@p7w3.test'');
-          await c.$executeRawUnsafe('DELETE FROM "Business" WHERE name LIKE 'p7w3-%'');
+          await c.$executeRawUnsafe(`DELETE FROM "User" WHERE email LIKE '%@p7w3.test'`);
+          await c.$executeRawUnsafe(`DELETE FROM "Business" WHERE name LIKE 'p7w3-%'`);
           const r = await c.$queryRaw`SELECT (SELECT count(*)::int FROM "Business" WHERE name LIKE 'p7w3-%') AS biz`;
           console.log('[fixnet] residue business=' + r[0].biz);
           await c.$disconnect();
           FIX_EOF
           DIRECT_URL="${DBD}" node .p7w3/fixnet.gen.mjs || true
 
-      - name: Rollback on failure (restore pre-Wave-2 posture)
+      - name: Rollback on failure (restore pre-Wave-3 posture)
         if: failure() && !inputs.verify_only
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
