@@ -155,7 +155,12 @@ async function main() {
     // Preview; canonical W4C artifacts do NOT include these).
     for (const t of ["Document", "ExtractedData", "ExtractionSnapshot", "SliceDecision", "ProductUsageEvent"]) {
       await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "${t}" TO ${RT_ROLE}`);
-      await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON SEQUENCE "${t}_id_seq" TO ${RT_ROLE}`);
+      // Not every table has an integer sequence (ProductUsageEvent id = cuid).
+      const seq = (await owner.$queryRawUnsafe(
+        `SELECT to_regclass('public."${t}_id_seq"')::text AS r`))[0].r;
+      if (seq) {
+        await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON SEQUENCE "${t}_id_seq" TO ${RT_ROLE}`);
+      }
     }
   }
 
