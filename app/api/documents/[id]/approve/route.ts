@@ -162,6 +162,46 @@ export async function POST(
       financial = { amount, vendorName, category, direction, date };
     }
 
+    // APPROVED-MUTATION GUARD (Wave 0+1 invariant): approved financial truth
+    // cannot be silently overwritten. Once a document is approved AND has a
+    // FinancialRecord:
+    //   - a document-only save is rejected (it would leave a live record
+    //     contradicting the review verdict);
+    //   - a financial re-approval with DIFFERENT values is rejected — value
+    //     changes will arrive only as an explicit, audited Correction (a later
+    //     wave);
+    //   - an IDENTICAL financial re-approval stays allowed (idempotent retry).
+    // A document approved WITHOUT a record (informational save) remains fully
+    // re-approvable — that is the rescue path for misfiled receipts.
+    if (document.status === "approved") {
+      const existingRecord = await prisma.financialRecord.findUnique({
+        where: { documentId },
+      });
+      if (existingRecord) {
+        const sameDay = (a: Date, b: Date) =>
+          a.getUTCFullYear() === b.getUTCFullYear() &&
+          a.getUTCMonth() === b.getUTCMonth() &&
+          a.getUTCDate() === b.getUTCDate();
+        const unchanged =
+          financial !== null &&
+          existingRecord.amount === financial.amount &&
+          existingRecord.vendorName === financial.vendorName &&
+          existingRecord.direction === financial.direction &&
+          existingRecord.category === financial.category &&
+          sameDay(existingRecord.date, financial.date);
+        if (!unchanged) {
+          return Response.json(
+            {
+              error:
+                "המסמך כבר אושר ונרשם כספית. שינוי הרישום יתאפשר רק דרך תיקון מבוקר.",
+              code: "approved_financial_locked",
+            },
+            { status: 409 }
+          );
+        }
+      }
+    }
+
     // Belief is the engine extraction as loaded ABOVE (before the upsert
     // overwrite below) — this ordering is load-bearing for the learning ledger:
     // re-reading after the upsert would destroy the belief-vs-final signal.

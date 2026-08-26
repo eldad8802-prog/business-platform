@@ -72,6 +72,7 @@ export default function ReviewPage() {
   const [document, setDocument] = useState<ApiDocument | null>(null);
   const [outputProfile, setOutputProfile] = useState<OutputProfile | null>(null);
   const [extractionMeta, setExtractionMeta] = useState<ExtractionConfidenceMeta | null>(null);
+  const [financialRecorded, setFinancialRecorded] = useState(false);
   const [duplicateSignals, setDuplicateSignals] = useState<
     Array<{
       level: "exact_file" | "same_transaction";
@@ -137,6 +138,9 @@ export default function ReviewPage() {
             ? ((json as { duplicateSignals?: unknown })
                 .duplicateSignals as typeof duplicateSignals)
             : []
+        );
+        setFinancialRecorded(
+          (json as { financialRecorded?: unknown }).financialRecorded === true
         );
         setApprovedAs(null);
         setShowFieldDetails(false);
@@ -547,6 +551,20 @@ export default function ReviewPage() {
         <ReviewHero state={state} />
 
         {error ? <div style={alertError}>{error}</div> : null}
+
+        {state === "decision" &&
+        document.status === "approved" &&
+        financialRecorded ? (
+          <div style={duplicateWarnStyle} role="status">
+            <strong style={duplicateWarnTitleStyle}>
+              המסמך אושר ונרשם כספית
+            </strong>
+            <span style={duplicateWarnTextStyle}>
+              הרישום הכספי נעול. שינוי סכום, ספק, תאריך או כיוון יתאפשר רק דרך
+              תיקון מבוקר.
+            </span>
+          </div>
+        ) : null}
 
         {state === "decision" && duplicateSignals.length > 0 ? (
           <div style={duplicateWarnStyle} role="alert">
