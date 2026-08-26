@@ -111,6 +111,20 @@ async function main() {
       if (!r || r.rolsuper || r.rolbypassrls) throw new Error(`DRIFT: ${role} posture — STOP`);
     }
     console.log("[pre-state] pilot=5, w1=14, w2=24, w3=15, w4b=5, w4c=3, adm gates OK, postures OK");
+
+    // ── STEP-22 catch-up: already-merged additive prerequisite (#273 dedup
+    // identity columns). Guarded: applied only when missing; expand-only.
+    const hashCol = await owner.$queryRawUnsafe(
+      `SELECT 1 FROM information_schema.columns WHERE table_name='Document' AND column_name='contentHashSha256'`);
+    if (hashCol.length === 0 && !VERIFY_ONLY) {
+      await applySqlFile("prisma/migrations/20260826120000_documents_dedup_identity/migration.sql");
+      const after = await owner.$queryRawUnsafe(
+        `SELECT 1 FROM information_schema.columns WHERE table_name='Document' AND column_name='contentHashSha256'`);
+      if (after.length === 0) throw new Error("CATCH-UP FAILED: dedup-identity columns missing after apply");
+      console.log("[catch-up] documents_dedup_identity APPLIED (expand-only)");
+    } else {
+      console.log(`[catch-up] documents_dedup_identity: ${hashCol.length > 0 ? "already present" : "pending (verify-only, untouched)"}`);
+    }
   }
 
   if (VERIFY_ONLY) {
