@@ -8,15 +8,15 @@
 name: d2/p7 — w4d preview apply+proof (neon)
 
 on:
-  push:
-    branches: [feat/d2-p7-w4d]
-    paths: [".p7w4d/preview-apply.trigger"]
   workflow_dispatch:
     inputs:
       verify_only:
         description: "READ-ONLY substrate verification (no apply/fixtures/sessions)"
         type: boolean
         default: false
+  # push trigger disarmed post-apply (proven pattern): substrate applied+proven
+  # (run 32978782867, PASS=44 FAIL=0; incl. dedup-identity catch-up), transient
+  # secrets deleted; workflow_dispatch (incl. verify_only) remains.
 
 permissions:
   contents: read
