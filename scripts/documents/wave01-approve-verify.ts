@@ -225,6 +225,81 @@ async function main() {
       "same_transaction signal carries hasFinancialRecord",
       signals.some((s) => s.documentId === doc1.id && s.hasFinancialRecord)
     );
+
+    // ── 6: approved-mutation guard ────────────────────────────────────────
+    // doc1 is approved + financially recorded (123.45). The old silent-edit
+    // path (re-approve with a different amount) must now be rejected.
+    const res6a = await approvePOST(
+      approveReq(token, {
+        explicitFinancial: true,
+        extracted: {
+          amount: 1.0,
+          vendorName: VENDOR,
+          date: "2026-08-20",
+          direction: "expense",
+          category: "general",
+        },
+      }),
+      ctxFor(doc1.id)
+    );
+    const json6a = (await res6a.json()) as { code?: string };
+    ok(
+      "silent financial overwrite rejected (409 approved_financial_locked)",
+      res6a.status === 409 && json6a.code === "approved_financial_locked"
+    );
+    const fr6 = await prisma.financialRecord.findUnique({
+      where: { documentId: doc1.id },
+    });
+    ok("FinancialRecord amount untouched after rejected edit", fr6?.amount === 123.45);
+
+    // Downgrading a recorded document to "informational" is also blocked.
+    const res6b = await approvePOST(
+      approveReq(token, {
+        explicitFinancial: false,
+        extracted: { vendorName: VENDOR, category: "general", date: "2026-08-20" },
+      }),
+      ctxFor(doc1.id)
+    );
+    ok("document-only downgrade of a recorded doc rejected", res6b.status === 409);
+
+    // Identical re-approval stays allowed (idempotent retry).
+    const res6c = await approvePOST(
+      approveReq(token, {
+        explicitFinancial: true,
+        extracted: {
+          amount: 123.45,
+          vendorName: VENDOR,
+          date: "2026-08-20",
+          direction: "expense",
+          category: "general",
+        },
+      }),
+      ctxFor(doc1.id)
+    );
+    ok("identical financial re-approval stays allowed (idempotent)", res6c.status === 200);
+
+    // Rescue path stays open: doc2 was approved as document-only (no FR) —
+    // a later financial approval must still be possible.
+    const res6d = await approvePOST(
+      approveReq(token, {
+        explicitFinancial: true,
+        extracted: {
+          amount: 55.5,
+          vendorName: VENDOR,
+          date: "2026-08-20",
+          direction: "expense",
+          category: "general",
+        },
+      }),
+      ctxFor(doc2.id)
+    );
+    const fr6d = await prisma.financialRecord.findUnique({
+      where: { documentId: doc2.id },
+    });
+    ok(
+      "rescue path: approved-as-document can still be financially recorded",
+      res6d.status === 200 && fr6d !== null && fr6d.amount === 55.5
+    );
   } finally {
     // Cleanup synthetic rows (children cascade from Document except scalars).
     await prisma.reviewEvent.deleteMany({

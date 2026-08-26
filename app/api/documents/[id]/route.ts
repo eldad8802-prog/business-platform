@@ -35,6 +35,7 @@ export async function GET(
         createdAt: true,
         ocrText: true,
         extractedData: true,
+        financialRecord: { select: { id: true } },
       },
     });
 
@@ -90,6 +91,9 @@ export async function GET(
         createdAt: document.createdAt.toISOString(),
       },
       extracted: document.extractedData,
+      // Approved-mutation guard: lets the review UI say up front that this
+      // document's financial record is locked (server enforces regardless).
+      financialRecorded: Boolean(document.financialRecord),
       duplicateSignals,
       outputProfile: resolved.outputProfile,
       outputProfileSource: resolved.outputProfileSource,
