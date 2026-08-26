@@ -1,4 +1,22 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
+import { getTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+// D2/P7-W4D: run a single DB step on a short tenant transaction when a tenant
+// context is established (all document routes set one); outside a context the
+// step runs directly (pure unit tests / offline scripts). Under an
+// established context there is NO fallback to the global client.
+async function dbStep<T>(
+  fn: (db: typeof prisma) => Promise<T>
+): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    // TransactionClient supports the same query surface these callbacks use;
+    // the cast keeps precise select/include payload types.
+    return withTenantTransaction((tx) => fn(tx as unknown as typeof prisma));
+  }
+  return fn(prisma);
+}
 import { CATEGORY_RULES } from "@/lib/constants/category-rules";
 
 type CategoryResult = {
@@ -32,14 +50,14 @@ export async function decideCategory(
   text: string
 ): Promise<CategoryResult> {
   // 1. learning
-  const learning = await prisma.vendorLearning.findUnique({
+  const learning = await dbStep((db) => db.vendorLearning.findUnique({
     where: {
       businessId_vendorName: {
         businessId,
         vendorName,
       },
     },
-  });
+  }));
 
   if (learning) {
     return {

@@ -1,4 +1,22 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
+import { getTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+// D2/P7-W4D: run a single DB step on a short tenant transaction when a tenant
+// context is established (all document routes set one); outside a context the
+// step runs directly (pure unit tests / offline scripts). Under an
+// established context there is NO fallback to the global client.
+async function dbStep<T>(
+  fn: (db: typeof prisma) => Promise<T>
+): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    // TransactionClient supports the same query surface these callbacks use;
+    // the cast keeps precise select/include payload types.
+    return withTenantTransaction((tx) => fn(tx as unknown as typeof prisma));
+  }
+  return fn(prisma);
+}
 import { normalizeVendorForLearning } from "@/lib/services/documents/vendor-normalization.service";
 
 /**
@@ -43,7 +61,7 @@ export async function findDuplicateSignals(params: {
   documentId: number;
 }): Promise<DuplicateSignal[]> {
   try {
-    const doc = await prisma.document.findFirst({
+    const doc = await dbStep((db) => db.document.findFirst({
       where: { id: params.documentId, businessId: params.businessId },
       select: {
         id: true,
@@ -52,7 +70,7 @@ export async function findDuplicateSignals(params: {
           select: { vendorName: true, amount: true, date: true },
         },
       },
-    });
+    }));
     if (!doc) return [];
 
     const signals: DuplicateSignal[] = [];
@@ -60,7 +78,7 @@ export async function findDuplicateSignals(params: {
 
     // Tier 1 — identical bytes elsewhere in this business.
     if (doc.contentHashSha256) {
-      const exact = await prisma.document.findMany({
+      const exact = await dbStep((db) => db.document.findMany({
         where: {
           businessId: params.businessId,
           contentHashSha256: doc.contentHashSha256,
@@ -75,7 +93,7 @@ export async function findDuplicateSignals(params: {
           extractedData: { select: { vendorName: true, amount: true, date: true } },
           financialRecord: { select: { id: true, vendorName: true, amount: true, date: true } },
         },
-      });
+      }));
       for (const d of exact) {
         seenDocIds.add(d.id);
         const known = d.financialRecord ?? d.extractedData;
@@ -94,16 +112,18 @@ export async function findDuplicateSignals(params: {
     // Tier 2 — same accounting identity (normalized vendor + amount + day).
     const ex = doc.extractedData;
     if (ex?.amount != null && ex.amount > 0 && ex.vendorName && ex.date) {
+      // Hoisted: property narrowing does not flow into the dbStep closure.
+      const exAmount = ex.amount;
       const subjectKey = normalizeVendorForLearning(ex.vendorName).normalizedKey;
       if (subjectKey) {
-        const candidates = await prisma.document.findMany({
+        const candidates = await dbStep((db) => db.document.findMany({
           where: {
             businessId: params.businessId,
             id: { not: doc.id },
             status: { not: "failed" },
             OR: [
-              { extractedData: { amount: ex.amount } },
-              { financialRecord: { amount: ex.amount } },
+              { extractedData: { amount: exAmount } },
+              { financialRecord: { amount: exAmount } },
             ],
           },
           orderBy: { id: "desc" },
@@ -114,7 +134,7 @@ export async function findDuplicateSignals(params: {
             extractedData: { select: { vendorName: true, amount: true, date: true } },
             financialRecord: { select: { id: true, vendorName: true, amount: true, date: true } },
           },
-        });
+        }));
 
         for (const d of candidates) {
           if (seenDocIds.has(d.id)) continue;

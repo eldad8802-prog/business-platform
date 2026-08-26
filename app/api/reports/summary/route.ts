@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 export async function GET(req: Request) {
   const user = await getCurrentUser(req);
@@ -24,7 +26,7 @@ export async function GET(req: Request) {
       toDate = new Date(year, m, 0, 23, 59, 59);
     }
 
-    const records = await prisma.financialRecord.findMany({
+    const records = await runWithTenantContext({ businessId: user.businessId }, () => withTenantTransaction((tx) => tx.financialRecord.findMany({
       where: {
         businessId,
         ...(fromDate && toDate
@@ -36,7 +38,7 @@ export async function GET(req: Request) {
             }
           : {}),
       },
-    });
+    })));
 
     let totalIncome = 0;
     let totalExpense = 0;

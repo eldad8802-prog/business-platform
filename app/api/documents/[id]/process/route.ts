@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { after } from "next/server";
 import { runTenantJob } from "@/lib/tenant/job";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
@@ -40,8 +42,11 @@ export async function POST(
       return NextResponse.json({ error: "מזהה מסמך לא תקין" }, { status: 400 });
     }
 
-    const document = await prisma.document.findUnique({
-      where: { id },
+    const document = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) => tx.document.findFirst({
+          where: { id, businessId: user.businessId },
       select: {
         id: true,
         businessId: true,
@@ -49,7 +54,8 @@ export async function POST(
         fileUrl: true,
         mimeType: true,
       },
-    });
+    }))
+    );
 
     if (!document) {
       return NextResponse.json({ error: "המסמך לא נמצא" }, { status: 404 });
@@ -93,10 +99,14 @@ export async function POST(
     }
 
     // Reflect the retry immediately so pollers see it move back to processing.
-    await prisma.document.update({
-      where: { id },
-      data: { status: "processing" },
-    });
+    await runWithTenantContext({ businessId: user.businessId }, () =>
+      withTenantTransaction((tx) =>
+        tx.document.updateMany({
+          where: { id, businessId: user.businessId },
+          data: { status: "processing" },
+        })
+      )
+    );
 
     const sessionId = readSessionIdFromRequest(req);
 

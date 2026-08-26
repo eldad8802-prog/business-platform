@@ -10,6 +10,18 @@
  * (default binds Prisma), same pattern as the owner-decision reader. INERT: no product consumer.
  */
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
+import { getTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+// D2/P7-W4D: ctx-aware short tenant tx per DB step (no global fallback under
+// an established context; direct reads only for context-less unit tests).
+async function dbStep<T>(fn: (db: typeof prisma) => Promise<T>): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    return withTenantTransaction((tx) => fn(tx as unknown as typeof prisma));
+  }
+  return fn(prisma);
+}
 import type { EngineBeliefEvidence, EngineBeliefEvidenceReader, EvidenceRef } from "./evidence-contract";
 
 /** Minimal structural shape of an `ExtractionSnapshot` row (engine belief — raw, un-normalized). */
@@ -46,10 +58,10 @@ export type ExtractionSnapshotRowSource = (
 ) => Promise<ExtractionSnapshotRow[]>;
 
 const prismaRowSource: ExtractionSnapshotRowSource = async (businessId, documentId) => {
-  const rows = await prisma.extractionSnapshot.findMany({
+  const rows = await dbStep((db) => db.extractionSnapshot.findMany({
     where: { businessId, documentId },
     select: { id: true, businessId: true, occurredAt: true, vendorName: true, category: true, direction: true },
-  });
+  }));
   return rows as ExtractionSnapshotRow[];
 };
 

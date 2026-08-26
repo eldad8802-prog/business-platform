@@ -1,6 +1,18 @@
 import archiver from "archiver";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
+import { getTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+// D2/P7-W4D: ctx-aware short tenant tx per DB step (no global fallback under
+// an established context; direct reads only for context-less unit tests).
+async function dbStep<T>(fn: (db: typeof prisma) => Promise<T>): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    return withTenantTransaction((tx) => fn(tx as unknown as typeof prisma));
+  }
+  return fn(prisma);
+}
 import {
   readDocumentObject,
   STORED_DOCUMENT_FILENAME_REGEX,
@@ -141,7 +153,7 @@ function loadRecordsForExport(
   toDate: Date | undefined,
   categories: string[] | undefined
 ) {
-  return prisma.financialRecord.findMany({
+  return dbStep((db) => db.financialRecord.findMany({
     where: {
       businessId,
       ...(fromDate && toDate
@@ -168,7 +180,7 @@ function loadRecordsForExport(
       },
     },
     orderBy: { date: "asc" },
-  });
+  }));
 }
 
 function buildAccountantCsvText(

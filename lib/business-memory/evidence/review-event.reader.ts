@@ -10,6 +10,18 @@
  * writer, no Claim, no confidence, no policy, no VendorLearning coupling, no RIA/C1 activation.
  */
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
+import { getTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+// D2/P7-W4D: ctx-aware short tenant tx per DB step (no global fallback under
+// an established context; direct reads only for context-less unit tests).
+async function dbStep<T>(fn: (db: typeof prisma) => Promise<T>): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    return withTenantTransaction((tx) => fn(tx as unknown as typeof prisma));
+  }
+  return fn(prisma);
+}
 import type {
   DomainLocalSubject,
   EvidenceRef,
@@ -25,7 +37,7 @@ export type ReviewEventRowSource = (businessId: number) => Promise<ReviewEventRo
 
 /** Default row source: tenant-filtered Prisma read, selecting only the fields the mapper needs. */
 const prismaRowSource: ReviewEventRowSource = async (businessId) => {
-  const rows = await prisma.reviewEvent.findMany({
+  const rows = await dbStep((db) => db.reviewEvent.findMany({
     where: { businessId },
     select: {
       id: true,
@@ -35,7 +47,7 @@ const prismaRowSource: ReviewEventRowSource = async (businessId) => {
       directionFinal: true,
       verdicts: true,
     },
-  });
+  }));
   return rows as ReviewEventRow[];
 };
 

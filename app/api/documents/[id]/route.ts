@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { resolveDocumentOutputProfile } from "@/lib/services/documents/output-profile-resolver.service";
 import { findDuplicateSignals } from "@/lib/services/documents/duplicate-signals.service";
 
@@ -23,7 +25,7 @@ export async function GET(
       );
     }
 
-    const document = await prisma.document.findUnique({
+    const document = await runWithTenantContext({ businessId: user.businessId }, () => withTenantTransaction((tx) => tx.document.findUnique({
       where: { id },
       select: {
         id: true,
@@ -37,7 +39,7 @@ export async function GET(
         extractedData: true,
         financialRecord: { select: { id: true } },
       },
-    });
+    })));
 
     if (!document) {
       return Response.json(

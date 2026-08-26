@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 // GET /api/search
 //
@@ -73,7 +75,7 @@ export async function GET(req: Request) {
       if (toDate) dateFilter.lte = toDate;
     }
 
-    const results = await prisma.financialRecord.findMany({
+    const results = await runWithTenantContext({ businessId: user.businessId }, () => withTenantTransaction((tx) => tx.financialRecord.findMany({
       where: {
         businessId: user.businessId,
         AND: [
@@ -105,7 +107,7 @@ export async function GET(req: Request) {
           },
         },
       },
-    });
+    })));
 
     return Response.json({ results });
   } catch (error) {

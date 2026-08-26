@@ -1,6 +1,19 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+// D2/P7-W4D: each read runs on its own short tenant transaction (independent
+// transactions may run concurrently — never one shared interactive tx).
+async function dbStep<T>(
+  businessId: number,
+  fn: (db: typeof prisma) => Promise<T>
+): Promise<T> {
+  return runWithTenantContext({ businessId }, () =>
+    withTenantTransaction((tx) => fn(tx as unknown as typeof prisma))
+  );
+}
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
 import { STORED_DOCUMENT_FILENAME_REGEX } from "@/lib/services/documents/document-storage-paths";
@@ -218,43 +231,43 @@ export async function GET(req: Request) {
         prevIncomeAgg,
         prevExpenseAgg,
       ] = await Promise.all([
-        prisma.financialRecord.aggregate({
+        dbStep(user.businessId, (db) => db.financialRecord.aggregate({
           where: {
             businessId,
             date: { gte: from, lt: toExclusive },
             direction: "income",
           },
           _sum: { amount: true },
-        }),
-        prisma.financialRecord.aggregate({
+        })),
+        dbStep(user.businessId, (db) => db.financialRecord.aggregate({
           where: {
             businessId,
             date: { gte: from, lt: toExclusive },
             direction: "expense",
           },
           _sum: { amount: true },
-        }),
-        prisma.financialRecord.count({
+        })),
+        dbStep(user.businessId, (db) => db.financialRecord.count({
           where: {
             businessId,
             date: { gte: from, lt: toExclusive },
           },
-        }),
-        prisma.document.count({
+        })),
+        dbStep(user.businessId, (db) => db.document.count({
           where: {
             businessId,
             createdAt: { gte: from, lt: toExclusive },
             status: "needs_review",
           },
-        }),
-        prisma.document.count({
+        })),
+        dbStep(user.businessId, (db) => db.document.count({
           where: {
             businessId,
             createdAt: { gte: from, lt: toExclusive },
             status: "approved",
           },
-        }),
-        prisma.document.findFirst({
+        })),
+        dbStep(user.businessId, (db) => db.document.findFirst({
           where: {
             businessId,
             createdAt: { gte: from, lt: toExclusive },
@@ -271,23 +284,23 @@ export async function GET(req: Request) {
               },
             },
           },
-        }),
-        prisma.financialRecord.aggregate({
+        })),
+        dbStep(user.businessId, (db) => db.financialRecord.aggregate({
           where: {
             businessId,
             date: { gte: prevFrom, lt: prevToExclusive },
             direction: "income",
           },
           _sum: { amount: true },
-        }),
-        prisma.financialRecord.aggregate({
+        })),
+        dbStep(user.businessId, (db) => db.financialRecord.aggregate({
           where: {
             businessId,
             date: { gte: prevFrom, lt: prevToExclusive },
             direction: "expense",
           },
           _sum: { amount: true },
-        }),
+        })),
       ]);
 
       const incomeSum = incomeAgg._sum.amount ?? 0;
@@ -362,43 +375,43 @@ export async function GET(req: Request) {
       approvedDocuments,
       docs,
     ] = await Promise.all([
-      prisma.financialRecord.aggregate({
+      dbStep(user.businessId, (db) => db.financialRecord.aggregate({
         where: {
           businessId,
           date: { gte: from, lt: toExclusive },
           direction: "income",
         },
         _sum: { amount: true },
-      }),
-      prisma.financialRecord.aggregate({
+      })),
+      dbStep(user.businessId, (db) => db.financialRecord.aggregate({
         where: {
           businessId,
           date: { gte: from, lt: toExclusive },
           direction: "expense",
         },
         _sum: { amount: true },
-      }),
-      prisma.financialRecord.count({
+      })),
+      dbStep(user.businessId, (db) => db.financialRecord.count({
         where: {
           businessId,
           date: { gte: from, lt: toExclusive },
         },
-      }),
-      prisma.document.count({
+      })),
+      dbStep(user.businessId, (db) => db.document.count({
         where: {
           businessId,
           createdAt: { gte: from, lt: toExclusive },
           status: "needs_review",
         },
-      }),
-      prisma.document.count({
+      })),
+      dbStep(user.businessId, (db) => db.document.count({
         where: {
           businessId,
           createdAt: { gte: from, lt: toExclusive },
           status: "approved",
         },
-      }),
-      prisma.document.findMany({
+      })),
+      dbStep(user.businessId, (db) => db.document.findMany({
         where: {
           businessId,
           createdAt: { gte: from, lt: toExclusive },
@@ -449,7 +462,7 @@ export async function GET(req: Request) {
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: limit + 1,
-      }),
+      })),
     ]);
 
     const hasMore = docs.length > limit;

@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import { after } from "next/server";
 import { runTenantJob } from "@/lib/tenant/job";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { getCurrentUser } from "@/lib/auth";
 import { processDocumentPipeline } from "@/lib/services/documents/process-document-pipeline.service";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
@@ -209,7 +211,10 @@ export async function POST(req: Request) {
     // force the upload with allowDuplicate ("העלה בכל זאת"), which is recorded.
     const allowDuplicate = formData.get("allowDuplicate") === "true";
     if (!allowDuplicate) {
-      const existing = await prisma.document.findFirst({
+      const existing = await runWithTenantContext(
+        { businessId: user.businessId },
+        () =>
+          withTenantTransaction((tx) => tx.document.findFirst({
         where: {
           businessId: user.businessId,
           contentHashSha256,
@@ -227,7 +232,8 @@ export async function POST(req: Request) {
             select: { vendorName: true, amount: true, date: true },
           },
         },
-      });
+          }))
+      );
       if (existing) {
         const known = existing.financialRecord ?? existing.extractedData;
         return NextResponse.json(
@@ -267,14 +273,18 @@ export async function POST(req: Request) {
 
     // Create the Document row NOW, in "processing" — this is what makes it
     // appear in the inbox/review immediately, before OCR/extraction run.
-    const document = await prisma.document.create({
+    const document = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) => tx.document.create({
       data: {
-        businessId,
+        businessId: user.businessId,
         // `fileUrl` stores ONLY the stored basename (no slashes, no business
         // id). The file route resolves the full path using the authenticated
         // user's businessId, which prevents cross-tenant access even if the
         // stored name leaks.
-        fileUrl: storedFileName,
+        // assigned above (storage put succeeded) — safe non-null.
+        fileUrl: storedFileName!,
         source: "file",
         mimeType: file.type || "image/jpeg",
         status: "processing",
@@ -283,7 +293,8 @@ export async function POST(req: Request) {
         originalFilename,
         sizeBytes: file.size,
       },
-    });
+    }))
+    );
     documentPersisted = true;
 
     // Phase 2 — runs AFTER this response is sent. `after()` extends the
