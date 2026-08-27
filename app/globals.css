@@ -3,13 +3,40 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /*
+   * Safe-area contract (Adaptive+Native Spec v1 §12): the ONLY place env()
+   * enters the app. Everything else consumes these vars — shell chrome,
+   * overlays, toasts, fixed controls. Zero on desktop browsers; real values
+   * inside the native shells / notched devices (viewport-fit=cover is set in
+   * app/layout.tsx).
+   */
+  --dz-safe-top: env(safe-area-inset-top, 0px);
+  --dz-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --dz-safe-start: env(safe-area-inset-right, 0px); /* RTL: start = right */
+  --dz-safe-end: env(safe-area-inset-left, 0px);
+
+  /*
+   * Accessibility text scale (Spec v1 §17): replaces the old CSS `zoom`
+   * mechanism, which shrank the effective viewport and silently dropped
+   * users out of the workspace tiers. Set by the AccessibilityFab; scales
+   * rem-based type without moving breakpoints. px-based legacy typography
+   * migrates to rem progressively (tracked in the migration waves).
+   */
+  --dz-text-scale: 100%;
+
+  /*
+   * Dark mode — Decision B (owner-approved, Spec v1 §19): Dubiz is
+   * light-only-consistent for now. The old prefers-color-scheme flip turned
+   * ONLY these variables dark while every product surface stayed hardcoded
+   * light, producing a black canvas behind cream cards. Full dark support is
+   * backlog, gated on tokenizing the hardcoded palettes.
+   */
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  font-size: var(--dz-text-scale);
 }
 
 html,

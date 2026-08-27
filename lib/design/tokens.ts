@@ -356,3 +356,37 @@ export const TOKEN = {
 export type Token = typeof TOKEN;
 export type UrgencyTier = "urgent" | "attention" | "calm";
 export type AvatarColor = keyof typeof TOKEN.avatar;
+
+/**
+ * LAYOUT — the canonical form-factor scale and width authority
+ * (Adaptive + Native Architecture Specification v1, §3–§4; owner-approved).
+ *
+ * These are the ONLY sources for page widths, breakpoints, gutters and
+ * z-tiers. Product code never writes a raw px for any of these concerns:
+ * a screen picks a PageIntent (via PageContainer), a split picks a scale
+ * breakpoint (via WorkspaceLayout), an overlay picks a variant.
+ *
+ * Breakpoints align 1:1 with ShellChrome's existing tiers (768 rail /
+ * 1024 sidebar) and with Tailwind v4 defaults (md/lg/xl) — deliberately.
+ */
+export const LAYOUT = {
+  /** compact <768 · medium 768–1023 · expanded 1024–1279 · wide ≥1280 */
+  bp: { medium: 768, expanded: 1024, wide: 1280 },
+  /**
+   * Page width by INTENT (never by number):
+   *   focused  — login / short forms / focused settings
+   *   standard — reading, rich wizards, basic CRUD
+   *   content  — module hubs / composed home surfaces
+   *   data     — lists, tables, dashboards
+   *   (workspace/full carry no cap — panes are owned by WorkspaceLayout)
+   */
+  width: { focused: 560, standard: 760, content: 960, data: 1280 },
+  /** Horizontal page gutters per tier (consumed via clamp in PageContainer). */
+  gutter: { compact: 16, medium: 24, expanded: 32 },
+  /** Mirrors ShellChrome's fixed chrome — single source for offsets. */
+  shell: { rail: 76, sidebar: 248, bottomClearance: 100 },
+  /** Canonical z tiers — ends the ad-hoc 100/101/2147483000 escalation. */
+  z: { nav: 100, fab: 110, overlay: 1300, toast: 1400 },
+} as const;
+
+export type PageIntent = "focused" | "standard" | "content" | "data" | "full";

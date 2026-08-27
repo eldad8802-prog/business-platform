@@ -3,6 +3,12 @@
 import { useId, type ReactNode } from "react";
 
 /**
+ * @deprecated Workspace convergence (Adaptive+Native Spec v1 §10, owner
+ * decision #5 — supersedes the DIS-closure non-requirement): new consumers use
+ * `WorkspaceLayout`; the last code consumer (Payments) migrated in the pilot
+ * wave. Retained only until the deprecation window closes, then deleted.
+ * Do not add consumers.
+ *
  * Generic adaptive Master–Detail layout — STRUCTURAL ONLY.
  *
  * Two regions (master list + detail). Below `twoPaneMinWidth` (default 1024px)

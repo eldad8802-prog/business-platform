@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Heebo, Rubik } from "next/font/google";
 import "./globals.css";
 import { AccessibilityFab } from "@/components/ui/accessibility/accessibility-fab";
+import { NativeShellInit } from "@/components/native/NativeShellInit";
 
 // Heebo is the official Dubiz typeface (Design System v1). It is Hebrew-first
 // (full Hebrew + Latin coverage by Oded Ezer), unlike Geist which has no Hebrew
@@ -54,7 +55,16 @@ export default function RootLayout({
     >
       <body className="min-h-screen w-full overflow-x-hidden flex flex-col">
         {children}
+        <NativeShellInit />
         <AccessibilityFab />
+        {/*
+          Canonical overlay portal target (Adaptive+Native Spec v1 §11).
+          Lives OUTSIDE every route group's shell content, so overlays escape
+          the `.shell-content` stacking context (z-index:1) that previously
+          forced in-page modals to reserve geometry under the bottom bar and
+          drove the ad-hoc z-index escalation. AdaptiveOverlay portals here.
+        */}
+        <div id="dz-overlay-root" />
       </body>
     </html>
   );

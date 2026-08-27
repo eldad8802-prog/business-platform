@@ -62,9 +62,19 @@ function applyPrefs(prefs: Prefs) {
   root.classList.toggle("a11y-underline-links", prefs.underlineLinks);
   root.classList.toggle("a11y-reduce-motion", prefs.reduceMotion);
   const zoom = ZOOM_LEVELS[prefs.zoomStep] ?? 1;
-  // `zoom` scales px-based layouts too (unlike root font-size), and is honored
-  // by all evergreen browsers. Reset to "" at 100% so we leave no inline style.
-  root.style.zoom = zoom === 1 ? "" : String(zoom);
+  // Adaptive+Native Spec v1 §17 (owner-approved): text scaling goes through the
+  // root font-size var, NOT CSS `zoom`. `zoom` shrank the effective viewport
+  // while media queries kept evaluating the real one, silently dropping scaled
+  // users out of the 1280 workspace tiers (and, inverted, promising desktop
+  // density into a narrower effective canvas). Trade-off, made consciously:
+  // rem-based type scales immediately; legacy px-based type joins as tokens
+  // migrate to rem in the adoption waves. Reset to "" at 100% so we leave no
+  // inline style behind.
+  if (zoom === 1) {
+    root.style.removeProperty("--dz-text-scale");
+  } else {
+    root.style.setProperty("--dz-text-scale", `${Math.round(zoom * 100)}%`);
+  }
 }
 
 export function AccessibilityFab() {
