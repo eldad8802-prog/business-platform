@@ -656,9 +656,10 @@
 }
 
 /* In two-pane mode the list is always visible beside the card, so the card's
-   "back to customers" link is redundant. Keep this breakpoint in sync with
-   TWO_PANE_MIN in customers/layout.tsx. */
-@media (min-width: 1200px) {
+   "back" link is redundant (customers AND suppliers). Keep this breakpoint in
+   sync with the canonical workspace tier (LAYOUT.bp.wide) used by
+   customers/layout.tsx and SuppliersWorkspace. */
+@media (min-width: 1280px) {
   .crm-scope .crm-hd__back {
     display: none;
   }
