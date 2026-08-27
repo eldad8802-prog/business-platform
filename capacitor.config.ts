@@ -40,6 +40,29 @@ const config: CapacitorConfig = {
     // Release builds must never allow cleartext (http) content.
     allowMixedContent: false,
   },
+  plugins: {
+    // Edge-to-edge contract (Adaptive+Native Spec v1 §12–§13): Capacitor 8's
+    // built-in SystemBars handling forwards system-bar insets to the WebView
+    // as CSS safe-area values ("css" is also the Capacitor 8 default — pinned
+    // here so a future default change can't silently break the contract).
+    // The web side consumes them ONLY via the --dz-safe-* vars in globals.css.
+    SystemBars: {
+      insetsHandling: "css",
+    },
+    // Branded launch: DS v1 warm cream behind the splash, auto-hide disabled —
+    // the web shell hides it once the app is actually interactive
+    // (lib/native/native-shell.ts) so users never see a white flash between
+    // splash and remote content.
+    SplashScreen: {
+      backgroundColor: "#FEF8F2",
+      launchAutoHide: false,
+      showSpinner: false,
+    },
+    // Light product surfaces → dark status-bar content on both platforms.
+    StatusBar: {
+      style: "LIGHT",
+    },
+  },
 };
 
 export default config;

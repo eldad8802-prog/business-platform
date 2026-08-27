@@ -1,8 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+      enableOnBackInvokedCallback: predictive-back opt-in. targetSdk 36 stops
+      delivering onBackPressed/KEYCODE_BACK; Capacitor's @capacitor/app plugin
+      registers an AndroidX OnBackPressedCallback, which the dispatcher bridges
+      to the OnBackInvoked path — so back keeps reaching the web `backButton`
+      listener (lib/native/native-shell.ts) with predictive animations intact.
+    -->
     <application
         android:allowBackup="true"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -38,4 +46,11 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!--
+      CAMERA: lets the WebView file-chooser offer direct capture for the
+      product's core "צילום מסמך" flow (input capture=environment). Declared
+      optional so camera-less devices stay installable.
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>

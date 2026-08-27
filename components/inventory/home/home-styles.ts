@@ -326,4 +326,47 @@ export const homeCss = `
 @media (prefers-reduced-motion: reduce) {
   [data-inventory-home] .inv-hm-sk { animation: none; }
 }
+
+/* ============================================================
+   Adaptive recomposition (Spec v1 §21 — pilot, owner-approved).
+   The hub is a DASHBOARD: on medium it breathes, on expanded it
+   recomposes to the "content" intent (960) with a two-column top
+   band (hero | stock health) and a 4-across quick-actions row.
+   Mobile (<768) is untouched — composition, not stretching.
+   Breakpoints are the canonical scale (LAYOUT.bp): 768 / 1024.
+   ============================================================ */
+@media (min-width: 768px) {
+  [data-inventory-home] .inv-hm-frame { max-width: 720px; }
+}
+@media (min-width: 1024px) {
+  [data-inventory-home] .inv-hm-frame {
+    max-width: 960px; /* LAYOUT.width.content */
+    padding-bottom: 40px; /* desktop shell has no bottom bar to clear */
+  }
+  /* Two-column top band only when the health card exists (not empty state). */
+  [data-inventory-home] .inv-hm-frame:has(.inv-hm-health) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 20px;
+    align-items: stretch;
+  }
+  [data-inventory-home] .inv-hm-frame:has(.inv-hm-health) > * {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+  [data-inventory-home] .inv-hm-frame:has(.inv-hm-health) > .inv-hm-head {
+    grid-row: 1;
+  }
+  [data-inventory-home] .inv-hm-frame:has(.inv-hm-health) > .inv-hm-hero {
+    grid-row: 2;
+    grid-column: 1;
+  }
+  [data-inventory-home] .inv-hm-frame:has(.inv-hm-health) > .inv-hm-health {
+    grid-row: 2;
+    grid-column: 2;
+  }
+  [data-inventory-home] .inv-hm-qa {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
 `;

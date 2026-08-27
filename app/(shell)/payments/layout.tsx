@@ -2,8 +2,8 @@
 
 import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { TOKEN } from "@/lib/design/tokens";
-import { MasterDetailLayout } from "@/components/ui/master-detail-layout";
+import { LAYOUT, TOKEN } from "@/lib/design/tokens";
+import { WorkspaceLayout } from "@/components/ui/workspace-layout";
 import { CollectionWorklist } from "@/components/payments/collection-worklist";
 
 const W = TOKEN.warm;
@@ -36,14 +36,22 @@ export default function PaymentsLayout({ children }: { children: ReactNode }) {
 
   return (
     <div dir="rtl" style={{ minHeight: "100%", background: W.canvas }}>
-      <MasterDetailLayout
-        showDetail={selectedId != null}
-        masterWidth={400}
-        twoPaneMinWidth={1024}
-        masterLabel="רשימת גביות"
-        detailLabel="פרטי גבייה"
-        master={<CollectionWorklist selectedId={selectedId} />}
-        detail={children}
+      {/*
+        Workspace convergence (Spec v1 §10, owner decision #5): Payments moves
+        to the canonical WorkspaceLayout; MasterDetailLayout is deprecated.
+        Breakpoint: LAYOUT.bp.expanded (1024) — a DOCUMENTED exception to the
+        1280 workspace default (owner decision #7): this split shipped at 1024,
+        and with a 400px master the detail still gets 624px+ on the 1024–1279
+        laptops; raising it would REMOVE the two-pane those users have today.
+      */}
+      <WorkspaceLayout
+        start={<CollectionWorklist selectedId={selectedId} />}
+        end={children}
+        startWidth={400}
+        breakpointStep={LAYOUT.bp.expanded}
+        responsive={{ mode: "switch", visible: selectedId != null ? "end" : "start" }}
+        startLabel="רשימת גביות"
+        endLabel="פרטי גבייה"
       />
     </div>
   );

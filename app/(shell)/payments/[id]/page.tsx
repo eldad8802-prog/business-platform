@@ -30,10 +30,14 @@ type LoadState =
   | { status: "error" }
   | { status: "ready"; detail: CollectionDetailApi };
 
+/* Pilot (Spec v1 §23): the detail LEAF stops undoing the workspace. In the
+ * parallel mode the pane is ~1270px at 1920 — the content now fills it with a
+ * comfortable reading column (840) instead of re-capping at 560 and leaving
+ * ~700px of dead canvas. Mobile column unchanged. */
 const detailCss = `
 .pay-detail__inner { max-width: 520px; margin: 0 auto; }
 @media (min-width: 1024px) {
-  .pay-detail__inner { max-width: 560px; }
+  .pay-detail__inner { max-width: 840px; padding-inline: 24px; }
   .pay-detail__back { display: none; }
 }
 `;

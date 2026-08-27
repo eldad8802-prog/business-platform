@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import PageHeader from "@/components/ui/page-header";
+import { PageContainer } from "@/components/ui/page-container";
 import { TOKEN } from "@/lib/design/tokens";
 import { useWhatsAppConnection } from "@/components/whatsapp/use-whatsapp-connection";
 import { WhatsAppConnectInvitation } from "@/components/whatsapp/WhatsAppConnectInvitation";
@@ -29,14 +30,9 @@ export default function WhatsAppSettingsPage() {
     <div dir="rtl" style={{ minHeight: "100dvh", background: TOKEN.surface.page }}>
       <PageHeader title="WhatsApp Business" backHref="/tools" backLabel="חזרה" showBack />
 
-      <main
-        style={{
-          maxWidth: 560,
-          margin: "0 auto",
-          padding: "16px 16px 96px",
-          boxSizing: "border-box",
-        }}
-      >
+      {/* Pilot: focused intent (Spec v1 §6) — settings stay deliberately
+          narrow, and that decision now lives in the DS, not a literal. */}
+      <PageContainer intent="focused" style={{ paddingBlock: "16px 96px" }}>
         {state.phase === "loading" ? (
           <div style={{ marginTop: 24, color: TOKEN.ink.meta, fontSize: TOKEN.font.body }}>
             טוען…
@@ -50,7 +46,7 @@ export default function WhatsAppSettingsPage() {
         <div style={{ marginTop: 16 }}>
           <WhatsAppMetaDataPrivacySection onChanged={refresh} />
         </div>
-      </main>
+      </PageContainer>
     </div>
   );
 }

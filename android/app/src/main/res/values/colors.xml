@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dubiz DS v1 warm palette (teal primary / cream surfaces). -->
+<resources>
+    <color name="colorPrimary">#246966</color>
+    <color name="colorPrimaryDark">#1D5654</color>
+    <color name="colorAccent">#3D9C9A</color>
+    <color name="dubizSplashBackground">#FEF8F2</color>
+</resources>

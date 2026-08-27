@@ -66,5 +66,11 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Dubiz uses the camera to scan receipts and business documents. ‏Dubiz משתמשת במצלמה לצילום קבלות ומסמכים עסקיים.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Dubiz lets you attach existing photos of receipts and documents. ‏Dubiz מאפשרת לצרף תמונות קיימות של קבלות ומסמכים.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Dubiz can save exported documents to your photo library when you choose to. ‏Dubiz יכולה לשמור מסמכים שהורדו לספריית התמונות לפי בחירתך.</string>
 </dict>
 </plist>

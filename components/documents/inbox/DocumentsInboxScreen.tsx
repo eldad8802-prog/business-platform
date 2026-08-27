@@ -12,6 +12,7 @@ import {
   pickBacklogCtaMonth,
 } from "@/lib/documents/backlog-view";
 import BackButton from "@/components/ui/back-button";
+import { PageContainer } from "@/components/ui/page-container";
 import BacklogBanner from "./BacklogBanner";
 import DocumentCard from "./DocumentCard";
 import DocumentsInboxTable from "./DocumentsInboxTable";
@@ -123,7 +124,9 @@ export default function DocumentsInboxScreen({
   return (
     <div dir="rtl" style={pageStyle}>
       <style>{responsiveCss}</style>
-      <main style={mainStyle}>
+      {/* Pilot: data intent (Spec v1 §20) — the desktop DataTable finally gets
+          the width it was built for instead of a 760px column. */}
+      <PageContainer intent="data" as="main" style={{ paddingBlock: "14px 40px" }}>
         <header style={headStyle}>
           <BackButton href="/documents" />
           <div style={{ minWidth: 0, textAlign: "center" }}>
@@ -233,7 +236,7 @@ export default function DocumentsInboxScreen({
             ) : null}
           </>
         ) : null}
-      </main>
+      </PageContainer>
     </div>
   );
 }
@@ -266,14 +269,6 @@ const pageStyle = {
   minHeight: "100vh",
   background: TOKEN.surface.page,
   color: TOKEN.ink.primary,
-} as const;
-
-const mainStyle = {
-  width: "100%",
-  maxWidth: 760,
-  margin: "0 auto",
-  padding: "14px 14px 40px",
-  boxSizing: "border-box",
 } as const;
 
 const headStyle = {

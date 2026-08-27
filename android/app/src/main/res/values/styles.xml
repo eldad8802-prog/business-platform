@@ -16,7 +16,14 @@
     </style>
 
 
+    <!--
+      Branded cold-start splash (Spec v1 §13): DS warm cream behind the app
+      icon via the AndroidX SplashScreen attributes, replacing the stock
+      Capacitor splash drawable. Full branded artwork (logo assets) is a
+      native-closure asset task; the color layer is the contract.
+    -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/dubizSplashBackground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>

@@ -4,11 +4,13 @@ import type { Metadata } from "next";
 // The `.crm-*` classes are generic to the CRM surface, not customer-specific.
 import "../customers/crm.css";
 import { CRM_THEME_CSS } from "@/lib/design/crm-theme";
+import { SuppliersWorkspace } from "@/components/suppliers/SuppliersWorkspace";
 
 /**
- * Supplier CRM surface scope — injects the DS v1 theme variables once and wraps
- * all supplier screens in `.crm-scope`. Renders inside the shell chrome (bottom
- * bar unchanged). Mirrors the customers layout to reuse the same visual language.
+ * Supplier CRM surface — now a real Master–Detail workspace (Spec v1 §23,
+ * pilot): the same `.crm-*` visual language as Customers, wired into the same
+ * WorkspaceLayout contract instead of a lone 720px column on desktop. Server
+ * layout keeps the route metadata; the client workspace handles selection.
  */
 export const metadata: Metadata = { title: "ספקים" };
 
@@ -16,7 +18,7 @@ export default function SuppliersLayout({ children }: { children: ReactNode }) {
   return (
     <div className="crm-scope" dir="rtl">
       <style dangerouslySetInnerHTML={{ __html: CRM_THEME_CSS }} />
-      {children}
+      <SuppliersWorkspace>{children}</SuppliersWorkspace>
     </div>
   );
 }
