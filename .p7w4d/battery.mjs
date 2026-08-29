@@ -268,8 +268,8 @@ async function main() {
 
   // §9 — correction/learning LINEAGE isolation. Seed B lineage rows, then prove
   // A can neither read them nor use a foreign id as a mutation handle.
-  const revB = await owner.reviewEvent.create({ data: { businessId: bizB.id, documentId: docB.id, reviewerUserId: userB.id, approvedAs: "financial", explicitFinancial: true, vendorFinal: "B-lineage" } });
-  const sliceB = await owner.sliceDecision.create({ data: { businessId: bizB.id, documentId: docB.id, extractionSnapshotId: snapB.id, fieldKey: "amount", engineValue: "B-slice" } });
+  const revB = await owner.reviewEvent.create({ data: { businessId: bizB.id, documentId: docB.id, reviewerUserId: userB.id, approvedAs: "financial", explicitFinancial: true, vendorFinal: "B-lineage", verdicts: {}, rawBelief: {}, rawFinal: {} } });
+  const sliceB = await owner.sliceDecision.create({ data: { businessId: bizB.id, documentId: docB.id, extractionSnapshotId: snapB.id, fieldKey: "amount", engineValue: "B-slice", producedBy: "battery" } });
   const evB = await owner.extractionEvidence.create({ data: { extractionSnapshotId: snapB.id, ocrGeometry: {} } });
   const lineageA = await rtx(rt, bizA.id, async (t) => ({
     snaps: await t.extractionSnapshot.findMany({ where: { businessId: inIds } }),
