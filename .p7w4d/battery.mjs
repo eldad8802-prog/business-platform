@@ -288,6 +288,15 @@ async function main() {
   ok("duplicate approval: still 1 FinancialRecord + usage=1",
     res.status === 200 && frA2.length === 1 && vlAfter2?.usageCount === 1,
     `fr=${frA2.length} usage=${vlAfter2?.usageCount}`);
+  // #274 approved-mutation guard must FIRE under the runtime role: its record
+  // read runs on the tenant tx (a bare global-client read would see null under
+  // FORCE RLS and silently disarm the guard, allowing the overwrite).
+  res = await approveRoute.POST(
+    appReq(tokA, { explicitFinancial: true, extracted: { amount: frA2[0].amount + 111 } }), P(docA.id));
+  const frA3 = await owner.financialRecord.findMany({ where: { documentId: docA.id } });
+  ok("changed re-approval of recorded doc -> 409 + record unchanged (guard not RLS-disarmed)",
+    res.status === 409 && frA3.length === 1 && frA3[0].amount === frA2[0].amount,
+    `status=${res.status} amount=${frA3[0]?.amount}`);
   // Concurrent double-approve on a fresh doc.
   const docA2 = await mkDoc(bizA.id, { tag: "a2" });
   await owner.extractedData.create({ data: { documentId: docA2.id, amount: 50, vendorName: "V2", category: "c", direction: "expense", date: new Date() } });

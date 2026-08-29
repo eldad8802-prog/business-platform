@@ -181,9 +181,17 @@ export async function POST(
     // A document approved WITHOUT a record (informational save) remains fully
     // re-approvable — that is the rescue path for misfiled receipts.
     if (document.status === "approved") {
-      const existingRecord = await prisma.financialRecord.findUnique({
-        where: { documentId },
-      });
+      // W4D: tenant-scoped read on the tenant tx — a bare global-client read
+      // returns null under FORCE RLS and would silently disarm this guard.
+      const existingRecord = await runWithTenantContext(
+        { businessId: user.businessId },
+        () =>
+          withTenantTransaction((tx) =>
+            tx.financialRecord.findFirst({
+              where: { documentId, businessId: user.businessId },
+            })
+          )
+      );
       if (existingRecord) {
         const sameDay = (a: Date, b: Date) =>
           a.getUTCFullYear() === b.getUTCFullYear() &&
