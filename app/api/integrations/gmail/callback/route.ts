@@ -157,7 +157,7 @@ export async function GET(req: NextRequest) {
     const expiresAt = new Date(now + Math.max(0, tokens.expires_in) * 1000);
 
     const scopes = String(tokens.scope || "").trim();
-    const scopesToStore = scopes || "openid email profile https://www.googleapis.com/auth/gmail.readonly";
+    const scopesToStore = scopes || "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/gmail.readonly";
 
     // Tenant context is established only AFTER the state was verified, and
     // all external calls (token exchange, userinfo) already completed above —

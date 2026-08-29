@@ -1,8 +1,12 @@
+// Full scope URIs (not the OIDC "email"/"profile" shorthand) so the runtime
+// request matches the Cloud Console scope declaration string-for-string, per
+// Google's OAuth verification scope-alignment requirement.
 export const GMAIL_OAUTH_SCOPES = [
   "openid",
-  "email",
-  "profile",
-  // request now to avoid re-consent later when sync is added
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+  // Required for the current Gmail import flow: message discovery, MIME
+  // structure inspection, and attachment retrieval for OCR/import.
   "https://www.googleapis.com/auth/gmail.readonly",
 ] as const;
 
