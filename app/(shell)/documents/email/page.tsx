@@ -1,4 +1,5 @@
 ﻿"use client";
+import { PageContainer } from "@/components/ui/page-container";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -311,10 +312,10 @@ export default function EmailDocumentsPage() {
   if (!mounted) {
     return (
       <div dir="rtl" style={pageStyle}>
-        <main style={mainStyle}>
+        <PageContainer intent="focused" style={{ paddingBlock: "14px 40px" }}>
           <Header onBack={() => router.push("/documents")} />
           <div style={emptyStyle}>טוען...</div>
-        </main>
+        </PageContainer>
       </div>
     );
   }
@@ -322,7 +323,7 @@ export default function EmailDocumentsPage() {
   if (!authHeader) {
     return (
       <div dir="rtl" style={pageStyle}>
-        <main style={mainStyle}>
+        <PageContainer intent="focused" style={{ paddingBlock: "14px 40px" }}>
           <Header onBack={() => router.push("/documents")} />
           <section style={emptyStyle}>
             צריך להתחבר כדי לייבא מסמכים מהמייל.
@@ -330,7 +331,7 @@ export default function EmailDocumentsPage() {
               התחבר
             </Link>
           </section>
-        </main>
+        </PageContainer>
       </div>
     );
   }
@@ -340,7 +341,7 @@ export default function EmailDocumentsPage() {
 
   return (
     <div dir="rtl" style={pageStyle}>
-      <main style={mainStyle}>
+      <PageContainer intent="focused" style={{ paddingBlock: "14px 40px" }}>
         <Header onBack={() => router.push("/documents")} />
 
         <section
@@ -515,7 +516,7 @@ export default function EmailDocumentsPage() {
             );
           })}
         </section> : null}
-      </main>
+      </PageContainer>
 
       {connected ? <div style={bottomBarStyle}>
         <button
@@ -570,12 +571,6 @@ const pageStyle = {
   paddingBottom: 110,
 } as const;
 
-const mainStyle = {
-  maxWidth: 760,
-  margin: "0 auto",
-  padding: "14px 14px 40px",
-  boxSizing: "border-box",
-} as const;
 
 const headStyle = {
   display: "grid",

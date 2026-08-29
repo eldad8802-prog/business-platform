@@ -1,5 +1,6 @@
 "use client";
 
+import { PageContainer } from "@/components/ui/page-container";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -248,7 +249,7 @@ export default function Dashboard() {
 
   return (
     <div dir="rtl" style={{ minHeight: "100vh", background: TOKEN.surface.page }}>
-      <main style={{ ...pageMain, maxWidth: 760 }}>
+      <PageContainer intent="data" style={{ paddingBlock: "14px 40px" }}>
         <div style={{ marginBottom: 12 }}>
           <DocumentsBackButton onClick={() => router.push("/documents")} />
         </div>
@@ -500,7 +501,7 @@ export default function Dashboard() {
             </button>
           </Link>
         </div>
-      </main>
+      </PageContainer>
     </div>
   );
 }

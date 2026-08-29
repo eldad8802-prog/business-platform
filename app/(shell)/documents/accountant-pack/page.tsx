@@ -1,4 +1,5 @@
 "use client";
+import { PageContainer } from "@/components/ui/page-container";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -115,7 +116,7 @@ export default function AccountantPackPage() {
 
   return (
     <div dir="rtl" style={pageStyle}>
-      <main style={mainStyle}>
+      <PageContainer intent="standard" style={{ paddingBlock: "14px 40px" }}>
         <header style={headStyle}>
           <DocumentsBackButton onClick={() => router.push("/documents")} />
           <h1 style={titleStyle}>חבילת רו״ח</h1>
@@ -207,7 +208,7 @@ export default function AccountantPackPage() {
         ) : null}
 
         {error ? <div style={errorStyle}>{error}</div> : null}
-      </main>
+      </PageContainer>
 
       <div style={bottomBarStyle}>
         <button
@@ -251,12 +252,6 @@ const pageStyle = {
   paddingBottom: 110,
 } as const;
 
-const mainStyle = {
-  maxWidth: 760,
-  margin: "0 auto",
-  padding: "14px 14px 40px",
-  boxSizing: "border-box",
-} as const;
 
 const headStyle = {
   display: "grid",

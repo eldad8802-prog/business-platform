@@ -38,7 +38,9 @@ export const pageShellStyle: CSSProperties = {
 
 export const contentStyle: CSSProperties = {
   width: "100%",
-  maxWidth: 600,
+  // max-width lives in homeCss() (base 600 → 720 @768 → content 960 @1024 with
+  // the two-column recomposition) — an inline max-width can't be overridden by
+  // the adaptive media queries. Spec v1 §20 (Documents cluster, owner-approved).
   margin: "0 auto",
   // Bottom padding leaves room for the fixed BottomBar (bumped to 148 on mobile
   // via the media query below).
@@ -52,6 +54,37 @@ export function homeCss(): string {
   const tr = T.transition.base;
   return `
   .dz-docs-home *{box-sizing:border-box;}
+
+  /* ---------- Adaptive width + recomposition (Spec v1 §20, pilot-proven
+     pattern): base 600 (mobile, unchanged) → 720 on medium → CONTENT intent
+     (960) on expanded with a two-column band: pulse + stations in the start
+     column, the capture hero sticky in the end column. Composition, not
+     stretching; canonical breakpoints 768/1024 (LAYOUT.bp). ---------- */
+  .dz-docs-home__content{max-width:600px;}
+  @media (min-width:768px){
+    .dz-docs-home__content{max-width:720px;}
+  }
+  @media (min-width:1024px){
+    .dz-docs-home__content{
+      max-width:960px;
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      column-gap:20px;
+      align-items:start;
+    }
+    .dz-docs-home__content > *{grid-column:1 / -1;min-width:0;}
+    .dz-docs-home__content > .dz-alert{grid-column:1 / -1;grid-row:1;}
+    .dz-docs-home__content > .dz-pulse{grid-column:1;grid-row:2;}
+    .dz-docs-home__content > .dz-sec-title{grid-column:1;grid-row:3;}
+    .dz-docs-home__content > .dz-stations{grid-column:1;grid-row:4;}
+    .dz-docs-home__content > .dz-hero{
+      grid-column:2;
+      grid-row:2 / span 3;
+      position:sticky;
+      top:16px;
+      margin-top:0;
+    }
+  }
 
   /* ---------------- Pulse ---------------- */
   .dz-pulse{

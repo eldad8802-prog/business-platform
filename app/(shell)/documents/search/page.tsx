@@ -1,4 +1,5 @@
 "use client";
+import { PageContainer } from "@/components/ui/page-container";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -131,17 +132,17 @@ export default function DocumentsSearchPage() {
   if (!mounted || !authHeader) {
     return (
       <div dir="rtl" style={pageStyle}>
-        <main style={mainStyle}>
+        <PageContainer intent="data" style={{ paddingBlock: "14px 40px" }}>
           <Header onBack={() => router.push("/documents")} />
           <div style={emptyStyle}>טוען...</div>
-        </main>
+        </PageContainer>
       </div>
     );
   }
 
   return (
     <div dir="rtl" style={pageStyle}>
-      <main style={mainStyle}>
+      <PageContainer intent="data" style={{ paddingBlock: "14px 40px" }}>
         <Header onBack={() => router.push("/documents")} />
 
         <label style={searchStyle}>
@@ -194,7 +195,7 @@ export default function DocumentsSearchPage() {
             />
           ))}
         </section>
-      </main>
+      </PageContainer>
     </div>
   );
 }
@@ -291,12 +292,6 @@ const pageStyle = {
   color: TOKEN.ink.primary,
 } as const;
 
-const mainStyle = {
-  maxWidth: 760,
-  margin: "0 auto",
-  padding: "14px 14px 40px",
-  boxSizing: "border-box",
-} as const;
 
 const headStyle = {
   display: "grid",
