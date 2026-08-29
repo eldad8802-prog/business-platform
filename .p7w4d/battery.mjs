@@ -266,6 +266,45 @@ async function main() {
   const frX = await rtx(rt, bizA.id, (t) => t.financialRecord.updateMany({ where: { businessId: bizB.id }, data: { amount: 1 } }));
   ok("cross-tenant FinancialRecord UPDATE = 0 rows", frX.count === 0);
 
+  // §9 — correction/learning LINEAGE isolation. Seed B lineage rows, then prove
+  // A can neither read them nor use a foreign id as a mutation handle.
+  const revB = await owner.reviewEvent.create({ data: { businessId: bizB.id, documentId: docB.id, reviewerUserId: userB.id, approvedAs: "financial", explicitFinancial: true, vendorFinal: "B-lineage" } });
+  const sliceB = await owner.sliceDecision.create({ data: { businessId: bizB.id, documentId: docB.id, extractionSnapshotId: snapB.id, fieldKey: "amount", engineValue: "B-slice" } });
+  const evB = await owner.extractionEvidence.create({ data: { extractionSnapshotId: snapB.id, ocrGeometry: {} } });
+  const lineageA = await rtx(rt, bizA.id, async (t) => ({
+    snaps: await t.extractionSnapshot.findMany({ where: { businessId: inIds } }),
+    revs: await t.reviewEvent.findMany({ where: { businessId: inIds } }),
+    slices: await t.sliceDecision.findMany({ where: { businessId: inIds } }),
+    evs: await t.extractionEvidence.findMany({}),
+  }));
+  ok("A cannot read B lineage (snapshot/review/slice/evidence)",
+    lineageA.snaps.every((r) => r.businessId === bizA.id) &&
+    lineageA.revs.every((r) => r.businessId === bizA.id) &&
+    lineageA.slices.every((r) => r.businessId === bizA.id) &&
+    lineageA.evs.every((r) => r.extractionSnapshotId === snapA.id) &&
+    !lineageA.revs.some((r) => r.id === revB.id) && !lineageA.slices.some((r) => r.id === sliceB.id) &&
+    !lineageA.evs.some((r) => r.id === evB.id),
+    `snaps=${lineageA.snaps.length} revs=${lineageA.revs.length} slices=${lineageA.slices.length} evs=${lineageA.evs.length}`);
+  // Foreign lineage ids are not mutation handles (grants are S,I only → a
+  // foreign id must fail on privilege or on RLS, never silently mutate B).
+  const handleProbe = await rtx(rt, bizA.id, async (t) => {
+    const out = {};
+    for (const [k, fn] of [
+      ["review", () => t.reviewEvent.updateMany({ where: { id: revB.id }, data: { vendorFinal: "hijacked" } })],
+      ["slice", () => t.sliceDecision.updateMany({ where: { id: sliceB.id }, data: { engineValue: "hijacked" } })],
+      ["snapshot", () => t.extractionSnapshot.updateMany({ where: { id: snapB.id }, data: { ocrEngine: "hijacked" } })],
+    ]) { try { out[k] = (await fn()).count; } catch { out[k] = "denied"; } }
+    return out;
+  });
+  const [revBAfter, sliceBAfter, snapBAfter] = await Promise.all([
+    owner.reviewEvent.findUnique({ where: { id: revB.id } }),
+    owner.sliceDecision.findUnique({ where: { id: sliceB.id } }),
+    owner.extractionSnapshot.findUnique({ where: { id: snapB.id } }),
+  ]);
+  ok("foreign lineage ids are not mutation handles (B rows unchanged)",
+    revBAfter.vendorFinal === "B-lineage" && sliceBAfter.engineValue === "B-slice" && snapBAfter.ocrEngine === "t",
+    JSON.stringify(handleProbe));
+
   // ── Phase 7: real approve route (atomicity + idempotency + isolation) ───
   console.log("--- real approve route ---");
   const approveRoute = await import("@/app/api/documents/[id]/approve/route");
@@ -316,6 +355,37 @@ async function main() {
   ok("rejected financial approval (no amount) -> 400 + state untouched",
     res.status === 400 && exA3?.amount == null &&
     (await owner.document.findUnique({ where: { id: docA3.id } }))?.status === "needs_review");
+  // §6/§7 — mid-transaction failure leaves NO partial approved financial state.
+  // A real approval tx is replayed with a forced throw AFTER the FinancialRecord
+  // upsert but before commit: the record must not survive, and the document must
+  // not be left approved. This proves the approval is one atomic unit, not a
+  // sequence of independently-committed steps.
+  const docTx = await mkDoc(bizA.id, { tag: "a4" });
+  await owner.extractedData.create({ data: { documentId: docTx.id, amount: 77, vendorName: "V4", category: "c", direction: "expense", date: new Date() } });
+  const { runWithTenantContext } = await import("@/lib/tenant/context");
+  const { withTenantTransaction } = await import("@/lib/tenant/transaction");
+  let midTxThrew = false;
+  try {
+    await runWithTenantContext({ businessId: bizA.id }, () =>
+      withTenantTransaction(async (tx) => {
+        await tx.financialRecord.upsert({
+          where: { documentId: docTx.id },
+          update: { amount: 77 },
+          create: { businessId: bizA.id, documentId: docTx.id, amount: 77, vendorName: "V4", category: "c", direction: "expense", date: new Date(), approvedAt: new Date() },
+        });
+        await tx.document.updateMany({ where: { id: docTx.id, businessId: bizA.id }, data: { status: "approved" } });
+        throw new Error("SYNTHETIC mid-approval failure");
+      })
+    );
+  } catch (e) { midTxThrew = /SYNTHETIC/.test(String(e?.message)); }
+  const [frA4, docTxAfter] = await Promise.all([
+    owner.financialRecord.count({ where: { documentId: docTx.id } }),
+    owner.document.findUnique({ where: { id: docTx.id } }),
+  ]);
+  ok("mid-tx failure -> no partial approved financial state (0 FR, doc not approved)",
+    midTxThrew && frA4 === 0 && docTxAfter?.status === "needs_review",
+    `threw=${midTxThrew} fr=${frA4} status=${docTxAfter?.status}`);
+
   // Cross-tenant approve → 404, B untouched.
   res = await approveRoute.POST(appReq(tokA, { explicitFinancial: true }), P(docB.id));
   ok("approve of B's document as A -> 404 + B untouched",
@@ -327,6 +397,35 @@ async function main() {
   const vlA = await owner.vendorLearning.findUnique({ where: { businessId_vendorName: { businessId: bizA.id, vendorName: "וונדור משותף" } } });
   ok("identical vendor names in A/B do not share learning",
     res.status === 200 && vlB?.usageCount === 1 && vlA?.usageCount === 1);
+
+  // ── Phase 7b: §10 paperwork-insight tenant read (no-silent-zero) ────────
+  // Dedicated tenants so the counts are exact. The gate is inverted on purpose:
+  // C has 3 recent FinancialRecords (> PAPERWORK_APPROVED_RECENT_MAX=2), so a
+  // WORKING tenant read suppresses the insight (null). The pre-W4D global-client
+  // read would have counted 0 and RETURNED the insight — so `null` here is the
+  // positive proof that the count is real, and a payload would be the silent-zero
+  // regression. D has 0 records and must still see its own backlog.
+  console.log("--- paperwork insight (tenant-scoped count) ---");
+  const { evaluatePaperworkInsight } = await import("@/lib/business-status/paperwork-insight");
+  const bizC = await owner.business.create({ data: { name: `${MARK}C` } });
+  const bizD = await owner.business.create({ data: { name: `${MARK}D` } });
+  for (const b of [bizC.id, bizD.id]) {
+    for (let i = 0; i < 6; i++) await mkDoc(b, { tag: `p${i}` });
+  }
+  for (let i = 0; i < 3; i++) {
+    const d = await mkDoc(bizC.id, { tag: `fr${i}`, data: { status: "approved" } });
+    await owner.financialRecord.create({ data: { businessId: bizC.id, documentId: d.id, amount: 10 + i, vendorName: "PW", category: "c", direction: "expense", date: new Date(), approvedAt: new Date() } });
+  }
+  const insC = await runWithTenantContext({ businessId: bizC.id }, () => evaluatePaperworkInsight(bizC.id));
+  ok("paperwork insight: C's own 3 recent records are COUNTED (gate suppresses -> null, no silent zero)",
+    insC === null, `got ${insC === null ? "null" : JSON.stringify(insC?.evidenceLines)}`);
+  const insD = await runWithTenantContext({ businessId: bizD.id }, () => evaluatePaperworkInsight(bizD.id));
+  ok("paperwork insight: C's records do not affect D (D sees its 6 pending + 0 approved)",
+    insD !== null && /6 /.test(insD.evidenceLines[0]) && /\b0\b/.test(insD.evidenceLines[1]),
+    JSON.stringify(insD?.evidenceLines));
+  const insNoCtx = await evaluatePaperworkInsight(bizC.id);
+  ok("paperwork insight without tenant context = fail-closed (no data, no insight)",
+    insNoCtx === null, `got ${JSON.stringify(insNoCtx)}`);
 
   // ── Phase 8: pipeline continuation + process route ──────────────────────
   console.log("--- pipeline + process route ---");
