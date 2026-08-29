@@ -529,8 +529,15 @@ async function main() {
   ok("malformed context errors", malformed);
   const rawDoc = await rtx(rt, bizA.id, (t) => t.$queryRawUnsafe(`SELECT count(*)::int AS c FROM "Document"`));
   ok("raw Document = tenant-only", Number(rawDoc[0].c) === (await owner.document.count({ where: { businessId: bizA.id } })));
+  // Intent: B's raw view is exactly B's own evidence — not a hardcoded 0. B now
+  // owns a lineage evidence row (§9 fixture), so this asserts the parent-join
+  // both ADMITS own rows and EXCLUDES A's, which a bare `=== 0` could not.
   const rawEv = await rtx(rt, bizB.id, (t) => t.$queryRawUnsafe(`SELECT count(*)::int AS c FROM "ExtractionEvidence"`));
-  ok("raw ExtractionEvidence = own-snapshot only", Number(rawEv[0].c) === 0);
+  const ownEv = await owner.extractionEvidence.count({ where: { snapshot: { businessId: bizB.id } } });
+  const otherEv = await owner.extractionEvidence.count({ where: { snapshot: { businessId: bizA.id } } });
+  ok("raw ExtractionEvidence = own-snapshot only (admits own, excludes A's)",
+    Number(rawEv[0].c) === ownEv && ownEv >= 1 && otherEv >= 1,
+    `raw=${rawEv[0].c} ownB=${ownEv} ownA=${otherEv}`);
   let rawIns = false;
   try {
     await rtx(rt, bizA.id, (t) => t.$executeRawUnsafe(
