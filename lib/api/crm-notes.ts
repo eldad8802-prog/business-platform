@@ -1,6 +1,8 @@
 import { buildClientAuthHeaders } from "@/lib/client-session";
 
-export type CrmSubjectType = "CUSTOMER" | "SUPPLIER";
+/** Mirrors the server enum. LEAD joined in Leads W1 — the notes and
+ * attachments engines themselves are untouched: a lead is just another subject. */
+export type CrmSubjectType = "CUSTOMER" | "SUPPLIER" | "LEAD";
 
 export type CrmNoteDTO = {
   id: number;
