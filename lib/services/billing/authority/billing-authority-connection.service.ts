@@ -21,6 +21,7 @@ import type {
   AuthorityConnectionEncryptedTokenFields,
   PublicAuthorityConnection,
 } from "@/lib/services/billing/authority/billing-authority-connection.types";
+import { billingTenantTx } from "../billing-tenant-tx";
 
 const PUBLIC_SELECT = {
   businessId: true,
@@ -816,43 +817,43 @@ export async function revokeAuthorityConnectionTx(
 export async function startAuthorityAuthorization(
   input: Parameters<typeof startAuthorityAuthorizationTx>[1]
 ): Promise<AuthorityConnectionTransitionResult> {
-  return prisma.$transaction((tx) => startAuthorityAuthorizationTx(tx, input));
+  return billingTenantTx(input.businessId, (tx) => startAuthorityAuthorizationTx(tx, input));
 }
 
 export async function markAuthorityConnected(
   input: Parameters<typeof markAuthorityConnectedTx>[1]
 ): Promise<AuthorityConnectionTransitionResult> {
-  return prisma.$transaction((tx) => markAuthorityConnectedTx(tx, input));
+  return billingTenantTx(input.businessId, (tx) => markAuthorityConnectedTx(tx, input));
 }
 
 export async function markAuthorityOAuthFailed(
   input: Parameters<typeof markAuthorityOAuthFailedTx>[1]
 ): Promise<AuthorityConnectionTransitionResult> {
-  return prisma.$transaction((tx) => markAuthorityOAuthFailedTx(tx, input));
+  return billingTenantTx(input.businessId, (tx) => markAuthorityOAuthFailedTx(tx, input));
 }
 
 export async function markAuthorityValidated(
   input: Parameters<typeof markAuthorityValidatedTx>[1]
 ): Promise<AuthorityConnectionTransitionResult> {
-  return prisma.$transaction((tx) => markAuthorityValidatedTx(tx, input));
+  return billingTenantTx(input.businessId, (tx) => markAuthorityValidatedTx(tx, input));
 }
 
 export async function markAuthorityAuthFailure(
   input: Parameters<typeof markAuthorityAuthFailureTx>[1]
 ): Promise<AuthorityConnectionTransitionResult> {
-  return prisma.$transaction((tx) => markAuthorityAuthFailureTx(tx, input));
+  return billingTenantTx(input.businessId, (tx) => markAuthorityAuthFailureTx(tx, input));
 }
 
 export async function markAuthorityTokenRefreshed(
   input: Parameters<typeof markAuthorityTokenRefreshedTx>[1]
 ): Promise<AuthorityConnectionTransitionResult> {
-  return prisma.$transaction((tx) => markAuthorityTokenRefreshedTx(tx, input));
+  return billingTenantTx(input.businessId, (tx) => markAuthorityTokenRefreshedTx(tx, input));
 }
 
 export async function markAuthorityTokenRefreshFailed(
   input: Parameters<typeof markAuthorityTokenRefreshFailedTx>[1]
 ): Promise<AuthorityConnectionTransitionResult> {
-  return prisma.$transaction((tx) =>
+  return billingTenantTx(input.businessId, (tx) =>
     markAuthorityTokenRefreshFailedTx(tx, input)
   );
 }
@@ -860,5 +861,5 @@ export async function markAuthorityTokenRefreshFailed(
 export async function revokeAuthorityConnection(
   input: Parameters<typeof revokeAuthorityConnectionTx>[1]
 ): Promise<AuthorityConnectionTransitionResult> {
-  return prisma.$transaction((tx) => revokeAuthorityConnectionTx(tx, input));
+  return billingTenantTx(input.businessId, (tx) => revokeAuthorityConnectionTx(tx, input));
 }
