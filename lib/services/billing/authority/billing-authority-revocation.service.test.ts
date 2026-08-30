@@ -194,7 +194,7 @@ async function withFakeDb(
   }) as typeof prisma.billingAuthorityConnection.findUnique;
 
   prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-    fn(fake.tx)) as typeof prisma.$transaction;
+    fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
   try {
     await fn(fake);

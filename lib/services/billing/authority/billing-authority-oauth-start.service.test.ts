@@ -1,3 +1,8 @@
+// W4E-B-1: the connect flow now mints a SIGNED state, and the signer fails
+// closed without the canonical secret — set a synthetic one for this unit test.
+process.env.AUTH_TOKEN_SECRET =
+  process.env.AUTH_TOKEN_SECRET || "w4eb1_start_test_secret";
+
 /**
  * Authority OAuth start (run manually):
  *   npx tsx lib/services/billing/authority/billing-authority-oauth-start.service.test.ts
@@ -392,8 +397,14 @@ async function runAsyncTests() {
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
 
     const liveFake = makeFakeOAuthDb();
+    // W4E-B-1: billingTenantTx opens the transaction through
+    // withTenantTransaction, which sets the tenant GUC on the tx before running
+    // the callback — so the double must expose $queryRaw like a real one.
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(liveFake.tx)) as typeof prisma.$transaction;
+      fn({
+        ...liveFake.tx,
+        $queryRaw: async () => [],
+      } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await startAuthorityOAuth({

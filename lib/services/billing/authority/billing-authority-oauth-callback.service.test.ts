@@ -11,6 +11,7 @@ import {
 } from "@prisma/client";
 import { ServiceUnavailableError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { createSignedAuthorityState } from "./billing-authority-signed-state.service";
 import {
   assertActiveAuthorityApp,
 } from "@/lib/services/billing/authority/billing-authority-app.service";
@@ -46,7 +47,22 @@ const ENCRYPTION_KEY = randomBytes(32).toString("base64");
 const CLIENT_SECRET = "authority-client-secret-value";
 const ACCESS_TOKEN = "sandbox-access-token-plain";
 const REFRESH_TOKEN = "sandbox-refresh-token-plain";
-const OAUTH_STATE = "oauth-state-abc123";
+// W4E-B-1: the callback now derives its tenant from a SIGNED state, so the
+// fixture must be a real signed envelope for business 42 / user 7 / SANDBOX —
+// exactly what the connect route mints. An opaque string is no longer a valid
+// state, which is the whole point of the change.
+process.env.AUTH_TOKEN_SECRET =
+  process.env.AUTH_TOKEN_SECRET || "w4eb1_callback_test_secret";
+const OAUTH_STATE = createSignedAuthorityState({
+  businessId: 42,
+  userId: 7,
+  environment: "SANDBOX",
+});
+const PRODUCTION_OAUTH_STATE = createSignedAuthorityState({
+  businessId: 42,
+  userId: 7,
+  environment: "PRODUCTION",
+});
 const AUTH_CODE = "authorization-code-xyz";
 
 const originalEnv = { ...process.env, BILLING_AUTHORITY_ENCRYPTION_KEY: ENCRYPTION_KEY };
@@ -192,8 +208,13 @@ function makeFakeCallbackDb(environment: BillingAuthorityEnvironment) {
 function callbackCookies(
   environment: BillingAuthorityEnvironment = BillingAuthorityEnvironment.SANDBOX
 ) {
+  // The state cookie is the double-submit twin of the query state, so it must
+  // be the state for the SAME environment the flow started in.
   return {
-    state: OAUTH_STATE,
+    state:
+      environment === BillingAuthorityEnvironment.PRODUCTION
+        ? PRODUCTION_OAUTH_STATE
+        : OAUTH_STATE,
     businessId: "42",
     environment,
   };
@@ -319,8 +340,11 @@ async function runAsyncTests() {
 
     prisma.billingAuthorityApp.findUnique = (async () =>
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
+    // W4E-B-1: the connection write now runs through billingTenantTx ->
+    // withTenantTransaction, which sets the tenant GUC on the tx first, so the
+    // double must expose $queryRaw like a real transaction client.
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const success = await handleAuthorityOAuthCallback({
@@ -390,8 +414,11 @@ async function runAsyncTests() {
     const originalTransaction = prisma.$transaction.bind(prisma);
     prisma.billingAuthorityApp.findUnique = (async () =>
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
+    // W4E-B-1: the connection write now runs through billingTenantTx ->
+    // withTenantTransaction, which sets the tenant GUC on the tx first, so the
+    // double must expose $queryRaw like a real transaction client.
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
     try {
       const result = await handleAuthorityOAuthCallback({
         query: { code: AUTH_CODE, state: OAUTH_STATE },
@@ -507,8 +534,11 @@ async function runAsyncTests() {
     const fake = makeFakeCallbackDb(BillingAuthorityEnvironment.SANDBOX);
     fake.getConnection().status = BillingAuthorityConnectionStatus.CONNECTED;
     const originalTransaction = prisma.$transaction.bind(prisma);
+    // W4E-B-1: the connection write now runs through billingTenantTx ->
+    // withTenantTransaction, which sets the tenant GUC on the tx first, so the
+    // double must expose $queryRaw like a real transaction client.
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const skipped = await handleAuthorityOAuthCallback({
@@ -535,8 +565,11 @@ async function runAsyncTests() {
   await withEnvAsync(ENV, async () => {
     const fake = makeFakeCallbackDb(BillingAuthorityEnvironment.SANDBOX);
     const originalTransaction = prisma.$transaction.bind(prisma);
+    // W4E-B-1: the connection write now runs through billingTenantTx ->
+    // withTenantTransaction, which sets the tenant GUC on the tx first, so the
+    // double must expose $queryRaw like a real transaction client.
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const failure = await handleAuthorityOAuthCallback({
@@ -547,10 +580,15 @@ async function runAsyncTests() {
         secureCookies: false,
       });
 
-      ok("oauth failure transition", !failure.ok && failure.connection?.status === "ERROR");
+      // W4E-B-1: an unverifiable state means there is NO trusted tenant. The
+      // previous contract recorded an ERROR transition against whatever
+      // business the cookie named, which let a forged cookie mark another
+      // tenant's connection as OAuth-failed. Now the callback fails without
+      // attributing the failure to anyone.
+      ok("untrusted state fails the callback", !failure.ok);
       ok(
-        "oauth failure recorded in callback result",
-        !failure.ok && failure.oauthFailureRecorded === true
+        "untrusted state records NO transition against a cookie-named business",
+        !failure.ok && failure.connection == null && failure.oauthFailureRecorded !== true
       );
       ok(
         "cookies cleared on failure",
@@ -558,8 +596,8 @@ async function runAsyncTests() {
           failure.clearedCookies[0].name === AUTHORITY_OAUTH_COOKIE_NAMES.STATE
       );
       ok(
-        "oauth failed audit emitted",
-        fake.auditEvents.some(
+        "no OAUTH_FAILED audit is written for an untrusted state",
+        !fake.auditEvents.some(
           (event) => event.eventType === "BILLING_AUTHORITY_OAUTH_FAILED"
         )
       );
@@ -580,8 +618,11 @@ async function runAsyncTests() {
     const originalTransaction = prisma.$transaction.bind(prisma);
     prisma.billingAuthorityApp.findUnique = (async () =>
       disabledRow) as typeof prisma.billingAuthorityApp.findUnique;
+    // W4E-B-1: the connection write now runs through billingTenantTx ->
+    // withTenantTransaction, which sets the tenant GUC on the tx first, so the
+    // double must expose $queryRaw like a real transaction client.
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       expectErrorAsync("disabled app rejected", async () => {
@@ -668,12 +709,18 @@ async function runAsyncTests() {
     const originalTransaction = prisma.$transaction.bind(prisma);
     prisma.billingAuthorityApp.findUnique = (async () =>
       prodApp) as typeof prisma.billingAuthorityApp.findUnique;
+    // W4E-B-1: the connection write now runs through billingTenantTx ->
+    // withTenantTransaction, which sets the tenant GUC on the tx first, so the
+    // double must expose $queryRaw like a real transaction client.
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const success = await handleAuthorityOAuthCallback({
-        query: { code: AUTH_CODE, state: OAUTH_STATE },
+        // W4E-B-1: environment is part of the signed binding, so a PRODUCTION
+        // callback needs a PRODUCTION-signed state. A SANDBOX state presented
+        // with PRODUCTION cookies is refused by design.
+        query: { code: AUTH_CODE, state: PRODUCTION_OAUTH_STATE },
         cookies: callbackCookies(BillingAuthorityEnvironment.PRODUCTION),
         redirectBaseUrl: "https://prod.dubiz.test",
         actorUserId: 7,
@@ -703,8 +750,11 @@ async function runAsyncTests() {
     const originalTransaction = prisma.$transaction.bind(prisma);
     prisma.billingAuthorityApp.findUnique = (async () =>
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
+    // W4E-B-1: the connection write now runs through billingTenantTx ->
+    // withTenantTransaction, which sets the tenant GUC on the tx first, so the
+    // double must expose $queryRaw like a real transaction client.
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const success = await handleAuthorityOAuthCallback({

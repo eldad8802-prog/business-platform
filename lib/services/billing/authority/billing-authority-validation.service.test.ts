@@ -286,7 +286,7 @@ async function runAsyncTests() {
       fake.getConnection()) as typeof prisma.billingAuthorityConnection.findUnique;
     prisma.businessProfile.findUnique = (async () => null) as typeof prisma.businessProfile.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await validateAuthorityConnection({
@@ -336,7 +336,7 @@ async function runAsyncTests() {
       fake.getConnection()) as typeof prisma.billingAuthorityConnection.findUnique;
     prisma.businessProfile.findUnique = (async () => null) as typeof prisma.businessProfile.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const first = await validateAuthorityConnection({
@@ -439,7 +439,7 @@ async function runAsyncTests() {
       fake.getConnection()) as typeof prisma.billingAuthorityConnection.findUnique;
     prisma.businessProfile.findUnique = (async () => null) as typeof prisma.businessProfile.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await validateAuthorityConnection({
@@ -473,7 +473,7 @@ async function runAsyncTests() {
       fake.getConnection()) as typeof prisma.billingAuthorityConnection.findUnique;
     prisma.businessProfile.findUnique = (async () => null) as typeof prisma.businessProfile.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await validateAuthorityConnection({
@@ -522,7 +522,7 @@ async function runAsyncTests() {
       fake.getConnection()) as typeof prisma.billingAuthorityConnection.findUnique;
     prisma.businessProfile.findUnique = (async () => null) as typeof prisma.businessProfile.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await validateAuthorityConnection({
@@ -561,7 +561,7 @@ async function runAsyncTests() {
       fake.getConnection()) as typeof prisma.billingAuthorityConnection.findUnique;
     prisma.businessProfile.findUnique = (async () => null) as typeof prisma.businessProfile.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await validateAuthorityConnection({
@@ -598,7 +598,7 @@ async function runAsyncTests() {
       fake.getConnection()) as typeof prisma.billingAuthorityConnection.findUnique;
     prisma.businessProfile.findUnique = (async () => null) as typeof prisma.businessProfile.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await validateAuthorityConnection({
@@ -651,7 +651,7 @@ async function runAsyncTests() {
       fake.getConnection()) as typeof prisma.billingAuthorityConnection.findUnique;
     prisma.businessProfile.findUnique = (async () => null) as typeof prisma.businessProfile.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await validateAuthorityConnection({
@@ -694,7 +694,7 @@ async function runAsyncTests() {
       fake.getConnection()) as typeof prisma.billingAuthorityConnection.findUnique;
     prisma.businessProfile.findUnique = (async () => null) as typeof prisma.businessProfile.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await validateAuthorityConnection({
@@ -733,7 +733,7 @@ async function runAsyncTests() {
       fake.getConnection()) as typeof prisma.billingAuthorityConnection.findUnique;
     prisma.businessProfile.findUnique = (async () => null) as typeof prisma.businessProfile.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       await validateAuthorityConnection({
@@ -779,7 +779,7 @@ async function runAsyncTests() {
       fake.getConnection()) as typeof prisma.billingAuthorityConnection.findUnique;
     prisma.businessProfile.findUnique = (async () => null) as typeof prisma.businessProfile.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await validateAuthorityConnection({
