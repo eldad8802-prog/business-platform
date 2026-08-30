@@ -13,6 +13,9 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import BackButton from "@/components/ui/back-button";
 import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
+import { useMediaQuery } from "@/lib/ui/use-breakpoint";
+import { WorkspaceLayout } from "@/components/ui/workspace-layout";
+import { LAYOUT, type PageSurfaceIntent } from "@/lib/design/tokens";
 import { CustomerPicker } from "@/components/billing/CustomerPicker";
 import { IssuerSummaryBadge } from "@/components/billing/IssuerSummaryBadge";
 import { glassActionStyle, primaryActionStyle, TOKEN } from "@/lib/design/billing-theme";
@@ -110,10 +113,55 @@ function getAuthToken(): string {
 
 
 
+/**
+ * Canonical scale, no local literals (Spec v1 §3):
+ *  - the shell's desktop tier is where its nav becomes a sidebar (JS, because
+ *    the chrome hook is a React signal);
+ *  - the workspace tier is where the contextual rail earns its width (CSS —
+ *    see RAIL_CSS and WorkspaceLayout's own breakpointStep).
+ * Both come from LAYOUT; this file introduces no breakpoint of its own.
+ */
+const SHELL_DESKTOP_MIN = `(min-width: ${LAYOUT.bp.expanded}px)`;
+/**
+ * The rail carries identity, totals and the next action. 340 is wide enough
+ * for a currency figure and a full-width primary button without wrapping, and
+ * narrow enough that the stage content keeps a comfortable measure at 1280 —
+ * where the shell sidebar has already taken 248.
+ */
+/**
+ * `display: contents` keeps the wrapper transparent to the stage grid, so the
+ * flow copies lay out exactly as they did before. At the workspace tier they
+ * retire and the rail copy is the only one on screen.
+ */
+const RAIL_CSS = `
+[data-billing-column] { max-width: ${LAYOUT.width.content}px; }
+[data-billing-stage] [data-billing-flow] { display: contents; }
+/* Below the workspace tier the document is one reading column, so the content
+ * cap is the right measure. At and above it the column is no longer the
+ * composition — it holds a rail plus a stage region, and capping the pair at
+ * content would squeeze the stage to roughly 600. The data cap is the canonical
+ * one for a two-region surface, and what the CRM workspaces resolve to. */
+@media (min-width: ${LAYOUT.bp.wide}px) {
+  [data-billing-stage] [data-billing-flow] { display: none; }
+  [data-billing-column] { max-width: ${LAYOUT.width.data}px; }
+}
+`;
+const RAIL_WIDTH = 340;
+
+
+/** WorkspaceLayout owns the pane geometry here, so the page declares its own. */
+const SURFACE_INTENT: PageSurfaceIntent = "workspace";
+
 export default function BillingDocumentWorkspacePage() {
-  // Focused invoice editor with its own sticky action bar — hide the app's
-  // fixed bottom nav here so it never covers the save/issue controls.
-  useHideShellChrome(true);
+  // Compact widths keep the focused-editor treatment: the page owns its own
+  // sticky action bar, and the app's fixed bottom nav would sit on top of it.
+  // From the shell's desktop tier up there is no such conflict — the nav is a
+  // sidebar, not a bottom bar — and suppressing it only cost the user their
+  // navigation without buying the page any usable space (owner decision D-1).
+  // No double navigation results: the in-page control is a *back* affordance,
+  // the sidebar is primary navigation.
+  const isDesktop = useMediaQuery(SHELL_DESKTOP_MIN);
+  useHideShellChrome(!isDesktop);
   const params = useParams<{ id: string }>();
   const id = params?.id || "";
   const router = useRouter();
@@ -834,13 +882,27 @@ export default function BillingDocumentWorkspacePage() {
 
   return (
     <main
+      data-page-intent={SURFACE_INTENT}
       style={{
         minHeight: "100dvh",
         background: TOKEN.surface.inset,
         padding: "24px 16px 80px",
       }}
     >
-      <div style={{ maxWidth: 720, margin: "0 auto" }}>
+      {/*
+        The document column used to be capped at a local 720 at every width, so
+        a 1920 viewport rendered a 720 column with ~600px of dead canvas on each
+        side. It now takes the canonical `content` cap: wide enough that tablets
+        stop rendering the phone layout with margins, still a comfortable
+        reading measure, and — above the workspace tier — bounded by its pane
+        rather than by this rule.
+      */}
+      {/* Page level, not inside DocumentBody: the column cap has to hold for the
+          loading, error and not-found states too, and those render without it. */}
+      <style>{RAIL_CSS}</style>
+      {/* Width lives in RAIL_CSS, not here: an inline max-width outranks a
+          stylesheet rule, so the workspace-tier widening could never apply. */}
+      <div data-billing-column style={{ margin: "0 auto" }}>
         <header
           style={{
             direction: "rtl",
@@ -1313,8 +1375,44 @@ function DocumentBody({
     </CollapsiblePanel>
   );
 
-  return (
-    <div style={{ display: "grid", gap: 12 }}>
+  /**
+   * The context summary — identity, customer, server-derived totals, status.
+   * Every stage except the very first already renders one; that is precisely
+   * what makes it rail material above the workspace tier. It is *hoisted*, not
+   * duplicated: whichever region owns it, the other renders nothing, so no
+   * monetary value gains or loses a rendering and no value that was previously
+   * hidden becomes visible. The rail is not a new authority — it shows the
+   * same nodes, fed by the same props, from the same server-derived strings.
+   */
+  const contextSummary = customerFocus ? null : itemsFocus ? (
+    <>
+      <CustomerSummaryCard doc={doc} />
+      <TotalsCard doc={doc} showUnsavedLinesHint={dirtyLines && isDraft} />
+    </>
+  ) : (
+    <ReviewSummaryCard doc={doc} />
+  );
+
+  const lifecycleAction = (
+    <StickyActionBar
+      stage={stage}
+      missing={missing}
+      quoteValidUntilEmpty={quoteValidUntilEmpty}
+      // Single owner of the bottom sticky region per state: while the lines
+      // editor is on screen it owns that region, so the action bar yields.
+      // In the rail there is no bottom region to contend for at all.
+      linesEditorActive={itemsFocus}
+      primaryAction={stickyPrimaryAction}
+      issueDisabled={submitForReviewDisabled}
+      onOpenIssue={onOpenIssueDialog}
+      convertDisabled={convertDisabled}
+      convertBusy={convertBusy}
+      onConvert={onConvertQuote}
+    />
+  );
+
+  const stageContent = (
+    <div style={{ display: "grid", gap: 12 }} data-billing-stage>
       <StageAwarePanel
         stage={stage}
         doc={doc}
@@ -1322,20 +1420,7 @@ function DocumentBody({
         quoteValidUntilEmpty={quoteValidUntilEmpty}
       />
 
-      <StickyActionBar
-        stage={stage}
-        missing={missing}
-        quoteValidUntilEmpty={quoteValidUntilEmpty}
-        // Single owner of the bottom sticky region per state: while the lines
-        // editor is on screen it owns that region, so the action bar yields.
-        linesEditorActive={itemsFocus}
-        primaryAction={stickyPrimaryAction}
-        issueDisabled={submitForReviewDisabled}
-        onOpenIssue={onOpenIssueDialog}
-        convertDisabled={convertDisabled}
-        convertBusy={convertBusy}
-        onConvert={onConvertQuote}
-      />
+      <div data-billing-flow>{lifecycleAction}</div>
 
       {draftConflictMessage ? (
         <div
@@ -1474,16 +1559,15 @@ function DocumentBody({
 
       {itemsFocus ? (
         <>
-          <CustomerSummaryCard doc={doc} />
+          <div data-billing-flow>{contextSummary}</div>
           {draftLinesSection}
-          <TotalsCard doc={doc} showUnsavedLinesHint={dirtyLines && isDraft} />
           {detailsContext}
         </>
       ) : null}
 
       {readyInvoiceFocus ? (
         <>
-          <ReviewSummaryCard doc={doc} />
+          <div data-billing-flow>{contextSummary}</div>
           <DraftIssuePrimarySection
             issueDisabled={submitForReviewDisabled}
             issueLoading={lifecycleBusy === "issue"}
@@ -1505,7 +1589,7 @@ function DocumentBody({
 
       {readyQuoteFocus ? (
         <>
-          <ReviewSummaryCard doc={doc} />
+          <div data-billing-flow>{contextSummary}</div>
           <QuoteDraftHero
             doc={doc}
             locked={quoteLocked}
@@ -1531,7 +1615,7 @@ function DocumentBody({
             convertBusy={convertBusy}
             onConvert={onConvertQuote}
           />
-          <ReviewSummaryCard doc={doc} />
+          <div data-billing-flow>{contextSummary}</div>
           {detailsContext}
         </>
       ) : null}
@@ -1542,7 +1626,7 @@ function DocumentBody({
           {shouldShowCollections(doc.documentType, doc.status) ? (
             <CollectionsSection doc={doc} />
           ) : null}
-          <ReviewSummaryCard doc={doc} />
+          <div data-billing-flow>{contextSummary}</div>
           {detailsContext}
         </>
       ) : null}
@@ -1555,11 +1639,47 @@ function DocumentBody({
           onRevert={onRevert}
           onOpenIssueDialog={onOpenIssueDialog}
         />
-        <ReviewSummaryCard doc={doc} />
+        <div data-billing-flow>{contextSummary}</div>
         {detailsContext}
         </>
       ) : null}
     </div>
+  );
+
+  /**
+   * Above the workspace tier the same content gains a persistent context rail.
+   * This is `WorkspaceLayout` — the primitive Customers and Suppliers already
+   * use — in a different proportion, not a new one: the fixed-width region sits
+   * at inline-start (beside the shell sidebar in RTL) and the flexible stage
+   * content takes the end, exactly the spatial grammar the CRM surfaces teach.
+   * `switch` with `visible: "end"` collapses every width below the tier to the
+   * stage content alone — the mobile composition, untouched.
+   *
+   * The switch is entirely CSS. A first attempt branched on `useMediaQuery` and
+   * returned a different tree per tier, which remounted the whole subtree when
+   * the query resolved after hydration — and a remount re-runs child effects,
+   * so `CollectionsSection` and `IssuerSummaryBadge` re-fetched. The fiscal
+   * snapshot caught it as an API regression (invoice-profile 20 -> 22,
+   * payments/requests 8 -> 12). Both regions are therefore always rendered and
+   * CSS decides which is visible: the summary and the action exist twice in the
+   * DOM and exactly once on screen. Safe because both are pure display over
+   * server-derived props — neither owns state or fires an effect.
+   */
+  return (
+    <WorkspaceLayout
+      start={
+        <div style={{ display: "grid", gap: 12, alignContent: "start" }}>
+          {contextSummary}
+          {lifecycleAction}
+        </div>
+      }
+      end={stageContent}
+      startWidth={RAIL_WIDTH}
+      breakpointStep={LAYOUT.bp.wide}
+      responsive={{ mode: "switch", visible: "end" }}
+      startLabel="הקשר המסמך"
+      endLabel="תוכן השלב"
+    />
   );
 }
 
