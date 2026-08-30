@@ -305,7 +305,12 @@ function Marketplace({ onOpen, onCreate, onExit, coupons, onNear, nearActive = f
       <ScreenBody style={{ paddingTop: 0, paddingBottom: 110 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, height: 46, background: W.surface, border: `1px solid ${W.line}`, borderRadius: W.radius.control, padding: "0 14px", margin: "12px 0" }}>
           <StrokeIcon size={17} color={W.muted2} width={1.9}><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></StrokeIcon>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש הטבה, עסק או תחום" style={{ flex: 1, border: "none", background: "transparent", outline: "none", fontFamily: "inherit", fontSize: 14, color: W.ink }} />
+          {/* Borderless field inside a 46px pill: it collapsed to its own 21px
+              content box — below A-7's 24x24 gating target — and clicking the
+              pill's padding did not focus it. Stretching it to the pill's height
+              makes the visual control and the hit area the same thing.
+              Presentation only: same value, same handler, same placeholder. */}
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש הטבה, עסק או תחום" style={{ flex: 1, alignSelf: "stretch", border: "none", background: "transparent", outline: "none", fontFamily: "inherit", fontSize: 14, color: W.ink }} />
         </div>
         <HScrollRow style={{ marginBottom: 22 }}>
           <div style={{ display: "flex", gap: 9 }}>
