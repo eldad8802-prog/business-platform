@@ -65,6 +65,8 @@
     "verify:crm-notes": "npx tsx lib/services/crm/crm-notes.service.test.ts",
     "verify:crm-attachment-storage": "npx tsx lib/services/crm/crm-attachment-storage.test.ts",
     "verify:crm-attachments": "npx tsx lib/services/crm/crm-attachments.service.test.ts",
+    "verify:leads-core": "npx tsx lib/services/crm/lead-core.test.ts",
+    "verify:leads-service": "npx tsx lib/services/crm/lead.service.test.ts",
     "verify:billing-issue-tenant-isolation": "npx tsx lib/services/billing/billing-issue.tenant-isolation.test.ts",
     "verify:coupon-v1": "npx tsx lib/revenue/coupon-v1.verify.test.ts",
     "verify:coupon-tenant": "npx tsx lib/services/revenue/coupon-tenant.db.test.ts",
