@@ -305,8 +305,18 @@ async function main() {
   await owner.paymentTransaction.create({ data: { paymentRequestId: reqB.id, provider: "CARDCOM", providerTransactionId: `${MARK}txb`, amount: "100.00", currency: "ILS", status: "PAID" } });
   const txA = await rtx(rt, bizA.id, (t) => t.paymentTransaction.findMany({}));
   ok("PaymentTransaction: A cannot see B's transactions", txA.every((t) => t.paymentRequestId !== reqB.id));
-  const txUpd = await rtx(rt, bizA.id, (t) => t.paymentTransaction.updateMany({ where: { paymentRequestId: reqB.id }, data: { status: "FAILED" } }));
-  ok("PaymentTransaction: A cannot update B's transaction", txUpd.count === 0);
+  // Two acceptable shapes of denial, and the stronger one is what actually
+  // happens here: PaymentTransaction carries S,I only (settlement records are
+  // immutable), so an UPDATE is refused at the privilege layer before RLS is
+  // even consulted. Accept either that or an RLS-filtered zero-row update.
+  let txUpdDenied = false, txUpdCount = -1;
+  try {
+    txUpdCount = (await rtx(rt, bizA.id, (t) => t.paymentTransaction.updateMany({ where: { paymentRequestId: reqB.id }, data: { status: "FAILED" } }))).count;
+  } catch (e) { txUpdDenied = /permission denied/i.test(String(e?.message)); }
+  const txBAfter = await owner.paymentTransaction.findFirst({ where: { paymentRequestId: reqB.id } });
+  ok("PaymentTransaction: A cannot update B's transaction (privilege-denied or 0 rows)",
+    (txUpdDenied || txUpdCount === 0) && txBAfter?.status === "PAID",
+    `denied=${txUpdDenied} count=${txUpdCount} bStatus=${txBAfter?.status}`);
   let foreignParentDenied = false;
   try {
     await rtx(rt, bizA.id, (t) => t.paymentTransaction.create({ data: { paymentRequestId: reqB.id, provider: "CARDCOM", providerTransactionId: `${MARK}bad`, amount: "1.00", currency: "ILS", status: "PAID" } }));
