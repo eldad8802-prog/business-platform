@@ -391,21 +391,23 @@ export async function processPaymentWebhook(
       });
     } catch (error) {
       // P2002 alone is not enough: swallowing ANY unique violation here would
-      // hide an unrelated constraint failure as a benign duplicate. Only the
-      // settlement-idempotency constraint may be interpreted as "another
-      // callback already recorded this transaction" — Prisma names the
-      // offending target on the error, so the check is against that.
-      const err = error as { code?: string; meta?: { target?: unknown } };
-      const target = Array.isArray(err?.meta?.target)
-        ? (err.meta.target as unknown[]).map(String)
-        : typeof err?.meta?.target === "string"
-          ? [err.meta.target]
-          : [];
-      const isSettlementDuplicate =
-        err?.code === "P2002" &&
-        (target.includes("providerTransactionId") ||
-          target.some((t) => t.includes("provider_providerTransactionId")));
-      if (!isSettlementDuplicate) throw error;
+      // hide an unrelated constraint failure as a benign duplicate. Prisma does
+      // not reliably populate meta.target for this index ("Unique constraint
+      // failed on the (not available)"), so the discriminator is EVIDENCE
+      // rather than error metadata — the same shape ensurePaymentPostedEvent
+      // already uses: re-read, and treat it as a duplicate only if the winning
+      // transaction actually exists. Anything else surfaces.
+      const isUniqueViolation =
+        typeof error === "object" && error !== null &&
+        (error as { code?: string }).code === "P2002";
+      if (!isUniqueViolation) throw error;
+      const winner = authoritativeTransactionId
+        ? await deps.store.findTransactionByProviderTransactionId(
+            input.provider,
+            authoritativeTransactionId
+          )
+        : null;
+      if (!winner) throw error;
       await deps.store.updateWebhookEvent(event.id, {
         processingStatus: "PROCESSED",
         processedAt: now(),
