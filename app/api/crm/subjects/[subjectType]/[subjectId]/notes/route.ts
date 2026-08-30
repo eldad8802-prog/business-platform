@@ -7,7 +7,7 @@ import { withTenantTransaction } from "@/lib/tenant/transaction";
 
 type Ctx = { params: Promise<{ subjectType: string; subjectId: string }> };
 
-/** List notes for a CRM subject (CUSTOMER | SUPPLIER), newest-first, capped at 100. */
+/** List notes for a CRM subject (CUSTOMER | SUPPLIER | LEAD), newest-first, capped at 100. */
 export async function GET(req: NextRequest, ctx: Ctx) {
   try {
     const user = await getCurrentUser(req);
