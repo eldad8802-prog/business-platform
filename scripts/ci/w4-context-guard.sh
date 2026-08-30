@@ -145,11 +145,50 @@ run_guard() {
     fi
   done
 
+  # ── CI-W4D-1: the approval route must stay a tenant transaction ──────────
+  APPROVE="app/api/documents/[id]/approve/route.ts"
+  if [ -f "$APPROVE" ] && ! grep -q "withTenantTransaction" "$APPROVE"; then
+    echo "CI-W4D-1 FAIL: approve route lost its tenant transaction"; fail=1
+  fi
+
+  # ── CI-W4D-2: learning-center global reads must use the admin client ─────
+  LC="lib/services/learning-center/learning-center-data.ts"
+  if [ -f "$LC" ]; then
+    grep -q "getPrismaAdmin" "$LC" || {
+      echo "CI-W4D-2 FAIL: learning-center left the admin client"; fail=1; }
+    if grep -qE 'from "@/lib/prisma"' "$LC"; then
+      echo "CI-W4D-2 FAIL: learning-center imports the tenant client"; fail=1
+    fi
+  fi
+
+  # ── CI-W4D-3: dead vendor-learning service stays deleted ─────────────────
+  if [ -f "lib/services/documents/vendor-learning.service.ts" ]; then
+    echo "CI-W4D-3 FAIL: dead vendor-learning.service.ts resurrected"; fail=1
+  fi
+
+  # ── CI-W4D-4: indirect parent-join shapes present in the W4D migration ───
+  W4D_MIG="prisma/migrations/20260827090000_d2_p7_w4d_documents_tenant_rls/migration.sql"
+  if [ -f "$W4D_MIG" ]; then
+    grep -q '"ExtractedData"."documentId"' "$W4D_MIG" || {
+      echo "CI-W4D-4 FAIL: ExtractedData lost its parent-join policy"; fail=1; }
+    grep -q '"ExtractionEvidence"."extractionSnapshotId"' "$W4D_MIG" || {
+      echo "CI-W4D-4 FAIL: ExtractionEvidence lost its parent-join policy"; fail=1; }
+  fi
+
+  # ── CI-W4D-5: no global-Prisma W4D writes in the wired paths ─────────────
+  W4D_WRITE_RX="prisma\.(document|extractedData|financialRecord|vendorLearning|extractionSnapshot|sliceDecision|extractionEvidence|reviewEvent)\.(create|update|upsert|delete|createMany|updateMany)"
+  W4D_FILES="app/api/documents/[id]/approve/route.ts app/api/documents/[id]/process/route.ts app/api/documents/upload/route.ts lib/services/documents/create-document-from-ocr.service.ts lib/services/documents/ledger/correction-ledger.service.ts lib/services/documents/process-document-pipeline.service.ts app/api/integrations/gmail/import/route.ts"
+  for wf in $W4D_FILES; do
+    if [ -f "$wf" ] && grep -nE "$W4D_WRITE_RX" "$wf" >/dev/null; then
+      echo "CI-W4D-5 FAIL: $wf writes a W4D table on the global client"; fail=1
+    fi
+  done
+
   if [ "$fail" -ne 0 ]; then
     echo "W4-CONTEXT-GUARD FAILED"
     return 1
   fi
-  echo "W4-CONTEXT-GUARD OK — CI-W4-1..5 + CI-W4B-1..3 + CI-W4C-1..3 clean."
+  echo "W4-CONTEXT-GUARD OK — CI-W4-1..5 + CI-W4B-1..3 + CI-W4C-1..3 + CI-W4D-1..5 clean."
 }
 
 self_test() {
@@ -204,6 +243,10 @@ TS
     printf 'CREATE POLICY p7w4c_tenant ON "EmailConnection";\nUSING x "OAuthToken"."connectionId" x\n' > "$T/prisma/migrations/20260826200000_d2_p7_w4c_gmail_tenant_rls/migration.sql"
     printf '// clean\n' > "$T/lib/services/integrations/gmail/gmail-auth.service.ts"
     printf 'const businessId = verifiedState.state.businessId;\n' >> "$T/app/api/integrations/gmail/callback/route.ts"
+    mkdir -p "$T/app/api/documents/[id]/approve" "$T/lib/services/learning-center" "$T/prisma/migrations/20260827090000_d2_p7_w4d_documents_tenant_rls"
+    printf 'withTenantTransaction\n' > "$T/app/api/documents/[id]/approve/route.ts"
+    printf 'import { getPrismaAdmin } from "x";\n' > "$T/lib/services/learning-center/learning-center-data.ts"
+    printf '%s\n%s\n' 'x "ExtractedData"."documentId" x' 'x "ExtractionEvidence"."extractionSnapshotId" x' > "$T/prisma/migrations/20260827090000_d2_p7_w4d_documents_tenant_rls/migration.sql"
     cat > "$T/docs/security-d2-provider-bootstrap-allowlist-v1.md" <<'MD'
 POSApiKey WhatsAppConnection PaymentWebhookEvent
 MD
@@ -286,6 +329,26 @@ TS
   local T12="$BASE/v12"; make_clean_tree "$T12"
   printf 'await prisma.oAuthToken.update({});\n' >> "$T12/lib/services/integrations/gmail/gmail-auth.service.ts"
   check "CI-W4C-3 catches global-client W4C write" FAIL "$T12"
+
+  local T13="$BASE/v13"; make_clean_tree "$T13"
+  printf 'no tx here\n' > "$T13/app/api/documents/[id]/approve/route.ts"
+  check "CI-W4D-1 catches approve without tenant tx" FAIL "$T13"
+
+  local T14="$BASE/v14"; make_clean_tree "$T14"
+  printf 'import { prisma } from "@/lib/prisma";\n' > "$T14/lib/services/learning-center/learning-center-data.ts"
+  check "CI-W4D-2 catches learning-center on tenant client" FAIL "$T14"
+
+  local T15="$BASE/v15"; make_clean_tree "$T15"
+  printf 'dead\n' > "$T15/lib/services/documents/vendor-learning.service.ts" 2>/dev/null || mkdir -p "$T15/lib/services/documents" && printf 'dead\n' > "$T15/lib/services/documents/vendor-learning.service.ts"
+  check "CI-W4D-3 catches resurrected dead code" FAIL "$T15"
+
+  local T16="$BASE/v16"; make_clean_tree "$T16"
+  printf '%s\n' '-- empty' > "$T16/prisma/migrations/20260827090000_d2_p7_w4d_documents_tenant_rls/migration.sql"
+  check "CI-W4D-4 catches lost parent-join shapes" FAIL "$T16"
+
+  local T17="$BASE/v17"; make_clean_tree "$T17"
+  printf 'await prisma.financialRecord.create({});\nwithTenantTransaction\n' > "$T17/app/api/documents/[id]/approve/route.ts"
+  check "CI-W4D-5 catches global-client W4D write" FAIL "$T17"
 
   echo "self-test: ok=$ok bad=$bad"
   [ "$bad" -eq 0 ]

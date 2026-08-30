@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import {
   readDocumentObject,
   STORED_DOCUMENT_FILENAME_REGEX,
@@ -40,7 +42,7 @@ export async function GET(
       return new Response("Invalid id", { status: 400 });
     }
 
-    const document = await prisma.document.findUnique({
+    const document = await runWithTenantContext({ businessId: user.businessId }, () => withTenantTransaction((tx) => tx.document.findUnique({
       where: { id },
       select: {
         id: true,
@@ -48,7 +50,7 @@ export async function GET(
         fileUrl: true,
         mimeType: true,
       },
-    });
+    })));
 
     if (!document) {
       return new Response("Not found", { status: 404 });

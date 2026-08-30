@@ -1,4 +1,17 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
+import { getTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+// D2/P7-W4D: reads of FORCE-RLS'd tables run on a short tenant transaction
+// when a tenant context is established; outside a context they read directly
+// (unit tests). Under context there is NO fallback to the global client.
+async function dbStep<T>(fn: (db: typeof prisma) => Promise<T>): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    return withTenantTransaction((tx) => fn(tx as unknown as typeof prisma));
+  }
+  return fn(prisma);
+}
 import { formatYearMonthJerusalem } from "@/lib/utils/jerusalem-month-range";
 
 /**
@@ -24,7 +37,7 @@ export function pendingReviewWhere(businessId: number): {
  * concept (distinct from a single month's verification queue).
  */
 export function countPendingReviewAllTime(businessId: number): Promise<number> {
-  return prisma.document.count({ where: pendingReviewWhere(businessId) });
+  return dbStep((db) => db.document.count({ where: pendingReviewWhere(businessId) }));
 }
 
 /**
@@ -49,9 +62,9 @@ export function distinctMonthsDescending(createdAts: Date[]): string[] {
 export async function listPendingReviewMonths(
   businessId: number
 ): Promise<string[]> {
-  const rows = await prisma.document.findMany({
+  const rows = await dbStep((db) => db.document.findMany({
     where: pendingReviewWhere(businessId),
     select: { createdAt: true },
-  });
+  }));
   return distinctMonthsDescending(rows.map((r) => r.createdAt));
 }

@@ -272,10 +272,12 @@ async function handleAuthedImport(
     } else {
       // No OCR text → create a bare Document (no ExtractedData). It surfaces in
       // the Review Station as needs_review with empty fields for manual entry.
-      const bareDocument = await prisma.document.create({
+      // storedFileName assigned above (storage put succeeded) — closure loses
+      // the outer narrowing, hence the non-null assertion.
+      const bareDocument = await withTenantTransaction((tx) => tx.document.create({
         data: {
           businessId: user.businessId,
-          fileUrl: storedFileName,
+          fileUrl: storedFileName!,
           source: "email",
           mimeType: body.mimeType,
           status: "needs_review",
@@ -284,7 +286,7 @@ async function handleAuthedImport(
           originalFilename: body.filename?.trim().slice(0, 255) || null,
           sizeBytes: effectiveSize || null,
         },
-      });
+      }));
       documentId = bareDocument.id;
     }
     permanentFilePersisted = true;

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { runTenantJob } from "@/lib/tenant/job";
+import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { resolveDocumentOutputProfile } from "@/lib/services/documents/output-profile-resolver.service";
 import { buildReviewEventCreateData } from "@/lib/services/documents/ledger/correction-ledger.service";
@@ -24,17 +25,19 @@ export async function POST(
       return Response.json({ error: "מזהה מסמך לא תקין" }, { status: 400 });
     }
 
-    const document = await prisma.document.findUnique({
-      where: { id: documentId },
-      include: { extractedData: true },
-    });
+    const document = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        withTenantTransaction((tx) =>
+          tx.document.findFirst({
+            where: { id: documentId, businessId: user.businessId },
+            include: { extractedData: true },
+          })
+        )
+    );
 
     if (!document) {
       return Response.json({ error: "המסמך לא נמצא" }, { status: 404 });
-    }
-
-    if (document.businessId !== user.businessId) {
-      return Response.json({ error: "אין הרשאה" }, { status: 403 });
     }
 
     const body = (await req.json().catch(() => null)) as
@@ -83,7 +86,10 @@ export async function POST(
       confidenceScore: document.extractedData?.confidenceScore ?? null,
     };
 
-    const profile = await resolveDocumentOutputProfile({
+    const profile = await runWithTenantContext(
+      { businessId: user.businessId },
+      () =>
+        resolveDocumentOutputProfile({
       documentId: document.id,
       businessId: user.businessId,
       ocrText: document.ocrText ?? null,
@@ -100,7 +106,8 @@ export async function POST(
         : null,
       allowUnified: false, // IMPORTANT: approve must never run unified
       debug: false,
-    });
+        })
+    );
 
     const profileId = profile.outputProfile.profileId;
 
@@ -174,9 +181,17 @@ export async function POST(
     // A document approved WITHOUT a record (informational save) remains fully
     // re-approvable — that is the rescue path for misfiled receipts.
     if (document.status === "approved") {
-      const existingRecord = await prisma.financialRecord.findUnique({
-        where: { documentId },
-      });
+      // W4D: tenant-scoped read on the tenant tx — a bare global-client read
+      // returns null under FORCE RLS and would silently disarm this guard.
+      const existingRecord = await runWithTenantContext(
+        { businessId: user.businessId },
+        () =>
+          withTenantTransaction((tx) =>
+            tx.financialRecord.findFirst({
+              where: { documentId, businessId: user.businessId },
+            })
+          )
+      );
       if (existingRecord) {
         const sameDay = (a: Date, b: Date) =>
           a.getUTCFullYear() === b.getUTCFullYear() &&
@@ -308,7 +323,8 @@ export async function POST(
       try {
         const vendorNameNormalized =
           normalizeVendorForLearning(financial.vendorName).normalizedKey;
-        await prisma.vendorLearning.upsert({
+        await runWithTenantContext({ businessId: user.businessId }, () =>
+          withTenantTransaction((tx) => tx.vendorLearning.upsert({
           where: {
             businessId_vendorName: {
               businessId: user.businessId,
@@ -331,7 +347,8 @@ export async function POST(
             usageCount: 1,
             isGlobal: false,
           },
-        });
+          }))
+        );
       } catch (vendorLearningError) {
         console.error(
           "[approve] vendorLearning.upsert failed (non-fatal):",

@@ -6,7 +6,18 @@
  * writes, no schema/migration changes, no engine interaction.
  */
 
-import { prisma } from "@/lib/prisma";
+// D2/P7-W4D: learning-center is a cross-tenant platform-admin analytics
+// surface. Under FORCE RLS its unscoped reads would silently return zero on
+// the tenant client, so ALL reads run on the sanctioned admin client
+// (read-only via p7adm_read policies; the admin role has no write grants).
+import { getPrismaAdmin } from "@/lib/prisma-admin";
+
+// Lazy per-call accessor: getPrismaAdmin throws loudly when
+// ADMIN_DATABASE_URL is missing — that must happen at request time, never
+// at import/build time.
+function adminDb() {
+  return getPrismaAdmin();
+}
 import {
   buildDecisionEvolution,
   buildOverview,
@@ -42,7 +53,7 @@ export async function getLearningCenterOverview(
   window: TimeWindow
 ): Promise<LearningCenterOverview> {
   const [snapshotsRaw, decisionsRaw, reviewsRaw, evidenceRaw] = await Promise.all([
-    prisma.extractionSnapshot.findMany({
+    adminDb().extractionSnapshot.findMany({
       select: {
         id: true,
         documentId: true,
@@ -51,7 +62,7 @@ export async function getLearningCenterOverview(
         liveEngineVersion: true,
       },
     }),
-    prisma.sliceDecision.findMany({
+    adminDb().sliceDecision.findMany({
       select: {
         fieldKey: true,
         layer: true,
@@ -68,10 +79,10 @@ export async function getLearningCenterOverview(
         sliceEngineVersion: true,
       },
     }),
-    prisma.reviewEvent.findMany({
+    adminDb().reviewEvent.findMany({
       select: { documentId: true, occurredAt: true, verdicts: true },
     }),
-    prisma.$queryRaw<
+    adminDb().$queryRaw<
       Array<{ extractionSnapshotId: number; hasGeometry: boolean; hasReasoning: boolean }>
     >`
       SELECT "extractionSnapshotId",
@@ -128,12 +139,12 @@ export async function getDecisionEvolution(
   documentId: number
 ): Promise<DecisionEvolution> {
   const [snapshotRaw, decisionsRaw, reviewRaw, financialRaw] = await Promise.all([
-    prisma.extractionSnapshot.findFirst({
+    adminDb().extractionSnapshot.findFirst({
       where: { documentId },
       orderBy: { id: "desc" },
       select: { id: true, documentId: true, geometryAvailable: true, occurredAt: true },
     }),
-    prisma.sliceDecision.findMany({
+    adminDb().sliceDecision.findMany({
       where: { documentId },
       select: {
         fieldKey: true,
@@ -151,12 +162,12 @@ export async function getDecisionEvolution(
         sliceEngineVersion: true,
       },
     }),
-    prisma.reviewEvent.findFirst({
+    adminDb().reviewEvent.findFirst({
       where: { documentId },
       orderBy: { occurredAt: "desc" },
       select: { documentId: true, occurredAt: true, verdicts: true },
     }),
-    prisma.financialRecord.findFirst({
+    adminDb().financialRecord.findFirst({
       where: { documentId },
       select: { documentId: true, amount: true, vendorName: true, category: true, direction: true },
     }),

@@ -1,4 +1,16 @@
 import { prisma } from "@/lib/prisma";
+import { getTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+// D2/P7-W4D: FinancialRecord is FORCE-RLS'd — this read must run on a short
+// tenant transaction when a tenant context is established (a bare global-client
+// read would silently count 0). Outside a context it reads directly (unit tests).
+async function dbStep<T>(fn: (db: typeof prisma) => Promise<T>): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    return withTenantTransaction((tx) => fn(tx as unknown as typeof prisma));
+  }
+  return fn(prisma);
+}
 
 import {
   countPendingReviewAllTime,
@@ -32,12 +44,14 @@ export async function evaluatePaperworkInsight(
   // this number always agrees with the inbox's "total pending".
   const [pendingCount, approvedRecentCount] = await Promise.all([
     countPendingReviewAllTime(businessId),
-    prisma.financialRecord.count({
-      where: {
-        businessId,
-        approvedAt: { gte: since },
-      },
-    }),
+    dbStep((db) =>
+      db.financialRecord.count({
+        where: {
+          businessId,
+          approvedAt: { gte: since },
+        },
+      })
+    ),
   ]);
 
   if (pendingCount < PAPERWORK_PENDING_MIN) {

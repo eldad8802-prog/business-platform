@@ -5,6 +5,24 @@ import {
   OUTPUT_PROFILE_UNIFIED_CONFIDENCE_THRESHOLD,
 } from "@/lib/constants/output-profile-cache";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
+import { getTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+// D2/P7-W4D: run a single DB step on a short tenant transaction when a tenant
+// context is established (all document routes set one); outside a context the
+// step runs directly (pure unit tests / offline scripts). Under an
+// established context there is NO fallback to the global client.
+async function dbStep<T>(
+  fn: (db: typeof prisma) => Promise<T>
+): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    // TransactionClient supports the same query surface these callbacks use;
+    // the cast keeps precise select/include payload types.
+    return withTenantTransaction((tx) => fn(tx as unknown as typeof prisma));
+  }
+  return fn(prisma);
+}
 import {
   buildDocumentOutputProfile,
   type DocumentOutputProfile,
@@ -244,7 +262,7 @@ export async function resolveDocumentOutputProfile(params: {
   // Best-effort — a read failure degrades to the stored/no-OCR heuristics.
   let snapshotSource: DocumentOutputProfileSource | null = null;
   try {
-    const snapshot = await prisma.extractionSnapshot.findFirst({
+    const snapshot = await dbStep((db) => db.extractionSnapshot.findFirst({
       where: { documentId: params.documentId, businessId: params.businessId },
       orderBy: { id: "desc" },
       select: {
@@ -258,7 +276,7 @@ export async function resolveDocumentOutputProfile(params: {
         category: true,
         rawResult: true,
       },
-    });
+    }));
     if (snapshot) {
       snapshotSource = buildSourceFromSnapshot({
         snapshot,

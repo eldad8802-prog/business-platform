@@ -1,4 +1,5 @@
 import { getCurrentUser } from "@/lib/auth";
+import { runWithTenantContext } from "@/lib/tenant/context";
 import {
   buildAccountantPackZipBuffer,
   type AccountantPackBody,
@@ -22,7 +23,11 @@ export async function POST(req: Request) {
     // Fully materialized before responding: a Node stream is not a valid Fetch
     // body, and the previous stream-based version awaited finalize() with no
     // consumer attached — deadlocking on backpressure for any real month.
-    const zip = await buildAccountantPackZipBuffer(user.businessId, body);
+    // D2/P7-W4D: tenant context so the pack collector reads FinancialRecord
+    // on tenant transactions under FORCE RLS.
+    const zip = await runWithTenantContext({ businessId: user.businessId }, () =>
+      buildAccountantPackZipBuffer(user.businessId, body)
+    );
 
     return new Response(new Uint8Array(zip), {
       headers: {

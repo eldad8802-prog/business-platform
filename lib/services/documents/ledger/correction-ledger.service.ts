@@ -18,6 +18,23 @@
 import { createHash } from "crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+// D2/P7-W4D: run a single DB step on a short tenant transaction when a tenant
+// context is established (all document routes set one); outside a context the
+// step runs directly (pure unit tests / offline scripts). Under an
+// established context there is NO fallback to the global client.
+async function dbStep<T>(
+  fn: (db: typeof prisma) => Promise<T>
+): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    // TransactionClient supports the same query surface these callbacks use;
+    // the cast keeps precise select/include payload types.
+    return withTenantTransaction((tx) => fn(tx as unknown as typeof prisma));
+  }
+  return fn(prisma);
+}
 import type { UnifiedDocumentIntelligenceResult } from "../unified-extraction-engine.service";
 import type { OcrGeometryResult } from "../google-vision-ocr.service";
 import { buildRepresentationFromOcr } from "../representation/document-representation";
@@ -247,7 +264,7 @@ export async function recordExtractionSnapshot(input: {
       geometry && geometryAvailable ? runAmountSliceShadow(geometry) : null;
     const amountSlice = sliceRun?.trace ?? null;
 
-    const snapshot = await prisma.extractionSnapshot.create({
+    const snapshot = await dbStep((db) => db.extractionSnapshot.create({
       data: {
         documentId: input.documentId,
         businessId: input.businessId,
@@ -295,14 +312,14 @@ export async function recordExtractionSnapshot(input: {
         // itself so the column always holds valid JSON.
         rawResult: (e ? jsonSafe(e) : { extractionOutcome }) as object,
       },
-    });
+    }));
 
     // Six per-field decisions (general contract) — only when there was an
     // extraction. A no-extraction snapshot has no field beliefs to decompose.
     // Isolated so a failure here never blocks the snapshot/evidence.
     if (e) {
       try {
-        await prisma.sliceDecision.createMany({
+        await dbStep((db) => db.sliceDecision.createMany({
           data: buildSliceDecisionRows({
             snapshotId: snapshot.id,
             documentId: input.documentId,
@@ -310,7 +327,7 @@ export async function recordExtractionSnapshot(input: {
             extracted: e,
             amountSlice,
           }),
-        });
+        }));
       } catch (err) {
         console.error("[correction-ledger] sliceDecision.createMany failed:", err);
       }
@@ -319,7 +336,7 @@ export async function recordExtractionSnapshot(input: {
     // Heavy shared evidence (Tier 2 geometry + Tier 3 frozen reasoning blob).
     if (geometry) {
       try {
-        await prisma.extractionEvidence.create({
+        await dbStep((db) => db.extractionEvidence.create({
           data: {
             extractionSnapshotId: snapshot.id,
             ocrGeometry: jsonSafe(geometry) as Prisma.InputJsonValue,
@@ -329,7 +346,7 @@ export async function recordExtractionSnapshot(input: {
             geometryHash: ocrGeometryHash,
             sliceEngineVersion: SLICE_ENGINE_VERSION,
           },
-        });
+        }));
       } catch (err) {
         console.error("[correction-ledger] extractionEvidence.create failed:", err);
       }
@@ -483,7 +500,7 @@ export function buildReviewEventCreateData(
 
 export async function recordReviewEvent(input: ReviewEventInput): Promise<boolean> {
   try {
-    await prisma.reviewEvent.create({ data: buildReviewEventCreateData(input) });
+    await dbStep((db) => db.reviewEvent.create({ data: buildReviewEventCreateData(input) }));
     return true;
   } catch (err) {
     // Never allow a ledger failure to affect the approve flow.

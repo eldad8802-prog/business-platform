@@ -283,7 +283,7 @@ export async function loadAttentionPendingSuggestions(
 export async function loadDocumentsNeedsReview(
   businessId: number
 ): Promise<DocumentNeedsReviewRaw[]> {
-  const docs = await prisma.document.findMany({
+  const docs = await dbStep((db) => db.document.findMany({
     where: {
       businessId,
       status: "needs_review",
@@ -302,7 +302,7 @@ export async function loadDocumentsNeedsReview(
         },
       },
     },
-  });
+  }));
 
   return docs.map((d) => ({
     id: d.id,

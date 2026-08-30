@@ -1,4 +1,22 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
+import { getTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+
+// D2/P7-W4D: run a single DB step on a short tenant transaction when a tenant
+// context is established (all document routes set one); outside a context the
+// step runs directly (pure unit tests / offline scripts). Under an
+// established context there is NO fallback to the global client.
+async function dbStep<T>(
+  fn: (db: typeof prisma) => Promise<T>
+): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    // TransactionClient supports the same query surface these callbacks use;
+    // the cast keeps precise select/include payload types.
+    return withTenantTransaction((tx) => fn(tx as unknown as typeof prisma));
+  }
+  return fn(prisma);
+}
 import { runUnifiedDocumentIntelligence } from "@/lib/services/documents/unified-extraction-engine.service";
 import { recordExtractionSnapshot } from "@/lib/services/documents/ledger/correction-ledger.service";
 
@@ -29,7 +47,7 @@ export async function createDocumentFromOcrText(params: {
     rawText: params.ocrText,
   });
 
-  const document = await prisma.document.create({
+  const document = await dbStep((db) => db.document.create({
     data: {
       businessId: params.businessId,
       fileUrl: params.fileUrl,
@@ -41,9 +59,9 @@ export async function createDocumentFromOcrText(params: {
       originalFilename: params.originalFilename?.trim().slice(0, 255) || null,
       sizeBytes: params.sizeBytes ?? null,
     },
-  });
+  }));
 
-  const extractedData = await prisma.extractedData.create({
+  const extractedData = await dbStep((db) => db.extractedData.create({
     data: {
       documentId: document.id,
       amount: extracted.amount,
@@ -56,7 +74,7 @@ export async function createDocumentFromOcrText(params: {
       date: extracted.date,
       confidenceScore: extracted.confidence,
     },
-  });
+  }));
 
   // Phase 1A Correction Ledger — additive, write-only, never throws.
   await recordExtractionSnapshot({
