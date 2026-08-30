@@ -7,6 +7,7 @@ import {
   getBillingCreditState,
   type BillingCreditState,
 } from "@/lib/services/billing/billing-credit-reversal.service";
+import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 
 function parseBillingDocumentId(value: string): number {
   const num = Number(value);
@@ -44,7 +45,7 @@ export async function GET(
     const { id } = await context.params;
     const sourceBillingDocumentId = parseBillingDocumentId(id);
 
-    const creditState = await prisma.$transaction((tx) =>
+    const creditState = await billingTenantTx(user.businessId, (tx) =>
       getBillingCreditState(tx, {
         businessId: user.businessId,
         sourceBillingDocumentId,

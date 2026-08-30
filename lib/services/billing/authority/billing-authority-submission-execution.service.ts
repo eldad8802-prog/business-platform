@@ -56,6 +56,7 @@ import {
   type RecordAuthorityRejectedTxInput,
   type RecordAuthoritySubmissionAttemptInput,
 } from "@/lib/services/billing/authority/billing-authority-transition.service";
+import { billingTenantTx } from "../billing-tenant-tx";
 
 /** The HTTP send path ignores `scope` (OAuth-only); a placeholder satisfies the
  *  client config type without leaking scope into the runtime context. */
@@ -104,7 +105,15 @@ export type SubmissionExecutionDeps = {
   requestApproval: (input: RequestInvoiceApprovalInput) => Promise<ApprovalDomainResult>;
   hashPayload: (payload: InvoiceApprovalRequest) => string;
   now: () => Date;
-  runInTransaction: <T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) => Promise<T>;
+  /**
+   * D2/P7-W4E-B-2: the transaction is opened for a specific tenant. Without
+   * the businessId this dependency would open a context-less transaction,
+   * which under FORCE RLS reads and writes nothing.
+   */
+  runInTransaction: <T>(
+    businessId: number,
+    fn: (tx: Prisma.TransactionClient) => Promise<T>
+  ) => Promise<T>;
   recordAttempt: (tx: Prisma.TransactionClient, input: RecordAuthoritySubmissionAttemptInput) => Promise<{ submission: { id: number } }>;
   recordApproved: (tx: Prisma.TransactionClient, input: RecordAuthorityApprovedTxInput) => Promise<unknown>;
   recordRejected: (tx: Prisma.TransactionClient, input: RecordAuthorityRejectedTxInput) => Promise<unknown>;
@@ -144,7 +153,10 @@ export const defaultSubmissionExecutionDeps: SubmissionExecutionDeps = {
   requestApproval: (input) => requestInvoiceApproval(input),
   hashPayload: hashApprovalPayload,
   now: () => new Date(),
-  runInTransaction: (fn) => prisma.$transaction(fn),
+  runInTransaction: <T>(
+    businessId: number,
+    fn: (tx: Prisma.TransactionClient) => Promise<T>
+  ) => billingTenantTx(businessId, fn),
   recordAttempt: recordAuthoritySubmissionAttemptTx,
   recordApproved: recordAuthorityApprovedTx,
   recordRejected: recordAuthorityRejectedTx,
@@ -163,7 +175,7 @@ async function persistFailed(
   submissionId: number,
   errorCode: string,
 ): Promise<void> {
-  await deps.runInTransaction((tx) =>
+  await deps.runInTransaction(input.businessId, (tx) =>
     deps.recordFailed(tx, {
       businessId: input.businessId,
       billingDocumentId: input.billingDocumentId,
@@ -250,7 +262,7 @@ export async function executeAuthorityApproval(
 
   // ---- TX1 reserve READY/FAILED -> SUBMITTED ----
   try {
-    await deps.runInTransaction((tx) =>
+    await deps.runInTransaction(input.businessId, (tx) =>
       deps.recordAttempt(tx, {
         businessId, billingDocumentId, actorUserId,
         authorityPayloadHash: payloadHash,
@@ -314,7 +326,7 @@ export async function executeAuthorityApproval(
           return { outcome: "ambiguous_result", billingDocumentId, submissionId: submission.id, errorCode: "AUTHORITY_APPROVED_NO_CONFIRMATION", safeToRetry: "manual" };
         }
         const allocationNumber = result.confirmationNumber;
-        await deps.runInTransaction((tx) =>
+        await deps.runInTransaction(input.businessId, (tx) =>
           deps.recordApproved(tx, {
             businessId, billingDocumentId,
             allocationNumber, approvedAt: deps.now(),
@@ -325,7 +337,7 @@ export async function executeAuthorityApproval(
       }
       case "authority_validation_failed": {
         const errorCode = result.errors[0] ? `ITA_${result.errors[0].code}` : "ITA_VALIDATION";
-        await deps.runInTransaction((tx) =>
+        await deps.runInTransaction(input.businessId, (tx) =>
           deps.recordRejected(tx, {
             businessId, billingDocumentId,
             rejectedAt: deps.now(), errorCode,
@@ -356,7 +368,7 @@ export async function executeAuthorityApproval(
         // Continue/Objection. errorMessage is the sanitized canonical code only
         // (no authority PII). The user-decision paths out of HELD are a future PR.
         const errorCode = buildAuthorityHeldErrorCode(result.code);
-        await deps.runInTransaction((tx) =>
+        await deps.runInTransaction(input.businessId, (tx) =>
           deps.recordHeld(tx, {
             businessId, billingDocumentId,
             heldAt: deps.now(),

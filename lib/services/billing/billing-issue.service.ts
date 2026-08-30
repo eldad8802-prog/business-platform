@@ -43,6 +43,7 @@ import {
   parseBillingPdfTemplateStyle,
   type BillingPdfTemplateStyle,
 } from "@/lib/billing/billing-pdf-template-style";
+import { billingTenantTx } from "./billing-tenant-tx";
 
 const SNAPSHOT_SCHEMA_VERSION = 1;
 const DOCUMENT_NUMBER_PAD = 6;
@@ -442,7 +443,7 @@ export async function issueBillingDocument(
 
   const issuedAt = new Date();
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await billingTenantTx(input.businessId, async (tx) => {
     const doc = await tx.billingDocument.findFirst({
       where: {
         id: input.billingDocumentId,

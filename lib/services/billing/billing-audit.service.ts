@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import { BillingAuditEvent, Prisma } from "@prisma/client";
 import { UnauthorizedError, ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { billingTenantTx } from "./billing-tenant-tx";
 
 /** Document-scoped authority events — require billingDocumentId. */
 export const BILLING_AUTHORITY_DOCUMENT_AUDIT_EVENT_TYPES = [
@@ -276,7 +277,7 @@ export async function createBillingAuditEventBestEffort(
   input: CreateBillingAuditEventInput
 ): Promise<void> {
   try {
-    await prisma.$transaction(async (tx) => {
+    await billingTenantTx(input.businessId, async (tx) => {
       await createBillingAuditEventTx(tx, input);
     });
   } catch (error) {

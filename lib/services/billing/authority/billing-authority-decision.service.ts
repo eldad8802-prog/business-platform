@@ -43,6 +43,7 @@ import {
   type RecordAuthorityHeldDecisionTxResult,
 } from "@/lib/services/billing/authority/billing-authority-transition.service";
 import { createBillingAuditEventBestEffort } from "@/lib/services/billing/billing-audit.service";
+import { billingTenantTx } from "../billing-tenant-tx";
 
 export type DecisionExecutionResult =
   | { outcome: "decision_recorded"; billingDocumentId: number; submissionId: number; action: InvoiceDecisionAction; decisionType: BillingAuthorityDecisionType; deliverable: boolean }
@@ -82,7 +83,15 @@ export type DecisionExecutionDeps = {
   resolveEnvironment: () => BillingAuthorityEnvironment;
   resolveRuntimeContext: (input: { businessId: number; environment: BillingAuthorityEnvironment }) => Promise<RuntimeContextResult>;
   requestDecision: (input: RequestInvoiceDecisionInput) => Promise<DecisionDomainResult>;
-  runInTransaction: <T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) => Promise<T>;
+  /**
+   * D2/P7-W4E-B-2: the transaction is opened for a specific tenant. Without
+   * the businessId this dependency would open a context-less transaction,
+   * which under FORCE RLS reads and writes nothing.
+   */
+  runInTransaction: <T>(
+    businessId: number,
+    fn: (tx: Prisma.TransactionClient) => Promise<T>
+  ) => Promise<T>;
   recordDecision: (tx: Prisma.TransactionClient, input: RecordAuthorityHeldDecisionTxInput) => Promise<RecordAuthorityHeldDecisionTxResult>;
   now: () => Date;
   newCorrelationId: () => string;
@@ -108,7 +117,10 @@ export const defaultDecisionExecutionDeps: DecisionExecutionDeps = {
   resolveEnvironment: () => resolveRuntimeAuthorityEnvironment(),
   resolveRuntimeContext: (input) => resolveApprovalRuntimeContext(input),
   requestDecision: (input) => requestInvoiceDecision(input),
-  runInTransaction: (fn) => prisma.$transaction(fn),
+  runInTransaction: <T>(
+    businessId: number,
+    fn: (tx: Prisma.TransactionClient) => Promise<T>
+  ) => billingTenantTx(businessId, fn),
   recordDecision: recordAuthorityHeldDecisionTx,
   now: () => new Date(),
   newCorrelationId: () => randomUUID(),
@@ -221,7 +233,7 @@ export async function executeAuthorityDecision(
   // ---- map outcome (record locally ONLY on verified Accepted) ----
   switch (result.outcome) {
     case "accepted": {
-      const rec = await deps.runInTransaction((tx) =>
+      const rec = await deps.runInTransaction(input.businessId, (tx) =>
         deps.recordDecision(tx, {
           businessId, billingDocumentId,
           decisionType,

@@ -20,6 +20,7 @@ import { recomputeAll } from "@/lib/services/billing/totals/billing-totals.servi
 import {
   validateAndParseLineInput,
 } from "@/lib/services/billing/validation/billing-line.validation";
+import { billingTenantTx } from "./billing-tenant-tx";
 
 export type BillingCreditState = {
   creditedAmount: Prisma.Decimal;
@@ -185,7 +186,7 @@ export async function createBillingCreditNoteDraft(
     "sourceBillingDocumentId"
   );
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await billingTenantTx(input.businessId, async (tx) => {
     const source = await assertCanReferenceSourceInvoice(tx, {
       businessId: input.businessId,
       sourceBillingDocumentId: input.sourceBillingDocumentId,
