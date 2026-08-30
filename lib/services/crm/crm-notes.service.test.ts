@@ -122,7 +122,7 @@ async function main() {
       NotFoundError, "missing subject rejected"
     );
     await assert.rejects(
-      () => crmNotesService.createNote({ businessId: a.businessId, subjectType: "LEAD", subjectId: custA.id, body: "hi", createdByUserId: u1 }),
+      () => crmNotesService.createNote({ businessId: a.businessId, subjectType: "PROJECT", subjectId: custA.id, body: "hi", createdByUserId: u1 }),
       ValidationError, "unsupported subjectType rejected"
     );
 

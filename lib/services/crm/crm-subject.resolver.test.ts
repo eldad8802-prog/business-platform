@@ -60,11 +60,20 @@ async function main() {
       NotFoundError,
       "missing subject → NotFound"
     );
-    // unsupported type
+    // unsupported type — "LEAD" used to stand in here, but LEAD became a real
+    // subject in Leads W1, so the example had to move to a type that is still
+    // genuinely outside the vocabulary.
     await assert.rejects(
-      () => resolveCrmSubject({ businessId: a.businessId, subjectType: "LEAD", subjectId: custA.id }),
+      () => resolveCrmSubject({ businessId: a.businessId, subjectType: "PROJECT", subjectId: custA.id }),
       ValidationError,
       "unsupported subjectType → ValidationError"
+    );
+    // LEAD is now supported: a lead id that does not exist is NotFound (the
+    // type is fine, the row is not) — proving the branch is wired, not ignored.
+    await assert.rejects(
+      () => resolveCrmSubject({ businessId: a.businessId, subjectType: "LEAD", subjectId: 99999999 }),
+      NotFoundError,
+      "LEAD is a supported subject; a missing lead → NotFound"
     );
     // invalid id
     await assert.rejects(
