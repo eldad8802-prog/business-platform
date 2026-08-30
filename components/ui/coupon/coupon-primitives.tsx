@@ -20,19 +20,37 @@ const W = TOKEN.warm;
  * mobile app screen (mounted inside the real Dubiz feature). Same components,
  * two presentations.
  */
-type ScreenMode = "device" | "screen";
+/**
+ * Three presentations, one component tree.
+ *
+ *  - `device` — a *mock* of a phone: 390 cap, rounded, drop shadow. This is a
+ *    preview of what the customer will see, and it is correct as a phone.
+ *  - `screen` — a real phone-shaped application screen: 480 cap, square, full
+ *    height. Right for a consumer experience the owner is browsing.
+ *  - `app`    — a real application surface whose width belongs to the layout
+ *    system, not to the phone metaphor. The frame keeps the screen treatment
+ *    (square, full height, canvas background) but imposes **no cap**: the page
+ *    supplies one from LAYOUT. Added so management surfaces stop inheriting a
+ *    480px constraint from an ancestor that exists to describe a phone.
+ *
+ * `device` and `screen` behave exactly as before.
+ */
+type ScreenMode = "device" | "screen" | "app";
 const ScreenModeContext = createContext<ScreenMode>("device");
 export function ScreenModeProvider({ mode, children }: { mode: ScreenMode; children: ReactNode }) {
   return <ScreenModeContext.Provider value={mode}>{children}</ScreenModeContext.Provider>;
 }
 
 export function PhoneFrame({ children, style }: { children: ReactNode; style?: CSSProperties }) {
-  const screen = useContext(ScreenModeContext) === "screen";
+  const mode = useContext(ScreenModeContext);
+  const app = mode === "app";
+  // `app` shares every screen trait except the width authority.
+  const screen = mode === "screen" || app;
   return (
     <div
       style={{
         width: "100%",
-        maxWidth: screen ? 480 : 390,
+        maxWidth: app ? undefined : screen ? 480 : 390,
         margin: screen ? "0 auto" : undefined,
         background: W.canvas,
         borderRadius: screen ? 0 : 22,

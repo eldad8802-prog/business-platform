@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
+import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
 
 type PublicCouponDetailsDTO = {
   coupon: {
@@ -54,6 +55,13 @@ function statusLabel(status: PublicCouponDetailsDTO["coupon"]["status"]) {
 }
 
 export default function RevenueCouponDetailsPage() {
+  // CONSUMER surface. It shares the `/revenue` prefix — and therefore the
+  // Revenue layout's ShellChrome — with the owner's management screens, but a
+  // customer holding a coupon must never be handed the business's navigation.
+  // Declared here rather than assumed from the URL: the chrome policy follows
+  // from what the surface *is*. With chrome off the shell drops its offsets, so
+  // this page lays out exactly as it did before the layout existed.
+  useHideShellChrome(true);
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const publicId = params?.id || "";

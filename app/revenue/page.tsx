@@ -17,7 +17,7 @@
  * part-built draft asks first.
  */
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
 import { ScreenModeProvider } from "@/components/ui/coupon/coupon-primitives";
@@ -26,6 +26,54 @@ import { CouponCreationFlow } from "@/components/coupon/screens/creation-screens
 import { MyCouponsScreen } from "@/components/coupon/screens/my-coupons-screen";
 import type { PublicCoupon } from "@/components/coupon/coupon-model";
 import { fetchActiveCoupons, fetchCouponCode, publishDraft, type GeoPoint } from "@/lib/coupon/api";
+import { useMediaQuery } from "@/lib/ui/use-breakpoint";
+import { LAYOUT, type PageIntent, type PageSurfaceIntent } from "@/lib/design/tokens";
+import { PageContainer } from "@/components/ui/page-container";
+
+/** The shell's desktop tier — where its navigation becomes a sidebar. */
+const SHELL_DESKTOP_MIN = `(min-width: ${LAYOUT.bp.expanded}px)`;
+
+/**
+ * `/revenue` hosts three surfaces of two different kinds, so the page cannot
+ * declare one width intent for all of them. It declares `full` and each view
+ * supplies its own — which is also where the Management / Consumer line is
+ * drawn in code rather than only in a document.
+ */
+const SURFACE_INTENT: PageSurfaceIntent = "full";
+
+/**
+ * A Revenue MANAGEMENT surface.
+ *
+ * Two things happen here, and together they are the whole of R1's width work.
+ *
+ * `mode="app"` severs the width authority from the phone metaphor. Management
+ * screens used to inherit a 480px cap from a `ScreenModeProvider mode="screen"`
+ * wrapping the entire page, so at 1920 the owner ran the business — kill switch
+ * included — inside a 480px column with ~1440px of dead canvas.
+ *
+ * The cap then comes from LAYOUT, per surface: a coupon list is `content`, an
+ * authoring wizard is `focused`. No new primitive and no new breakpoint family.
+ * This is a container, not the desktop workspace — that is R2's job.
+ */
+function ManagementSurface({
+  intent,
+  children,
+}: {
+  intent: Extract<PageIntent, "content" | "focused">;
+  children: ReactNode;
+}) {
+  return (
+    <ScreenModeProvider mode="app">
+      {/* PageContainer, not a hand-rolled max-width: the cap has to come from the
+          shared width authority, and the anti-drift ratchet counts page-level
+          width literals for exactly this reason. `bleed` keeps the cap without
+          adding gutters — these screens carry their own internal padding. */}
+      <PageContainer as="div" intent={intent} bleed className="revenue-management">
+        {children}
+      </PageContainer>
+    </ScreenModeProvider>
+  );
+}
 
 type View = "mine" | "browse" | "create";
 
@@ -37,6 +85,15 @@ function CouponFeature() {
   const router = useRouter();
   const params = useSearchParams();
   const view = parseView(params.get("view"));
+
+  // The chrome policy is per VIEW, not per route, because the three views are
+  // not the same kind of surface. `mine` and `create` are MANAGEMENT and gain
+  // the shell's navigation from its desktop tier up. `browse` is the consumer
+  // marketplace: it keeps the phone-shaped screen frame, and giving it the
+  // owner's navigation would dress a consumer experience as a management one.
+  // Below the desktop tier every view keeps the full viewport it has today.
+  const isDesktop = useMediaQuery(SHELL_DESKTOP_MIN);
+  useHideShellChrome(!isDesktop || view === "browse");
 
   const [coupons, setCoupons] = useState<PublicCoupon[] | null>(null);
   const [near, setNear] = useState<GeoPoint | null>(null);
@@ -92,12 +149,14 @@ function CouponFeature() {
 
   if (view === "create") {
     return (
+      <ManagementSurface intent="focused">
       <CouponCreationFlow
         startAtBeat={false}
         publish={publishDraft}
         onDirty={() => setDraftDirty(true)}
         onExit={(created) => leaveCreate(Boolean(created))}
       />
+      </ManagementSurface>
     );
   }
 
@@ -120,6 +179,7 @@ function CouponFeature() {
       );
     }
     return (
+      <ScreenModeProvider mode="screen">
       <ConsumerJourney
         coupons={coupons}
         getCode={fetchCouponCode}
@@ -129,15 +189,18 @@ function CouponFeature() {
         nearActive={near !== null}
         locating={locating}
       />
+      </ScreenModeProvider>
     );
   }
 
   return (
-    <MyCouponsScreen
-      onCreate={() => go("create")}
-      onBrowse={() => go("browse")}
-      onExit={() => router.push("/app")}
-    />
+    <ManagementSurface intent="content">
+      <MyCouponsScreen
+        onCreate={() => go("create")}
+        onBrowse={() => go("browse")}
+        onExit={() => router.push("/app")}
+      />
+    </ManagementSurface>
   );
 }
 
@@ -150,17 +213,18 @@ function Loading() {
 }
 
 export default function RevenuePage() {
-  // Full-screen coupon journey with its own screen headers — hide the app's
-  // fixed bottom nav so it doesn't clutter the flow.
-  useHideShellChrome(true);
+  // The chrome policy lives in `CouponFeature`, where the view is known — see
+  // the note there. It cannot be decided here: this route serves a management
+  // surface and a consumer one behind the same path.
   return (
-    <main style={{ minHeight: "100vh", background: "#FEF8F2", overflowX: "hidden" }}>
-      <ScreenModeProvider mode="screen">
-        {/* `useSearchParams` needs a Suspense boundary to prerender. */}
-        <Suspense fallback={<Loading />}>
-          <CouponFeature />
-        </Suspense>
-      </ScreenModeProvider>
+    <main
+      data-page-intent={SURFACE_INTENT}
+      style={{ minHeight: "100vh", background: "#FEF8F2", overflowX: "hidden" }}
+    >
+      {/* `useSearchParams` needs a Suspense boundary to prerender. */}
+      <Suspense fallback={<Loading />}>
+        <CouponFeature />
+      </Suspense>
     </main>
   );
 }
