@@ -75,7 +75,7 @@ export default function SupplierCardPage() {
   }, [load]);
 
   return (
-    <div className="crm-page">
+    <div className="crm-page crm-reading">
       <a className="crm-hd__back" href="/suppliers">
         › חזרה לספקים
       </a>

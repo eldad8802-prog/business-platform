@@ -14,6 +14,25 @@
   box-sizing: border-box;
 }
 
+/*
+  Detail reading column (Spec v1 §23 — the outstanding half of the CRM
+  convergence; the 1280 threshold landed earlier, this did not).
+
+  `.crm-page` is shared by BOTH the 380px master panes and the flexible
+  detail panes, so its 720 cap is right for the master and wrong for the
+  detail: at 1920 the detail pane is ~1160px and rendered a 720 column with
+  ~440px of dead canvas. Detail surfaces add `.crm-reading`, which widens
+  only from the workspace tier up — exactly the pattern proven on
+  payments/[id]. max-width (not width) means a narrower pane simply wins:
+  at a 1280 viewport the shell takes 248 and the master 380, leaving ~652,
+  and the column degrades to that without a media query of its own.
+*/
+@media (min-width: 1280px) {
+  .crm-scope .crm-page.crm-reading {
+    max-width: 840px;
+  }
+}
+
 /* Header */
 .crm-hd {
   display: flex;

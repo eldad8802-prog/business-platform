@@ -389,4 +389,20 @@ export const LAYOUT = {
   z: { nav: 100, fab: 110, overlay: 1300, toast: 1400 },
 } as const;
 
+/**
+ * Width intents a PageContainer can resolve to a `LAYOUT.width` cap.
+ * A screen changes width by changing intent, never by a new literal.
+ */
 export type PageIntent = "focused" | "standard" | "content" | "data" | "full";
+
+/**
+ * The full declared vocabulary of the `data-page-intent` attribute.
+ *
+ * A workspace surface does not have a single centered column to cap — its
+ * geometry belongs to WorkspaceLayout's regions — so it declares its intent
+ * on its own root instead of through PageContainer. It is deliberately NOT a
+ * `PageIntent`: PageContainer resolves widths, and there is no width to
+ * resolve here. Keeping it declared (rather than an ad-hoc string) is what
+ * lets CI assert that every product surface states an intent from a known set.
+ */
+export type PageSurfaceIntent = PageIntent | "workspace";

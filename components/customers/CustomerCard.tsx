@@ -202,7 +202,7 @@ export function CustomerCard() {
   );
 
   return (
-    <div className="crm-page">
+    <div className="crm-page crm-reading">
       <Link className="crm-hd__back" href="/customers">
         › חזרה ללקוחות
       </Link>

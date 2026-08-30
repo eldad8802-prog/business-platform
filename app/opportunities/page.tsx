@@ -1,4 +1,5 @@
 "use client";
+import { PageContainer } from "@/components/ui/page-container";
 
 import { useEffect, useMemo, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
@@ -228,17 +229,14 @@ export default function OpportunitiesPage() {
     run();
   }, []);
 
+  // The App Shell owns the page height and the bottom-bar clearance, so this
+  // screen no longer forces 100vh on top of it (that guarantees a scroll on a
+  // page that fits). Vertical rhythm only — the horizontal gutters now come
+  // from PageContainer.
   const pageStyle: React.CSSProperties = {
-    minHeight: "100vh",
     background:
       "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 50%, #eef2f7 100%)",
-    padding: "20px 14px 40px",
-  };
-
-  const containerStyle: React.CSSProperties = {
-    width: "100%",
-    maxWidth: 960,
-    margin: "0 auto",
+    paddingBlock: "20px 40px",
   };
 
   const headerCardStyle: React.CSSProperties = {
@@ -555,7 +553,7 @@ export default function OpportunitiesPage() {
 
   return (
     <div style={pageStyle}>
-      <div style={containerStyle}>
+      <PageContainer intent="data">
         <div style={headerCardStyle}>
           <div
             style={{
@@ -794,7 +792,7 @@ export default function OpportunitiesPage() {
             )}
           </>
         )}
-      </div>
+      </PageContainer>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 "use client";
+import { PageContainer } from "@/components/ui/page-container";
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -214,15 +215,12 @@ export default function AttentionPage() {
         overflowX: "hidden",
       }}
     >
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 640,
-          margin: "0 auto",
-          padding: "8px 16px 12px",
-          boxSizing: "border-box",
-        }}
-      >
+      {/*
+        The follow-up queue is a worklist: `data` intent, not a 640 column.
+        The outer div keeps the surface background and the overflow guard;
+        PageContainer owns the width and the responsive gutters.
+      */}
+      <PageContainer intent="data" as="div" style={{ paddingBlock: "8px 12px" }}>
         <header style={{ marginBottom: 24, paddingTop: 6 }}>
           <h1
             style={{
@@ -336,7 +334,7 @@ export default function AttentionPage() {
             ))}
           </ul>
         )}
-      </div>
+      </PageContainer>
     </div>
   );
 }
