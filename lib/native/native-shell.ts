@@ -66,8 +66,11 @@ export async function initNativeShell(): Promise<void> {
     console.error("[native-shell] status bar failed:", err);
   }
 
-  // Hide the splash only after first paint of real content (config keeps it
-  // up through the remote load, so there is no white flash).
+  // Hide the splash as soon as the web shell is interactive. This is now an
+  // OPTIMIZATION, not the only exit: capacitor.config.ts keeps launchAutoHide
+  // true (+ launchShowDuration) after W7 proved a held splash can leave the
+  // activity without a focused window and ANR. Calling hide() when it is
+  // already hidden is a no-op.
   try {
     const { SplashScreen } = await import("@capacitor/splash-screen");
     await SplashScreen.hide();
