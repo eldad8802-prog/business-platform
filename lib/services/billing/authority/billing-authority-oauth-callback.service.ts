@@ -7,6 +7,7 @@
  */
 
 import { timingSafeEqual } from "node:crypto";
+import { verifySignedAuthorityState } from "./billing-authority-signed-state.service";
 import { BillingAuthorityEnvironment } from "@prisma/client";
 import { ServiceUnavailableError, ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
@@ -318,6 +319,13 @@ export type AuthorityTokenExchangeResponse = {
 export type ParsedAuthorityOAuthCallbackContext = {
   businessId: number;
   environment: BillingAuthorityEnvironment;
+  /**
+   * D2/P7-W4E-B-1: the acting user as bound by the SIGNED state. It is written
+   * to oauthAuthorizedByUserId, i.e. it is an identity claim about who
+   * authorized an ITA connection — so like businessId it must come from the
+   * signed envelope, not from the caller's own actor cookie.
+   */
+  actorUserId: number;
   queryState: string;
   cookieState: string;
   code: string;
@@ -425,8 +433,9 @@ export function validateAuthorityOAuthCallbackContext(input: {
       ok: false,
       errorCode: AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.ITA_ERROR,
       errorMessage: description,
-      businessId: parsedCookies.businessId ?? undefined,
-      environment: parsedCookies.environment ?? undefined,
+      // D2/P7-W4E-B-1: no verified state yet, so there is no trusted tenant to
+      // attribute this failure to. Naming the cookie's business here would let a
+      // forged cookie write a failure transition onto another tenant's connection.
     };
   }
 
@@ -439,8 +448,9 @@ export function validateAuthorityOAuthCallbackContext(input: {
       ok: false,
       errorCode: AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.MISSING_COOKIE,
       errorMessage: "OAuth callback cookies are missing or invalid",
-      businessId: parsedCookies.businessId ?? undefined,
-      environment: parsedCookies.environment ?? undefined,
+      // D2/P7-W4E-B-1: no verified state yet, so there is no trusted tenant to
+      // attribute this failure to. Naming the cookie's business here would let a
+      // forged cookie write a failure transition onto another tenant's connection.
     };
   }
 
@@ -456,8 +466,9 @@ export function validateAuthorityOAuthCallbackContext(input: {
       errorMessage: code
         ? "OAuth callback state is missing"
         : "OAuth authorization code is missing",
-      businessId: parsedCookies.businessId,
-      environment: parsedCookies.environment,
+      // D2/P7-W4E-B-1: no verified state yet, so there is no trusted tenant to
+      // attribute this failure to. Naming the cookie's business here would let a
+      // forged cookie write a failure transition onto another tenant's connection.
     };
   }
 
@@ -466,16 +477,52 @@ export function validateAuthorityOAuthCallbackContext(input: {
       ok: false,
       errorCode: AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.STATE_MISMATCH,
       errorMessage: "OAuth callback state does not match",
-      businessId: parsedCookies.businessId,
-      environment: parsedCookies.environment,
+      // D2/P7-W4E-B-1: no verified state yet, so there is no trusted tenant to
+      // attribute this failure to. Naming the cookie's business here would let a
+      // forged cookie write a failure transition onto another tenant's connection.
+    };
+  }
+
+  // D2/P7-W4E-B — TENANT AUTHORITY. Everything above is CSRF/shape checking on
+  // caller-controlled cookies; none of it establishes WHO this authorization
+  // belongs to. The identity comes from the SIGNED state and nowhere else: the
+  // cookie businessId/environment are now only cross-checked against it, never
+  // trusted on their own. A caller who rewrites their cookies can at worst
+  // cause a rejection — they can no longer nominate a tenant and have ITA token
+  // material persisted onto it.
+  const verified = verifySignedAuthorityState(queryState);
+  if (!verified.ok) {
+    return {
+      ok: false,
+      errorCode: AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.STATE_MISMATCH,
+      errorMessage: `OAuth state is not trusted: ${verified.reason}`,
+      // Deliberately NOT reporting the cookie's businessId here: at this point
+      // no trusted tenant exists, and echoing the untrusted one back would be
+      // the same mistake in a smaller place.
+    };
+  }
+
+  // Defence in depth: the cookies must AGREE with the signed state. They carry
+  // no authority, but a disagreement means the flow was tampered with, and a
+  // tampered flow must not proceed.
+  if (
+    parsedCookies.businessId !== verified.state.businessId ||
+    parsedCookies.environment !== verified.state.environment
+  ) {
+    return {
+      ok: false,
+      errorCode: AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.STATE_MISMATCH,
+      errorMessage: "OAuth callback cookies disagree with the signed state",
     };
   }
 
   return {
     ok: true,
     context: {
-      businessId: parsedCookies.businessId,
-      environment: parsedCookies.environment,
+      businessId: verified.state.businessId,
+      environment: verified.state
+        .environment as unknown as BillingAuthorityEnvironment,
+      actorUserId: verified.state.userId,
       cookieState: parsedCookies.cookieState,
       queryState,
       code,
@@ -856,7 +903,7 @@ export async function handleAuthorityOAuthCallback(
       connected = await markConnected({
         businessId: context.businessId,
         environment: context.environment,
-        actorUserId: input.actorUserId,
+        actorUserId: context.actorUserId,
         tokens: encryptedTokens,
         accessTokenExpiresAt: resolveTokenExpiryDate(tokenResponse.expires_in),
         refreshTokenExpiresAt: null,
@@ -883,7 +930,10 @@ export async function handleAuthorityOAuthCallback(
     const failureTransition = await recordOAuthCallbackFailure({
       businessId: context.businessId,
       environment: context.environment,
-      actorUserId: input.actorUserId,
+      // W4E-B-1: the identity is verified by this point, so the actor recorded
+      // on the failure comes from the signed state too. Using the cookie here
+      // would let a forged actor cookie mislabel who caused the failure.
+      actorUserId: context.actorUserId,
       errorCode: errorCode.slice(0, 64),
       errorMessage,
       diagnostics,

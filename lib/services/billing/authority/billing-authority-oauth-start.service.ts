@@ -6,6 +6,10 @@
  */
 
 import { randomBytes } from "node:crypto";
+import {
+  createSignedAuthorityState,
+  type AuthorityEnvironment,
+} from "./billing-authority-signed-state.service";
 import { BillingAuthorityEnvironment } from "@prisma/client";
 import { ValidationError } from "@/lib/errors";
 import { getActiveAuthorityApp } from "@/lib/services/billing/authority/billing-authority-app.service";
@@ -178,7 +182,20 @@ export function composeAuthorityOAuthStartResult(input: {
   state?: string;
   secureCookies?: boolean;
 }): StartAuthorityOAuthResult {
-  const state = input.state ?? createAuthorityOAuthState();
+  // D2/P7-W4E-B: the state is now a SIGNED envelope binding the tenant the
+  // start route already authorized (own business, or any business for a
+  // PLATFORM_ADMIN), the acting user, and the environment. Previously it was an
+  // opaque random nonce and the callback learned the tenant from a separate
+  // unsigned cookie — so whoever controlled that cookie chose the tenant the
+  // ITA token was persisted onto. The cookie still ships as an unchanged
+  // double-submit/CSRF value; it is simply no longer an identity claim.
+  const state =
+    input.state ??
+    createSignedAuthorityState({
+      businessId: input.businessId,
+      userId: input.actorUserId,
+      environment: input.environment as AuthorityEnvironment,
+    });
   const redirectUri = buildRedirectUriFromBase(input.redirectBaseUrl);
   const authorizeEndpoint = buildAuthorityOAuthAuthorizeUrl({
     environment: input.environment,

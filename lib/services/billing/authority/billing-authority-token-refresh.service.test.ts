@@ -326,7 +326,7 @@ async function runAsyncTests() {
     prisma.billingAuthorityApp.findUnique = (async () =>
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await refreshAuthorityConnectionToken({
@@ -381,7 +381,7 @@ async function runAsyncTests() {
     prisma.billingAuthorityApp.findUnique = (async () =>
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await refreshAuthorityConnectionToken({
@@ -474,7 +474,7 @@ async function runAsyncTests() {
     prisma.billingAuthorityApp.findUnique = (async () =>
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const beforeAccess = fake.getConnection().accessTokenEncrypted;
@@ -521,7 +521,7 @@ async function runAsyncTests() {
     prisma.billingAuthorityApp.findUnique = (async () =>
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       await refreshAuthorityConnectionToken({
@@ -577,7 +577,7 @@ async function runAsyncTests() {
     prisma.billingAuthorityApp.findUnique = (async () =>
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       await refreshAuthorityConnectionToken({
@@ -619,7 +619,7 @@ async function runAsyncTests() {
     prisma.billingAuthorityApp.findUnique = (async () =>
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await refreshAuthorityConnectionToken({
@@ -669,7 +669,7 @@ async function runAsyncTests() {
     prisma.billingAuthorityApp.findUnique = (async () =>
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await refreshAuthorityConnectionToken({
@@ -711,7 +711,7 @@ async function runAsyncTests() {
     prisma.billingAuthorityApp.findUnique = (async () =>
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await refreshAuthorityConnectionToken({
@@ -755,7 +755,7 @@ async function runAsyncTests() {
     prisma.billingAuthorityApp.findUnique = (async () =>
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await refreshAuthorityConnectionToken({
@@ -814,7 +814,7 @@ async function runAsyncTests() {
     prisma.billingAuthorityApp.findUnique = (async () =>
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await refreshAuthorityConnectionToken({
@@ -858,7 +858,7 @@ async function runAsyncTests() {
     prisma.billingAuthorityApp.findUnique = (async () =>
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await refreshAuthorityConnectionToken({
@@ -902,7 +902,7 @@ async function runAsyncTests() {
     prisma.billingAuthorityApp.findUnique = (async () =>
       APP_ROW) as typeof prisma.billingAuthorityApp.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       await refreshAuthorityConnectionToken({
@@ -965,7 +965,7 @@ async function runAsyncTests() {
     prisma.billingAuthorityApp.findUnique = (async () =>
       prodApp) as typeof prisma.billingAuthorityApp.findUnique;
     prisma.$transaction = (async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
-      fn(fake.tx)) as typeof prisma.$transaction;
+      fn({ ...fake.tx, $queryRaw: async () => [] } as unknown as Prisma.TransactionClient)) as typeof prisma.$transaction;
 
     try {
       const result = await refreshAuthorityConnectionToken({
