@@ -15,6 +15,7 @@ import {
 } from "@/lib/errors";
 import { StorageObjectNotFoundError } from "@/lib/storage/storage.errors";
 import {
+  parseCrmSubjectType,
   resolveCrmSubject,
   type CrmSubjectType,
 } from "@/lib/services/crm/crm-subject.resolver";
@@ -128,7 +129,10 @@ export const crmAttachmentsService = {
     options?: TxOptions
   ): Promise<CrmAttachmentDTO[]> {
     const db = options?.tx ?? prisma;
-    await resolveCrmSubject(
+    // resolveCrmSubject parses the raw value into the enum (and rejects it
+    // if it is not one) — query with what it returned, never with the raw
+    // input, or a caller-supplied casing reaches Prisma unvalidated.
+    const subject = await resolveCrmSubject(
       {
         businessId: input.businessId,
         subjectType: input.subjectType,
@@ -139,7 +143,7 @@ export const crmAttachmentsService = {
     const rows = await db.crmAttachment.findMany({
       where: {
         businessId: input.businessId,
-        subjectType: input.subjectType as CrmSubjectType,
+        subjectType: subject.subjectType,
         subjectId: input.subjectId,
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -158,10 +162,15 @@ export const crmAttachmentsService = {
     options?: TxOptions
   ): Promise<number> {
     const db = options?.tx ?? prisma;
+    // Count takes no resolver pass (it is a read-model helper, deliberately
+    // not a subject-existence check), so it must parse the value itself —
+    // otherwise an unvalidated string reaches Prisma as an enum.
+    const subjectType = parseCrmSubjectType(input.subjectType);
+    if (!subjectType) throw new ValidationError("Unsupported subjectType");
     return db.crmAttachment.count({
       where: {
         businessId: input.businessId,
-        subjectType: input.subjectType as CrmSubjectType,
+        subjectType,
         subjectId: input.subjectId,
       },
     });
