@@ -24,40 +24,55 @@ import {
 } from "@/lib/billing/collections-visibility";
 import { describeAuthorityIssueOutcome } from "@/lib/billing/authority-issue-display";
 import type { AuthorityIssueOutcome } from "@/lib/services/billing/authority/billing-authority-issue-outcome";
+import {
+  DOCUMENT_TYPE_LABEL,
+  STATUS_LABEL,
+  STATUS_STYLE,
+  formatDate,
+  formatDateTime,
+  formatMoney,
+  formatPercent,
+  formatQuantity,
+  generateLocalLineKey,
+  getDocumentTypeLabel,
+  linesAreDirty,
+  looksLikeDecimalInput,
+  mapServerLinesToLocal,
+  newEmptyLocalLine,
+  normalizeNumericForCompare,
+  openPdfBlobInNewTab,
+  resolveServerLineForDraft,
+  scrollToId,
+  type BillingDocumentDetail,
+  type BillingDocumentLine,
+  type BillingStatus,
+  type LifecycleAction,
+  type LocalLine,
+  type PatchSaveStatus,
+  type StageKey,
+  type StickyPrimaryAction,
+} from "@/lib/billing/document-view-model";
+import {
+  ErrorBanner,
+  NotFoundCard,
+  WorkspaceSkeleton,
+} from "@/components/billing/document/load-states";
+import {
+  CollapsiblePanel,
+  CustomerSummaryCard,
+  DetailRow,
+  DetailsCard,
+  LineCard,
+  LinesSection,
+  ReviewSummaryCard,
+  ReviewSummaryRow,
+  StatusBadge,
+  TotalRow,
+  TotalsCard,
+} from "@/components/billing/document/read-models";
 
-type BillingStatus = "DRAFT" | "PENDING_REVIEW" | "ISSUED";
 
-type BillingDocumentLine = {
-  id: number;
-  lineIndex: number;
-  description: string;
-  quantity: string;
-  unitPrice: string;
-  vatRatePercent: string;
-  lineSubtotal: string;
-  vatAmount: string;
-  lineTotal: string;
-};
 
-type BillingDocumentDetail = {
-  id: number;
-  documentType: string;
-  status: BillingStatus;
-  documentNumber: number | null;
-  documentNumberFormatted: string | null;
-  customerId: number | null;
-  customerNameSnapshot: string | null;
-  validUntil: string | null;
-  convertedToInvoiceId: number | null;
-  subtotalAmount: string;
-  vatAmount: string;
-  totalAmount: string;
-  currency: string;
-  issuedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  lines: BillingDocumentLine[];
-};
 
 type LoadState =
   | { kind: "loading" }
@@ -65,224 +80,35 @@ type LoadState =
   | { kind: "not-found" }
   | { kind: "ready"; doc: BillingDocumentDetail };
 
-type LocalLine = {
-  key: string;
-  description: string;
-  quantity: string;
-  unitPrice: string;
-  vatRatePercent: string;
-};
 
-type PatchSaveStatus = "idle" | "saving" | "saved" | "error";
 
-type LifecycleAction = "submit" | "revert" | "issue";
 
 type PendingNavigation = { href: string } | null;
 
-type StageKey =
-  | "draft_missing"
-  | "draft_ready"
-  | "quote_ready"
-  | "quote_converted"
-  | "pending_review"
-  | "issued";
 
-function scrollToId(id: string) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.scrollIntoView({ behavior: "smooth", block: "start" });
-}
 
-/** Opens a fetched PDF in a new tab without async window.open popup blocking. */
-function openPdfBlobInNewTab(blob: Blob): void {
-  const blobUrl = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = blobUrl;
-  a.target = "_blank";
-  a.rel = "noopener noreferrer";
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
-}
 
-type StickyPrimaryAction =
-  | { kind: "none" }
-  | { kind: "open-issue-dialog" }
-  | { kind: "convert-quote" }
-  | { kind: "scroll"; targetId: string; label: string };
 
-function mapServerLinesToLocal(lines: BillingDocumentLine[]): LocalLine[] {
-  return lines.map((l) => ({
-    key: `s-${l.id}`,
-    description: l.description,
-    quantity: String(l.quantity),
-    unitPrice: String(l.unitPrice),
-    vatRatePercent: String(l.vatRatePercent),
-  }));
-}
 
-function generateLocalLineKey(): string {
-  if (
-    typeof crypto !== "undefined" &&
-    typeof crypto.randomUUID === "function"
-  ) {
-    return `n-${crypto.randomUUID()}`;
-  }
-  return `n-local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
 
-function newEmptyLocalLine(): LocalLine {
-  return {
-    key: generateLocalLineKey(),
-    description: "",
-    quantity: "1",
-    unitPrice: "0",
-    vatRatePercent: "17",
-  };
-}
 
-function normalizeNumericForCompare(value: string): string {
-  const t = value.trim();
-  if (t === "") return "";
-  const parsed = Number(t);
-  if (!Number.isFinite(parsed)) return t;
-  // Normalize numerically equivalent inputs (e.g. "1" === "1.00", "17" === "17.0")
-  return String(parsed);
-}
 
-function linesAreDirty(
-  draft: LocalLine[],
-  serverLines: BillingDocumentLine[]
-): boolean {
-  const a = draft.map((l) => ({
-    description: l.description.trim(),
-    quantity: normalizeNumericForCompare(l.quantity),
-    unitPrice: normalizeNumericForCompare(l.unitPrice),
-    vatRatePercent: normalizeNumericForCompare(l.vatRatePercent),
-  }));
-  const b = serverLines.map((l) => ({
-    description: l.description.trim(),
-    quantity: normalizeNumericForCompare(String(l.quantity)),
-    unitPrice: normalizeNumericForCompare(String(l.unitPrice)),
-    vatRatePercent: normalizeNumericForCompare(String(l.vatRatePercent)),
-  }));
-  return JSON.stringify(a) !== JSON.stringify(b);
-}
 
-function looksLikeDecimalInput(value: string): boolean {
-  const t = value.trim();
-  if (t === "") return false;
-  return /^-?\d+(\.\d+)?$/.test(t);
-}
 
-const STATUS_LABEL: Record<BillingStatus, string> = {
-  DRAFT: "טיוטה",
-  PENDING_REVIEW: "ממתין לאישור",
-  ISSUED: "הופק",
-};
 
-const STATUS_STYLE: Record<
-  BillingStatus,
-  { bg: string; fg: string; border: string }
-> = {
-  DRAFT: { bg: TOKEN.surface.inset, fg: TOKEN.ink.secondary, border: TOKEN.border.DEFAULT },
-  PENDING_REVIEW: { bg: TOKEN.semantic.attention.bg, fg: TOKEN.semantic.attention.ink, border: TOKEN.semantic.attention.border },
-  ISSUED: { bg: TOKEN.semantic.success.bg, fg: TOKEN.semantic.success.ink, border: TOKEN.semantic.success.border },
-};
 
-const DOCUMENT_TYPE_LABEL: Record<string, string> = {
-  TAX_INVOICE: "חשבונית מס",
-  QUOTE: "הצעת מחיר",
-};
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
   return localStorage.getItem("token") || "1";
 }
 
-function formatMoney(amount: string, currency: string): string {
-  const n = Number(amount);
-  if (!Number.isFinite(n)) return `${amount} ${currency}`;
-  try {
-    return new Intl.NumberFormat("he-IL", {
-      style: "currency",
-      currency: currency || "ILS",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(n);
-  } catch {
-    return `${n.toFixed(2)} ${currency}`;
-  }
-}
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  try {
-    return new Intl.DateTimeFormat("he-IL", {
-      timeZone: "Asia/Jerusalem",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(d);
-  } catch {
-    return iso.slice(0, 10);
-  }
-}
 
-function formatDateTime(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  try {
-    return new Intl.DateTimeFormat("he-IL", {
-      timeZone: "Asia/Jerusalem",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(d);
-  } catch {
-    return iso;
-  }
-}
 
-function formatQuantity(value: string): string {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return value;
-  return new Intl.NumberFormat("he-IL", {
-    maximumFractionDigits: 4,
-  }).format(n);
-}
 
-function formatPercent(value: string): string {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return `${value}%`;
-  const formatted = new Intl.NumberFormat("he-IL", {
-    maximumFractionDigits: 2,
-  }).format(n);
-  return `${formatted}%`;
-}
 
-function getDocumentTypeLabel(type: string): string {
-  return DOCUMENT_TYPE_LABEL[type] ?? type;
-}
 
-function resolveServerLineForDraft(
-  line: LocalLine,
-  docLines: BillingDocumentLine[]
-): BillingDocumentLine | undefined {
-  if (line.key.startsWith("s-")) {
-    const lid = Number(line.key.slice(2));
-    if (!Number.isFinite(lid)) return undefined;
-    return docLines.find((l) => l.id === lid);
-  }
-  return undefined;
-}
 
 export default function BillingDocumentWorkspacePage() {
   // Focused invoice editor with its own sticky action bar — hide the app's
@@ -1163,140 +989,9 @@ export default function BillingDocumentWorkspacePage() {
   );
 }
 
-function StatusBadge({ status }: { status: BillingStatus }) {
-  const style = STATUS_STYLE[status];
-  return (
-    <span
-      style={{
-        padding: "4px 12px",
-        borderRadius: 999,
-        border: `1px solid ${style.border}`,
-        background: style.bg,
-        color: style.fg,
-        fontSize: 12,
-        fontWeight: 600,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {STATUS_LABEL[status]}
-    </span>
-  );
-}
 
-function WorkspaceSkeleton() {
-  return (
-    <div
-      aria-busy="true"
-      aria-live="polite"
-      style={{ display: "grid", gap: 12 }}
-    >
-      {[120, 100, 220].map((h, i) => (
-        <div
-          key={i}
-          aria-hidden="true"
-          style={{
-            height: h,
-            borderRadius: 14,
-            background:
-              "linear-gradient(90deg, rgba(246,236,221,1) 0%, rgba(253,244,235,1) 50%, rgba(246,236,221,1) 100%)",
-            backgroundSize: "200% 100%",
-            animation: "billing-skeleton 1.2s ease-in-out infinite",
-            border: `1px solid ${TOKEN.border.DEFAULT}`,
-          }}
-        />
-      ))}
-      <style>{`
-        @keyframes billing-skeleton {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-      `}</style>
-    </div>
-  );
-}
 
-function ErrorBanner({
-  message,
-  onRetry,
-}: {
-  message: string;
-  onRetry: () => void;
-}) {
-  return (
-    <div
-      role="alert"
-      style={{
-        background: TOKEN.semantic.urgent.bg,
-        border: `1px solid ${TOKEN.semantic.urgent.border}`,
-        color: TOKEN.semantic.urgent.ink,
-        borderRadius: 12,
-        padding: 16,
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-      }}
-    >
-      <div style={{ fontWeight: 600, fontSize: 15 }}>שגיאה בטעינת המסמך</div>
-      <div style={{ fontSize: 14, lineHeight: 1.5 }}>{message}</div>
-      <button
-        type="button"
-        onClick={onRetry}
-        style={{
-          alignSelf: "flex-start",
-          padding: "8px 14px",
-          borderRadius: 10,
-          border: `1px solid ${TOKEN.semantic.urgent.ink}`,
-          background: TOKEN.semantic.urgent.ink,
-          color: TOKEN.ink.inverse,
-          fontSize: 14,
-          fontWeight: 600,
-          cursor: "pointer",
-        }}
-      >
-        נסה שוב
-      </button>
-    </div>
-  );
-}
 
-function NotFoundCard() {
-  return (
-    <div
-      style={{
-        background: TOKEN.surface.card,
-        border: `1px dashed ${TOKEN.border.hover}`,
-        borderRadius: 14,
-        padding: "32px 16px",
-        textAlign: "center",
-        color: TOKEN.ink.secondary,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 12,
-      }}
-    >
-      <div style={{ fontSize: 16, fontWeight: 600 }}>המסמך לא נמצא</div>
-      <div style={{ fontSize: 14 }}>
-        ייתכן שהקישור שגוי או שהמסמך הוסר.
-      </div>
-      <Link
-        href="/billing"
-        style={{
-          padding: "8px 16px",
-          borderRadius: 10,
-          border: `1px solid ${TOKEN.brand.mid}`,
-          background: TOKEN.action.primary.background,
-          color: TOKEN.ink.inverse,
-          fontSize: 14,
-          fontWeight: 600,
-          textDecoration: "none",
-        }}
-      >
-        חזרה לרשימת המסמכים
-      </Link>
-    </div>
-  );
-}
 
 function DocumentBody({
   doc,
@@ -1631,6 +1326,9 @@ function DocumentBody({
         stage={stage}
         missing={missing}
         quoteValidUntilEmpty={quoteValidUntilEmpty}
+        // Single owner of the bottom sticky region per state: while the lines
+        // editor is on screen it owns that region, so the action bar yields.
+        linesEditorActive={itemsFocus}
         primaryAction={stickyPrimaryAction}
         issueDisabled={submitForReviewDisabled}
         onOpenIssue={onOpenIssueDialog}
@@ -1865,130 +1563,28 @@ function DocumentBody({
   );
 }
 
-function CollapsiblePanel({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <details
-      style={{
-        border: `1px solid ${TOKEN.border.DEFAULT}`,
-        borderRadius: 14,
-        background: TOKEN.surface.card,
-        padding: "10px 14px",
-      }}
-    >
-      <summary
-        style={{
-          cursor: "pointer",
-          fontSize: 13,
-          fontWeight: 600,
-          color: TOKEN.ink.secondary,
-        }}
-      >
-        {title}
-      </summary>
-      <div style={{ display: "grid", gap: 12, marginTop: 12 }}>{children}</div>
-    </details>
-  );
-}
 
-function CustomerSummaryCard({ doc }: { doc: BillingDocumentDetail }) {
-  return (
-    <section
-      style={{
-        background: TOKEN.surface.card,
-        border: `1px solid ${TOKEN.border.DEFAULT}`,
-        borderRadius: 14,
-        padding: "10px 14px",
-        color: TOKEN.ink.secondary,
-        fontSize: 13,
-      }}
-      aria-label="לקוח במסמך"
-    >
-      <span style={{ color: TOKEN.ink.muted }}>לקוח: </span>
-      <span style={{ color: TOKEN.ink.primary, fontWeight: 600 }}>
-        {doc.customerNameSnapshot ?? "לא הוגדר"}
-      </span>
-    </section>
-  );
-}
 
-function ReviewSummaryCard({ doc }: { doc: BillingDocumentDetail }) {
-  const customer = doc.customerNameSnapshot ?? "לא הוגדר";
-  const total = formatMoney(doc.totalAmount, doc.currency);
-  const itemCount = doc.lines.length;
-  const isQuote = doc.documentType === "QUOTE";
 
-  return (
-    <section
-      style={{
-        background: TOKEN.surface.card,
-        border: `1px solid ${TOKEN.border.DEFAULT}`,
-        borderRadius: 14,
-        padding: 16,
-        display: "grid",
-        gap: 10,
-      }}
-      aria-label="בדיקת המסמך"
-    >
-      <div style={{ fontSize: 15, fontWeight: 600, color: TOKEN.ink.primary }}>
-        בדיקה קצרה
-      </div>
-      <div style={{ display: "grid", gap: 8 }}>
-        <ReviewSummaryRow label="לקוח" value={customer} />
-        <ReviewSummaryRow
-          label="פריטים"
-          value={itemCount === 1 ? "פריט אחד" : `${itemCount} פריטים`}
-        />
-        <ReviewSummaryRow label="סכום" value={total} emphasized />
-      </div>
-      <div style={{ fontSize: 12, color: TOKEN.ink.muted, lineHeight: 1.5 }}>
-        {isQuote
-          ? "זה מה שהלקוח יקבל בהצעה."
-          : doc.status === "ISSUED"
-          ? "זה המסמך הרשמי שמוכן לשיתוף."
-          : "לאחר ההפקה המסמך יקבל מספר רשמי ויינעל לעריכה."}
-      </div>
-    </section>
-  );
-}
 
-function ReviewSummaryRow({
-  label,
-  value,
-  emphasized = false,
-}: {
-  label: string;
-  value: string;
-  emphasized?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        gap: 12,
-        alignItems: "baseline",
-      }}
-    >
-      <span style={{ fontSize: 13, color: TOKEN.ink.muted }}>{label}</span>
-      <span
-        style={{
-          fontSize: emphasized ? 16 : 14,
-          color: TOKEN.ink.primary,
-          fontWeight: 600,
-          textAlign: "left",
-        }}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
+/**
+ * The "what's missing" entries are the primary navigation inside a draft, and
+ * as bare text buttons they measured 20px tall — below the 24x24 gating target
+ * (Accessibility Constitution A-7 / WCAG 2.2 §2.5.8). A centred inline-flex box
+ * with a min-height reaches 24 without introducing padding that would loosen
+ * the list's rhythm. Presentation only: same handler, same label, same colour.
+ */
+const MISSING_LINK_STYLE = {
+  border: "none",
+  background: "transparent",
+  padding: 0,
+  minHeight: 24,
+  display: "inline-flex",
+  alignItems: "center",
+  cursor: "pointer",
+  textDecoration: "underline",
+  fontWeight: 600,
+} as const;
 
 function StageAwarePanel({
   stage,
@@ -2082,15 +1678,7 @@ function StageAwarePanel({
                   <button
                     type="button"
                     onClick={() => scrollToId(m.actionId!)}
-                    style={{
-                      border: "none",
-                      background: "transparent",
-                      padding: 0,
-                      cursor: "pointer",
-                      textDecoration: "underline",
-                      color: TOKEN.ink.primary,
-                      fontWeight: 600,
-                    }}
+                    style={{ ...MISSING_LINK_STYLE, color: TOKEN.ink.primary }}
                   >
                     {m.label}
                   </button>
@@ -2104,15 +1692,7 @@ function StageAwarePanel({
                 <button
                   type="button"
                   onClick={() => scrollToId("billing-valid-until")}
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    padding: 0,
-                    cursor: "pointer",
-                    textDecoration: "underline",
-                    color: TOKEN.ink.primary,
-                    fontWeight: 600,
-                  }}
+                  style={{ ...MISSING_LINK_STYLE, color: TOKEN.ink.primary }}
                 >
                   מומלץ למלא &quot;בתוקף עד&quot; להצעה
                 </button>
@@ -2129,6 +1709,7 @@ function StickyActionBar({
   stage,
   missing,
   quoteValidUntilEmpty,
+  linesEditorActive,
   primaryAction,
   issueDisabled,
   onOpenIssue,
@@ -2139,6 +1720,8 @@ function StickyActionBar({
   stage: StageKey;
   missing: Array<{ key: string; label: string; actionId?: string }>;
   quoteValidUntilEmpty: boolean;
+  /** True while `DraftLinesSection` is rendered — it owns the bottom region then. */
+  linesEditorActive: boolean;
   primaryAction: StickyPrimaryAction;
   issueDisabled: boolean;
   onOpenIssue: () => void;
@@ -2146,21 +1729,6 @@ function StickyActionBar({
   convertBusy: boolean;
   onConvert: () => void;
 }) {
-  const [linesStickyVisible, setLinesStickyVisible] = useState(false);
-
-  useEffect(() => {
-    const el = document.getElementById("billing-lines-sticky-controls");
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => {
-        setLinesStickyVisible(!!entry?.isIntersecting);
-      },
-      { root: null, threshold: 0.2 }
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
-
   const show =
     stage !== "draft_missing" ||
     missing.length > 0 ||
@@ -2172,8 +1740,15 @@ function StickyActionBar({
     missing.find((m) => !!m.actionId)?.actionId ??
     (quoteValidUntilEmpty ? "billing-valid-until" : null);
 
-  // Avoid double-sticky on mobile: Draft lines already has its own sticky controls.
-  if (linesStickyVisible) return null;
+  // Exactly one owner of the bottom sticky region per state. This used to be
+  // discovered at runtime by an IntersectionObserver on
+  // `#billing-lines-sticky-controls`, but that observer was attached in a
+  // mount-once effect, and this bar renders *before* the stage branches — so
+  // the element did not exist yet, `getElementById` returned null, and the
+  // guard silently never armed. The stage already knows the answer, so it is
+  // passed down instead of sniffed from the DOM: no timing dependency, and
+  // ownership is decided per state rather than per scroll position.
+  if (linesEditorActive) return null;
 
   // Preferred conservative rule: if we're guiding the user to lines, don't add a competing sticky bar.
   if (firstMissingTarget === "billing-lines") return null;
@@ -4261,382 +3836,8 @@ function PaymentStatusBadge({ status }: { status: PaymentRequestStatus }) {
   );
 }
 
-function DetailsCard({
-  doc,
-  hideCustomer = false,
-}: {
-  doc: BillingDocumentDetail;
-  hideCustomer?: boolean;
-}) {
-  const customer = doc.customerNameSnapshot ?? "—";
-  const created = formatDateTime(doc.createdAt);
-  const issued = formatDateTime(doc.issuedAt);
-  const validUntil =
-    doc.documentType === "QUOTE" && doc.validUntil
-      ? formatDate(doc.validUntil)
-      : "";
 
-  return (
-    <section
-      style={{
-        background: TOKEN.surface.card,
-        border: `1px solid ${TOKEN.border.DEFAULT}`,
-        borderRadius: 14,
-        padding: 16,
-      }}
-    >
-      <h2
-        style={{
-          fontSize: 14,
-          fontWeight: 600,
-          color: TOKEN.ink.primary,
-          margin: "0 0 12px 0",
-          letterSpacing: "0.02em",
-        }}
-      >
-        פרטי המסמך ללקוח
-      </h2>
-      <dl style={{ display: "grid", gap: 10, margin: 0 }}>
-        {hideCustomer ? null : <DetailRow label="לקוח" value={customer} />}
-        <DetailRow
-          label="סוג מסמך"
-          value={getDocumentTypeLabel(doc.documentType)}
-        />
-        <DetailRow label="סטטוס" value={STATUS_LABEL[doc.status] ?? doc.status} />
-        {validUntil ? (
-          <DetailRow label="בתוקף עד" value={validUntil} />
-        ) : null}
-        {created ? <DetailRow label="נוצר" value={created} /> : null}
-        {issued ? <DetailRow label="הופק" value={issued} /> : null}
-      </dl>
-    </section>
-  );
-}
 
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "baseline",
-        gap: 12,
-        flexWrap: "wrap",
-      }}
-    >
-      <dt
-        style={{
-          fontSize: 13,
-          color: TOKEN.ink.muted,
-          margin: 0,
-          fontWeight: 500,
-        }}
-      >
-        {label}
-      </dt>
-      <dd
-        style={{
-          fontSize: 14,
-          color: TOKEN.ink.primary,
-          margin: 0,
-          fontWeight: 600,
-          textAlign: "left",
-        }}
-      >
-        {value}
-      </dd>
-    </div>
-  );
-}
 
-function TotalsCard({
-  doc,
-  showUnsavedLinesHint = false,
-}: {
-  doc: BillingDocumentDetail;
-  showUnsavedLinesHint?: boolean;
-}) {
-  const subtotal = formatMoney(doc.subtotalAmount, doc.currency);
-  const vat = formatMoney(doc.vatAmount, doc.currency);
-  const total = formatMoney(doc.totalAmount, doc.currency);
 
-  return (
-    <section
-      style={{
-        background: TOKEN.surface.card,
-        border: `1px solid ${TOKEN.border.DEFAULT}`,
-        borderRadius: 14,
-        padding: 16,
-      }}
-    >
-      <h2
-        style={{
-          fontSize: 14,
-          fontWeight: 600,
-          color: TOKEN.ink.primary,
-          margin: "0 0 12px 0",
-          letterSpacing: "0.02em",
-        }}
-      >
-        סיכום לתשלום
-      </h2>
-      {showUnsavedLinesHint ? (
-        <div
-          style={{
-            fontSize: 12,
-            color: TOKEN.ink.muted,
-            marginBottom: 10,
-            lineHeight: 1.5,
-            padding: "8px 10px",
-            background: TOKEN.surface.inset,
-            borderRadius: 8,
-            border: `1px solid ${TOKEN.border.DEFAULT}`,
-          }}
-        >
-          יש שינויים שלא נשמרו — הסכומים משקפים את הגרסה האחרונה שנשמרה
-        </div>
-      ) : null}
-      <div style={{ display: "grid", gap: 8 }}>
-        <TotalRow label="סכום ביניים" value={subtotal} />
-        <TotalRow label='מע"מ' value={vat} />
-        <div
-          style={{
-            height: 1,
-            background: TOKEN.border.DEFAULT,
-            margin: "4px 0",
-          }}
-        />
-        <TotalRow label='סה"כ לתשלום' value={total} emphasized />
-        <div
-          style={{
-            fontSize: 12,
-            color: TOKEN.ink.meta,
-            marginTop: 4,
-            textAlign: "left",
-          }}
-        >
-          סכומים ב־{doc.currency}
-        </div>
-      </div>
-    </section>
-  );
-}
 
-function TotalRow({
-  label,
-  value,
-  emphasized = false,
-}: {
-  label: string;
-  value: string;
-  emphasized?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "baseline",
-        gap: 12,
-      }}
-    >
-      <span
-        style={{
-          fontSize: emphasized ? 15 : 14,
-          color: emphasized ? TOKEN.ink.primary : TOKEN.ink.secondary,
-          fontWeight: emphasized ? 600 : 500,
-        }}
-      >
-        {label}
-      </span>
-      <span
-        style={{
-          fontSize: emphasized ? 18 : 14,
-          color: TOKEN.ink.primary,
-          fontWeight: emphasized ? 600 : 600,
-        }}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function LinesSection({
-  lines,
-  currency,
-}: {
-  lines: BillingDocumentLine[];
-  currency: string;
-}) {
-  return (
-    <section
-      style={{
-        background: TOKEN.surface.card,
-        border: `1px solid ${TOKEN.border.DEFAULT}`,
-        borderRadius: 14,
-        padding: 16,
-      }}
-    >
-      <h2
-        style={{
-          fontSize: 14,
-          fontWeight: 600,
-          color: TOKEN.ink.primary,
-          margin: "0 0 12px 0",
-          letterSpacing: "0.02em",
-        }}
-      >
-        פריטים במסמך ({lines.length})
-      </h2>
-      {lines.length === 0 ? (
-        <div
-          style={{
-            border: `1px dashed ${TOKEN.border.hover}`,
-            borderRadius: 10,
-            padding: 16,
-            textAlign: "center",
-            color: TOKEN.ink.muted,
-            fontSize: 14,
-          }}
-        >
-          אין פריטים במסמך
-        </div>
-      ) : (
-        <ul
-          style={{
-            listStyle: "none",
-            padding: 0,
-            margin: 0,
-            display: "grid",
-            gap: 8,
-          }}
-        >
-          {lines.map((line) => (
-            <LineCard key={line.id} line={line} currency={currency} />
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-function LineCard({
-  line,
-  currency,
-}: {
-  line: BillingDocumentLine;
-  currency: string;
-}) {
-  const qty = formatQuantity(line.quantity);
-  const unit = formatMoney(line.unitPrice, currency);
-  const subtotal = formatMoney(line.lineSubtotal, currency);
-  const vatLabel = formatPercent(line.vatRatePercent);
-  const vat = formatMoney(line.vatAmount, currency);
-  const total = formatMoney(line.lineTotal, currency);
-
-  return (
-    <li
-      style={{
-        background: TOKEN.surface.inset,
-        border: `1px solid ${TOKEN.border.DEFAULT}`,
-        borderRadius: 10,
-        padding: 12,
-        display: "grid",
-        gap: 8,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
-        }}
-      >
-        <div
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            minWidth: 0,
-            flex: 1,
-          }}
-        >
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: TOKEN.ink.secondary,
-              background: TOKEN.border.DEFAULT,
-              borderRadius: 6,
-              padding: "2px 8px",
-              flexShrink: 0,
-            }}
-          >
-            #{line.lineIndex}
-          </span>
-          <span
-            style={{
-              fontSize: 14,
-              fontWeight: 600,
-              color: TOKEN.ink.primary,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-            title={line.description}
-          >
-            {line.description}
-          </span>
-        </div>
-      </div>
-
-      <div
-        style={{
-          fontSize: 13,
-          color: TOKEN.ink.secondary,
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 6,
-        }}
-      >
-        <span>כמות: {qty}</span>
-        <span style={{ color: TOKEN.border.hover }}>·</span>
-        <span>מחיר ליחידה: {unit}</span>
-        <span style={{ color: TOKEN.border.hover }}>·</span>
-        <span>סכום: {subtotal}</span>
-      </div>
-
-      <div
-        style={{
-          fontSize: 13,
-          color: TOKEN.ink.secondary,
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 6,
-        }}
-      >
-        <span>מע&quot;מ {vatLabel}:</span>
-        <span style={{ fontWeight: 600, color: TOKEN.ink.primary }}>{vat}</span>
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          borderTop: `1px solid ${TOKEN.border.DEFAULT}`,
-          paddingTop: 8,
-        }}
-      >
-        <span style={{ fontSize: 13, color: TOKEN.ink.secondary, fontWeight: 500 }}>
-          סה&quot;כ פריט
-        </span>
-        <span style={{ fontSize: 15, fontWeight: 600, color: TOKEN.ink.primary }}>
-          {total}
-        </span>
-      </div>
-    </li>
-  );
-}
