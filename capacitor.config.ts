@@ -39,6 +39,9 @@ const config: CapacitorConfig = {
   android: {
     // Release builds must never allow cleartext (http) content.
     allowMixedContent: false,
+    // DS cream behind the WebView so the splash→content hand-off (and any
+    // remote-load gap) is brand cream, never a white flash.
+    backgroundColor: "#FEF8F2",
   },
   plugins: {
     // Edge-to-edge contract (Adaptive+Native Spec v1 §12–§13): Capacitor 8's
@@ -49,13 +52,23 @@ const config: CapacitorConfig = {
     SystemBars: {
       insetsHandling: "css",
     },
-    // Branded launch: DS v1 warm cream behind the splash, auto-hide disabled —
-    // the web shell hides it once the app is actually interactive
-    // (lib/native/native-shell.ts) so users never see a white flash between
-    // splash and remote content.
+    // Branded launch: DS v1 warm cream behind the splash.
+    //
+    // launchAutoHide MUST stay true for a REMOTE-WebView app. It was false in
+    // the first native-foundation cut, so the splash was held until the web
+    // shell called SplashScreen.hide(). W7 run 4 proved that traps the app: on
+    // a cold emulator the remote page had not painted within 5s, the activity
+    // never added a focused window, and Android raised
+    //   ANR in co.il.promaxgroup.dubiz — Input dispatching timed out
+    //     (Application does not have a focused window)
+    // with the splash still on screen (see the W7 evidence screenshots). A
+    // remote page must never be able to hold the launch window open: the
+    // system now always retires the splash, and native-shell.ts still calls
+    // hide() for the faster case.
     SplashScreen: {
       backgroundColor: "#FEF8F2",
-      launchAutoHide: false,
+      launchAutoHide: true,
+      launchShowDuration: 2000,
       showSpinner: false,
     },
     // Light product surfaces → dark status-bar content on both platforms.
