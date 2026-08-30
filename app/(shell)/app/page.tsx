@@ -1,4 +1,5 @@
 "use client";
+import { PageContainer } from "@/components/ui/page-container";
 
 import {
   useEffect,
@@ -100,7 +101,17 @@ function HomeAuthBootstrap() {
 function HomeLoadingState() {
   return (
     <main className="min-h-screen bg-[#f8f6f1] text-[#1f2937]">
-      <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-8 pt-4 sm:max-w-2xl sm:px-6 lg:max-w-4xl">
+      {/*
+        The skeleton uses the SAME width authority as the loaded Home
+        (content intent) so there is no width jump when the data lands.
+        It replaces a 448/672/896 Tailwind ladder — one of the three
+        competing ladders the audit found.
+      */}
+      <PageContainer
+        intent="content"
+        as="div"
+        className="flex min-h-screen w-full flex-col pb-8 pt-4"
+      >
         <div className="mb-6 h-16 animate-pulse rounded-2xl bg-white/80" />
 
         <div className="mb-4 h-48 animate-pulse rounded-3xl bg-white/80" />
@@ -116,7 +127,7 @@ function HomeLoadingState() {
 
         <div className="mt-4 h-20 animate-pulse rounded-3xl bg-white/80" />
         <div className="mt-4 h-20 animate-pulse rounded-3xl bg-white/80" />
-      </div>
+      </PageContainer>
     </main>
   );
 }
