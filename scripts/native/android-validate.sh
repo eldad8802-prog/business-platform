@@ -70,14 +70,28 @@ check "window state captured for inset review" $?
 shot "04-edge-to-edge"
 check "edge-to-edge screenshot captured" $?
 
-# ── Back navigation (predictive back — onBackPressed is NOT delivered at
-#     targetSdk 36; @capacitor/app must still receive it) ──────────────────
+# -- Back navigation (predictive back -- onBackPressed is NOT delivered at
+#    targetSdk 36; @capacitor/app must still receive it) -------------------
+#
+# Contract (lib/native/native-shell.ts): in-app history first, MINIMIZE at
+# the root -- never a silent kill, never a WebView trap. At the root the
+# correct outcome is therefore: the app leaves the foreground AND its task
+# survives.
+#
+# The previous version passed a hardcoded 0 (it could never fail) and
+# printed "app-still-foreground=yes" from a dumpsys grep that only proves
+# the task exists -- which it does after a minimize. It reported foreground
+# while the screenshot showed the launcher. Now it measures real focus and
+# asserts the real contract.
 adb shell input keyevent KEYCODE_BACK; sleep 3
-adb shell dumpsys activity activities 2>/dev/null | grep -q "$PKG"
-BACK_ALIVE=$?
 shot "05-after-back"
-check "back press handled in-app (app not killed at root)" 0 \
-  "app-still-foreground=$([ $BACK_ALIVE -eq 0 ] && echo yes || echo no-check-report)"
+FOCUS_AFTER=$(adb shell dumpsys window 2>/dev/null | grep -m1 mCurrentFocus || true)
+adb shell dumpsys activity activities 2>/dev/null | grep -q "$PKG"
+TASK_ALIVE=$?
+case "$FOCUS_AFTER" in *"$PKG"*) FG_AFTER=yes ;; *) FG_AFTER=no ;; esac
+# Root back must never kill the process: the task has to survive either way.
+check "back at root: app task survives (not killed)" $TASK_ALIVE \
+  "foreground-after-back=$FG_AFTER (root back minimizes by contract)"
 
 # ── Crash / error scan ────────────────────────────────────────────────────
 adb logcat -d > "$OUT/logcat.txt" 2>&1
