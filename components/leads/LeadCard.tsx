@@ -306,7 +306,12 @@ function LeadCardBody({
           <div className="crm-section__head">
             <h2 className="crm-section__title">מה הוא צריך</h2>
           </div>
-          <p className="crm-note__body" style={{ whiteSpace: "pre-wrap" }}>
+          {/* `overflowWrap: anywhere` so a pasted URL or an unbroken string
+              cannot push the 390px layout sideways. */}
+          <p
+            className="crm-note__body"
+            style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+          >
             {lead.intentSnapshot}
           </p>
         </div>

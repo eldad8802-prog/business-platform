@@ -60,6 +60,26 @@ export type LeadCardDTO = {
   };
 };
 
+/**
+ * Broadcast that a lead changed, so the master list can re-read.
+ *
+ * On desktop the Leads Inbox and the lead card are on screen TOGETHER, and the
+ * list deliberately does not re-fetch on selection (that is what keeps it from
+ * remounting on every navigation). Without this signal, completing a follow-up
+ * in the card would leave the row beside it still showing "מעקב באיחור" — two
+ * panes disagreeing about the same lead.
+ *
+ * A window event rather than shared state or a router refresh: the list is
+ * client-fetched, so `router.refresh()` would not touch it, and the two
+ * components have no common owner short of lifting the whole list into context.
+ */
+export const LEAD_CHANGED_EVENT = "dubiz:lead-changed";
+
+export function announceLeadChanged(leadId: number): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(LEAD_CHANGED_EVENT, { detail: { leadId } }));
+}
+
 export type CreateLeadInput = {
   name: string;
   phone?: string | null;
@@ -153,7 +173,9 @@ async function patchLead(
     body: JSON.stringify(body),
   });
   if (!res.ok) await parseError(res, fallback);
-  return (await res.json()) as LeadCardDTO;
+  const card = (await res.json()) as LeadCardDTO;
+  announceLeadChanged(leadId);
+  return card;
 }
 
 export function updateLeadStatus(

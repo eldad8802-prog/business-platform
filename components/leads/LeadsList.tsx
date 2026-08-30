@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   getLeads,
   createLead,
+  LEAD_CHANGED_EVENT,
   type LeadListRow,
   type LeadStatusFilter,
 } from "@/lib/api/leads";
@@ -120,6 +121,20 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
       void fetchList(query, filter).then(apply);
     }, 300);
     return () => window.clearTimeout(timer);
+  }, [query, filter, fetchList]);
+
+  // Re-read when the card beside us changes a lead. On desktop both panes are
+  // visible at once, so without this the row would keep showing a follow-up the
+  // owner has already handled. Silent by design: no skeleton, no scroll jump —
+  // the list simply stops disagreeing with the card.
+  useEffect(() => {
+    const onChanged = () => {
+      void fetchList(query, filter).then((res) => {
+        if (res && !("error" in res)) setLeads(res.leads);
+      });
+    };
+    window.addEventListener(LEAD_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(LEAD_CHANGED_EVENT, onChanged);
   }, [query, filter, fetchList]);
 
   const retry = () => {
