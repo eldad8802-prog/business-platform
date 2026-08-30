@@ -49,9 +49,17 @@ sleep 12
 shot "01-cold-launch"
 check "captured launch screenshot" $?
 
-# The activity must actually be resumed (a crash-on-start would still 'start').
-adb shell dumpsys activity activities 2>/dev/null | grep -q "$PKG"
-check "app activity is running (no crash on start)" $?
+# The activity must be RESUMED and FOCUSED, not merely present in the task
+# stack: a crash-on-start, a stuck splash or a focus-less window would all
+# still satisfy a "task exists" grep (W7 lesson — that is exactly how the
+# splash ANR passed an earlier battery).
+RESUMED=$(adb shell dumpsys activity activities 2>/dev/null | grep -m1 -E "mResumedActivity|topResumedActivity" || true)
+FOCUS=$(adb shell dumpsys window 2>/dev/null | grep -m1 mCurrentFocus || true)
+case "$RESUMED" in *"$PKG"*) RES_OK=0 ;; *) RES_OK=1 ;; esac
+case "$FOCUS" in *"$PKG"*) FOC_OK=0 ;; *) FOC_OK=1 ;; esac
+check "activity is RESUMED (not just present)" $RES_OK "$(echo "$RESUMED" | tr -s " ")"
+check "app window holds input FOCUS (no stuck splash / focus-less window)" $FOC_OK \
+  "$(echo "$FOCUS" | tr -s " ")"
 
 # ── Portrait / landscape / large-screen (Spec: orientation is NOT locked;
 #     >=600dp ignores locks on API 36 anyway) ─────────────────────────────
@@ -92,6 +100,28 @@ case "$FOCUS_AFTER" in *"$PKG"*) FG_AFTER=yes ;; *) FG_AFTER=no ;; esac
 # Root back must never kill the process: the task has to survive either way.
 check "back at root: app task survives (not killed)" $TASK_ALIVE \
   "foreground-after-back=$FG_AFTER (root back minimizes by contract)"
+
+# -- Offline fallback + recovery (W7 finding) ------------------------------
+# The branded error page must be a FALLBACK, never a destination: it must
+# appear when the origin is unreachable, and the app must come back once the
+# network returns -- without the fallback being left behind in history.
+adb shell svc wifi disable >/dev/null 2>&1 || true
+adb shell svc data disable >/dev/null 2>&1 || true
+adb shell am force-stop "$PKG"; sleep 2
+adb shell am start -n "$PKG/.MainActivity" >/dev/null 2>&1; sleep 12
+shot "06-offline-fallback"
+check "offline fallback rendered (branded, not a blank WebView)" $?
+adb shell svc wifi enable >/dev/null 2>&1 || true
+adb shell svc data enable >/dev/null 2>&1 || true
+sleep 8
+# Recovery: relaunch with the network back and require a resumed+focused app.
+adb shell am force-stop "$PKG"; sleep 2
+adb shell am start -n "$PKG/.MainActivity" >/dev/null 2>&1; sleep 15
+shot "07-after-recovery"
+FOCUS_REC=$(adb shell dumpsys window 2>/dev/null | grep -m1 mCurrentFocus || true)
+case "$FOCUS_REC" in *"$PKG"*) REC_OK=0 ;; *) REC_OK=1 ;; esac
+check "app recovers and holds focus after network returns" $REC_OK \
+  "$(echo "$FOCUS_REC" | tr -s " ")"
 
 # ── Crash / error scan ────────────────────────────────────────────────────
 adb logcat -d > "$OUT/logcat.txt" 2>&1

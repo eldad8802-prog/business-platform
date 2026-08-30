@@ -38,7 +38,33 @@
     <div class="wrap">
       <div class="brand">Dubiz</div>
       <div class="msg">אין כרגע חיבור למערכת. בדקו את החיבור לאינטרנט ונסו שוב.</div>
-      <button type="button" onclick="location.reload()">נסה שוב</button>
+      <button id="retry" type="button">נסה שוב</button>
     </div>
+    <script>
+      // Recovery + history hygiene (W7 finding).
+      //
+      // Capacitor shows this page via BridgeWebViewClient.onReceivedError ->
+      // webView.loadUrl(errorPath), and loadUrl PUSHES a history entry. Two
+      // consequences were proven on the emulator:
+      //   1. location.reload() only re-rendered THIS local file — the page
+      //      lives on the Capacitor local server, not on the app origin, so
+      //      the user could never get back to the app: a dead end.
+      //   2. once the app did load, this page stayed BEHIND it in history, so
+      //      an in-app back landed the user on "no connection".
+      //
+      // history.back() fixes both: it re-requests the failed app URL (the
+      // entry Capacitor pushed this page on top of), and it leaves this page
+      // FORWARD in history rather than behind the app. If the load fails
+      // again Capacitor simply pushes this page over the same entry, so the
+      // stack cannot grow. With no previous entry there is nothing to return
+      // to, and reload is the only honest fallback.
+      document.getElementById("retry").addEventListener("click", function () {
+        if (history.length > 1) {
+          history.back();
+        } else {
+          location.reload();
+        }
+      });
+    </script>
   </body>
 </html>

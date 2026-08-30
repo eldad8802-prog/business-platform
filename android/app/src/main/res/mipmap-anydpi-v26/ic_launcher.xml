@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Dubiz launcher icon. Foreground/monochrome art is generated from
+  public/dubiz-mark.png by scripts/native/generate-app-icons.mjs (mark kept
+  inside the 66% adaptive safe zone). The monochrome layer serves Android 13+
+  themed icons; without it the launcher falls back to a flat silhouette.
+-->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background"/>
     <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+    <monochrome android:drawable="@mipmap/ic_launcher_monochrome"/>
 </adaptive-icon>
