@@ -256,12 +256,12 @@ async function main() {
   const botUpd = await rtx(rt, bizA.id, (t) => t.businessBot.updateMany({ where: { businessId: bizB.id }, data: {} }));
   ok("BusinessBot: A cannot update B", botUpd.count === 0);
 
-  await owner.billingAuditEvent.create({ data: { businessId: bizB.id, eventType: "X", summary: "B only", occurredAt: new Date() } });
+  await owner.billingAuditEvent.create({ data: { businessId: bizB.id, eventType: "X", summary: "B only", eventHash: `${MARK}hb`, occurredAt: new Date() } });
   const auditA = await rtx(rt, bizA.id, (t) => t.billingAuditEvent.findMany({ where: { businessId: inIds } }));
   ok("BillingAuditEvent: B invisible to A", auditA.every((e) => e.businessId === bizA.id));
   let auditForge = false;
   try {
-    await rtx(rt, bizA.id, (t) => t.billingAuditEvent.create({ data: { businessId: bizB.id, eventType: "FORGED", summary: "x", occurredAt: new Date() } }));
+    await rtx(rt, bizA.id, (t) => t.billingAuditEvent.create({ data: { businessId: bizB.id, eventType: "FORGED", summary: "x", eventHash: `${MARK}hf`, occurredAt: new Date() } }));
   } catch { auditForge = true; }
   ok("BillingAuditEvent: A cannot forge an audit into B", auditForge);
 
