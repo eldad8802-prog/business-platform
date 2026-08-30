@@ -15,7 +15,7 @@ on:
         type: boolean
         default: false
   # push trigger disarmed post-apply (proven pattern): substrate applied+proven
-  # (run 33326948677, PASS=42 FAIL=0), transient secrets deleted;
+  # (runs 33326948677 PASS=42 and 33329946592 PASS=43 after the P2002 hardening), transient secrets deleted;
   # workflow_dispatch (incl. verify_only) remains.
 
 permissions:
