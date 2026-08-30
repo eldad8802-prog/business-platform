@@ -64,3 +64,25 @@ jobs:
 
       - name: P5-1 tenant context unit test (regression — must still pass)
         run: npx tsx lib/tenant/context.test.ts
+
+      # Ratified IMPL-2 boundary: the business-memory evidence adapter must not
+      # import Prisma model types. W4D's dbStep codemod leaked two unused
+      # `import type { Prisma }` lines past every branch check, because this
+      # deterministic verifier ran in NO workflow — it was caught only by
+      # post-merge operator verification. Wired here (the canonical blocking
+      # guard job) since it is a pure fs + in-memory scan: no DB, no network,
+      # no secrets. Local equivalent: npm run verify:business-memory-evidence-adapter
+      - name: IMPL-2 evidence-adapter boundary (no Prisma type leak)
+        run: npx tsx lib/business-memory/evidence/evidence-adapter.contract.test.ts
+
+      - name: IMPL-2 negative proof (a synthetic Prisma type import must be caught)
+        run: |
+          F="lib/business-memory/evidence/review-event.reader.ts"
+          cp "$F" "$F.bak"
+          printf 'import type { Prisma } from "@prisma/client";\n' | cat - "$F.bak" > "$F"
+          if npx tsx lib/business-memory/evidence/evidence-adapter.contract.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: verifier did not catch the leaked Prisma type import"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: verifier caught the leaked Prisma type import"
