@@ -225,7 +225,7 @@ export default function CreateInventoryItemPage() {
   }
 
   return (
-    <InventorySubPage title="מוצר חדש" backHref="/inventory/items" bottomNav="products">
+    <InventorySubPage intent="standard" title="מוצר חדש" backHref="/inventory/items" bottomNav="products">
       <div className="inv-fwrap">
         <label
           className="inv-imgpick"

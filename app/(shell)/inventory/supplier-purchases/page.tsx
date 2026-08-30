@@ -119,7 +119,7 @@ export default function SupplierPurchasesHubPage() {
   );
 
   return (
-    <InventorySubPage
+    <InventorySubPage intent="data"
       title="רכש מספקים"
       variant="hub"
       sub={!loading && !error ? sub : undefined}

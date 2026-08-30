@@ -474,7 +474,7 @@ export default function ProductDetailView({
   }
 
   return (
-    <InventorySubPage title="פרטי מוצר" backHref="/inventory/items" bottomNav="products" headerAction={editAction}>
+    <InventorySubPage intent="standard" title="פרטי מוצר" backHref="/inventory/items" bottomNav="products" headerAction={editAction}>
       {content}
     </InventorySubPage>
   );

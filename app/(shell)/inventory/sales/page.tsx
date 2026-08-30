@@ -40,7 +40,7 @@ export default function InventorySalesPage() {
   }, []);
 
   return (
-    <InventorySubPage
+    <InventorySubPage intent="data"
       title="מכירות"
       variant="hub"
       sub="דיווח מכירה ידנית, או טיפול במכירות POS שלא זוהו"

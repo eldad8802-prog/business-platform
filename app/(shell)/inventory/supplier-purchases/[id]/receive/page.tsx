@@ -124,7 +124,7 @@ export default function ReceivingPage() {
   }
 
   return (
-    <InventorySubPage
+    <InventorySubPage intent="standard"
       title="קבלת סחורה"
       backHref="/inventory/supplier-purchases"
       sub={

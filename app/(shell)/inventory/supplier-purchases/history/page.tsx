@@ -112,7 +112,7 @@ export default function SupplierHistoryPage() {
   }, [drafts]);
 
   return (
-    <InventorySubPage
+    <InventorySubPage intent="data"
       title="היסטוריית הזמנות"
       backHref="/inventory/supplier-purchases"
       backLabel="מרכז הזמנות ספק"

@@ -147,7 +147,7 @@ export default function InventoryAlertsPage() {
   );
 
   return (
-    <InventorySubPage
+    <InventorySubPage intent="data"
       title="התראות"
       variant="hub"
       sub={!loading && !error ? `${alerts.length} פתוחות · נוצרות אוטומטית מתנועות המלאי` : undefined}
