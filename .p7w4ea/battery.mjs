@@ -220,6 +220,10 @@ async function main() {
   ok("routing table is routing-ONLY (no business/financial columns)",
     JSON.stringify(routingCols) === JSON.stringify(allowedCols), routingCols.join(","));
 
+  const uniq = await owner.$queryRawUnsafe(
+    `SELECT count(*)::int AS c FROM pg_indexes WHERE tablename='PaymentTransaction' AND indexname='PaymentTransaction_provider_providerTransactionId_key'`);
+  ok("settlement idempotency is a DB constraint, not a read-then-write check", Number(uniq[0].c) === 1);
+
   // ── Phase 5: env + clients ──────────────────────────────────────────────
   let RUNTIME_URL = RUNTIME_URL_IN;
   if (TARGET === "pg") {
@@ -358,6 +362,7 @@ async function main() {
   const feCount = (biz) => owner.financialEvent.count({ where: { businessId: biz, sourceType: "PAYMENT" } });
   const txCount = (reqId) => owner.paymentTransaction.count({ where: { paymentRequestId: reqId } });
 
+  const bBaseline = await feCount(bizB.id);
   for (const provider of ["CARDCOM", "PAYPAL"]) {
     const rA = await mkReq(bizA.id, provider, "ok-a");
     const before = await feCount(bizA.id);
@@ -367,11 +372,13 @@ async function main() {
     });
     const after = await feCount(bizA.id);
     const bAfter = await feCount(bizB.id);
+    // B already holds ONE seeded fixture event from the direct-RLS phase, so
+    // the leak test is a DELTA: the malicious payload must add nothing to B.
     ok(`${provider}: verified PAID settles under the STORED tenant (payload businessId ignored)`,
       res.ok === true && res.paymentRequestStatus === "PAID" &&
       (await txCount(rA.id)) === 1 && after === before + 1,
       `ok=${res.ok} status=${res.paymentRequestStatus} reason=${res.reason}`);
-    ok(`${provider}: the malicious payload tenant produced nothing under B`, bAfter === 0, `B fe=${bAfter}`);
+    ok(`${provider}: the malicious payload tenant produced nothing under B`, bAfter === bBaseline, `B fe=${bAfter} baseline=${bBaseline}`);
 
     // duplicate serial
     const dup = await call(provider, { eventId: `${MARK}${provider}-1`, providerRequestId: rA.providerRequestId, outcome: "PAID" });

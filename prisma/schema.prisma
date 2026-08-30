@@ -2765,6 +2765,13 @@ model PaymentTransaction {
 
   paymentRequest PaymentRequest @relation(fields: [paymentRequestId], references: [id], onDelete: Cascade)
 
+  // D2/P7-W4E-A: DB-level settlement idempotency. The webhook previously
+  // guarded duplicates with a read-then-write check, which the W4E-A battery
+  // broke under concurrent provider callbacks (two transactions for one
+  // request). A provider's transaction id is unique per provider by
+  // definition, so the constraint belongs in the database. NULL is distinct in
+  // Postgres, so unverified rows without an id are unaffected.
+  @@unique([provider, providerTransactionId])
   @@index([paymentRequestId])
   @@index([provider, providerTransactionId])
 }

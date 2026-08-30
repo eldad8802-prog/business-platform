@@ -117,3 +117,39 @@ CREATE POLICY p7w4ea_tenant ON "PaymentTransaction"
 -- businessId, is written before any tenant is known, and already carries
 -- DB-level idempotency on (provider, providerEventId).
 -- ============================================================
+
+-- ============================================================
+-- 4. DB-level settlement idempotency on PaymentTransaction.
+--
+-- The webhook guarded duplicate settlements with a read-then-write check
+-- (findTransactionByProviderTransactionId, then create). The W4E-A battery
+-- broke that under concurrent provider callbacks: two transactions for one
+-- payment request, and a second FinancialEvent behind it. A provider's
+-- transaction id is unique per provider by definition, so the guarantee
+-- belongs in the database, not in the service.
+--
+-- NULL is distinct in Postgres, so rows with no provider transaction id
+-- (unverified / signal-only providers) are unaffected.
+--
+-- Legacy safety: if duplicates already exist the index cannot be created, and
+-- guessing which row to keep would be a data decision this migration has no
+-- authority to make — so it fails LOUDLY with an actionable message instead.
+-- ============================================================
+
+DO $$
+DECLARE dup_count integer;
+BEGIN
+  SELECT count(*) INTO dup_count FROM (
+    SELECT "provider", "providerTransactionId"
+      FROM "PaymentTransaction"
+     WHERE "providerTransactionId" IS NOT NULL
+     GROUP BY 1, 2
+    HAVING count(*) > 1
+  ) d;
+  IF dup_count > 0 THEN
+    RAISE EXCEPTION 'W4E-A: % duplicate (provider, providerTransactionId) group(s) already exist in PaymentTransaction. Reconcile them deliberately before applying settlement idempotency — this migration will not choose a winner.', dup_count;
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS "PaymentTransaction_provider_providerTransactionId_key"
+  ON "PaymentTransaction"("provider", "providerTransactionId");

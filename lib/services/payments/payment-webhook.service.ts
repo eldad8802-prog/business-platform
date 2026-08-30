@@ -371,16 +371,44 @@ export async function processPaymentWebhook(
       }
     }
 
-    // record the verified transaction.
-    const transaction = await deps.store.createTransaction({
-      paymentRequestId: request.id,
-      provider: input.provider,
-      providerTransactionId: authoritativeTransactionId,
-      amount: parsed.amount ?? request.amount,
-      currency: parsed.currency ?? request.currency,
-      status: outcomeToTransactionStatus(authoritativeOutcome),
-      rawPayload: input.parsedBody ?? input.rawBody,
-    });
+    // Record the verified transaction. The read-then-write duplicate check
+    // above narrows the common case, but it is a RACE: two concurrent
+    // callbacks for one settlement both read "no transaction" and both create
+    // one. W4E-A moved the real guarantee into the database — a unique
+    // (provider, providerTransactionId) — so the loser of the race lands here
+    // as a constraint violation and is treated as exactly what it is: a
+    // duplicate, with no second transaction and no second financial effect.
+    let transaction;
+    try {
+      transaction = await deps.store.createTransaction({
+        paymentRequestId: request.id,
+        provider: input.provider,
+        providerTransactionId: authoritativeTransactionId,
+        amount: parsed.amount ?? request.amount,
+        currency: parsed.currency ?? request.currency,
+        status: outcomeToTransactionStatus(authoritativeOutcome),
+        rawPayload: input.parsedBody ?? input.rawBody,
+      });
+    } catch (error) {
+      const isDuplicate =
+        typeof error === "object" && error !== null &&
+        (error as { code?: string }).code === "P2002";
+      if (!isDuplicate) throw error;
+      await deps.store.updateWebhookEvent(event.id, {
+        processingStatus: "PROCESSED",
+        processedAt: now(),
+      });
+      return {
+        ok: true,
+        eventId: event.id,
+        processingStatus: "PROCESSED",
+        duplicate: true,
+        paymentRequestId: request.id,
+        paymentRequestStatus: request.status,
+        reason: "duplicate_transaction",
+        verified,
+      };
+    }
 
     // move the request — idempotently, without overwriting a terminal state.
     if (!isTerminalRequestStatus(request.status)) {
