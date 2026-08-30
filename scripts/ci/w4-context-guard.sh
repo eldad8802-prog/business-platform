@@ -272,11 +272,76 @@ run_guard() {
       echo "CI-W4E-10 FAIL: routing businessId is not checked against the stored PaymentRequest"; fail=1; }
   fi
 
+  # ── CI-W4EB1-1: the ITA callback never treats a cookie as tenant authority ─
+  # The cookie may still be READ (it is cross-checked against the signed state),
+  # but it must never be what the resolved context is built from.
+  W4EB_CB="lib/services/billing/authority/billing-authority-oauth-callback.service.ts"
+  if [ -f "$W4EB_CB" ]; then
+    if grep -q "businessId: parsedCookies.businessId," "$W4EB_CB"; then
+      echo "CI-W4EB1-1 FAIL: the resolved context is built from the cookie businessId"; fail=1
+    fi
+    grep -q "businessId: verified.state.businessId" "$W4EB_CB" || {
+      echo "CI-W4EB1-1 FAIL: the context no longer resolves businessId from the verified state"; fail=1; }
+    grep -q "actorUserId: verified.state.userId" "$W4EB_CB" || {
+      echo "CI-W4EB1-1 FAIL: the acting user is no longer taken from the verified state"; fail=1; }
+  fi
+
+  # ── CI-W4EB1-2: the callback verifies the state; no unsigned acceptance ────
+  if [ -f "$W4EB_CB" ]; then
+    grep -q "verifySignedAuthorityState" "$W4EB_CB" || {
+      echo "CI-W4EB1-2 FAIL: the callback no longer verifies the signed state"; fail=1; }
+  fi
+
+  # ── CI-W4EB1-3: the signed-state service keeps every binding + check ───────
+  W4EB_ST="lib/services/billing/authority/billing-authority-signed-state.service.ts"
+  if [ -f "$W4EB_ST" ]; then
+    for needle in "createHmac" "timingSafeEqual" "purpose" "environment" "nonce" "exp"; do
+      grep -q "$needle" "$W4EB_ST" || {
+        echo "CI-W4EB1-3 FAIL: signed state lost '$needle'"; fail=1; }
+    done
+    grep -q 'reason: "wrong_purpose"' "$W4EB_ST" || {
+      echo "CI-W4EB1-3 FAIL: purpose validation removed"; fail=1; }
+    grep -q 'reason: "wrong_environment"' "$W4EB_ST" || {
+      echo "CI-W4EB1-3 FAIL: environment validation removed"; fail=1; }
+    grep -q 'reason: "expired"' "$W4EB_ST" || {
+      echo "CI-W4EB1-3 FAIL: expiry enforcement removed"; fail=1; }
+    grep -q 'reason: "wrong_version"' "$W4EB_ST" || {
+      echo "CI-W4EB1-3 FAIL: version validation removed"; fail=1; }
+  fi
+
+  # ── CI-W4EB1-4: Gmail and Authority envelopes stay cryptographically apart ─
+  # Different derivation labels are what makes one envelope unusable as the
+  # other. Identical labels would silently collapse that separation.
+  W4EB_GM="lib/services/integrations/gmail/signed-state.service.ts"
+  if [ -f "$W4EB_ST" ] && [ -f "$W4EB_GM" ]; then
+    A_LABEL="$(grep 'KEY_DERIVATION_LABEL =' "$W4EB_ST" | head -1)"
+    G_LABEL="$(grep 'KEY_DERIVATION_LABEL =' "$W4EB_GM" | head -1)"
+    if [ "$A_LABEL" = "$G_LABEL" ]; then
+      echo "CI-W4EB1-4 FAIL: Gmail and Authority share a key-derivation label"; fail=1
+    fi
+    A_PURPOSE="$(grep '^const PURPOSE =' "$W4EB_ST" | head -1)"
+    G_PURPOSE="$(grep '^const PURPOSE =' "$W4EB_GM" | head -1)"
+    if [ "$A_PURPOSE" = "$G_PURPOSE" ]; then
+      echo "CI-W4EB1-4 FAIL: Gmail and Authority share a state purpose"; fail=1
+    fi
+  fi
+
+  # ── CI-W4EB1-5: authority connection writes stay on a tenant transaction ───
+  W4EB_CONN="lib/services/billing/authority/billing-authority-connection.service.ts"
+  if [ -f "$W4EB_CONN" ]; then
+    if grep -q 'prisma\.\$transaction' "$W4EB_CONN"; then
+      echo "CI-W4EB1-5 FAIL: an authority connection transition reverted to a global transaction"; fail=1
+    fi
+    grep -q "billingTenantTx" "$W4EB_CONN" || {
+      echo "CI-W4EB1-5 FAIL: authority connection transitions no longer use the tenant transaction"; fail=1; }
+  fi
+
+
   if [ "$fail" -ne 0 ]; then
     echo "W4-CONTEXT-GUARD FAILED"
     return 1
   fi
-  echo "W4-CONTEXT-GUARD OK — CI-W4-1..5 + CI-W4B-1..3 + CI-W4C-1..3 + CI-W4D-1..5 + CI-W4E-1..10 clean."
+  echo "W4-CONTEXT-GUARD OK — CI-W4-1..5 + CI-W4B-1..3 + CI-W4C-1..3 + CI-W4D-1..5 + CI-W4E-1..10 + CI-W4EB1-1..5 clean."
 }
 
 self_test() {
@@ -352,6 +417,30 @@ await runWithTenantContext({ businessId: e.businessId }, () => withTenantTransac
 TS
     cat > "$T/lib/services/payments/payment-request.service.ts" <<'TS'
 const linkResult = await adapter.createPaymentLink({});
+TS
+    mkdir -p "$T/lib/services/billing/authority"
+    cat > "$T/lib/services/billing/authority/billing-authority-oauth-callback.service.ts" <<'TS'
+verifySignedAuthorityState;
+businessId: verified.state.businessId,
+actorUserId: verified.state.userId,
+TS
+    cat > "$T/lib/services/billing/authority/billing-authority-signed-state.service.ts" <<'TS'
+import { createHmac, timingSafeEqual } from "node:crypto";
+const PURPOSE = "authority-oauth-state";
+const KEY_DERIVATION_LABEL = "dubiz-authority-oauth-state-v1";
+nonce; exp; environment;
+reason: "wrong_purpose"
+reason: "wrong_environment"
+reason: "expired"
+reason: "wrong_version"
+TS
+    cat > "$T/lib/services/integrations/gmail/signed-state.service.ts" <<'TS'
+const PURPOSE = "gmail-oauth-state";
+const KEY_DERIVATION_LABEL = "dubiz-gmail-oauth-state-v1";
+TS
+    cat > "$T/lib/services/billing/authority/billing-authority-connection.service.ts" <<'TS'
+import { billingTenantTx } from "../billing-tenant-tx";
+return billingTenantTx(input.businessId, (tx) => markAuthorityConnectedTx(tx, input));
 TS
     cat > "$T/prisma/migrations/20260830120000_d2_p7_w4ea_payments_tenant_rls/migration.sql" <<'SQL'
 CREATE TABLE IF NOT EXISTS "PaymentProviderRouting" (
@@ -528,6 +617,47 @@ const route = await bootstrapStep((db) => db.paymentProviderRouting.findUnique({
 const row = await dbStep((db) => db.paymentRequest.findFirst({ where: { id: route.paymentRequestId } }));
 TS
   check "CI-W4E-10 catches routing businessId not verified against the parent" FAIL "$T27"
+
+  local T28="$BASE/v28"; make_clean_tree "$T28"
+  cat > "$T28/lib/services/billing/authority/billing-authority-oauth-callback.service.ts" <<'TS'
+verifySignedAuthorityState;
+actorUserId: verified.state.userId,
+      businessId: parsedCookies.businessId,
+TS
+  check "CI-W4EB1-1 catches a cookie-built tenant context" FAIL "$T28"
+
+  local T29="$BASE/v29"; make_clean_tree "$T29"
+  cat > "$T29/lib/services/billing/authority/billing-authority-oauth-callback.service.ts" <<'TS'
+businessId: verified.state.businessId,
+actorUserId: verified.state.userId,
+TS
+  check "CI-W4EB1-2 catches a callback that stops verifying the state" FAIL "$T29"
+
+  local T30="$BASE/v30"; make_clean_tree "$T30"
+  cat > "$T30/lib/services/billing/authority/billing-authority-signed-state.service.ts" <<'TS'
+import { createHmac, timingSafeEqual } from "node:crypto";
+const PURPOSE = "authority-oauth-state";
+const KEY_DERIVATION_LABEL = "dubiz-authority-oauth-state-v1";
+nonce; exp; environment;
+reason: "wrong_purpose"
+reason: "expired"
+reason: "wrong_version"
+TS
+  check "CI-W4EB1-3 catches removed environment validation" FAIL "$T30"
+
+  local T31="$BASE/v31"; make_clean_tree "$T31"
+  cat > "$T31/lib/services/integrations/gmail/signed-state.service.ts" <<'TS'
+const PURPOSE = "authority-oauth-state";
+const KEY_DERIVATION_LABEL = "dubiz-authority-oauth-state-v1";
+TS
+  check "CI-W4EB1-4 catches Gmail/Authority envelope collapse" FAIL "$T31"
+
+  local T32="$BASE/v32"; make_clean_tree "$T32"
+  cat > "$T32/lib/services/billing/authority/billing-authority-connection.service.ts" <<'TS'
+import { billingTenantTx } from "../billing-tenant-tx";
+return prisma.$transaction((tx) => markAuthorityConnectedTx(tx, input));
+TS
+  check "CI-W4EB1-5 catches an authority write reverting to a global transaction" FAIL "$T32"
 
   echo "self-test: ok=$ok bad=$bad"
   [ "$bad" -eq 0 ]

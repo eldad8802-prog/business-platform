@@ -20,6 +20,8 @@ import {
 } from "./billing-authority-signed-state.service";
 import { createSignedGmailState, verifySignedGmailState } from "@/lib/services/integrations/gmail/signed-state.service";
 import { validateAuthorityOAuthCallbackContext } from "./billing-authority-oauth-callback.service";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 let passed = 0;
 let failed = 0;
@@ -136,6 +138,48 @@ ok("a second tenant's signed state resolves that tenant", bCtx.ok && bCtx.contex
 
 const crossed = ctx({ businessId: "11" }, bState);
 ok("A's cookie with B's signed state is refused", !crossed.ok, JSON.stringify(crossed));
+console.log("\nIdentity forgery on the remaining signed fields");
+for (const [field, value] of [
+  ["iat", 0],
+  ["exp", 4102444800],
+] as const) {
+  const t = { ...p, [field]: value };
+  const r = verifySignedAuthorityState(reseal(t, sig));
+  ok(`tampered ${field} rejected (cannot backdate or extend the window)`, !r.ok && r.reason === "bad_signature");
+}
+ok(
+  "malformed SIGNATURE rejected",
+  (() => {
+    const r = verifySignedAuthorityState(state.split(".")[0] + ".AAAA");
+    return !r.ok && (r.reason === "bad_signature" || r.reason === "malformed");
+  })()
+);
+
+console.log("\nEnvironment binding is per-connection identity");
+const sandboxState = createSignedAuthorityState({ businessId: 11, userId: 22, environment: "SANDBOX" });
+const prodState = createSignedAuthorityState({ businessId: 11, userId: 22, environment: "PRODUCTION" });
+ok("SANDBOX state + PRODUCTION cookie refused (cannot install as PRODUCTION)", !ctx({ environment: "PRODUCTION" }, sandboxState).ok);
+ok("PRODUCTION state + SANDBOX cookie refused", !ctx({ environment: "SANDBOX" }, prodState).ok);
+const prodOk = ctx({ environment: "PRODUCTION" }, prodState);
+ok("a PRODUCTION state resolves the PRODUCTION environment", prodOk.ok && prodOk.context.environment === "PRODUCTION");
+
+console.log("\nActor identity comes from the state, not the actor cookie");
+ok("the verified actor is carried on the context", good.ok && good.context.actorUserId === 22, good.ok ? String(good.context.actorUserId) : "n/a");
+const actorSpoof = ctx({ actorUserId: "999" }, state);
+ok("actor cookie spoof cannot change who authorized the connection", actorSpoof.ok && actorSpoof.context.actorUserId === 22, actorSpoof.ok ? String(actorSpoof.context.actorUserId) : "rejected");
+
+console.log("\nQuery/body cannot nominate a tenant");
+// The validator only ever reads query.code and query.state, so a businessId
+// supplied in the query or body has no reachable path to the tenant decision.
+// Asserted structurally against the callback source so a future edit that
+// reintroduces such a path fails here.
+const cbSrc = readFileSync(
+  join(__dirname, "billing-authority-oauth-callback.service.ts"),
+  "utf8"
+);
+ok("callback source never reads a businessId out of query or body", !/(query|body)[a-zA-Z.]*\.businessId/.test(cbSrc));
+ok("callback source resolves its tenant from the verified state", /verified\.state\.businessId/.test(cbSrc));
+
 
 console.log(`\nTax Authority signed-state invariants\n`);
 console.log(`${passed} passed, ${failed} failed`);

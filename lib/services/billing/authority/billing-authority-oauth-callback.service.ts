@@ -319,6 +319,13 @@ export type AuthorityTokenExchangeResponse = {
 export type ParsedAuthorityOAuthCallbackContext = {
   businessId: number;
   environment: BillingAuthorityEnvironment;
+  /**
+   * D2/P7-W4E-B-1: the acting user as bound by the SIGNED state. It is written
+   * to oauthAuthorizedByUserId, i.e. it is an identity claim about who
+   * authorized an ITA connection — so like businessId it must come from the
+   * signed envelope, not from the caller's own actor cookie.
+   */
+  actorUserId: number;
   queryState: string;
   cookieState: string;
   code: string;
@@ -426,8 +433,9 @@ export function validateAuthorityOAuthCallbackContext(input: {
       ok: false,
       errorCode: AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.ITA_ERROR,
       errorMessage: description,
-      businessId: parsedCookies.businessId ?? undefined,
-      environment: parsedCookies.environment ?? undefined,
+      // D2/P7-W4E-B-1: no verified state yet, so there is no trusted tenant to
+      // attribute this failure to. Naming the cookie's business here would let a
+      // forged cookie write a failure transition onto another tenant's connection.
     };
   }
 
@@ -440,8 +448,9 @@ export function validateAuthorityOAuthCallbackContext(input: {
       ok: false,
       errorCode: AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.MISSING_COOKIE,
       errorMessage: "OAuth callback cookies are missing or invalid",
-      businessId: parsedCookies.businessId ?? undefined,
-      environment: parsedCookies.environment ?? undefined,
+      // D2/P7-W4E-B-1: no verified state yet, so there is no trusted tenant to
+      // attribute this failure to. Naming the cookie's business here would let a
+      // forged cookie write a failure transition onto another tenant's connection.
     };
   }
 
@@ -457,8 +466,9 @@ export function validateAuthorityOAuthCallbackContext(input: {
       errorMessage: code
         ? "OAuth callback state is missing"
         : "OAuth authorization code is missing",
-      businessId: parsedCookies.businessId,
-      environment: parsedCookies.environment,
+      // D2/P7-W4E-B-1: no verified state yet, so there is no trusted tenant to
+      // attribute this failure to. Naming the cookie's business here would let a
+      // forged cookie write a failure transition onto another tenant's connection.
     };
   }
 
@@ -467,8 +477,9 @@ export function validateAuthorityOAuthCallbackContext(input: {
       ok: false,
       errorCode: AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.STATE_MISMATCH,
       errorMessage: "OAuth callback state does not match",
-      businessId: parsedCookies.businessId,
-      environment: parsedCookies.environment,
+      // D2/P7-W4E-B-1: no verified state yet, so there is no trusted tenant to
+      // attribute this failure to. Naming the cookie's business here would let a
+      // forged cookie write a failure transition onto another tenant's connection.
     };
   }
 
@@ -511,6 +522,7 @@ export function validateAuthorityOAuthCallbackContext(input: {
       businessId: verified.state.businessId,
       environment: verified.state
         .environment as unknown as BillingAuthorityEnvironment,
+      actorUserId: verified.state.userId,
       cookieState: parsedCookies.cookieState,
       queryState,
       code,
@@ -891,7 +903,7 @@ export async function handleAuthorityOAuthCallback(
       connected = await markConnected({
         businessId: context.businessId,
         environment: context.environment,
-        actorUserId: input.actorUserId,
+        actorUserId: context.actorUserId,
         tokens: encryptedTokens,
         accessTokenExpiresAt: resolveTokenExpiryDate(tokenResponse.expires_in),
         refreshTokenExpiresAt: null,
