@@ -8,6 +8,7 @@ import {
 import { getCollectionWorkspace } from "@/lib/services/payments/collection-workspace.service";
 import { toCollectionWorkspaceApi } from "@/lib/services/payments/payment-api.serializer";
 import { paymentRequestDeps } from "@/lib/services/payments/payments.deps";
+import { runWithTenantContext } from "@/lib/tenant/context";
 
 export const runtime = "nodejs";
 
@@ -21,10 +22,14 @@ export async function GET(req: NextRequest) {
     const user = await getCurrentUser(req);
     const actor = authorizePaymentAction(user, PAYMENT_ACTIONS.VIEW_TRANSACTIONS);
 
-    const result = await getCollectionWorkspace(paymentRequestDeps().store, {
-      businessId: actor.businessId,
-      now: new Date(),
-    });
+    const result = await await runWithTenantContext(
+      { businessId: actor.businessId },
+      () =>
+        getCollectionWorkspace(paymentRequestDeps().store, {
+          businessId: actor.businessId,
+          now: new Date(),
+        })
+    );
 
     return NextResponse.json(toCollectionWorkspaceApi(result), { status: 200 });
   } catch (error) {

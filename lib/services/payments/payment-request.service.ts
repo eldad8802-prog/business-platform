@@ -194,6 +194,21 @@ export async function createPaymentRequest(
     expiresAt: linkResult.expiresAt ?? input.expiresAt ?? null,
   });
 
+  // 5b. D2/P7-W4E — record the provider->tenant routing entry. This is what
+  // later lets a session-less provider callback discover which business an
+  // event belongs to: PaymentRequest is FORCE-RLS'd, so without this the
+  // callback's pre-context lookup returns nothing and the webhook is
+  // fail-closed. Written HERE, inside the owner-authenticated flow, so the
+  // tenant on the routing row is server-derived and never payload-supplied.
+  if (linkResult.providerRequestId) {
+    await deps.store.upsertProviderRouting({
+      provider,
+      providerRequestId: linkResult.providerRequestId,
+      paymentRequestId: created.id,
+      businessId: input.businessId,
+    });
+  }
+
   void now; // reserved for future expiry defaults
 
   // 6. return.

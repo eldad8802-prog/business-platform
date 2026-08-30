@@ -26,6 +26,7 @@ import {
   type PaymentTransactionStatus,
   type PaymentWebhookProcessingStatus,
 } from "./payments.types";
+import { runWithTenantContext } from "@/lib/tenant/context";
 import type {
   ParsedPaymentOutcome,
   PaymentProviderAdapter,
@@ -226,6 +227,8 @@ export async function processPaymentWebhook(
   if (!parsed.providerRequestId) {
     return fail("UNMATCHED", "missing_provider_request_id");
   }
+  // Hoisted: the null-check above does not narrow inside the tenant closure.
+  const providerRequestId = parsed.providerRequestId;
   const request = await deps.store.findPaymentRequestByProviderRequestId(
     input.provider,
     parsed.providerRequestId
@@ -233,6 +236,16 @@ export async function processPaymentWebhook(
   if (!request) {
     return fail("UNMATCHED", "no_matching_payment_request");
   }
+
+  // D2/P7-W4E — TENANT BOUNDARY. Everything above is pre-context provider
+  // bookkeeping on non-RLS surfaces (the webhook-event ledger and the routing
+  // index). The tenant has now been derived from the STORED PaymentRequest —
+  // never from the payload — so the entire remainder runs inside that
+  // business's context, which is what lets the FORCE-RLS'd payment tables be
+  // read and written at all. The provider verification call below stays OUTSIDE
+  // any transaction: a context is ALS, not a tx, and each DB step opens its own
+  // short transaction.
+  return runWithTenantContext({ businessId: request.businessId }, async () => {
 
   // 5. AUTHORITY. The webhook is only a signal. A PaymentRequest may move to
   // PAID (and a PaymentTransaction may be recorded) ONLY from an outcome the
@@ -303,7 +316,7 @@ export async function processPaymentWebhook(
   let status: ProviderPaymentStatus;
   try {
     status = await adapter.getPaymentStatus({
-      providerRequestId: parsed.providerRequestId,
+      providerRequestId,
       merchantId: connection.merchantId,
       credential,
     });
@@ -358,16 +371,58 @@ export async function processPaymentWebhook(
       }
     }
 
-    // record the verified transaction.
-    const transaction = await deps.store.createTransaction({
-      paymentRequestId: request.id,
-      provider: input.provider,
-      providerTransactionId: authoritativeTransactionId,
-      amount: parsed.amount ?? request.amount,
-      currency: parsed.currency ?? request.currency,
-      status: outcomeToTransactionStatus(authoritativeOutcome),
-      rawPayload: input.parsedBody ?? input.rawBody,
-    });
+    // Record the verified transaction. The read-then-write duplicate check
+    // above narrows the common case, but it is a RACE: two concurrent
+    // callbacks for one settlement both read "no transaction" and both create
+    // one. W4E-A moved the real guarantee into the database — a unique
+    // (provider, providerTransactionId) — so the loser of the race lands here
+    // as a constraint violation and is treated as exactly what it is: a
+    // duplicate, with no second transaction and no second financial effect.
+    let transaction;
+    try {
+      transaction = await deps.store.createTransaction({
+        paymentRequestId: request.id,
+        provider: input.provider,
+        providerTransactionId: authoritativeTransactionId,
+        amount: parsed.amount ?? request.amount,
+        currency: parsed.currency ?? request.currency,
+        status: outcomeToTransactionStatus(authoritativeOutcome),
+        rawPayload: input.parsedBody ?? input.rawBody,
+      });
+    } catch (error) {
+      // P2002 alone is not enough: swallowing ANY unique violation here would
+      // hide an unrelated constraint failure as a benign duplicate. Prisma does
+      // not reliably populate meta.target for this index ("Unique constraint
+      // failed on the (not available)"), so the discriminator is EVIDENCE
+      // rather than error metadata — the same shape ensurePaymentPostedEvent
+      // already uses: re-read, and treat it as a duplicate only if the winning
+      // transaction actually exists. Anything else surfaces.
+      const isUniqueViolation =
+        typeof error === "object" && error !== null &&
+        (error as { code?: string }).code === "P2002";
+      if (!isUniqueViolation) throw error;
+      const winner = authoritativeTransactionId
+        ? await deps.store.findTransactionByProviderTransactionId(
+            input.provider,
+            authoritativeTransactionId
+          )
+        : null;
+      if (!winner) throw error;
+      await deps.store.updateWebhookEvent(event.id, {
+        processingStatus: "PROCESSED",
+        processedAt: now(),
+      });
+      return {
+        ok: true,
+        eventId: event.id,
+        processingStatus: "PROCESSED",
+        duplicate: true,
+        paymentRequestId: request.id,
+        paymentRequestStatus: request.status,
+        reason: "duplicate_transaction",
+        verified,
+      };
+    }
 
     // move the request — idempotently, without overwriting a terminal state.
     if (!isTerminalRequestStatus(request.status)) {
@@ -435,4 +490,5 @@ export async function processPaymentWebhook(
     reason: null,
     verified,
   };
+});
 }

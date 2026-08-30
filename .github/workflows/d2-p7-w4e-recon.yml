@@ -1,0 +1,86 @@
+# D2 / P7-W4E — READ-ONLY Preview reconnaissance.
+#
+# Gate A identity, then a pure SELECT inventory of the live Preview substrate:
+# policy families (incl. the out-of-band P4-B pilot, whose table membership is
+# named nowhere in the repo), RLS posture and grants on every W4E candidate,
+# and the load-bearing question of whether a provider callback can still
+# resolve its tenant pre-context. NO writes, NO DDL, NO transient secrets.
+
+name: d2/p7 — w4e preview recon (read-only)
+
+on:
+  push:
+    branches: [feat/d2-p7-w4e]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d2-p7-w4e-recon
+  cancel-in-progress: false
+
+env:
+  NEON_BASE: https://console.neon.tech/api/v2
+  P4_PROJECT_ID: orange-shape-16620903
+  P4_BRANCH_ID: br-red-scene-amth33qx
+  P4_EXPECT_ENDPOINT: ep-wispy-dawn-amr74bwz
+  P4_EXPECT_DB: neondb
+  P4_EXPECT_HOST_SUFFIX: us-east-1.aws.neon.tech
+  P4_DENY_ENDPOINTS: ep-flat-brook-am4bhq1y ep-winter-bread-ami5o8p5
+
+jobs:
+  gate_a_identity:
+    name: Gate A — Preview target identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      gate_a: ${{ steps.verify.outputs.gate_a }}
+    steps:
+      - name: Verify project/branch/endpoint via Neon API
+        id: verify
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${NEON_API_KEY:-}" ] || { echo "::error::NEON_API_KEY missing"; exit 1; }
+          api() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "$1"; }
+          ep=$(api "${NEON_BASE}/projects/${P4_PROJECT_ID}/endpoints/${P4_EXPECT_ENDPOINT}")
+          ep_id=$(printf '%s' "$ep" | jq -r '.endpoint.id'); ep_branch=$(printf '%s' "$ep" | jq -r '.endpoint.branch_id'); ep_host=$(printf '%s' "$ep" | jq -r '.endpoint.host')
+          fail=0
+          [ "$ep_id" = "${P4_EXPECT_ENDPOINT}" ] || { echo "::error::endpoint"; fail=1; }
+          [ "$ep_branch" = "${P4_BRANCH_ID}" ] || { echo "::error::endpoint branch"; fail=1; }
+          case "$ep_host" in *"${P4_EXPECT_HOST_SUFFIX}") : ;; *) echo "::error::suffix"; fail=1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "$ep_host" in *"$d"*) echo "::error::DENY"; fail=1 ;; esac; done
+          [ "$fail" -eq 0 ] || { echo "gate_a=FAIL" >> "$GITHUB_OUTPUT"; exit 1; }
+          echo "gate_a=PASS" >> "$GITHUB_OUTPUT"; echo "GATE A = PASS"
+
+  w4e_recon:
+    name: W4E read-only recon on Preview
+    needs: gate_a_identity
+    if: needs.gate_a_identity.outputs.gate_a == 'PASS'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .p7w4e/recon.mjs
+
+      - name: Run W4E recon (SELECT only)
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          uri() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri'; }
+          DBD="$(uri)"
+          echo "::add-mask::${DBD}"
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || { echo "::error::empty URI"; exit 1; }
+          case "${DBD}" in *"${P4_EXPECT_ENDPOINT}"*) : ;; *) echo "::error::URI endpoint mismatch"; exit 1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "${DBD}" in *"$d"*) echo "::error::URI DENY"; exit 1 ;; esac; done
+          DIRECT_URL="${DBD}" DATABASE_URL="${DBD}" npx tsx .p7w4e/recon.mjs

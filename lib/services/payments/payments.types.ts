@@ -130,6 +130,18 @@ export interface UpsertConnectionRow {
   isActive: boolean;
 }
 
+/**
+ * D2/P7-W4E — the provider->tenant routing entry. Deliberately the minimum
+ * shape that lets a session-less provider callback discover its business:
+ * routing identifiers only, no financial or customer data.
+ */
+export interface UpsertProviderRoutingRow {
+  provider: PaymentProvider;
+  providerRequestId: string;
+  paymentRequestId: number;
+  businessId: number;
+}
+
 export interface CreatePaymentRequestRow {
   businessId: number;
   customerId: number | null;
@@ -253,6 +265,16 @@ export interface PaymentStore {
     provider: PaymentProvider,
     providerRequestId: string
   ): Promise<PaymentRequestRecord | null>;
+
+  /**
+   * D2/P7-W4E — record the provider->tenant routing entry for a request that
+   * has just received its providerRequestId. Written by the owner-authenticated
+   * creation flow; read pre-context by provider callbacks, which is the only
+   * way a webhook can discover which business it belongs to now that
+   * PaymentRequest is FORCE-RLS'd. Routing columns only — never amounts,
+   * customers, or payloads.
+   */
+  upsertProviderRouting(row: UpsertProviderRoutingRow): Promise<void>;
 
   listPaymentRequests(
     businessId: number,
