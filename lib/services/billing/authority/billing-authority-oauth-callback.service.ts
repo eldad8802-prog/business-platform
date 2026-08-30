@@ -930,7 +930,10 @@ export async function handleAuthorityOAuthCallback(
     const failureTransition = await recordOAuthCallbackFailure({
       businessId: context.businessId,
       environment: context.environment,
-      actorUserId: input.actorUserId,
+      // W4E-B-1: the identity is verified by this point, so the actor recorded
+      // on the failure comes from the signed state too. Using the cookie here
+      // would let a forged actor cookie mislabel who caused the failure.
+      actorUserId: context.actorUserId,
       errorCode: errorCode.slice(0, 64),
       errorMessage,
       diagnostics,

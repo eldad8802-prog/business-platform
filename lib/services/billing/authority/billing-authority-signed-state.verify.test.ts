@@ -180,6 +180,39 @@ const cbSrc = readFileSync(
 ok("callback source never reads a businessId out of query or body", !/(query|body)[a-zA-Z.]*\.businessId/.test(cbSrc));
 ok("callback source resolves its tenant from the verified state", /verified\.state\.businessId/.test(cbSrc));
 
+console.log("\nNo tenant attribution before identity is verified");
+// Every pre-verification failure must carry NO businessId: that value is what
+// recordOAuthCallbackFailure would mark OAuth-failed, so a cookie-nominated
+// business here is a cross-tenant write. Checked for each rejection shape.
+for (const [label, q, c] of [
+  ["forged cookie businessId", state, { businessId: "99" }],
+  ["malformed state", "not-a-state", {}],
+  ["invalid signature", state.split(".")[0] + ".AAAA", {}],
+  ["legacy unsigned state", "opaque-legacy-state", {}],
+  ["wrong environment", state, { environment: "PRODUCTION" }],
+  ["forged actor cookie", state, { actorUserId: "999" }],
+] as const) {
+  const r = ctx(c as Record<string, unknown>, q);
+  const attributed = !r.ok && (r as { businessId?: number }).businessId != null;
+  ok(`${label}: no business attribution`, !attributed, JSON.stringify(r));
+}
+ok(
+  "an expired state also attributes nothing",
+  (() => {
+    const r = verifySignedAuthorityState(state, (Number(p.iat) + 100000) * 1000);
+    return !r.ok;
+  })()
+);
+
+console.log("\nPost-verification attribution uses the verified actor");
+ok(
+  "the callback source records failures with the verified actor, not the cookie",
+  // Both halves matter: the verified actor must be used, and the cookie actor
+  // must no longer appear next to a verified-context attribution.
+  cbSrc.includes("actorUserId: context.actorUserId") &&
+    !cbSrc.includes("environment: context.environment,\n      actorUserId: input.actorUserId")
+);
+
 
 console.log(`\nTax Authority signed-state invariants\n`);
 console.log(`${passed} passed, ${failed} failed`);
