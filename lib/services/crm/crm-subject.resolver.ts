@@ -5,8 +5,12 @@
  * enforced here, never scattered per-service.
  *
  * Polymorphic by design: CrmNote/CrmAttachment reference a subject by
- * (subjectType, subjectId) with NO FK to Customer/Supplier — so one engine
- * serves both. This resolver is what keeps that reference honest.
+ * (subjectType, subjectId) with NO FK to Customer/Supplier/Lead — so one engine
+ * serves them all. This resolver is what keeps that reference honest.
+ *
+ * LEAD joined in Leads W1: adding the subject here is the ENTIRE cost of giving
+ * leads threaded notes and attachments. No note engine, no attachment engine and
+ * no storage domain was written for leads — they inherit the existing ones.
  *
  * Does NOT use Party / PartyResolutionClaim (that is identity-resolution, a
  * different concern).
@@ -16,7 +20,7 @@ import { prisma } from "@/lib/prisma";
 import type { TenantTx } from "@/lib/tenant/transaction";
 import { NotFoundError, UnauthorizedError, ValidationError } from "@/lib/errors";
 
-export const CRM_SUBJECT_TYPES = ["CUSTOMER", "SUPPLIER"] as const;
+export const CRM_SUBJECT_TYPES = ["CUSTOMER", "SUPPLIER", "LEAD"] as const;
 export type CrmSubjectType = (typeof CRM_SUBJECT_TYPES)[number];
 
 export function parseCrmSubjectType(raw: unknown): CrmSubjectType | null {
@@ -81,6 +85,15 @@ export async function resolveCrmSubject(
       select: { name: true },
     });
     displayName = c?.name ?? null;
+  } else if (subjectType === "LEAD") {
+    // `Lead.customerName` is nullable, so a lead can legitimately exist with no
+    // name. Fall back to a stable placeholder rather than reporting not-found —
+    // the row DOES exist and its notes must be reachable.
+    const l = await db.lead.findFirst({
+      where: { id: subjectId, businessId: input.businessId },
+      select: { customerName: true },
+    });
+    displayName = l ? (l.customerName?.trim() || "ליד ללא שם") : null;
   } else {
     const s = await db.supplier.findFirst({
       where: { id: subjectId, businessId: input.businessId },

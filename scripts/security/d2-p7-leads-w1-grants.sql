@@ -1,0 +1,48 @@
+-- Leads W1 — least-privilege grants for "Lead" (PER-ENVIRONMENT artifact).
+--
+-- :ROLE = the tenant runtime role (Preview: app_runtime_preview_p4b).
+--
+-- WHY THIS FILE EXISTS
+-- -------------------
+-- D2/P7 Wave 1 enabled RLS (ENABLE + FORCE, policy `p7w1_tenant`) on "Lead",
+-- but `d2-p7-wave1-grants.sql` deliberately did NOT grant it: at that time the
+-- table had ZERO runtime consumers — no `lead.create`, no `/api/leads`, no
+-- surface of any kind — so granting it would have widened the runtime's
+-- privilege surface for nothing.
+--
+-- Leads W1 gives "Lead" its first consumers. Without this file the table is
+-- RLS-forced AND ungranted, so the moment the runtime stops connecting as an
+-- owner/BYPASSRLS role every Leads request fails with
+-- `permission denied for table Lead` — an RLS-shaped outage that is really a
+-- missing GRANT. Verified empirically on a Production clone before this file
+-- was written.
+--
+-- Production impact TODAY: none. Production still connects as `neondb_owner`
+-- (BYPASSRLS), where grants are moot. This artifact is what keeps Leads working
+-- when that changes.
+--
+-- Verbs are code-observed from the W1 route/service inventory
+-- (`lib/services/crm/lead.service.ts`, `lead-card.read-model.ts`):
+--   Lead   S,I,U
+--          SELECT  — listLeads / getLead / getLeadCard / duplicate pre-check
+--          INSERT  — createLead
+--          UPDATE  — updateLead, updateLeadStatus, setFollowUp, clearFollowUp
+--
+-- ZERO DELETE, deliberately: W1 preserves lead history as an invariant. Closing
+-- a lead is a status transition, never a delete, and no runtime path calls
+-- `lead.delete`. Granting DELETE would permit an operation the product forbids.
+--
+-- NO app_admin grant: no admin-client consumer reads "Lead" (platform-overview
+-- and learning-center do not touch it). Add one only when such a reader exists.
+--
+-- ALREADY-COVERED DEPENDENCIES (intentionally not re-granted here):
+--   "Customer"     — identity resolution + the card's customer section.
+--   "Conversation" — the card's read-only conversations section.
+--   "CrmNote" / "CrmAttachment" — notes and files for subjectType LEAD
+--                    (granted by d2-p7-wave1-grants.sql).
+--   "LearningEvent" — lead audit events (granted by d2-p7-wave2-grants.sql).
+--   Customer and Conversation carry the P4-B pilot grants; this file does not
+--   duplicate them, so their posture keeps exactly one owner.
+
+GRANT SELECT, INSERT, UPDATE ON "Lead" TO :ROLE;
+GRANT USAGE, SELECT ON SEQUENCE "Lead_id_seq" TO :ROLE;

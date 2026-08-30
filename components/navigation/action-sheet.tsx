@@ -25,8 +25,10 @@ const QUICK_ACTIONS: {
     | "content"
     | "inventory"
     | "secretary"
-    | "payments";
+    | "payments"
+    | "lead";
 }[] = [
+  { label: "ליד חדש", href: "/leads", icon: "lead" },
   { label: "המזכירה", href: "/secretary", icon: "secretary" },
   { label: "גבייה", href: "/payments", icon: "payments" },
   { label: "העלאת מסמך", href: "/documents/upload", icon: "upload" },
@@ -331,11 +333,23 @@ function ActionGlyph({
     | "content"
     | "inventory"
     | "secretary"
-    | "payments";
+    | "payments"
+    | "lead";
 }) {
   const stroke = 1.85;
   const size = 22;
   switch (kind) {
+    case "lead":
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <path
+            d="M4 6h16M6.5 12h11M9.5 18h5"
+            stroke="currentColor"
+            strokeWidth={stroke}
+            strokeLinecap="round"
+          />
+        </svg>
+      );
     case "secretary":
       return (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none">

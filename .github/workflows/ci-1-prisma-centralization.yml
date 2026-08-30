@@ -83,6 +83,29 @@ jobs:
       - name: IMPL-2 evidence-adapter boundary (no Prisma type leak)
         run: npx tsx lib/business-memory/evidence/evidence-adapter.contract.test.ts
 
+      # Leads W1: the whole Leads domain core (status vocabulary, transitions,
+      # validation, and the Israel-time follow-up due/overdue arithmetic) is a
+      # set of pure functions with no DB, no network and no secrets — so the
+      # rules that decide "who needs chasing today" are guarded by the BLOCKING
+      # job rather than by a script nobody runs. The DB-backed service test
+      # (verify:leads-service) needs a database and stays local.
+      # Local equivalent: npm run verify:leads-core
+      - name: Leads W1 domain core (status, validation, follow-up due logic)
+        run: npx tsx lib/services/crm/lead-core.test.ts
+
+      - name: Leads W1 negative proof (a broken due-date rule must be caught)
+        run: |
+          F="lib/services/crm/lead-core.ts"
+          cp "$F" "$F.bak"
+          # Break the Israel-time day comparison into a naive UTC one.
+          sed -i 's/if (delta < 0) return { kind: "overdue", at, overdueDays: -delta };/if (delta < 999) return { kind: "overdue", at, overdueDays: 1 };/' "$F"
+          if npx tsx lib/services/crm/lead-core.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: verifier did not catch the broken follow-up rule"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: verifier caught the broken follow-up rule"
+
       - name: IMPL-2 negative proof (a synthetic Prisma type import must be caught)
         run: |
           F="lib/business-memory/evidence/review-event.reader.ts"

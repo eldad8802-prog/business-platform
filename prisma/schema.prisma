@@ -260,6 +260,7 @@ model User {
 enum CrmSubjectType {
   CUSTOMER
   SUPPLIER
+  LEAD
 }
 
 /// Threaded, timestamped CRM note attachable to any subject. Distinct from the
@@ -650,25 +651,63 @@ model BusinessService {
   costProfile            ServiceCostProfile?
 }
 
+/// A Lead is a live, unconverted piece of commercial demand: something the owner
+/// still has to act on. It is NOT a person — identity lives on `Customer`, which
+/// a Lead points at (`customerId`) when one is known. WhatsApp intake already
+/// creates a Customer for every unknown sender, so a Lead is deliberately a
+/// layer ABOVE Customer, never a replacement.
+///
+/// Follow-up is stored as a plain timestamp and evaluated at READ time by
+/// `lib/services/crm/lead-core.ts` — the same cron-free pattern the Payment
+/// Secretary already proves with `BusinessObligation.dueAt`. There is no
+/// scheduler, worker or queue behind this column.
 model Lead {
-  id            Int            @id @default(autoincrement())
-  businessId    Int
-  customerName  String?
-  phone         String?
-  sourceChannel String?
-  status        LeadStatus     @default(NEW)
-  temperature   Float?
-  currentStage  String?
-  valueEstimate Float?
-  quotedPrice   Float?
-  finalPrice    Float?
-  currency      String?        @default("ILS")
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  conversations Conversation[]
-  deals         Deal[]
-  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  appointments  Appointment[]
+  id             Int            @id @default(autoincrement())
+  businessId     Int
+  customerName   String?
+  phone          String?
+  sourceChannel  String?
+  status         LeadStatus     @default(NEW)
+  temperature    Float?
+  currentStage   String?
+  valueEstimate  Float?
+  quotedPrice    Float?
+  finalPrice     Float?
+  currency       String?        @default("ILS")
+  /// Identity link. Null for a manually created lead whose contact is not a
+  /// Customer yet; set whenever the contact is (or becomes) known.
+  customerId     Int?
+  /// Second contact channel. `customerName` / `phone` already exist above.
+  email          String?
+  /// What the lead actually asked for, in their words or the owner's.
+  intentSnapshot String?
+  /// The single open follow-up moment. Overwritten on reschedule, nulled on
+  /// complete. Due / overdue are DERIVED from this — never stored.
+  nextFollowUpAt DateTime?
+  /// What to come back to them about.
+  followUpNote   String?
+  /// Last meaningful event on this lead — drives list ordering and staleness.
+  lastActivityAt DateTime?
+  /// When the lead reached a terminal status (WON / LOST / DROPPED).
+  closedAt       DateTime?
+  /// Free text, only meaningful for LOST. Deliberately not an enum in W1.
+  lostReason     String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  conversations  Conversation[]
+  deals          Deal[]
+  business       Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer       Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  appointments   Appointment[]
+
+  /// DUPLICATE PROTECTION lives in raw SQL, not here: Prisma cannot express a
+  /// PARTIAL unique index. `Lead_open_phone_key` (migration 20260831090000)
+  /// enforces "at most ONE OPEN lead per phone per business" as
+  /// UNIQUE ("businessId", "phone") WHERE "phone" IS NOT NULL AND
+  /// "status" NOT IN ('WON','LOST','DROPPED'). It is NOT drift — do not drop it.
+  @@index([businessId, status, nextFollowUpAt])
+  @@index([businessId, lastActivityAt])
+  @@index([businessId, customerId])
 }
 
 model Customer {
@@ -697,6 +736,7 @@ model Customer {
   messages         Message[]
   appointments     Appointment[]
   paymentRequests  PaymentRequest[]
+  leads            Lead[]
 
   @@unique([businessId, phone])
   @@index([businessId, isActive])
