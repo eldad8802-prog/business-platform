@@ -65,6 +65,14 @@ jobs:
       - name: P5-1 tenant context unit test (regression — must still pass)
         run: npx tsx lib/tenant/context.test.ts
 
+      # W4E-B: the ITA OAuth tenant binding. Deterministic, offline, no DB —
+      # and blocking, so an untrusted cookie can never silently become the
+      # tenant authority again.
+      - name: Tax Authority signed-state adversarial matrix
+        env:
+          AUTH_TOKEN_SECRET: w4eb_ci_signed_state_synthetic_secret
+        run: npx tsx lib/services/billing/authority/billing-authority-signed-state.verify.test.ts
+
       # Ratified IMPL-2 boundary: the business-memory evidence adapter must not
       # import Prisma model types. W4D's dbStep codemod leaked two unused
       # `import type { Prisma }` lines past every branch check, because this

@@ -7,6 +7,7 @@
  */
 
 import { timingSafeEqual } from "node:crypto";
+import { verifySignedAuthorityState } from "./billing-authority-signed-state.service";
 import { BillingAuthorityEnvironment } from "@prisma/client";
 import { ServiceUnavailableError, ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
@@ -471,11 +472,45 @@ export function validateAuthorityOAuthCallbackContext(input: {
     };
   }
 
+  // D2/P7-W4E-B — TENANT AUTHORITY. Everything above is CSRF/shape checking on
+  // caller-controlled cookies; none of it establishes WHO this authorization
+  // belongs to. The identity comes from the SIGNED state and nowhere else: the
+  // cookie businessId/environment are now only cross-checked against it, never
+  // trusted on their own. A caller who rewrites their cookies can at worst
+  // cause a rejection — they can no longer nominate a tenant and have ITA token
+  // material persisted onto it.
+  const verified = verifySignedAuthorityState(queryState);
+  if (!verified.ok) {
+    return {
+      ok: false,
+      errorCode: AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.STATE_MISMATCH,
+      errorMessage: `OAuth state is not trusted: ${verified.reason}`,
+      // Deliberately NOT reporting the cookie's businessId here: at this point
+      // no trusted tenant exists, and echoing the untrusted one back would be
+      // the same mistake in a smaller place.
+    };
+  }
+
+  // Defence in depth: the cookies must AGREE with the signed state. They carry
+  // no authority, but a disagreement means the flow was tampered with, and a
+  // tampered flow must not proceed.
+  if (
+    parsedCookies.businessId !== verified.state.businessId ||
+    parsedCookies.environment !== verified.state.environment
+  ) {
+    return {
+      ok: false,
+      errorCode: AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.STATE_MISMATCH,
+      errorMessage: "OAuth callback cookies disagree with the signed state",
+    };
+  }
+
   return {
     ok: true,
     context: {
-      businessId: parsedCookies.businessId,
-      environment: parsedCookies.environment,
+      businessId: verified.state.businessId,
+      environment: verified.state
+        .environment as unknown as BillingAuthorityEnvironment,
       cookieState: parsedCookies.cookieState,
       queryState,
       code,

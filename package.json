@@ -48,6 +48,7 @@
     "verify:obligations-service": "npx tsx lib/services/obligations/obligation-service.verify.test.ts",
     "verify:prisma-centralization": "bash scripts/ci/prisma-centralization-guard.sh .",
     "verify:admin-boundary": "bash scripts/ci/admin-boundary-guard.sh .",
+    "verify:authority-signed-state": "npx tsx lib/services/billing/authority/billing-authority-signed-state.verify.test.ts",
     "verify:platform-admin-auth": "npx tsx lib/auth/platform-admin.test.ts",
     "verify:tenant-context": "npx tsx lib/tenant/context.test.ts",
     "verify:whatsapp-webhook-pr1": "npx tsx lib/services/integrations/whatsapp/webhook-pr1.verify.test.ts",
