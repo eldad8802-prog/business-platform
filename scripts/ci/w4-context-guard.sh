@@ -184,11 +184,99 @@ run_guard() {
     fi
   done
 
+  # ── CI-W4E-1: payment webhook payload is never tenant authority ──────────
+  # The webhook service must derive its tenant from the STORED PaymentRequest.
+  # Any read of businessId out of the parsed provider payload is a hard fail.
+  W4E_WH="lib/services/payments/payment-webhook.service.ts"
+  if [ -f "$W4E_WH" ]; then
+    grep -q "runWithTenantContext({ businessId: request.businessId }" "$W4E_WH" || {
+      echo "CI-W4E-1 FAIL: webhook no longer derives tenant from the stored PaymentRequest"; fail=1; }
+    if grep -nE "(parsed|input|body|payload|headers)[a-zA-Z.]*\.businessId" "$W4E_WH" >/dev/null; then
+      echo "CI-W4E-1 FAIL: $W4E_WH reads businessId out of the provider payload"; fail=1
+    fi
+  fi
+
+  # ── CI-W4E-2: no global Prisma in the payments store ─────────────────────
+  # Every DB call must go through dbStep (tenant) or bootstrapStep (allowlisted
+  # pre-context). A bare `prisma.<model>.` is the exact regression that would
+  # silently return zero rows under FORCE RLS.
+  W4E_STORE="lib/services/payments/payment-store.prisma.ts"
+  if [ -f "$W4E_STORE" ]; then
+    if grep -nE "(await|return) prisma\.[a-z]" "$W4E_STORE" >/dev/null; then
+      echo "CI-W4E-2 FAIL: $W4E_STORE reaches the global client outside dbStep/bootstrapStep"; fail=1
+    fi
+  fi
+
+  # ── CI-W4E-3/4: bootstrapStep allowlist + never a protected table ─────────
+  # bootstrapStep is the ONLY sanctioned pre-context path. It may touch exactly
+  # PaymentWebhookEvent and PaymentProviderRouting; anything else would turn it
+  # into a generic escape hatch around RLS.
+  if [ -f "$W4E_STORE" ]; then
+    W4E_BOOT_MODELS="$( { grep -oE "bootstrapStep[(][(]db[)] => db[.][a-zA-Z]+" "$W4E_STORE" | sed 's/.*db[.]//'; grep -A1 -E "bootstrapStep[(][(]db[)] =>$" "$W4E_STORE" | grep -oE "db[.][a-zA-Z]+" | sed 's/db[.]//'; } 2>/dev/null | sort -u || true)"
+    for model in $W4E_BOOT_MODELS; do
+      case "$model" in
+        paymentWebhookEvent|paymentProviderRouting) : ;;
+        *) echo "CI-W4E-3 FAIL: bootstrapStep touches non-allowlisted model '$model'"; fail=1 ;;
+      esac
+    done
+    for model in $W4E_BOOT_MODELS; do
+      case "$model" in
+        paymentTransaction|paymentAuditEvent|financialEvent|paymentRequest)
+          echo "CI-W4E-4 FAIL: bootstrapStep reaches protected payment table '$model'"; fail=1 ;;
+      esac
+    done
+  fi
+
+  # ── CI-W4E-5/6/7: routing table posture + parent-join policy ──────────────
+  W4E_MIG="prisma/migrations/20260830120000_d2_p7_w4ea_payments_tenant_rls/migration.sql"
+  if [ -f "$W4E_MIG" ]; then
+    if grep -nE "ROW LEVEL SECURITY" "$W4E_MIG" | grep -q "PaymentProviderRouting"; then
+      echo "CI-W4E-5 FAIL: PaymentProviderRouting gained RLS without an architecture change"; fail=1
+    fi
+    if sed -n '/CREATE TABLE IF NOT EXISTS "PaymentProviderRouting"/,/^);/p' "$W4E_MIG" \
+       | grep -niE '"(amount|currency|status|customerId|description|paymentUrl|payload|credential|token|secret|merchantId)"' >/dev/null; then
+      echo "CI-W4E-6 FAIL: PaymentProviderRouting is no longer routing-only"; fail=1
+    fi
+    grep -q '"PaymentTransaction"."paymentRequestId"' "$W4E_MIG" || {
+      echo "CI-W4E-7 FAIL: PaymentTransaction lost its parent-join policy"; fail=1; }
+  fi
+
+  # ── CI-W4E-8: provider calls stay outside the tenant transaction ──────────
+  for pf in lib/services/payments/*.ts; do
+    [ -f "$pf" ] || continue
+    case "$pf" in *.test.ts) continue ;; esac
+    if awk '/withTenantTransaction\(/{d=1} d{print} /^[[:space:]]*\)[[:space:]]*;?[[:space:]]*$/{d=0}' "$pf" \
+       | grep -qE "getPaymentStatus|createPaymentLink|fetch\("; then
+      echo "CI-W4E-8 FAIL: $pf makes a provider call inside a tenant transaction"; fail=1
+    fi
+  done
+
+  # ── CI-W4E-9: FinancialEvent stays tenant-threaded ───────────────────────
+  W4E_DEPS="lib/services/payments/payments.deps.ts"
+  if [ -f "$W4E_DEPS" ]; then
+    if grep -v "^[[:space:]]*//" "$W4E_DEPS" | grep -q "prisma[.][$]transaction"; then
+      echo "CI-W4E-9 FAIL: $W4E_DEPS posts FinancialEvent on a global transaction"; fail=1
+    fi
+    grep -q "withTenantTransaction" "$W4E_DEPS" || {
+      echo "CI-W4E-9 FAIL: $W4E_DEPS no longer posts FinancialEvent on a tenant transaction"; fail=1; }
+  fi
+
+  # ── CI-W4E-10: routing is verified against the stored PaymentRequest ──────
+  # The routing row is a HINT; the callback must re-read the parent constrained
+  # by BOTH the routed id and the routed businessId, so a tampered routing row
+  # can only produce a refusal.
+  if [ -f "$W4E_STORE" ]; then
+    grep -q "id: route.paymentRequestId" "$W4E_STORE" || {
+      echo "CI-W4E-10 FAIL: routing no longer resolves through the stored parent id"; fail=1; }
+    grep -q "businessId: route.businessId" "$W4E_STORE" || {
+      echo "CI-W4E-10 FAIL: routing businessId is not checked against the stored PaymentRequest"; fail=1; }
+  fi
+
   if [ "$fail" -ne 0 ]; then
     echo "W4-CONTEXT-GUARD FAILED"
     return 1
   fi
-  echo "W4-CONTEXT-GUARD OK — CI-W4-1..5 + CI-W4B-1..3 + CI-W4C-1..3 + CI-W4D-1..5 clean."
+  echo "W4-CONTEXT-GUARD OK — CI-W4-1..5 + CI-W4B-1..3 + CI-W4C-1..3 + CI-W4D-1..5 + CI-W4E-1..10 clean."
 }
 
 self_test() {
@@ -248,8 +336,33 @@ TS
     printf 'import { getPrismaAdmin } from "x";\n' > "$T/lib/services/learning-center/learning-center-data.ts"
     printf '%s\n%s\n' 'x "ExtractedData"."documentId" x' 'x "ExtractionEvidence"."extractionSnapshotId" x' > "$T/prisma/migrations/20260827090000_d2_p7_w4d_documents_tenant_rls/migration.sql"
     cat > "$T/docs/security-d2-provider-bootstrap-allowlist-v1.md" <<'MD'
-POSApiKey WhatsAppConnection PaymentWebhookEvent
+POSApiKey WhatsAppConnection PaymentWebhookEvent PaymentProviderRouting
 MD
+    mkdir -p "$T/lib/services/payments" "$T/prisma/migrations/20260830120000_d2_p7_w4ea_payments_tenant_rls"
+    cat > "$T/lib/services/payments/payment-webhook.service.ts" <<'TS'
+return runWithTenantContext({ businessId: request.businessId }, async () => {});
+TS
+    cat > "$T/lib/services/payments/payment-store.prisma.ts" <<'TS'
+const route = await bootstrapStep((db) => db.paymentProviderRouting.findUnique({}));
+const created = await bootstrapStep((db) => db.paymentWebhookEvent.create({}));
+const row = await dbStep((db) => db.paymentRequest.findFirst({ where: { id: route.paymentRequestId, businessId: route.businessId } }));
+TS
+    cat > "$T/lib/services/payments/payments.deps.ts" <<'TS'
+await runWithTenantContext({ businessId: e.businessId }, () => withTenantTransaction((tx) => ensurePaymentPostedEvent(tx, {})));
+TS
+    cat > "$T/lib/services/payments/payment-request.service.ts" <<'TS'
+const linkResult = await adapter.createPaymentLink({});
+TS
+    cat > "$T/prisma/migrations/20260830120000_d2_p7_w4ea_payments_tenant_rls/migration.sql" <<'SQL'
+CREATE TABLE IF NOT EXISTS "PaymentProviderRouting" (
+  "id" SERIAL PRIMARY KEY,
+  "provider" "PaymentProvider" NOT NULL,
+  "providerRequestId" TEXT NOT NULL,
+  "paymentRequestId" INTEGER NOT NULL,
+  "businessId" INTEGER NOT NULL
+);
+x "PaymentTransaction"."paymentRequestId" x
+SQL
   }
 
   check() {
@@ -349,6 +462,72 @@ TS
   local T17="$BASE/v17"; make_clean_tree "$T17"
   printf 'await prisma.financialRecord.create({});\nwithTenantTransaction\n' > "$T17/app/api/documents/[id]/approve/route.ts"
   check "CI-W4D-5 catches global-client W4D write" FAIL "$T17"
+
+  local T18="$BASE/v18"; make_clean_tree "$T18"
+  cat >> "$T18/lib/services/payments/payment-webhook.service.ts" <<'TS'
+const businessId = parsed.businessId;
+TS
+  check "CI-W4E-1 catches payload tenant authority" FAIL "$T18"
+
+  local T19="$BASE/v19"; make_clean_tree "$T19"
+  cat >> "$T19/lib/services/payments/payment-store.prisma.ts" <<'TS'
+const row = await prisma.paymentTransaction.findFirst({});
+TS
+  check "CI-W4E-2 catches global client in the payments store" FAIL "$T19"
+
+  local T20="$BASE/v20"; make_clean_tree "$T20"
+  cat >> "$T20/lib/services/payments/payment-store.prisma.ts" <<'TS'
+const x = await bootstrapStep((db) => db.customer.findMany({}));
+TS
+  check "CI-W4E-3 catches bootstrapStep leaving its allowlist" FAIL "$T20"
+
+  local T21="$BASE/v21"; make_clean_tree "$T21"
+  cat >> "$T21/lib/services/payments/payment-store.prisma.ts" <<'TS'
+const x = await bootstrapStep((db) => db.financialEvent.create({}));
+TS
+  check "CI-W4E-4 catches bootstrapStep reaching a protected table" FAIL "$T21"
+
+  local T22="$BASE/v22"; make_clean_tree "$T22"
+  cat >> "$T22/prisma/migrations/20260830120000_d2_p7_w4ea_payments_tenant_rls/migration.sql" <<'SQL'
+ALTER TABLE "PaymentProviderRouting" ENABLE ROW LEVEL SECURITY;
+SQL
+  check "CI-W4E-5 catches RLS silently added to the routing table" FAIL "$T22"
+
+  local T23="$BASE/v23"; make_clean_tree "$T23"
+  cat > "$T23/prisma/migrations/20260830120000_d2_p7_w4ea_payments_tenant_rls/migration.sql" <<'SQL'
+CREATE TABLE IF NOT EXISTS "PaymentProviderRouting" (
+  "id" SERIAL PRIMARY KEY,
+  "amount" DECIMAL(18,2) NOT NULL
+);
+x "PaymentTransaction"."paymentRequestId" x
+SQL
+  check "CI-W4E-6 catches the routing table gaining business data" FAIL "$T23"
+
+  local T24="$BASE/v24"; make_clean_tree "$T24"
+  printf 'x\n' > "$T24/prisma/migrations/20260830120000_d2_p7_w4ea_payments_tenant_rls/migration.sql"
+  check "CI-W4E-7 catches a lost PaymentTransaction parent-join" FAIL "$T24"
+
+  local T25="$BASE/v25"; make_clean_tree "$T25"
+  cat >> "$T25/lib/services/payments/payment-request.service.ts" <<'TS'
+await withTenantTransaction(async (tx) => {
+  await adapter.getPaymentStatus({});
+);
+TS
+  check "CI-W4E-8 catches a provider call inside a tenant transaction" FAIL "$T25"
+
+  local T26="$BASE/v26"; make_clean_tree "$T26"
+  cat > "$T26/lib/services/payments/payments.deps.ts" <<'TS'
+await prisma.$transaction((tx) => ensurePaymentPostedEvent(tx, {}));
+withTenantTransaction;
+TS
+  check "CI-W4E-9 catches FinancialEvent on a global transaction" FAIL "$T26"
+
+  local T27="$BASE/v27"; make_clean_tree "$T27"
+  cat > "$T27/lib/services/payments/payment-store.prisma.ts" <<'TS'
+const route = await bootstrapStep((db) => db.paymentProviderRouting.findUnique({}));
+const row = await dbStep((db) => db.paymentRequest.findFirst({ where: { id: route.paymentRequestId } }));
+TS
+  check "CI-W4E-10 catches routing businessId not verified against the parent" FAIL "$T27"
 
   echo "self-test: ok=$ok bad=$bad"
   [ "$bad" -eq 0 ]

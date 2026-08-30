@@ -308,6 +308,20 @@ export function createPaymentPrismaStore(): PaymentStore {
         })
       );
       if (!route) return null;
+
+      // CONSISTENCY GATE. The routing row is a HINT, never the authority. The
+      // stored PaymentRequest is the authority, so the parent is fetched with
+      // BOTH the routed id AND the routed businessId in the predicate: a row
+      // comes back only when
+      //     PaymentRequest.businessId === PaymentProviderRouting.businessId
+      // holds, which is exactly the equality this gate has to establish. A
+      // corrupted routing row — pointing at a missing request, or at another
+      // tenant's request in either direction — therefore yields nothing, and
+      // nothing downstream ever runs. FORCE RLS makes this observable only as
+      // "not found": under the candidate tenant's own GUC another tenant's row
+      // is invisible by construction, which is the correct security posture but
+      // means missing and mismatched are indistinguishable here — so both are
+      // treated as the same hard failure and logged loudly.
       const row = await runWithTenantContext(
         { businessId: route.businessId },
         () =>
@@ -320,7 +334,29 @@ export function createPaymentPrismaStore(): PaymentStore {
             })
           )
       );
-      return row ? toRequestRecord(row) : null;
+      if (!row) {
+        console.error(
+          "[payments-routing] INCONSISTENT ROUTING — refusing to resolve a tenant:",
+          {
+            provider,
+            paymentRequestId: route.paymentRequestId,
+            routedBusinessId: route.businessId,
+            reason: "parent missing or owned by another business",
+          }
+        );
+        return null;
+      }
+      // Belt and braces: the authority downstream is the STORED parent's own
+      // businessId, never the routing hint. Identical by the predicate above —
+      // asserted so a future refactor of the query cannot silently regress it.
+      if (row.businessId !== route.businessId) {
+        console.error(
+          "[payments-routing] ROUTING/PARENT MISMATCH — refusing to resolve a tenant:",
+          { provider, paymentRequestId: route.paymentRequestId }
+        );
+        return null;
+      }
+      return toRequestRecord(row);
     },
 
     // Routing rows are written by the owner-authenticated creation flow that

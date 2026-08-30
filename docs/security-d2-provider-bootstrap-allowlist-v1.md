@@ -19,6 +19,7 @@ know the tenant before the lookup that discovers the tenant).
 | `POSApiKey` | `keyHash` (sha256, unique) | POS ingest tenant | `app/api/inventory/pos/sale/route.ts` (Wave 3) |
 | `WhatsAppConnection` | `phoneNumberId` (unique, 1:1 with `businessId`) | WhatsApp webhook tenant | `lib/services/integrations/whatsapp/connection.service.ts` |
 | `PaymentWebhookEvent` | `(provider, providerEventId)` unique | none (global raw-event landing log; tenant is resolved afterwards via `PaymentRequest`) | `lib/services/payments/payment-webhook.service.ts` |
+| `PaymentProviderRouting` | `(provider, providerRequestId)` unique | payment-callback tenant **hint** — never the authority: the callback re-reads the stored `PaymentRequest` under the routed tenant's own GUC and proceeds only when the two `businessId`s agree | `lib/services/payments/payment-store.prisma.ts` (`bootstrapStep`, W4E-A) |
 
 ## Rules
 
