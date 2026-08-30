@@ -83,7 +83,7 @@ export default function InventoryHomePage() {
   ];
 
   return (
-    <div data-inventory-home data-inventory-module dir="rtl">
+    <div data-inventory-home data-inventory-module data-page-intent="content" dir="rtl">
       <style>{inventoryFoundationCss}</style>
       <style>{homeCss}</style>
 

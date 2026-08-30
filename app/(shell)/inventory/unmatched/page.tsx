@@ -162,7 +162,7 @@ export default function InventoryUnmatchedPage() {
   }, [activeItems, linkQuery]);
 
   return (
-    <InventorySubPage
+    <InventorySubPage intent="data"
       title="מכירות לא מזוהות"
       variant="hub"
       sub={

@@ -193,7 +193,7 @@ export default function InventoryCountPage() {
   }
 
   return (
-    <InventorySubPage title="ספירת מלאי" backHref="/inventory" backText="חזרה">
+    <InventorySubPage intent="standard" title="ספירת מלאי" backHref="/inventory" backText="חזרה">
       <div style={{ padding: "0 clamp(16px,3.5vw,28px)", display: "flex", flexDirection: "column", gap: 14 }}>
         <button
           type="button"

@@ -97,7 +97,7 @@ export default function CreateInventorySalePage() {
   }
 
   return (
-    <InventorySubPage title="מכירה חדשה" backHref="/inventory/sales" bottomNav="sales">
+    <InventorySubPage intent="standard" title="מכירה חדשה" backHref="/inventory/sales" bottomNav="sales">
       <div style={{ position: "relative" }}>
         <InventorySearch value={query} onChange={setQuery} placeholder="הוסף מוצר או סרוק ברקוד" />
         {searchResults.length > 0 ? (

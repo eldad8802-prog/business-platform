@@ -584,6 +584,7 @@ export function InventorySubPage({
   showInbox = false,
   bottomNav = "products",
   wide = false,
+  intent = "standard",
   children,
 }: {
   title: string;
@@ -603,6 +604,15 @@ export function InventorySubPage({
   showInbox?: boolean;
   bottomNav?: InventoryBottomTab;
   wide?: boolean;
+  /**
+   * Adaptive page intent (Spec v1 §6/§21, owner-approved). A route declares
+   * its INTENT, never a width: the module's own `--inv-max-width` /
+   * `--inv-content-max` vars are re-pointed per intent at the canonical tiers
+   * (see `inventoryAdaptiveCss`), so ~20 screens migrate by CLASSIFICATION
+   * instead of by rewriting each layout. Also emits `data-page-intent` for the
+   * CI intent gate. Mobile (<768) renders identically for every intent.
+   */
+  intent?: "focused" | "standard" | "data";
   children: ReactNode;
   mainStyle?: CSSProperties;
 }) {
@@ -612,6 +622,7 @@ export function InventorySubPage({
       style={inventoryPageStyle()}
       data-inventory-module
       data-inventory-subpage
+      data-page-intent={intent}
     >
       <style>{inventoryFoundationCss}</style>
       <style>{inventoryResponsiveCss}</style>

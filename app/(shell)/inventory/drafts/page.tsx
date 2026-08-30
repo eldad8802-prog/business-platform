@@ -189,7 +189,7 @@ export default function InventoryDraftsPage() {
   }
 
   return (
-    <InventorySubPage
+    <InventorySubPage intent="data"
       title="טיוטות מוצר"
       variant="hub"
       sub={!loading && !error ? "זוהו אוטומטית — ממתינות לאישור לפני כניסה למלאי" : undefined}

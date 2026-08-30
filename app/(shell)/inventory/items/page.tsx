@@ -177,7 +177,7 @@ function InventoryItemsListPageContent() {
   );
 
   return (
-    <InventorySubPage
+    <InventorySubPage intent="data"
       title="מלאי"
       variant="hub"
       sub={!loading && !error ? sub : undefined}

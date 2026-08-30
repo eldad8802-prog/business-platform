@@ -87,7 +87,7 @@ export default function SupplierCsvImportPage() {
   }
 
   return (
-    <InventorySubPage title="יבוא וזיהוי" backHref="/inventory/supplier-purchases" bottomNav="orders">
+    <InventorySubPage intent="standard" title="יבוא וזיהוי" backHref="/inventory/supplier-purchases" bottomNav="orders">
       <div className="inv-fwrap">
         <p className="inv-field__help" style={{ marginTop: 8, fontSize: 14, lineHeight: 1.7 }}>
           העלו קובץ CSV מספק כדי ליצור טיוטות הזמנה לבדיקה לפני קליטת מלאי.

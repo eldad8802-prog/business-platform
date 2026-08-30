@@ -49,6 +49,7 @@ export function OrderWizardShell({
   if (loading) {
     return (
       <InventorySubPage
+        intent="standard"
         title={title}
         backHref={backHref}
         progressLabel={orderWizardProgressLabel(pathname)}
@@ -69,6 +70,7 @@ export function OrderWizardShell({
 
   return (
     <InventorySubPage
+      intent="standard"
       title={title}
       backHref={backHref}
       progressLabel={orderWizardProgressLabel(pathname)}

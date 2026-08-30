@@ -34,7 +34,7 @@ export default function SupplierPurchasesIntegrationsPage() {
   const [comingSoon, setComingSoon] = useState(false);
 
   return (
-    <InventorySubPage
+    <InventorySubPage intent="standard"
       title="אינטגרציות"
       variant="hub"
       sub="חברו קופה או ספק לעדכון מלאי אוטומטי"

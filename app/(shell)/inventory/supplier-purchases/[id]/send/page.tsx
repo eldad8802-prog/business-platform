@@ -216,7 +216,7 @@ export default function SupplierPurchaseSendPage() {
     draft?.lines.reduce((s, l) => s + Number(l.quantity || 0), 0) ?? 0;
 
   return (
-    <InventorySubPage
+    <InventorySubPage intent="standard"
       title="שליחת הזמנה לספק"
       backHref="/inventory/supplier-purchases"
       backLabel="מרכז הזמנות ספק"

@@ -280,7 +280,7 @@ export default function PendingSupplierPurchasesPage() {
   }
 
   return (
-    <InventorySubPage
+    <InventorySubPage intent="data"
       title="קליטת הזמנות"
       backHref="/inventory/supplier-purchases"
       backLabel="מרכז הזמנות ספק"

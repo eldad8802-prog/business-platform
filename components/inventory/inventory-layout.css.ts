@@ -250,4 +250,47 @@ export const inventoryLayoutCss = `
       top: 80px;
     }
   }
+
+  /* ==========================================================================
+     ADAPTIVE INTENTS (Spec v1 §6/§21 — owner-approved).
+
+     The whole module was trapped at 720 because every content primitive
+     re-capped at --inv-content-max regardless of what the screen IS. Rather
+     than widening everything to one number (explicitly rejected: that is
+     stretching, not adaptive design), each route declares an INTENT on
+     InventorySubPage and the two width vars are re-pointed per intent at the
+     canonical tiers:
+
+       focused  — focused forms / single-task flows        560 (expanded+)
+       standard — wizards, reconcile work, rich forms      760 (expanded+)
+       data     — lists, tables, worklists                 1280 (wide), 960 (expanded)
+
+     Mobile (<768) is untouched for every intent; medium gets one gentle step.
+     ========================================================================== */
+  @media (min-width: 768px) {
+    [data-inventory-subpage] {
+      --inv-max-width: 720px;
+      --inv-content-max: 720px;
+    }
+  }
+  @media (min-width: 1024px) {
+    [data-inventory-subpage][data-page-intent="focused"] {
+      --inv-max-width: 560px;
+      --inv-content-max: 560px;
+    }
+    [data-inventory-subpage][data-page-intent="standard"] {
+      --inv-max-width: 760px;
+      --inv-content-max: 760px;
+    }
+    [data-inventory-subpage][data-page-intent="data"] {
+      --inv-max-width: 960px;
+      --inv-content-max: 960px;
+    }
+  }
+  @media (min-width: 1280px) {
+    [data-inventory-subpage][data-page-intent="data"] {
+      --inv-max-width: 1280px;
+      --inv-content-max: 1280px;
+    }
+  }
 `;
