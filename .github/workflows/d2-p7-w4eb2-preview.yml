@@ -14,8 +14,9 @@ on:
         description: "READ-ONLY substrate verification (no apply/fixtures/sessions)"
         type: boolean
         default: false
-  push:
-    branches: [feat/d2-p7-w4eb2]
+  # push trigger disarmed post-apply (proven pattern): substrate applied+proven
+  # (run 33342514552, PASS=57 FAIL=0, incl. the signed-PDF catch-up), transient
+  # secrets deleted; workflow_dispatch (incl. verify_only) remains.
 
 permissions:
   contents: read
