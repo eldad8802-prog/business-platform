@@ -335,7 +335,7 @@ export function HomeScreen({ view }: { view: HomeView }) {
   const { secretary, dayState, insights, notifications, settingsHref } = view;
 
   return (
-    <main className="dzhome" dir="rtl">
+    <main className="dzhome" dir="rtl" data-page-intent="content">
       <style>{HOME_CSS}</style>
       <div className="wrap">
         {/* top icon row — settings + notifications (structure/CSS verbatim from the mockup) */}
@@ -428,7 +428,11 @@ const HOME_CSS = `
   color:var(--ink);
   font-family:var(--font-heebo),'Heebo','Assistant',system-ui,sans-serif;
   background:radial-gradient(120% 38% at 78% 0%,#F3EFE3,transparent 58%),var(--bg);
-  padding:6px 24px 18px;
+  /* Safe-area contract (Spec v1 §12): the top inset comes ONLY from the
+     shell-published var, never a raw env(). Without it the icon row sits
+     under the status bar in the native shell — Home was one of the screens
+     the audit flagged for the missing top inset. */
+  padding:calc(6px + var(--dz-safe-top,0px)) 24px 18px;
   -webkit-font-smoothing:antialiased;
 }
 .dzhome .wrap{max-width:480px;margin:0 auto}
@@ -533,4 +537,48 @@ const HOME_CSS = `
 .dzhome .d2{animation-delay:.23s}
 .dzhome .d3{animation-delay:.32s}
 @media (prefers-reduced-motion:reduce){.dzhome .anim{animation:none;opacity:1}}
+
+/* ============================================================
+   Adaptive recomposition (Adaptive+Native Spec v1 §22, owner-approved).
+   Home is the "content" intent (960). The 480 column is the MOBILE
+   composition and stays byte-identical below 768 — everything here is
+   additive, at the canonical tiers only (LAYOUT.bp 768 / 1024).
+
+   medium (768-1023): same single column, just room to breathe (600).
+     The tools strip (10 tiles ~= 755px) also stops needing a sideways
+     scroll around here, which removes the one intentional horizontal
+     scroll from the desktop experience without changing the component.
+
+   expanded (>=1024): a two-column STATUS BAND — the secretary and the
+     day state are both "where the business stands right now" surfaces,
+     short, and read together; pairing them removes a full screen of
+     scrolling. In RTL the first grid item takes the inline-start (right)
+     edge, so the reading order stays secretary -> day state, exactly as
+     on mobile. Tools and insights stay full width: a tile strip and a
+     list of insight rows both use width better than a narrow column.
+     No new sections, no reordering of business priority.
+   ============================================================ */
+@media (min-width:768px){
+  .dzhome .wrap{max-width:600px}
+  /* The shell already reserves 32px below the content from this tier up, so a
+     full 100dvh here guarantees a ~32px scroll on a page that otherwise fits.
+     Mobile keeps 100dvh: there the shell pad clears the fixed bottom bar. */
+  .dzhome{min-height:calc(100dvh - 32px)}
+}
+@media (min-width:1024px){
+  .dzhome{padding:calc(6px + var(--dz-safe-top,0px)) 32px 24px}
+  .dzhome .wrap{
+    max-width:960px;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    column-gap:32px;
+    row-gap:8px;
+    align-items:start;
+  }
+  /* every section is full width unless explicitly paired below */
+  .dzhome .wrap>*{grid-column:1 / -1;min-width:0}
+  .dzhome .wrap>.top{grid-row:1}
+  .dzhome .wrap>.seccard{grid-column:1;grid-row:2;margin-bottom:18px}
+  .dzhome .wrap>.state{grid-column:2;grid-row:2;margin-bottom:18px}
+}
 `;
