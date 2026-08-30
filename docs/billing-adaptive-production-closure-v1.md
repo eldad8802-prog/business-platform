@@ -1,7 +1,11 @@
 # Billing Adaptive Production Closure
 
 **Date:** 2026-08-31
-**Verdict:** **Billing Adaptive v1 — PARTIAL / SAFE SHIPPED SCOPE.** B0–B3 Production = **PASS**.
+**Verdict:** **Billing Adaptive v1 — PARTIAL / SAFE SHIPPED SCOPE.** The B0–B3 scope
+shipped and passed its production gate. Read that precisely: **B2 is production
+runtime-proven; B3 is dev runtime-proven and production runtime-unavailable**,
+because production contains zero billing documents and therefore has no rail to
+render. B3 is *not* claimed as production-proven anywhere in this document.
 **Predecessor:** `docs/billing-adaptive-implementation-closure-v1.md` (pre-merge results)
 **Design of record:** `docs/billing-adaptive-design-report-v1.md`
 
@@ -175,12 +179,15 @@ behavioural tier difference that justifies a JS branch.
 |---|---|
 | B0 | **PASS** |
 | B1 | **PASS** — hard gate, 40/40 byte-identical, re-proven against post-#292 `main` |
-| B2 | **PASS** — production-verified |
-| B3 | **PASS** — dev-verified; production has no document to render a rail |
+| B2 | **PASS — Production runtime proven** |
+| B3 | **PASS — Dev runtime proven; Production runtime UNAVAILABLE** (production contains zero billing documents) |
 | B4 | **DEFERRED — runtime state unavailable under D-3** |
 | B5 | **DEFERRED — runtime state unavailable under D-3** |
 
+These six classifications are canonical. In particular, **B3 must not be recorded
+as proven in production** — no production run has ever rendered the contextual rail.
+
 **Billing Adaptive v1 — PARTIAL / SAFE SHIPPED SCOPE.**
-**B0–B3 Production = PASS.** The single smoke failure is a pre-existing hub defect
+The B0–B3 scope passed its production gate. The single smoke failure is a pre-existing hub defect
 outside this wave's diff. No fiscal, lifecycle, API, validation or persistence
 semantics changed — proven by snapshot, not asserted.
