@@ -106,50 +106,53 @@ export async function PATCH(
 
     const businessId = user.businessId;
 
-    const updated = await runWithTenantContext({ businessId }, () =>
-      withTenantTransaction((tx) => {
-        if (hasStatus) {
-          return leadService.updateLeadStatus(
-            {
-              businessId,
-              leadId,
-              status: body.status as string,
-              lostReason:
-                (body.lostReason as string | null | undefined) ?? null,
-            },
-            { tx }
-          );
-        }
-        if (hasFollowUp) {
-          // `followUpAt: null` is the explicit "this follow-up is handled"
-          // signal — completion IS clearing the timestamp, so there is no
-          // separate reminder row that could fire twice.
-          return body.followUpAt === null
-            ? leadService.clearFollowUp({ businessId, leadId }, { tx })
-            : leadService.setFollowUp(
-                {
-                  businessId,
-                  leadId,
-                  followUpAt: body.followUpAt as string,
-                  note:
-                    (body.followUpNote as string | null | undefined) ?? null,
-                },
-                { tx }
-              );
-        }
-        return leadService.updateLead(
-          { businessId, leadId, ...basics },
-          { tx }
-        );
-      })
-    );
-
-    // Re-read through the card model so the client always gets the same shape
-    // from GET and PATCH — including the freshly derived follow-up state.
+    // ONE tenant transaction for the whole request: the mutation and the card
+    // re-read share it, so the response is the committed state by construction
+    // and the client never has to re-fetch to see what it just changed.
+    // (Two transactions would also mean two Neon round trips — measurably
+    // slower for no benefit.)
     const card = await runWithTenantContext({ businessId }, () =>
-      withTenantTransaction((tx) =>
-        getLeadCard({ businessId, leadId: updated.id }, { tx })
-      )
+      withTenantTransaction(async (tx) => {
+        const applyMutation = () => {
+          if (hasStatus) {
+            return leadService.updateLeadStatus(
+              {
+                businessId,
+                leadId,
+                status: body.status as string,
+                lostReason:
+                  (body.lostReason as string | null | undefined) ?? null,
+              },
+              { tx }
+            );
+          }
+          if (hasFollowUp) {
+            // `followUpAt: null` is the explicit "this follow-up is handled"
+            // signal — completion IS clearing the timestamp, so there is no
+            // separate reminder row that could fire twice.
+            return body.followUpAt === null
+              ? leadService.clearFollowUp({ businessId, leadId }, { tx })
+              : leadService.setFollowUp(
+                  {
+                    businessId,
+                    leadId,
+                    followUpAt: body.followUpAt as string,
+                    note:
+                      (body.followUpNote as string | null | undefined) ?? null,
+                  },
+                  { tx }
+                );
+          }
+          return leadService.updateLead({ businessId, leadId, ...basics }, { tx });
+        };
+
+        const updated = await applyMutation();
+
+        // Same shape from GET and PATCH — including the freshly derived
+        // follow-up state — so the client renders the server's answer instead
+        // of guessing at it.
+        return getLeadCard({ businessId, leadId: updated.id }, { tx });
+      })
     );
 
     return NextResponse.json(card, { status: 200 });
