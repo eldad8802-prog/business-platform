@@ -1,6 +1,7 @@
 import { BillingDocumentType, Prisma } from "@prisma/client";
 import { NotFoundError, UnauthorizedError, ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { billingDbStep } from "../billing-db-step";
 
 /**
  * Derived settlement state for an issued invoice. Computed purely from
@@ -66,14 +67,14 @@ export async function getInvoiceSettlementState(args: {
     );
   }
 
-  const aggregate = await prisma.billingPaymentAllocation.aggregate({
+  const aggregate = await billingDbStep((db) => db.billingPaymentAllocation.aggregate({
     where: {
       businessId: args.businessId,
       invoiceDocumentId: args.invoiceDocumentId,
     },
     _sum: { allocatedAmount: true },
     _count: { _all: true },
-  });
+  }));
 
   const allocatedAmount = aggregate._sum.allocatedAmount ?? new Prisma.Decimal(0);
   const remainingAmount = invoice.totalAmount.minus(allocatedAmount);

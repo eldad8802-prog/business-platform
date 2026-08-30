@@ -34,6 +34,7 @@ import {
   markAuthorityTokenRefreshFailed,
   sanitizeAuthorityConnectionErrorMessage,
 } from "@/lib/services/billing/authority/billing-authority-connection.service";
+import { billingDbStep } from "../billing-db-step";
 
 export const AUTHORITY_REFRESH_ERROR_CODES = {
   NOT_REFRESHABLE: "AUTHORITY_CONNECTION_NOT_REFRESHABLE",
@@ -276,7 +277,7 @@ async function loadRefreshableAuthorityConnection(
   businessId: number,
   environment: BillingAuthorityEnvironment
 ): Promise<RefreshableConnectionRow | null> {
-  return prisma.billingAuthorityConnection.findUnique({
+  return billingDbStep((db) => db.billingAuthorityConnection.findUnique({
     where: {
       businessId_environment: { businessId, environment },
     },
@@ -293,7 +294,7 @@ async function loadRefreshableAuthorityConnection(
       refreshTokenTag: true,
       encryptionKeyId: true,
     },
-  });
+  }));
 }
 
 async function loadAuthorityAppCredentials(
