@@ -111,6 +111,22 @@ async function main() {
       if (!r || r.rolsuper || r.rolbypassrls) throw new Error(`DRIFT: ${role} posture — STOP`);
     }
     console.log("[pre-state] pilot=5, w1=14, w2=24, w3=15, w4b=5, w4c=3, w4d=8, w4ea=4, adm=10, postures OK");
+
+    // ── Guarded catch-up: already-merged additive prerequisite. Preview's
+    // schema lags main by the signed-PDF artifact migration, and without its
+    // columns the Prisma client cannot even read BillingDocument. Applied only
+    // when the column is genuinely missing; expand-only; verified after.
+    const sigCol = await owner.$queryRawUnsafe(
+      `SELECT 1 FROM information_schema.columns WHERE table_name='BillingDocument' AND column_name='signedPdfStorageKey'`);
+    if (sigCol.length === 0) {
+      await applySqlFile("prisma/migrations/20260818140000_add_signed_pdf_artifact/migration.sql");
+      const after = await owner.$queryRawUnsafe(
+        `SELECT 1 FROM information_schema.columns WHERE table_name='BillingDocument' AND column_name='signedPdfStorageKey'`);
+      if (after.length === 0) throw new Error("CATCH-UP FAILED: signed-pdf columns missing after apply");
+      console.log("[catch-up] add_signed_pdf_artifact APPLIED (expand-only)");
+    } else {
+      console.log("[catch-up] add_signed_pdf_artifact: already present");
+    }
   }
 
   if (VERIFY_ONLY) {
