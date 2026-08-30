@@ -337,11 +337,104 @@ run_guard() {
   fi
 
 
+  # ── CI-W4EB2-1/2: Billing routes derive tenant from the session ───────────
+  # Every Billing route must take businessId from the authenticated user, and
+  # none may accept it from the request body or query.
+  if [ -d app/api/billing ]; then
+    while IFS= read -r bf; do
+      grep -q "user.businessId\|actor.businessId" "$bf" || {
+        echo "CI-W4EB2-1 FAIL: $bf does not derive tenant from the session"; fail=1; }
+      if grep -nE "(body|payload)[a-zA-Z.]*\.businessId|searchParams\.get\(\"businessId\"\)" "$bf" >/dev/null; then
+        echo "CI-W4EB2-2 FAIL: $bf accepts a caller-supplied businessId"; fail=1
+      fi
+    done < <(find app/api/billing -name "route.ts" 2>/dev/null || true)
+  fi
+
+  # ── CI-W4EB2-3: no global Prisma on protected Billing tables ─────────────
+  W4EB2_MODELS="billingAuthorityConnection|billingAuthoritySubmission|billingPaymentAllocation|billingDocumentNumberSequence|billingAuditEvent|businessBot|billingDocumentLine|billingReceiptPayment"
+  if [ -d lib/services/billing ]; then
+    while IFS= read -r hit; do
+      case "$hit" in
+        *account-deletion*|*.test.ts*) : ;;
+        *) echo "CI-W4EB2-3 FAIL: global Prisma on a protected Billing table -> $hit"; fail=1 ;;
+      esac
+    done < <(grep -rnE "prisma\.($W4EB2_MODELS)\." --include="*.ts" lib app 2>/dev/null || true)
+  fi
+
+  # ── CI-W4EB2-4: no raw $transaction in the Billing layer ─────────────────
+  # billingTenantTx is the only sanctioned boundary; a bare transaction has no
+  # GUC and under FORCE RLS reads and writes nothing.
+  while IFS= read -r hit; do
+    case "$hit" in
+      *billing-tenant-tx.ts*|*.test.ts*) : ;;
+      *) echo "CI-W4EB2-4 FAIL: raw \$transaction in the Billing layer -> $hit"; fail=1 ;;
+    esac
+  done < <(grep -rn 'prisma\.\$transaction' --include="*.ts" lib/services/billing app/api/billing 2>/dev/null || true)
+
+  # ── CI-W4EB2-5: no provider/network call inside a Billing tenant tx ──────
+  for bf in lib/services/billing/*.ts lib/services/billing/*/*.ts; do
+    [ -f "$bf" ] || continue
+    case "$bf" in *.test.ts) continue ;; esac
+    if awk '/billingTenantTx\(/{d=1} d{print} /^[[:space:]]*\)[[:space:]]*;?[[:space:]]*$/{d=0}' "$bf" \
+       | grep -qE "fetch\(|exchangeAuthorityToken|refreshAuthorityToken|submitToAuthority"; then
+      echo "CI-W4EB2-5 FAIL: $bf makes a network call inside a tenant transaction"; fail=1
+    fi
+  done
+
+  # ── CI-W4EB2-6..12: every protected table keeps its policy ──────────────
+  W4EB2_MIG="prisma/migrations/20260831120000_d2_p7_w4eb2_billing_tenant_rls/migration.sql"
+  if [ -f "$W4EB2_MIG" ]; then
+    for t in BillingAuthorityConnection BillingAuthoritySubmission BillingPaymentAllocation BillingDocumentNumberSequence BillingAuditEvent BusinessBot; do
+      grep -q "CREATE POLICY p7w4eb2_tenant ON \"$t\"" "$W4EB2_MIG" || {
+        echo "CI-W4EB2-6 FAIL: $t lost its tenant policy"; fail=1; }
+    done
+    grep -q '"BillingDocumentLine"."billingDocumentId"' "$W4EB2_MIG" || {
+      echo "CI-W4EB2-8 FAIL: BillingDocumentLine lost its parent-join policy"; fail=1; }
+    grep -q '"BillingReceiptPayment"."billingDocumentId"' "$W4EB2_MIG" || {
+      echo "CI-W4EB2-9 FAIL: BillingReceiptPayment lost its parent-join policy"; fail=1; }
+
+    # ── CI-W4EB2-13: the numbering contract the proofs rely on ─────────────
+    grep -qF "@@unique([businessId, documentType])" prisma/schema.prisma || {
+      echo "CI-W4EB2-13 FAIL: the (businessId, documentType) numbering key changed"; fail=1; }
+
+    # ── CI-W4EB2-14/15: no duplicate prior-wave policy ────────────────────
+    if grep -qE 'POLICY [a-z0-9_]+ ON "BillingDocument"' "$W4EB2_MIG"; then
+      echo "CI-W4EB2-14 FAIL: duplicate policy on the pilot-protected BillingDocument"; fail=1
+    fi
+    if grep -qE 'POLICY [a-z0-9_]+ ON "BusinessBotSettings"' "$W4EB2_MIG"; then
+      echo "CI-W4EB2-15 FAIL: duplicate policy on the W4B-protected BusinessBotSettings"; fail=1
+    fi
+    # ── CI-W4EB2-17: BusinessFeatureAccess stays out of ordinary admin RLS ─
+    if grep -v "^--" "$W4EB2_MIG" | grep -q "BusinessFeatureAccess"; then
+      echo "CI-W4EB2-17 FAIL: BusinessFeatureAccess was pulled into the wave"; fail=1
+    fi
+  fi
+
+  # ── CI-W4EB2-16: BusinessBot has no pre-context (global) reader ─────────
+  while IFS= read -r hit; do
+    case "$hit" in
+      *.test.ts*) : ;;
+      *) echo "CI-W4EB2-16 FAIL: global BusinessBot access -> $hit"; fail=1 ;;
+    esac
+  done < <(grep -rn 'prisma\.businessBot\.' --include="*.ts" lib app 2>/dev/null || true)
+
+  # ── CI-W4EB2-18: no generic app_admin write anywhere in the wave ────────
+  for gf in scripts/security/d2-p7-w4eb2-grants.sql; do
+    [ -f "$gf" ] || continue
+    if grep -nE "GRANT [^;]*(INSERT|UPDATE|DELETE)[^;]* TO app_admin" "$gf" >/dev/null; then
+      echo "CI-W4EB2-18 FAIL: $gf grants a write to app_admin"; fail=1
+    fi
+    if grep -nE "GRANT ALL|BYPASSRLS|_prisma_migrations" "$gf" >/dev/null; then
+      echo "CI-W4EB2-18 FAIL: $gf contains a forbidden grant"; fail=1
+    fi
+  done
+
+
   if [ "$fail" -ne 0 ]; then
     echo "W4-CONTEXT-GUARD FAILED"
     return 1
   fi
-  echo "W4-CONTEXT-GUARD OK — CI-W4-1..5 + CI-W4B-1..3 + CI-W4C-1..3 + CI-W4D-1..5 + CI-W4E-1..10 + CI-W4EB1-1..5 clean."
+  echo "W4-CONTEXT-GUARD OK — CI-W4-1..5 + CI-W4B-1..3 + CI-W4C-1..3 + CI-W4D-1..5 + CI-W4E-1..10 + CI-W4EB1-1..5 + CI-W4EB2-1..18 clean."
 }
 
 self_test() {
@@ -438,6 +531,25 @@ TS
 const PURPOSE = "gmail-oauth-state";
 const KEY_DERIVATION_LABEL = "dubiz-gmail-oauth-state-v1";
 TS
+    mkdir -p "$T/app/api/billing/documents" "$T/prisma/migrations/20260831120000_d2_p7_w4eb2_billing_tenant_rls" "$T/scripts/security"
+    printf 'const b = user.businessId;
+' > "$T/app/api/billing/documents/route.ts"
+    cat > "$T/prisma/migrations/20260831120000_d2_p7_w4eb2_billing_tenant_rls/migration.sql" <<'SQL'
+CREATE POLICY p7w4eb2_tenant ON "BillingAuthorityConnection" USING (true);
+CREATE POLICY p7w4eb2_tenant ON "BillingAuthoritySubmission" USING (true);
+CREATE POLICY p7w4eb2_tenant ON "BillingPaymentAllocation" USING (true);
+CREATE POLICY p7w4eb2_tenant ON "BillingDocumentNumberSequence" USING (true);
+CREATE POLICY p7w4eb2_tenant ON "BillingAuditEvent" USING (true);
+CREATE POLICY p7w4eb2_tenant ON "BusinessBot" USING (true);
+x "BillingDocumentLine"."billingDocumentId" x
+x "BillingReceiptPayment"."billingDocumentId" x
+SQL
+    printf 'GRANT SELECT ON "BillingAuditEvent" TO :ROLE;
+' > "$T/scripts/security/d2-p7-w4eb2-grants.sql"
+    printf 'model BillingDocumentNumberSequence {
+  @@unique([businessId, documentType])
+}
+' >> "$T/prisma/schema.prisma"
     cat > "$T/lib/services/billing/authority/billing-authority-connection.service.ts" <<'TS'
 import { billingTenantTx } from "../billing-tenant-tx";
 return billingTenantTx(input.businessId, (tx) => markAuthorityConnectedTx(tx, input));
@@ -658,6 +770,67 @@ import { billingTenantTx } from "../billing-tenant-tx";
 return prisma.$transaction((tx) => markAuthorityConnectedTx(tx, input));
 TS
   check "CI-W4EB1-5 catches an authority write reverting to a global transaction" FAIL "$T32"
+
+  local T33="$BASE/v33"; make_clean_tree "$T33"
+  mkdir -p "$T33/app/api/billing/documents"
+  printf 'export async function GET(){ return null }\n' > "$T33/app/api/billing/documents/route.ts"
+  check "CI-W4EB2-1 catches a Billing route with no session tenant" FAIL "$T33"
+
+  local T34="$BASE/v34"; make_clean_tree "$T34"
+  mkdir -p "$T34/app/api/billing/documents"
+  printf 'const b = user.businessId;\nconst x = body.businessId;\n' > "$T34/app/api/billing/documents/route.ts"
+  check "CI-W4EB2-2 catches a caller-supplied businessId" FAIL "$T34"
+
+  local T35="$BASE/v35"; make_clean_tree "$T35"
+  printf 'const r = await prisma.billingAuditEvent.findMany({});\n' > "$T35/lib/services/billing/leak.ts"
+  check "CI-W4EB2-3 catches global Prisma on a protected Billing table" FAIL "$T35"
+
+  local T36="$BASE/v36"; make_clean_tree "$T36"
+  printf 'await prisma.$transaction(async (tx) => {});\n' > "$T36/lib/services/billing/rawtx.ts"
+  check "CI-W4EB2-4 catches a raw transaction in the Billing layer" FAIL "$T36"
+
+  local T37="$BASE/v37"; make_clean_tree "$T37"
+  printf 'await billingTenantTx(b, async (tx) => {\n  await fetch("https://ita.example");\n);\n' > "$T37/lib/services/billing/net.ts"
+  check "CI-W4EB2-5 catches a network call inside a tenant transaction" FAIL "$T37"
+
+  local T38="$BASE/v38"; make_clean_tree "$T38"
+  printf 'CREATE POLICY p7w4eb2_tenant ON "BillingAuthorityConnection" USING (true);\n' \
+    > "$T38/prisma/migrations/20260831120000_d2_p7_w4eb2_billing_tenant_rls/migration.sql"
+  check "CI-W4EB2-6 catches a dropped tenant policy" FAIL "$T38"
+
+  local T39="$BASE/v39"; make_clean_tree "$T39"
+  sed 's/"BillingDocumentLine"."billingDocumentId"/x/' \
+    "$T39/prisma/migrations/20260831120000_d2_p7_w4eb2_billing_tenant_rls/migration.sql" \
+    > "$T39/tmp.sql" && mv "$T39/tmp.sql" "$T39/prisma/migrations/20260831120000_d2_p7_w4eb2_billing_tenant_rls/migration.sql"
+  check "CI-W4EB2-8 catches a lost parent-join policy" FAIL "$T39"
+
+  local T40="$BASE/v40"; make_clean_tree "$T40"
+  printf 'model BillingDocumentNumberSequence {\n  @@unique([businessId, documentType, year])\n}\n' > "$T40/prisma/schema.prisma"
+  check "CI-W4EB2-13 catches a changed numbering key" FAIL "$T40"
+
+  local T41="$BASE/v41"; make_clean_tree "$T41"
+  printf 'CREATE POLICY dup ON "BillingDocument" USING (true);\n' \
+    >> "$T41/prisma/migrations/20260831120000_d2_p7_w4eb2_billing_tenant_rls/migration.sql"
+  check "CI-W4EB2-14 catches a duplicate BillingDocument policy" FAIL "$T41"
+
+  local T42="$BASE/v42"; make_clean_tree "$T42"
+  printf 'CREATE POLICY dup ON "BusinessBotSettings" USING (true);\n' \
+    >> "$T42/prisma/migrations/20260831120000_d2_p7_w4eb2_billing_tenant_rls/migration.sql"
+  check "CI-W4EB2-15 catches a duplicate BusinessBotSettings policy" FAIL "$T42"
+
+  local T43="$BASE/v43"; make_clean_tree "$T43"
+  printf 'const bot = await prisma.businessBot.findUnique({});\n' > "$T43/lib/services/billing/botleak.ts"
+  check "CI-W4EB2-16 catches a global BusinessBot read" FAIL "$T43"
+
+  local T44="$BASE/v44"; make_clean_tree "$T44"
+  printf 'ALTER TABLE "BusinessFeatureAccess" ENABLE ROW LEVEL SECURITY;\n' \
+    >> "$T44/prisma/migrations/20260831120000_d2_p7_w4eb2_billing_tenant_rls/migration.sql"
+  check "CI-W4EB2-17 catches BusinessFeatureAccess being pulled in" FAIL "$T44"
+
+  local T45="$BASE/v45"; make_clean_tree "$T45"
+  printf 'GRANT SELECT, INSERT ON "BillingAuditEvent" TO app_admin;\n' \
+    >> "$T45/scripts/security/d2-p7-w4eb2-grants.sql"
+  check "CI-W4EB2-18 catches a generic app_admin write grant" FAIL "$T45"
 
   echo "self-test: ok=$ok bad=$bad"
   [ "$bad" -eq 0 ]

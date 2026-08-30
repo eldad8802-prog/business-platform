@@ -56,7 +56,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: node --check .p7w4eb2/battery.mjs
 
-      - name: CI-W4E guards + negative self-proofs (blocking)
+      - name: CI-W4 + CI-W4EB2 guards + negative self-proofs (blocking)
         run: |
           bash scripts/ci/w4-context-guard.sh .
           bash scripts/ci/w4-context-guard.sh --self-test
