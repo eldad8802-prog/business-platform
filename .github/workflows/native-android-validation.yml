@@ -1,0 +1,101 @@
+name: native-android-validation
+
+# W7 Native Validation — Android (Adaptive+Native Spec v1 §13, §31).
+#
+# Manual, on-demand runtime proof for the Capacitor Android shell. This is the
+# gate that lets Native be marked CLOSED: it BUILDS the real APK and RUNS it on
+# an emulator, capturing screenshots of the running app (not a web browser at a
+# phone width). Until this workflow has a green run with attached artifacts,
+# Native stays OPEN by the owner's instruction.
+#
+# Why manual: it boots an emulator (~10 min, KVM runner) — it is a release gate,
+# not a per-PR check.
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: 'CAP_SERVER_URL for the WebView (production or a preview URL)'
+        required: true
+        default: 'https://promaxgroup.co.il'
+        type: string
+      api_level:
+        description: 'Android API level to validate (36 = the Play target)'
+        required: true
+        default: '36'
+        type: choice
+        options: ['36', '35', '34']
+
+permissions:
+  contents: read
+
+jobs:
+  android-runtime-proof:
+    # KVM-enabled runner — required for a usable emulator.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Enable KVM (hardware acceleration for the emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The native shell loads the app remotely (Spec v1 §15 — remote WebView,
+      # conditionally approved). No Next build is needed for the APK itself.
+      - name: Capacitor sync (with the target server URL)
+        env:
+          CAP_SERVER_URL: ${{ inputs.server_url }}
+        run: npx cap sync android
+
+      - name: Assemble debug APK
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Run the native validation battery on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          CAP_SERVER_URL: ${{ inputs.server_url }}
+        with:
+          api-level: ${{ inputs.api_level }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 4096M
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: bash scripts/native/android-validate.sh
+
+      - name: Upload runtime evidence (screenshots + logs + report)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-runtime-evidence-api${{ inputs.api_level }}
+          path: |
+            .native-evidence/**
+          if-no-files-found: warn
+          retention-days: 30

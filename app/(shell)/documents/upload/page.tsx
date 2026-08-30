@@ -1,4 +1,5 @@
 "use client";
+import { PageContainer } from "@/components/ui/page-container";
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -86,7 +87,7 @@ export default function DocumentsUploadPage() {
 
   return (
     <div dir="rtl" style={pageStyle}>
-      <main style={mainStyle}>
+      <PageContainer intent="focused" style={{ paddingBlock: "14px 40px" }}>
         <header style={headStyle}>
           <DocumentsBackButton onClick={() => router.push("/documents")} />
           <h1 style={titleStyle}>העלאת קובץ</h1>
@@ -191,7 +192,7 @@ export default function DocumentsUploadPage() {
             </div>
           </div>
         ) : null}
-      </main>
+      </PageContainer>
     </div>
   );
 }
@@ -220,12 +221,6 @@ const pageStyle = {
   color: TOKEN.ink.primary,
 } as const;
 
-const mainStyle = {
-  maxWidth: 760,
-  margin: "0 auto",
-  padding: "14px 14px 40px",
-  boxSizing: "border-box",
-} as const;
 
 const headStyle = {
   display: "grid",

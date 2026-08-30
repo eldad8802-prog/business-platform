@@ -1,4 +1,5 @@
 "use client";
+import { PageContainer } from "@/components/ui/page-container";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -71,7 +72,7 @@ export default function UniformExportPage() {
 
   return (
     <div dir="rtl" style={pageStyle}>
-      <main style={mainStyle}>
+      <PageContainer intent="focused" style={{ paddingBlock: "14px 40px" }}>
         <header style={headStyle}>
           <DocumentsBackButton onClick={() => router.push("/documents")} />
           <h1 style={titleStyle}>הפקת מבנה אחיד</h1>
@@ -119,7 +120,7 @@ export default function UniformExportPage() {
           <div style={successStyle}>הקבצים הופקו והורדו בהצלחה.</div>
         ) : null}
         {status === "error" ? <div style={errorStyle}>{error}</div> : null}
-      </main>
+      </PageContainer>
 
       <div style={bottomBarStyle}>
         <button
@@ -146,12 +147,6 @@ const pageStyle = {
   paddingBottom: 110,
 } as const;
 
-const mainStyle = {
-  maxWidth: 760,
-  margin: "0 auto",
-  padding: "14px 14px 40px",
-  boxSizing: "border-box",
-} as const;
 
 const headStyle = {
   display: "grid",
