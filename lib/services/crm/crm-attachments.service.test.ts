@@ -145,6 +145,47 @@ async function main() {
     const crossRes = await attPost(new NextRequest(`http://localhost/api/crm/subjects/CUSTOMER/${cust.id}/attachments`, { method: "POST", headers: { authorization: `Bearer ${tokenB}` }, body: (() => { const f = new FormData(); f.append("file", new File([PDF], "x.pdf", { type: "application/pdf" })); return f; })() }), params("CUSTOMER", String(cust.id)));
     assert.equal(crossRes.status, 404, "cross-tenant POST → 404 (no leak)");
 
+    // ===== SUBJECT-TYPE CONTRACT (regression: the enum reached Prisma raw) =====
+    // The route hands Prisma whatever the URL segment says. resolveCrmSubject
+    // parses it, but the query used to re-cast the *raw* input, so a caller
+    // using a different casing than the browser client got a Prisma 500 rather
+    // than a result or a clean 400. Both paths are locked here.
+    const attTokenA = signAuthToken(u1);
+    const attHdr = { authorization: `Bearer ${attTokenA}` };
+
+    const upper = await attGet(new NextRequest(`http://localhost/api/crm/subjects/CUSTOMER/${cust.id}/attachments`, { method: "GET", headers: attHdr }), params("CUSTOMER", String(cust.id)));
+    assert.equal(upper.status, 200, "GET CUSTOMER → 200");
+    const upperJson = await upper.json();
+
+    const lower = await attGet(new NextRequest(`http://localhost/api/crm/subjects/customer/${cust.id}/attachments`, { method: "GET", headers: attHdr }), params("customer", String(cust.id)));
+    assert.equal(lower.status, 200, "GET lowercase customer → 200, not a Prisma 500");
+    const lowerJson = await lower.json();
+    assert.deepEqual(
+      lowerJson.attachments.map((x: { id: number }) => x.id),
+      upperJson.attachments.map((x: { id: number }) => x.id),
+      "casing does not change the result set"
+    );
+
+    const suppUpper = await attGet(new NextRequest(`http://localhost/api/crm/subjects/SUPPLIER/${supp.id}/attachments`, { method: "GET", headers: attHdr }), params("SUPPLIER", String(supp.id)));
+    assert.equal(suppUpper.status, 200, "GET SUPPLIER → 200");
+    const suppLower = await attGet(new NextRequest(`http://localhost/api/crm/subjects/supplier/${supp.id}/attachments`, { method: "GET", headers: attHdr }), params("supplier", String(supp.id)));
+    assert.equal(suppLower.status, 200, "GET lowercase supplier → 200");
+    assert.equal((await suppLower.json()).attachments.length, (await suppUpper.json()).attachments.length, "supplier casing parity");
+
+    // A subject type that is not in the enum must be a client error, never a 500.
+    const bogus = await attGet(new NextRequest(`http://localhost/api/crm/subjects/VENDOR/${cust.id}/attachments`, { method: "GET", headers: attHdr }), params("VENDOR", String(cust.id)));
+    assert.equal(bogus.status, 400, "unknown subjectType → 400, not 500");
+
+    // Normalizing must not widen the tenant boundary.
+    const crossLower = await attGet(new NextRequest(`http://localhost/api/crm/subjects/customer/${cust.id}/attachments`, { method: "GET", headers: { authorization: `Bearer ${signAuthToken(u3)}` } }), params("customer", String(cust.id)));
+    assert.equal(crossLower.status, 404, "cross-tenant lowercase GET → 404 (isolation held)");
+
+    // Count is a read-model helper with no resolver pass — it parses for itself.
+    const cUp = await crmAttachmentsService.countAttachments({ businessId: a.businessId, subjectType: "CUSTOMER", subjectId: cust.id });
+    const cLow = await crmAttachmentsService.countAttachments({ businessId: a.businessId, subjectType: "customer", subjectId: cust.id });
+    assert.equal(cLow, cUp, "countAttachments casing parity");
+    await assert.rejects(() => crmAttachmentsService.countAttachments({ businessId: a.businessId, subjectType: "VENDOR", subjectId: cust.id }), ValidationError, "countAttachments rejects unknown subjectType");
+
     console.log("crm-attachments.service.test.ts: ok");
   } finally {
     await prisma.crmAttachment.deleteMany({ where: { businessId: { in: [a.businessId, b.businessId] } } });
