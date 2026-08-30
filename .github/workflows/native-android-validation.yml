@@ -96,6 +96,6 @@ jobs:
         with:
           name: android-runtime-evidence-api${{ inputs.api_level }}
           path: |
-            .native-evidence/**
+            native-evidence/**
           if-no-files-found: warn
           retention-days: 30

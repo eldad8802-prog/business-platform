@@ -3,7 +3,7 @@
 #
 # Runs INSIDE a booted emulator (CI) or against an attached device (local).
 # Installs the debug APK, exercises the runtime contract, and writes evidence
-# to .native-evidence/ — screenshots of the RUNNING APP plus a checks report.
+# to native-evidence/ — screenshots of the RUNNING APP plus a checks report.
 #
 # Local use:  scripts/native/android-validate.sh      (device/emulator attached)
 #
@@ -12,7 +12,7 @@
 # (login screen) unless an operator has already signed in on the device.
 set -uo pipefail
 
-OUT=".native-evidence"
+OUT="native-evidence"
 APK="android/app/build/outputs/apk/debug/app-debug.apk"
 PKG="co.il.promaxgroup.dubiz"
 FAILED=0
