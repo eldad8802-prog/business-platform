@@ -16,6 +16,7 @@ import type {
   ListPaymentRequestsOptions,
   PaymentRequestStatus,
 } from "@/lib/services/payments/payments.types";
+import { runWithTenantContext } from "@/lib/tenant/context";
 
 export const runtime = "nodejs";
 
@@ -63,25 +64,29 @@ export async function POST(req: NextRequest) {
       throw new ValidationError("amount is required");
     }
 
-    const result = await createPaymentRequest(
-      {
-        businessId: actor.businessId,
-        actorUserId: actor.userId,
-        amount: body.amount as string | number,
-        currency: typeof body.currency === "string" ? body.currency : undefined,
-        description:
-          typeof body.description === "string" ? body.description : null,
-        customerId: asOptionalPositiveInt(body.customerId, "customerId"),
-        billingDocumentId: asOptionalPositiveInt(
-          body.billingDocumentId,
-          "billingDocumentId"
-        ),
-        expiresAt:
-          typeof body.expiresAt === "string" && body.expiresAt
-            ? new Date(body.expiresAt)
-            : null,
-      },
-      paymentRequestDeps()
+    const result = await await runWithTenantContext(
+      { businessId: actor.businessId },
+      () =>
+        createPaymentRequest(
+          {
+            businessId: actor.businessId,
+            actorUserId: actor.userId,
+            amount: body.amount as string | number,
+            currency: typeof body.currency === "string" ? body.currency : undefined,
+            description:
+              typeof body.description === "string" ? body.description : null,
+            customerId: asOptionalPositiveInt(body.customerId, "customerId"),
+            billingDocumentId: asOptionalPositiveInt(
+              body.billingDocumentId,
+              "billingDocumentId"
+            ),
+            expiresAt:
+              typeof body.expiresAt === "string" && body.expiresAt
+                ? new Date(body.expiresAt)
+                : null,
+          },
+          paymentRequestDeps()
+        )
     );
 
     return NextResponse.json(toPaymentRequestApi(result.paymentRequest), {
@@ -121,9 +126,13 @@ export async function GET(req: NextRequest) {
       limit,
     };
 
-    const records = await paymentRequestDeps().store.listPaymentRequests(
-      actor.businessId,
-      options
+    const records = await runWithTenantContext(
+      { businessId: actor.businessId },
+      () =>
+        paymentRequestDeps().store.listPaymentRequests(
+          actor.businessId,
+          options
+        )
     );
 
     return NextResponse.json(

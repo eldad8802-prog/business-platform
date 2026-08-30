@@ -22,6 +22,7 @@ import type {
   PaymentTransactionRecord,
   PaymentWebhookEventRecord,
   UpsertConnectionRow,
+  UpsertProviderRoutingRow,
   WebhookEventPatch,
 } from "./payments.types";
 
@@ -42,6 +43,7 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
   const requests: PaymentRequestRecord[] = [];
   const transactions: PaymentTransactionRecord[] = [];
   const webhookEvents: PaymentWebhookEventRecord[] = [];
+  const routing: UpsertProviderRoutingRow[] = [];
   const auditEvents: PaymentAuditEventRecord[] = [];
 
   let connectionSeq = 0;
@@ -156,6 +158,17 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
     async findPaymentRequestById(id: number) {
       const record = requests.find((r) => r.id === id);
       return record ? { ...record } : null;
+    },
+
+    // D2/P7-W4E — the in-memory fake keeps the same routing contract as the
+    // Prisma store so the pure unit tests exercise the real code path. The
+    // routing table is the only thing a session-less callback may consult.
+    async upsertProviderRouting(row) {
+      const existing = routing.findIndex(
+        (r) => r.paymentRequestId === row.paymentRequestId
+      );
+      if (existing >= 0) routing[existing] = { ...row };
+      else routing.push({ ...row });
     },
 
     async findPaymentRequestByProviderRequestId(provider, providerRequestId) {

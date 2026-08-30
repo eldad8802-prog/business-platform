@@ -10,6 +10,7 @@ import {
   listPaymentConnections,
 } from "@/lib/services/payments/payment-connection.service";
 import { paymentConnectionDeps } from "@/lib/services/payments/payments.deps";
+import { runWithTenantContext } from "@/lib/tenant/context";
 
 export const runtime = "nodejs";
 
@@ -19,9 +20,13 @@ export async function GET(req: NextRequest) {
     const user = await getCurrentUser(req);
     const actor = authorizePaymentAction(user, PAYMENT_ACTIONS.CONNECT_PROVIDER);
 
-    const connections = await listPaymentConnections(
-      actor.businessId,
-      paymentConnectionDeps()
+    const connections = await await runWithTenantContext(
+      { businessId: actor.businessId },
+      () =>
+        listPaymentConnections(
+          actor.businessId,
+          paymentConnectionDeps()
+        )
     );
 
     return NextResponse.json({ connections }, { status: 200 });
@@ -51,15 +56,19 @@ export async function POST(req: NextRequest) {
       body = {};
     }
 
-    const connection = await connectProviderFromDescriptor(
-      {
-        businessId: actor.businessId,
-        actorUserId: actor.userId,
-        provider: typeof body.provider === "string" ? body.provider : "",
-        fields: body,
-        isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
-      },
-      paymentConnectionDeps()
+    const connection = await await runWithTenantContext(
+      { businessId: actor.businessId },
+      () =>
+        connectProviderFromDescriptor(
+          {
+            businessId: actor.businessId,
+            actorUserId: actor.userId,
+            provider: typeof body.provider === "string" ? body.provider : "",
+            fields: body,
+            isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
+          },
+          paymentConnectionDeps()
+        )
     );
 
     return NextResponse.json({ connection }, { status: 200 });

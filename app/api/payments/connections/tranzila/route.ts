@@ -7,6 +7,7 @@ import {
 } from "@/lib/services/payments/payment-authorization";
 import { connectProviderFromDescriptor } from "@/lib/services/payments/payment-connection.service";
 import { paymentConnectionDeps } from "@/lib/services/payments/payments.deps";
+import { runWithTenantContext } from "@/lib/tenant/context";
 
 export const runtime = "nodejs";
 
@@ -31,15 +32,19 @@ export async function POST(req: NextRequest) {
       body = {};
     }
 
-    const connection = await connectProviderFromDescriptor(
-      {
-        businessId: actor.businessId,
-        actorUserId: actor.userId,
-        provider: "TRANZILA",
-        fields: { merchantId: body.merchantId, secret: body.credential },
-        isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
-      },
-      paymentConnectionDeps()
+    const connection = await await runWithTenantContext(
+      { businessId: actor.businessId },
+      () =>
+        connectProviderFromDescriptor(
+          {
+            businessId: actor.businessId,
+            actorUserId: actor.userId,
+            provider: "TRANZILA",
+            fields: { merchantId: body.merchantId, secret: body.credential },
+            isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
+          },
+          paymentConnectionDeps()
+        )
     );
 
     return NextResponse.json({ connection }, { status: 200 });

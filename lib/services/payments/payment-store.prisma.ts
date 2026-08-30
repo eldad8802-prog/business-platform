@@ -8,6 +8,8 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getTenantContext, runWithTenantContext } from "@/lib/tenant/context";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import type {
   AppendPaymentAuditEventRow,
   CreatePaymentRequestRow,
@@ -181,18 +183,40 @@ function toJsonInput(value: unknown): Prisma.InputJsonValue {
   return (value ?? null) as Prisma.InputJsonValue;
 }
 
+// D2/P7-W4E: every tenant-owned payment table is FORCE-RLS'd, so each DB step
+// runs on a short tenant transaction whenever a tenant context is established.
+// Outside a context the step runs directly — that path exists ONLY for pure
+// unit tests; there is NO global fallback under an established context.
+async function dbStep<T>(fn: (db: typeof prisma) => Promise<T>): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    return withTenantTransaction((tx) => fn(tx as unknown as typeof prisma));
+  }
+  return fn(prisma);
+}
+
+// Explicit BOOTSTRAP boundary. These operations run before any tenant is known
+// (a provider callback names only its own ids) and touch only tables that are
+// deliberately outside tenant RLS: PaymentWebhookEvent (no businessId, DB-level
+// idempotent on (provider, providerEventId)) and PaymentProviderRouting
+// (routing columns only). Keeping them in a separate, named helper is what
+// makes "no global fallback" auditable — CI-W4E-2 asserts that no OTHER call
+// in this file reaches the global client.
+function bootstrapStep<T>(fn: (db: typeof prisma) => Promise<T>): Promise<T> {
+  return fn(prisma);
+}
+
 export function createPaymentPrismaStore(): PaymentStore {
   return {
     async findActiveConnection(businessId, provider) {
-      const row = await prisma.businessPaymentConnection.findUnique({
+      const row = await dbStep((db) => db.businessPaymentConnection.findUnique({
         where: { businessId_provider: { businessId, provider } },
-      });
+      }));
       if (!row || !row.isActive) return null;
       return toConnectionRecord(row);
     },
 
     async upsertConnection(row: UpsertConnectionRow) {
-      const saved = await prisma.businessPaymentConnection.upsert({
+      const saved = await dbStep((db) => db.businessPaymentConnection.upsert({
         where: {
           businessId_provider: {
             businessId: row.businessId,
@@ -217,20 +241,20 @@ export function createPaymentPrismaStore(): PaymentStore {
           encryptionKeyId: row.encryptionKeyId,
           isActive: row.isActive,
         },
-      });
+      }));
       return toConnectionRecord(saved);
     },
 
     async listConnections(businessId: number) {
-      const rows = await prisma.businessPaymentConnection.findMany({
+      const rows = await dbStep((db) => db.businessPaymentConnection.findMany({
         where: { businessId },
         orderBy: { id: "asc" },
-      });
+      }));
       return rows.map(toConnectionRecord);
     },
 
     async createPaymentRequest(row: CreatePaymentRequestRow) {
-      const created = await prisma.paymentRequest.create({
+      const created = await dbStep((db) => db.paymentRequest.create({
         data: {
           businessId: row.businessId,
           customerId: row.customerId,
@@ -242,12 +266,12 @@ export function createPaymentPrismaStore(): PaymentStore {
           status: row.status,
           expiresAt: row.expiresAt,
         },
-      });
+      }));
       return toRequestRecord(created);
     },
 
     async updatePaymentRequest(id: number, patch: PaymentRequestPatch) {
-      const updated = await prisma.paymentRequest.update({
+      const updated = await dbStep((db) => db.paymentRequest.update({
         where: { id },
         data: {
           status: patch.status,
@@ -256,28 +280,77 @@ export function createPaymentPrismaStore(): PaymentStore {
           expiresAt: patch.expiresAt,
           paidAt: patch.paidAt,
         },
-      });
+      }));
       return toRequestRecord(updated);
     },
 
     async findPaymentRequestById(id: number) {
-      const row = await prisma.paymentRequest.findUnique({ where: { id } });
+      const row = await dbStep((db) => db.paymentRequest.findUnique({ where: { id } }));
       return row ? toRequestRecord(row) : null;
     },
 
+    // D2/P7-W4E — the ONLY tenant-resolution step, and what the whole
+    // provider-callback trust model rests on. It runs pre-context by
+    // construction: a webhook names its own (provider, providerRequestId) and
+    // nothing else. PaymentRequest is FORCE-RLS'd, so this reads in TWO stages:
+    //   1. BOOTSTRAP: the routing index (routing columns only) yields businessId.
+    //   2. TENANT: the full request is then read under that derived context, so
+    //      the row itself still comes back from an RLS-enforced query.
+    // The payload never nominates the tenant; the routing row was written by
+    // the owner-authenticated creation flow.
     async findPaymentRequestByProviderRequestId(provider, providerRequestId) {
-      const row = await prisma.paymentRequest.findFirst({
-        where: { provider, providerRequestId },
-        orderBy: { id: "desc" },
-      });
+      const route = await bootstrapStep((db) =>
+        db.paymentProviderRouting.findUnique({
+          where: {
+            provider_providerRequestId: { provider, providerRequestId },
+          },
+          select: { paymentRequestId: true, businessId: true },
+        })
+      );
+      if (!route) return null;
+      const row = await runWithTenantContext(
+        { businessId: route.businessId },
+        () =>
+          withTenantTransaction((tx) =>
+            tx.paymentRequest.findFirst({
+              where: {
+                id: route.paymentRequestId,
+                businessId: route.businessId,
+              },
+            })
+          )
+      );
       return row ? toRequestRecord(row) : null;
+    },
+
+    // Routing rows are written by the owner-authenticated creation flow that
+    // also stores providerRequestId. Idempotent on paymentRequestId so a
+    // retried link creation cannot fork a request's routing, and unique on
+    // (provider, providerRequestId) so two tenants can never claim the same
+    // provider reference.
+    async upsertProviderRouting(row) {
+      await bootstrapStep((db) =>
+        db.paymentProviderRouting.upsert({
+          where: { paymentRequestId: row.paymentRequestId },
+          create: {
+            provider: row.provider,
+            providerRequestId: row.providerRequestId,
+            paymentRequestId: row.paymentRequestId,
+            businessId: row.businessId,
+          },
+          update: {
+            provider: row.provider,
+            providerRequestId: row.providerRequestId,
+          },
+        })
+      );
     },
 
     async listPaymentRequests(
       businessId: number,
       options?: ListPaymentRequestsOptions
     ) {
-      const rows = await prisma.paymentRequest.findMany({
+      const rows = await dbStep((db) => db.paymentRequest.findMany({
         where: {
           businessId,
           ...(options?.status ? { status: options.status } : {}),
@@ -290,25 +363,25 @@ export function createPaymentPrismaStore(): PaymentStore {
         },
         orderBy: { createdAt: "desc" },
         take: options?.limit ?? 100,
-      });
+      }));
       return rows.map(toRequestRecord);
     },
 
     async listPaymentRequestsByStatuses(businessId, statuses, options) {
-      const rows = await prisma.paymentRequest.findMany({
+      const rows = await dbStep((db) => db.paymentRequest.findMany({
         where: { businessId, status: { in: statuses } },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: options?.limit ?? 500,
-      });
+      }));
       return rows.map(toRequestRecord);
     },
 
     async sumPaidBetween(businessId, from, to) {
-      const agg = await prisma.paymentRequest.aggregate({
+      const agg = await dbStep((db) => db.paymentRequest.aggregate({
         where: { businessId, status: "PAID", paidAt: { gte: from, lt: to } },
         _sum: { amount: true },
         _count: { _all: true },
-      });
+      }));
       return {
         amount: (agg._sum.amount ?? new Prisma.Decimal(0)).toString(),
         count: agg._count._all,
@@ -316,7 +389,7 @@ export function createPaymentPrismaStore(): PaymentStore {
     },
 
     async createTransaction(row: CreateTransactionRow) {
-      const created = await prisma.paymentTransaction.create({
+      const created = await dbStep((db) => db.paymentTransaction.create({
         data: {
           paymentRequestId: row.paymentRequestId,
           provider: row.provider,
@@ -326,7 +399,7 @@ export function createPaymentPrismaStore(): PaymentStore {
           status: row.status,
           rawPayload: toJsonInput(row.rawPayload),
         },
-      });
+      }));
       return toTransactionRecord(created);
     },
 
@@ -334,24 +407,24 @@ export function createPaymentPrismaStore(): PaymentStore {
       provider,
       providerTransactionId
     ) {
-      const row = await prisma.paymentTransaction.findFirst({
+      const row = await dbStep((db) => db.paymentTransaction.findFirst({
         where: { provider, providerTransactionId },
         orderBy: { id: "desc" },
-      });
+      }));
       return row ? toTransactionRecord(row) : null;
     },
 
     async listTransactionsByRequest(paymentRequestId: number) {
-      const rows = await prisma.paymentTransaction.findMany({
+      const rows = await dbStep((db) => db.paymentTransaction.findMany({
         where: { paymentRequestId },
         orderBy: { id: "asc" },
-      });
+      }));
       return rows.map(toTransactionRecord);
     },
 
     async insertWebhookEventIfNew(row: InsertWebhookEventRow) {
       try {
-        const created = await prisma.paymentWebhookEvent.create({
+        const created = await bootstrapStep((db) => db.paymentWebhookEvent.create({
           data: {
             provider: row.provider,
             eventType: row.eventType,
@@ -359,7 +432,7 @@ export function createPaymentPrismaStore(): PaymentStore {
             payload: toJsonInput(row.payload),
             processingStatus: "RECEIVED",
           },
-        });
+        }));
         return { created: true, event: toWebhookRecord(created) };
       } catch (error) {
         // Unique (provider, providerEventId) violation => already ingested.
@@ -368,13 +441,13 @@ export function createPaymentPrismaStore(): PaymentStore {
           error.code === "P2002" &&
           row.providerEventId != null
         ) {
-          const existing = await prisma.paymentWebhookEvent.findFirst({
+          const existing = await bootstrapStep((db) => db.paymentWebhookEvent.findFirst({
             where: {
               provider: row.provider,
               providerEventId: row.providerEventId,
             },
             orderBy: { id: "asc" },
-          });
+          }));
           if (existing) {
             return { created: false, event: toWebhookRecord(existing) };
           }
@@ -384,19 +457,19 @@ export function createPaymentPrismaStore(): PaymentStore {
     },
 
     async updateWebhookEvent(id: number, patch: WebhookEventPatch) {
-      const updated = await prisma.paymentWebhookEvent.update({
+      const updated = await bootstrapStep((db) => db.paymentWebhookEvent.update({
         where: { id },
         data: {
           processingStatus: patch.processingStatus,
           processedAt: patch.processedAt,
           error: patch.error,
         },
-      });
+      }));
       return toWebhookRecord(updated);
     },
 
     async appendAuditEvent(row: AppendPaymentAuditEventRow) {
-      const created = await prisma.paymentAuditEvent.create({
+      const created = await dbStep((db) => db.paymentAuditEvent.create({
         data: {
           businessId: row.businessId,
           paymentRequestId: row.paymentRequestId,
@@ -411,7 +484,7 @@ export function createPaymentPrismaStore(): PaymentStore {
           eventHash: row.eventHash,
           occurredAt: row.occurredAt,
         },
-      });
+      }));
       return toAuditRecord(created);
     },
 
@@ -419,7 +492,7 @@ export function createPaymentPrismaStore(): PaymentStore {
       businessId: number,
       options?: ListPaymentAuditEventsOptions
     ) {
-      const rows = await prisma.paymentAuditEvent.findMany({
+      const rows = await dbStep((db) => db.paymentAuditEvent.findMany({
         where: {
           businessId,
           ...(options?.paymentRequestId != null
@@ -429,7 +502,7 @@ export function createPaymentPrismaStore(): PaymentStore {
         },
         orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
         take: options?.limit ?? 100,
-      });
+      }));
       return rows.map(toAuditRecord);
     },
   };

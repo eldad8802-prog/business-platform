@@ -2769,6 +2769,28 @@ model PaymentTransaction {
   @@index([provider, providerTransactionId])
 }
 
+/// Provider -> tenant ROUTING INDEX. Deliberately a BOOTSTRAP surface with no
+/// tenant RLS (see docs/security-d2-provider-bootstrap-allowlist-v1.md).
+///
+/// A provider callback arrives with no session and no tenant; all it can name
+/// is its own (provider, providerRequestId). PaymentRequest is FORCE-RLS'd, so
+/// a pre-context lookup there returns zero rows and the callback could never
+/// resolve which business it belongs to. This table is the minimum surface
+/// that closes that gap: routing columns ONLY — no amount, no customer, no
+/// description, no payload, nothing a leak could turn into business data.
+/// Written inside the same tenant transaction that stores providerRequestId.
+model PaymentProviderRouting {
+  id                Int             @id @default(autoincrement())
+  provider          PaymentProvider
+  providerRequestId String
+  paymentRequestId  Int             @unique
+  businessId        Int
+  createdAt         DateTime        @default(now())
+
+  @@unique([provider, providerRequestId])
+  @@index([businessId])
+}
+
 model PaymentWebhookEvent {
   id               Int                            @id @default(autoincrement())
   provider         PaymentProvider

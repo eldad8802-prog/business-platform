@@ -9,6 +9,7 @@ import {
 import { getPaymentRequestDetail } from "@/lib/services/payments/payment-ledger.service";
 import { toPaymentRequestDetailApi } from "@/lib/services/payments/payment-api.serializer";
 import { paymentRequestDeps } from "@/lib/services/payments/payments.deps";
+import { runWithTenantContext } from "@/lib/tenant/context";
 
 export const runtime = "nodejs";
 
@@ -37,10 +38,14 @@ export async function GET(
     const { id } = await context.params;
     const requestId = parsePaymentRequestId(id);
 
-    const detail = await getPaymentRequestDetail(paymentRequestDeps().store, {
-      businessId: actor.businessId,
-      requestId,
-    });
+    const detail = await await runWithTenantContext(
+      { businessId: actor.businessId },
+      () =>
+        getPaymentRequestDetail(paymentRequestDeps().store, {
+          businessId: actor.businessId,
+          requestId,
+        })
+    );
 
     return NextResponse.json(toPaymentRequestDetailApi(detail), { status: 200 });
   } catch (error) {
