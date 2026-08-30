@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import "../customers/crm.css";
 import { CRM_THEME_CSS } from "@/lib/design/crm-theme";
 import { SuppliersWorkspace } from "@/components/suppliers/SuppliersWorkspace";
+import type { PageSurfaceIntent } from "@/lib/design/tokens";
 
 /**
  * Supplier CRM surface — now a real Master–Detail workspace (Spec v1 §23,
@@ -14,9 +15,14 @@ import { SuppliersWorkspace } from "@/components/suppliers/SuppliersWorkspace";
  */
 export const metadata: Metadata = { title: "ספקים" };
 
+// Bound to the declared vocabulary so an ad-hoc intent string cannot creep
+// in here: these surfaces declare their intent directly (WorkspaceLayout owns
+// the pane geometry, so there is no single column for PageContainer to cap).
+const SURFACE_INTENT: PageSurfaceIntent = "workspace";
+
 export default function SuppliersLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="crm-scope" dir="rtl">
+    <div className="crm-scope" dir="rtl" data-page-intent={SURFACE_INTENT}>
       <style dangerouslySetInnerHTML={{ __html: CRM_THEME_CSS }} />
       <SuppliersWorkspace>{children}</SuppliersWorkspace>
     </div>

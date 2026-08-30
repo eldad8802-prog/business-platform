@@ -23,7 +23,7 @@ import MonthSection from "./MonthSection";
 /**
  * Artifact C — single authoritative responsive boundary for the inbox surfaces.
  * Base (below 1024) shows the existing mobile cards; at/above 1024 (the shell's
- * desktop/sidebar tier, matching MasterDetailLayout's twoPaneMinWidth) the dense
+ * desktop/sidebar tier, the same step the workspace primitives use) the dense
  * review table shows instead. One `min-width` boundary, no `max-width` arm → no
  * fractional dead zone (Artifact B lesson). No JS viewport detection.
  */

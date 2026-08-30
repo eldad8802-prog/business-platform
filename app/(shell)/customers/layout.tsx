@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import "./crm.css";
 import { CRM_THEME_CSS } from "@/lib/design/crm-theme";
-import { LAYOUT } from "@/lib/design/tokens";
+import { LAYOUT, type PageSurfaceIntent } from "@/lib/design/tokens";
 import { WorkspaceLayout } from "@/components/ui/workspace-layout";
 import { CustomersList } from "@/components/customers/CustomersList";
 
@@ -27,13 +27,18 @@ import { CustomersList } from "@/components/customers/CustomersList";
 // Keep the `.crm-hd__back` media query in crm.css in sync with this value.
 const TWO_PANE_MIN = LAYOUT.bp.wide;
 
+// Bound to the declared vocabulary so an ad-hoc intent string cannot creep
+// in here: these surfaces declare their intent directly (WorkspaceLayout owns
+// the pane geometry, so there is no single column for PageContainer to cap).
+const SURFACE_INTENT: PageSurfaceIntent = "workspace";
+
 export default function CustomersLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "/customers";
   const match = pathname.match(/^\/customers\/(\d+)(?:\/|$)/);
   const selectedId = match ? match[1] : null;
 
   return (
-    <div className="crm-scope" dir="rtl">
+    <div className="crm-scope" dir="rtl" data-page-intent={SURFACE_INTENT}>
       <style dangerouslySetInnerHTML={{ __html: CRM_THEME_CSS }} />
       <WorkspaceLayout
         start={<CustomersList selectedId={selectedId} />}
