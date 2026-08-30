@@ -37,6 +37,7 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   { key: "chats", label: "שיחות", href: "/inbox", icon: IconChat, primary: true },
   { key: "docs", label: "מסמכים", href: "/documents", icon: IconDocs, primary: true },
   { key: "inventory", label: "מלאי", href: "/inventory", icon: IconInventory, primary: true },
+  { key: "leads", label: "לידים", href: "/leads", icon: IconLeads },
   { key: "customers", label: "לקוחות", href: "/customers", icon: IconCustomers },
   { key: "payments", label: "גבייה", href: "/payments", icon: IconPayments },
   { key: "billing", label: "חשבוניות", href: "/billing", icon: IconInvoice },
@@ -84,6 +85,15 @@ function IconInventory({ active }: { active: boolean }) {
   return (
     <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
       <path d="M21 8 12 3 3 8v8l9 5 9-5V8zM3 8l9 5 9-5M12 13v8" stroke="currentColor" strokeWidth={w} strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconLeads({ active }: { active: boolean }) {
+  const w = active ? 2.05 : 1.8;
+  return (
+    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M4 6h16M6.5 12h11M9.5 18h5" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
     </svg>
   );
 }
