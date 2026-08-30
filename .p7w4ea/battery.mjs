@@ -414,6 +414,31 @@ async function main() {
   ok("generic handler: unknown routing fails safely with zero business mutation",
     genericRes.ok === false && genericRes.reason === "no_matching_payment_request");
 
+  // §7 — P2002 must be interpreted ONLY as the settlement duplicate. A store
+  // whose createTransaction throws an UNRELATED unique violation must surface
+  // it, not have it silently reported as a benign duplicate callback.
+  const rP = await mkReq(bizA.id, "CARDCOM", "p2002");
+  const poisonedDeps = {
+    ...deps("CARDCOM"),
+    store: {
+      ...store,
+      createTransaction: async () => {
+        const e = new Error("Unique constraint failed on the fields: (`someOtherField`)");
+        e.code = "P2002";
+        e.meta = { target: ["someOtherField"] };
+        throw e;
+      },
+    },
+  };
+  let unrelatedSurfaced = false;
+  try {
+    await processPaymentWebhook(
+      { provider: "CARDCOM", rawBody: "{}", parsedBody: { eventId: `${MARK}p2002`, providerRequestId: rP.providerRequestId, outcome: "PAID" }, headers: {} },
+      poisonedDeps
+    );
+  } catch { unrelatedSurfaced = true; }
+  ok("P2002 on an UNRELATED constraint is not swallowed as a duplicate", unrelatedSurfaced);
+
   // ── Phase 10: corrupted routing (adversarial) ───────────────────────────
   console.log("--- corrupted routing ---");
   const snapshot = async () => ({

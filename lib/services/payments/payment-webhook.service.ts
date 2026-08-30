@@ -390,10 +390,22 @@ export async function processPaymentWebhook(
         rawPayload: input.parsedBody ?? input.rawBody,
       });
     } catch (error) {
-      const isDuplicate =
-        typeof error === "object" && error !== null &&
-        (error as { code?: string }).code === "P2002";
-      if (!isDuplicate) throw error;
+      // P2002 alone is not enough: swallowing ANY unique violation here would
+      // hide an unrelated constraint failure as a benign duplicate. Only the
+      // settlement-idempotency constraint may be interpreted as "another
+      // callback already recorded this transaction" — Prisma names the
+      // offending target on the error, so the check is against that.
+      const err = error as { code?: string; meta?: { target?: unknown } };
+      const target = Array.isArray(err?.meta?.target)
+        ? (err.meta.target as unknown[]).map(String)
+        : typeof err?.meta?.target === "string"
+          ? [err.meta.target]
+          : [];
+      const isSettlementDuplicate =
+        err?.code === "P2002" &&
+        (target.includes("providerTransactionId") ||
+          target.some((t) => t.includes("provider_providerTransactionId")));
+      if (!isSettlementDuplicate) throw error;
       await deps.store.updateWebhookEvent(event.id, {
         processingStatus: "PROCESSED",
         processedAt: now(),
