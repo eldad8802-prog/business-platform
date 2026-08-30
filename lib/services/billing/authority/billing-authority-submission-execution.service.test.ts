@@ -88,7 +88,10 @@ function makeDeps(cfg: Cfg): { deps: SubmissionExecutionDeps; spies: Spies } {
     requestApproval: async () => { spies.approve += 1; return approvals[Math.min(spies.approve - 1, approvals.length - 1)]; },
     hashPayload: () => "HASH",
     now: () => new Date("2026-06-15T10:00:00.000Z"),
-    runInTransaction: (fn) => fn({} as never),
+    // W4E-B-2: the port now carries the trusted tenant, so the double takes
+    // (businessId, fn) — the businessId is unused here because there is no DB.
+    runInTransaction: (_businessId: number, fn: (tx: never) => unknown) =>
+      fn({} as never),
     recordAttempt: async () => { spies.recordAttempt += 1; if (cfg.attemptThrows) throw cfg.attemptThrows; return { submission: { id: 55 } }; },
     recordApproved: async () => { spies.recordApproved += 1; return {}; },
     recordRejected: async () => { spies.recordRejected += 1; return {}; },
