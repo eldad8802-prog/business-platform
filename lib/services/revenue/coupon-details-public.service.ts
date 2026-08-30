@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { NotFoundError, ValidationError } from "@/lib/errors";
+import { assertCouponPublicId } from "@/lib/services/revenue/coupon-public-id";
+import { NotFoundError } from "@/lib/errors";
 
 export type PublicCouponDetailsDTO = {
   coupon: {
@@ -93,12 +94,10 @@ export function toPublicCouponDetailsDTO(
 export async function getPublicCouponDetails(
   publicId: string
 ): Promise<PublicCouponDetailsDTO> {
-  if (!publicId || typeof publicId !== "string") {
-    throw new ValidationError("Invalid coupon id");
-  }
+  const id = assertCouponPublicId(publicId);
 
   const coupon = await prisma.coupon.findUnique({
-    where: { publicId },
+    where: { publicId: id },
     select: {
       publicId: true,
       status: true,
