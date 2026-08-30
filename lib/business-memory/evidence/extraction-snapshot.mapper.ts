@@ -10,7 +10,6 @@
  * (default binds Prisma), same pattern as the owner-decision reader. INERT: no product consumer.
  */
 import { prisma } from "@/lib/prisma";
-import type { Prisma } from "@prisma/client";
 import { getTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 

@@ -10,7 +10,6 @@
  * writer, no Claim, no confidence, no policy, no VendorLearning coupling, no RIA/C1 activation.
  */
 import { prisma } from "@/lib/prisma";
-import type { Prisma } from "@prisma/client";
 import { getTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 
