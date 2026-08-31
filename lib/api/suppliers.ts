@@ -1,4 +1,8 @@
 import { buildClientAuthHeaders } from "@/lib/client-session";
+import type {
+  SupplierPaymentMethod,
+  SupplierTaxIdType,
+} from "@/lib/services/inventory/supplier-profile";
 
 /**
  * Supplier CRM surface client (Phase S1).
@@ -30,8 +34,46 @@ export type Supplier = {
   email: string | null;
   notes: string | null;
   defaultLeadTimeDays: number | null;
+  legalName: string | null;
+  taxId: string | null;
+  taxIdType: SupplierTaxIdType | null;
+  category: string | null;
+  website: string | null;
+  contactName: string | null;
+  contactRole: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
+  addressStreet: string | null;
+  addressCity: string | null;
+  addressPostalCode: string | null;
+  paymentTermsDays: number | null;
+  preferredPaymentMethod: SupplierPaymentMethod | null;
   createdAt: string;
   updatedAt: string;
+};
+
+/** Why the server thinks an existing supplier might be the same one. */
+export type SupplierMatchReason = "TAX_ID" | "PHONE" | "EMAIL" | "NAME";
+
+export type PossibleSupplierMatch = {
+  id: number;
+  name: string;
+  isActive: boolean;
+  phone: string | null;
+  email: string | null;
+  taxId: string | null;
+  reasons: SupplierMatchReason[];
+};
+
+/**
+ * Creation result. The server has ALWAYS returned `possibleMatches` alongside
+ * the created supplier; the client used to read only `data.supplier` and drop
+ * them on the floor, which is why two identical suppliers could be created with
+ * no warning at all. Returning both makes the advisory reachable.
+ */
+export type CreateSupplierResult = {
+  supplier: Supplier;
+  possibleMatches: PossibleSupplierMatch[];
 };
 
 export type CreateSupplierInput = {
@@ -40,6 +82,20 @@ export type CreateSupplierInput = {
   email?: string | null;
   notes?: string | null;
   defaultLeadTimeDays?: number | null;
+  legalName?: string | null;
+  taxId?: string | null;
+  taxIdType?: SupplierTaxIdType | null;
+  category?: string | null;
+  website?: string | null;
+  contactName?: string | null;
+  contactRole?: string | null;
+  contactPhone?: string | null;
+  contactEmail?: string | null;
+  addressStreet?: string | null;
+  addressCity?: string | null;
+  addressPostalCode?: string | null;
+  paymentTermsDays?: number | null;
+  preferredPaymentMethod?: SupplierPaymentMethod | null;
 };
 
 /** Fields the existing PATCH route already supports. */
@@ -50,6 +106,20 @@ export type UpdateSupplierInput = {
   notes?: string | null;
   defaultLeadTimeDays?: number | null;
   isActive?: boolean;
+  legalName?: string | null;
+  taxId?: string | null;
+  taxIdType?: SupplierTaxIdType | null;
+  category?: string | null;
+  website?: string | null;
+  contactName?: string | null;
+  contactRole?: string | null;
+  contactPhone?: string | null;
+  contactEmail?: string | null;
+  addressStreet?: string | null;
+  addressCity?: string | null;
+  addressPostalCode?: string | null;
+  paymentTermsDays?: number | null;
+  preferredPaymentMethod?: SupplierPaymentMethod | null;
 };
 
 async function fetchWithTimeout(
@@ -124,7 +194,7 @@ export async function getSupplier(id: number): Promise<Supplier> {
 
 export async function createSupplier(
   input: CreateSupplierInput
-): Promise<Supplier> {
+): Promise<CreateSupplierResult> {
   const res = await fetchWithTimeout("/api/inventory/suppliers", {
     method: "POST",
     headers: buildClientAuthHeaders(),
@@ -135,7 +205,12 @@ export async function createSupplier(
   if (!res.ok) throw new Error(await extractError(res, "Failed to create supplier"));
 
   const data = await res.json();
-  return data.supplier as Supplier;
+  return {
+    supplier: data.supplier as Supplier,
+    possibleMatches: Array.isArray(data.possibleMatches)
+      ? (data.possibleMatches as PossibleSupplierMatch[])
+      : [],
+  };
 }
 
 /**
@@ -149,6 +224,20 @@ export type SupplierPurchaseHistorySummary = {
   purchaseOrderCount: number;
   openPurchaseOrderCount: number;
   lastPurchaseOrderAt: string | null;
+  /** Actually received (posted) value — spend, not intent. */
+  receivedValue: number;
+  orderedValue: number;
+  linesWithoutCost: number;
+  totalLineCount: number;
+};
+
+export type SupplierPurchasedItem = {
+  itemId: number;
+  name: string;
+  orderCount: number;
+  totalQty: number;
+  firstUnitCost: number | null;
+  lastUnitCost: number | null;
 };
 
 export type SupplierPurchaseOrderItem = {
@@ -159,11 +248,13 @@ export type SupplierPurchaseOrderItem = {
   orderDate: string | null;
   createdAt: string;
   lineCount: number;
+  orderedValue: number | null;
 };
 
 export type SupplierPurchaseHistory = {
   summary: SupplierPurchaseHistorySummary;
   items: SupplierPurchaseOrderItem[];
+  purchasedItems: SupplierPurchasedItem[];
   pagination: { limit: number; offset: number; total: number; hasMore: boolean };
 };
 

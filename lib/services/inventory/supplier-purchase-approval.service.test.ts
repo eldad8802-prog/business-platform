@@ -182,7 +182,13 @@ async function main() {
       where: { businessId, sourceSupplierPurchaseDraftId: createDraftRecord.id },
       include: { receivingSessions: true },
     });
-    assert.equal(createPo.status, PurchaseOrderStatus.CONFIRMED);
+    // Approval creates the order as CONFIRMED and immediately posts a receipt for
+    // the full quantity, so the order has nothing left open and settles to CLOSED.
+    // It used to stay CONFIRMED — which the purchases screen groups under
+    // "ממתינות" — so an order the owner had just approved looked un-approved and
+    // "היסטוריה" never filled, contradicting the screen's own promise that
+    // "אישור יעדכן את המלאי ... ויעביר את ההזמנה להיסטוריה".
+    assert.equal(createPo.status, PurchaseOrderStatus.CLOSED);
     assert.equal(
       createPo.receivingSessions[0].status,
       ReceivingSessionStatus.POSTED

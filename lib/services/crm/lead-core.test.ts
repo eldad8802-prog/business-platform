@@ -9,6 +9,7 @@
  * Run: npx tsx lib/services/crm/lead-core.test.ts
  */
 import assert from "node:assert/strict";
+import fs from "node:fs";
 
 import { ValidationError } from "@/lib/errors";
 import {
@@ -28,8 +29,10 @@ import {
   normalizeLeadOptionalText,
   parseFollowUpAt,
   parseLeadStatus,
+  startOfLeadDayUtc,
   type LeadStatusValue,
 } from "@/lib/services/crm/lead-core";
+import { evaluateLeadAttention } from "@/lib/services/crm/lead-attention";
 
 let passed = 0;
 
@@ -381,6 +384,151 @@ check("every status has a Hebrew label", () => {
       >
     )[s];
     assert.equal(label, 1, `status ${s} is missing from the exhaustive check`);
+  }
+});
+
+
+/* ============================== 10. W2 attention contract ================ */
+
+check("start-of-day is the first instant of TODAY in Israel (summer)", () => {
+  assert.equal(
+    startOfLeadDayUtc(new Date("2026-08-31T09:00:00.000Z")).toISOString(),
+    "2026-08-30T21:00:00.000Z"
+  );
+});
+
+check("start-of-day is the first instant of TODAY in Israel (winter)", () => {
+  assert.equal(
+    startOfLeadDayUtc(new Date("2026-01-15T09:00:00.000Z")).toISOString(),
+    "2026-01-14T22:00:00.000Z"
+  );
+});
+
+check("start and end of day bracket exactly one local day, all year", () => {
+  for (let day = 0; day < 365; day += 1) {
+    const sample = new Date(Date.UTC(2026, 0, 1, 9, 0, 0) + day * 86_400_000);
+    const start = startOfLeadDayUtc(sample);
+    const end = endOfLeadDayUtc(sample);
+    assert.equal(leadDayKey(start), leadDayKey(sample), "start left the day");
+    assert.equal(leadDayKey(end), leadDayKey(sample), "end left the day");
+    assert.equal(start.getTime() < end.getTime(), true);
+    assert.equal(
+      leadDayKey(new Date(start.getTime() - 1)) < leadDayKey(sample),
+      true,
+      "one ms before start is not the previous day"
+    );
+  }
+});
+
+const W2_NOW = new Date("2026-08-31T09:00:00.000Z");
+const dayAgo = (n: number) => new Date(W2_NOW.getTime() - n * 86_400_000);
+
+check("an overdue follow-up is the highest-priority reason", () => {
+  const a = evaluateLeadAttention(
+    { status: "OPEN", nextFollowUpAt: dayAgo(2), createdAt: dayAgo(30) },
+    W2_NOW
+  );
+  assert.equal(a.needsAttention, true);
+  assert.equal(a.reason, "FOLLOWUP_OVERDUE");
+  assert.equal(a.nextAction.kind, "complete_followup");
+  assert.equal(a.priority > 80, true);
+});
+
+check("a follow-up due today still asks for the owner", () => {
+  const a = evaluateLeadAttention(
+    { status: "QUOTED", nextFollowUpAt: W2_NOW, createdAt: dayAgo(10) },
+    W2_NOW
+  );
+  assert.equal(a.reason, "FOLLOWUP_DUE_TODAY");
+  assert.equal(a.priority, 70);
+});
+
+check("an untouched new lead from before today is surfaced", () => {
+  const a = evaluateLeadAttention(
+    { status: "NEW", nextFollowUpAt: null, createdAt: dayAgo(2) },
+    W2_NOW
+  );
+  assert.equal(a.reason, "NEW_UNHANDLED");
+  assert.equal(a.nextAction.kind, "contact_new_lead");
+});
+
+check("a new lead from TODAY is not yet neglected", () => {
+  const a = evaluateLeadAttention(
+    { status: "NEW", nextFollowUpAt: null, createdAt: W2_NOW },
+    W2_NOW
+  );
+  assert.equal(a.needsAttention, false);
+  assert.equal(a.reason, null);
+  assert.equal(a.nextAction.kind, "set_followup");
+});
+
+check("reasons never cross priority bands, however old they get", () => {
+  const ancientNew = evaluateLeadAttention(
+    { status: "NEW", nextFollowUpAt: null, createdAt: dayAgo(200) },
+    W2_NOW
+  );
+  const dueToday = evaluateLeadAttention(
+    { status: "OPEN", nextFollowUpAt: W2_NOW, createdAt: W2_NOW },
+    W2_NOW
+  );
+  const freshOverdue = evaluateLeadAttention(
+    { status: "OPEN", nextFollowUpAt: dayAgo(1), createdAt: W2_NOW },
+    W2_NOW
+  );
+  assert.equal(ancientNew.priority < dueToday.priority, true, "new outranked due-today");
+  assert.equal(dueToday.priority < freshOverdue.priority, true, "due-today outranked overdue");
+});
+
+check("a CLOSED lead never asks for anything, whatever its history", () => {
+  for (const status of CLOSED_LEAD_STATUSES) {
+    const a = evaluateLeadAttention(
+      { status, nextFollowUpAt: dayAgo(100), createdAt: dayAgo(200) },
+      W2_NOW
+    );
+    assert.equal(a.needsAttention, false, status + " demanded attention");
+    assert.equal(a.nextAction.kind, "none");
+    assert.equal(a.priority, 0);
+  }
+});
+
+check("a scheduled future follow-up is quiet", () => {
+  const a = evaluateLeadAttention(
+    {
+      status: "OPEN",
+      nextFollowUpAt: new Date(W2_NOW.getTime() + 5 * 86_400_000),
+      createdAt: dayAgo(9),
+    },
+    W2_NOW
+  );
+  assert.equal(a.needsAttention, false);
+  assert.equal(a.nextAction.kind, "none");
+});
+
+check("W2 surfaces no signal that depends on the dormant state writer", () => {
+  // Structural guard: a future edit must not quietly reintroduce
+  // "hot"/"waiting"/"cooling", which read Conversation columns nothing writes.
+  // Strip comments first: this file DOCUMENTS which columns it refuses to
+  // read, and a naive scan would fire on the very explanation of the rule.
+  const rawSrc = fs.readFileSync("lib/services/crm/lead-attention.ts", "utf8");
+  const blockComment = new RegExp(String.raw`/\*[\s\S]*?\*/`, "g");
+  const lineComment = new RegExp(String.raw`^\s*//`);
+  const src = rawSrc
+    .replace(blockComment, "")
+    .split("\n")
+    .filter((line) => !lineComment.test(line))
+    .join("\n");
+  for (const forbidden of [
+    "temperatureScore",
+    "unansweredInboundCount",
+    "closeProbabilitySnapshot",
+    "customerLastInboundAt",
+    "businessLastOutboundAt",
+  ]) {
+    assert.equal(
+      src.includes(forbidden + ":") || src.includes("." + forbidden),
+      false,
+      "lead-attention.ts reads " + forbidden + ", which nothing populates"
+    );
   }
 });
 

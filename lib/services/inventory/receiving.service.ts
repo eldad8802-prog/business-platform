@@ -13,6 +13,7 @@ import {
   InventoryUnauthorizedError,
   InventoryValidationError,
 } from "@/lib/services/inventory/inventory.errors";
+import { settlePurchaseOrderStatus } from "@/lib/services/inventory/purchase-order-status";
 
 type Tx = Prisma.TransactionClient;
 type TxOptions = { tx?: Tx };
@@ -476,6 +477,28 @@ export const receivingService = {
           },
           purchaseOrder: true,
         },
+      });
+
+      // ── Lifecycle (P3) ─────────────────────────────────────────────────
+      // Posting stock is the ONLY event that tells us where an order really is,
+      // so it is the only place allowed to move the order's status. Before this,
+      // nothing ever advanced a PurchaseOrder past CONFIRMED: an approved order
+      // sat in "ממתינות" forever, "היסטוריה" was permanently empty, and the
+      // receiving screen (gated on AWAITING_DELIVERY) was unreachable — even
+      // though the approval screen promises "ויעביר את ההזמנה להיסטוריה".
+      //
+      // No new status is invented. The existing vocabulary is simply applied:
+      //   something still open  → AWAITING_DELIVERY  ("בדרך")
+      //   nothing left open     → CLOSED             ("היסטוריה")
+      // A line counts as settled once its posted receipts plus any CLOSED_SHORT
+      // quantity cover what was ordered; CANCELLED lines never hold an order open.
+      //
+      // ORDER MATTERS: this runs AFTER the session is marked POSTED. Settling
+      // first would count this very receipt as not-yet-posted and leave a fully
+      // received order sitting in AWAITING_DELIVERY forever.
+      await settlePurchaseOrderStatus(tx, {
+        businessId: input.businessId,
+        purchaseOrderId: receivingSession.purchaseOrderId,
       });
 
       return {

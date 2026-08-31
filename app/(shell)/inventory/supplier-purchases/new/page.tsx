@@ -15,13 +15,14 @@ export default function NewSupplierPurchaseSelectPage() {
   const {
     summary,
     order,
+    supplierKey,
+    selectSupplier,
     supplierName,
-    setSupplierName,
     categoryId,
     setCategoryId,
     productSearch,
     setProductSearch,
-    supplierOptions,
+    supplierChoices,
     filteredCategories,
     supplierHasItems,
     browsableItems,
@@ -53,18 +54,24 @@ export default function NewSupplierPurchaseSelectPage() {
           <div className="inv-field" style={{ marginTop: 0 }}>
             <select
               className="inv-input"
-              value={supplierName}
+              value={supplierKey}
               onChange={(e) => {
-                setSupplierName(e.target.value);
+                selectSupplier(e.target.value);
                 setCategoryId("");
                 setProductSearch("");
               }}
               aria-label="ספק"
             >
               <option value="">כל הספקים</option>
-              {supplierOptions.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
+              {supplierChoices.map((choice) => {
+                const key =
+                  choice.id != null ? `id:${choice.id}` : `name:${choice.name}`;
+                return (
+                  <option key={key} value={key}>
+                    {choice.name}
+                  </option>
+                );
+              })}
             </select>
           </div>
           <div className="inv-field" style={{ marginTop: 0 }}>

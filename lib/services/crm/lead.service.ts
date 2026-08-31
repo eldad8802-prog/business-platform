@@ -36,10 +36,12 @@ import {
   LEAD_FOLLOWUP_NOTE_MAX,
   LEAD_INTENT_MAX,
   LEAD_LOST_REASON_MAX,
+  LEAD_NAME_MAX,
   LEAD_SOURCE_MAX,
   OPEN_LEAD_STATUSES,
   classifyLeadStatusTransition,
   endOfLeadDayUtc,
+  startOfLeadDayUtc,
   isClosedLeadStatus,
   normalizeLeadEmail,
   normalizeLeadName,
@@ -67,9 +69,14 @@ export const LEAD_EVENTS = {
   UPDATED: "LEAD_UPDATED",
   STATUS_CHANGED: "LEAD_STATUS_CHANGED",
   FOLLOWUP_SET: "LEAD_FOLLOWUP_SET",
+  FOLLOWUP_RESCHEDULED: "LEAD_FOLLOWUP_RESCHEDULED",
   FOLLOWUP_COMPLETED: "LEAD_FOLLOWUP_COMPLETED",
   WON: "LEAD_WON",
   LOST: "LEAD_LOST",
+  /** W2 — a lead was created out of a conversation. */
+  CREATED_FROM_CONVERSATION: "LEAD_CREATED_FROM_CONVERSATION",
+  /** W2 — a conversation was attached to a lead (new or pre-existing). */
+  CONVERSATION_LINKED: "LEAD_CONVERSATION_LINKED",
 } as const;
 
 const LEAD_ENTITY_TYPE = "LEAD";
@@ -406,10 +413,47 @@ export const leadService = {
     if (source) where.sourceChannel = source;
 
     if (input.needsAction) {
-      // Open + a follow-up that has already come due. Mirrors
-      // `leadNeedsAttention` exactly, expressed as a database predicate.
+      // The SQL mirror of `evaluateLeadAttention` (W2). Expressed as a database
+      // predicate — not filtered in JS after a `take` — so `limit` can never
+      // silently drop a lead that needs the owner off the end of the page.
+      //
+      //   open AND ( follow-up already due  OR  untouched new lead from before today )
+      const now = input.now ?? new Date();
       where.status = { in: [...OPEN_LEAD_STATUSES] };
-      where.nextFollowUpAt = { lte: endOfLeadDayUtc(input.now ?? new Date()) };
+      where.OR = [
+        ...(where.OR ?? []),
+        { nextFollowUpAt: { lte: endOfLeadDayUtc(now) } },
+        {
+          status: "NEW",
+          nextFollowUpAt: null,
+          createdAt: { lt: startOfLeadDayUtc(now) },
+        },
+      ];
+      // A text query and the attention predicate are both OR-shaped; combining
+      // them in one `OR` would widen rather than narrow. Nest them so the two
+      // stay ANDed.
+      if (q.length > 0) {
+        where.AND = [
+          {
+            OR: [
+              { customerName: { contains: q, mode: "insensitive" } },
+              { phone: { contains: q, mode: "insensitive" } },
+              { email: { contains: q, mode: "insensitive" } },
+            ],
+          },
+          {
+            OR: [
+              { nextFollowUpAt: { lte: endOfLeadDayUtc(now) } },
+              {
+                status: "NEW",
+                nextFollowUpAt: null,
+                createdAt: { lt: startOfLeadDayUtc(now) },
+              },
+            ],
+          },
+        ];
+        delete where.OR;
+      }
     }
 
     const take = clampLimit(input.limit);
@@ -684,6 +728,25 @@ export const leadService = {
         { tx }
       );
 
+      // A reschedule is a distinct business act from setting the first
+      // follow-up — the owner moved a promise they had already made — so it
+      // gets its own event rather than a boolean buried in a payload.
+      if (current.nextFollowUpAt !== null) {
+        await logAuditEvent(
+          {
+            businessId: input.businessId,
+            eventType: LEAD_EVENTS.FOLLOWUP_RESCHEDULED,
+            entityType: LEAD_ENTITY_TYPE,
+            entityId: leadId,
+            payload: {
+              from: current.nextFollowUpAt.toISOString(),
+              to: followUpAt.toISOString(),
+            },
+          },
+          { tx }
+        );
+      }
+
       return tx.lead.findFirstOrThrow({
         where: { id: leadId, businessId: input.businessId },
       });
@@ -744,6 +807,214 @@ export const leadService = {
     if (options?.tx) return run(options.tx);
     throw new ValidationError(
       "clearFollowUp must run inside a tenant transaction (pass options.tx)"
+    );
+  },
+
+  /**
+   * How many open leads want the owner right now.
+   *
+   * The SQL mirror of `evaluateLeadAttention`, kept next to `listLeads` so the
+   * count and the list can never tell different stories. Home renders this;
+   * clicking through lands on exactly these rows.
+   */
+  async countNeedingAttention(
+    input: { businessId: number; now?: Date },
+    options?: TxOptions
+  ): Promise<number> {
+    assertBusinessId(input.businessId);
+    const now = input.now ?? new Date();
+    const db = options?.tx ?? prisma;
+
+    return db.lead.count({
+      where: {
+        businessId: input.businessId,
+        status: { in: [...OPEN_LEAD_STATUSES] },
+        OR: [
+          { nextFollowUpAt: { lte: endOfLeadDayUtc(now) } },
+          {
+            status: "NEW",
+            nextFollowUpAt: null,
+            createdAt: { lt: startOfLeadDayUtc(now) },
+          },
+        ],
+      },
+    });
+  },
+
+  /**
+   * Create a lead FROM a conversation, or return the one that already covers it.
+   *
+   * This is the action the audit found was only pasting text into the composer.
+   * It is idempotent by construction, in three layers, because an owner will
+   * absolutely tap it twice:
+   *
+   *   1. The conversation already points at a lead  -> return that lead.
+   *   2. The conversation's customer already has an OPEN lead -> link to it.
+   *   3. Otherwise create one, and link.
+   *
+   * CONTEXT, NOT COPIES: the conversation stays the source of truth for what was
+   * said. The lead takes a relation plus ONE snapshot — the first thing the
+   * customer asked — so the owner can tell what it is about without opening the
+   * thread. No message history is duplicated into the lead.
+   */
+  async createFromConversation(
+    input: {
+      businessId: number;
+      conversationId: number;
+      /** Overrides the derived name when the owner typed one. */
+      name?: string | null;
+    },
+    options?: TxOptions
+  ) {
+    assertBusinessId(input.businessId);
+    const conversationId = normalizeLeadId(input.conversationId);
+
+    const run = async (tx: Tx) => {
+      // Tenant-scoped load. A conversation from another business behaves exactly
+      // like one that does not exist.
+      const conversation = await tx.conversation.findFirst({
+        where: { id: conversationId, businessId: input.businessId },
+        select: {
+          id: true,
+          leadId: true,
+          customerId: true,
+          channel: true,
+          customer: { select: { id: true, name: true, phone: true, email: true } },
+        },
+      });
+      if (!conversation) throw new NotFoundError("Conversation not found");
+
+      // (1) Already linked — return what is there. No second lead, no event.
+      if (conversation.leadId !== null) {
+        const existing = await tx.lead.findFirst({
+          where: { id: conversation.leadId, businessId: input.businessId },
+        });
+        if (existing) return { lead: existing, outcome: "already_linked" as const };
+        // The link points at nothing reachable (deleted business data); fall
+        // through and re-establish it rather than failing the owner's action.
+      }
+
+      // (2) The contact already has an open lead — attach to it instead of
+      //     opening a competing one. This is also what the partial unique index
+      //     would enforce a moment later, surfaced as a helpful outcome rather
+      //     than a 409.
+      let lead = null;
+      if (conversation.customerId !== null) {
+        lead = await tx.lead.findFirst({
+          where: {
+            businessId: input.businessId,
+            customerId: conversation.customerId,
+            status: { in: [...OPEN_LEAD_STATUSES] },
+          },
+          orderBy: [{ lastActivityAt: "desc" }, { id: "desc" }],
+        });
+      }
+
+      let outcome: "already_linked" | "linked_existing" | "created" = "linked_existing";
+
+      if (!lead) {
+        // (3) Create. The first inbound customer message is the intent snapshot.
+        const firstInbound = await tx.message.findFirst({
+          where: {
+            conversationId,
+            businessId: input.businessId,
+            direction: "INBOUND",
+            senderType: "CUSTOMER",
+          },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          select: { contentText: true },
+        });
+
+        const derivedName =
+          normalizeLeadOptionalText(input.name, "name", LEAD_NAME_MAX) ??
+          conversation.customer?.name?.trim() ??
+          null;
+        if (!derivedName) {
+          throw new ValidationError(
+            "Cannot derive a name for the lead — pass one explicitly"
+          );
+        }
+
+        const now = new Date();
+        try {
+          lead = await tx.lead.create({
+            data: {
+              businessId: input.businessId,
+              customerId: conversation.customerId,
+              customerName: derivedName,
+              phone: conversation.customer?.phone ?? null,
+              email: conversation.customer?.email ?? null,
+              // Channel-derived, reusing the existing ConversationChannel
+              // vocabulary rather than inventing a source taxonomy.
+              sourceChannel: conversation.channel,
+              intentSnapshot: normalizeLeadOptionalText(
+                firstInbound?.contentText ?? null,
+                "intentSnapshot",
+                LEAD_INTENT_MAX
+              ),
+              status: "NEW",
+              lastActivityAt: now,
+            },
+          });
+        } catch (error) {
+          if (isOpenPhoneCollision(error)) {
+            // Another open lead grabbed this phone between the check and the
+            // insert. Adopt it — the owner asked for "a lead for this thread",
+            // and there already is one.
+            const raced = conversation.customer?.phone
+              ? await findOpenLeadByPhone(tx, input.businessId, conversation.customer.phone)
+              : null;
+            if (!raced) throw openLeadConflict(null);
+            lead = await tx.lead.findFirstOrThrow({
+              where: { id: raced.id, businessId: input.businessId },
+            });
+          } else {
+            throw error;
+          }
+        }
+        // The `already_linked` branch returned earlier, so reaching here always
+        // means this call is the one that created the lead.
+        outcome = "created";
+      }
+
+      // Link the conversation — tenant-guarded, and only when it is not already
+      // pointing somewhere, so re-running never rewrites an existing link.
+      const linked = await tx.conversation.updateMany({
+        where: { id: conversationId, businessId: input.businessId, leadId: null },
+        data: { leadId: lead.id },
+      });
+
+      if (outcome === "created") {
+        await logAuditEvent(
+          {
+            businessId: input.businessId,
+            eventType: LEAD_EVENTS.CREATED_FROM_CONVERSATION,
+            entityType: LEAD_ENTITY_TYPE,
+            entityId: lead.id,
+            payload: { conversationId, channel: conversation.channel },
+          },
+          { tx }
+        );
+      }
+      if (linked.count === 1) {
+        await logAuditEvent(
+          {
+            businessId: input.businessId,
+            eventType: LEAD_EVENTS.CONVERSATION_LINKED,
+            entityType: LEAD_ENTITY_TYPE,
+            entityId: lead.id,
+            payload: { conversationId, outcome },
+          },
+          { tx }
+        );
+      }
+
+      return { lead, outcome };
+    };
+
+    if (options?.tx) return run(options.tx);
+    throw new ValidationError(
+      "createFromConversation must run inside a tenant transaction (pass options.tx)"
     );
   },
 };

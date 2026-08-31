@@ -93,6 +93,20 @@ export async function POST(request: NextRequest) {
               email: body?.email ?? null,
               notes: body?.notes ?? null,
               defaultLeadTimeDays: body?.defaultLeadTimeDays ?? null,
+              legalName: body?.legalName ?? null,
+              taxId: body?.taxId ?? null,
+              taxIdType: body?.taxIdType ?? null,
+              category: body?.category ?? null,
+              website: body?.website ?? null,
+              contactName: body?.contactName ?? null,
+              contactRole: body?.contactRole ?? null,
+              contactPhone: body?.contactPhone ?? null,
+              contactEmail: body?.contactEmail ?? null,
+              addressStreet: body?.addressStreet ?? null,
+              addressCity: body?.addressCity ?? null,
+              addressPostalCode: body?.addressPostalCode ?? null,
+              paymentTermsDays: body?.paymentTermsDays ?? null,
+              preferredPaymentMethod: body?.preferredPaymentMethod ?? null,
             },
             { tx }
           );
@@ -104,6 +118,10 @@ export async function POST(request: NextRequest) {
               name: created.name,
               phone: created.phone,
               email: created.email,
+              // The business identifier is the strongest duplicate signal, so it
+              // has to reach the matcher — reading it from the CREATED row means
+              // the comparison uses the same normalized form that was stored.
+              taxId: created.taxId,
             },
             { tx }
           );

@@ -27,6 +27,7 @@ import {
   validateAndParseLineInput,
   validateDraftHeaderInput,
 } from "@/lib/services/billing/validation/billing-line.validation";
+import { billingTenantTx } from "./billing-tenant-tx";
 
 export type CreateBillingDraftInput = {
   businessId: number;
@@ -190,7 +191,7 @@ export async function createBillingDraft(
 
   const initialLines = input.initialLines ?? [];
 
-  const doc = await prisma.$transaction(async (tx) => {
+  const doc = await billingTenantTx(input.businessId, async (tx) => {
     const created = await tx.billingDocument.create({
       data: {
         businessId: input.businessId,
@@ -363,7 +364,7 @@ export async function replaceBillingDraftLines(
 ): Promise<BillingDocument & { lines: BillingDocumentLine[] }> {
   assertBusinessId(input.businessId);
 
-  const doc = await prisma.$transaction(async (tx) => {
+  const doc = await billingTenantTx(input.businessId, async (tx) => {
     const found = await tx.billingDocument.findFirst({
       where: {
         id: input.billingDocumentId,

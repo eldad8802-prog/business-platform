@@ -2,10 +2,11 @@
 import { PageContainer } from "@/components/ui/page-container";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import type {
   BusinessStatusItem,
+  QuickAction,
   BusinessStatusSnapshot,
   PaperworkInsightPayload,
   Severity,
@@ -23,6 +24,8 @@ function domainLabel(domain: BusinessStatusItem["domain"]): string {
       return "חשבוניות";
     case "supplier":
       return "רכש ספקים";
+    case "leads":
+      return "לידים";
     default:
       return domain;
   }
@@ -136,6 +139,68 @@ export default function AttentionPage() {
   const [error, setError] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<BusinessStatusSnapshot | null>(
     null
+  );
+  const [busyItem, setBusyItem] = useState<number | null>(null);
+
+  // Extracted from the mount effect so a quick action can re-read the snapshot
+  // afterwards: the list must show the consequence of what the owner just did,
+  // not the state from before it.
+  const loadSnapshot = useCallback(async (opts?: { silent?: boolean }) => {
+    const raw =
+      typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!raw) return;
+    try {
+      const res = await fetch("/api/business-status", {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${raw}` },
+      });
+      if (!res.ok) return;
+      const json = await res.json();
+      setSnapshot(json as BusinessStatusSnapshot);
+      setError(null);
+    } catch {
+      if (!opts?.silent) setError("לא הצלחנו לרענן את הרשימה.");
+    }
+  }, []);
+
+  /**
+   * Handle a lead follow-up straight from the list. Making the owner open the
+   * lead just to say "done" is the friction that teaches people to ignore an
+   * attention list.
+   */
+  const runQuickAction = useCallback(
+    async (action: QuickAction) => {
+      const raw =
+        typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      if (!raw || busyItem !== null) return;
+      setBusyItem(action.leadId);
+      try {
+        const body =
+          action.kind === "lead_followup_complete"
+            ? { followUpAt: null }
+            : {
+                followUpAt: new Date(
+                  Date.now() + (action.days ?? 3) * 86400000
+                ).toISOString(),
+              };
+        const res = await fetch(`/api/leads/${action.leadId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${raw}`,
+          },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          setError("לא הצלחנו לעדכן את המעקב. נסו שוב.");
+          return;
+        }
+        await loadSnapshot({ silent: true });
+      } finally {
+        setBusyItem(null);
+      }
+    },
+    [busyItem, loadSnapshot]
   );
 
   useEffect(() => {
@@ -330,6 +395,43 @@ export default function AttentionPage() {
                   item={item}
                   onOpen={() => navigateTo(item.primaryAction.href)}
                 />
+                {/* Rendered OUTSIDE the card: StatusCard is itself a <button>,
+                    and nesting interactive elements is invalid and unreachable
+                    by keyboard. */}
+                {item.quickActions && item.quickActions.length > 0 ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      marginTop: 6,
+                      paddingInlineStart: 4,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {item.quickActions.map((action) => (
+                      <button
+                        key={action.kind}
+                        type="button"
+                        disabled={busyItem === action.leadId}
+                        onClick={() => void runQuickAction(action)}
+                        style={{
+                          border: "1px solid rgba(15,23,42,0.12)",
+                          background: "#fff",
+                          borderRadius: 999,
+                          padding: "6px 14px",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: "#334155",
+                          cursor: busyItem === action.leadId ? "default" : "pointer",
+                          opacity: busyItem === action.leadId ? 0.6 : 1,
+                          minHeight: 34,
+                        }}
+                      >
+                        {busyItem === action.leadId ? "מעדכן…" : action.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>

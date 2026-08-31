@@ -69,6 +69,51 @@ export function mergePurchaseOrderItems(
   return merged;
 }
 
+/**
+ * Money, as ₪ with no fractional agorot. Returns null for "nothing to show" so a
+ * caller can omit the line entirely rather than print ₪0 — an order with no
+ * recorded costs has an UNKNOWN total, which is not the same as a zero one.
+ */
+export function formatSupplierMoney(value: number | null | undefined): string | null {
+  if (value == null || !Number.isFinite(value) || value <= 0) return null;
+  return `₪${Math.round(value).toLocaleString("he-IL")}`;
+}
+
+/**
+ * How trustworthy a money figure is, given how many lines carried no cost.
+ * Says so out loud rather than presenting a partial sum as a complete one.
+ */
+export function costCoverageNote(
+  linesWithoutCost: number,
+  totalLineCount: number
+): string | null {
+  if (totalLineCount <= 0 || linesWithoutCost <= 0) return null;
+  if (linesWithoutCost >= totalLineCount) return "לא נרשמו עלויות בהזמנות";
+  const withCost = totalLineCount - linesWithoutCost;
+  return `מבוסס על ${withCost} מתוך ${totalLineCount} שורות שנרשמה בהן עלות`;
+}
+
+/**
+ * Did the unit cost of an item move between the first and the last time it was
+ * bought? Reports the direction only when BOTH ends are known — a single known
+ * price is not a trend, and guessing one would be worse than saying nothing.
+ */
+export function priceTrend(
+  firstUnitCost: number | null,
+  lastUnitCost: number | null
+): "UP" | "DOWN" | "SAME" | null {
+  if (firstUnitCost == null || lastUnitCost == null) return null;
+  if (lastUnitCost > firstUnitCost) return "UP";
+  if (lastUnitCost < firstUnitCost) return "DOWN";
+  return "SAME";
+}
+
+export const PRICE_TREND_LABEL: Record<"UP" | "DOWN" | "SAME", string> = {
+  UP: "המחיר עלה",
+  DOWN: "המחיר ירד",
+  SAME: "המחיר לא השתנה",
+};
+
 /** The "טען עוד" button is enabled only when there is a next page and no fetch in flight. */
 export function canLoadMore(hasMore: boolean, isLoadingMore: boolean): boolean {
   return hasMore && !isLoadingMore;

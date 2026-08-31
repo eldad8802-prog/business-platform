@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { assertCouponPublicId } from "@/lib/services/revenue/coupon-public-id";
 import {
   ForbiddenError,
   NotFoundError,
@@ -89,9 +90,7 @@ export async function getCouponCode(
   publicId: string,
   requestingBusinessId: number
 ): Promise<CouponCodeDTO> {
-  if (!publicId || typeof publicId !== "string") {
-    throw new ValidationError("Invalid coupon id");
-  }
+  const id = assertCouponPublicId(publicId);
   if (!Number.isInteger(requestingBusinessId)) {
     // Defensive: the route derives this from the authenticated user, but never
     // trust a non-integer through to a DB comparison.
@@ -99,7 +98,7 @@ export async function getCouponCode(
   }
 
   const coupon = await prisma.coupon.findUnique({
-    where: { publicId },
+    where: { publicId: id },
     select: {
       issuingBusinessId: true,
       status: true,

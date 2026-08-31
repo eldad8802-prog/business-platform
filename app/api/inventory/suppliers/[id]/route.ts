@@ -102,6 +102,20 @@ export async function PATCH(
         ? { defaultLeadTimeDays: body.defaultLeadTimeDays }
         : {}),
       ...(body?.isActive !== undefined ? { isActive: body.isActive } : {}),
+      ...(body?.legalName !== undefined ? { legalName: body.legalName } : {}),
+      ...(body?.taxId !== undefined ? { taxId: body.taxId } : {}),
+      ...(body?.taxIdType !== undefined ? { taxIdType: body.taxIdType } : {}),
+      ...(body?.category !== undefined ? { category: body.category } : {}),
+      ...(body?.website !== undefined ? { website: body.website } : {}),
+      ...(body?.contactName !== undefined ? { contactName: body.contactName } : {}),
+      ...(body?.contactRole !== undefined ? { contactRole: body.contactRole } : {}),
+      ...(body?.contactPhone !== undefined ? { contactPhone: body.contactPhone } : {}),
+      ...(body?.contactEmail !== undefined ? { contactEmail: body.contactEmail } : {}),
+      ...(body?.addressStreet !== undefined ? { addressStreet: body.addressStreet } : {}),
+      ...(body?.addressCity !== undefined ? { addressCity: body.addressCity } : {}),
+      ...(body?.addressPostalCode !== undefined ? { addressPostalCode: body.addressPostalCode } : {}),
+      ...(body?.paymentTermsDays !== undefined ? { paymentTermsDays: body.paymentTermsDays } : {}),
+      ...(body?.preferredPaymentMethod !== undefined ? { preferredPaymentMethod: body.preferredPaymentMethod } : {}),
           }, { tx })
         )
     );

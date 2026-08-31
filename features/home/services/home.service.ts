@@ -1,4 +1,5 @@
 import { getBusinessSignals } from "@/features/signals/services/business-signals.service";
+import { leadService } from "@/lib/services/crm/lead.service";
 import { HomeResponse } from "../types/home.types";
 import { getHomeHeroAction } from "./home-decision.service";
 import { getHomeQuickActions } from "./home-shortcuts.service";
@@ -14,7 +15,17 @@ export async function getHomeData(
 ): Promise<HomeResponse> {
   const { businessName, businessId, ownerName } = input;
 
-  const signals = await getBusinessSignals({ businessId });
+  const [signals, leadsNeedingAttention] = await Promise.all([
+    getBusinessSignals({ businessId }),
+    // Best-effort: Home must still render if the Leads count fails. A missing
+    // badge is a smaller failure than a blank home screen.
+    leadService
+      .countNeedingAttention({ businessId })
+      .catch((err) => {
+        console.error("home leadsAttention count failed:", err);
+        return 0;
+      }),
+  ]);
 
   const heroAction = getHomeHeroAction({
     hasOpenConversations: signals.hasConversations,
@@ -34,6 +45,11 @@ export async function getHomeData(
       businessName,
       greeting: `שלום ${businessName}`,
       ownerName: ownerName?.trim() || undefined,
+    },
+    leadsAttention: {
+      count: leadsNeedingAttention,
+      // Lands on exactly the rows the count came from.
+      href: "/leads?view=needsAction",
     },
   };
 }

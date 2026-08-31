@@ -19,6 +19,7 @@ import { canEditDraft } from "@/lib/services/billing/domain/billing-status.machi
 import { recomputeAll } from "@/lib/services/billing/totals/billing-totals.service";
 import { assertBillingIdentityReadyForTaxInvoice } from "@/lib/billing/business-identity";
 import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
+import { billingTenantTx } from "./billing-tenant-tx";
 
 export type ConvertQuoteToInvoiceInput = {
   businessId: number;
@@ -48,7 +49,7 @@ export async function convertQuoteToInvoice(
     throw new ValidationError("quoteBillingDocumentId must be a positive integer");
   }
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await billingTenantTx(input.businessId, async (tx) => {
     const quote = await tx.billingDocument.findFirst({
       where: {
         id: input.quoteBillingDocumentId,

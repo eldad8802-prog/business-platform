@@ -213,3 +213,26 @@ export function updateLeadBasics(
 ): Promise<LeadCardDTO> {
   return patchLead(leadId, fields, "לא הצלחנו לעדכן את הליד");
 }
+
+/**
+ * Turn a conversation into a lead — or adopt the one that already covers it.
+ *
+ * The endpoint is idempotent: `outcome` tells the caller which of the three
+ * things happened, so the UI can say "נוצר ליד" or "כבר מקושר" truthfully
+ * instead of claiming a creation that did not occur.
+ */
+export type CreateLeadFromConversationResult = LeadCardDTO & {
+  outcome: "created" | "linked_existing" | "already_linked";
+};
+
+export async function createLeadFromConversation(
+  conversationId: number
+): Promise<CreateLeadFromConversationResult> {
+  const res = await fetchWithTimeout(`/api/conversations/${conversationId}/lead`, {
+    method: "POST",
+    headers: buildClientAuthHeaders(),
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) await parseError(res, "לא הצלחנו ליצור ליד מהשיחה");
+  return (await res.json()) as CreateLeadFromConversationResult;
+}

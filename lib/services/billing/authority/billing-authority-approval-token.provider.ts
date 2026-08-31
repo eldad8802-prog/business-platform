@@ -28,6 +28,7 @@ import {
   refreshAuthorityConnectionToken,
   type RefreshAuthorityConnectionTokenResult,
 } from "@/lib/services/billing/authority/billing-authority-token-refresh.service";
+import { billingDbStep } from "../billing-db-step";
 
 export type AccessTokenErrorCode =
   | "CONNECTION_NOT_FOUND"
@@ -88,10 +89,10 @@ const TOKEN_CONNECTION_SELECT = {
 
 export const defaultAccessTokenProviderDeps: AccessTokenProviderDeps = {
   loadConnection: (businessId, environment) =>
-    prisma.billingAuthorityConnection.findUnique({
+    billingDbStep((db) => db.billingAuthorityConnection.findUnique({
       where: { businessId_environment: { businessId, environment } },
       select: TOKEN_CONNECTION_SELECT,
-    }),
+    })),
   decrypt: decryptAuthorityConnectionToken,
   refresh: (input) => refreshAuthorityConnectionToken(input),
   now: () => new Date(),

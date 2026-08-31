@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { redeemCoupon } from "@/lib/services/redeem.service";
 import { handleError } from "@/lib/handle-error";
 import { getCurrentUser } from "@/lib/auth";
-import { ValidationError } from "@/lib/errors";
+import { UnauthorizedError } from "@/lib/errors";
 
 async function getAuthenticatedBusinessId(req: NextRequest) {
   const user = await getCurrentUser(req);
 
+  // Refused either way, but this is an authentication failure, not a
+  // malformed request: a ValidationError reported it as 400.
   if (!user?.businessId) {
-    throw new ValidationError("Unauthorized");
+    throw new UnauthorizedError();
   }
 
   return user.businessId;
