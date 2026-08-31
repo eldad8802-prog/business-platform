@@ -243,6 +243,20 @@ async function main() {
 
   // ── Phase 2: apply migration + grants ─────────────────────────────────────
   console.log("--- phase 2: apply ---");
+  // Reconcile before applying. GRANT is additive: re-running a TIGHTENED grants
+  // file over an environment that already carries an earlier, wider version would
+  // leave the wider privilege in place and prove nothing about least privilege.
+  // Rolling back first makes the applied state EXACT rather than accumulated.
+  if (preForeign.length > 0) {
+    console.log(
+      `[reconcile] ${preForeign.length} PW-2 policies already present — rolling back first so the applied grant set is exact`
+    );
+    await applySqlFile(ROLLBACK, { ":ROLE": RT_ROLE, ":CTL_LOGIN_ROLE": CTL_ROLE });
+    const afterReset = await policyNames();
+    if (afterReset.length !== 0) {
+      throw new Error(`reconcile failed: ${afterReset.join(",")} survived the rollback`);
+    }
+  }
   await applySqlFile(MIGRATION);
   await applySqlFile(GRANTS, { ":ROLE": RT_ROLE, ":CTL_LOGIN_ROLE": CTL_ROLE });
 

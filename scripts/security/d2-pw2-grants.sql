@@ -70,7 +70,18 @@ GRANT USAGE ON SEQUENCE "BusinessFeatureAccess_id_seq" TO app_ctlplane;
 GRANT INSERT ON "PlatformAuditEvent" TO app_ctlplane;
 GRANT USAGE ON SEQUENCE "PlatformAuditEvent_id_seq" TO app_ctlplane;
 
--- Reads the privileged transaction needs: target existence + global policy.
+-- Reads the privileged transaction needs, both deliberately INSIDE the same
+-- transaction as the write:
+--   Business             the target-existence check and the __PLATFORM_SYSTEM__
+--                        exclusion. Moving it out would decide authorization on a
+--                        different snapshot from the one that writes; the FK covers
+--                        deletion but nothing covers a rename, and one SELECT on a
+--                        global non-tenant table is a smaller cost than a
+--                        non-atomic authorization decision.
+--   PlatformFeaturePolicy  the effective state AFTER the write, which the response
+--                        and the audit metadata both report. Reading it outside the
+--                        transaction would let both describe a state this
+--                        transaction did not commit.
 GRANT SELECT ON "Business" TO app_ctlplane;
 GRANT SELECT ON "PlatformFeaturePolicy" TO app_ctlplane;
 
