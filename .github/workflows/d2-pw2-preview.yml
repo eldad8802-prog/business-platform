@@ -17,10 +17,9 @@
 name: d2/pw2 — control-plane preview apply+proof (neon)
 
 on:
-  # TEMPORARY dispatch arm for the first Preview apply. Disarmed immediately
-  # after the run, exactly as every prior wave did (workflow_dispatch remains).
-  push:
-    branches: [feat/d2-pw2-control-plane]
+  # push trigger DISARMED post-apply (proven pattern): substrate applied and
+  # proven on Preview (run 33420538976, PASS=79 FAIL=0, residue=0), transient
+  # secrets deleted. workflow_dispatch (incl. verify_only) remains.
   workflow_dispatch:
     inputs:
       verify_only:
