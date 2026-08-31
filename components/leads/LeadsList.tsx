@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   getLeads,
   createLead,
+  setLeadFollowUp,
+  clearLeadFollowUp,
   LEAD_CHANGED_EVENT,
   type LeadListRow,
   type LeadStatusFilter,
@@ -50,9 +52,14 @@ function toQuery(filter: FilterKey): {
 
 export function LeadsList({ selectedId }: { selectedId: string | null }) {
   const router = useRouter();
+  // Home links here with ?view=needsAction so the count it showed and the rows
+  // shown here are the same set. Any other value falls back to the work queue.
+  const searchParams = useSearchParams();
+  const initialFilter: FilterKey =
+    searchParams?.get("view") === "needsAction" ? "needsAction" : "open";
   const [leads, setLeads] = useState<LeadListRow[]>([]);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<FilterKey>("open");
+  const [filter, setFilter] = useState<FilterKey>(initialFilter);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -98,16 +105,46 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
     setLoading(false);
   }
 
-  // Initial load (open leads by default — the inbox is a work queue).
+  // Initial load. Honours the deep-link filter so arriving from Home lands on
+  // exactly the rows Home counted.
   useEffect(() => {
     let cancelled = false;
-    void fetchList("", "open").then((res) => {
+    void fetchList("", initialFilter).then((res) => {
       if (!cancelled) apply(res);
     });
     return () => {
       cancelled = true;
     };
-  }, [fetchList]);
+  }, [fetchList, initialFilter]);
+
+  /**
+   * Handle a follow-up straight from the row. The owner is looking at the list
+   * of things they owe people — making them open each one to say "done" is the
+   * friction that turns a work queue into a wall.
+   */
+  const [rowBusy, setRowBusy] = useState<number | null>(null);
+  const handleFollowUp = async (leadId: number, kind: "complete" | "snooze") => {
+    if (rowBusy !== null) return;
+    setRowBusy(leadId);
+    try {
+      if (kind === "complete") await clearLeadFollowUp(leadId);
+      else
+        await setLeadFollowUp(
+          leadId,
+          new Date(Date.now() + 3 * 86400000).toISOString()
+        );
+      const res = await fetchList(query, filter);
+      if (res && !("error" in res)) setLeads(res.leads);
+    } catch (err: unknown) {
+      if (isUnauthorizedError(err)) {
+        redirectToLogin();
+        return;
+      }
+      setError(err instanceof Error ? err.message : "לא הצלחנו לעדכן את המעקב");
+    } finally {
+      setRowBusy(null);
+    }
+  };
 
   // Debounced server-side search + filter (skips the initial mount).
   useEffect(() => {
@@ -221,7 +258,33 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
       ) : (
         <div className="crm-rows">
           {leads.map((l) => (
-            <LeadRow key={l.id} lead={l} selected={String(l.id) === selectedId} />
+            <div key={l.id}>
+              <LeadRow lead={l} selected={String(l.id) === selectedId} />
+              {/* Sibling, not child: LeadRow is a <Link>, and nesting buttons
+                  inside it would be invalid and keyboard-unreachable. */}
+              {l.needsAttention && l.followUp.kind !== "none" ? (
+                <div style={{ display: "flex", gap: 8, margin: "6px 4px 0", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className="crm-chip"
+                    disabled={rowBusy === l.id}
+                    onClick={() => void handleFollowUp(l.id, "complete")}
+                    style={{ cursor: "pointer", minHeight: 34, border: "1px solid var(--crm-line)" }}
+                  >
+                    {rowBusy === l.id ? "מעדכן…" : "טופל"}
+                  </button>
+                  <button
+                    type="button"
+                    className="crm-chip"
+                    disabled={rowBusy === l.id}
+                    onClick={() => void handleFollowUp(l.id, "snooze")}
+                    style={{ cursor: "pointer", minHeight: 34, border: "1px solid var(--crm-line)" }}
+                  >
+                    דחה ל־3 ימים
+                  </button>
+                </div>
+              ) : null}
+            </div>
           ))}
         </div>
       )}

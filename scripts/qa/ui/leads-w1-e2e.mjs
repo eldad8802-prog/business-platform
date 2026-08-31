@@ -216,7 +216,7 @@ async function main() {
 
     /* ============================================ C — status ============== */
 
-    await page.locator("button.crm-chip", { hasText: "נשלחה הצעה" }).first().click();
+    await page.locator(".crm-reading button.crm-chip", { hasText: "נשלחה הצעה" }).first().click();
     await expectText(
       page,
       ".crm-id .crm-badge",
@@ -235,7 +235,7 @@ async function main() {
 
     /* ============================================ D — follow-up =========== */
 
-    await page.locator("button", { hasText: "בעוד 3 ימים" }).first().click();
+    await page.locator(".crm-reading button", { hasText: "בעוד 3 ימים" }).first().click();
     await expectText(page, "body", "מעקב בעוד", "D1 a follow-up is saved and reads as scheduled");
 
     await page.reload({ waitUntil: "networkidle" });
@@ -257,12 +257,12 @@ async function main() {
     assert(overdue.body?.needsAttention === true, "D4 an overdue lead reports needsAttention");
 
     await page.goto(`${BASE}/leads`, { waitUntil: "networkidle" });
-    await page.locator("button.crm-chip", { hasText: "דורש טיפול" }).first().click();
+    await page.locator(".crm-page:not(.crm-reading) button.crm-chip", { hasText: "דורש טיפול" }).first().click();
     await expectText(page, ".crm-page", "QA דניאל כהן", "D5 the overdue lead surfaces in דורש טיפול");
     await expectText(page, ".crm-page", "מעקב באיחור", "D6 it is labelled as overdue");
 
     await page.goto(leadUrl, { waitUntil: "networkidle" });
-    await page.locator("button", { hasText: "טופל" }).first().click();
+    await page.locator(".crm-reading button", { hasText: "טופל" }).first().click();
     // Scoped to the CARD (`.crm-reading`): the master list is also mounted in
     // this DOM (hidden at 390px), so a body-wide check would be measuring two
     // regions at once.
@@ -282,7 +282,7 @@ async function main() {
     );
 
     await page.goto(`${BASE}/leads`, { waitUntil: "networkidle" });
-    await page.locator("button.crm-chip", { hasText: "דורש טיפול" }).first().click();
+    await page.locator(".crm-page:not(.crm-reading) button.crm-chip", { hasText: "דורש טיפול" }).first().click();
     await page.waitForSelector(".crm-panel, .crm-row", { timeout: WAIT });
     await expectTextGone(
       page,
@@ -294,7 +294,7 @@ async function main() {
     /* ============================================ E — won/lost ============ */
 
     await page.goto(leadUrl, { waitUntil: "networkidle" });
-    await page.locator("button.crm-chip", { hasText: "נסגר בהצלחה" }).first().click();
+    await page.locator(".crm-reading button.crm-chip", { hasText: "נסגר בהצלחה" }).first().click();
     // Read the HEADER badge, not the page text: "נסגר בהצלחה" is also a button
     // label, so a body-text check here would pass even if nothing happened.
     await expectText(page, ".crm-id .crm-badge", "נסגר בהצלחה", "E1 a lead can be closed as WON");
@@ -309,7 +309,7 @@ async function main() {
       "E3 the closed lead leaves the default (open) work queue"
     );
 
-    await page.locator("button.crm-chip", { hasText: "סגורים" }).first().click();
+    await page.locator(".crm-page:not(.crm-reading) button.crm-chip", { hasText: "סגורים" }).first().click();
     await expectText(
       page,
       ".crm-page",
