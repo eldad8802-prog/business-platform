@@ -37,8 +37,11 @@
 # Usage: privwrite-guard.sh [repo-root] | privwrite-guard.sh --self-test
 set -euo pipefail
 
-# Strip SQL line comments.
-sqlcode() { sed 's/--.*//' "$1"; }
+# Strip comments AND re-emit ONE STATEMENT PER LINE, so line-based matching
+# cannot be defeated by wrapping a statement across several lines.
+sqlflat() {
+  sed 's/--.*//' "$1" | awk 'BEGIN { RS = ";" } { gsub(/[[:space:]]+/, " "); if ($0 ~ /[^ ]/) print $0 ";" }'
+}
 # Strip TS line comments and block-comment bodies (leading * lines).
 tscode() { sed -e 's://.*::' -e 's:^[[:space:]]*\*.*::' -e 's:^[[:space:]]*/\*.*::' "$1"; }
 
@@ -70,28 +73,28 @@ run_guard() {
   # pre-existing append-only PlatformAuditEvent INSERT. Nothing in this wave may
   # add a write to it.
   for f in "$GRANTS" "$MIG"; do
-    if sqlcode "$f" | grep -qiE "GRANT[^;]*(INSERT|UPDATE|DELETE)[^;]*TO[[:space:]]+app_admin"; then
+    if sqlflat "$f" | grep -qiE "GRANT[^;]*(INSERT|UPDATE|DELETE)[^;]*TO[[:space:]]+app_admin"; then
       echo "CI-PRIVWRITE-1 FAIL: generic app_admin write grant in $f"; fail=1
     fi
   done
 
   # ── 2: no BYPASSRLS / SUPERUSER ─────────────────────────────────────────
   for f in "$MIG" "$GRANTS" "$ROLLBACK"; do
-    if sqlcode "$f" | grep -qiE "(^|[^O])BYPASSRLS|[^O]SUPERUSER"; then
+    if sqlflat "$f" | grep -qiE "(^|[^O])BYPASSRLS|[^O]SUPERUSER"; then
       echo "CI-PRIVWRITE-2 FAIL: BYPASSRLS/SUPERUSER in $f"; fail=1
     fi
   done
 
   # ── 3: no owner runtime ─────────────────────────────────────────────────
   for f in "$MIG" "$GRANTS" "$ROLLBACK"; do
-    if sqlcode "$f" | grep -qiE "OWNER[[:space:]]+TO"; then
+    if sqlflat "$f" | grep -qiE "OWNER[[:space:]]+TO"; then
       echo "CI-PRIVWRITE-3 FAIL: ownership transfer in $f"; fail=1
     fi
   done
 
   # ── 4: no SECURITY DEFINER ──────────────────────────────────────────────
   for f in "$MIG" "$GRANTS" "$ROLLBACK"; do
-    if sqlcode "$f" | grep -qi "SECURITY[[:space:]]\+DEFINER"; then
+    if sqlflat "$f" | grep -qi "SECURITY[[:space:]]\+DEFINER"; then
       echo "CI-PRIVWRITE-4 FAIL: SECURITY DEFINER in $f"; fail=1
     fi
   done
@@ -137,37 +140,37 @@ run_guard() {
     if ! echo "$line" | grep -qE "\"($approved)\"|ON SCHEMA public|SEQUENCE"; then
       echo "CI-PRIVWRITE-9 FAIL: control-plane grant on an unapproved object -> $line"; fail=1
     fi
-  done < <(sqlcode "$GRANTS" | grep -iE "GRANT[^;]*TO[[:space:]]+app_ctlplane" || true)
+  done < <(sqlflat "$GRANTS" | grep -iE "GRANT[^;]*TO[[:space:]]+app_ctlplane" || true)
 
   # ── 10: no DELETE granted to anyone in this wave ────────────────────────
-  if sqlcode "$GRANTS" | grep -qiE "GRANT[^;]*DELETE"; then
+  if sqlflat "$GRANTS" | grep -qiE "GRANT[^;]*DELETE"; then
     echo "CI-PRIVWRITE-10 FAIL: a DELETE privilege is granted in $GRANTS"; fail=1
   fi
 
   # ── 11: ENABLE + FORCE RLS ──────────────────────────────────────────────
-  sqlcode "$MIG" | grep -qE 'ALTER TABLE "BusinessFeatureAccess" ENABLE ROW LEVEL SECURITY' || {
+  sqlflat "$MIG" | grep -qE 'ALTER TABLE "BusinessFeatureAccess" ENABLE ROW LEVEL SECURITY' || {
     echo "CI-PRIVWRITE-11 FAIL: BusinessFeatureAccess is not ENABLE RLS"; fail=1; }
-  sqlcode "$MIG" | grep -qE 'ALTER TABLE "BusinessFeatureAccess" FORCE ROW LEVEL SECURITY' || {
+  sqlflat "$MIG" | grep -qE 'ALTER TABLE "BusinessFeatureAccess" FORCE ROW LEVEL SECURITY' || {
     echo "CI-PRIVWRITE-11 FAIL: BusinessFeatureAccess is not FORCE RLS"; fail=1; }
 
   # ── 12: the tenant policy is SELECT-only ────────────────────────────────
-  if ! sqlcode "$MIG" | grep -A2 "CREATE POLICY p7pw2_tenant_read" | grep -q "FOR SELECT"; then
+  if ! sqlflat "$MIG" | grep "CREATE POLICY p7pw2_tenant_read" | grep -q "FOR SELECT"; then
     echo "CI-PRIVWRITE-12 FAIL: p7pw2_tenant_read is not FOR SELECT"; fail=1
   fi
-  if sqlcode "$MIG" | grep -A3 "CREATE POLICY p7pw2_tenant_read" | grep -q "WITH CHECK"; then
+  if sqlflat "$MIG" | grep "CREATE POLICY p7pw2_tenant_read" | grep -q "WITH CHECK"; then
     echo "CI-PRIVWRITE-12 FAIL: the tenant policy carries a write branch"; fail=1
   fi
 
   # ── 13: control-plane write policies are GUC-constrained ────────────────
   for pol in p7pw2_ctl_insert p7pw2_ctl_update; do
-    if ! sqlcode "$MIG" | grep -A4 "CREATE POLICY $pol" | grep -q "app.current_business_id"; then
+    if ! sqlflat "$MIG" | grep "CREATE POLICY $pol" | grep -q "app.current_business_id"; then
       echo "CI-PRIVWRITE-13 FAIL: $pol is not constrained by the tenant GUC"; fail=1
     fi
-    if ! sqlcode "$MIG" | grep -A4 "CREATE POLICY $pol" | grep -q "TO app_ctlplane"; then
+    if ! sqlflat "$MIG" | grep "CREATE POLICY $pol" | grep -q "TO app_ctlplane"; then
       echo "CI-PRIVWRITE-13 FAIL: $pol is not restricted to app_ctlplane"; fail=1
     fi
   done
-  if sqlcode "$MIG" | grep -A4 "CREATE POLICY p7pw2_ctl_update" | grep -q "USING (true)"; then
+  if sqlflat "$MIG" | grep "CREATE POLICY p7pw2_ctl_update" | grep -q "USING (true)"; then
     echo "CI-PRIVWRITE-13 FAIL: the control-plane update policy is unconstrained"; fail=1
   fi
 
@@ -230,7 +233,7 @@ run_guard() {
   fi
 
   # ── 20: no DELETE policy in the migration ───────────────────────────────
-  if sqlcode "$MIG" | grep -qiE "CREATE POLICY[^;]*FOR DELETE"; then
+  if sqlflat "$MIG" | grep -qiE "CREATE POLICY[^;]*FOR DELETE"; then
     echo "CI-PRIVWRITE-20 FAIL: a DELETE policy exists on the table"; fail=1
   fi
   if tscode "$UPDSVC" | grep -qE "businessFeatureAccess\.delete"; then
