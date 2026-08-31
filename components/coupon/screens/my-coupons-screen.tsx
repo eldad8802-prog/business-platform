@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { TOKEN } from "@/lib/design/tokens";
+import { LAYOUT, TOKEN } from "@/lib/design/tokens";
 import {
   PhoneFrame,
   ScreenBody,
@@ -169,6 +169,34 @@ function CouponCard({
   );
 }
 
+/**
+ * Desktop composition for the owner's coupon collection.
+ *
+ * This surface is not a master–detail workspace, and a detail pane was
+ * deliberately not built: `MyCoupon` carries benefit, description, issued,
+ * expires, redemption and state, and the card already shows every one of them.
+ * A second region would either be empty or repeat the card, and inventing
+ * something to fill it would add capability this wave is not allowed to add.
+ *
+ * What the width genuinely buys is *how many coupons the owner can compare at
+ * once*, so the same cards flow into a grid. One column stays the mobile
+ * composition; two from the shell's tablet tier; three from the workspace tier,
+ * where the container itself widens to the data measure (see ManagementSurface).
+ *
+ * Pure CSS: the card, its props, its actions and the kill switch are identical
+ * at every width, so nothing remounts and no effect re-runs when the viewport
+ * crosses a tier — the lesson recorded in the Billing production closure §9.
+ */
+const COLLECTION_CSS = `
+.rv-coupon-collection { display: grid; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: ${LAYOUT.bp.medium}px) {
+  .rv-coupon-collection { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: ${LAYOUT.bp.wide}px) {
+  .rv-coupon-collection { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+`;
+
 function Centered({ children }: { children: ReactNode }) {
   return (
     <div style={{ padding: "40px 12px", textAlign: "center", color: W.muted, fontSize: 14, lineHeight: 1.6 }}>
@@ -219,6 +247,7 @@ export function MyCouponsScreen({
 
   return (
     <PhoneFrame>
+      <style>{COLLECTION_CSS}</style>
       <ScreenHeader title="הקופונים שלי" action={<BackButton onClick={onExit} />} />
       <ScreenBody>
         <div style={{ fontSize: 13, color: W.muted, margin: "-2px 2px 18px" }}>
@@ -250,7 +279,7 @@ export function MyCouponsScreen({
             {live.length > 0 ? (
               <>
                 <div style={{ fontSize: 13, fontWeight: 600, margin: "0 2px 12px" }}>פעיל</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 26 }}>
+                <div className="rv-coupon-collection" style={{ gap: 12, marginBottom: 26 }}>
                   {live.map((c) => <CouponCard key={c.publicId} coupon={c} onChanged={load} notice={notices[c.publicId] ?? null} onNotice={setNotice} />)}
                 </div>
               </>
@@ -259,7 +288,7 @@ export function MyCouponsScreen({
             {past.length > 0 ? (
               <>
                 <div style={{ fontSize: 13, fontWeight: 600, margin: "0 2px 12px" }}>הסתיים</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div className="rv-coupon-collection" style={{ gap: 10 }}>
                   {past.map((c) => <CouponCard key={c.publicId} coupon={c} onChanged={load} notice={notices[c.publicId] ?? null} onNotice={setNotice} />)}
                 </div>
               </>

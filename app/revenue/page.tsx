@@ -32,6 +32,8 @@ import { PageContainer } from "@/components/ui/page-container";
 
 /** The shell's desktop tier — where its navigation becomes a sidebar. */
 const SHELL_DESKTOP_MIN = `(min-width: ${LAYOUT.bp.expanded}px)`;
+/** The workspace tier — where the coupon collection earns the data measure. */
+const WORKSPACE_MIN = `(min-width: ${LAYOUT.bp.wide}px)`;
 
 /**
  * `/revenue` hosts three surfaces of two different kinds, so the page cannot
@@ -57,18 +59,41 @@ const SURFACE_INTENT: PageSurfaceIntent = "full";
  */
 function ManagementSurface({
   intent,
+  collection = false,
   children,
 }: {
   intent: Extract<PageIntent, "content" | "focused">;
+  /**
+   * Marks a surface that widens to the data measure at the workspace tier. The
+   * rule itself lives with the collection it serves (`my-coupons-screen`), so
+   * the width and the grid that consumes it stay in one place; this only says
+   * which container it applies to.
+   */
+  collection?: boolean;
   children: ReactNode;
 }) {
+  /**
+   * Resolved through PageContainer's own API rather than a CSS override:
+   * the primitive sets `max-width` inline, and an inline style outranks a
+   * stylesheet rule, so a CSS widening would silently never apply (the same
+   * trap the Billing rail hit). Only the prop changes — the element type and
+   * the children are identical either side of the tier, so nothing remounts
+   * and no effect re-runs. Proven by request parity, not assumed.
+   */
+  const wide = useMediaQuery(WORKSPACE_MIN);
+  const resolved = collection && wide ? "data" : intent;
   return (
     <ScreenModeProvider mode="app">
       {/* PageContainer, not a hand-rolled max-width: the cap has to come from the
           shared width authority, and the anti-drift ratchet counts page-level
           width literals for exactly this reason. `bleed` keeps the cap without
           adding gutters — these screens carry their own internal padding. */}
-      <PageContainer as="div" intent={intent} bleed className="revenue-management">
+      <PageContainer
+        as="div"
+        intent={resolved}
+        bleed
+        className={"revenue-management" + (collection ? " revenue-collection" : "")}
+      >
         {children}
       </PageContainer>
     </ScreenModeProvider>
@@ -194,7 +219,7 @@ function CouponFeature() {
   }
 
   return (
-    <ManagementSurface intent="content">
+    <ManagementSurface intent="content" collection>
       <MyCouponsScreen
         onCreate={() => go("create")}
         onBrowse={() => go("browse")}
