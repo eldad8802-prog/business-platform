@@ -324,6 +324,7 @@ async function main() {
               has_table_privilege('app_ctlplane', '"${TABLE}"', 'INSERT') AS ctl_ins,
               has_table_privilege('app_ctlplane', '"${TABLE}"', 'UPDATE') AS ctl_upd,
               has_table_privilege('app_ctlplane', '"${TABLE}"', 'DELETE') AS ctl_del,
+              has_table_privilege('app_ctlplane', '"PlatformAuditEvent"', 'SELECT') AS ctl_audit_sel,
               has_table_privilege('app_ctlplane', '"PlatformAuditEvent"', 'INSERT') AS ctl_audit_ins,
               has_table_privilege('app_ctlplane', '"PlatformAuditEvent"', 'UPDATE') AS ctl_audit_upd,
               has_table_privilege('app_ctlplane', '"PlatformAuditEvent"', 'DELETE') AS ctl_audit_del`
@@ -332,7 +333,14 @@ async function main() {
   ok("tenant runtime: SELECT only on the table", priv.rt_sel === true && priv.rt_ins === false && priv.rt_upd === false && priv.rt_del === false, JSON.stringify(priv));
   ok("app_admin: SELECT only on the table (generic admin writes still 0)", priv.adm_sel === true && priv.adm_ins === false && priv.adm_upd === false && priv.adm_del === false);
   ok("control plane: SELECT+INSERT+UPDATE, never DELETE", priv.ctl_sel === true && priv.ctl_ins === true && priv.ctl_upd === true && priv.ctl_del === false);
-  ok("control plane: audit is append-only (INSERT yes, UPDATE/DELETE no)", priv.ctl_audit_ins === true && priv.ctl_audit_upd === false && priv.ctl_audit_del === false);
+  ok(
+    "control plane: audit is APPEND-ONLY and unreadable (INSERT only; no SELECT/UPDATE/DELETE)",
+    priv.ctl_audit_ins === true &&
+      priv.ctl_audit_sel === false &&
+      priv.ctl_audit_upd === false &&
+      priv.ctl_audit_del === false,
+    JSON.stringify(priv)
+  );
 
   const ctlOther = await owner.$queryRawUnsafe(
     `SELECT table_name, privilege_type FROM information_schema.role_table_grants
@@ -687,6 +695,34 @@ async function main() {
   const billItemB = adminViewB.features.find((f) => f.featureKey === "billing");
   ok("admin sees B's real DISABLED override", billItemB?.businessOverride === "DISABLED");
   ok("admin overrideCount reflects reality", adminViewA.summary.overriddenCount >= 1 && adminViewB.summary.overriddenCount >= 1);
+
+  // GATE 13 — the environment that will actually exist immediately after merge:
+  // ADMIN_DATABASE_URL is set in no environment except one unrelated Preview
+  // branch. The admin features read must work anyway, because it reads one named
+  // business through the explicit-target tenant substrate and needs no
+  // cross-tenant credential at all.
+  const savedAdminUrl = process.env.ADMIN_DATABASE_URL;
+  delete process.env.ADMIN_DATABASE_URL;
+  delete globalThis.prismaAdmin;
+  const postMergeA = await getPlatformAdminBusinessFeatures(bizA.id);
+  const postMergeDocA = postMergeA.features.find((f) => f.featureKey === "documents");
+  ok(
+    "admin read works with ADMIN_DATABASE_URL ABSENT (the post-merge environment)",
+    postMergeDocA?.businessOverride === "DISABLED" && postMergeDocA?.allowed === false,
+    JSON.stringify(postMergeDocA?.businessOverride)
+  );
+  const postMergeB = await getPlatformAdminBusinessFeatures(bizB.id);
+  ok(
+    "admin read of a DIFFERENT business is still correct without the admin credential",
+    postMergeB.features.find((f) => f.featureKey === "billing")?.businessOverride === "DISABLED"
+  );
+  const missingBiz = await throws(() => getPlatformAdminBusinessFeatures(999999999));
+  ok("admin read of an unknown business is a clean NotFound, not a credential error",
+    missingBiz !== null && !String(missingBiz.message).includes("DATABASE_URL"),
+    String(missingBiz?.message).slice(0, 80)
+  );
+  if (savedAdminUrl) process.env.ADMIN_DATABASE_URL = savedAdminUrl;
+  delete globalThis.prismaAdmin;
 
   // ── Phase 15: audit atomicity ─────────────────────────────────────────────
   console.log("--- phase 15: audit atomicity ---");

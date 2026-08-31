@@ -142,9 +142,12 @@ run_guard() {
     fi
   done < <(sqlflat "$GRANTS" | grep -iE "GRANT[^;]*TO[[:space:]]+app_ctlplane" || true)
 
-  # ── 10: no DELETE granted to anyone in this wave ────────────────────────
+  # ── 10: no DELETE granted to anyone; audit stays append-only ────────────
   if sqlflat "$GRANTS" | grep -qiE "GRANT[^;]*DELETE"; then
     echo "CI-PRIVWRITE-10 FAIL: a DELETE privilege is granted in $GRANTS"; fail=1
+  fi
+  if sqlflat "$GRANTS" | grep -qiE "GRANT[^;]*SELECT[^;]*ON \"PlatformAuditEvent\"[^;]*TO[[:space:]]+app_ctlplane"; then
+    echo "CI-PRIVWRITE-10 FAIL: the control-plane role is granted SELECT on the audit trail (append-only means it may not read what it wrote)"; fail=1
   fi
 
   # ── 11: ENABLE + FORCE RLS ──────────────────────────────────────────────
@@ -205,12 +208,18 @@ run_guard() {
     echo "CI-PRIVWRITE-16 FAIL: the tenant resolver does not run inside a tenant transaction"; fail=1
   fi
 
-  # ── 17: the admin read path uses the sanctioned admin client ────────────
-  if ! tscode "$ADMSVC" | grep -q "getPrismaAdmin"; then
-    echo "CI-PRIVWRITE-17 FAIL: the admin features read does not use the admin client"; fail=1
-  fi
+  # ── 17: the admin read runs under an EXPLICIT target context ────────────
+  # It reads one named business, so it needs no cross-tenant credential. What it
+  # must never do is read this FORCE-RLS'd table with no context at all — that is
+  # the fail-silent shape that renders every business as "no override".
   if tscode "$ADMSVC" | grep -qE "from ['\"]@/lib/prisma['\"]"; then
-    echo "CI-PRIVWRITE-17 FAIL: the admin features read imports the tenant singleton"; fail=1
+    echo "CI-PRIVWRITE-17 FAIL: the admin features read imports the context-less tenant singleton"; fail=1
+  fi
+  if ! tscode "$ADMSVC" | grep -q "runTenantJob"; then
+    echo "CI-PRIVWRITE-17 FAIL: the admin features read establishes no explicit target context"; fail=1
+  fi
+  if ! tscode "$ADMSVC" | grep -q "withTenantTransaction"; then
+    echo "CI-PRIVWRITE-17 FAIL: the admin features read is not GUC-scoped"; fail=1
   fi
 
   # ── 18: no bare prisma.$transaction on the mutation path ────────────────
@@ -343,9 +352,14 @@ export async function updateBusinessFeatureAccess(input: { actorUserId: number }
 TS
 
     cat > "$T/lib/services/platform-admin/platform-business-features.service.ts" <<'TS'
-import { getPrismaAdmin } from "@/lib/prisma-admin";
-export async function getPlatformAdminBusinessFeatures(id: number) {
-  return getPrismaAdmin().businessFeatureAccess.findMany({ where: { businessId: id } });
+import { runTenantJob } from "@/lib/tenant/job";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+export async function getPlatformAdminBusinessFeatures(businessId: number) {
+  return runTenantJob({ businessId }, () =>
+    withTenantTransaction((tx) =>
+      tx.businessFeatureAccess.findMany({ where: { businessId } })
+    )
+  );
 }
 TS
 
@@ -528,6 +542,10 @@ CREATE POLICY p7pw2_ctl_delete ON "BusinessFeatureAccess"
   USING (true);
 SQL
   check "CI-PRIVWRITE-20 catches a DELETE policy" FAIL "$T18"
+
+  local T18b="$BASE/v18b"; make_clean_tree "$T18b"
+  echo 'GRANT SELECT ON "PlatformAuditEvent" TO app_ctlplane;' >> "$T18b/scripts/security/d2-pw2-grants.sql"
+  check "CI-PRIVWRITE-10 catches a SELECT grant on the append-only audit trail" FAIL "$T18b"
 
   local T19="$BASE/v19"; make_clean_tree "$T19"
   cat > "$T19/lib/services/feature-access/tenant-leak.ts" <<'TS'

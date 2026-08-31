@@ -37,7 +37,11 @@ export async function createPlatformAuditEventTx(
   const userAgent =
     input.userAgent ?? (input.req ? readUserAgent(input.req) : null);
 
-  await tx.platformAuditEvent.create({
+  // D2/PW-2: createMany, not create. Prisma’s create emits INSERT ... RETURNING,
+  // which requires SELECT privilege on the table. The audit trail is append-only,
+  // and the control-plane role must hold INSERT and nothing else on it, so the
+  // append deliberately returns nothing.
+  await tx.platformAuditEvent.createMany({
     data: {
       actorUserId: input.actorUserId ?? null,
       action: input.action,

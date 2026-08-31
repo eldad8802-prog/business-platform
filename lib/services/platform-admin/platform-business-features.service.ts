@@ -2,14 +2,31 @@
  * D2 / PRIVILEGED-WRITE-2 — platform-admin feature-access READ surface.
  *
  * Moved here from `lib/services/feature-access/` (which is tenant territory) so
- * it sits inside the CI-2/CI-4-guarded admin module. It reads across tenants
- * through the SELECT-only admin client and the additive `p7adm_read` policy.
+ * it sits inside the CI-2/CI-4-guarded admin module.
  *
- * It must NEVER use the tenant singleton: `BusinessFeatureAccess` is FORCE-RLS'd
- * and a context-less tenant read returns zero overrides, which would render
- * every business as "no override" — a fail-silent admin display.
+ * It reads ONE business at a time — the target the authorized platform admin
+ * named in the URL — so it does not need a cross-tenant credential at all. It
+ * runs through the same explicit-target substrate as the privileged writer,
+ * minus the privileged role:
+ *
+ *   requirePlatformAdmin (route)
+ *     → runTenantJob({ businessId: target })
+ *       → withTenantTransaction   (GUC = target)
+ *         → GUC-scoped read of exactly that business's overrides
+ *
+ * Why not the admin client: `getPrismaAdmin()` requires ADMIN_DATABASE_URL, which
+ * exists in no environment except one Preview branch. Routing this read through it
+ * would turn a working platform-admin screen into a loud 500 in local dev, normal
+ * Preview and Production the moment this shipped. The explicit-target read is both
+ * correct under FORCE RLS and free of any new environment dependency.
+ *
+ * It must NEVER use the context-less tenant singleton: `BusinessFeatureAccess` is
+ * FORCE-RLS'd and a context-less read returns zero overrides, which would render
+ * every business as "no override" — the fail-silent admin display this wave exists
+ * to eliminate. The context here is always explicit and always the named target.
  */
-import { getPrismaAdmin } from "@/lib/prisma-admin";
+import { runTenantJob } from "@/lib/tenant/job";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NotFoundError } from "@/lib/errors";
 import { PLATFORM_SYSTEM_BUSINESS_NAME } from "@/lib/services/platform-admin/constants";
 import {
@@ -107,23 +124,31 @@ function buildGroups(
 export async function getPlatformAdminBusinessFeatures(
   businessId: number
 ): Promise<PlatformAdminBusinessFeaturesResponse> {
-  const db = getPrismaAdmin();
+  // The target is server-resolved from the URL by an already-authorized platform
+  // admin. runTenantJob validates it and refuses a silent switch; the transaction
+  // then sets the GUC so the read is scoped to exactly that business.
+  const { business, resolved } = await runTenantJob({ businessId }, () =>
+    withTenantTransaction(async (tx) => {
+      const found = await tx.business.findFirst({
+        where: {
+          id: businessId,
+          name: { not: PLATFORM_SYSTEM_BUSINESS_NAME },
+        },
+        select: { id: true, name: true },
+      });
 
-  const business = await db.business.findFirst({
-    where: {
-      id: businessId,
-      name: { not: PLATFORM_SYSTEM_BUSINESS_NAME },
-    },
-    select: { id: true, name: true },
-  });
+      if (!found) {
+        throw new NotFoundError("Business not found");
+      }
 
-  if (!business) {
-    throw new NotFoundError("Business not found");
-  }
-
-  const resolved = await resolveBusinessCapabilitiesWith(
-    db as unknown as FeatureAccessReader,
-    businessId
+      return {
+        business: found,
+        resolved: await resolveBusinessCapabilitiesWith(
+          tx as unknown as FeatureAccessReader,
+          businessId
+        ),
+      };
+    })
   );
 
   const features = PLATFORM_FEATURE_CATALOG.map((entry) =>
