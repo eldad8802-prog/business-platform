@@ -16,6 +16,20 @@ import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { NotesThread } from "@/components/crm/NotesThread";
 import { AttachmentList } from "@/components/crm/AttachmentList";
 import { SupplierPurchaseHistorySection } from "@/components/inventory/SupplierPurchaseHistorySection";
+import { SupplierForm } from "@/components/suppliers/SupplierForm";
+import {
+  supplierCompleteness,
+  supplierFormToPayload,
+  supplierToFormState,
+  validateSupplierForm,
+  type SupplierFormState,
+} from "@/components/suppliers/supplier-form-model";
+import {
+  formatSupplierPaymentTerms,
+  SUPPLIER_PAYMENT_METHOD_LABELS,
+  SUPPLIER_TAX_ID_TYPE_LABELS,
+  supplierTaxIdLabel,
+} from "@/lib/services/inventory/supplier-profile";
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -122,6 +136,15 @@ export default function SupplierCardPage() {
   );
 }
 
+/**
+ * The supplier card body.
+ *
+ * DISPLAY RULE: sections render only what is actually filled in. A supplier with
+ * a name and a phone shows two lines, not twenty empty labels — an empty field
+ * is not information, and a wall of them makes the card unreadable. What IS
+ * missing is surfaced once, calmly, as a single "השלמת פרטי ספק" nudge rather
+ * than as a permanently half-blank form.
+ */
 function SupplierCardView({
   supplier,
   onEdit,
@@ -130,10 +153,66 @@ function SupplierCardView({
   onEdit: () => void;
 }) {
   const createdAt = formatDate(supplier.createdAt);
+  const completeness = supplierCompleteness(supplier);
 
-  const fields: Array<{ label: string; value: string | null }> = [
-    { label: "טלפון", value: supplier.phone ? formatPhoneForDisplay(supplier.phone) : null },
+  const identityFields: Array<{ label: string; value: string | null }> = [
+    { label: "שם רשום", value: supplier.legalName },
+    {
+      label: supplierTaxIdLabel(supplier.taxIdType),
+      value: supplier.taxId,
+    },
+    {
+      label: "סוג ישות",
+      value: supplier.taxIdType
+        ? SUPPLIER_TAX_ID_TYPE_LABELS[supplier.taxIdType]
+        : null,
+    },
+    { label: "קטגוריה", value: supplier.category },
+    { label: "אתר", value: supplier.website },
+  ];
+
+  const contactFields: Array<{ label: string; value: string | null }> = [
+    {
+      label: "טלפון",
+      value: supplier.phone ? formatPhoneForDisplay(supplier.phone) : null,
+    },
     { label: "אימייל", value: supplier.email },
+    {
+      label: "איש קשר",
+      value: [supplier.contactName, supplier.contactRole]
+        .filter(Boolean)
+        .join(" · ") || null,
+    },
+    {
+      label: "טלפון ישיר",
+      value: supplier.contactPhone
+        ? formatPhoneForDisplay(supplier.contactPhone)
+        : null,
+    },
+    { label: "אימייל איש קשר", value: supplier.contactEmail },
+    {
+      label: "כתובת",
+      value: [
+        supplier.addressStreet,
+        supplier.addressCity,
+        supplier.addressPostalCode,
+      ]
+        .filter((v) => v && v.trim())
+        .join(", ") || null,
+    },
+  ];
+
+  const termsFields: Array<{ label: string; value: string | null }> = [
+    {
+      label: "תנאי תשלום",
+      value: formatSupplierPaymentTerms(supplier.paymentTermsDays),
+    },
+    {
+      label: "צורת תשלום",
+      value: supplier.preferredPaymentMethod
+        ? SUPPLIER_PAYMENT_METHOD_LABELS[supplier.preferredPaymentMethod]
+        : null,
+    },
     {
       label: "זמן אספקה ברירת מחדל",
       value:
@@ -142,7 +221,6 @@ function SupplierCardView({
           : null,
     },
   ];
-  const shownFields = fields.filter((f) => f.value && f.value.trim());
 
   return (
     <>
@@ -166,17 +244,6 @@ function SupplierCardView({
           </button>
         </div>
 
-        {shownFields.length > 0 ? (
-          <div className="crm-id__grid">
-            {shownFields.map((f) => (
-              <div className="crm-id__field" key={f.label}>
-                <div className="crm-id__label">{f.label}</div>
-                <div className="crm-id__value">{f.value}</div>
-              </div>
-            ))}
-          </div>
-        ) : null}
-
         <div className="crm-chips">
           <span
             className={
@@ -185,9 +252,29 @@ function SupplierCardView({
           >
             {supplier.isActive ? "פעיל" : "לא פעיל"}
           </span>
+          {supplier.category ? (
+            <span className="crm-chip">{supplier.category}</span>
+          ) : null}
           {createdAt ? <span className="crm-chip">נוצר · {createdAt}</span> : null}
         </div>
       </div>
+
+      <SupplierFieldSection title="פרטי ספק" fields={identityFields} />
+      <SupplierFieldSection title="פרטי קשר" fields={contactFields} />
+      <SupplierFieldSection title="תנאי התקשרות" fields={termsFields} />
+
+      {completeness.missing.length > 0 ? (
+        <div className="crm-panel">
+          <p className="crm-panel__title">השלמת פרטי ספק</p>
+          <p className="crm-panel__body">
+            חסרים עדיין: {completeness.missing.join(" · ")}. השלמה עכשיו תחסוך
+            חיפוש בהמשך.
+          </p>
+          <button type="button" className="crm-btn crm-btn--ghost" onClick={onEdit}>
+            השלמת פרטים
+          </button>
+        </div>
+      ) : null}
 
       {supplier.notes && supplier.notes.trim() ? (
         <div className="crm-note">
@@ -208,6 +295,36 @@ function SupplierCardView({
   );
 }
 
+/** Renders nothing at all when every field in the section is empty. */
+function SupplierFieldSection({
+  title,
+  fields,
+}: {
+  title: string;
+  fields: Array<{ label: string; value: string | null }>;
+}) {
+  const shown = fields.filter((f) => f.value && String(f.value).trim());
+  if (shown.length === 0) return null;
+
+  return (
+    <div className="crm-id" style={{ marginTop: 12 }}>
+      <div className="crm-seclabel" style={{ fontWeight: 600, marginBottom: 8 }}>
+        {title}
+      </div>
+      <div className="crm-id__grid">
+        {shown.map((f) => (
+          <div className="crm-id__field" key={f.label}>
+            <div className="crm-id__label">{f.label}</div>
+            <div className="crm-id__value">
+              <bdi>{f.value}</bdi>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function EditSupplierModal({
   supplier,
   onClose,
@@ -217,43 +334,34 @@ function EditSupplierModal({
   onClose: () => void;
   onSaved: (updated: Supplier) => void;
 }) {
-  const [name, setName] = useState(supplier.name);
-  const [phone, setPhone] = useState(supplier.phone ?? "");
-  const [email, setEmail] = useState(supplier.email ?? "");
-  const [leadTime, setLeadTime] = useState(
-    supplier.defaultLeadTimeDays != null ? String(supplier.defaultLeadTimeDays) : ""
+  const [form, setForm] = useState<SupplierFormState>(() =>
+    supplierToFormState(supplier)
   );
-  const [notes, setNotes] = useState(supplier.notes ?? "");
-  const [isActive, setIsActive] = useState(supplier.isActive);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const set = useCallback<
+    <K extends keyof SupplierFormState>(k: K, v: SupplierFormState[K]) => void
+  >((key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
   async function handleSubmit() {
-    if (!name.trim()) {
-      setError("יש להזין שם ספק");
+    const invalid = validateSupplierForm(form);
+    if (invalid) {
+      setError(invalid);
       return;
-    }
-    let leadTimeValue: number | null = null;
-    const trimmedLead = leadTime.trim();
-    if (trimmedLead) {
-      const parsed = Number(trimmedLead);
-      if (!Number.isInteger(parsed) || parsed < 0) {
-        setError("זמן אספקה חייב להיות מספר שלם ואי-שלילי");
-        return;
-      }
-      leadTimeValue = parsed;
     }
     try {
       setSaving(true);
       setError(null);
-      const updated = await updateSupplier(supplier.id, {
-        name: name.trim(),
-        phone: phone.trim() || null,
-        email: email.trim() || null,
-        notes: notes.trim() || null,
-        defaultLeadTimeDays: leadTimeValue,
-        isActive,
-      });
+      // Renaming a supplier here changes the DISPLAY name only. Existing purchase
+      // orders point at this row by id, so their history survives the rename —
+      // that is the whole point of the Entity-FK.
+      const updated = await updateSupplier(
+        supplier.id,
+        supplierFormToPayload(form)
+      );
       onSaved(updated);
     } catch (err: unknown) {
       if (isUnauthorizedError(err)) {
@@ -275,86 +383,12 @@ function EditSupplierModal({
       <div className="crm-modal" role="dialog" aria-modal="true" aria-label="עריכת ספק">
         <h2 className="crm-modal__title">עריכת ספק</h2>
 
-        <div className="crm-field">
-          <label className="crm-field__label" htmlFor="sup-edit-name">
-            שם *
-          </label>
-          <input
-            id="sup-edit-name"
-            className="crm-input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoFocus
-          />
-        </div>
-        <div className="crm-field">
-          <label className="crm-field__label" htmlFor="sup-edit-phone">
-            טלפון
-          </label>
-          <input
-            id="sup-edit-phone"
-            className="crm-input"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            inputMode="tel"
-          />
-        </div>
-        <div className="crm-field">
-          <label className="crm-field__label" htmlFor="sup-edit-email">
-            אימייל
-          </label>
-          <input
-            id="sup-edit-email"
-            className="crm-input"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            inputMode="email"
-          />
-        </div>
-        <div className="crm-field">
-          <label className="crm-field__label" htmlFor="sup-edit-lead">
-            זמן אספקה ברירת מחדל (ימים)
-          </label>
-          <input
-            id="sup-edit-lead"
-            className="crm-input"
-            value={leadTime}
-            onChange={(e) => setLeadTime(e.target.value)}
-            inputMode="numeric"
-          />
-        </div>
-        <div className="crm-field">
-          <label className="crm-field__label" htmlFor="sup-edit-notes">
-            הערה כללית
-          </label>
-          <textarea
-            id="sup-edit-notes"
-            className="crm-note-input"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={3}
-          />
-        </div>
-        <div className="crm-field">
-          <label
-            className="crm-field__label"
-            htmlFor="sup-edit-active"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              cursor: "pointer",
-            }}
-          >
-            <input
-              id="sup-edit-active"
-              type="checkbox"
-              checked={isActive}
-              onChange={(e) => setIsActive(e.target.checked)}
-            />
-            ספק פעיל
-          </label>
-        </div>
+        <SupplierForm
+          form={form}
+          set={set}
+          idPrefix="sup-edit"
+          showActiveToggle
+        />
 
         {error ? <div className="crm-modal__error">{error}</div> : null}
 
