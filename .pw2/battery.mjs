@@ -798,6 +798,96 @@ async function main() {
   process.env.CONTROL_PLANE_DATABASE_URL = savedUrl;
   delete globalThis.prismaControlPlane;
 
+  // ── Phase 17b: route-level authorization + spoofing ───────────────────────
+  // The DB proves what a credential can do; only the route proves who is allowed
+  // to use it. The privileged credential is deliberately UNSET for the denial
+  // cases: if authorization ever stopped short-circuiting, the service would
+  // throw the loud missing-credential error (500) instead of returning 401/403,
+  // so a clean 401/403 is also evidence the privileged path was never entered.
+  console.log("--- phase 17b: route authorization ---");
+  const { PATCH } = await import(
+    "@/app/api/platform-admin/businesses/[id]/features/[featureKey]/route"
+  );
+  const { signAuthToken } = await import("@/lib/auth-token");
+
+  const SPOOF_FEATURE = "content";
+  const callRoute = (token, targetBusinessId, body) =>
+    PATCH(
+      new Request("http://pw2.local/api/platform-admin/businesses/x/features/y", {
+        method: "PATCH",
+        headers: token
+          ? { authorization: `Bearer ${token}`, "content-type": "application/json" }
+          : { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      { params: Promise.resolve({ id: String(targetBusinessId), featureKey: SPOOF_FEATURE }) }
+    );
+
+  process.env.FEATURE_ACCESS_MUTATIONS_ENABLED = "true";
+  process.env.PLATFORM_ADMIN_EMAILS = "admin@pw2.test";
+  const adminToken = signAuthToken(adminUser.id);
+  const tenantUser = await owner.user.findUnique({ where: { email: "a@pw2.test" } });
+  const tenantToken = signAuthToken(tenantUser.id);
+  const spoofBody = {
+    state: "DISABLED",
+    reason: "pw2 route-level spoof attempt with a forged actor and target",
+    actorUserId: tenantUser.id,
+    businessId: bizA.id,
+    role: "PLATFORM_ADMIN",
+  };
+
+  const ctlUrlSaved = process.env.CONTROL_PLANE_DATABASE_URL;
+  delete process.env.CONTROL_PLANE_DATABASE_URL;
+  delete globalThis.prismaControlPlane;
+
+  const anon = await callRoute(null, bizB.id, spoofBody);
+  ok("route: unauthenticated caller is denied 401", anon.status === 401, `status=${anon.status}`);
+  const asTenant = await callRoute(tenantToken, bizB.id, spoofBody);
+  ok("route: ordinary tenant user is denied 403", asTenant.status === 403, `status=${asTenant.status}`);
+  process.env.PLATFORM_ADMIN_EMAILS = "someone-else@pw2.test";
+  const asUnlistedAdmin = await callRoute(adminToken, bizB.id, spoofBody);
+  ok(
+    "route: PLATFORM_ADMIN outside the email allowlist is denied 403",
+    asUnlistedAdmin.status === 403,
+    `status=${asUnlistedAdmin.status}`
+  );
+  const noWriteYet = await owner.businessFeatureAccess.count({
+    where: { featureKey: SPOOF_FEATURE, businessId: bothIds },
+  });
+  ok("route: no denied attempt wrote anything", noWriteYet === 0, `rows=${noWriteYet}`);
+
+  process.env.PLATFORM_ADMIN_EMAILS = "admin@pw2.test";
+  process.env.CONTROL_PLANE_DATABASE_URL = ctlUrlSaved;
+  delete globalThis.prismaControlPlane;
+  const authorized = await callRoute(adminToken, bizB.id, spoofBody);
+  ok("route: allowlisted PLATFORM_ADMIN succeeds", authorized.status === 200, `status=${authorized.status}`);
+  const spoofRowB = await owner.businessFeatureAccess.findUnique({
+    where: { businessId_featureKey: { businessId: bizB.id, featureKey: SPOOF_FEATURE } },
+  });
+  const spoofRowA = await owner.businessFeatureAccess.findUnique({
+    where: { businessId_featureKey: { businessId: bizA.id, featureKey: SPOOF_FEATURE } },
+  });
+  ok(
+    "route: the URL target wins — the body businessId is not an authority",
+    spoofRowB !== null && spoofRowA === null,
+    `B=${spoofRowB ? spoofRowB.state : null} A=${spoofRowA ? spoofRowA.state : null}`
+  );
+  ok(
+    "route: the row records the AUTHENTICATED admin, not the forged actorUserId",
+    spoofRowB.updatedByUserId === adminUser.id,
+    `updatedBy=${spoofRowB.updatedByUserId} forged=${tenantUser.id}`
+  );
+  const spoofAudit = await owner.platformAuditEvent.findFirst({
+    where: { action: "PLATFORM_FEATURE_ACCESS_UPDATED", targetId: String(bizB.id) },
+    orderBy: { id: "desc" },
+  });
+  ok(
+    "route: the audit actor is the authenticated admin, not the body",
+    spoofAudit?.actorUserId === adminUser.id &&
+      spoofAudit?.metadata?.featureKey === SPOOF_FEATURE,
+    `actor=${spoofAudit?.actorUserId}`
+  );
+
   // ── Phase 18: rollback + re-apply (pg only) ───────────────────────────────
   if (TARGET === "pg") {
     console.log("--- phase 18: rollback + re-apply ---");
