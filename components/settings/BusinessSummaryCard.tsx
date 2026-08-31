@@ -86,7 +86,7 @@ export function BusinessSummaryCard() {
   }, []);
 
   return (
-    <section className="rounded-[24px] bg-[var(--dz-surface)] p-4 shadow-sm" dir="rtl">
+    <section className="rounded-[24px] dz-mist p-4 shadow-sm" dir="rtl">
       <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">פרטי העסק</h2>
       <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
         התקציר שמזהה את העסק שלך במערכת.

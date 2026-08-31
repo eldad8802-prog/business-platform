@@ -205,7 +205,7 @@ export default function CorporateHomePage() {
             {ATTENTION.map((item) => (
               <li
                 key={item.text}
-                className="flex items-center justify-between gap-3 rounded-2xl bg-[var(--dz-surface)] px-4 py-3"
+                className="flex items-center justify-between gap-3 rounded-2xl dz-mist px-4 py-3"
                 style={{ border: `1px solid ${C.line}` }}
               >
                 <span className="flex items-center gap-3 text-sm" style={{ color: C.ink }}>
@@ -318,7 +318,7 @@ export default function CorporateHomePage() {
             ].map(([k, v]) => (
               <div
                 key={k}
-                className="flex items-center justify-between rounded-xl bg-[var(--dz-surface)] px-3 py-2"
+                className="flex items-center justify-between rounded-xl dz-mist px-3 py-2"
                 style={{ border: `1px solid ${C.line}` }}
               >
                 <dt style={{ color: C.muted }}>{k}</dt>

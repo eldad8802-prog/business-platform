@@ -91,7 +91,7 @@ export default function AssetUploadItem({
   }, [asset.title, uploaded]);
 
   return (
-    <div className="rounded-3xl border border-[var(--dz-border)] bg-[var(--dz-surface)] p-4 shadow-sm sm:p-5">
+    <div className="rounded-3xl border border-[var(--dz-border)] dz-mist p-4 shadow-sm sm:p-5">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span
           className={`rounded-full px-3 py-1 text-xs font-medium ${

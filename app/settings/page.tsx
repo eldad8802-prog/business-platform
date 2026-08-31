@@ -4,7 +4,7 @@ import BackButton from "@/components/ui/back-button";
 export default function SettingsHubPage() {
   return (
     <>
-      <header className="mb-5 rounded-3xl bg-[var(--dz-surface)] px-4 py-4 shadow-sm">
+      <header className="mb-5 rounded-3xl dz-mist px-4 py-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <BackButton href="/app" label="חזרה לדף הבית" />
 

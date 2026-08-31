@@ -55,14 +55,14 @@ export function DeleteAccountSection() {
 
   if (done) {
     return (
-      <div role="status" aria-live="polite" className="rounded-2xl bg-[var(--dz-surface)] p-4 text-sm text-[var(--dz-text-secondary)] shadow-sm">
+      <div role="status" aria-live="polite" className="rounded-2xl dz-mist p-4 text-sm text-[var(--dz-text-secondary)] shadow-sm">
         בקשת מחיקת החשבון התקבלה והחשבון נסגר. מעבירים אתכם למסך ההתחברות…
       </div>
     );
   }
 
   return (
-    <section className="rounded-2xl bg-[var(--dz-surface)] p-4 shadow-sm" dir="rtl">
+    <section className="rounded-2xl dz-mist p-4 shadow-sm" dir="rtl">
       <h2 className="mb-1 text-base font-bold text-[var(--dz-text-primary)]">מחיקת חשבון</h2>
       <p className="mb-3 text-sm leading-6 text-[var(--dz-text-muted)]">
         מחיקת החשבון תסיר את פרטי המשתמש והמידע התפעולי (לקוחות, שיחות, קבצים והחיבורים
@@ -75,7 +75,7 @@ export function DeleteAccountSection() {
         <button
           type="button"
           onClick={() => { setOpen(true); setError(null); }}
-          className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[var(--dz-danger-border)] bg-[var(--dz-surface)] px-4 text-sm font-semibold text-[var(--dz-danger)] hover:bg-[var(--dz-danger-bg-soft)]"
+          className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[var(--dz-danger-border)] bg-[var(--dz-surface-flat)] px-4 text-sm font-semibold text-[var(--dz-danger)] hover:bg-[var(--dz-danger-bg-soft)]"
         >
           מחיקת החשבון שלי
         </button>
@@ -106,7 +106,7 @@ export function DeleteAccountSection() {
               type="button"
               disabled={busy}
               onClick={() => { setOpen(false); setConfirmText(""); setError(null); }}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[var(--dz-border-strong)] bg-[var(--dz-surface)] px-4 text-sm font-semibold text-[var(--dz-text-secondary)]"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[var(--dz-border-strong)] dz-mist px-4 text-sm font-semibold text-[var(--dz-text-secondary)]"
             >
               ביטול
             </button>

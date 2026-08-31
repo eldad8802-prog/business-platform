@@ -46,7 +46,7 @@ export default function CorporateAboutPage() {
           </p>
         </section>
 
-        <section className="max-w-3xl rounded-[24px] bg-[var(--dz-surface)] p-6 shadow-sm sm:p-7">
+        <section className="max-w-3xl rounded-[24px] dz-mist p-6 shadow-sm sm:p-7">
           <h2 className="text-lg font-bold text-[var(--mkt-ink)]">על PRO MAX GROUP</h2>
           <p className="mt-3 text-sm leading-7 text-[var(--dz-text-muted)] sm:text-base">
             Dubiz is operated by PRO MAX GROUP. PRO MAX GROUP אחראית לפיתוח

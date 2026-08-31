@@ -52,7 +52,7 @@ export function CorporateHeader() {
       </CorporateContainer>
 
       {open ? (
-        <div className="border-t border-[var(--mkt-border)] bg-[var(--dz-surface)] sm:hidden">
+        <div className="border-t border-[var(--mkt-border)] dz-mist sm:hidden">
           <CorporateContainer className="flex flex-col gap-3 py-4">
             <CorporateNav
               orientation="vertical"

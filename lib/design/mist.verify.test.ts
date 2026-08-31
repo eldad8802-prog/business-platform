@@ -179,6 +179,13 @@ function collect(dir: string): string[] {
   return out;
 }
 
+/*
+ * This file necessarily CONTAINS the patterns it bans — in the explanatory
+ * comments and inside the regexes themselves — so it must never scan itself.
+ */
+const SELF = join("lib", "design", "mist.verify.test.ts");
+const isSelf = (f: string) => f.endsWith(SELF);
+
 function walk(dir: string) {
   for (const entry of readdirSync(dir)) {
     if (entry === "node_modules" || entry === ".next") continue;
@@ -188,6 +195,7 @@ function walk(dir: string) {
       continue;
     }
     if (!/\.(tsx?|css)$/.test(entry)) continue;
+    if (isSelf(full)) continue;
     const text = readFileSync(full, "utf8");
     for (const m of text.matchAll(/background-?[Cc]olor\s*:\s*([^,;\n]+)/g)) {
       const value = m[1];
@@ -236,6 +244,7 @@ const GRADIENT_CALL = /(?:linear|radial|conic)-gradient\((?:[^()]|\([^()]*\))*\)
 const stopLeaks: string[] = [];
 for (const dir of SCAN_DIRS) {
   for (const f of collect(join(ROOT, dir))) {
+    if (isSelf(f)) continue;
     const text = readFileSync(f, "utf8");
     for (const g of text.match(GRADIENT_CALL) ?? []) {
       if (new RegExp(`var\\(\\s*--dz-(?:${IMAGE_VARS})\\s*[,)]`).test(g)) {
@@ -248,6 +257,53 @@ check(
   stopLeaks.length === 0,
   "no image-bearing token used as a gradient colour stop",
   stopLeaks.slice(0, 5).join(" | "),
+);
+
+// ------------------------------------------------------------------ 4c ----
+/*
+ * The same trap in a THIRD shape, and the one that actually shipped: a Tailwind
+ * arbitrary-value utility.
+ *
+ * `bg-[var(--dz-surface)]` looks like it sets a background, but Tailwind's `bg-`
+ * scale is background-COLOR — it compiles to `background-color: var(--dz-surface)`
+ * at build time. An image stack there is not a valid colour, so the declaration
+ * is dropped and the surface paints nothing at all.
+ *
+ * Check 4 cannot catch this: it scans source for the literal string
+ * `background-color:`, and this declaration does not exist until Tailwind
+ * generates it. So the utility itself has to be banned at the source level.
+ *
+ * The same reasoning covers every utility whose Tailwind scale is a colour:
+ * bg / from / via / to / divide / placeholder / caret / accent / decoration /
+ * shadow / ring / outline / border / text / fill / stroke. `border-[var(--dz-border)]`
+ * and friends stay legal — only the IMAGE-bearing tokens are rejected.
+ *
+ * Use the `.dz-mist*` utilities for a Mist surface, or a flat sibling
+ * (`--dz-surface-flat`, `--dz-surface-raised-flat`) where a real colour is
+ * required — for example a control whose background changes on hover, since a
+ * layered Tailwind state utility cannot override the unlayered `.dz-mist`.
+ */
+const COLOUR_UTILITIES =
+  "bg|from|via|to|divide|placeholder|caret|accent|decoration|shadow|ring|outline|border|text|fill|stroke";
+const TW_COLOUR_UTIL = new RegExp(
+  `\\b(?:[a-z0-9-]+:)*(?:${COLOUR_UTILITIES})-\\[\\s*var\\(\\s*--dz-(?:${IMAGE_VARS})\\s*[,)]`,
+  "g",
+);
+const utilityLeaks: string[] = [];
+for (const dir of SCAN_DIRS) {
+  for (const f of collect(join(ROOT, dir))) {
+    if (isSelf(f)) continue;
+    const text = readFileSync(f, "utf8");
+    for (const m of text.matchAll(TW_COLOUR_UTIL)) {
+      utilityLeaks.push(`${f.slice(ROOT.length + 1)}: ${m[0]}…`);
+    }
+  }
+}
+check(
+  utilityLeaks.length === 0,
+  "no image-bearing token fed to a Tailwind colour utility",
+  utilityLeaks.slice(0, 6).join(" | ") +
+    (utilityLeaks.length > 6 ? ` (+${utilityLeaks.length - 6} more)` : ""),
 );
 
 // ------------------------------------------------------------------ 4b ----

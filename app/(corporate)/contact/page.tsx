@@ -20,7 +20,7 @@ export default function CorporateContactPage() {
         </p>
       </header>
 
-      <section className="mt-10 max-w-xl rounded-[24px] bg-[var(--dz-surface)] p-6 shadow-sm sm:p-7">
+      <section className="mt-10 max-w-xl rounded-[24px] dz-mist p-6 shadow-sm sm:p-7">
         <dl className="space-y-5 text-sm sm:text-base">
           <div>
             <dt className="font-bold text-[var(--mkt-ink)]">אימייל</dt>

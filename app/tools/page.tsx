@@ -122,7 +122,7 @@ const TOOLS: ToolItem[] = [
 
 function ToolsHeader({ onBack }: { onBack: () => void }) {
   return (
-    <header className="mb-5 rounded-3xl bg-[var(--dz-surface)] px-4 py-4 shadow-sm">
+    <header className="mb-5 rounded-3xl dz-mist px-4 py-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <BackButton onClick={onBack} />
 
@@ -154,8 +154,8 @@ function ToolCard({
       disabled={isSoon}
       className={`relative min-h-[150px] rounded-[24px] p-4 text-right shadow-sm transition ${
         isSoon
-          ? "cursor-not-allowed bg-[var(--dz-surface)] opacity-80"
-          : "bg-[var(--dz-surface)] active:scale-[0.99]"
+          ? "cursor-not-allowed dz-mist opacity-80"
+          : "dz-mist active:scale-[0.99]"
       }`}
     >
       <span
@@ -202,7 +202,7 @@ export default function ToolsPage() {
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-8 pt-4 sm:max-w-2xl sm:px-6 lg:max-w-4xl">
         <ToolsHeader onBack={handleBack} />
 
-        <section className="mb-4 rounded-[24px] bg-[var(--dz-surface)] p-4 shadow-sm">
+        <section className="mb-4 rounded-[24px] dz-mist p-4 shadow-sm">
           <h1 className="text-lg font-bold text-[var(--dz-text-primary)]">מרכז הכלים של העסק</h1>
           <p className="mt-2 text-sm leading-6 text-[var(--dz-text-muted)]">
             כאן תוכל לעבור בין כל היכולות של המערכת בצורה מסודרת, ברורה ונוחה.

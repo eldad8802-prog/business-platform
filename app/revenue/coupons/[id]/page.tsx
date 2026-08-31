@@ -223,7 +223,7 @@ export default function RevenueCouponDetailsPage() {
     return (
       <main className="min-h-screen bg-[var(--dz-background)] px-4 pb-10 pt-4 text-[var(--dz-text-primary)]">
         <div className="mx-auto w-full max-w-md sm:max-w-2xl lg:max-w-4xl">
-          <div className="rounded-[24px] bg-[var(--dz-surface)] p-5 shadow-sm">
+          <div className="rounded-[24px] dz-mist p-5 shadow-sm">
             טוען פרטי קופון…
           </div>
         </div>
@@ -235,7 +235,7 @@ export default function RevenueCouponDetailsPage() {
     return (
       <main className="min-h-screen bg-[var(--dz-background)] px-4 pb-10 pt-4 text-[var(--dz-text-primary)]">
         <div className="mx-auto w-full max-w-md sm:max-w-2xl lg:max-w-4xl">
-          <div className="rounded-[24px] bg-[var(--dz-surface)] p-5 shadow-sm">
+          <div className="rounded-[24px] dz-mist p-5 shadow-sm">
             <div className="text-sm font-semibold text-[var(--dz-danger)]">
               {error || "לא הצלחנו לטעון את פרטי הקופון"}
             </div>
@@ -243,7 +243,7 @@ export default function RevenueCouponDetailsPage() {
               <button
                 type="button"
                 onClick={() => router.push("/revenue")}
-                className="rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface)] px-4 py-3 text-sm font-semibold"
+                className="rounded-2xl border border-[var(--dz-border)] dz-mist px-4 py-3 text-sm font-semibold"
               >
                 חזרה
               </button>
@@ -281,7 +281,7 @@ export default function RevenueCouponDetailsPage() {
 
   const renderDetailsView = () => (
     <>
-      <div className="overflow-hidden rounded-[28px] bg-[var(--dz-surface)] shadow-sm">
+      <div className="overflow-hidden rounded-[28px] dz-mist shadow-sm">
         <div className="relative h-[220px] w-full bg-[var(--dz-background)]">
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center">
@@ -364,7 +364,7 @@ export default function RevenueCouponDetailsPage() {
   );
 
   const renderCodeView = () => (
-    <div className="overflow-hidden rounded-[28px] bg-[var(--dz-surface)] shadow-sm">
+    <div className="overflow-hidden rounded-[28px] dz-mist shadow-sm">
       <div className="p-5">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -383,7 +383,7 @@ export default function RevenueCouponDetailsPage() {
               setShareMessage("");
               setQrSize(220);
             }}
-            className="shrink-0 rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface)] px-3 py-2 text-xs font-semibold text-[var(--dz-text-secondary)] active:scale-[0.99]"
+            className="shrink-0 rounded-2xl border border-[var(--dz-border)] dz-mist px-3 py-2 text-xs font-semibold text-[var(--dz-text-secondary)] active:scale-[0.99]"
           >
             חזרה לפרטי הקופון
           </button>
@@ -398,7 +398,7 @@ export default function RevenueCouponDetailsPage() {
         ) : code ? (
           <>
             <div className="mt-3 flex justify-center">
-              <div className="rounded-[20px] border border-[var(--dz-border)] bg-[var(--dz-surface)] p-4">
+              <div className="rounded-[20px] border border-[var(--dz-border)] dz-mist p-4">
                 <QRCodeCanvas value={code.qrValue} size={qrSize} includeMargin />
               </div>
             </div>
@@ -407,7 +407,7 @@ export default function RevenueCouponDetailsPage() {
               <button
                 type="button"
                 onClick={() => setQrSize((prev) => (prev === 220 ? 320 : 220))}
-                className="rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface)] px-4 py-3 text-sm font-semibold active:scale-[0.99]"
+                className="rounded-2xl border border-[var(--dz-border)] dz-mist px-4 py-3 text-sm font-semibold active:scale-[0.99]"
               >
                 {qrSize === 220 ? "הגדל QR" : "הקטן QR"}
               </button>
@@ -422,14 +422,14 @@ export default function RevenueCouponDetailsPage() {
                 <button
                   type="button"
                   onClick={() => handleCopy(code.token, "הקוד הועתק")}
-                  className="flex-1 rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface)] px-4 py-3 text-sm font-semibold active:scale-[0.99]"
+                  className="flex-1 rounded-2xl border border-[var(--dz-border)] dz-mist px-4 py-3 text-sm font-semibold active:scale-[0.99]"
                 >
                   העתק קוד
                 </button>
                 <button
                   type="button"
                   onClick={() => handleCopy(code.qrValue, "הקישור הועתק")}
-                  className="flex-1 rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface)] px-4 py-3 text-sm font-semibold active:scale-[0.99]"
+                  className="flex-1 rounded-2xl border border-[var(--dz-border)] dz-mist px-4 py-3 text-sm font-semibold active:scale-[0.99]"
                 >
                   העתק קישור
                 </button>
@@ -468,7 +468,7 @@ export default function RevenueCouponDetailsPage() {
           <button
             type="button"
             onClick={() => router.push("/revenue")}
-            className="rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface)] px-4 py-3 text-sm font-semibold text-[var(--dz-text-secondary)]"
+            className="rounded-2xl border border-[var(--dz-border)] dz-mist px-4 py-3 text-sm font-semibold text-[var(--dz-text-secondary)]"
           >
             חזרה
           </button>
