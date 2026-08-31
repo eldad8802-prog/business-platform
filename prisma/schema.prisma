@@ -922,6 +922,9 @@ model Message {
   /// Provider message id (e.g. WhatsApp wamid) when SENT. Also populated for
   /// inbound rows by the conversation intake service for traceability.
   providerMessageId         String?
+  /// Caller-supplied send-idempotency token (W2.5). NULL for every path that
+  /// does not opt in, including all historical rows.
+  clientRequestId           String?
   sendErrorCode             String?
   sendErrorMessage          String?
   sendAttemptedAt           DateTime?
@@ -940,6 +943,19 @@ model Message {
   // Tenant-scoped so identical provider ids in different businesses never
   // cross-dedup; NULL providerMessageId rows (app-created messages) are
   // unconstrained under Postgres NULL-distinct semantics.
+  /// Supports the per-conversation reads the whole inbox depends on — and, from
+  /// W2.5, the DERIVED unanswered-inbound count that replaced a mutable
+  /// counter. Message previously had NO index at all beyond the primary key and
+  /// the provider-id unique, so even the FK to Conversation was unsupported and
+  /// every per-conversation read was a sequential scan.
+  @@index([conversationId, createdAt])
+  /// W2.5 send-idempotency. `/api/message` had no guard at either end, so a
+  /// double-tap or a retry created a SECOND message row — which the writer
+  /// cannot undo, because two rows are two real messages. A caller-supplied
+  /// token makes the send exactly-once at the only place that can enforce it.
+  /// NULLs do not collide under Postgres unique semantics, so every existing
+  /// row and every non-idempotent caller is unaffected.
+  @@unique([businessId, clientRequestId])
   @@unique([businessId, providerMessageId])
 }
 

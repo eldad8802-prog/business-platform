@@ -132,6 +132,7 @@ async function findExistingByWamid(
       readAt: true,
       sendStatus: true,
       providerMessageId: true,
+      clientRequestId: true,
       sendErrorCode: true,
       sendErrorMessage: true,
       sendAttemptedAt: true,
