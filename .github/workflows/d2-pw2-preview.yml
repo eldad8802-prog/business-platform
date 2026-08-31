@@ -7,7 +7,7 @@
 #
 # Transient secrets (set -> run -> DELETE IMMEDIATELY, never printed, never
 # committed):
-#   W1_RUNTIME_URL  connection URL of app_runtime_preview_p4b
+#   W1_RUNTIME_PW   password of app_runtime_preview_p4b
 #   W2G_ADMIN_PW    password of app_admin_preview
 #   PW2_CTL_PW      password for app_ctlplane_preview (create-once / rotate-only)
 #
@@ -17,6 +17,10 @@
 name: d2/pw2 — control-plane preview apply+proof (neon)
 
 on:
+  # TEMPORARY dispatch arm for the first Preview apply. Disarmed immediately
+  # after the run, exactly as every prior wave did (workflow_dispatch remains).
+  push:
+    branches: [feat/d2-pw2-control-plane]
   workflow_dispatch:
     inputs:
       verify_only:
@@ -92,7 +96,7 @@ jobs:
       - name: Provision app_ctlplane_preview (create-once, rotate-only) + run battery
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-          W1_RUNTIME_URL: ${{ secrets.W1_RUNTIME_URL }}
+          W1_RUNTIME_PW: ${{ secrets.W1_RUNTIME_PW }}
           W2G_ADMIN_PW: ${{ secrets.W2G_ADMIN_PW }}
           PW2_CTL_PW: ${{ secrets.PW2_CTL_PW }}
           AUTH_TOKEN_SECRET: pw2_ci_auth_secret_synthetic
@@ -101,11 +105,11 @@ jobs:
           set -euo pipefail
           VERIFY_ONLY="${{ inputs.verify_only && '1' || '' }}"
           if [ "${VERIFY_ONLY}" != "1" ]; then
-            [ -n "${W1_RUNTIME_URL:-}" ] || { echo "::error::W1_RUNTIME_URL missing (transient secret)"; exit 1; }
+            [ -n "${W1_RUNTIME_PW:-}" ] || { echo "::error::W1_RUNTIME_PW missing (transient secret)"; exit 1; }
             [ -n "${W2G_ADMIN_PW:-}" ] || { echo "::error::W2G_ADMIN_PW missing (transient secret)"; exit 1; }
             [ -n "${PW2_CTL_PW:-}" ] || { echo "::error::PW2_CTL_PW missing (transient secret)"; exit 1; }
           fi
-          for s in "${W1_RUNTIME_URL:-}" "${W2G_ADMIN_PW:-}" "${PW2_CTL_PW:-}"; do
+          for s in "${W1_RUNTIME_PW:-}" "${W2G_ADMIN_PW:-}" "${PW2_CTL_PW:-}"; do
             [ -z "$s" ] || echo "::add-mask::$s"
           done
 
@@ -153,13 +157,14 @@ jobs:
               process.stdout.write(u.toString());
             ' "$1" "$2" "$3"
           }
+          RUNTIME_URL="$(mkurl "${DBP}" app_runtime_preview_p4b "${W1_RUNTIME_PW:-x}")"
           ADMIN_URL="$(mkurl "${DBP}" app_admin_preview "${W2G_ADMIN_PW:-x}")"
           CTL_URL="$(mkurl "${DBP}" app_ctlplane_preview "${PW2_CTL_PW:-x}")"
-          echo "::add-mask::${ADMIN_URL}"; echo "::add-mask::${CTL_URL}"
+          echo "::add-mask::${RUNTIME_URL}"; echo "::add-mask::${ADMIN_URL}"; echo "::add-mask::${CTL_URL}"
 
           BATTERY_TARGET=neon PW2_VERIFY_ONLY="${VERIFY_ONLY}" \
           DATABASE_URL="${DBP}" DIRECT_URL="${DBD}" \
-          RUNTIME_URL="${W1_RUNTIME_URL:-}" ADMIN_URL="${ADMIN_URL}" CTL_URL="${CTL_URL}" \
+          RUNTIME_URL="${RUNTIME_URL}" ADMIN_URL="${ADMIN_URL}" CTL_URL="${CTL_URL}" \
           npx tsx .pw2/battery.mjs
 
       - name: Fixtures cleanup net (always — marker-based backstop)
