@@ -15,10 +15,25 @@ type SupplierPurchaseLineInput = {
   barcode?: string | null;
   quantity: number;
   unitType?: InventoryUnitType | null;
+  /**
+   * Cost per unit as entered by the owner. The column already existed on
+   * SupplierPurchaseDraftLine but this input type did not carry the field, so
+   * every cost typed into the order wizard was silently dropped before it ever
+   * reached Prisma — order totals, supplier spend and lastPurchaseCost all read
+   * back as 0/null. Null means "not stated", which is a legitimate state.
+   */
+  unitCost?: number | null;
 };
 
 type CreateSupplierPurchaseDraftInput = {
   businessId: number;
+  /**
+   * Entity-FK (Party Identity Strategy Tier 2). When the owner picked a real
+   * Supplier, the id is verified tenant-scoped here and the name snapshot is
+   * derived from the entity — never trusted from the client. Null keeps the
+   * legacy free-text behaviour.
+   */
+  supplierId?: number | null;
   supplierName?: string | null;
   externalOrderId?: string | null;
   source?: string | null;
@@ -41,6 +56,34 @@ function normalizeQuantity(value: number): number {
   }
 
   return quantity;
+}
+
+function normalizeOptionalNonNegativeNumber(
+  value: number | null | undefined,
+  fieldName: string
+): number | null {
+  if (value == null) return null;
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`${fieldName} must be greater than or equal to zero`);
+  }
+
+  return parsed;
+}
+
+function normalizeOptionalPositiveInt(
+  value: number | null | undefined,
+  fieldName: string
+): number | null {
+  if (value == null) return null;
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${fieldName} must be a positive integer`);
+  }
+
+  return parsed;
 }
 
 function normalizeOrderDate(value?: Date | string | null): Date | null {
@@ -96,6 +139,7 @@ export async function createSupplierPurchaseDraft(
   const db = options?.tx ?? prisma;
   const {
     businessId,
+    supplierId,
     supplierName,
     externalOrderId,
     source,
@@ -117,13 +161,39 @@ export async function createSupplierPurchaseDraft(
     sku: normalizeText(line.sku),
     barcode: normalizeText(line.barcode),
     quantity: normalizeQuantity(line.quantity),
+    unitCost: normalizeOptionalNonNegativeNumber(line.unitCost, "unitCost"),
     unitType: line.unitType ?? InventoryUnitType.UNIT,
   }));
+
+  // Tier-2 Entity-FK resolution, identical in spirit to createPurchaseOrder:
+  // a supplied id is loaded tenant-scoped and the name snapshot is derived from
+  // the verified row. A missing or cross-tenant supplier is indistinguishable.
+  const normalizedSupplierId = normalizeOptionalPositiveInt(
+    supplierId,
+    "supplierId"
+  );
+  let resolvedSupplierId: number | null = null;
+  let resolvedSupplierName: string | null = normalizeText(supplierName);
+
+  if (normalizedSupplierId != null) {
+    const supplier = await db.supplier.findFirst({
+      where: { id: normalizedSupplierId, businessId },
+      select: { id: true, name: true },
+    });
+
+    if (!supplier) {
+      throw new Error("Supplier not found");
+    }
+
+    resolvedSupplierId = supplier.id;
+    resolvedSupplierName = supplier.name;
+  }
 
   const draft = await db.supplierPurchaseDraft.create({
     data: {
       businessId,
-      supplierName: normalizeText(supplierName),
+      supplierId: resolvedSupplierId,
+      supplierName: resolvedSupplierName,
       externalOrderId: normalizeText(externalOrderId),
       source: normalizeText(source) ?? "MANUAL",
       orderDate: normalizeOrderDate(orderDate),
@@ -135,6 +205,7 @@ export async function createSupplierPurchaseDraft(
           sku: line.sku,
           barcode: line.barcode,
           quantity: line.quantity,
+          unitCost: line.unitCost,
           unitType: line.unitType,
           status: SupplierLineStatus.PENDING,
         })),

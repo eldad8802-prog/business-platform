@@ -279,6 +279,81 @@ async function validateReceivingLines(
   });
 }
 
+/**
+ * Recompute a purchase order's status from the reality of its lines.
+ *
+ * Pure derivation — it reads posted receipts and line decisions and writes one
+ * status. It never moves a terminal order (CLOSED / CANCELLED stay put) and it
+ * never downgrades an order that has nothing left open.
+ */
+async function settlePurchaseOrderStatus(
+  tx: Tx,
+  input: { businessId: number; purchaseOrderId: number }
+) {
+  // ONE round trip: the order, its lines, and each line's POSTED receipts. This
+  // runs inside an already long approval transaction, so a second query here is
+  // not free — nesting the receipts into the same read keeps the added cost to a
+  // single statement.
+  const purchaseOrder = await tx.purchaseOrder.findFirst({
+    where: { id: input.purchaseOrderId, businessId: input.businessId },
+    select: {
+      id: true,
+      status: true,
+      lines: {
+        select: {
+          id: true,
+          status: true,
+          orderedQty: true,
+          remainingDecision: true,
+          remainingDecisionQty: true,
+          receivingLines: {
+            where: {
+              receivingSession: { status: ReceivingSessionStatus.POSTED },
+            },
+            select: { receivedQty: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!purchaseOrder) return;
+
+  if (
+    purchaseOrder.status === PurchaseOrderStatus.CLOSED ||
+    purchaseOrder.status === PurchaseOrderStatus.CANCELLED
+  ) {
+    return;
+  }
+
+  const hasOpenQuantity = purchaseOrder.lines.some((line) => {
+    if (line.status === PurchaseOrderLineStatus.CANCELLED) return false;
+
+    const received = line.receivingLines.reduce(
+      (sum, r) => sum + r.receivedQty,
+      0
+    );
+    const closedShort =
+      line.remainingDecision ===
+      PurchaseOrderLineRemainingDecision.CLOSED_SHORT
+        ? line.remainingDecisionQty ?? 0
+        : 0;
+
+    return line.orderedQty - received - closedShort > 0;
+  });
+
+  const nextStatus = hasOpenQuantity
+    ? PurchaseOrderStatus.AWAITING_DELIVERY
+    : PurchaseOrderStatus.CLOSED;
+
+  if (nextStatus === purchaseOrder.status) return;
+
+  await tx.purchaseOrder.update({
+    where: { id: purchaseOrder.id },
+    data: { status: nextStatus },
+  });
+}
+
 export const receivingService = {
   async createReceivingSession(
     input: CreateReceivingSessionInput,
@@ -476,6 +551,28 @@ export const receivingService = {
           },
           purchaseOrder: true,
         },
+      });
+
+      // ── Lifecycle (P3) ─────────────────────────────────────────────────
+      // Posting stock is the ONLY event that tells us where an order really is,
+      // so it is the only place allowed to move the order's status. Before this,
+      // nothing ever advanced a PurchaseOrder past CONFIRMED: an approved order
+      // sat in "ממתינות" forever, "היסטוריה" was permanently empty, and the
+      // receiving screen (gated on AWAITING_DELIVERY) was unreachable — even
+      // though the approval screen promises "ויעביר את ההזמנה להיסטוריה".
+      //
+      // No new status is invented. The existing vocabulary is simply applied:
+      //   something still open  → AWAITING_DELIVERY  ("בדרך")
+      //   nothing left open     → CLOSED             ("היסטוריה")
+      // A line counts as settled once its posted receipts plus any CLOSED_SHORT
+      // quantity cover what was ordered; CANCELLED lines never hold an order open.
+      //
+      // ORDER MATTERS: this runs AFTER the session is marked POSTED. Settling
+      // first would count this very receipt as not-yet-posted and leave a fully
+      // received order sitting in AWAITING_DELIVERY forever.
+      await settlePurchaseOrderStatus(tx, {
+        businessId: input.businessId,
+        purchaseOrderId: receivingSession.purchaseOrderId,
       });
 
       return {

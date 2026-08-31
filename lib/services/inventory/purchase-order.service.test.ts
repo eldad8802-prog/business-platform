@@ -274,11 +274,29 @@ async function main() {
       /greater than or equal to zero/
     );
 
-    const listed = await purchaseOrderService.listPurchaseOrders({
+    // This order was created as DRAFT and then PARTLY received (5 of 20), so it
+    // is no longer a draft: posting a receipt now settles the order's status
+    // (AWAITING_DELIVERY while something is still open, CLOSED once nothing is).
+    // Before that fix a PurchaseOrder never left the status it was created in,
+    // which is why an approved order sat in "ממתינות" forever and "היסטוריה"
+    // was permanently empty.
+    const stillDraft = await purchaseOrderService.listPurchaseOrders({
       businessId: business.id,
       status: PurchaseOrderStatus.DRAFT,
     });
-    assert.ok(listed.some((po) => po.id === purchaseOrder.id));
+    assert.ok(
+      !stillDraft.some((po) => po.id === purchaseOrder.id),
+      "a partly received order is no longer listed as a draft"
+    );
+
+    const listed = await purchaseOrderService.listPurchaseOrders({
+      businessId: business.id,
+      status: PurchaseOrderStatus.AWAITING_DELIVERY,
+    });
+    assert.ok(
+      listed.some((po) => po.id === purchaseOrder.id),
+      "a partly received order is listed as awaiting delivery"
+    );
 
     await assert.rejects(
       () =>
