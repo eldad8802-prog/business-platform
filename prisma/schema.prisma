@@ -1783,6 +1783,11 @@ model POSProductMapping {
 model SupplierPurchaseDraft {
   id              Int                         @id @default(autoincrement())
   businessId      Int
+  /// Entity-FK (Party Identity Strategy Tier 2). Set when the owner picked a real
+  /// Supplier while building the order; carried through approval onto the
+  /// PurchaseOrder so the supplier card can find its own orders. Null = legacy /
+  /// free-text supplier, exactly as before.
+  supplierId      Int?
   supplierName    String?
   externalOrderId String?
   source          String?
@@ -1793,10 +1798,12 @@ model SupplierPurchaseDraft {
   rejectedAt      DateTime?
   createdByUserId Int?
   business        Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  supplier        Supplier?                   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   lines           SupplierPurchaseDraftLine[]
 
   @@index([businessId])
   @@index([businessId, status])
+  @@index([businessId, supplierId])
 }
 
 model SupplierPurchaseDraftLine {
@@ -1829,14 +1836,40 @@ model Supplier {
   email               String?
   notes               String?
   defaultLeadTimeDays Int?
+  /// Registered legal name when it differs from the display `name`.
+  legalName           String?
+  /// Counterparty tax identifier. Strongest duplicate-detection signal.
+  taxId               String?
+  /// Shared party tax-identity vocabulary — the SAME enum the Customer side uses.
+  /// Reused deliberately rather than duplicated: the legal entity types of a
+  /// counterparty do not depend on whether it sells to us or buys from us.
+  taxIdType           CustomerTaxIdType?
+  /// Free-text supplier category. Display + grouping only.
+  category            String?
+  website             String?
+  contactName         String?
+  contactRole         String?
+  contactPhone        String?
+  contactEmail        String?
+  addressStreet       String?
+  addressCity         String?
+  addressPostalCode   String?
+  /// Structured payment terms in DAYS (0 = מיידי, 30 = שוטף+30, ...), interpreted
+  /// through lib/services/billing/collection/payment-terms.ts — the canonical
+  /// day-based representation already used for receivables. Null = not set.
+  paymentTermsDays    Int?
+  /// How this supplier is usually paid. Reuses the canonical PaymentMethod enum.
+  preferredPaymentMethod PaymentMethod?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   purchaseOrders      PurchaseOrder[]
+  purchaseDrafts      SupplierPurchaseDraft[]
 
   @@index([businessId])
   @@index([businessId, isActive])
   @@index([businessId, name])
+  @@index([businessId, taxId])
 }
 
 model PurchaseOrder {

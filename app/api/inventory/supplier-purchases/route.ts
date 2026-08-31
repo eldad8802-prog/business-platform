@@ -98,6 +98,7 @@ export async function POST(request: NextRequest) {
             createSupplierPurchaseDraft(
               {
                 businessId: user.businessId,
+                supplierId: body.supplierId ?? null,
                 supplierName: body.supplierName ?? null,
                 externalOrderId: body.externalOrderId ?? null,
                 source: body.source ?? "MANUAL",

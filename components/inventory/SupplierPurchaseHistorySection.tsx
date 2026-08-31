@@ -4,14 +4,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getSupplierPurchaseHistory,
   type SupplierPurchaseHistory,
+  type SupplierPurchasedItem,
   type SupplierPurchaseOrderItem,
 } from "@/lib/api/suppliers";
 import { isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
 import {
   canLoadMore,
+  costCoverageNote,
   formatLineCount,
   formatPurchaseDate,
+  formatSupplierMoney,
   mergePurchaseOrderItems,
+  priceTrend,
+  PRICE_TREND_LABEL,
   statusBadge,
 } from "@/lib/inventory/supplier-purchase-history-view";
 
@@ -32,6 +37,9 @@ type Props = {
 export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Props) {
   const [summary, setSummary] = useState<SupplierPurchaseHistory["summary"] | null>(null);
   const [items, setItems] = useState<SupplierPurchaseOrderItem[]>([]);
+  const [purchasedItems, setPurchasedItems] = useState<SupplierPurchasedItem[]>(
+    []
+  );
   const [pagination, setPagination] = useState<SupplierPurchaseHistory["pagination"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -56,6 +64,7 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
         setError(null);
         setSummary(data.summary);
         setItems(data.items);
+        setPurchasedItems(data.purchasedItems ?? []);
         setPagination(data.pagination);
       } catch (err: unknown) {
         if (!active) return;
@@ -113,6 +122,13 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
       <div className="crm-section__head">
         <h2 className="crm-section__title">היסטוריית רכש</h2>
         {!loading && !error ? <span className="crm-section__count">{total}</span> : null}
+        <a
+          className="crm-btn crm-btn--ghost"
+          href="/inventory/supplier-purchases/new"
+          style={{ marginInlineStart: "auto" }}
+        >
+          הזמנה חדשה
+        </a>
       </div>
 
       {loading ? (
@@ -130,7 +146,15 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
       ) : summary && total === 0 ? (
         <div className="crm-panel">
           <p className="crm-panel__title">עדיין אין היסטוריית רכש</p>
-          <p className="crm-panel__body">הזמנות רכש שיקושרו לספק יופיעו כאן.</p>
+          <p className="crm-panel__body">
+            הזמנה שנוצרת עם הספק הזה תופיע כאן, יחד עם הפריטים והעלויות.
+          </p>
+          <a
+            className="crm-btn crm-btn--primary"
+            href="/inventory/supplier-purchases/new"
+          >
+            הזמנה חדשה מהספק
+          </a>
         </div>
       ) : summary ? (
         <>
@@ -142,7 +166,36 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
                 הזמנה אחרונה · {formatPurchaseDate(summary.lastPurchaseOrderAt)}
               </span>
             ) : null}
+            {formatSupplierMoney(summary.receivedValue) ? (
+              <span className="crm-chip">
+                נקלט בפועל · {formatSupplierMoney(summary.receivedValue)}
+              </span>
+            ) : null}
+            {formatSupplierMoney(summary.orderedValue) ? (
+              <span className="crm-chip">
+                סה״כ הוזמן · {formatSupplierMoney(summary.orderedValue)}
+              </span>
+            ) : null}
           </div>
+
+          {costCoverageNote(summary.linesWithoutCost, summary.totalLineCount) ? (
+            <p className="crm-item__meta" style={{ marginTop: 4 }}>
+              {costCoverageNote(summary.linesWithoutCost, summary.totalLineCount)}
+            </p>
+          ) : null}
+
+          {purchasedItems.length > 0 ? (
+            <>
+              <div className="crm-seclabel" style={{ fontWeight: 600, marginTop: 14 }}>
+                מה נקנה מהספק
+              </div>
+              <div className="crm-list">
+                {purchasedItems.map((item) => (
+                  <PurchasedItemRow key={item.itemId} item={item} />
+                ))}
+              </div>
+            </>
+          ) : null}
 
           <div className="crm-list">
             {items.map((item) => (
@@ -168,6 +221,37 @@ export function SupplierPurchaseHistorySection({ supplierId, supplierName }: Pro
   );
 }
 
+/**
+ * One purchased item: how much of it, in how many orders, and whether its unit
+ * cost moved. Every number here is read straight off the purchase lines.
+ */
+function PurchasedItemRow({ item }: { item: SupplierPurchasedItem }) {
+  const trend = priceTrend(item.firstUnitCost, item.lastUnitCost);
+  const lastCost = formatSupplierMoney(item.lastUnitCost);
+
+  const meta = [
+    `${item.totalQty.toLocaleString("he-IL")} יח׳`,
+    item.orderCount === 1 ? "הזמנה אחת" : `${item.orderCount} הזמנות`,
+    lastCost ? `מחיר אחרון ${lastCost}` : null,
+    trend && trend !== "SAME" ? PRICE_TREND_LABEL[trend] : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <div className="crm-item">
+      <div className="crm-item__main">
+        <div className="crm-item__title">
+          <bdi>{item.name}</bdi>
+        </div>
+        <div className="crm-item__meta">
+          <bdi>{meta}</bdi>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PurchaseOrderRow({
   item,
   supplierName,
@@ -188,6 +272,8 @@ function PurchaseOrderRow({
   const showOrderDate = !!orderDateStr && orderDateStr !== createdAtStr;
 
   const metaParts = [createdAtStr, lineText];
+  const orderValue = formatSupplierMoney(item.orderedValue);
+  if (orderValue) metaParts.push(orderValue);
   if (showOrderDate) metaParts.push(`הזמנה מ־${orderDateStr}`);
   const meta = metaParts.filter(Boolean).join(" · ");
 

@@ -32,7 +32,7 @@ type ApproveSupplierPurchaseInput = {
   >;
 };
 
-const APPROVAL_TRANSACTION_OPTIONS = { timeout: 15_000 };
+const APPROVAL_TRANSACTION_OPTIONS = { timeout: 30_000 };
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 type TxOptions = { tx?: Tx };
@@ -143,6 +143,7 @@ export async function approveSupplierPurchase(
       draftLineId: number;
       itemId: number;
       quantity: number;
+      unitCost: number | null;
       decision: SupplierLineDecision;
     }> = [];
 
@@ -154,6 +155,7 @@ export async function approveSupplierPurchase(
           draftLineId: draftLine.id,
           itemId: inputLine.itemId,
           quantity: draftLine.quantity,
+          unitCost: draftLine.unitCost,
           decision: SupplierLineDecision.MERGE,
         });
       } else {
@@ -176,6 +178,7 @@ export async function approveSupplierPurchase(
           draftLineId: draftLine.id,
           itemId: createdItem.id,
           quantity: draftLine.quantity,
+          unitCost: draftLine.unitCost,
           decision: SupplierLineDecision.CREATE_NEW,
         });
       }
@@ -186,6 +189,12 @@ export async function approveSupplierPurchase(
       {
         businessId,
         createdByUserId: userId,
+        // Entity-FK carried straight through from the draft. The PO service
+        // re-verifies it tenant-scoped and re-derives the name snapshot, so a
+        // supplier renamed between drafting and approval still resolves to the
+        // same identity. Null stays null — approval never GUESSES a supplier
+        // from the name string.
+        supplierId: draft.supplierId,
         supplierName: draft.supplierName,
         externalOrderId: draft.externalOrderId,
         source: draft.source,
@@ -195,6 +204,7 @@ export async function approveSupplierPurchase(
         lines: plannedLines.map((line) => ({
           itemId: line.itemId,
           orderedQty: line.quantity,
+          unitCost: line.unitCost,
         })),
       },
       { tx }
@@ -214,6 +224,7 @@ export async function approveSupplierPurchase(
         lines: plannedLines.map((line, index) => ({
           purchaseOrderLineId: purchaseOrder.lines[index].id,
           receivedQty: line.quantity,
+          unitCost: line.unitCost,
         })),
       },
       { tx }

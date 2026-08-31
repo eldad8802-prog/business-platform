@@ -19,8 +19,9 @@ export default function NewSupplierPurchaseConfirmPage() {
     order,
     unitCosts,
     supplierName,
-    setSupplierName,
-    supplierOptions,
+    supplierKey,
+    selectSupplier,
+    supplierChoices,
     createOrder,
     actionLoading,
     persistDraft,
@@ -55,12 +56,27 @@ export default function NewSupplierPurchaseConfirmPage() {
       <div className="inv-fwrap">
         <div className="inv-field">
           <div className="inv-field__lab">ספק</div>
-          <select className="inv-input" value={supplierName} onChange={(e) => setSupplierName(e.target.value)}>
+          <select
+            className="inv-input"
+            value={supplierKey}
+            onChange={(e) => selectSupplier(e.target.value)}
+          >
             <option value="">ללא ספק</option>
-            {supplierOptions.map((value) => (
-              <option key={value} value={value}>{value}</option>
-            ))}
+            {supplierChoices.map((choice) => {
+              const key =
+                choice.id != null ? `id:${choice.id}` : `name:${choice.name}`;
+              return (
+                <option key={key} value={key}>
+                  {choice.name}
+                </option>
+              );
+            })}
           </select>
+          <p className="inv-field__help">
+            {supplierKey.startsWith("id:")
+              ? "ההזמנה תישמר על כרטיס הספק הזה ותופיע בהיסטוריית הרכש שלו."
+              : "בחירת ספק מהרשימה תקשר את ההזמנה לכרטיס הספק."}
+          </p>
         </div>
       </div>
 

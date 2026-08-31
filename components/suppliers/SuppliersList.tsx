@@ -5,9 +5,18 @@ import { useRouter } from "next/navigation";
 import {
   getSuppliers,
   createSupplier,
+  type PossibleSupplierMatch,
   type SupplierListRow,
   type SupplierStatusFilter,
 } from "@/lib/api/suppliers";
+import { SupplierForm } from "@/components/suppliers/SupplierForm";
+import { SupplierDuplicateNotice } from "@/components/suppliers/SupplierDuplicateNotice";
+import {
+  EMPTY_SUPPLIER_FORM,
+  supplierFormToPayload,
+  validateSupplierForm,
+  type SupplierFormState,
+} from "@/components/suppliers/supplier-form-model";
 import {
   getClientAuthToken,
   isUnauthorizedError,
@@ -255,6 +264,17 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
   );
 }
 
+
+/**
+ * Create-supplier modal.
+ *
+ * Two changes from the original three-field version:
+ *  1. It renders the full sectioned `SupplierForm`, so a supplier can carry the
+ *     business identity / contact / terms an owner needs — while still being
+ *     creatable with nothing but a name, since every section is collapsed.
+ *  2. It no longer throws the server's `possibleMatches` away. Creation is still
+ *     never blocked; the advisory is shown after the fact and the owner chooses.
+ */
 function CreateSupplierModal({
   onClose,
   onCreated,
@@ -262,26 +282,43 @@ function CreateSupplierModal({
   onClose: () => void;
   onCreated: (created: { id: number }) => void;
 }) {
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
+  const [form, setForm] = useState<SupplierFormState>(EMPTY_SUPPLIER_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [duplicates, setDuplicates] = useState<{
+    matches: PossibleSupplierMatch[];
+    created: { id: number; name: string };
+  } | null>(null);
+
+  const set = useCallback<
+    <K extends keyof SupplierFormState>(k: K, v: SupplierFormState[K]) => void
+  >((key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }, []);
 
   async function handleSubmit() {
-    if (!name.trim()) {
-      setError("יש להזין שם ספק");
+    const invalid = validateSupplierForm(form);
+    if (invalid) {
+      setError(invalid);
       return;
     }
     try {
       setSaving(true);
       setError(null);
-      const created = await createSupplier({
-        name: name.trim(),
-        phone: phone.trim() || null,
-        email: email.trim() || null,
-      });
-      onCreated(created);
+      const { supplier, possibleMatches } = await createSupplier(
+        supplierFormToPayload(form)
+      );
+
+      if (possibleMatches.length > 0) {
+        setSaving(false);
+        setDuplicates({
+          matches: possibleMatches,
+          created: { id: supplier.id, name: supplier.name },
+        });
+        return;
+      }
+
+      onCreated(supplier);
     } catch (err: unknown) {
       if (isUnauthorizedError(err)) {
         redirectToLogin();
@@ -290,6 +327,17 @@ function CreateSupplierModal({
       setError(err instanceof Error ? err.message : "לא הצלחנו ליצור ספק");
       setSaving(false);
     }
+  }
+
+  if (duplicates) {
+    return (
+      <SupplierDuplicateNotice
+        matches={duplicates.matches}
+        createdName={duplicates.created.name}
+        onOpenExisting={(id) => onCreated({ id })}
+        onKeepNew={() => onCreated(duplicates.created)}
+      />
+    );
   }
 
   return (
@@ -301,43 +349,11 @@ function CreateSupplierModal({
     >
       <div className="crm-modal" role="dialog" aria-modal="true" aria-label="ספק חדש">
         <h2 className="crm-modal__title">ספק חדש</h2>
+        <p className="crm-panel__body" style={{ marginTop: -4 }}>
+          שם בלבד מספיק כדי להתחיל. אפשר להשלים את שאר הפרטים בכל שלב.
+        </p>
 
-        <div className="crm-field">
-          <label className="crm-field__label" htmlFor="sup-new-name">
-            שם *
-          </label>
-          <input
-            id="sup-new-name"
-            className="crm-input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoFocus
-          />
-        </div>
-        <div className="crm-field">
-          <label className="crm-field__label" htmlFor="sup-new-phone">
-            טלפון
-          </label>
-          <input
-            id="sup-new-phone"
-            className="crm-input"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            inputMode="tel"
-          />
-        </div>
-        <div className="crm-field">
-          <label className="crm-field__label" htmlFor="sup-new-email">
-            אימייל
-          </label>
-          <input
-            id="sup-new-email"
-            className="crm-input"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            inputMode="email"
-          />
-        </div>
+        <SupplierForm form={form} set={set} idPrefix="sup-new" />
 
         {error ? <div className="crm-modal__error">{error}</div> : null}
 

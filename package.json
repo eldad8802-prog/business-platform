@@ -59,6 +59,8 @@
     "verify:gmail-token-revoke": "npx tsx lib/services/integrations/gmail/gmail-token-revoke.verify.test.ts",
     "verify:coupon-w1-01": "npx tsx lib/services/revenue/coupon-code.access.verify.test.ts",
     "verify:supplier": "npx tsx lib/services/inventory/supplier.service.test.ts",
+    "verify:supplier-domain-wiring": "npx tsx lib/services/inventory/supplier-domain-wiring.test.ts",
+    "verify:purchase-order-lifecycle": "npx tsx lib/services/inventory/purchase-order-lifecycle.test.ts",
     "verify:crm-customer": "npx tsx lib/services/crm/customer.service.test.ts",
     "verify:crm-customer-card": "npx tsx lib/services/crm/customer-card.read-model.test.ts",
     "verify:crm-phone-format": "npx tsx lib/format/phone-display.test.ts",

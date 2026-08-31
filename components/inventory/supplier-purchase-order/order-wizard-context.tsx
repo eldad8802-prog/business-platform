@@ -16,6 +16,7 @@ import {
   getInventoryItems,
   type InventoryCategoryDTO,
 } from "@/lib/api/inventory";
+import { getSuppliers, type SupplierListRow } from "@/lib/api/suppliers";
 import {
   clearSupplierPurchaseOrderDraft,
   readSupplierPurchaseOrderDraft,
@@ -42,6 +43,21 @@ type ReorderSuggestion = {
   suggestedOrderQuantity: number;
 };
 
+/**
+ * One entry in the supplier picker.
+ *
+ * Before this, the picker was built from the DISTINCT `InventoryItem.supplierName`
+ * strings — so the owner could only ever choose a string, the draft could only
+ * carry a string, and every purchase order was born with `supplierId: null`.
+ * A real Supplier row now carries its `id`; legacy item-only names are still
+ * offered (id `null`) so nothing that used to be selectable stops being
+ * selectable, but they are clearly the fallback, not the identity.
+ */
+export type SupplierChoice = {
+  id: number | null;
+  name: string;
+};
+
 type OrderWizardContextValue = {
   loading: boolean;
   items: OrderWizardItem[];
@@ -52,7 +68,12 @@ type OrderWizardContextValue = {
   unitCosts: Record<number, string>;
   setUnitCost: (itemId: number, value: string) => void;
   supplierName: string;
-  setSupplierName: (v: string) => void;
+  supplierId: number | null;
+  /** Selects by picker key — "id:<n>" for a real entity, "name:<s>" for legacy. */
+  selectSupplier: (key: string) => void;
+  supplierChoices: SupplierChoice[];
+  /** The picker's current value, in the same key space as `selectSupplier`. */
+  supplierKey: string;
   categoryId: string;
   setCategoryId: (v: string) => void;
   productSearch: string;
@@ -66,7 +87,6 @@ type OrderWizardContextValue = {
   hasUnsavedWork: boolean;
   selectedItems: OrderWizardItem[];
   browsableItems: OrderWizardItem[];
-  supplierOptions: string[];
   filteredCategories: InventoryCategoryDTO[];
   supplierHasItems: boolean;
   summary: {
@@ -152,6 +172,8 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
   const [order, setOrder] = useState<Record<number, number>>({});
   const [unitCosts, setUnitCosts] = useState<Record<number, string>>({});
   const [supplierName, setSupplierName] = useState("");
+  const [supplierId, setSupplierId] = useState<number | null>(null);
+  const [supplierEntities, setSupplierEntities] = useState<SupplierListRow[]>([]);
   const [categoryId, setCategoryId] = useState("");
   const [productSearch, setProductSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -171,6 +193,7 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
 
   const persistDraft = useCallback(() => {
     writeSupplierPurchaseOrderDraft({
+      supplierId,
       supplierName,
       order,
       unitCosts: normalizeUnitCosts(unitCosts),
@@ -179,7 +202,7 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
       quantity: "1",
     });
     setHasLocalDraft(true);
-  }, [supplierName, order, unitCosts, categoryId]);
+  }, [supplierId, supplierName, order, unitCosts, categoryId]);
 
   const clearLocalDraft = useCallback(() => {
     clearSupplierPurchaseOrderDraft();
@@ -190,6 +213,7 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
     const draft = readSupplierPurchaseOrderDraft();
     if (!draft) return;
     setSupplierName(draft.supplierName || "");
+    setSupplierId(draft.supplierId ?? null);
     setOrder(draft.order || {});
     setUnitCosts(
       Object.fromEntries(
@@ -214,6 +238,12 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
       // instead of failing the whole screen on a secondary call.
       const itemsData = await getInventoryItems();
       const categoriesData = await getInventoryCategories().catch(() => []);
+      // Best-effort, exactly like categories: the picker degrades to the legacy
+      // name-only options if the supplier list is unavailable, it never blocks
+      // the wizard from opening.
+      const supplierRows = await getSuppliers({ status: "active" }).catch(
+        () => [] as SupplierListRow[]
+      );
 
       let normalizedSuggestions: ReorderSuggestion[] = [];
       try {
@@ -243,6 +273,7 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
       });
 
       setItems(normalizedItems);
+      setSupplierEntities(Array.isArray(supplierRows) ? supplierRows : []);
       setCategories(Array.isArray(categoriesData) ? categoriesData : []);
       setSuggestions(normalizedSuggestions);
       setDefaultRecommendations(defaults);
@@ -260,6 +291,7 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
             )
           );
           setSupplierName(existing.supplierName || "");
+          setSupplierId(existing.supplierId ?? null);
           setCategoryId(existing.categoryId || "");
         } else if (Object.keys(defaults).length > 0) {
           setOrder(defaults);
@@ -340,15 +372,64 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
       .slice(0, 12);
   }, [filteredItems, productSearch]);
 
-  const supplierOptions = useMemo(() => {
-    const unique = new Set<string>();
+  /**
+   * Real Supplier entities first, then any supplier NAME that only exists on
+   * inventory items and has no matching entity. The legacy names keep the
+   * item-filtering behaviour the picker always had; only the entities carry an
+   * id, and only an id becomes `PurchaseOrder.supplierId`.
+   */
+  const supplierChoices = useMemo<SupplierChoice[]>(() => {
+    const entities: SupplierChoice[] = supplierEntities
+      .map((s) => ({ id: s.id, name: s.name.trim() }))
+      .filter((s) => s.name.length > 0);
+
+    const entityNames = new Set(entities.map((s) => s.name.toLowerCase()));
+
+    const orphanNames = new Set<string>();
     for (const item of items) {
       const value =
         typeof item.supplierName === "string" ? item.supplierName.trim() : "";
-      if (value) unique.add(value);
+      if (value && !entityNames.has(value.toLowerCase())) orphanNames.add(value);
     }
-    return Array.from(unique).sort((a, b) => a.localeCompare(b, "he"));
-  }, [items]);
+
+    return [
+      ...entities.sort((a, b) => a.name.localeCompare(b.name, "he")),
+      ...Array.from(orphanNames)
+        .sort((a, b) => a.localeCompare(b, "he"))
+        .map((name) => ({ id: null, name })),
+    ];
+  }, [supplierEntities, items]);
+
+  const supplierKey = useMemo(() => {
+    if (supplierId != null) return `id:${supplierId}`;
+    return supplierName.trim() ? `name:${supplierName.trim()}` : "";
+  }, [supplierId, supplierName]);
+
+  /**
+   * The picker is one control with two meanings: it chooses the supplier the
+   * order belongs to AND it filters the browsable items. Both stay driven by the
+   * NAME (so item filtering is unchanged), while the id — when there is one — is
+   * what actually gets persisted as the relation.
+   */
+  const selectSupplier = useCallback(
+    (key: string) => {
+      if (!key) {
+        setSupplierId(null);
+        setSupplierName("");
+        return;
+      }
+      if (key.startsWith("id:")) {
+        const id = Number(key.slice(3));
+        const match = supplierChoices.find((c) => c.id === id);
+        setSupplierId(Number.isInteger(id) && match ? id : null);
+        setSupplierName(match?.name ?? "");
+        return;
+      }
+      setSupplierId(null);
+      setSupplierName(key.slice(5));
+    },
+    [supplierChoices]
+  );
 
   const filteredCategories = useMemo(() => {
     const selectedSupplier = supplierName.trim();
@@ -507,6 +588,9 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
         method: "POST",
         headers: buildHeaders(),
         body: JSON.stringify({
+          // The id is the identity; the name is only a snapshot. When an id is
+          // sent the server re-derives the name from the verified entity.
+          supplierId,
           supplierName: supplierName.trim() || null,
           source: "MANUAL",
           lines,
@@ -546,7 +630,7 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
     } finally {
       setActionLoading(false);
     }
-  }, [order, unitCosts, items, supplierName, clearLocalDraft, router]);
+  }, [order, unitCosts, items, supplierId, supplierName, clearLocalDraft, router]);
 
   const confirmExitAndGoBack = useCallback(() => {
     persistDraft();
@@ -564,7 +648,10 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
     unitCosts,
     setUnitCost,
     supplierName,
-    setSupplierName,
+    supplierId,
+    selectSupplier,
+    supplierChoices,
+    supplierKey,
     categoryId,
     setCategoryId,
     productSearch,
@@ -578,7 +665,6 @@ export function OrderWizardProvider({ children }: { children: ReactNode }) {
     hasUnsavedWork,
     selectedItems,
     browsableItems,
-    supplierOptions,
     filteredCategories,
     supplierHasItems,
     summary,
