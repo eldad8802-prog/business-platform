@@ -1,7 +1,10 @@
 "use client";
 
 import React, { useEffect, useId, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import BackButton from "@/components/ui/back-button";
+import { createLeadFromConversation } from "@/lib/api/leads";
+import { isUnauthorizedError, redirectToLogin } from "@/lib/client-session";
 import type { InboxItemViewModel } from "@/lib/inbox-view/inbox-item.types";
 import { INBOX_SURFACE } from "@/components/inbox/inbox-ui-tokens";
 import { resolveConversationDisplayTitle } from "@/lib/inbox-view/conversation-display-title";
@@ -299,7 +302,14 @@ function whisperLineForItem(
 
 type ReplyOption =
   | { kind: "suggestion"; key: string; label: string; suggestion: Suggestion }
-  | { kind: "action"; key: string; label: string; text: string };
+  | { kind: "action"; key: string; label: string; text: string }
+  /**
+   * A DOMAIN action: it changes state on the server rather than dropping a
+   * sentence into the composer. CREATE_LEAD used to be a composer chip that
+   * pasted a question, so the intent evaporated the moment the owner navigated
+   * away. In W2 it is a real action.
+   */
+  | { kind: "domain"; key: string; label: string; action: "create_lead" };
 
 function buildReplyOptions(
   suggestions: Suggestion[],
@@ -341,8 +351,13 @@ function buildReplyOptions(
     activeItem?.botFlowStatus === "HANDOFF";
 
   const actionCandidates = quickActionChips.filter(
-    (a) => !a.closesConversation && a.text
+    (a) => !a.closesConversation && a.text && a.key !== "CREATE_LEAD"
   );
+
+  // CREATE_LEAD is promoted out of the composer chips: it is not a reply, so it
+  // does not compete for the same slots as reply drafts and is not narrowed away
+  // when a draft is pending.
+  const wantsCreateLead = quickActionChips.some((a) => a.key === "CREATE_LEAD");
 
   let actionsToShow = actionCandidates;
   if (hasDrafts || botActive) {
@@ -368,6 +383,15 @@ function buildReplyOptions(
       text: action.text!,
     });
   });
+
+  if (wantsCreateLead) {
+    options.unshift({
+      kind: "domain",
+      key: "CREATE_LEAD",
+      label: "צור ליד",
+      action: "create_lead",
+    });
+  }
 
   const seen = new Set<string>();
   return options.filter((opt) => {
@@ -421,6 +445,13 @@ export function ConversationView(props: {
     dangerButtonStyle: React.CSSProperties;
   };
 }) {
+  const router = useRouter();
+  // "צור ליד" is handled here rather than plumbed down from the inbox page:
+  // everything it needs is already in this component, and the inbox page has no
+  // business knowing about the Leads domain.
+  const [leadBusy, setLeadBusy] = useState(false);
+  const [leadNotice, setLeadNotice] = useState<string | null>(null);
+
   const {
     breakpointStep,
     viewMode,
@@ -451,6 +482,35 @@ export function ConversationView(props: {
   const whisperLine = whisperLineForItem(activeItem, viewMode);
   const accentColor = avatarAccentColor(activeItem);
   const quickActionChips = buildQuickActionChips(activeItem, productLinkPrefill);
+
+  /**
+   * Create (or adopt) the lead behind this conversation, then open it.
+   *
+   * The endpoint is idempotent, so a second tap re-opens the same lead instead
+   * of making a duplicate — which is why this needs no optimistic guard beyond
+   * the in-flight flag.
+   */
+  async function handleCreateLead() {
+    if (!activeConversationId || leadBusy) return;
+    setLeadBusy(true);
+    setLeadNotice(null);
+    try {
+      const result = await createLeadFromConversation(activeConversationId);
+      // Success navigates away, so no notice is needed — the lead card IS the
+      // confirmation, and a toast the user never sees is noise.
+      router.push(`/leads/${result.lead.id}`);
+    } catch (err: unknown) {
+      if (isUnauthorizedError(err)) {
+        redirectToLogin();
+        return;
+      }
+      setLeadNotice(
+        err instanceof Error ? err.message : "לא הצלחנו ליצור ליד מהשיחה"
+      );
+    } finally {
+      setLeadBusy(false);
+    }
+  }
   const replyOptions = buildReplyOptions(
     suggestions,
     quickActionChips,
@@ -837,6 +897,26 @@ export function ConversationView(props: {
                 paddingBottom: "var(--cv-input-padb)",
               }}
             >
+              {/* On success we navigate straight to the lead, so this is
+                  really the failure channel: if the action could not complete,
+                  say so here rather than leaving the tap looking ignored. */}
+              {leadNotice ? (
+                <div
+                  role="status"
+                  style={{
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    color: "#7f1d1d",
+                    background: "rgba(254, 226, 226, 0.9)",
+                    borderRadius: 8,
+                    padding: "6px 10px",
+                    marginBottom: 8,
+                  }}
+                >
+                  {leadNotice}
+                </div>
+              ) : null}
+
               {replyOptions.length > 0 && (
                 <div
                   style={{
@@ -855,6 +935,8 @@ export function ConversationView(props: {
                       onClick={() => {
                         if (option.kind === "suggestion") {
                           onChooseSuggestion(option.suggestion);
+                        } else if (option.kind === "domain") {
+                          void handleCreateLead();
                         } else {
                           onInputChange(option.text);
                         }
