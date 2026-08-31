@@ -720,10 +720,14 @@ export const inventoryPrimitivesCss = `
     border-color: var(--inv-accent);
     box-shadow: 0 0 0 3px var(--inv-focus, rgba(36, 105, 102, 0.22));
   }
+  /* Borderless field in a 50px pill: it measured 23px on its own, below A-7's
+     24x24 gating target, and clicking the pill's padding did not focus it.
+     Stretching it to the pill makes the control and the hit area one thing. */
   [data-inventory-module] .inv-search input {
     border: 0;
     background: transparent;
     flex: 1;
+    align-self: stretch;
     min-width: 0;
     font-family: inherit;
     font-size: 15.5px;
@@ -732,7 +736,15 @@ export const inventoryPrimitivesCss = `
   }
   [data-inventory-module] .inv-search input::placeholder { color: var(--inv-text-muted); }
   [data-inventory-module] .inv-search svg { flex-shrink: 0; color: var(--inv-text-muted); }
-  [data-inventory-module] .inv-search .inv-search__scan { color: var(--inv-accent); }
+  /* The scan control was the icon's own 22x22 box. The glyph keeps its size;
+     only the pressable area grows to the gating minimum. */
+  [data-inventory-module] .inv-search .inv-search__scan {
+    color: var(--inv-accent);
+    min-width: 24px;
+    min-height: 24px;
+    align-items: center;
+    justify-content: center;
+  }
 
   /* ===== product/list row (mockup .row) ===== */
   [data-inventory-module] .inv-rows {

@@ -183,8 +183,14 @@ const fieldStyle = {
   alignItems: "center",
 } as const;
 
+// The field is borderless inside a styled wrapper, so it rendered at its own
+// 21px content box - below A-7's 24x24 gating target, and the wrapper's
+// padding was not part of the hit area. min-height makes the control and the
+// hit area the same thing. Presentation only: same value, same handler, same
+// min/max, same date semantics.
 const inputStyle = {
   width: "100%",
+  minHeight: 24,
   border: "none",
   outline: "none",
   background: "transparent",
