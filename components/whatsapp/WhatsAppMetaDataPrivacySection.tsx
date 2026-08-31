@@ -103,9 +103,19 @@ export function WhatsAppMetaDataPrivacySection({
               lineHeight: 1.55,
             }}
           >
+            {/* An inline link inside a paragraph renders at the text's own line
+                box — 18px here, below A-7's 24x24 gating target. A centred
+                inline-flex box with a min-height reaches 24 without changing the
+                paragraph's rhythm. Presentation only: same href, same wording. */}
             <a
               href="/data-deletion"
-              style={{ color: TOKEN.brand.mid, textDecoration: "underline" }}
+              style={{
+                color: TOKEN.brand.mid,
+                textDecoration: "underline",
+                display: "inline-flex",
+                alignItems: "center",
+                minHeight: 24,
+              }}
             >
               מה נמחק ומה נשמר — מחיקת נתוני חיבור Meta
             </a>
