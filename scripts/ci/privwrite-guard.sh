@@ -311,7 +311,7 @@ GRANT SELECT ON "BusinessFeatureAccess" TO app_admin;
 GRANT USAGE ON SCHEMA public TO app_ctlplane;
 GRANT SELECT, INSERT, UPDATE ON "BusinessFeatureAccess" TO app_ctlplane;
 GRANT USAGE, SELECT ON SEQUENCE "BusinessFeatureAccess_id_seq" TO app_ctlplane;
-GRANT SELECT, INSERT ON "PlatformAuditEvent" TO app_ctlplane;
+GRANT INSERT ON "PlatformAuditEvent" TO app_ctlplane;
 GRANT SELECT ON "Business" TO app_ctlplane;
 GRANT app_ctlplane TO :CTL_LOGIN_ROLE;
 SQL
