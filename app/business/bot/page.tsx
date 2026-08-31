@@ -4,12 +4,17 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties, type Rea
 import { TOKEN } from "@/lib/design/bot-theme";
 import BackButton from "@/components/ui/back-button";
 import { useHideShellChrome } from "@/components/navigation/shell-chrome-visibility";
+import { useMediaQuery } from "@/lib/ui/use-breakpoint";
+import { LAYOUT } from "@/lib/design/tokens";
 import { BOT_BOUNDARY_OPTIONS, BOT_FORBIDDEN_OPTIONS, BOT_WORK_MODE_OPTIONS_ACTIVE, settingsPatchForWorkMode, type BotBoundaryPresets, type BotForbiddenPresets } from "@/lib/features/conversation/bot-control";
 import { FINAL_ACTION_OPTIONS as FINAL_ACTIONS, type FinalAction } from "@/lib/features/conversation/final-action";
 import { BOT_AUDIENCE_OPTIONS, BOT_INITIATIVE_OPTIONS, BOT_LANGUAGE_OPTIONS, BOT_PRIORITY_OPTIONS, BOT_SALE_STYLE_OPTIONS, BOT_TONE_OPTIONS, BOT_TRAIT_OPTIONS, BOT_VERBOSITY_OPTIONS, LEARNING_TYPE_LABELS, MAX_FAQ_ITEMS, MEMORY_TOGGLE_OPTIONS, emptyMemoryPolicy, type BotApproachConfig, type BotAudienceTag, type BotInitiativeLevel, type BotLanguage, type BotMemoryPolicy, type BotPersonalityConfig, type BotPriority, type BotSaleStyle, type BotTone, type BotTrait, type BotVerbosity, type BotVoiceConfig, type FaqItem, type LearningType, type MemoryToggleKey } from "@/lib/features/bot";
 import { BUILDER_SHELL_MAX_WIDTH, BuilderTextAreaField, BuilderTextField, ChoiceRow, GuardNote, Stepper, StickyActionBar, ToggleRow, areaPanelStyle } from "../bot-settings/_components/bot-builder-area-ui";
 import { GoalLibrary } from "../bot-settings/_components/bot-goals-screen";
 import { useBotSettingsEditorState } from "../bot-settings/_components/bot-settings-editor";
+
+/** The shell's desktop tier — where its nav becomes a sidebar, not a bottom bar. */
+const SHELL_DESKTOP_MIN = `(min-width: ${LAYOUT.bp.expanded}px)`;
 
 type Status = "live" | "saved" | "soon";
 type CategoryId = "identity" | "conversation" | "limits" | "future";
@@ -45,9 +50,6 @@ function statusText(s: Status) { return s === "live" ? "חי" : s === "saved" ? 
 function areaSummary(id: AreaId, p: HubPayload | null) { const s = p?.signals; if (id === "goal") return s?.goalsCount ? String(s.goalsCount) + " מטרות" : "טרם נבחרו מטרות"; if (id === "conversation") return s?.questionsCount ? String(s.questionsCount) + " שאלות" : "אין שאלות עדיין"; if (id === "voice") return s?.welcomeOk ? "הודעת פתיחה קיימת" : "חסרה הודעת פתיחה"; if (id === "allowed") return s?.finishOk ? "פעולת סיום מוגדרת" : "בחר פעולת סיום"; if (id === "autonomy") return s?.workModeManual ? "רמה 1 · ידני" : "רמה 2 · טיוטות חכמות"; if (id === "learning") return s?.learningCount ? String(s.learningCount) + " הצעות" : "אין הצעות כרגע"; if (id === "knowledge") return s?.productLinkOk || s?.knowledgeOk ? "ידע נשמר" : "אפשר להוסיף ידע"; if (id === "personality") return s?.personalityOk ? "אופי נשמר" : "אפשר לבחור אופי"; if (id === "approach") return s?.approachOk ? "גישה נשמרה" : "אפשר להגדיר גישה"; return AREAS[id].desc; }
 
 export default function BusinessBotHubPage() {
-  // Bot builder opens full-screen setting sheets with their own controls — hide
-  // the app's fixed bottom nav so it never floats over them.
-  useHideShellChrome(true);
   const settings = useBotSettingsEditorState();
   const goals = useGoalsState();
   const memory = useMemoryPolicyState();
@@ -61,6 +63,27 @@ export default function BusinessBotHubPage() {
   const [area, setArea] = useState<AreaId | null>(null);
   const [activating, setActivating] = useState(false);
   const [activateError, setActivateError] = useState<string | null>(null);
+
+  /**
+   * The chrome was hidden unconditionally, with the stated reason that the
+   * builder's full-screen setting sheets must not have the app's fixed bottom
+   * nav floating over them. That reason is real — but it is about *sheets*, and
+   * it only describes the bottom bar. From the shell's desktop tier the nav is
+   * a sidebar, so on desktop the page was giving up the owner's navigation for
+   * a conflict that does not exist there.
+   *
+   * So the hiding is tied to the thing it was always about. A sheet is open
+   * exactly when `cat` is set, and while it is, the chrome yields: the sheet's
+   * dimming overlay sits at z-index 20 and the shell sidebar at 40, so leaving
+   * the sidebar up would place live navigation *above* a modal's scrim and let
+   * the owner navigate out of a half-finished sheet.
+   *
+   * Below the desktop tier nothing changes — the chrome stays hidden exactly as
+   * before. Only a boolean passed to an existing hook changes; the page's React
+   * tree is identical either side of the tier, so nothing remounts.
+   */
+  const isDesktop = useMediaQuery(SHELL_DESKTOP_MIN);
+  useHideShellChrome(!isDesktop || cat !== null);
 
   const load = useCallback(async () => { setLoading(true); setError(null); try { const res = await fetch("/api/business/bot-hub", { headers: { Authorization: "Bearer " + getAuthToken() }, cache: "no-store" }); if (!res.ok) throw new Error(); setPayload(await res.json() as HubPayload); } catch { setError("לא ניתן לטעון את נתוני הבוט"); } finally { setLoading(false); } }, []);
   useEffect(() => { let cancelled = false; queueMicrotask(() => { if (!cancelled) void load(); }); return () => { cancelled = true; }; }, [load]);
