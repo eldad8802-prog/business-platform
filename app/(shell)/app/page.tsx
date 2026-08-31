@@ -11,34 +11,11 @@ import {
   type HomeView,
 } from "@/features/home/components/home-screen";
 
-type HeroAction = {
-  actionKey: string;
-  title: string;
-  description: string;
-  ctaLabel: string;
-  ctaHref: string;
-  reason?: string;
-};
-
-type QuickAction = {
-  key: string;
-  title: string;
-  icon: string;
-  href: string;
-  status?: "active" | "soon";
-};
-
-type BusinessSnapshot = {
-  businessName: string;
-  greeting?: string;
-  ownerName?: string;
-};
-
-type HomeResponse = {
-  heroAction: HeroAction;
-  quickActions: QuickAction[];
-  businessSnapshot: BusinessSnapshot;
-};
+// The canonical shape, imported rather than re-declared. A local copy of this
+// type had already drifted from the server contract once — it was missing a
+// field the API was returning, and nothing caught it because the duplicate
+// type-checked happily against itself.
+import type { HomeResponse } from "@/features/home/types/home.types";
 
 /**
  * Time-of-day greeting, computed client-side from the user's own clock (a
@@ -76,7 +53,12 @@ function buildHomeView(data: HomeResponse): HomeView {
     // No approved day-state / insights engine yet → honest empty states.
     dayState: null,
     insights: null,
-    notifications: { href: "/attention", hasUnread: false },
+    leadsAttention: data.leadsAttention,
+    // The bell reflects real pending work rather than being permanently off.
+    notifications: {
+      href: "/attention",
+      hasUnread: (data.leadsAttention?.count ?? 0) > 0,
+    },
     settingsHref: "/settings",
   };
 }

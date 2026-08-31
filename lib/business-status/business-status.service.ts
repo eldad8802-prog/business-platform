@@ -6,6 +6,7 @@ import {
   loadBillingPendingReview,
   loadDocumentsNeedsReview,
   loadInventoryAlertsUnresolved,
+  loadLeadsNeedingAttention,
   loadSupplierPurchasesPending,
 } from "./loaders";
 import { finalizeBusinessStatusItem } from "./priority";
@@ -20,6 +21,7 @@ import {
   translateBillingPendingReview,
 } from "./translators/billing";
 import { translateDocumentsNeedsReview } from "./translators/documents";
+import { translateLeadsNeedingAttention } from "./translators/leads";
 import { translateInventoryAlerts } from "./translators/inventory";
 import { translateSupplierPurchasesPending } from "./translators/supplier";
 
@@ -30,6 +32,9 @@ import { translateSupplierPurchasesPending } from "./translators/supplier";
 export async function getBusinessStatusSnapshot(
   businessId: number
 ): Promise<BusinessStatusSnapshot> {
+  // One clock for the whole snapshot: two domains deriving "today" a few
+  // milliseconds apart could disagree across a midnight boundary.
+  const now = new Date();
   const paperworkInsightPromise = evaluatePaperworkInsight(businessId);
 
   const waitingRows = await loadAttentionWaiting(businessId);
@@ -44,6 +49,7 @@ export async function getBusinessStatusSnapshot(
     billingPendingRows,
     billingFailedRows,
     supplierRows,
+    leadRows,
     paperworkInsight,
   ] = await Promise.all([
     loadAttentionPendingSuggestions(businessId, excludeConvIds),
@@ -52,6 +58,7 @@ export async function getBusinessStatusSnapshot(
     loadBillingPendingReview(businessId),
     loadBillingPdfFailed(businessId),
     loadSupplierPurchasesPending(businessId),
+    loadLeadsNeedingAttention(businessId, now),
     paperworkInsightPromise,
   ]);
 
@@ -63,6 +70,7 @@ export async function getBusinessStatusSnapshot(
     ...translateBillingPendingReview(billingPendingRows),
     ...translateBillingPdfFailed(billingFailedRows),
     ...translateSupplierPurchasesPending(supplierRows),
+    ...translateLeadsNeedingAttention(leadRows, now),
   ];
 
   const items = builds

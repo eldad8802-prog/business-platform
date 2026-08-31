@@ -7,7 +7,8 @@ export type BusinessStatusDomain =
   | "documents"
   | "inventory"
   | "billing"
-  | "supplier";
+  | "supplier"
+  | "leads";
 
 /** Semantic taxonomy subset used in MVP */
 export type SemanticCategory =
@@ -38,6 +39,24 @@ export type RelatedRef = {
 
 export type MoneyImpactBand = "none" | "low" | "medium" | "high";
 
+/**
+ * An action a surface can perform WITHOUT navigating away.
+ *
+ * Optional and additive: only the leads domain populates it today, and every
+ * other domain is unaffected. It exists because a follow-up the owner has
+ * already handled should be dismissable from the Attention list itself —
+ * making them open the lead just to say "done" is the kind of friction that
+ * teaches people to ignore the list.
+ */
+export type QuickAction = {
+  kind: "lead_followup_complete" | "lead_followup_snooze";
+  label: string;
+  /** The entity the action applies to. */
+  leadId: number;
+  /** Days to push the follow-up out by. Only for `lead_followup_snooze`. */
+  days?: number;
+};
+
 export type BusinessStatusItem = {
   itemId: string;
   domain: BusinessStatusDomain;
@@ -55,6 +74,8 @@ export type BusinessStatusItem = {
   relatedRefs?: RelatedRef[];
   blocking?: boolean;
   moneyImpactBand?: MoneyImpactBand;
+  /** Inline actions. Absent for every domain that has none. */
+  quickActions?: QuickAction[];
 };
 
 /** Single proof-of-understanding insight (paperwork backlog). Optional on snapshot. */

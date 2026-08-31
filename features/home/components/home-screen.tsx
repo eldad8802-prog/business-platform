@@ -72,6 +72,12 @@ export type HomeSecretaryView = {
 
 export type HomeView = {
   secretary: HomeSecretaryView;
+  /**
+   * Open leads asking for the owner right now. Rendered as a count on the
+   * לידים tile — one number, not a panel: Home points at work, it does not
+   * become the place the work is done.
+   */
+  leadsAttention?: { count: number; href: string };
   /** null → engine has nothing to show yet (honest empty state). */
   dayState: HomeDayState | null;
   /** null → insights engine not producing yet (honest empty state). */
@@ -332,6 +338,7 @@ function Insights({ insights }: { insights: HomeInsights | null }) {
 }
 
 export function HomeScreen({ view }: { view: HomeView }) {
+  const leadsAttention = view.leadsAttention;
   const { secretary, dayState, insights, notifications, settingsHref } = view;
 
   return (
@@ -391,12 +398,32 @@ export function HomeScreen({ view }: { view: HomeView }) {
             </Link>
           </div>
           <div className="feats">
-            {TOOLS.map((tool) => (
-              <Link href={tool.href} className="ft" key={tool.key}>
-                <span className={`fc c-${tool.color}`}>{tool.icon}</span>
-                <span>{tool.label}</span>
-              </Link>
-            ))}
+            {TOOLS.map((tool) => {
+              // The one tile that carries live state. When leads are waiting the
+              // tile links straight to THOSE rows, so the number and the screen
+              // it opens can never disagree.
+              const pending =
+                tool.key === "leads" && leadsAttention && leadsAttention.count > 0
+                  ? leadsAttention
+                  : null;
+              return (
+                <Link
+                  href={pending ? pending.href : tool.href}
+                  className="ft"
+                  key={tool.key}
+                  style={pending ? { position: "relative" } : undefined}
+                  aria-label={
+                    pending
+                      ? `${tool.label} — ${pending.count} דורשים טיפול`
+                      : undefined
+                  }
+                >
+                  <span className={`fc c-${tool.color}`}>{tool.icon}</span>
+                  {pending ? <span className="ftb" aria-hidden>{pending.count}</span> : null}
+                  <span>{tool.label}</span>
+                </Link>
+              );
+            })}
           </div>
         </div>
 
@@ -482,6 +509,17 @@ const HOME_CSS = `
 .dzhome .sh{display:flex;align-items:center;justify-content:space-between;margin:0 4px 12px}
 .dzhome .sh .ttl{font-size:14.5px;font-weight:700}
 .dzhome .sh .lnk{font-size:12px;color:var(--brand);font-weight:600;cursor:pointer;text-decoration:none}
+
+/* the pending-count pip on a tool tile — semantic red, not the tile tint, so
+   "needs you" never reads as decoration */
+.ftb{
+  position:absolute; top:-2px; inset-inline-end:6px;
+  min-width:20px; height:20px; padding:0 5px;
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius:999px; background:#B3261E; color:#fff;
+  font-size:11px; font-weight:700; line-height:1;
+  box-shadow:0 0 0 2px var(--home-bg, #FDFBF6);
+}
 
 /* tools — colorful round tiles, horizontal scroll */
 .dzhome .feats{display:flex;gap:15px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;padding:2px 0 8px;margin-bottom:22px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
