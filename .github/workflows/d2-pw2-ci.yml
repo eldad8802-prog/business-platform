@@ -13,7 +13,7 @@ name: d2/pw2 — control-plane battery (ephemeral PG17)
 
 on:
   push:
-    branches: [feat/d2-pw2-control-plane]
+    branches: [feat/d2-pw2a-admin-read-cleanup]
   pull_request:
     branches: [main]
     paths:

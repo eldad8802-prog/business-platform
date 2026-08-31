@@ -27,6 +27,9 @@
 #   CI-PRIVWRITE-19  mutation and audit share one transaction
 #   CI-PRIVWRITE-20  no DELETE policy in the migration
 #   CI-PRIVWRITE-21  feature-access (tenant territory) sees no privileged client
+#   CI-PRIVWRITE-22  no p7adm_read policy on BusinessFeatureAccess (PW-2A)
+#   CI-PRIVWRITE-23  no app_admin SELECT grant on BusinessFeatureAccess (PW-2A)
+#   CI-PRIVWRITE-24  nothing reads BusinessFeatureAccess through the admin client
 #
 # Comments are stripped before matching, so a guard cannot be satisfied — or
 # tripped — by prose. Not covered mechanically (documented limitation): "the
@@ -261,6 +264,32 @@ run_guard() {
     echo "$ci21"; fail=1
   fi
 
+  # ── 22/23/24: the admin read capability stays removed (PW-2A) ───────────
+  # app_admin had SELECT on this table for exactly one release and no consumer
+  # ever used it. The platform-admin screen reads one named business through the
+  # explicit-target tenant substrate, so there is nothing here for a cross-tenant
+  # credential to do. Re-adding it must be a deliberate, reviewed act — not a
+  # copy-paste of the p7adm_read pattern from another wave.
+  if sqlflat "$MIG" | grep -qiE "CREATE POLICY[^;]*p7adm_read[^;]*\"BusinessFeatureAccess\""; then
+    echo "CI-PRIVWRITE-22 FAIL: p7adm_read re-added on BusinessFeatureAccess (no admin-client reader exists)"; fail=1
+  fi
+  if sqlflat "$GRANTS" | grep -qiE "GRANT[^;]*ON \"BusinessFeatureAccess\"[^;]*TO[[:space:]]+app_admin"; then
+    echo "CI-PRIVWRITE-23 FAIL: an app_admin grant on BusinessFeatureAccess is back"; fail=1
+  fi
+  if ! sqlflat "$GRANTS" | grep -qiE "REVOKE[^;]*ON \"BusinessFeatureAccess\"[^;]*FROM[[:space:]]+app_admin"; then
+    echo "CI-PRIVWRITE-23 FAIL: the explicit REVOKE is missing — GRANT is additive, so a deleted line does not undo an applied privilege"; fail=1
+  fi
+  local ci24
+  ci24="$(
+    grep -rlE "from ['\"]@/lib/prisma-admin['\"]" app lib --include="*.ts" 2>/dev/null \
+      | xargs grep -ln 'businessFeatureAccess' 2>/dev/null \
+      | grep -vE "\.test\.ts$" || true
+  )"
+  if [ -n "$ci24" ]; then
+    echo "CI-PRIVWRITE-24 FAIL: BusinessFeatureAccess is read through the admin client:"
+    echo "$ci24"; fail=1
+  fi
+
   if [ "$fail" -ne 0 ]; then
     echo ""
     echo "Fix: the control-plane capability is BusinessFeatureAccess + append-only audit, nothing else;"
@@ -293,9 +322,6 @@ ALTER TABLE "BusinessFeatureAccess" FORCE ROW LEVEL SECURITY;
 CREATE POLICY p7pw2_tenant_read ON "BusinessFeatureAccess"
   FOR SELECT
   USING ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int);
-CREATE POLICY p7adm_read ON "BusinessFeatureAccess"
-  FOR SELECT TO app_admin
-  USING (true);
 CREATE POLICY p7pw2_ctl_insert ON "BusinessFeatureAccess"
   FOR INSERT TO app_ctlplane
   WITH CHECK ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int);
@@ -307,7 +333,7 @@ SQL
 
     cat > "$T/scripts/security/d2-pw2-grants.sql" <<'SQL'
 GRANT SELECT ON "BusinessFeatureAccess" TO :ROLE;
-GRANT SELECT ON "BusinessFeatureAccess" TO app_admin;
+REVOKE SELECT ON "BusinessFeatureAccess" FROM app_admin;
 GRANT USAGE ON SCHEMA public TO app_ctlplane;
 GRANT SELECT, INSERT, UPDATE ON "BusinessFeatureAccess" TO app_ctlplane;
 GRANT USAGE, SELECT ON SEQUENCE "BusinessFeatureAccess_id_seq" TO app_ctlplane;
@@ -466,9 +492,6 @@ ALTER TABLE "BusinessFeatureAccess" FORCE ROW LEVEL SECURITY;
 CREATE POLICY p7pw2_tenant_read ON "BusinessFeatureAccess"
   FOR SELECT
   USING ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int);
-CREATE POLICY p7adm_read ON "BusinessFeatureAccess"
-  FOR SELECT TO app_admin
-  USING (true);
 CREATE POLICY p7pw2_ctl_insert ON "BusinessFeatureAccess"
   FOR INSERT TO app_ctlplane
   WITH CHECK ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int);
@@ -557,6 +580,37 @@ TS
   local T20="$BASE/v20"; make_clean_tree "$T20"
   rm -f "$T20/scripts/security/d2-pw2-rollback.sql"
   check "missing rollback artifact fails the guard" FAIL "$T20"
+
+  local T21="$BASE/v21"; make_clean_tree "$T21"
+  cat >> "$T21/prisma/migrations/20260901090000_d2_pw2_business_feature_access_rls/migration.sql" <<'SQL'
+CREATE POLICY p7adm_read ON "BusinessFeatureAccess"
+  FOR SELECT TO app_admin
+  USING (true);
+SQL
+  check "CI-PRIVWRITE-22 catches p7adm_read coming back" FAIL "$T21"
+
+  local T22="$BASE/v22"; make_clean_tree "$T22"
+  echo 'GRANT SELECT ON "BusinessFeatureAccess" TO app_admin;' >> "$T22/scripts/security/d2-pw2-grants.sql"
+  check "CI-PRIVWRITE-23 catches the app_admin grant coming back" FAIL "$T22"
+
+  local T23="$BASE/v23"; make_clean_tree "$T23"
+  sed -i '/^REVOKE SELECT ON "BusinessFeatureAccess" FROM app_admin;$/d' "$T23/scripts/security/d2-pw2-grants.sql"
+  check "CI-PRIVWRITE-23 catches a missing explicit REVOKE" FAIL "$T23"
+
+  local T24="$BASE/v24"; make_clean_tree "$T24"
+  cat > "$T24/lib/services/platform-admin/platform-business-features.service.ts" <<'TS'
+import { getPrismaAdmin } from "@/lib/prisma-admin";
+import { runTenantJob } from "@/lib/tenant/job";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+export async function getPlatformAdminBusinessFeatures(businessId: number) {
+  return runTenantJob({ businessId }, () =>
+    withTenantTransaction(() =>
+      getPrismaAdmin().businessFeatureAccess.findMany({ where: { businessId } })
+    )
+  );
+}
+TS
+  check "CI-PRIVWRITE-24 catches an admin-client read of BusinessFeatureAccess" FAIL "$T24"
 
   echo "self-test: ok=$ok bad=$bad"
   [ "$bad" -eq 0 ]

@@ -21,14 +21,13 @@
 --                    session business's own entitlements inside a tenant
 --                    transaction. It never writes; the table is control-plane
 --                    configuration, not tenant self-service data.
---   app_admin      : SELECT only, and currently WITHOUT a consumer. The
---                    platform-admin features screen reads one named business
---                    through the explicit-target tenant substrate, so it needs
---                    no cross-tenant credential. p7adm_read is retained so that
---                    any future admin-client read of this table reads correctly
---                    instead of silently returning zero rows. The read-only
---                    admin doctrine is UNCHANGED — no INSERT/UPDATE/DELETE is
---                    added to app_admin anywhere in this wave.
+--   app_admin      : NOTHING. It had SELECT for exactly one release and no
+--                    consumer ever used it, so PW-2A revokes it and drops the
+--                    p7adm_read policy. The platform-admin features screen reads
+--                    one named business through the explicit-target tenant
+--                    substrate and needs no cross-tenant credential at all. The
+--                    read-only admin doctrine is UNCHANGED elsewhere; this table
+--                    simply has no admin capability to be read-only about.
 --   app_ctlplane   : SELECT + INSERT + UPDATE on BusinessFeatureAccess only,
 --                    plus the append-only PlatformAuditEvent write so mutation
 --                    and audit share one transaction, plus two SELECTs the same
@@ -49,9 +48,14 @@ GRANT SELECT ON "BusinessFeatureAccess" TO :ROLE;
 GRANT SELECT ON "PlatformFeaturePolicy" TO :ROLE;
 
 -- ============================================================
--- Platform admin (env-neutral NOLOGIN group) — cross-tenant READ only
+-- Platform admin (env-neutral NOLOGIN group) — NO capability here (PW-2A)
 -- ============================================================
-GRANT SELECT ON "BusinessFeatureAccess" TO app_admin;
+-- The platform-admin features screen reads one named business through the
+-- explicit-target tenant substrate, so app_admin has no reader on this table and
+-- is granted nothing. The REVOKE is deliberate rather than a deleted line: GRANT
+-- is additive, so simply dropping the line would leave the privilege in place in
+-- every environment that already ran the first version of this artifact.
+REVOKE SELECT ON "BusinessFeatureAccess" FROM app_admin;
 
 -- ============================================================
 -- Control plane (env-neutral NOLOGIN group) — the narrow capability

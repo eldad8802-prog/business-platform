@@ -150,7 +150,10 @@ async function main() {
       );
       if (c !== want) throw new Error(`DRIFT: ${pol}=${c}, expected ${want} — STOP`);
     }
-    // p7adm_read was 10 before this wave and becomes 11 with BusinessFeatureAccess.
+    // p7adm_read is 10 across the other waves. PW-2 briefly made it 11 by adding
+    // BusinessFeatureAccess; PW-2A removes that one again, so an environment is
+    // either already clean (10) or still carrying the stale policy (11) that this
+    // run is about to drop. Anything else is real drift.
     const adm = Number(
       (
         await owner.$queryRawUnsafe(
@@ -159,7 +162,7 @@ async function main() {
       )[0].c
     );
     if (adm !== 10 && adm !== 11) {
-      throw new Error(`DRIFT: p7adm_read=${adm}, expected 10 (pre) or 11 (post) — STOP`);
+      throw new Error(`DRIFT: p7adm_read=${adm}, expected 10 (clean) or 11 (stale) — STOP`);
     }
     for (const role of [RT_ROLE, "app_admin", ADMIN_ROLE]) {
       const r = (
@@ -176,10 +179,12 @@ async function main() {
     const names = await policyNames();
     const flags = await rlsFlags();
     ok(
-      "verify-only: 4 PW-2 policies present",
-      ["p7adm_read", "p7pw2_ctl_insert", "p7pw2_ctl_update", "p7pw2_tenant_read"].every((p) =>
-        names.includes(p)
-      ),
+      "verify-only: exactly 3 PW-2 policies, and NO admin read policy",
+      names.length === 3 &&
+        ["p7pw2_ctl_insert", "p7pw2_ctl_update", "p7pw2_tenant_read"].every((p) =>
+          names.includes(p)
+        ) &&
+        !names.includes("p7adm_read"),
       names.join(",")
     );
     ok("verify-only: ENABLE + FORCE RLS", flags.e === true && flags.f === true, JSON.stringify(flags));
@@ -208,12 +213,12 @@ async function main() {
       )
     )[0];
     ok(
-      "verify-only: grant posture (tenant S only, admin S only, ctl SIU, DELETE nowhere)",
+      "verify-only: grant posture (tenant S only, admin NOTHING, ctl SIU, DELETE nowhere)",
       g.rt_sel === true &&
         g.rt_upd === false &&
         g.rt_ins === false &&
         g.rt_del === false &&
-        g.adm_sel === true &&
+        g.adm_sel === false &&
         g.adm_ins === false &&
         g.adm_upd === false &&
         g.adm_del === false &&
@@ -262,10 +267,12 @@ async function main() {
 
   const names = await policyNames();
   ok(
-    "4 policies installed (tenant_read, adm_read, ctl_insert, ctl_update)",
-    ["p7adm_read", "p7pw2_ctl_insert", "p7pw2_ctl_update", "p7pw2_tenant_read"].every((p) =>
-      names.includes(p)
-    ),
+    "3 policies installed (tenant_read, ctl_insert, ctl_update) and NO admin read",
+    names.length === 3 &&
+      ["p7pw2_ctl_insert", "p7pw2_ctl_update", "p7pw2_tenant_read"].every((p) =>
+        names.includes(p)
+      ) &&
+      !names.includes("p7adm_read"),
     names.join(",")
   );
   const flags = await rlsFlags();
@@ -282,7 +289,7 @@ async function main() {
   // Idempotency: applying twice must not duplicate or fail.
   await applySqlFile(MIGRATION);
   await applySqlFile(GRANTS, { ":ROLE": RT_ROLE, ":CTL_LOGIN_ROLE": CTL_ROLE });
-  ok("migration + grants are idempotent (re-apply clean)", (await policyNames()).length === 4);
+  ok("migration + grants are idempotent (re-apply clean)", (await policyNames()).length === 3);
 
   // ── Phase 3: role posture + privilege surface ─────────────────────────────
   console.log("--- phase 3: role posture ---");
@@ -345,7 +352,14 @@ async function main() {
     )
   )[0];
   ok("tenant runtime: SELECT only on the table", priv.rt_sel === true && priv.rt_ins === false && priv.rt_upd === false && priv.rt_del === false, JSON.stringify(priv));
-  ok("app_admin: SELECT only on the table (generic admin writes still 0)", priv.adm_sel === true && priv.adm_ins === false && priv.adm_upd === false && priv.adm_del === false);
+  ok(
+    "app_admin: NO privilege at all on this table (PW-2A removed the unused read)",
+    priv.adm_sel === false &&
+      priv.adm_ins === false &&
+      priv.adm_upd === false &&
+      priv.adm_del === false,
+    JSON.stringify(priv)
+  );
   ok("control plane: SELECT+INSERT+UPDATE, never DELETE", priv.ctl_sel === true && priv.ctl_ins === true && priv.ctl_upd === true && priv.ctl_del === false);
   ok(
     "control plane: audit is APPEND-ONLY and unreadable (INSERT only; no SELECT/UPDATE/DELETE)",
@@ -490,8 +504,14 @@ async function main() {
 
   // ── Phase 8: admin read matrix ────────────────────────────────────────────
   console.log("--- phase 8: admin reads ---");
-  const admAll = await adm.businessFeatureAccess.findMany({ where: { businessId: bothIds } });
-  ok("app_admin reads across tenants (A + B)", admAll.length === 2, `n=${admAll.length}`);
+  const admRead = await throws(() =>
+    adm.businessFeatureAccess.findMany({ where: { businessId: bothIds } })
+  );
+  ok(
+    "app_admin can no longer READ this table either (capability fully removed)",
+    admRead !== null,
+    admRead ? "" : "SUCCEEDED — the admin read capability is still live"
+  );
   for (const [label, fn] of [
     ["INSERT", () => adm.businessFeatureAccess.create({ data: { businessId: bizA.id, featureKey: "inbox", state: "ENABLED" } })],
     ["UPDATE", () => adm.businessFeatureAccess.updateMany({ where: { businessId: bizA.id }, data: { state: "ENABLED" } })],
@@ -987,7 +1007,17 @@ async function main() {
     await applySqlFile(GRANTS, { ":ROLE": RT_ROLE, ":CTL_LOGIN_ROLE": CTL_ROLE });
     const reNames = await policyNames();
     const reFlags = await rlsFlags();
-    ok("re-apply restores the full PW-2 posture", reNames.length === 4 && reFlags.e === true && reFlags.f === true);
+    ok("re-apply restores the full PW-2 posture", reNames.length === 3 && reFlags.e === true && reFlags.f === true);
+    const admAfterReapply = (
+      await owner.$queryRawUnsafe(
+        `SELECT has_table_privilege('app_admin', '"${TABLE}"', 'SELECT') AS s`
+      )
+    )[0].s;
+    ok(
+      "re-apply does NOT resurrect the removed admin read (GRANT is additive; the artifact REVOKEs)",
+      admAfterReapply === false,
+      `adm_select=${admAfterReapply}`
+    );
     const reCross = await tx(ctl, bizA.id, (t) =>
       t.businessFeatureAccess.updateMany({ where: { businessId: bizB.id }, data: { reason: `${MARK}re` } })
     );
