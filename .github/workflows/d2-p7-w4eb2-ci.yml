@@ -1,0 +1,76 @@
+# D2 / P7-W4E-B-2 — payments tenant-isolation battery on PG17.
+# Real processPaymentWebhook + real Prisma payment store; only the provider
+# ADAPTER is stubbed, through the service's own resolveProvider seam.
+# Proves the bootstrap->consistency-gate->tenant-context trust chain, corrupted
+# routing, idempotency, duplicate financial effect, parent-join, fail-closed,
+# rollback + re-apply. Synthetic CI-only creds; ZERO secrets; ZERO Neon; ZERO
+# network; ZERO provider credentials.
+
+name: d2/p7 — w4e-a payments battery (ephemeral PG17)
+
+on:
+  push:
+    branches: [feat/d2-p7-w4eb2]
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/20260831120000_d2_p7_w4eb2_billing_tenant_rls/**"
+      - "scripts/security/d2-p7-w4eb2-*.sql"
+      - ".p7w4eb2/**"
+      - "app/api/billing/**"
+      - "app/api/taxes/**"
+      - "lib/services/billing/**"
+      - "lib/tenant/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  w4eb2-battery:
+    name: W4E-B-2 battery (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: p7w4eb2_owner
+          POSTGRES_PASSWORD: p7w4eb2_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_p7w4eb2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U p7w4eb2_owner -d dubiz_p7w4eb2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .p7w4eb2/battery.mjs
+
+      - name: CI-W4 + CI-W4EB2 guards + negative self-proofs (blocking)
+        run: |
+          bash scripts/ci/w4-context-guard.sh .
+          bash scripts/ci/w4-context-guard.sh --self-test
+
+      - name: Push schema (lab; migrate-from-zero is a known separate defect)
+        env:
+          DATABASE_URL: postgresql://p7w4eb2_owner:p7w4eb2_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w4eb2
+          DIRECT_URL: postgresql://p7w4eb2_owner:p7w4eb2_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w4eb2
+        run: npx prisma db push --skip-generate
+
+      - name: Run W4E-B-2 battery
+        env:
+          BATTERY_TARGET: pg
+          DATABASE_URL: postgresql://p7w4eb2_owner:p7w4eb2_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w4eb2
+          DIRECT_URL: postgresql://p7w4eb2_owner:p7w4eb2_ci_synthetic_owner_pw@localhost:5432/dubiz_p7w4eb2
+          AUTH_TOKEN_SECRET: p7w4eb2_ci_auth_secret_synthetic
+        run: npx tsx .p7w4eb2/battery.mjs

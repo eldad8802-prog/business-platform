@@ -53,7 +53,10 @@ function makeDeps(cfg: { ctx?: LoadedDecisionContext | null; decision?: Decision
     resolveEnvironment: () => "SANDBOX",
     resolveRuntimeContext: async () => ({ ok: true, context: { accessToken: "tkn", approvalConfig: { apiBaseUrl: "https://x/shaam/tsandbox", apiVersion: "v2", timeoutMs: 15000 }, accountingSoftwareNumber: "12345678", connectionId: 5, environment: "SANDBOX" } }),
     requestDecision: async () => { spies.send += 1; return cfg.decision ?? { outcome: "accepted", message: "Decision accepted" }; },
-    runInTransaction: (fn) => fn({} as never),
+    // W4E-B-2: the port now carries the trusted tenant, so the double takes
+    // (businessId, fn) — the businessId is unused here because there is no DB.
+    runInTransaction: (_businessId: number, fn: (tx: never) => unknown) =>
+      fn({} as never),
     recordDecision: async () => { spies.record += 1; if (cfg.recordThrows) throw cfg.recordThrows; return { outcome: "APPLIED", status: BillingAuthoritySubmissionStatus.HELD, decisionType: BillingAuthorityDecisionType.PROCEED_WITHOUT_ALLOCATION, reportedAt: new Date("2026-07-18T00:00:00.000Z"), auditWritten: true }; },
     now: () => new Date("2026-07-18T00:00:00.000Z"),
     newCorrelationId: () => "corr-1",

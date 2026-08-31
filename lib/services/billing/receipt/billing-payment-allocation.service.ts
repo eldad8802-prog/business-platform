@@ -20,6 +20,7 @@ import {
   computeRemainingAllocatable,
   sumAllocationAmounts,
 } from "@/lib/services/billing/receipt/billing-receipt-allocation.rules";
+import { billingTenantTx } from "../billing-tenant-tx";
 
 const ALLOCATION_MAX_VALUE = "9999999999999999";
 
@@ -91,7 +92,7 @@ export async function setReceiptAllocations(
   assertBusinessId(input.businessId);
   const parsed = parseAllocations(input.allocations);
 
-  return prisma.$transaction(async (tx) => {
+  return billingTenantTx(input.businessId, async (tx) => {
     const receipt = await tx.billingDocument.findFirst({
       where: { id: input.receiptDocumentId, businessId: input.businessId },
       select: {

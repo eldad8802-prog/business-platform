@@ -26,6 +26,7 @@ import {
   assertReceiptTotalsReconcile,
   sumPaymentLineAmounts,
 } from "@/lib/services/billing/receipt/billing-receipt-allocation.rules";
+import { billingTenantTx } from "../billing-tenant-tx";
 
 export type ReceiptDocumentType =
   | typeof BillingDocumentType.RECEIPT
@@ -139,7 +140,7 @@ export async function createReceiptDraft(
     paymentsTotal,
   });
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await billingTenantTx(input.businessId, async (tx) => {
     const created = await tx.billingDocument.create({
       data: {
         businessId: input.businessId,
@@ -199,7 +200,7 @@ export async function replaceReceiptPaymentLines(
   const parsedPayments = parsePaymentLines(input.paymentLines);
   const paymentsTotal = sumPaymentLineAmounts(parsedPayments);
 
-  return prisma.$transaction(async (tx) => {
+  return billingTenantTx(input.businessId, async (tx) => {
     const doc = await tx.billingDocument.findFirst({
       where: { id: input.billingDocumentId, businessId: input.businessId },
       select: { id: true, documentType: true, status: true, totalAmount: true },

@@ -24,6 +24,7 @@ import {
   resolveAuthorityEnvConfig,
 } from "@/lib/services/billing/authority/billing-authority-env.service";
 import { decryptAuthorityConnectionToken } from "@/lib/services/billing/authority/billing-authority-token-crypto.service";
+import { billingDbStep } from "../billing-db-step";
 
 export const AUTHORITY_VALIDATION_ERROR_CODES = {
   NOT_VALIDATABLE: "AUTHORITY_CONNECTION_NOT_VALIDATABLE",
@@ -188,12 +189,12 @@ async function loadValidatableAuthorityConnection(
   businessId: number,
   environment: BillingAuthorityEnvironment
 ): Promise<ValidatableConnectionRow | null> {
-  return prisma.billingAuthorityConnection.findUnique({
+  return billingDbStep((db) => db.billingAuthorityConnection.findUnique({
     where: {
       businessId_environment: { businessId, environment },
     },
     select: CONNECTION_SELECT,
-  });
+  }));
 }
 
 async function resolveProbeCustomerVatNumber(

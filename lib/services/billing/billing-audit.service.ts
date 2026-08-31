@@ -2,6 +2,8 @@ import { createHash } from "crypto";
 import { BillingAuditEvent, Prisma } from "@prisma/client";
 import { UnauthorizedError, ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { billingTenantTx } from "./billing-tenant-tx";
+import { billingDbStep } from "./billing-db-step";
 
 /** Document-scoped authority events — require billingDocumentId. */
 export const BILLING_AUTHORITY_DOCUMENT_AUDIT_EVENT_TYPES = [
@@ -276,7 +278,7 @@ export async function createBillingAuditEventBestEffort(
   input: CreateBillingAuditEventInput
 ): Promise<void> {
   try {
-    await prisma.$transaction(async (tx) => {
+    await billingTenantTx(input.businessId, async (tx) => {
       await createBillingAuditEventTx(tx, input);
     });
   } catch (error) {
@@ -297,11 +299,11 @@ export async function getBillingDocumentAuditTimeline(
   assertPositiveInteger(input.businessId, "businessId");
   assertPositiveInteger(input.billingDocumentId, "billingDocumentId");
 
-  return prisma.billingAuditEvent.findMany({
+  return billingDbStep((db) => db.billingAuditEvent.findMany({
     where: {
       businessId: input.businessId,
       billingDocumentId: input.billingDocumentId,
     },
     orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
-  });
+  }));
 }

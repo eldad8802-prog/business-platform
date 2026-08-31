@@ -28,6 +28,7 @@ import {
   writeAtomic,
 } from "@/lib/services/billing/pdf/billing-pdf-storage";
 import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
+import { billingTenantTx } from "./billing-tenant-tx";
 
 const RENDER_ERROR_MESSAGE_MAX = 500;
 
@@ -96,7 +97,7 @@ export async function getOrRenderQuotePdf(
 ): Promise<GetOrRenderQuotePdfResult> {
   validateInput(input);
 
-  const allocated = await prisma.$transaction(async (tx) => {
+  const allocated = await billingTenantTx(input.businessId, async (tx) => {
     const docCheck = await tx.billingDocument.findFirst({
       where: {
         id: input.billingDocumentId,

@@ -1,0 +1,160 @@
+# D2 / P7-W4E-B-2 — Preview apply + proof (Neon branch DB, PREVIEW ONLY).
+# Gate A identity, drift gates (pilot=5, w1=14, w2=24, w3=15, w4b=5, w4c=3,
+# admin scoped), W4E-B-2 migration + grants via owner, the matrix as the real
+# runtime + admin roles (transient secrets W1_RUNTIME_URL / W2G_ADMIN_PW),
+# residue=0. Substrate persists on PASS; rollback-on-failure armed.
+# verify_only dispatch input = READ-ONLY substrate verification.
+
+name: d2/p7 — w4e-a preview apply+proof (neon)
+
+on:
+  workflow_dispatch:
+    inputs:
+      verify_only:
+        description: "READ-ONLY substrate verification (no apply/fixtures/sessions)"
+        type: boolean
+        default: false
+  # push trigger disarmed post-apply (proven pattern): substrate applied+proven
+  # (run 33342514552, PASS=57 FAIL=0, incl. the signed-PDF catch-up), transient
+  # secrets deleted; workflow_dispatch (incl. verify_only) remains.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d2-p7-w4eb2-preview
+  cancel-in-progress: false
+
+env:
+  NEON_BASE: https://console.neon.tech/api/v2
+  P4_PROJECT_ID: orange-shape-16620903
+  P4_BRANCH_ID: br-red-scene-amth33qx
+  P4_EXPECT_ENDPOINT: ep-wispy-dawn-amr74bwz
+  P4_EXPECT_DB: neondb
+  P4_EXPECT_HOST_SUFFIX: us-east-1.aws.neon.tech
+  P4_DENY_ENDPOINTS: ep-flat-brook-am4bhq1y ep-winter-bread-ami5o8p5
+
+jobs:
+  gate_a_identity:
+    name: Gate A — Preview target identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      gate_a: ${{ steps.verify.outputs.gate_a }}
+    steps:
+      - name: Verify project/branch/endpoint via Neon API
+        id: verify
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${NEON_API_KEY:-}" ] || { echo "::error::NEON_API_KEY missing"; exit 1; }
+          api() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "$1"; }
+          ep=$(api "${NEON_BASE}/projects/${P4_PROJECT_ID}/endpoints/${P4_EXPECT_ENDPOINT}")
+          ep_id=$(printf '%s' "$ep" | jq -r '.endpoint.id'); ep_branch=$(printf '%s' "$ep" | jq -r '.endpoint.branch_id'); ep_host=$(printf '%s' "$ep" | jq -r '.endpoint.host')
+          fail=0
+          [ "$ep_id" = "${P4_EXPECT_ENDPOINT}" ] || { echo "::error::endpoint"; fail=1; }
+          [ "$ep_branch" = "${P4_BRANCH_ID}" ] || { echo "::error::endpoint branch"; fail=1; }
+          case "$ep_host" in *"${P4_EXPECT_HOST_SUFFIX}") : ;; *) echo "::error::suffix"; fail=1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "$ep_host" in *"$d"*) echo "::error::DENY"; fail=1 ;; esac; done
+          [ "$fail" -eq 0 ] || { echo "gate_a=FAIL" >> "$GITHUB_OUTPUT"; exit 1; }
+          echo "gate_a=PASS" >> "$GITHUB_OUTPUT"; echo "GATE A = PASS"
+
+  w4eb2_preview:
+    name: W4E-B-2 apply + proof on Preview
+    needs: gate_a_identity
+    if: needs.gate_a_identity.outputs.gate_a == 'PASS'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .p7w4eb2/battery.mjs
+
+      - name: Run W4E-B-2 battery on Neon Preview
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          W1_RUNTIME_URL: ${{ secrets.W1_RUNTIME_URL }}
+          W2G_ADMIN_PW: ${{ secrets.W2G_ADMIN_PW }}
+          AUTH_TOKEN_SECRET: p7w4eb2_ci_auth_secret_synthetic
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERIFY_ONLY="${{ inputs.verify_only && '1' || '' }}"
+          if [ "${VERIFY_ONLY}" != "1" ]; then
+            [ -n "${W1_RUNTIME_URL:-}" ] || { echo "::error::W1_RUNTIME_URL missing (transient secret)"; exit 1; }
+            [ -n "${W2G_ADMIN_PW:-}" ] || { echo "::error::W2G_ADMIN_PW missing (transient secret)"; exit 1; }
+          fi
+          [ -z "${W1_RUNTIME_URL:-}" ] || echo "::add-mask::${W1_RUNTIME_URL}"
+          [ -z "${W2G_ADMIN_PW:-}" ] || echo "::add-mask::${W2G_ADMIN_PW}"
+          uri() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=$1" | jq -r '.uri'; }
+          DBP="$(uri true)"; DBD="$(uri false)"
+          echo "::add-mask::${DBP}"; echo "::add-mask::${DBD}"
+          for u in "${DBP}" "${DBD}" ${W1_RUNTIME_URL:+"${W1_RUNTIME_URL}"}; do
+            [ -n "$u" ] && [ "$u" != "null" ] || { echo "::error::empty URI"; exit 1; }
+            case "$u" in *"${P4_EXPECT_ENDPOINT}"*) : ;; *) echo "::error::URI endpoint mismatch"; exit 1 ;; esac
+            for d in ${P4_DENY_ENDPOINTS}; do case "$u" in *"$d"*) echo "::error::URI DENY"; exit 1 ;; esac; done
+          done
+          BATTERY_TARGET=neon W4EB2_VERIFY_ONLY="${VERIFY_ONLY}" \
+          DATABASE_URL="${DBP}" DIRECT_URL="${DBD}" \
+          RUNTIME_URL="${W1_RUNTIME_URL:-}" \
+          ADMIN_LOGIN_ROLE=app_admin_preview W2G_ADMIN_PW="${W2G_ADMIN_PW:-}" \
+          npx tsx .p7w4eb2/battery.mjs
+
+      - name: Fixtures cleanup net (always — marker-based backstop)
+        if: always() && !inputs.verify_only
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          DBD="$(curl -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri')"
+          echo "::add-mask::${DBD}"
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || exit 0
+          cat > .p7w4eb2/fixnet.gen.mjs <<'FIX_EOF'
+          import { PrismaClient } from '@prisma/client';
+          const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
+          const bids = `SELECT id FROM "Business" WHERE name LIKE 'p7w4eb2-%'`;
+          const docs = `SELECT id FROM "BillingDocument" WHERE "businessId" IN (` + bids + `)`;
+          for (const t of ['BillingDocumentLine','BillingReceiptPayment'])
+            await c.$executeRawUnsafe('DELETE FROM "' + t + '" WHERE "billingDocumentId" IN (' + docs + ')');
+          for (const t of ['BillingPaymentAllocation','BillingAuthoritySubmission','BillingAuditEvent','BillingDocument','BillingDocumentNumberSequence','BillingAuthorityConnection','BusinessBot'])
+            await c.$executeRawUnsafe('DELETE FROM "' + t + '" WHERE "businessId" IN (' + bids + ')');
+          await c.$executeRawUnsafe(`DELETE FROM "User" WHERE email LIKE '%@p7w4eb2.test'`);
+          await c.$executeRawUnsafe(`DELETE FROM "Business" WHERE name LIKE 'p7w4eb2-%'`);
+          const r = await c.$queryRaw`SELECT (SELECT count(*)::int FROM "Business" WHERE name LIKE 'p7w4eb2-%') AS biz`;
+          console.log('[fixnet] residue business=' + r[0].biz);
+          await c.$disconnect();
+          FIX_EOF
+          DIRECT_URL="${DBD}" node .p7w4eb2/fixnet.gen.mjs || true
+
+      - name: Rollback on failure (restore pre-Wave-3 posture)
+        if: failure() && !inputs.verify_only
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "battery failed — rolling W4E-B-2 policies+grants back (roles untouched)"
+          DBD="$(curl -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri')"
+          echo "::add-mask::${DBD}"
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || exit 0
+          cat > .p7w4eb2/rollback.gen.mjs <<'RB_EOF'
+          import { readFileSync } from 'node:fs';
+          import { PrismaClient } from '@prisma/client';
+          const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
+          const sql = readFileSync('scripts/security/d2-p7-w4eb2-rollback.sql', 'utf8').replaceAll(':ROLE', 'app_runtime_preview_p4b');
+          for (const stmt of sql.split(/;\s*\n/).map(s => s.replace(/^\s*--.*$/gm, '').trim()).filter(Boolean)) {
+            try { await c.$executeRawUnsafe(stmt); } catch (e) { console.log('[rollback] skip: ' + String(e.message).slice(0, 80)); }
+          }
+          const r = await c.$queryRawUnsafe("SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w4eb2_tenant'");
+          console.log('[rollback] remaining p7w4eb2 policies=' + r[0].c);
+          await c.$disconnect();
+          if (Number(r[0].c) !== 0) process.exit(1);
+          RB_EOF
+          DIRECT_URL="${DBD}" node .p7w4eb2/rollback.gen.mjs

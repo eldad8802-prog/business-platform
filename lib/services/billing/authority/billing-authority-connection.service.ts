@@ -22,6 +22,7 @@ import type {
   PublicAuthorityConnection,
 } from "@/lib/services/billing/authority/billing-authority-connection.types";
 import { billingTenantTx } from "../billing-tenant-tx";
+import { billingDbStep } from "../billing-db-step";
 
 const PUBLIC_SELECT = {
   businessId: true,
@@ -284,10 +285,10 @@ export async function findPublicAuthorityConnection(
   environment: BillingAuthorityEnvironment
 ): Promise<PublicAuthorityConnection | null> {
   assertPositiveInteger(businessId, "businessId");
-  const row = await prisma.billingAuthorityConnection.findUnique({
+  const row = await billingDbStep((db) => db.billingAuthorityConnection.findUnique({
     where: connectionScopeWhere(businessId, environment),
     select: PUBLIC_SELECT,
-  });
+  }));
   return row ? toPublicAuthorityConnection(row) : null;
 }
 
