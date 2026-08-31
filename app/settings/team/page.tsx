@@ -11,7 +11,7 @@ export default function SettingsAccountPage() {
         <AccountSummaryCard />
       </div>
       <SettingsSection title="התנתקות">
-        <p className="text-sm leading-6 text-gray-600">יציאה מהחשבון במכשיר זה.</p>
+        <p className="text-sm leading-6 text-[var(--dz-text-muted)]">יציאה מהחשבון במכשיר זה.</p>
         <div className="mt-3">
           <LogoutButton />
         </div>

@@ -254,7 +254,7 @@ export default function ContextInjectionPage() {
     <div style={pageStyle}>
       <style>{`
         .context-textarea:focus { outline: none; }
-        .context-textarea::placeholder { color: #94a3b8; }
+        .context-textarea::placeholder { color: var(--dz-text-muted); }
       `}</style>
 
       <div style={shellStyle}>
@@ -315,7 +315,7 @@ export default function ContextInjectionPage() {
 
 const pageStyle: React.CSSProperties = {
   ...baseStyles.page,
-  background: "linear-gradient(180deg, #f4f6fb 0%, #ffffff 42%, #f8fafc 100%)",
+  background: "linear-gradient(180deg, var(--dz-surface-muted) 0%, var(--dz-surface-flat) 42%, var(--dz-surface-muted) 100%)",
 };
 
 const shellStyle: React.CSSProperties = {
@@ -353,7 +353,7 @@ const titleStyle: React.CSSProperties = {
   fontSize: "clamp(1.55rem, 5vw, 1.85rem)",
   fontWeight: 800,
   lineHeight: 1.25,
-  color: "#0f172a",
+  color: "var(--dz-text-primary)",
   margin: 0,
   marginBottom: 10,
   letterSpacing: "-0.02em",
@@ -362,17 +362,17 @@ const titleStyle: React.CSSProperties = {
 const subtitleStyle: React.CSSProperties = {
   fontSize: "clamp(0.95rem, 3.5vw, 1.05rem)",
   lineHeight: 1.65,
-  color: "#64748b",
+  color: "var(--dz-text-muted)",
   margin: 0,
 };
 
 const textareaWrapperStyle = (focused: boolean): React.CSSProperties => ({
   borderRadius: 20,
-  border: focused ? "2px solid #0f172a" : "1.5px solid #e2e8f0",
-  background: "#ffffff",
+  border: focused ? "2px solid var(--dz-text-primary)" : "1.5px solid var(--dz-border)",
+  background: "var(--dz-surface)",
   boxShadow: focused
-    ? "0 8px 28px rgba(15,23,42,0.1)"
-    : "0 3px 12px rgba(15,23,42,0.06)",
+    ? "0 8px 28px rgba(52, 60, 50, 0.1)"
+    : "0 3px 12px rgba(52, 60, 50, 0.06)",
   transition: "border-color 0.18s ease, box-shadow 0.18s ease",
   overflow: "hidden",
   marginBottom: 14,
@@ -385,7 +385,7 @@ const textareaInnerStyle: React.CSSProperties = {
   padding: "clamp(16px, 4.5vw, 20px)",
   fontSize: "clamp(1rem, 3.8vw, 1.1rem)",
   lineHeight: 1.7,
-  color: "#0f172a",
+  color: "var(--dz-text-primary)",
   background: "transparent",
   border: "none",
   resize: "none",
@@ -396,7 +396,7 @@ const textareaInnerStyle: React.CSSProperties = {
 
 const hintTextStyle: React.CSSProperties = {
   fontSize: "clamp(0.78rem, 2.8vw, 0.85rem)",
-  color: "#94a3b8",
+  color: "var(--dz-text-muted)",
   textAlign: "right",
   lineHeight: 1.55,
   margin: 0,
@@ -405,7 +405,7 @@ const hintTextStyle: React.CSSProperties = {
 
 const optionalLabelStyle: React.CSSProperties = {
   fontSize: "clamp(0.75rem, 2.6vw, 0.82rem)",
-  color: "#cbd5e1",
+  color: "var(--dz-text-disabled)",
   textAlign: "right",
   margin: 0,
 };
@@ -414,7 +414,7 @@ const footerStyle: React.CSSProperties = {
   position: "sticky",
   bottom: 0,
   zIndex: 20,
-  background: "linear-gradient(180deg, transparent 0%, #f8fafc 28%)",
+  background: "linear-gradient(180deg, transparent 0%, var(--dz-surface-muted) 28%)",
   paddingTop: 16,
   paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
   marginTop: "auto",
@@ -429,7 +429,7 @@ const ctaButtonStyle = (hasText: boolean): React.CSSProperties => ({
   borderRadius: 16,
   border: "none",
   background: TOKEN.action.primary.background,
-  color: "#ffffff",
+  color: "var(--dz-text-on-brand)",
   fontSize: 16,
   fontWeight: 800,
   cursor: "pointer",

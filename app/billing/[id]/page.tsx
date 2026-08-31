@@ -2188,7 +2188,7 @@ function IssueConfirmDialog({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(70, 50, 30, 0.5)",
+        background: "rgba(35, 48, 43, 0.5)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -2341,7 +2341,7 @@ function UnsavedChangesDialog({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(70, 50, 30, 0.5)",
+        background: "rgba(35, 48, 43, 0.5)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

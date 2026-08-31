@@ -2,10 +2,10 @@ export default function RedeemLoading() {
   return (
     <div
       style={{
-        background: "#ffffff",
+        background: "var(--dz-surface)",
         padding: 20,
         borderRadius: 20,
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--dz-border)",
         textAlign: "center",
       }}
     >
@@ -14,7 +14,7 @@ export default function RedeemLoading() {
           fontSize: 18,
           fontWeight: 700,
           marginBottom: 8,
-          color: "#111827",
+          color: "var(--dz-text-primary)",
         }}
       >
         בודק קופון...
@@ -23,7 +23,7 @@ export default function RedeemLoading() {
       <div
         style={{
           fontSize: 14,
-          color: "#6b7280",
+          color: "var(--dz-text-muted)",
         }}
       >
         אנא המתן רגע

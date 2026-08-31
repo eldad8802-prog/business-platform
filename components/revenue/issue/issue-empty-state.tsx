@@ -16,9 +16,9 @@ export default function IssueEmptyState({
   return (
     <div
       style={{
-        background: "#ffffff",
+        background: "var(--dz-surface)",
         borderRadius: 24,
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--dz-border)",
         padding: 24,
         textAlign: "center",
       }}
@@ -28,7 +28,7 @@ export default function IssueEmptyState({
           marginTop: 0,
           marginBottom: 12,
           fontSize: 22,
-          color: "#111827",
+          color: "var(--dz-text-primary)",
         }}
       >
         {title}
@@ -39,7 +39,7 @@ export default function IssueEmptyState({
           marginTop: 0,
           marginBottom: actionLabel ? 18 : 0,
           fontSize: 15,
-          color: "#6b7280",
+          color: "var(--dz-text-muted)",
           lineHeight: 1.6,
         }}
       >
@@ -55,7 +55,7 @@ export default function IssueEmptyState({
             borderRadius: 14,
             border: "none",
             background: TOKEN.action.primary.background,
-            color: "#ffffff",
+            color: "var(--dz-text-on-brand)",
             fontWeight: 700,
             cursor: "pointer",
           }}

@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { MIST_FLAT } from "@/lib/design/mist";
 
 /**
  * PWA web manifest (Milestone A) — isolated & cheap: metadata + installability
@@ -15,8 +16,10 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Dubiz — ניהול היום־יום של העסק",
     start_url: "/app",
     display: "standalone",
-    background_color: "#f8f6f1",
-    theme_color: "#0f766e",
+    // The web-app manifest is JSON consumed by the OS, not CSS — a custom
+    // property would be an invalid colour here. Read the FLAT Mist values.
+    background_color: MIST_FLAT.background,
+    theme_color: MIST_FLAT.brand,
     dir: "rtl",
     lang: "he",
     icons: [

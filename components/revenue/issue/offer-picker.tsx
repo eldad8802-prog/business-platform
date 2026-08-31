@@ -17,8 +17,8 @@ export default function OfferPicker({
         style={{
           padding: 20,
           borderRadius: 20,
-          background: "#ffffff",
-          border: "1px solid #e5e7eb",
+          background: "var(--dz-surface)",
+          border: "1px solid var(--dz-border)",
         }}
       >
         אין כרגע הצעות זמינות.
@@ -46,13 +46,13 @@ export default function OfferPicker({
               textAlign: "right",
               padding: "18px 16px",
               borderRadius: 18,
-              border: isSelected ? "2px solid #111827" : "1px solid #d1d5db",
-              background: isSelected ? "#f9fafb" : "#ffffff",
+              border: isSelected ? "2px solid var(--dz-text-primary)" : "1px solid var(--dz-border-strong)",
+              background: isSelected ? "var(--dz-surface-muted)" : "var(--dz-surface)",
               cursor: "pointer",
               position: "relative",
               transition: "all 0.2s ease",
               boxShadow: isSelected
-                ? "0 8px 24px rgba(17, 24, 39, 0.08)"
+                ? "0 8px 24px rgba(52, 60, 50, 0.08)"
                 : "none",
             }}
           >
@@ -64,8 +64,8 @@ export default function OfferPicker({
                   justifyContent: "center",
                   padding: "4px 10px",
                   borderRadius: 999,
-                  background: "#111827",
-                  color: "#ffffff",
+                  background: "var(--dz-text-primary)",
+                  color: "var(--dz-text-on-brand)",
                   fontSize: 12,
                   fontWeight: 700,
                   marginBottom: 10,
@@ -79,7 +79,7 @@ export default function OfferPicker({
               style={{
                 fontSize: 18,
                 fontWeight: 700,
-                color: "#111827",
+                color: "var(--dz-text-primary)",
                 marginBottom: 6,
               }}
             >
@@ -89,7 +89,7 @@ export default function OfferPicker({
             <div
               style={{
                 fontSize: 14,
-                color: "#6b7280",
+                color: "var(--dz-text-muted)",
                 lineHeight: 1.5,
               }}
             >

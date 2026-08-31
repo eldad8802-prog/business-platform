@@ -15,7 +15,7 @@ export default function PostsPage() {
 const styles: { [key: string]: React.CSSProperties } = {
   page: {
     minHeight: "100vh",
-    background: "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)",
+    background: "linear-gradient(180deg, var(--dz-surface-muted) 0%, var(--dz-surface-muted) 100%)",
     direction: "rtl",
     padding: "24px 16px",
     boxSizing: "border-box",
@@ -23,11 +23,11 @@ const styles: { [key: string]: React.CSSProperties } = {
   card: {
     maxWidth: 520,
     margin: "0 auto",
-    background: "#ffffff",
-    border: "1px solid #e2e8f0",
+    background: "var(--dz-surface)",
+    border: "1px solid var(--dz-border)",
     borderRadius: 24,
     padding: "24px 20px",
-    boxShadow: "0 10px 30px rgba(15, 23, 42, 0.06)",
+    boxShadow: "0 10px 30px rgba(52, 60, 50, 0.06)",
   },
   badge: {
     display: "inline-block",
@@ -36,20 +36,20 @@ const styles: { [key: string]: React.CSSProperties } = {
     borderRadius: 999,
     fontSize: 12,
     fontWeight: 800,
-    background: "#fef3c7",
-    color: "#92400e",
+    background: "var(--dz-warning-bg)",
+    color: "var(--dz-warning)",
   },
   title: {
     margin: 0,
     fontSize: 28,
     fontWeight: 800,
-    color: "#0f172a",
+    color: "var(--dz-text-primary)",
     lineHeight: 1.2,
   },
   text: {
     margin: "12px 0 0",
     fontSize: 16,
     lineHeight: 1.7,
-    color: "#475569",
+    color: "var(--dz-text-secondary)",
   },
 }

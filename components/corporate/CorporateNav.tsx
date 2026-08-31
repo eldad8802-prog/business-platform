@@ -41,7 +41,7 @@ export function CorporateNav({
             className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
               active
                 ? "bg-[var(--mkt-soft)] text-[var(--mkt-link)]"
-                : "text-gray-600 hover:text-[var(--mkt-ink)]"
+                : "text-[var(--dz-text-muted)] hover:text-[var(--mkt-ink)]"
             }`}
           >
             {link.label}

@@ -43,12 +43,12 @@ export function SkipLink({
     zIndex: 100000,
     padding: "10px 16px",
     borderRadius: 10,
-    background: "#0a0a0f",
-    color: "#ffffff",
+    background: "var(--dz-text-primary)",
+    color: "var(--dz-text-on-brand)",
     fontSize: 14,
     fontWeight: 700,
     textDecoration: "none",
-    boxShadow: "0 8px 24px rgba(15, 23, 42, 0.25)",
+    boxShadow: "0 8px 24px rgba(52, 60, 50, 0.25)",
   };
 
   return (

@@ -122,13 +122,13 @@ const TOOLS: ToolItem[] = [
 
 function ToolsHeader({ onBack }: { onBack: () => void }) {
   return (
-    <header className="mb-5 rounded-3xl bg-white px-4 py-4 shadow-sm">
+    <header className="mb-5 rounded-3xl bg-[var(--dz-surface)] px-4 py-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <BackButton onClick={onBack} />
 
         <div className="flex-1 text-center">
-          <p className="text-base font-bold text-gray-900">כל הכלים</p>
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="text-base font-bold text-[var(--dz-text-primary)]">כל הכלים</p>
+          <p className="mt-1 text-xs text-[var(--dz-text-muted)]">
             כל היכולות של המערכת במקום אחד
           </p>
         </div>
@@ -154,26 +154,26 @@ function ToolCard({
       disabled={isSoon}
       className={`relative min-h-[150px] rounded-[24px] p-4 text-right shadow-sm transition ${
         isSoon
-          ? "cursor-not-allowed bg-white/80 opacity-80"
-          : "bg-white active:scale-[0.99]"
+          ? "cursor-not-allowed bg-[var(--dz-surface)] opacity-80"
+          : "bg-[var(--dz-surface)] active:scale-[0.99]"
       }`}
     >
       <span
         className={`absolute left-3 top-3 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
           isSoon
-            ? "bg-[#f4ead0] text-[#7a5a1f]"
-            : "bg-[#e8f6ee] text-[#1f7a5a]"
+            ? "bg-[var(--dz-warning-bg)] text-[var(--dz-warning)]"
+            : "bg-[var(--dz-success-bg)] text-[var(--dz-brand)]"
         }`}
       >
         {isSoon ? "בקרוב" : "פעיל"}
       </span>
 
-      <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#f8f6f1] text-2xl">
+      <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--dz-background)] text-2xl">
         {item.icon}
       </div>
 
-      <h2 className="text-sm font-bold text-gray-900">{item.title}</h2>
-      <p className="mt-2 text-xs leading-5 text-gray-500">{item.description}</p>
+      <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">{item.title}</h2>
+      <p className="mt-2 text-xs leading-5 text-[var(--dz-text-muted)]">{item.description}</p>
     </button>
   );
 }
@@ -198,13 +198,13 @@ export default function ToolsPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#f8f6f1] text-[#1f2937]">
+    <main className="min-h-screen bg-[var(--dz-background)] text-[var(--dz-text-primary)]">
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-8 pt-4 sm:max-w-2xl sm:px-6 lg:max-w-4xl">
         <ToolsHeader onBack={handleBack} />
 
-        <section className="mb-4 rounded-[24px] bg-white p-4 shadow-sm">
-          <h1 className="text-lg font-bold text-gray-900">מרכז הכלים של העסק</h1>
-          <p className="mt-2 text-sm leading-6 text-gray-600">
+        <section className="mb-4 rounded-[24px] bg-[var(--dz-surface)] p-4 shadow-sm">
+          <h1 className="text-lg font-bold text-[var(--dz-text-primary)]">מרכז הכלים של העסק</h1>
+          <p className="mt-2 text-sm leading-6 text-[var(--dz-text-muted)]">
             כאן תוכל לעבור בין כל היכולות של המערכת בצורה מסודרת, ברורה ונוחה.
           </p>
         </section>

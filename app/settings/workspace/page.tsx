@@ -13,19 +13,19 @@ export default function SettingsWorkspacePage() {
     <>
       <SettingsSubPageHeader title="שפה ואזור" />
       <SettingsSection title="הגדרות אזור">
-        <p className="text-sm leading-6 text-gray-600">
+        <p className="text-sm leading-6 text-[var(--dz-text-muted)]">
           כך המערכת מוצגת ומחשבת. כרגע לקריאה בלבד.
         </p>
-        <div className="mt-3 divide-y divide-gray-100">
+        <div className="mt-3 divide-y divide-[var(--dz-border-subtle)]">
           {SYSTEM_VALUES.map((row) => (
             <div
               key={row.label}
               className="flex items-center justify-between gap-3 py-2"
             >
-              <span className="text-xs font-semibold text-gray-500">
+              <span className="text-xs font-semibold text-[var(--dz-text-muted)]">
                 {row.label}
               </span>
-              <span className="text-sm font-medium text-gray-900">
+              <span className="text-sm font-medium text-[var(--dz-text-primary)]">
                 {row.value}
               </span>
             </div>

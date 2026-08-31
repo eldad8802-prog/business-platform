@@ -67,9 +67,9 @@ export default function CouponDisplay({
   return (
     <div
       style={{
-        background: "#ffffff",
+        background: "var(--dz-surface)",
         borderRadius: 24,
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--dz-border)",
         padding: 20,
       }}
     >
@@ -86,9 +86,9 @@ export default function CouponDisplay({
             style={{
               padding: "10px 14px",
               borderRadius: 12,
-              border: "1px solid #d1d5db",
-              background: "#ffffff",
-              color: "#111827",
+              border: "1px solid var(--dz-border-strong)",
+              background: "var(--dz-surface)",
+              color: "var(--dz-text-primary)",
               fontWeight: 700,
               cursor: "pointer",
             }}
@@ -106,7 +106,7 @@ export default function CouponDisplay({
             style={{
               fontSize: 13,
               fontWeight: 700,
-              color: "#6b7280",
+              color: "var(--dz-text-muted)",
               marginBottom: 6,
             }}
           >
@@ -116,7 +116,7 @@ export default function CouponDisplay({
           <div
             style={{
               fontSize: 14,
-              color: "#4b5563",
+              color: "var(--dz-text-secondary)",
               lineHeight: 1.6,
             }}
           >
@@ -132,8 +132,8 @@ export default function CouponDisplay({
             margin: "0 auto",
             padding: 16,
             borderRadius: 20,
-            background: "#ffffff",
-            border: "1px solid #e5e7eb",
+            background: "var(--dz-surface)",
+            border: "1px solid var(--dz-border)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -156,7 +156,7 @@ export default function CouponDisplay({
           <div
             style={{
               fontSize: 14,
-              color: "#6b7280",
+              color: "var(--dz-text-muted)",
               marginBottom: 6,
             }}
           >
@@ -167,7 +167,7 @@ export default function CouponDisplay({
             style={{
               fontSize: 22,
               fontWeight: 700,
-              color: "#111827",
+              color: "var(--dz-text-primary)",
               marginBottom: 8,
               lineHeight: 1.3,
             }}
@@ -178,7 +178,7 @@ export default function CouponDisplay({
           <div
             style={{
               fontSize: 13,
-              color: "#6b7280",
+              color: "var(--dz-text-muted)",
               marginBottom: 10,
             }}
           >
@@ -188,7 +188,7 @@ export default function CouponDisplay({
           <div
             style={{
               fontSize: 15,
-              color: "#4b5563",
+              color: "var(--dz-text-secondary)",
               lineHeight: 1.6,
               marginBottom: 14,
             }}
@@ -201,7 +201,7 @@ export default function CouponDisplay({
               display: "grid",
               gap: 6,
               fontSize: 14,
-              color: "#6b7280",
+              color: "var(--dz-text-muted)",
               lineHeight: 1.8,
             }}
           >
@@ -216,9 +216,9 @@ export default function CouponDisplay({
             style={{
               padding: "12px 14px",
               borderRadius: 14,
-              background: "#f0fdf4",
-              border: "1px solid #bbf7d0",
-              color: "#166534",
+              background: "var(--dz-success-bg-soft)",
+              border: "1px solid var(--dz-success-border)",
+              color: "var(--dz-success)",
               fontSize: 14,
               fontWeight: 700,
               textAlign: "center",
@@ -237,7 +237,7 @@ export default function CouponDisplay({
               borderRadius: 16,
               border: "none",
               background: TOKEN.action.primary.background,
-              color: "#ffffff",
+              color: "var(--dz-text-on-brand)",
               fontWeight: 700,
               cursor: "pointer",
             }}
@@ -251,9 +251,9 @@ export default function CouponDisplay({
             style={{
               padding: "14px 16px",
               borderRadius: 16,
-              border: "1px solid #d1d5db",
-              background: "#ffffff",
-              color: "#111827",
+              border: "1px solid var(--dz-border-strong)",
+              background: "var(--dz-surface)",
+              color: "var(--dz-text-primary)",
               fontWeight: 700,
               cursor: "pointer",
             }}
@@ -267,9 +267,9 @@ export default function CouponDisplay({
             style={{
               padding: "14px 16px",
               borderRadius: 16,
-              border: "1px solid #d1d5db",
-              background: "#ffffff",
-              color: "#111827",
+              border: "1px solid var(--dz-border-strong)",
+              background: "var(--dz-surface)",
+              color: "var(--dz-text-primary)",
               fontWeight: 700,
               cursor: "pointer",
             }}

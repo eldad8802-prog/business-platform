@@ -1,8 +1,10 @@
 @import "tailwindcss";
+@import "./dubiz-mist.css";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Dubiz Mist ground + ink — palette lives in ./dubiz-mist.css */
+  --background: var(--dz-background);
+  --foreground: var(--dz-text-primary);
 
   /*
    * Safe-area contract (Adaptive+Native Spec v1 §12): the ONLY place env()
@@ -90,20 +92,20 @@ select {
  */
 .dz-scroll {
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-color: var(--dz-border-strong) transparent;
 }
 .dz-scroll::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 .dz-scroll::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--dz-border-strong);
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 .dz-scroll::-webkit-scrollbar-thumb:hover {
-  background: #b3c0d1;
+  background: var(--dz-text-disabled);
   background-clip: padding-box;
 }
 .dz-scroll::-webkit-scrollbar-track {
@@ -138,7 +140,7 @@ select {
  * and inline styles win over a class selector, so we don't fight it here.
  */
 .dz-datefield:focus-within {
-  box-shadow: 0 0 0 3px rgba(36, 105, 102, 0.22);
+  box-shadow: 0 0 0 3px var(--dz-focus-ring);
 }
 
 /* --- Public Primary CTA — the official Dubiz Primary button (DS v1 teal) ----
@@ -165,13 +167,8 @@ select {
   padding: 10px 18px;
   border: 0;
   border-radius: 14px;
-  background-image: linear-gradient(
-    115deg,
-    #246966 0%,
-    #2c7c79 52%,
-    #3d9c9a 100%
-  );
-  color: #fef8f2;
+  background-image: var(--dz-brand-gradient);
+  color: var(--dz-text-on-brand);
   font-family: inherit;
   font-size: 14px;
   font-weight: 600;
@@ -181,7 +178,7 @@ select {
   cursor: pointer;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  box-shadow: 0 6px 18px rgba(36, 105, 102, 0.28);
+  box-shadow: var(--dz-shadow-glow);
   transition: background-image 0.15s ease, box-shadow 0.15s ease,
     transform 0.1s ease;
 }
@@ -190,30 +187,25 @@ select {
   width: 100%;
 }
 .dz-btn-primary:hover {
-  background-image: linear-gradient(
-    115deg,
-    #2a7370 0%,
-    #348c89 52%,
-    #49aeac 100%
-  );
-  box-shadow: 0 6px 18px rgba(36, 105, 102, 0.38);
+  background-image: var(--dz-brand-gradient-hover);
+  box-shadow: var(--dz-shadow-glow-hover);
 }
 /* Accessible keyboard focus — a crisp ring (cream gap + teal), NOT the old
  * blurred halo. Only shows for keyboard users via :focus-visible. */
 .dz-btn-primary:focus-visible {
   outline: none;
-  box-shadow: 0 6px 18px rgba(36, 105, 102, 0.28), 0 0 0 3px #fef8f2,
-    0 0 0 5px rgba(36, 105, 102, 0.55);
+  box-shadow: var(--dz-shadow-glow), 0 0 0 3px var(--dz-text-on-brand),
+    0 0 0 5px var(--dz-brand);
 }
 .dz-btn-primary:active {
   transform: translateY(1px);
-  box-shadow: 0 3px 10px rgba(36, 105, 102, 0.3);
+  box-shadow: var(--dz-shadow-glow);
 }
 .dz-btn-primary:disabled,
 .dz-btn-primary[aria-disabled="true"] {
   background-image: none;
-  background-color: #f6ecdd;
-  color: #777067;
+  background-color: var(--dz-surface-muted);
+  color: var(--dz-text-disabled);
   box-shadow: none;
   cursor: not-allowed;
   transform: none;

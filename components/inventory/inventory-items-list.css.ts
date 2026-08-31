@@ -22,7 +22,7 @@ export const inventoryItemsListCss = `
     margin: 4px 0 0;
     font-size: 13px;
     font-weight: 600;
-    color: var(--inv-muted, #777067);
+    color: var(--inv-muted, var(--dz-text-secondary));
   }
 
   [data-inventory-items-list] .inv-items-list__add-btn {
@@ -32,7 +32,7 @@ export const inventoryItemsListCss = `
     gap: 6px;
     min-height: 40px;
     padding: 0 16px;
-    border: var(--inv-primary-border, 1px solid rgba(254, 248, 242, 0.22));
+    border: var(--inv-primary-border, 1px solid rgba(251, 250, 246, 0.22));
     border-radius: var(--inv-radius-button, 18px);
     background: var(--inv-primary);
     color: var(--inv-on-accent);
@@ -57,12 +57,12 @@ export const inventoryItemsListCss = `
     box-sizing: border-box;
     min-height: 44px;
     padding: 10px 14px 10px 40px;
-    border: 1px solid var(--inv-border, #E9DDD0);
+    border: 1px solid var(--inv-border, var(--dz-border));
     border-radius: 12px;
-    background: var(--inv-surface, #FDF4EB);
+    background: var(--inv-surface, var(--dz-surface));
     font-size: 14px;
     font-family: inherit;
-    color: var(--inv-text, #2D2B28);
+    color: var(--inv-text, var(--dz-text-primary));
   }
 
   [data-inventory-items-list] .inv-items-list__search:focus {
@@ -75,7 +75,7 @@ export const inventoryItemsListCss = `
     top: 50%;
     inset-inline-start: 12px;
     transform: translateY(-50%);
-    color: var(--inv-dim, #A79C8D);
+    color: var(--inv-dim, var(--dz-text-muted));
     pointer-events: none;
     display: flex;
   }
@@ -96,20 +96,20 @@ export const inventoryItemsListCss = `
   [data-inventory-items-list] .inv-items-list__filter-label {
     font-size: 12px;
     font-weight: 600;
-    color: var(--inv-muted, #777067);
+    color: var(--inv-muted, var(--dz-text-secondary));
     flex-shrink: 0;
     min-width: 52px;
   }
 
   [data-inventory-items-list] .inv-items-list__chip {
-    border: 1px solid var(--inv-border, #E9DDD0);
+    border: 1px solid var(--inv-border, var(--dz-border));
     border-radius: 999px;
     background: var(--inv-card-bg);
     padding: 6px 12px;
     font-size: 12px;
     font-weight: 600;
     font-family: inherit;
-    color: var(--inv-text, #2D2B28);
+    color: var(--inv-text, var(--dz-text-primary));
     cursor: pointer;
     transition: background 0.1s ease, border-color 0.1s ease;
   }
@@ -139,13 +139,13 @@ export const inventoryItemsListCss = `
   [data-inventory-items-list] .inv-items-list__results {
     font-size: 12px;
     font-weight: 600;
-    color: var(--inv-muted, #777067);
+    color: var(--inv-muted, var(--dz-text-secondary));
     margin: 0;
   }
 
   [data-inventory-items-list] .inv-items-list__panel {
-    background: var(--inv-surface, #FDF4EB);
-    border: 1px solid var(--inv-border, #E9DDD0);
+    background: var(--inv-surface, var(--dz-surface));
+    border: 1px solid var(--inv-border, var(--dz-border));
     border-radius: var(--inv-radius-lg, 16px);
     box-shadow: var(--inv-shadow-sm, var(--inv-shadow));
     overflow: hidden;
@@ -165,7 +165,7 @@ export const inventoryItemsListCss = `
     width: 100%;
     padding: 12px 20px;
     border: none;
-    border-bottom: 1px solid var(--inv-border-soft, #F6ECDD);
+    border-bottom: 1px solid var(--inv-border-soft, var(--dz-surface-muted));
     background: transparent;
     cursor: pointer;
     text-align: right;
@@ -194,7 +194,7 @@ export const inventoryItemsListCss = `
     height: 44px;
     border-radius: 10px;
     object-fit: cover;
-    border: 1px solid var(--inv-border, #E9DDD0);
+    border: 1px solid var(--inv-border, var(--dz-border));
     background: var(--inv-card-bg);
   }
 
@@ -203,7 +203,7 @@ export const inventoryItemsListCss = `
     align-items: center;
     justify-content: center;
     background: var(--inv-surface-2);
-    color: var(--inv-dim, #A79C8D);
+    color: var(--inv-dim, var(--dz-text-muted));
   }
 
   [data-inventory-items-list] .inv-items-list__main {
@@ -216,7 +216,7 @@ export const inventoryItemsListCss = `
   [data-inventory-items-list] .inv-items-list__name {
     font-size: 14px;
     font-weight: 600;
-    color: var(--inv-text, #2D2B28);
+    color: var(--inv-text, var(--dz-text-primary));
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -225,7 +225,7 @@ export const inventoryItemsListCss = `
 
   [data-inventory-items-list] .inv-items-list__meta {
     font-size: 12px;
-    color: var(--inv-muted, #777067);
+    color: var(--inv-muted, var(--dz-text-secondary));
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -234,7 +234,7 @@ export const inventoryItemsListCss = `
   [data-inventory-items-list] .inv-items-list__price {
     font-size: 13px;
     font-weight: 600;
-    color: var(--inv-text, #2D2B28);
+    color: var(--inv-text, var(--dz-text-primary));
     white-space: nowrap;
     text-align: start;
   }
@@ -314,10 +314,10 @@ export const inventoryItemsListCss = `
   [data-inventory-items-list] .inv-items-list__row--skeleton {
     display: block;
     min-height: 64px;
-    background: linear-gradient(90deg, #F6ECDD 25%, #E9DDD0 50%, #F6ECDD 75%);
+    background: linear-gradient(90deg, var(--dz-surface-muted) 25%, var(--dz-surface-muted) 50%, var(--dz-surface-muted) 75%);
     background-size: 200% 100%;
     animation: inv-items-shimmer 1.4s ease infinite;
-    border-bottom: 1px solid var(--inv-border-soft, #F6ECDD);
+    border-bottom: 1px solid var(--inv-border-soft, var(--dz-surface-muted));
   }
 
   @keyframes inv-items-shimmer {
@@ -334,17 +334,17 @@ export const inventoryItemsListCss = `
     margin: 0 0 8px;
     font-size: 14px;
     font-weight: 600;
-    color: var(--inv-text, #2D2B28);
+    color: var(--inv-text, var(--dz-text-primary));
   }
 
   [data-inventory-items-list] .inv-items-list__empty-hint {
     margin: 0 0 14px;
     font-size: 13px;
-    color: var(--inv-muted, #777067);
+    color: var(--inv-muted, var(--dz-text-secondary));
   }
 
   [data-inventory-items-list] .inv-items-list__empty-btn {
-    border: var(--inv-primary-border, 1px solid rgba(254, 248, 242, 0.22));
+    border: var(--inv-primary-border, 1px solid rgba(251, 250, 246, 0.22));
     border-radius: var(--inv-radius-button, 18px);
     background: var(--inv-primary);
     color: var(--inv-on-accent);

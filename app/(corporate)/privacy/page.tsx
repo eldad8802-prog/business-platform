@@ -15,10 +15,10 @@ export default function CorporatePrivacyPage() {
         <h1 className="text-3xl font-extrabold leading-tight text-[var(--mkt-ink)] sm:text-4xl">
           מדיניות פרטיות
         </h1>
-        <p className="mt-3 text-sm text-gray-500">עודכן לאחרונה: 10 ביולי 2026</p>
+        <p className="mt-3 text-sm text-[var(--dz-text-muted)]">עודכן לאחרונה: 10 ביולי 2026</p>
       </header>
 
-      <div className="mt-10 max-w-3xl space-y-9 text-sm leading-7 text-gray-600 sm:text-base">
+      <div className="mt-10 max-w-3xl space-y-9 text-sm leading-7 text-[var(--dz-text-muted)] sm:text-base">
         <section>
           <h2 className="text-lg font-bold text-[var(--mkt-ink)]">מי מפעיל את השירות</h2>
           <p className="mt-3">
@@ -208,7 +208,7 @@ export default function CorporatePrivacyPage() {
               ובהסכמתך.
             </li>
           </ul>
-          <p className="mt-3 italic text-gray-500">
+          <p className="mt-3 italic text-[var(--dz-text-muted)]">
             {"Dubiz's use and transfer to any other app of information received from Google APIs will adhere to the "}
             <a
               href="https://developers.google.com/terms/api-services-user-data-policy"

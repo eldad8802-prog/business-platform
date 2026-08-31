@@ -1622,7 +1622,7 @@ const heroStyle: CSSProperties = {
   background: TOKEN.brand.gradient,
   color: TOKEN.ink.inverse,
   textAlign: "center",
-  boxShadow: "0 16px 34px rgba(36, 59, 87, 0.30)",
+  boxShadow: "0 16px 34px rgba(43, 90, 133, 0.30)",
 };
 
 const heroLabelStyle: CSSProperties = {

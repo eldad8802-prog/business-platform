@@ -88,8 +88,8 @@ function categoryNavRowForBucket(
     label: opt?.label ?? id,
     subtitle: count > 0 ? `${count} שיחות` : "אין שיחות בקטגוריה",
     icon: "•",
-    iconBg: "#f1f5f9",
-    iconColor: "#64748b",
+    iconBg: "var(--dz-surface-muted)",
+    iconColor: "var(--dz-text-muted)",
     count,
   };
 }
@@ -103,34 +103,34 @@ function urgencyToColors(level: 0 | 1 | 2 | 3): {
 } {
   if (level >= 3)
     return {
-      bg: "rgba(255, 241, 242, 0.8)",
-      border: "rgba(220, 38, 38, 0.22)",
-      text: "#991b1b",
-      avatarBg: "rgba(254, 226, 226, 0.9)",
-      avatarText: "#dc2626",
+      bg: "rgba(247, 234, 230, 0.8)",
+      border: "rgba(155, 70, 52, 0.22)",
+      text: "var(--dz-danger)",
+      avatarBg: "rgba(247, 234, 230, 0.9)",
+      avatarText: "var(--dz-danger)",
     };
   if (level === 2)
     return {
-      bg: "rgba(255, 251, 235, 0.8)",
-      border: "rgba(217, 119, 6, 0.22)",
-      text: "#92400e",
-      avatarBg: "rgba(254, 243, 199, 0.9)",
-      avatarText: "#d97706",
+      bg: "rgba(246, 239, 226, 0.8)",
+      border: "rgba(129, 90, 50, 0.22)",
+      text: "var(--dz-warning)",
+      avatarBg: "rgba(246, 239, 226, 0.9)",
+      avatarText: "var(--dz-warning)",
     };
   if (level === 1)
     return {
-      bg: "rgba(239, 246, 255, 0.8)",
-      border: "rgba(37, 99, 235, 0.18)",
-      text: "#1e40af",
-      avatarBg: "rgba(219, 234, 254, 0.9)",
-      avatarText: "#2563eb",
+      bg: "rgba(231, 240, 246, 0.8)",
+      border: "rgba(43, 90, 133, 0.18)",
+      text: "var(--dz-info)",
+      avatarBg: "rgba(231, 240, 246, 0.9)",
+      avatarText: "var(--dz-info)",
     };
   return {
-    bg: "#ffffff",
-    border: "rgba(15, 23, 42, 0.07)",
-    text: "#374151",
-    avatarBg: "rgba(241, 245, 249, 0.9)",
-    avatarText: "#475569",
+    bg: "var(--dz-surface)",
+    border: "rgba(52, 60, 50, 0.07)",
+    text: "var(--dz-text-secondary)",
+    avatarBg: "rgba(239, 241, 235, 0.9)",
+    avatarText: "var(--dz-text-secondary)",
   };
 }
 
@@ -215,59 +215,59 @@ function statusBadgeForItem(item: InboxItemViewModel): {
   if (item.businessSituation) {
     const byKind: Record<string, { bg: string; color: string; border: string }> = {
       CUSTOMER_WAITING: {
-        bg: "#fee2e2",
-        color: "#dc2626",
-        border: "rgba(220, 38, 38, 0.18)",
+        bg: "var(--dz-danger-bg)",
+        color: "var(--dz-danger)",
+        border: "rgba(155, 70, 52, 0.18)",
       },
       DRAFT_READY: {
-        bg: "#eef2ff",
-        color: "#4f46e5",
-        border: "rgba(79, 70, 229, 0.18)",
+        bg: "var(--dz-brand-soft)",
+        color: "var(--dz-brand)",
+        border: "rgba(36, 105, 102, 0.18)",
       },
       BOT_HANDOFF: {
-        bg: "#fff7ed",
-        color: "#ea580c",
-        border: "rgba(234, 88, 12, 0.18)",
+        bg: "var(--dz-warning-bg-soft)",
+        color: "var(--dz-warning)",
+        border: "rgba(129, 90, 50, 0.18)",
       },
       BOT_COLLECTING: {
-        bg: "#ecfdf5",
-        color: "#16a34a",
-        border: "rgba(22, 163, 74, 0.18)",
+        bg: "var(--dz-success-bg-soft)",
+        color: "var(--dz-success)",
+        border: "rgba(30, 106, 74, 0.18)",
       },
       QUOTE_WAITING: {
-        bg: "#fef3c7",
-        color: "#b45309",
-        border: "rgba(180, 83, 9, 0.16)",
+        bg: "var(--dz-warning-bg)",
+        color: "var(--dz-warning)",
+        border: "rgba(129, 90, 50, 0.16)",
       },
       FOLLOW_UP_DUE: {
-        bg: "#f5f3ff",
-        color: "#6d28d9",
-        border: "rgba(109, 40, 217, 0.16)",
+        bg: "var(--dz-brand-soft)",
+        color: "var(--dz-brand)",
+        border: "rgba(36, 105, 102, 0.16)",
       },
       WAITING_ON_CUSTOMER: {
-        bg: "#eff6ff",
-        color: "#2563eb",
-        border: "rgba(37, 99, 235, 0.16)",
+        bg: "var(--dz-info-bg-soft)",
+        color: "var(--dz-info)",
+        border: "rgba(43, 90, 133, 0.16)",
       },
       HOT_OPPORTUNITY: {
-        bg: "#fff7ed",
-        color: "#ea580c",
-        border: "rgba(234, 88, 12, 0.18)",
+        bg: "var(--dz-warning-bg-soft)",
+        color: "var(--dz-warning)",
+        border: "rgba(129, 90, 50, 0.18)",
       },
       NEW_LEAD: {
-        bg: "#ecfeff",
-        color: "#0891b2",
-        border: "rgba(8, 145, 178, 0.16)",
+        bg: "var(--dz-info-bg-soft)",
+        color: "var(--dz-info)",
+        border: "rgba(43, 90, 133, 0.16)",
       },
       ACTIVE: {
-        bg: "#eff6ff",
-        color: "#2563eb",
-        border: "rgba(37, 99, 235, 0.16)",
+        bg: "var(--dz-info-bg-soft)",
+        color: "var(--dz-info)",
+        border: "rgba(43, 90, 133, 0.16)",
       },
       CLOSED: {
-        bg: "#f1f5f9",
-        color: "#64748b",
-        border: "rgba(100, 116, 139, 0.16)",
+        bg: "var(--dz-surface-muted)",
+        color: "var(--dz-text-muted)",
+        border: "rgba(102, 111, 101, 0.16)",
       },
     };
     const colors = byKind[item.businessSituation.kind] ?? byKind.ACTIVE;
@@ -280,44 +280,44 @@ function statusBadgeForItem(item: InboxItemViewModel): {
   if (item.needsHumanAttention || item.nextBestAction?.kind === "immediate_attention") {
     return {
       label: "מחכה לך",
-      bg: "#fee2e2",
-      color: "#dc2626",
-      border: "rgba(220, 38, 38, 0.18)",
+      bg: "var(--dz-danger-bg)",
+      color: "var(--dz-danger)",
+      border: "rgba(155, 70, 52, 0.18)",
     };
   }
 
   if (item.hasPendingSuggestion || item.nextBestAction?.kind === "send_ready_draft") {
     return {
       label: "טיוטה מוכנה",
-      bg: "#eef2ff",
-      color: "#4f46e5",
-      border: "rgba(79, 70, 229, 0.18)",
+      bg: "var(--dz-brand-soft)",
+      color: "var(--dz-brand)",
+      border: "rgba(36, 105, 102, 0.18)",
     };
   }
 
   if (item.botFlowStatus === "IN_PROGRESS") {
     return {
       label: "טיוטה מוכנה",
-      bg: "#ecfdf5",
-      color: "#16a34a",
-      border: "rgba(22, 163, 74, 0.18)",
+      bg: "var(--dz-success-bg-soft)",
+      color: "var(--dz-success)",
+      border: "rgba(30, 106, 74, 0.18)",
     };
   }
 
   if (item.temperatureBucket === "hot") {
     return {
       label: "סיכוי טוב",
-      bg: "#fff7ed",
-      color: "#ea580c",
-      border: "rgba(234, 88, 12, 0.18)",
+      bg: "var(--dz-warning-bg-soft)",
+      color: "var(--dz-warning)",
+      border: "rgba(129, 90, 50, 0.18)",
     };
   }
 
   return {
     label: "במעקב",
-    bg: "#eff6ff",
-    color: "#2563eb",
-    border: "rgba(37, 99, 235, 0.16)",
+    bg: "var(--dz-info-bg-soft)",
+    color: "var(--dz-info)",
+    border: "rgba(43, 90, 133, 0.16)",
   };
 }
 
@@ -396,8 +396,8 @@ export function ConversationList(props: {
         label: "כל השיחות",
         subtitle: "כל השיחות הפתוחות",
         icon: "💬",
-        iconBg: "#eef2ff",
-        iconColor: "#4f46e5",
+        iconBg: "var(--dz-brand-soft)",
+        iconColor: "var(--dz-brand)",
         count: openAllCount,
       };
 
@@ -434,8 +434,8 @@ export function ConversationList(props: {
           label: "פתוחות",
           subtitle: "כל השיחות הפתוחות",
           icon: "💬",
-          iconBg: "#f1f5f9",
-          iconColor: "#64748b",
+          iconBg: "var(--dz-surface-muted)",
+          iconColor: "var(--dz-text-muted)",
           count: sidebarCounts.open,
         },
         {
@@ -443,8 +443,8 @@ export function ConversationList(props: {
           label: "נסגרו",
           subtitle: "היסטוריה",
           icon: "✓",
-          iconBg: "#ecfdf5",
-          iconColor: "#16a34a",
+          iconBg: "var(--dz-success-bg-soft)",
+          iconColor: "var(--dz-success)",
           count: sidebarCounts.closed,
         },
       ];
@@ -486,14 +486,14 @@ export function ConversationList(props: {
             style={{
               fontSize: 24,
               fontWeight: 900,
-              color: "#111827",
+              color: "var(--dz-text-primary)",
               margin: "0 0 6px",
               lineHeight: 1.2,
             }}
           >
             סדר היום שלך
           </h1>
-          <div style={{ fontSize: 14, color: "#64748b", fontWeight: 600, lineHeight: 1.45 }}>
+          <div style={{ fontSize: 14, color: "var(--dz-text-muted)", fontWeight: 600, lineHeight: 1.45 }}>
             {subtitleLine}
           </div>
         </div>
@@ -555,14 +555,14 @@ export function ConversationList(props: {
                   </div>
 
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 15, fontWeight: 800, color: "#111827" }}>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: "var(--dz-text-primary)" }}>
                       {row.label}
                     </div>
                     <div
                       style={{
                         fontSize: 12,
                         fontWeight: 500,
-                        color: "#94a3b8",
+                        color: "var(--dz-text-muted)",
                         marginTop: 2,
                       }}
                     >
@@ -575,12 +575,12 @@ export function ConversationList(props: {
                       style={{
                         fontSize: 14,
                         fontWeight: 800,
-                        color: dimmed ? "#cbd5e1" : "#64748b",
+                        color: dimmed ? "var(--dz-text-disabled)" : "var(--dz-text-muted)",
                       }}
                     >
                       {row.count}
                     </span>
-                    <span style={{ color: "#cbd5e1", fontSize: 18, fontWeight: 700 }}>‹</span>
+                    <span style={{ color: "var(--dz-text-disabled)", fontSize: 18, fontWeight: 700 }}>‹</span>
                   </div>
                 </button>
               );
@@ -594,7 +594,7 @@ export function ConversationList(props: {
                 style={{
                   fontSize: 13,
                   fontWeight: 600,
-                  color: "#6b7280",
+                  color: "var(--dz-text-muted)",
                   textDecoration: "none",
                 }}
               >
@@ -634,8 +634,8 @@ export function ConversationList(props: {
       {!isDesktopLayout && (
         <div
           style={{
-            background: "#ffffff",
-            borderBottom: "1px solid rgba(15, 23, 42, 0.07)",
+            background: "var(--dz-surface)",
+            borderBottom: "1px solid rgba(52, 60, 50, 0.07)",
             padding: "12px 16px 12px",
             display: "flex",
             alignItems: "center",
@@ -646,13 +646,13 @@ export function ConversationList(props: {
             type="button"
             onClick={() => onBackFromList?.()}
             style={{
-              background: "rgba(15, 23, 42, 0.05)",
+              background: "rgba(52, 60, 50, 0.05)",
               border: "none",
               borderRadius: 12,
               padding: "8px 14px",
               fontSize: 13,
               fontWeight: 700,
-              color: "#374151",
+              color: "var(--dz-text-secondary)",
               cursor: "pointer",
               flexShrink: 0,
             }}
@@ -661,11 +661,11 @@ export function ConversationList(props: {
           </button>
           <div>
             <div
-              style={{ fontSize: 17, fontWeight: 900, color: "#111827", lineHeight: 1.2 }}
+              style={{ fontSize: 17, fontWeight: 900, color: "var(--dz-text-primary)", lineHeight: 1.2 }}
             >
               {selectedLabel}
             </div>
-            <div style={{ fontSize: 12, color: "#9ca3af", fontWeight: 600, marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: "var(--dz-text-muted)", fontWeight: 600, marginTop: 2 }}>
               {filteredConversations.length > 0
                 ? `${filteredConversations.length} שיחות`
                 : "אין כאן משהו לטפל בו"}
@@ -691,7 +691,7 @@ export function ConversationList(props: {
             style={{
               textAlign: "center",
               padding: isDesktopLayout ? "34px 14px" : "48px 16px",
-              color: "#9ca3af",
+              color: "var(--dz-text-muted)",
               fontSize: 14,
               fontWeight: 600,
             }}
@@ -710,10 +710,10 @@ export function ConversationList(props: {
                   type="button"
                   onClick={() => onSelectConversation(conversation.id)}
                   style={{
-                    background: isActive ? "#eef2ff" : "#ffffff",
+                    background: isActive ? "var(--dz-brand-soft)" : "var(--dz-surface)",
                     border: isActive
-                      ? "1px solid rgba(99, 102, 241, 0.35)"
-                      : "1px solid rgba(15, 23, 42, 0.07)",
+                      ? "1px solid rgba(36, 105, 102, 0.35)"
+                      : "1px solid rgba(52, 60, 50, 0.07)",
                     borderRadius: 16,
                     padding: isDesktopLayout ? "13px 14px" : "14px 16px",
                     cursor: "pointer",
@@ -722,7 +722,7 @@ export function ConversationList(props: {
                     gap: 12,
                     textAlign: "right",
                     width: "100%",
-                    boxShadow: "0 2px 8px rgba(15, 23, 42, 0.04)",
+                    boxShadow: "0 2px 8px rgba(52, 60, 50, 0.04)",
                     WebkitTapHighlightColor: "transparent",
                   }}
                 >
@@ -732,7 +732,7 @@ export function ConversationList(props: {
                       width: 44,
                       height: 44,
                       borderRadius: 13,
-                      background: "rgba(241, 245, 249, 0.9)",
+                      background: "rgba(239, 241, 235, 0.9)",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -743,10 +743,10 @@ export function ConversationList(props: {
                     💬
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 800, color: "#111827", fontSize: 15 }}>
+                    <div style={{ fontWeight: 800, color: "var(--dz-text-primary)", fontSize: 15 }}>
                       לקוח חדש
                     </div>
-                    <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>
+                    <div style={{ fontSize: 12, color: "var(--dz-text-muted)", marginTop: 2 }}>
                       {conversation.channel}
                     </div>
                   </div>
@@ -781,7 +781,7 @@ export function ConversationList(props: {
                 style={{
                   background: isActive ? INBOX_SURFACE.purpleSoft : INBOX_SURFACE.cardBg,
                   border: isActive
-                    ? `1.5px solid rgba(99, 102, 241, 0.35)`
+                    ? `1.5px solid rgba(36, 105, 102, 0.35)`
                     : `1px solid ${INBOX_SURFACE.border}`,
                   borderRadius: 16,
                   padding: isDesktopLayout ? "12px 14px" : "12px 14px",
@@ -802,13 +802,13 @@ export function ConversationList(props: {
                     width: 44,
                     height: 44,
                     borderRadius: 999,
-                    background: isActive ? "#ddd6fe" : avatarColors.avatarBg,
+                    background: isActive ? "var(--dz-brand-soft-strong)" : avatarColors.avatarBg,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                     fontSize: 14,
                     fontWeight: 900,
-                    color: isActive ? "#5b21b6" : avatarColors.avatarText,
+                    color: isActive ? "var(--dz-brand)" : avatarColors.avatarText,
                     flexShrink: 0,
                   }}
                 >
@@ -830,7 +830,7 @@ export function ConversationList(props: {
                     <span
                       style={{
                         fontWeight: 800,
-                        color: "#111827",
+                        color: "var(--dz-text-primary)",
                         fontSize: 15,
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -844,7 +844,7 @@ export function ConversationList(props: {
                       style={{
                         fontSize: 12,
                         fontWeight: 650,
-                        color: "#94a3b8",
+                        color: "var(--dz-text-muted)",
                         flexShrink: 0,
                         whiteSpace: "nowrap",
                       }}
@@ -858,7 +858,7 @@ export function ConversationList(props: {
                     <div
                       style={{
                         fontSize: 13,
-                        color: "#6b7280",
+                        color: "var(--dz-text-muted)",
                         fontWeight: 500,
                         marginBottom: 8,
                         overflow: "hidden",
@@ -903,12 +903,12 @@ export function ConversationList(props: {
             borderRadius: 999,
             border: "none",
             background: INBOX_SURFACE.purple,
-            color: "#ffffff",
+            color: "var(--dz-text-on-brand)",
             fontSize: 14,
             fontWeight: 800,
             padding: "14px 20px",
             cursor: "pointer",
-            boxShadow: "0 8px 24px rgba(99, 102, 241, 0.35)",
+            boxShadow: "0 8px 24px rgba(36, 105, 102, 0.35)",
             zIndex: 20,
           }}
         >

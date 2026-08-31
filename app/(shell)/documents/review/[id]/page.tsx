@@ -975,7 +975,7 @@ const reviewOverlayStyle = {
   position: "fixed",
   inset: 0,
   zIndex: 2147483000,
-  background: "rgba(70, 50, 30, 0.28)",
+  background: "rgba(35, 48, 43, 0.28)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",

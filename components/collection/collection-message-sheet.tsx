@@ -108,7 +108,7 @@ export function CollectionMessageSheet({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(45, 43, 40, 0.45)",
+        background: "rgba(35, 48, 43, 0.45)",
         display: "flex",
         alignItems: "flex-end",
         justifyContent: "center",

@@ -41,7 +41,7 @@ function Frame({ title, desc, children }: { title: string; desc: string; childre
 function ZoneHeader({ name, desc }: { name: string; desc: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "26px 4px 20px", flexWrap: "wrap" }}>
-      <span style={{ fontSize: 15, fontWeight: 600, color: W.tealDeep, background: "#F3EFE7", border: `1px solid ${W.line}`, borderRadius: W.radius.pill, padding: "5px 14px" }}>{name}</span>
+      <span style={{ fontSize: 15, fontWeight: 600, color: W.tealDeep, background: "var(--dz-surface-muted)", border: `1px solid ${W.line}`, borderRadius: W.radius.pill, padding: "5px 14px" }}>{name}</span>
       <span style={{ fontSize: 12.5, color: W.muted }}>{desc}</span>
     </div>
   );
@@ -49,7 +49,7 @@ function ZoneHeader({ name, desc }: { name: string; desc: string }) {
 
 export default function CouponDesignGalleryPage() {
   return (
-    <main style={{ minHeight: "100vh", background: "#E7DCCF", padding: "34px 26px 60px", direction: "rtl", fontFamily: "'Heebo', system-ui, sans-serif", color: W.ink }}>
+    <main style={{ minHeight: "100vh", background: "var(--dz-surface-muted)", padding: "34px 26px 60px", direction: "rtl", fontFamily: "'Heebo', system-ui, sans-serif", color: W.ink }}>
       <div style={{ textAlign: "center", fontWeight: 600, fontSize: 23, letterSpacing: "-0.4px" }}>עולם הקופונים — חבילת עיצוב שלמה</div>
       <div style={{ textAlign: "center", fontSize: 13, color: W.muted, margin: "4px 0 30px" }}>
         Dubiz → מרכז השיווק → יצירה → חזרה למרכז · לצד העולם הציבורי · מסע אחד רציף (אינטראקטיבי — לחצו לנווט)

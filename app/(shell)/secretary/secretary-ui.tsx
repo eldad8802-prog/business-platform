@@ -205,7 +205,7 @@ export function secretaryVars(): SecretaryVars {
     "--sec-action-glass-bg": d.card,
     "--sec-action-glass-color": d.ink,
     "--sec-action-glass-border": `1px solid ${d.line}`,
-    "--sec-action-glass-shadow": "0 1px 2px rgba(88, 62, 38, 0.05)",
+    "--sec-action-glass-shadow": "0 1px 2px rgba(52, 60, 50, 0.05)",
     "--sec-radius-button": `${d.radius.button}px`,
     "--sec-font-body": `${TOKEN.font.body}px`,
     "--sec-weight-bold": `${d.weight.semibold}`,

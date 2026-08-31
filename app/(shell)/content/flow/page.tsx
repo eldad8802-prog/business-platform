@@ -44,9 +44,9 @@ function ContentFlowPageInner() {
       style={{
         padding: "12px 16px",
         borderRadius: 12,
-        border: selected ? "2px solid #111" : "1px solid #ddd",
-        background: selected ? "#111" : "#fff",
-        color: selected ? "#fff" : "#111",
+        border: selected ? "2px solid var(--dz-text-primary)" : "1px solid var(--dz-border)",
+        background: selected ? "var(--dz-text-primary)" : "var(--dz-surface)",
+        color: selected ? "var(--dz-text-on-brand)" : "var(--dz-text-primary)",
         cursor: "pointer",
         fontWeight: 600,
         minWidth: 100,
@@ -94,7 +94,7 @@ function ContentFlowPageInner() {
             width: "100%",
             padding: 12,
             borderRadius: 10,
-            border: "1px solid #ddd",
+            border: "1px solid var(--dz-border)",
           }}
         />
       </div>
@@ -155,8 +155,8 @@ function ContentFlowPageInner() {
           padding: 14,
           borderRadius: 12,
           border: "none",
-          background: canContinue ? "#111" : "#ccc",
-          color: "#fff",
+          background: canContinue ? "var(--dz-text-primary)" : "var(--dz-surface-muted)",
+          color: "var(--dz-text-on-brand)",
           fontWeight: 700,
           cursor: canContinue ? "pointer" : "not-allowed",
         }}

@@ -53,44 +53,44 @@ const vibeCards: VibeCard[] = [
     id: "professional_clean",
     label: "נקי ומקצועי",
     sublabel: "מסודר, ברור, מעורר אמון",
-    bgGradient: "linear-gradient(145deg, #f8fafc 0%, #e2e8f0 100%)",
-    textColor: "#0f172a",
-    sublabelColor: "#475569",
-    borderColor: "#e2e8f0",
-    selectedBorderColor: "#334155",
+    bgGradient: "linear-gradient(145deg, var(--dz-surface-muted) 0%, var(--dz-surface-muted) 100%)",
+    textColor: "var(--dz-text-primary)",
+    sublabelColor: "var(--dz-text-secondary)",
+    borderColor: "var(--dz-border)",
+    selectedBorderColor: "var(--dz-text-secondary)",
     icon: "✦",
   },
   {
     id: "warm_personal",
     label: "חם ואישי",
     sublabel: "אנושי, אמיתי, מחבר",
-    bgGradient: "linear-gradient(145deg, #fffbeb 0%, #fde68a 100%)",
-    textColor: "#78350f",
-    sublabelColor: "#92400e",
-    borderColor: "#fde68a",
-    selectedBorderColor: "#b45309",
+    bgGradient: "linear-gradient(145deg, var(--dz-warning-bg-soft) 0%, var(--dz-warning-border) 100%)",
+    textColor: "var(--dz-warning)",
+    sublabelColor: "var(--dz-warning)",
+    borderColor: "var(--dz-warning-border)",
+    selectedBorderColor: "var(--dz-warning)",
     icon: "♥",
   },
   {
     id: "bold_energetic",
     label: "אנרגטי ודינמי",
     sublabel: "חזק, מרגש, עוצר גלגל",
-    bgGradient: "linear-gradient(145deg, #f5f3ff 0%, #ddd6fe 100%)",
-    textColor: "#4c1d95",
-    sublabelColor: "#5b21b6",
-    borderColor: "#ddd6fe",
-    selectedBorderColor: "#7c3aed",
+    bgGradient: "linear-gradient(145deg, var(--dz-brand-soft) 0%, var(--dz-brand-soft-strong) 100%)",
+    textColor: "var(--dz-brand)",
+    sublabelColor: "var(--dz-brand)",
+    borderColor: "var(--dz-brand-soft-strong)",
+    selectedBorderColor: "var(--dz-brand)",
     icon: "⚡",
   },
   {
     id: "premium_luxury",
     label: "פרמיום ויוקרתי",
     sublabel: "עמוק, מרשים, בלתי נשכח",
-    bgGradient: "linear-gradient(145deg, #1e293b 0%, #0f172a 100%)",
-    textColor: "#f1f5f9",
-    sublabelColor: "#94a3b8",
-    borderColor: "#334155",
-    selectedBorderColor: "#e2e8f0",
+    bgGradient: "linear-gradient(145deg, var(--dz-text-primary) 0%, var(--dz-text-primary) 100%)",
+    textColor: "var(--dz-surface-muted)",
+    sublabelColor: "var(--dz-text-muted)",
+    borderColor: "var(--dz-text-secondary)",
+    selectedBorderColor: "var(--dz-border)",
     icon: "◆",
   },
 ];
@@ -140,9 +140,9 @@ export default function ContentPage() {
   return (
     <div style={pageStyle}>
       <style>{`
-        .vibe-tile:focus-visible { outline: 3px solid #3b82f6; outline-offset: 3px; }
+        .vibe-tile:focus-visible { outline: 3px solid var(--dz-info-accent); outline-offset: 3px; }
         .vibe-tile:focus:not(:focus-visible) { outline: none; }
-        .film-pill:focus-visible { outline: 3px solid #3b82f6; outline-offset: 2px; }
+        .film-pill:focus-visible { outline: 3px solid var(--dz-info-accent); outline-offset: 2px; }
         .film-pill:focus:not(:focus-visible) { outline: none; }
       `}</style>
 
@@ -240,7 +240,7 @@ export default function ContentPage() {
 
 const pageStyle: React.CSSProperties = {
   ...baseStyles.page,
-  background: "linear-gradient(180deg, #f4f6fb 0%, #ffffff 42%, #f8fafc 100%)",
+  background: "linear-gradient(180deg, var(--dz-surface-muted) 0%, var(--dz-surface-flat) 42%, var(--dz-surface-muted) 100%)",
 };
 
 const shellStyle: React.CSSProperties = {
@@ -278,7 +278,7 @@ const titleStyle: React.CSSProperties = {
   fontSize: "clamp(1.55rem, 5vw, 1.85rem)",
   fontWeight: 800,
   lineHeight: 1.25,
-  color: "#0f172a",
+  color: "var(--dz-text-primary)",
   margin: 0,
   marginBottom: 10,
   letterSpacing: "-0.02em",
@@ -287,7 +287,7 @@ const titleStyle: React.CSSProperties = {
 const subtitleStyle: React.CSSProperties = {
   fontSize: "clamp(0.95rem, 3.5vw, 1.05rem)",
   lineHeight: 1.65,
-  color: "#64748b",
+  color: "var(--dz-text-muted)",
   margin: 0,
 };
 
@@ -315,8 +315,8 @@ const vibeTileStyle = (card: VibeCard, selected: boolean): React.CSSProperties =
   justifyContent: "space-between",
   textAlign: "right",
   boxShadow: selected
-    ? `0 10px 28px rgba(0,0,0,0.12), 0 0 0 1px ${card.selectedBorderColor}33`
-    : "0 4px 14px rgba(15,23,42,0.07)",
+    ? `0 10px 28px rgba(52, 60, 50, 0.12), 0 0 0 1px ${card.selectedBorderColor}33`
+    : "0 4px 14px rgba(52, 60, 50, 0.07)",
   transform: selected ? "scale(1.025)" : "scale(1)",
   transition:
     "border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease",
@@ -373,7 +373,7 @@ const filmSectionStyle: React.CSSProperties = {
 const filmQuestionLabelStyle: React.CSSProperties = {
   fontSize: "clamp(1rem, 3.8vw, 1.1rem)",
   fontWeight: 700,
-  color: "#0f172a",
+  color: "var(--dz-text-primary)",
   margin: 0,
   marginBottom: 14,
 };
@@ -388,15 +388,15 @@ const filmPillStyle = (selected: boolean): React.CSSProperties => ({
   height: 44,
   paddingInline: 24,
   borderRadius: 999,
-  border: selected ? "none" : "1.5px solid #e2e8f0",
-  background: selected ? "#0f172a" : "#ffffff",
-  color: selected ? "#ffffff" : "#374151",
+  border: selected ? "none" : "1.5px solid var(--dz-border)",
+  background: selected ? "var(--dz-text-primary)" : "var(--dz-surface)",
+  color: selected ? "var(--dz-text-on-brand)" : "var(--dz-text-secondary)",
   fontSize: 15,
   fontWeight: 700,
   cursor: "pointer",
   boxShadow: selected
-    ? "0 6px 18px rgba(15,23,42,0.2)"
-    : "0 2px 8px rgba(15,23,42,0.06)",
+    ? "0 6px 18px rgba(52, 60, 50, 0.2)"
+    : "0 2px 8px rgba(52, 60, 50, 0.06)",
   transition: "background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease",
   WebkitTapHighlightColor: "transparent",
 });
@@ -405,7 +405,7 @@ const footerStyle: React.CSSProperties = {
   position: "sticky",
   bottom: 0,
   zIndex: 20,
-  background: "linear-gradient(180deg, transparent 0%, #f8fafc 28%)",
+  background: "linear-gradient(180deg, transparent 0%, var(--dz-surface-muted) 28%)",
   paddingTop: 16,
   paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
   marginTop: "auto",
@@ -419,8 +419,8 @@ const ctaButtonStyle = (enabled: boolean): React.CSSProperties => ({
   height: 52,
   borderRadius: 16,
   border: "none",
-  background: enabled ? TOKEN.action.primary.background : "#cbd5e1",
-  color: "#ffffff",
+  background: enabled ? TOKEN.action.primary.background : "var(--dz-text-disabled)",
+  color: "var(--dz-text-on-brand)",
   fontSize: 16,
   fontWeight: 800,
   cursor: enabled ? "pointer" : "not-allowed",

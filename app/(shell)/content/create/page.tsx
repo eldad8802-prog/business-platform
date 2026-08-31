@@ -156,7 +156,7 @@ export default function Page() {
 
         <div style={loadingWrap}>
           <h1>בונים עבורך את התוכן...</h1>
-          <p style={{ color: "#555" }}>
+          <p style={{ color: "var(--dz-text-secondary)" }}>
             המערכת מנתחת את הבחירות שלך ומכינה כיוון מדויק
           </p>
         </div>
@@ -283,11 +283,11 @@ const loadingWrap = {
 };
 
 const card = {
-  background: "#fff",
+  background: "var(--dz-surface)",
   borderRadius: 12,
   padding: 16,
   marginBottom: 16,
-  border: "1px solid #eee",
+  border: "1px solid var(--dz-border-subtle)",
 };
 
 const h2 = {
@@ -317,7 +317,7 @@ const label = {
 };
 
 const caption = {
-  background: "#f3f4f6",
+  background: "var(--dz-surface-muted)",
   padding: 8,
   borderRadius: 8,
   marginBottom: 4,
@@ -329,8 +329,8 @@ const subLabel = {
 };
 
 const errorCard = {
-  background: "#fee2e2",
+  background: "var(--dz-danger-bg)",
   padding: 16,
   borderRadius: 12,
-  color: "#991b1b",
+  color: "var(--dz-danger)",
 };

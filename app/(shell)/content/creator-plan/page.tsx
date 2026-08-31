@@ -127,12 +127,12 @@ type ToneAccent = { bg: string; border: string; ring: string };
 
 function toneToAccent(tone?: string): ToneAccent {
   if (tone === "warm")
-    return { bg: "#fff7ed", border: "#fed7aa", ring: "#b45309" };
+    return { bg: "var(--dz-warning-bg-soft)", border: "var(--dz-warning-border)", ring: "var(--dz-warning)" };
   if (tone === "energetic")
-    return { bg: "#f5f3ff", border: "#ddd6fe", ring: "#7c3aed" };
+    return { bg: "var(--dz-brand-soft)", border: "var(--dz-brand-soft-strong)", ring: "var(--dz-brand)" };
   if (tone === "premium")
-    return { bg: "#0f172a", border: "#334155", ring: "#e2e8f0" };
-  return { bg: "#f8fafc", border: "#e2e8f0", ring: "#334155" };
+    return { bg: "var(--dz-text-primary)", border: "var(--dz-text-secondary)", ring: "var(--dz-border)" };
+  return { bg: "var(--dz-surface-muted)", border: "var(--dz-border)", ring: "var(--dz-text-secondary)" };
 }
 
 function buildMiniTags(variant: Variant, flow: ContentFlow | null): string[] {
@@ -371,7 +371,7 @@ export default function CreatorPlanPage() {
         dangerouslySetInnerHTML={{
           __html: `
             @keyframes cpLoaderSpin { to { transform: rotate(360deg); } }
-            .cp-card:focus-visible { outline: 3px solid #3b82f6; outline-offset: 3px; }
+            .cp-card:focus-visible { outline: 3px solid var(--dz-info-accent); outline-offset: 3px; }
             .cp-card:focus:not(:focus-visible) { outline: none; }
           `,
         }}
@@ -652,7 +652,7 @@ export default function CreatorPlanPage() {
 
 const pageStyle: React.CSSProperties = {
   ...baseStyles.page,
-  background: "linear-gradient(180deg, #f4f6fb 0%, #ffffff 40%, #f8fafc 100%)",
+  background: "linear-gradient(180deg, var(--dz-surface-muted) 0%, var(--dz-surface-flat) 40%, var(--dz-surface-muted) 100%)",
 };
 
 const shellStyle: React.CSSProperties = {
@@ -693,9 +693,9 @@ const eyebrowStyle: React.CSSProperties = {
   alignItems: "center",
   fontSize: 12,
   fontWeight: 800,
-  color: "#065f46",
-  background: "#ecfdf5",
-  border: "1px solid #a7f3d0",
+  color: "var(--dz-success)",
+  background: "var(--dz-success-bg-soft)",
+  border: "1px solid var(--dz-success-border)",
   borderRadius: 999,
   padding: "5px 12px",
   marginBottom: 12,
@@ -704,16 +704,16 @@ const eyebrowStyle: React.CSSProperties = {
 
 const eyebrowLoadingStyle: React.CSSProperties = {
   ...eyebrowStyle,
-  color: "#1e40af",
-  background: "#eff6ff",
-  border: "1px solid #bfdbfe",
+  color: "var(--dz-info)",
+  background: "var(--dz-info-bg-soft)",
+  border: "1px solid var(--dz-info-border)",
 };
 
 const titleStyle: React.CSSProperties = {
   fontSize: "clamp(1.45rem, 5vw, 1.85rem)",
   fontWeight: 800,
   lineHeight: 1.25,
-  color: "#0f172a",
+  color: "var(--dz-text-primary)",
   margin: 0,
   marginBottom: 10,
   letterSpacing: "-0.02em",
@@ -721,24 +721,24 @@ const titleStyle: React.CSSProperties = {
 
 const titleLoadingStyle: React.CSSProperties = {
   ...titleStyle,
-  color: "#94a3b8",
+  color: "var(--dz-text-muted)",
 };
 
 const subtitleStyle: React.CSSProperties = {
   fontSize: "clamp(0.92rem, 3.5vw, 1rem)",
   lineHeight: 1.65,
-  color: "#64748b",
+  color: "var(--dz-text-muted)",
   margin: 0,
 };
 
 // ── Loading ───────────────────────────────────────────────────────────────────
 
 const loadingCardStyle: React.CSSProperties = {
-  background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+  background: "linear-gradient(180deg, var(--dz-surface-flat) 0%, var(--dz-surface-muted) 100%)",
   borderRadius: 24,
   padding: "32px 24px 36px",
-  border: "1px solid #e2e8f0",
-  boxShadow: "0 8px 32px rgba(15,23,42,0.07)",
+  border: "1px solid var(--dz-border)",
+  boxShadow: "0 8px 32px rgba(52, 60, 50, 0.07)",
   textAlign: "center",
   maxWidth: 420,
   margin: "0 auto 24px",
@@ -754,15 +754,15 @@ const loadingSpinnerStyle: React.CSSProperties = {
   width: 44,
   height: 44,
   borderRadius: "50%",
-  border: "4px solid #e2e8f0",
-  borderTopColor: "#0f172a",
+  border: "4px solid var(--dz-border)",
+  borderTopColor: "var(--dz-text-primary)",
   animation: "cpLoaderSpin 0.78s linear infinite",
 };
 
 const loadingTitleStyle: React.CSSProperties = {
   fontSize: 17,
   fontWeight: 800,
-  color: "#0f172a",
+  color: "var(--dz-text-primary)",
   marginBottom: 8,
   lineHeight: 1.35,
   minHeight: "2.7em",
@@ -775,7 +775,7 @@ const loadingTitleStyle: React.CSSProperties = {
 const loadingBodyStyle: React.CSSProperties = {
   fontSize: 14,
   lineHeight: 1.65,
-  color: "#64748b",
+  color: "var(--dz-text-muted)",
   maxWidth: 320,
   margin: "0 auto",
 };
@@ -783,8 +783,8 @@ const loadingBodyStyle: React.CSSProperties = {
 // ── Error ─────────────────────────────────────────────────────────────────────
 
 const errorBoxStyle: React.CSSProperties = {
-  background: "#fee2e2",
-  border: "1px solid #fecaca",
+  background: "var(--dz-danger-bg)",
+  border: "1px solid var(--dz-danger-border)",
   borderRadius: 16,
   padding: "14px 16px",
   marginBottom: 18,
@@ -793,14 +793,14 @@ const errorBoxStyle: React.CSSProperties = {
 const errorTitleStyle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 800,
-  color: "#991b1b",
+  color: "var(--dz-danger)",
   marginBottom: 4,
 };
 
 const errorBodyStyle: React.CSSProperties = {
   fontSize: 13,
   lineHeight: 1.7,
-  color: "#b91c1c",
+  color: "var(--dz-danger)",
 };
 
 // ── Recommendation strip ──────────────────────────────────────────────────────
@@ -809,7 +809,7 @@ const recommendationStripStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "flex-start",
   gap: 10,
-  background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+  background: "linear-gradient(135deg, var(--dz-text-primary) 0%, var(--dz-text-primary) 100%)",
   borderRadius: 18,
   padding: "14px 18px",
   marginBottom: 20,
@@ -818,7 +818,7 @@ const recommendationStripStyle: React.CSSProperties = {
 
 const sparkStyle: React.CSSProperties = {
   fontSize: 14,
-  color: "#fbbf24",
+  color: "var(--dz-warning-accent)",
   flexShrink: 0,
   marginTop: 2,
 };
@@ -826,7 +826,7 @@ const sparkStyle: React.CSSProperties = {
 const recommendationTextStyle: React.CSSProperties = {
   fontSize: "clamp(0.8rem, 3vw, 0.88rem)",
   lineHeight: 1.6,
-  color: "#e2e8f0",
+  color: "var(--dz-surface-muted)",
   fontWeight: 600,
 };
 
@@ -848,14 +848,14 @@ const variantCardStyle = (
   borderRadius: 24,
   border: selected
     ? `2.5px solid ${accent.ring}`
-    : `1.5px solid ${isPremium ? "#334155" : "#e2e8f0"}`,
+    : `1.5px solid ${isPremium ? "var(--dz-text-secondary)" : "var(--dz-border)"}`,
   background: selected
     ? isPremium
-      ? "#0f172a"
+      ? "var(--dz-text-primary)"
       : accent.bg
     : isPremium
-      ? "#1e293b"
-      : "#ffffff",
+      ? "var(--dz-text-primary)"
+      : "var(--dz-surface)",
   padding: "clamp(20px, 5vw, 26px)",
   paddingTop: "clamp(28px, 6vw, 36px)",
   cursor: "pointer",
@@ -864,10 +864,10 @@ const variantCardStyle = (
   flexDirection: "column",
   gap: 0,
   boxShadow: selected
-    ? `0 16px 48px rgba(15,23,42,0.13), 0 0 0 1px ${accent.ring}22`
+    ? `0 16px 48px rgba(52, 60, 50, 0.13), 0 0 0 1px ${accent.ring}22`
     : isPremium
-      ? "0 8px 28px rgba(15,23,42,0.18)"
-      : "0 4px 18px rgba(15,23,42,0.06)",
+      ? "0 8px 28px rgba(52, 60, 50, 0.18)"
+      : "0 4px 18px rgba(52, 60, 50, 0.06)",
   transform: selected ? "scale(1.01)" : "scale(1)",
   transition:
     "border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, background 0.2s ease",
@@ -880,12 +880,12 @@ const recommendedBadgeStyle: React.CSSProperties = {
   left: 14,
   fontSize: 11,
   fontWeight: 800,
-  color: "#ffffff",
-  background: "#0f172a",
+  color: "var(--dz-text-on-brand)",
+  background: "var(--dz-text-primary)",
   borderRadius: 999,
   padding: "5px 12px",
   letterSpacing: "0.03em",
-  boxShadow: "0 4px 12px rgba(15,23,42,0.28)",
+  boxShadow: "0 4px 12px rgba(52, 60, 50, 0.26)",
   pointerEvents: "none",
 };
 
@@ -909,7 +909,7 @@ const selectionRingStyle = (
   borderRadius: "50%",
   border: selected
     ? "none"
-    : `2px solid ${isPremium ? "#475569" : "#cbd5e1"}`,
+    : `2px solid ${isPremium ? "var(--dz-text-secondary)" : "var(--dz-border-strong)"}`,
   background: selected ? accent.ring : "transparent",
   display: "flex",
   alignItems: "center",
@@ -918,7 +918,7 @@ const selectionRingStyle = (
 });
 
 const checkmarkStyle: React.CSSProperties = {
-  color: "#ffffff",
+  color: "var(--dz-text-on-brand)",
   fontSize: 11,
   fontWeight: 900,
   lineHeight: 1,
@@ -927,7 +927,7 @@ const checkmarkStyle: React.CSSProperties = {
 const cardTitleStyle = (isPremium: boolean): React.CSSProperties => ({
   fontSize: "clamp(1.1rem, 4vw, 1.3rem)",
   fontWeight: 800,
-  color: isPremium ? "#f1f5f9" : "#0f172a",
+  color: isPremium ? "var(--dz-surface-muted)" : "var(--dz-text-primary)",
   lineHeight: 1.25,
   margin: 0,
   flex: 1,
@@ -936,7 +936,7 @@ const cardTitleStyle = (isPremium: boolean): React.CSSProperties => ({
 
 const vibeLineStyle = (isPremium: boolean): React.CSSProperties => ({
   fontSize: "clamp(0.88rem, 3.2vw, 0.96rem)",
-  color: isPremium ? "#94a3b8" : "#64748b",
+  color: isPremium ? "var(--dz-text-muted)" : "var(--dz-text-muted)",
   lineHeight: 1.55,
   margin: 0,
   marginBottom: 16,
@@ -945,7 +945,7 @@ const vibeLineStyle = (isPremium: boolean): React.CSSProperties => ({
 const dividerStyle = (isPremium: boolean): React.CSSProperties => ({
   width: "100%",
   height: 1,
-  background: isPremium ? "rgba(255,255,255,0.08)" : "#f1f5f9",
+  background: isPremium ? "rgba(255,255,255,0.08)" : "var(--dz-surface-muted)",
   marginBottom: 16,
   flexShrink: 0,
 });
@@ -953,7 +953,7 @@ const dividerStyle = (isPremium: boolean): React.CSSProperties => ({
 // ── Hook preview ──────────────────────────────────────────────────────────────
 
 const hookWrapStyle = (isPremium: boolean): React.CSSProperties => ({
-  borderRight: `3px solid ${isPremium ? "rgba(226,232,240,0.2)" : "#e2e8f0"}`,
+  borderRight: `3px solid ${isPremium ? "rgba(227, 229, 221,0.2)" : "var(--dz-border)"}`,
   paddingRight: 12,
   marginBottom: 16,
 });
@@ -963,7 +963,7 @@ const hookLabelStyle = (isPremium: boolean): React.CSSProperties => ({
   fontSize: 11,
   fontWeight: 800,
   letterSpacing: "0.06em",
-  color: isPremium ? "#475569" : "#94a3b8",
+  color: isPremium ? "var(--dz-text-secondary)" : "var(--dz-text-muted)",
   textTransform: "uppercase" as const,
   marginBottom: 5,
 });
@@ -971,7 +971,7 @@ const hookLabelStyle = (isPremium: boolean): React.CSSProperties => ({
 const hookTextStyle = (isPremium: boolean): React.CSSProperties => ({
   fontSize: "clamp(0.92rem, 3.3vw, 1rem)",
   lineHeight: 1.6,
-  color: isPremium ? "#cbd5e1" : "#374151",
+  color: isPremium ? "var(--dz-text-disabled)" : "var(--dz-text-secondary)",
   fontStyle: "italic",
   margin: 0,
 });
@@ -981,14 +981,14 @@ const hookTextStyle = (isPremium: boolean): React.CSSProperties => ({
 const whyItFitsStyle = (isPremium: boolean): React.CSSProperties => ({
   fontSize: "clamp(0.82rem, 3vw, 0.9rem)",
   lineHeight: 1.55,
-  color: isPremium ? "#64748b" : "#94a3b8",
+  color: isPremium ? "var(--dz-text-muted)" : "var(--dz-text-muted)",
   margin: 0,
   marginBottom: 14,
 });
 
 const fitsLabelStyle = (isPremium: boolean): React.CSSProperties => ({
   fontWeight: 700,
-  color: isPremium ? "#475569" : "#64748b",
+  color: isPremium ? "var(--dz-text-secondary)" : "var(--dz-text-muted)",
 });
 
 // ── Mini tags ─────────────────────────────────────────────────────────────────
@@ -1008,9 +1008,9 @@ const miniTagStyle = (isPremium: boolean): React.CSSProperties => ({
   borderRadius: 999,
   fontSize: "clamp(0.72rem, 2.6vw, 0.78rem)",
   fontWeight: 700,
-  background: isPremium ? "rgba(255,255,255,0.08)" : "#f1f5f9",
-  color: isPremium ? "#64748b" : "#475569",
-  border: `1px solid ${isPremium ? "rgba(255,255,255,0.1)" : "#e2e8f0"}`,
+  background: isPremium ? "rgba(255,255,255,0.08)" : "var(--dz-surface-muted)",
+  color: isPremium ? "var(--dz-text-muted)" : "var(--dz-text-secondary)",
+  border: `1px solid ${isPremium ? "rgba(255,255,255,0.1)" : "var(--dz-border)"}`,
 });
 
 // ── Duration feel ─────────────────────────────────────────────────────────────
@@ -1018,7 +1018,7 @@ const miniTagStyle = (isPremium: boolean): React.CSSProperties => ({
 const durationFeelLineStyle = (isPremium: boolean): React.CSSProperties => ({
   fontSize: "clamp(0.8rem, 2.9vw, 0.86rem)",
   lineHeight: 1.5,
-  color: isPremium ? "#475569" : "#94a3b8",
+  color: isPremium ? "var(--dz-text-secondary)" : "var(--dz-text-muted)",
   margin: 0,
   marginBottom: 14,
   fontStyle: "italic",
@@ -1032,9 +1032,9 @@ const durationTagStyle = (isPremium: boolean): React.CSSProperties => ({
   borderRadius: 999,
   fontSize: "clamp(0.72rem, 2.6vw, 0.78rem)",
   fontWeight: 700,
-  background: isPremium ? "rgba(56,189,248,0.10)" : "#eff6ff",
-  color: isPremium ? "#7dd3fc" : "#1d4ed8",
-  border: `1px solid ${isPremium ? "rgba(56,189,248,0.20)" : "#bfdbfe"}`,
+  background: isPremium ? "rgba(43, 90, 133,0.10)" : "var(--dz-info-bg-soft)",
+  color: isPremium ? "var(--dz-info-accent)" : "var(--dz-info)",
+  border: `1px solid ${isPremium ? "rgba(43, 90, 133,0.20)" : "var(--dz-info-border)"}`,
 });
 
 // ── Filming prep (inline) ─────────────────────────────────────────────────────
@@ -1042,7 +1042,7 @@ const durationTagStyle = (isPremium: boolean): React.CSSProperties => ({
 const filmingPrepStyle = (isPremium: boolean): React.CSSProperties => ({
   marginTop: 20,
   paddingTop: 18,
-  borderTop: `1px solid ${isPremium ? "rgba(255,255,255,0.08)" : "#f1f5f9"}`,
+  borderTop: `1px solid ${isPremium ? "rgba(255,255,255,0.08)" : "var(--dz-border-subtle)"}`,
   display: "flex",
   flexDirection: "column",
   gap: 16,
@@ -1057,12 +1057,12 @@ const prepSectionStyle: React.CSSProperties = {
 const prepSectionTitleStyle = (isPremium: boolean): React.CSSProperties => ({
   fontSize: 13,
   fontWeight: 800,
-  color: isPremium ? "#94a3b8" : "#374151",
+  color: isPremium ? "var(--dz-text-muted)" : "var(--dz-text-secondary)",
   textAlign: "right",
 });
 
 const shotRowStyle = (isPremium: boolean): React.CSSProperties => ({
-  background: isPremium ? "rgba(255,255,255,0.05)" : "#f8fafc",
+  background: isPremium ? "rgba(255,255,255,0.05)" : "var(--dz-surface-muted)",
   borderRadius: 14,
   padding: "12px 14px",
   display: "flex",
@@ -1074,13 +1074,13 @@ const shotRowStyle = (isPremium: boolean): React.CSSProperties => ({
 const shotIndexStyle = (isPremium: boolean): React.CSSProperties => ({
   fontSize: 12,
   fontWeight: 800,
-  color: isPremium ? "#475569" : "#94a3b8",
+  color: isPremium ? "var(--dz-text-secondary)" : "var(--dz-text-muted)",
 });
 
 const shotFieldStyle = (isPremium: boolean): React.CSSProperties => ({
   fontSize: 13,
   lineHeight: 1.7,
-  color: isPremium ? "#94a3b8" : "#4b5563",
+  color: isPremium ? "var(--dz-text-muted)" : "var(--dz-text-secondary)",
 });
 
 const assetsGridStyle: React.CSSProperties = {
@@ -1092,7 +1092,7 @@ const assetsGridStyle: React.CSSProperties = {
 const assetGroupTitleStyle = (isPremium: boolean): React.CSSProperties => ({
   fontSize: 12,
   fontWeight: 800,
-  color: isPremium ? "#475569" : "#6b7280",
+  color: isPremium ? "var(--dz-text-secondary)" : "var(--dz-text-muted)",
   marginBottom: 6,
   textAlign: "right",
 });
@@ -1100,7 +1100,7 @@ const assetGroupTitleStyle = (isPremium: boolean): React.CSSProperties => ({
 const assetItemStyle = (isPremium: boolean): React.CSSProperties => ({
   fontSize: 13,
   lineHeight: 1.7,
-  color: isPremium ? "#64748b" : "#4b5563",
+  color: isPremium ? "var(--dz-text-muted)" : "var(--dz-text-secondary)",
   textAlign: "right",
 });
 
@@ -1109,7 +1109,7 @@ const assetItemStyle = (isPremium: boolean): React.CSSProperties => ({
 const aiHintStyle: React.CSSProperties = {
   fontSize: "clamp(0.78rem, 2.8vw, 0.84rem)",
   lineHeight: 1.65,
-  color: "#94a3b8",
+  color: "var(--dz-text-muted)",
   textAlign: "right",
   marginTop: 16,
   marginBottom: 4,
@@ -1123,7 +1123,7 @@ const footerStyle: React.CSSProperties = {
   position: "sticky",
   bottom: 0,
   zIndex: 20,
-  background: "linear-gradient(180deg, transparent 0%, #f8fafc 28%)",
+  background: "linear-gradient(180deg, transparent 0%, var(--dz-surface-muted) 28%)",
   paddingTop: 16,
   paddingBottom: "calc(20px + env(safe-area-inset-bottom))",
   marginTop: "auto",
@@ -1137,8 +1137,8 @@ const ctaButtonStyle = (enabled: boolean): React.CSSProperties => ({
   height: 54,
   borderRadius: 16,
   border: "none",
-  background: enabled ? TOKEN.action.primary.background : "#cbd5e1",
-  color: "#ffffff",
+  background: enabled ? TOKEN.action.primary.background : "var(--dz-text-disabled)",
+  color: "var(--dz-text-on-brand)",
   fontSize: 16,
   fontWeight: 800,
   cursor: enabled ? "pointer" : "not-allowed",

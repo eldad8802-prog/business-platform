@@ -115,7 +115,7 @@ export function TaxAuthorityProbeSection() {
               cursor: disabled ? "not-allowed" : "pointer",
               opacity: disabled ? 0.5 : 1,
               background: PA.ink,
-              color: "#fff",
+              color: "var(--dz-text-on-brand)",
             }}
           >
             {state.phase === "running" ? "מריץ בדיקה…" : "הרץ בדיקת חיבור חד-פעמית"}

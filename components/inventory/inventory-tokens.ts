@@ -37,7 +37,7 @@ export const inventoryTheme = {
   glassBg: d.card,
   glassBorder: `1px solid ${d.line}`,
   glassText: d.ink,
-  glassShadow: "0 1px 2px rgba(88, 62, 38, 0.05)",
+  glassShadow: d.shadowCard,
   successBtn: d.success,
   danger: d.error,
   warning: d.warning,
@@ -95,31 +95,31 @@ export const inventoryToneStyles: Record<
 > = {
   danger: {
     bg: d.errorBg,
-    border: "rgba(184, 92, 63, 0.30)",
+    border: d.errorBorder,
     color: d.error,
     iconBg: d.errorBg,
   },
   warning: {
     bg: d.warningBg,
-    border: "rgba(184, 135, 85, 0.32)",
+    border: d.warningBorder,
     color: d.warningInk,
     iconBg: d.warningBg,
   },
   purple: {
     bg: d.successBg,
-    border: "rgba(36, 105, 102, 0.26)",
+    border: d.successBorder,
     color: d.accent,
     iconBg: d.successBg,
   },
   info: {
     bg: d.infoBg,
-    border: "rgba(61, 156, 154, 0.30)",
+    border: d.infoBorder,
     color: d.infoInk,
     iconBg: d.infoBg,
   },
   success: {
     bg: d.successBg,
-    border: "rgba(36, 105, 102, 0.26)",
+    border: d.successBorder,
     color: d.success,
     iconBg: d.successBg,
   },
@@ -164,18 +164,18 @@ export const inventoryCssVars = `
   --inv-glass-shadow: ${inventoryTheme.glassShadow};
   --inv-danger: ${inventoryTheme.danger};
   --inv-danger-bg: ${d.errorBg};
-  --inv-danger-border: rgba(184, 92, 63, 0.30);
+  --inv-danger-border: ${d.errorBorder};
   --inv-warning: ${inventoryTheme.warning};
   --inv-warning-ink: ${d.warningInk};
   --inv-warning-bg: ${d.warningBg};
-  --inv-warning-border: rgba(184, 135, 85, 0.32);
+  --inv-warning-border: ${d.warningBorder};
   --inv-success: ${d.success};
   --inv-success-bg: ${d.successBg};
-  --inv-success-border: rgba(36, 105, 102, 0.26);
+  --inv-success-border: ${d.successBorder};
   --inv-info: ${inventoryTheme.info};
   --inv-info-ink: ${d.infoInk};
   --inv-info-bg: ${d.infoBg};
-  --inv-info-border: rgba(61, 156, 154, 0.30);
+  --inv-info-border: ${d.infoBorder};
   --inv-max-width: ${inventoryLayout.maxWidth}px;
   --inv-content-max: 720px;
   --inv-radius-lg: ${inventoryRadius.xl}px;
@@ -202,22 +202,22 @@ export const inventoryCssVars = `
  * components. */
 export const inventoryHomePalette = {
   /** Brand teal ramp — hero gradient stops + teal controls. */
-  teal1: "#16A093",
-  teal2: "#0E766E",
-  teal3: "#0A574F",
-  onTeal: "#FFFFFF",
+  teal1: "var(--dz-brand)",
+  teal2: "var(--dz-brand)",
+  teal3: "var(--dz-brand)",
+  onTeal: d.onAccent,
   /** Categorical action-icon accents, tinted to read on the warm beige cards. */
-  iconTeal: "#0E766E",
-  iconTealBg: "rgba(14, 118, 110, 0.12)",
-  iconBlue: "#2F6FB2",
-  iconBlueBg: "rgba(45, 111, 178, 0.13)",
-  iconAmber: "#9C6A16",
-  iconAmberBg: "rgba(156, 106, 22, 0.16)",
-  iconViolet: "#6E4F9E",
-  iconVioletBg: "rgba(124, 92, 168, 0.15)",
+  iconTeal: "var(--dz-brand)",
+  iconTealBg: "rgba(36, 105, 102, 0.12)",
+  iconBlue: "var(--dz-info)",
+  iconBlueBg: "rgba(43, 90, 133, 0.13)",
+  iconAmber: "var(--dz-warning)",
+  iconAmberBg: "rgba(129, 90, 50, 0.16)",
+  iconViolet: "var(--dz-brand)",
+  iconVioletBg: "rgba(36, 105, 102, 0.15)",
   /** Warm skeleton shimmer (base → highlight), matching the cream module. */
-  skBase: "#EDE3D2",
-  skHi: "#F7EFE2",
+  skBase: "var(--dz-surface-muted)",
+  skHi: "var(--dz-surface-muted)",
   ease: "cubic-bezier(0.22, 0.61, 0.36, 1)",
 } as const;
 
@@ -299,7 +299,7 @@ export function glassActionStyle({
     fontWeight: d.weight.semibold,
     cursor: disabled ? "not-allowed" : "pointer",
     opacity: disabled ? 0.55 : 1,
-    boxShadow: "0 1px 2px rgba(88, 62, 38, 0.05)",
+    boxShadow: d.shadowCard,
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -327,7 +327,7 @@ export function dangerActionStyle({
     fontWeight: d.weight.semibold,
     cursor: disabled ? "not-allowed" : "pointer",
     opacity: disabled ? 0.55 : 1,
-    boxShadow: "0 1px 2px rgba(88, 62, 38, 0.05)",
+    boxShadow: d.shadowCard,
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",

@@ -344,17 +344,17 @@ export default function BusinessBotSettingsPage() {
     color: TOKEN.ink.primary,
     lineHeight: 1.55,
     wordBreak: "break-word",
-    boxShadow: "0 1px 2px rgba(0,0,0,0.10)",
+    boxShadow: "0 1px 2px rgba(52, 60, 50, 0.1)",
   };
 
   const waCustomerBubble: CSSProperties = {
-    background: "#ffffff",
+    background: "var(--dz-surface)",
     borderRadius: TOKEN.radius.input,
     padding: "8px 12px",
     fontSize: TOKEN.font.body,
     color: TOKEN.ink.muted,
     lineHeight: 1.55,
-    boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
+    boxShadow: "0 1px 2px rgba(52, 60, 50, 0.08)",
     alignSelf: "flex-end",
     maxWidth: "65%",
   };

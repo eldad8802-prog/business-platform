@@ -6,12 +6,12 @@ type Props = {
 
 export function SettingsSection({ title, description, children }: Props) {
   return (
-    <section className="rounded-[24px] bg-white p-4 shadow-sm">
+    <section className="rounded-[24px] bg-[var(--dz-surface)] p-4 shadow-sm">
       {title ? (
-        <h2 className="text-sm font-bold text-gray-900">{title}</h2>
+        <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">{title}</h2>
       ) : null}
       {description ? (
-        <p className="mt-1 text-xs leading-5 text-gray-500">{description}</p>
+        <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">{description}</p>
       ) : null}
       {(title || description) && <div className="mt-3" />}
       {children}

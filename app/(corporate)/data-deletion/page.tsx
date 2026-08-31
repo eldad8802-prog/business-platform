@@ -15,14 +15,14 @@ export default function CorporateDataDeletionPage() {
         <h1 className="text-3xl font-extrabold leading-tight text-[var(--mkt-ink)] sm:text-4xl">
           מחיקת חשבון ונתונים
         </h1>
-        <p className="mt-3 text-sm text-gray-500">עודכן לאחרונה: 23 באוגוסט 2026</p>
-        <p className="mt-4 text-sm leading-7 text-gray-600 sm:text-base">
+        <p className="mt-3 text-sm text-[var(--dz-text-muted)]">עודכן לאחרונה: 23 באוגוסט 2026</p>
+        <p className="mt-4 text-sm leading-7 text-[var(--dz-text-muted)] sm:text-base">
           עמוד זה מסביר כיצד למחוק את חשבון Dubiz ואת המידע שלך, מה נמחק ומה עשוי
           להישמר לפי חובת שמירה שבדין. ניתן לבצע את מחיקת החשבון ישירות מתוך האפליקציה.
         </p>
       </header>
 
-      <div className="mt-10 max-w-3xl space-y-9 text-sm leading-7 text-gray-600 sm:text-base">
+      <div className="mt-10 max-w-3xl space-y-9 text-sm leading-7 text-[var(--dz-text-muted)] sm:text-base">
         <section>
           <h2 className="text-lg font-bold text-[var(--mkt-ink)]">
             מחיקת חשבון Dubiz מתוך האפליקציה

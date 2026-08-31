@@ -49,7 +49,7 @@ export function CollectionRow({
               style={{
                 fontSize: 15,
                 fontWeight: muted ? TOKEN.weight.medium : TOKEN.weight.semibold,
-                color: muted ? "#5A544C" : W.ink,
+                color: muted ? "var(--dz-text-secondary)" : W.ink,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -63,7 +63,7 @@ export function CollectionRow({
               style={{
                 fontSize: 15,
                 fontWeight: muted ? TOKEN.weight.medium : TOKEN.weight.semibold,
-                color: muted ? "#5A544C" : W.ink,
+                color: muted ? "var(--dz-text-secondary)" : W.ink,
                 fontVariantNumeric: "tabular-nums",
               }}
             >

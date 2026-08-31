@@ -72,9 +72,9 @@ export default function RedeemScanner({ onDetected, isActive }: Props) {
         width: "100%",
         borderRadius: 20,
         overflow: "hidden",
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--dz-border)",
         marginBottom: 12,
-        background: "#ffffff",
+        background: "var(--dz-surface)",
       }}
     >
       <div
@@ -141,9 +141,9 @@ export default function RedeemScanner({ onDetected, isActive }: Props) {
           textAlign: "right",
           fontSize: 14,
           lineHeight: 1.5,
-          color: errorMessage ? "#b91c1c" : "#374151",
-          background: errorMessage ? "#fef2f2" : "#ffffff",
-          borderTop: "1px solid #e5e7eb",
+          color: errorMessage ? "var(--dz-danger)" : "var(--dz-text-secondary)",
+          background: errorMessage ? "var(--dz-danger-bg-soft)" : "var(--dz-surface)",
+          borderTop: "1px solid var(--dz-border)",
         }}
       >
         {errorMessage || status}

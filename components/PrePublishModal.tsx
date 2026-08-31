@@ -15,7 +15,7 @@ export default function PrePublishModal({
   onClose,
 }: Props) {
   return (
-    <div style={{ padding: 20, background: "#fff" }}>
+    <div style={{ padding: 20, background: "var(--dz-surface)" }}>
       <h2>לפני פרסום</h2>
 
       <p>{content?.hook}</p>

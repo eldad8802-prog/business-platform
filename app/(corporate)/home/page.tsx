@@ -28,20 +28,21 @@ export const metadata: Metadata = {
     "Dubiz מרכזת את היום־יום של העסק שלך — לקוחות, כסף ומסמכים — מהוואטסאפ, מהמייל ומהמסמכים שכבר יש לך. בלי הקמה. מופעל על ידי PRO MAX GROUP.",
 };
 
-// DS v1 warm palette (token-driven — no invented colors).
+// Dubiz Mist palette (token-driven — no invented colors).
 const C = {
   ink: "var(--mkt-ink)",
-  muted: TOKEN.dsv1.muted, // #777067
-  card: TOKEN.dsv1.card, // #FDF4EB
-  line: TOKEN.dsv1.line, // #E9DDD0
-  soft: TOKEN.dsv1.surface2, // #F6ECDD
-  teal: TOKEN.dsv1.accent, // #246966 — done / positive
-  clay: TOKEN.warm.status.late.ink, // #B85C3F — needs attention (NOT alarm red)
-  brown: TOKEN.warm.status.partial.ink, // #B88755 — open / partial
+  muted: TOKEN.dsv1.muted,
+  card: TOKEN.dsv1.card,
+  line: TOKEN.dsv1.line,
+  soft: TOKEN.dsv1.surface2,
+  teal: TOKEN.dsv1.accent, // done / positive
+  clay: TOKEN.warm.status.late.ink, // needs attention (NOT alarm red)
+  brown: TOKEN.warm.status.partial.ink, // open / partial
 };
 
 const cardStyle = {
-  backgroundColor: C.card,
+  // `background`, not `backgroundColor`: the Mist card token is an image stack.
+  background: C.card,
   borderColor: C.line,
   boxShadow: TOKEN.dsv1.shadowCard,
 } as const;
@@ -161,7 +162,7 @@ export default function CorporateHomePage() {
         <div className="text-center lg:text-start">
           <span
             className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold"
-            style={{ backgroundColor: C.soft, borderColor: C.line, color: C.teal }}
+            style={{ backgroundColor: /* mist-ok: flat */ C.soft, borderColor: C.line, color: C.teal }}
           >
             תוכנה רשומה ברשות המסים · 270901
           </span>
@@ -204,20 +205,20 @@ export default function CorporateHomePage() {
             {ATTENTION.map((item) => (
               <li
                 key={item.text}
-                className="flex items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3"
+                className="flex items-center justify-between gap-3 rounded-2xl bg-[var(--dz-surface)] px-4 py-3"
                 style={{ border: `1px solid ${C.line}` }}
               >
                 <span className="flex items-center gap-3 text-sm" style={{ color: C.ink }}>
                   <span
                     className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: item.dot }}
+                    style={{ backgroundColor: /* mist-ok: flat */ item.dot }}
                     aria-hidden="true"
                   />
                   {item.text}
                 </span>
                 <span
                   className="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold"
-                  style={{ backgroundColor: C.soft, color: C.teal }}
+                  style={{ backgroundColor: /* mist-ok: flat */ C.soft, color: C.teal }}
                 >
                   {item.action}
                 </span>
@@ -247,7 +248,7 @@ export default function CorporateHomePage() {
               key={item}
               className="flex items-center gap-3 rounded-2xl px-4 py-2.5 text-start text-sm"
               style={{
-                backgroundColor: C.soft,
+                backgroundColor: /* mist-ok: flat */ C.soft,
                 color: C.ink,
                 // subtle "growing pile" — each row nudged slightly
                 marginInlineStart: `${i * 8}px`,
@@ -255,7 +256,7 @@ export default function CorporateHomePage() {
             >
               <span
                 className="inline-block h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: C.brown }}
+                style={{ backgroundColor: /* mist-ok: flat */ C.brown }}
                 aria-hidden="true"
               />
               {item}
@@ -317,7 +318,7 @@ export default function CorporateHomePage() {
             ].map(([k, v]) => (
               <div
                 key={k}
-                className="flex items-center justify-between rounded-xl bg-white px-3 py-2"
+                className="flex items-center justify-between rounded-xl bg-[var(--dz-surface)] px-3 py-2"
                 style={{ border: `1px solid ${C.line}` }}
               >
                 <dt style={{ color: C.muted }}>{k}</dt>
@@ -352,7 +353,7 @@ export default function CorporateHomePage() {
               <li key={fact} className="flex items-start gap-3 text-sm" style={{ color: C.ink }}>
                 <span
                   className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold"
-                  style={{ backgroundColor: C.soft, color: C.teal }}
+                  style={{ backgroundColor: /* mist-ok: flat */ C.soft, color: C.teal }}
                   aria-hidden="true"
                 >
                   ✓
@@ -417,7 +418,7 @@ export default function CorporateHomePage() {
       <section className="mt-16 sm:mt-24">
         <div
           className="rounded-[28px] border p-6 text-center sm:p-8"
-          style={{ backgroundColor: C.soft, borderColor: C.line }}
+          style={{ backgroundColor: /* mist-ok: flat */ C.soft, borderColor: C.line }}
         >
           <SectionHeading>
             מסודר מול רשות המסים — ומסודר לרואה החשבון שלך.
@@ -452,7 +453,7 @@ export default function CorporateHomePage() {
             <span
               key={item}
               className="rounded-full px-4 py-2 text-sm font-semibold"
-              style={{ backgroundColor: C.soft, color: C.teal }}
+              style={{ backgroundColor: /* mist-ok: flat */ C.soft, color: C.teal }}
             >
               {item}
             </span>
@@ -471,7 +472,7 @@ export default function CorporateHomePage() {
       <section className="mt-16 sm:mt-24">
         <div
           className="rounded-[28px] p-8 text-center sm:p-12"
-          style={{ backgroundColor: C.card, border: `1px solid ${C.line}`, boxShadow: TOKEN.dsv1.shadowCard }}
+          style={{ background: C.card, border: `1px solid ${C.line}`, boxShadow: TOKEN.dsv1.shadowCard }}
         >
           <h2 className="text-2xl font-extrabold sm:text-4xl" style={{ color: C.ink }}>
             תפסיק להחזיק את כל העסק בראש.

@@ -146,7 +146,7 @@ export default function OfferCreationFlow() {
     <div
       style={{
         minHeight: "100vh",
-        background: "#f8f6f1",
+        background: "var(--dz-background)",
         padding: "24px 16px",
       }}
     >
@@ -158,11 +158,11 @@ export default function OfferCreationFlow() {
       >
         <div
           style={{
-            background: "#ffffff",
+            background: "var(--dz-surface)",
             borderRadius: 24,
             padding: 24,
-            boxShadow: "0 10px 30px rgba(0,0,0,0.06)",
-            border: "1px solid #ece7dc",
+            boxShadow: "0 10px 30px rgba(52, 60, 50, 0.06)",
+            border: "1px solid var(--dz-border)",
           }}
         >
           <div style={{ marginBottom: 24 }}>
@@ -172,8 +172,8 @@ export default function OfferCreationFlow() {
                 alignItems: "center",
                 padding: "6px 12px",
                 borderRadius: 999,
-                background: "#edf7ee",
-                color: "#1f6b3b",
+                background: "var(--dz-success-bg)",
+                color: "var(--dz-success)",
                 fontSize: 13,
                 fontWeight: 700,
                 marginBottom: 12,
@@ -187,7 +187,7 @@ export default function OfferCreationFlow() {
                 margin: 0,
                 fontSize: 30,
                 lineHeight: 1.2,
-                color: "#1f2937",
+                color: "var(--dz-text-primary)",
               }}
             >
               איזה סוג הצעה אתה רוצה ליצור?
@@ -199,7 +199,7 @@ export default function OfferCreationFlow() {
                 marginBottom: 0,
                 fontSize: 16,
                 lineHeight: 1.6,
-                color: "#4b5563",
+                color: "var(--dz-text-secondary)",
               }}
             >
               בחר סוג הצעה ברור ופשוט, כזה שלקוח באמת ירצה להשתמש בו ושיהיה קל להסביר
@@ -209,8 +209,8 @@ export default function OfferCreationFlow() {
 
           <div
             style={{
-              background: "#f9fafb",
-              border: "1px solid #e5e7eb",
+              background: "var(--dz-surface-muted)",
+              border: "1px solid var(--dz-border)",
               borderRadius: 18,
               padding: 16,
               marginBottom: 24,
@@ -220,7 +220,7 @@ export default function OfferCreationFlow() {
               style={{
                 fontSize: 13,
                 fontWeight: 700,
-                color: "#6b7280",
+                color: "var(--dz-text-muted)",
                 marginBottom: 8,
               }}
             >
@@ -231,7 +231,7 @@ export default function OfferCreationFlow() {
               <div
                 style={{
                   fontSize: 16,
-                  color: "#374151",
+                  color: "var(--dz-text-secondary)",
                   fontWeight: 600,
                 }}
               >
@@ -241,7 +241,7 @@ export default function OfferCreationFlow() {
               <div
                 style={{
                   fontSize: 15,
-                  color: "#b91c1c",
+                  color: "var(--dz-danger)",
                   fontWeight: 600,
                 }}
               >
@@ -253,7 +253,7 @@ export default function OfferCreationFlow() {
                   style={{
                     fontSize: 20,
                     fontWeight: 800,
-                    color: "#111827",
+                    color: "var(--dz-text-primary)",
                   }}
                 >
                   {businessName || "שם העסק לא זמין כרגע"}
@@ -263,7 +263,7 @@ export default function OfferCreationFlow() {
                   style={{
                     marginTop: 6,
                     fontSize: 15,
-                    color: "#6b7280",
+                    color: "var(--dz-text-muted)",
                     fontWeight: 500,
                   }}
                 >
@@ -290,8 +290,8 @@ export default function OfferCreationFlow() {
                   onClick={() => handleSelectOfferType(option.value)}
                   style={{
                     textAlign: "right",
-                    background: isSelected ? "#eef8f0" : "#ffffff",
-                    border: isSelected ? "2px solid #1f6b3b" : "1px solid #d1d5db",
+                    background: isSelected ? "var(--dz-success-bg)" : "var(--dz-surface)",
+                    border: isSelected ? "2px solid var(--dz-success-border)" : "1px solid var(--dz-border-strong)",
                     borderRadius: 18,
                     padding: 18,
                     cursor: "pointer",
@@ -302,7 +302,7 @@ export default function OfferCreationFlow() {
                     style={{
                       fontSize: 18,
                       fontWeight: 800,
-                      color: "#111827",
+                      color: "var(--dz-text-primary)",
                       marginBottom: 8,
                     }}
                   >
@@ -313,7 +313,7 @@ export default function OfferCreationFlow() {
                     style={{
                       fontSize: 14,
                       lineHeight: 1.5,
-                      color: "#6b7280",
+                      color: "var(--dz-text-muted)",
                     }}
                   >
                     {option.description}
@@ -325,7 +325,7 @@ export default function OfferCreationFlow() {
                         marginTop: 14,
                         fontSize: 13,
                         fontWeight: 700,
-                        color: "#1f6b3b",
+                        color: "var(--dz-success)",
                       }}
                     >
                       נבחר
@@ -341,15 +341,15 @@ export default function OfferCreationFlow() {
               marginTop: 24,
               padding: 16,
               borderRadius: 18,
-              background: "#fcfbf7",
-              border: "1px solid #ece7dc",
+              background: "var(--dz-surface)",
+              border: "1px solid var(--dz-border)",
             }}
           >
             <div
               style={{
                 fontSize: 14,
                 fontWeight: 800,
-                color: "#374151",
+                color: "var(--dz-text-secondary)",
                 marginBottom: 8,
               }}
             >
@@ -360,7 +360,7 @@ export default function OfferCreationFlow() {
               style={{
                 fontSize: 15,
                 lineHeight: 1.7,
-                color: "#6b7280",
+                color: "var(--dz-text-muted)",
               }}
             >
               בחר סוג הצעה שקל להסביר במשפט אחד. ככל שההצעה ברורה יותר, כך יהיה קל יותר
@@ -374,15 +374,15 @@ export default function OfferCreationFlow() {
                 marginTop: 20,
                 padding: 16,
                 borderRadius: 18,
-                background: "#f0fdf4",
-                border: "1px solid #bbf7d0",
+                background: "var(--dz-success-bg-soft)",
+                border: "1px solid var(--dz-success-border)",
               }}
             >
               <div
                 style={{
                   fontSize: 13,
                   fontWeight: 700,
-                  color: "#166534",
+                  color: "var(--dz-success)",
                   marginBottom: 6,
                 }}
               >
@@ -393,7 +393,7 @@ export default function OfferCreationFlow() {
                 style={{
                   fontSize: 18,
                   fontWeight: 800,
-                  color: "#14532d",
+                  color: "var(--dz-success)",
                   marginBottom: 6,
                 }}
               >
@@ -404,7 +404,7 @@ export default function OfferCreationFlow() {
                 style={{
                   fontSize: 14,
                   lineHeight: 1.6,
-                  color: "#166534",
+                  color: "var(--dz-success)",
                 }}
               >
                 {selectedOfferType.description}
@@ -425,7 +425,7 @@ export default function OfferCreationFlow() {
             <div
               style={{
                 fontSize: 14,
-                color: "#6b7280",
+                color: "var(--dz-text-muted)",
                 fontWeight: 600,
               }}
             >
@@ -443,8 +443,8 @@ export default function OfferCreationFlow() {
                 fontSize: 15,
                 fontWeight: 800,
                 cursor: canContinue ? "pointer" : "not-allowed",
-                background: canContinue ? "#1f6b3b" : "#cbd5e1",
-                color: "#ffffff",
+                background: canContinue ? "var(--dz-success-accent)" : "var(--dz-text-disabled)",
+                color: "var(--dz-text-on-brand)",
                 minWidth: 140,
               }}
             >
@@ -458,11 +458,11 @@ export default function OfferCreationFlow() {
                 marginTop: 20,
                 padding: 16,
                 borderRadius: 18,
-                background: "#eff6ff",
-                border: "1px solid #bfdbfe",
+                background: "var(--dz-info-bg-soft)",
+                border: "1px solid var(--dz-info-border)",
                 fontSize: 15,
                 fontWeight: 700,
-                color: "#3F619C",
+                color: "var(--dz-info)",
               }}
             >
               שלב 1 הושלם. בשלב הבא נבנה את אזור הזנת הערך ללקוח.

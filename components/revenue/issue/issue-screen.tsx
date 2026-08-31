@@ -116,7 +116,7 @@ export default function IssueScreen() {
     <main
       style={{
         minHeight: "100vh",
-        background: "#f8f5ef",
+        background: "var(--dz-surface-muted)",
         padding: "24px 16px",
       }}
     >
@@ -139,16 +139,16 @@ export default function IssueScreen() {
         {flowState === "idle" && !autoIssue && offerIdFromQuery && selectedOffer && (
           <div
             style={{
-              background: "#ffffff",
+              background: "var(--dz-surface)",
               borderRadius: 24,
-              border: "1px solid #e5e7eb",
+              border: "1px solid var(--dz-border)",
               padding: 20,
             }}
           >
             <div
               style={{
                 fontSize: 14,
-                color: "#6b7280",
+                color: "var(--dz-text-muted)",
                 marginBottom: 8,
               }}
             >
@@ -159,7 +159,7 @@ export default function IssueScreen() {
               style={{
                 fontSize: 24,
                 fontWeight: 800,
-                color: "#111827",
+                color: "var(--dz-text-primary)",
                 marginBottom: 10,
               }}
             >
@@ -169,7 +169,7 @@ export default function IssueScreen() {
             <div
               style={{
                 fontSize: 15,
-                color: "#4b5563",
+                color: "var(--dz-text-secondary)",
                 lineHeight: 1.6,
                 marginBottom: 16,
               }}
@@ -186,7 +186,7 @@ export default function IssueScreen() {
                 borderRadius: 16,
                 border: "none",
                 background: TOKEN.action.primary.background,
-                color: "#ffffff",
+                color: "var(--dz-text-on-brand)",
                 fontWeight: 800,
                 cursor: "pointer",
               }}
@@ -199,16 +199,16 @@ export default function IssueScreen() {
         {flowState === "idle" && autoIssue && selectedOffer && (
           <div
             style={{
-              background: "#ffffff",
+              background: "var(--dz-surface)",
               borderRadius: 24,
-              border: "1px solid #e5e7eb",
+              border: "1px solid var(--dz-border)",
               padding: 20,
             }}
           >
             <div
               style={{
                 fontSize: 14,
-                color: "#6b7280",
+                color: "var(--dz-text-muted)",
                 marginBottom: 8,
               }}
             >
@@ -219,7 +219,7 @@ export default function IssueScreen() {
               style={{
                 fontSize: 24,
                 fontWeight: 800,
-                color: "#111827",
+                color: "var(--dz-text-primary)",
                 marginBottom: 10,
               }}
             >
@@ -229,7 +229,7 @@ export default function IssueScreen() {
             <div
               style={{
                 fontSize: 15,
-                color: "#4b5563",
+                color: "var(--dz-text-secondary)",
                 lineHeight: 1.6,
               }}
             >

@@ -88,9 +88,9 @@ export default function DebugOcrPage() {
           style={{
             marginTop: 16,
             padding: 12,
-            border: "1px solid #ddd",
+            border: "1px solid var(--dz-border)",
             borderRadius: 8,
-            background: "#fafafa",
+            background: "var(--dz-surface-muted)",
             overflow: "auto",
             whiteSpace: "pre-wrap",
           }}

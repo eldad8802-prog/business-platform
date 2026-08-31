@@ -34,7 +34,7 @@ function ContentModePageInner() {
     return (
       <div onClick={() => setMode(val)} style={btn(selected)}>
         <div style={{ fontWeight: 700, marginBottom: 4 }}>{title}</div>
-        <div style={{ fontSize: 14, color: "#555" }}>{description}</div>
+        <div style={{ fontSize: 14, color: "var(--dz-text-secondary)" }}>{description}</div>
       </div>
     );
   }
@@ -47,7 +47,7 @@ function ContentModePageInner() {
       <div style={baseStyles.container}>
         <h1 style={{ marginBottom: 8 }}>איך תרצה ליצור את הסרטון?</h1>
 
-        <p style={{ marginBottom: 20, color: "#555" }}>
+        <p style={{ marginBottom: 20, color: "var(--dz-text-secondary)" }}>
           בחר את הדרך שהכי נוחה לך לעבוד
         </p>
 
@@ -83,7 +83,7 @@ export default function Page() {
 const btn = (selected: boolean) => ({
   padding: 14,
   borderRadius: 12,
-  border: selected ? "2px solid #111" : "1px solid #ddd",
+  border: selected ? "2px solid var(--dz-text-primary)" : "1px solid var(--dz-border)",
   marginTop: 10,
   cursor: "pointer",
 });

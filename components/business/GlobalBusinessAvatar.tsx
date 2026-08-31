@@ -102,10 +102,10 @@ export function GlobalBusinessAvatar({
           height: size,
           borderRadius: "50%",
           overflow: "hidden",
-          border: "2px solid #e5e7eb",
+          border: "2px solid var(--dz-border)",
           padding: 0,
           cursor: busy ? "wait" : "pointer",
-          background: hasLogo ? "#f9fafb" : "#111827",
+          background: hasLogo ? "var(--dz-surface-muted)" : "var(--dz-text-primary)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -127,7 +127,7 @@ export function GlobalBusinessAvatar({
             style={{
               fontSize: size * 0.32,
               fontWeight: 700,
-              color: "#fff",
+              color: "var(--dz-text-on-brand)",
               userSelect: "none",
             }}
           >
@@ -139,8 +139,8 @@ export function GlobalBusinessAvatar({
             style={{
               position: "absolute",
               inset: 0,
-              background: "rgba(0,0,0,0.35)",
-              color: "#fff",
+              background: "rgba(52, 60, 50, 0.26)",
+              color: "var(--dz-text-on-brand)",
               fontSize: 11,
               fontWeight: 700,
               display: "flex",

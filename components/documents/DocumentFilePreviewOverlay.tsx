@@ -164,7 +164,7 @@ const overlayStyle = {
   position: "fixed" as const,
   inset: 0,
   zIndex: 2147483600,
-  background: "rgba(70, 50, 30, 0.45)",
+  background: "rgba(35, 48, 43, 0.45)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",

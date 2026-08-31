@@ -44,7 +44,7 @@ const W = TOKEN.warm;
 
 function catIcon(paths: ReactNode): ReactNode {
   return (
-    <svg viewBox="0 0 24 24" width={25} height={25} fill="none" stroke="#fff" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.95 }} aria-hidden>
+    <svg viewBox="0 0 24 24" width={25} height={25} fill="none" stroke="var(--dz-text-on-brand)" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.95 }} aria-hidden>
       {paths}
     </svg>
   );
@@ -83,13 +83,13 @@ export function PublicCouponContent({
   return (
     <div style={{ pointerEvents: interactive ? "auto" : "none", display: "flex", flexDirection: "column", flex: 1 }}>
       {/* hero — business identity (thema) */}
-      <div style={{ background: COUPON.thema[thema], color: "#fff", padding: `${topInset || 18}px 18px 18px`, display: "flex", alignItems: "center", gap: 14 }}>
+      <div style={{ background: COUPON.thema[thema], color: "var(--dz-text-on-brand)", padding: `${topInset || 18}px 18px 18px`, display: "flex", alignItems: "center", gap: 14 }}>
         <div style={{ width: 52, height: 52, borderRadius: 14, background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 600, fontSize: 19, flexShrink: 0 }}>{view.business.logo}</div>
         <div>
           <div style={{ fontSize: 17, fontWeight: 600 }}>{view.business.name}</div>
           {view.business.city ? (
             <div style={{ fontSize: 12.5, opacity: 0.9, marginTop: 2, display: "flex", alignItems: "center", gap: 5 }}>
-              <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="#fff" strokeWidth={2} aria-hidden><path d="M12 21s7-6 7-11a7 7 0 00-14 0c0 5 7 11 7 11z" /><circle cx="12" cy="10" r="2.2" /></svg>
+              <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="var(--dz-text-on-brand)" strokeWidth={2} aria-hidden><path d="M12 21s7-6 7-11a7 7 0 00-14 0c0 5 7 11 7 11z" /><circle cx="12" cy="10" r="2.2" /></svg>
               {view.business.city}
             </div>
           ) : null}
@@ -188,7 +188,7 @@ function PersonalCouponScreen({ coupon, code, onBack }: { coupon: PublicCoupon; 
           <div style={{ fontSize: 13, color: W.muted, marginTop: 5 }}>הצג אותו בבית העסק כדי לממש.</div>
         </div>
         <div style={{ background: W.surface, border: `1px solid ${W.line}`, borderRadius: W.radius.card, boxShadow: W.shadow, overflow: "hidden" }}>
-          <div style={{ padding: "16px 18px", color: "#fff", textAlign: "center", background: COUPON.thema[thema] }}>
+          <div style={{ padding: "16px 18px", color: "var(--dz-text-on-brand)", textAlign: "center", background: COUPON.thema[thema] }}>
             <div style={{ fontSize: 13, fontWeight: 500, opacity: 0.92 }}>{coupon.business.name}</div>
             <div style={{ fontSize: 17, fontWeight: 600, marginTop: 2 }}>{coupon.benefit}</div>
           </div>
@@ -198,7 +198,7 @@ function PersonalCouponScreen({ coupon, code, onBack }: { coupon: PublicCoupon; 
             to fill in here were indistinguishable from a working coupon.
           */}
           <div style={{ padding: "22px 18px 10px" }}>
-            <div style={{ width: 168, height: 168, margin: "0 auto", background: "#fff", border: `1px solid ${W.line}`, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ width: 168, height: 168, margin: "0 auto", background: "var(--dz-surface)", border: `1px solid ${W.line}`, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <QRCodeCanvas value={code.qrValue} size={140} />
             </div>
           </div>
@@ -363,9 +363,9 @@ function Marketplace({ onOpen, onCreate, onExit, coupons, onNear, nearActive = f
           </>
         )}
       </ScreenBody>
-      <button type="button" onClick={onCreate} style={{ position: "absolute", bottom: 24, left: 20, height: 50, padding: "0 20px 0 16px", border: "none", borderRadius: W.radius.pill, background: W.grad, color: "#fff", fontFamily: "inherit", fontSize: 15, fontWeight: 600, display: "flex", alignItems: "center", gap: 9, boxShadow: W.glow, cursor: "pointer" }}>
-        <span style={{ position: "absolute", top: -9, right: 8, fontSize: 9, fontWeight: 600, color: W.brown, background: "#FBF3E7", border: `1px solid ${W.line}`, borderRadius: W.radius.pill, padding: "1px 7px" }}>בעלי עסק</span>
-        <StrokeIcon size={18} color="#fff" width={2.2}><path d="M12 5v14M5 12h14" /></StrokeIcon>
+      <button type="button" onClick={onCreate} style={{ position: "absolute", bottom: 24, left: 20, height: 50, padding: "0 20px 0 16px", border: "none", borderRadius: W.radius.pill, background: W.grad, color: "var(--dz-text-on-brand)", fontFamily: "inherit", fontSize: 15, fontWeight: 600, display: "flex", alignItems: "center", gap: 9, boxShadow: W.glow, cursor: "pointer" }}>
+        <span style={{ position: "absolute", top: -9, right: 8, fontSize: 9, fontWeight: 600, color: W.brown, background: "var(--dz-surface-muted)", border: `1px solid ${W.line}`, borderRadius: W.radius.pill, padding: "1px 7px" }}>בעלי עסק</span>
+        <StrokeIcon size={18} color="var(--dz-text-on-brand)" width={2.2}><path d="M12 5v14M5 12h14" /></StrokeIcon>
         צור קופון
       </button>
     </PhoneFrame>
@@ -503,9 +503,9 @@ export function MarketplaceGrid({ onOpenCoupon, onCreate }: { onOpenCoupon?: () 
           ))}
         </div>
       </ScreenBody>
-      <button type="button" onClick={onCreate} style={{ position: "absolute", bottom: 26, left: 20, height: 52, padding: "0 22px 0 18px", border: "none", borderRadius: W.radius.pill, background: W.grad, color: "#fff", fontFamily: "inherit", fontSize: 15, fontWeight: 600, display: "flex", alignItems: "center", gap: 9, boxShadow: W.glow, cursor: "pointer" }}>
-        <span style={{ position: "absolute", top: -9, right: 8, fontSize: 9, fontWeight: 600, color: W.brown, background: "#FBF3E7", border: `1px solid ${W.line}`, borderRadius: W.radius.pill, padding: "1px 7px" }}>בעלי עסק</span>
-        <StrokeIcon size={19} color="#fff" width={2.2}><path d="M12 5v14M5 12h14" /></StrokeIcon>
+      <button type="button" onClick={onCreate} style={{ position: "absolute", bottom: 26, left: 20, height: 52, padding: "0 22px 0 18px", border: "none", borderRadius: W.radius.pill, background: W.grad, color: "var(--dz-text-on-brand)", fontFamily: "inherit", fontSize: 15, fontWeight: 600, display: "flex", alignItems: "center", gap: 9, boxShadow: W.glow, cursor: "pointer" }}>
+        <span style={{ position: "absolute", top: -9, right: 8, fontSize: 9, fontWeight: 600, color: W.brown, background: "var(--dz-surface-muted)", border: `1px solid ${W.line}`, borderRadius: W.radius.pill, padding: "1px 7px" }}>בעלי עסק</span>
+        <StrokeIcon size={19} color="var(--dz-text-on-brand)" width={2.2}><path d="M12 5v14M5 12h14" /></StrokeIcon>
         צור קופון
       </button>
     </PhoneFrame>
@@ -517,7 +517,7 @@ export function MarketplaceGrid({ onOpenCoupon, onCreate }: { onOpenCoupon?: () 
 function StateCard({ tone, icon, title, sub }: { tone: "exp" | "out" | "red"; icon: ReactNode; title: string; sub: string }) {
   const map = {
     exp: { bg: W.surface2, stroke: W.muted },
-    out: { bg: "rgba(184,135,85,0.12)", stroke: W.brown },
+    out: { bg: "rgba(129, 90, 50,0.12)", stroke: W.brown },
     red: { bg: "rgba(36,105,102,0.1)", stroke: W.tealDeep },
   }[tone];
   return (

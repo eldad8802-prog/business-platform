@@ -235,16 +235,16 @@ export default function OpportunitiesPage() {
   // from PageContainer.
   const pageStyle: React.CSSProperties = {
     background:
-      "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 50%, #eef2f7 100%)",
+      "linear-gradient(180deg, var(--dz-surface-muted) 0%, var(--dz-surface-muted) 50%, var(--dz-surface-muted) 100%)",
     paddingBlock: "20px 40px",
   };
 
   const headerCardStyle: React.CSSProperties = {
-    background: "#ffffff",
+    background: "var(--dz-surface)",
     borderRadius: 24,
     padding: 20,
-    boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
-    border: "1px solid #e5e7eb",
+    boxShadow: "0 10px 30px rgba(52, 60, 50, 0.08)",
+    border: "1px solid var(--dz-border)",
     marginBottom: 16,
   };
 
@@ -253,14 +253,14 @@ export default function OpportunitiesPage() {
     fontSize: 28,
     lineHeight: 1.15,
     fontWeight: 800,
-    color: "#0f172a",
+    color: "var(--dz-text-primary)",
   };
 
   const subtitleStyle: React.CSSProperties = {
     margin: "10px 0 0",
     fontSize: 15,
     lineHeight: 1.6,
-    color: "#475569",
+    color: "var(--dz-text-secondary)",
   };
 
   const summaryRowStyle: React.CSSProperties = {
@@ -271,22 +271,22 @@ export default function OpportunitiesPage() {
   };
 
   const statCardStyle: React.CSSProperties = {
-    background: "#f8fafc",
-    border: "1px solid #e2e8f0",
+    background: "var(--dz-surface-muted)",
+    border: "1px solid var(--dz-border)",
     borderRadius: 18,
     padding: "14px 12px",
   };
 
   const statLabelStyle: React.CSSProperties = {
     fontSize: 12,
-    color: "#64748b",
+    color: "var(--dz-text-muted)",
     marginBottom: 6,
     fontWeight: 700,
   };
 
   const statValueStyle: React.CSSProperties = {
     fontSize: 22,
-    color: "#0f172a",
+    color: "var(--dz-text-primary)",
     fontWeight: 800,
   };
 
@@ -294,7 +294,7 @@ export default function OpportunitiesPage() {
     margin: "18px 0 12px",
     fontSize: 18,
     fontWeight: 800,
-    color: "#0f172a",
+    color: "var(--dz-text-primary)",
   };
 
   const listStyle: React.CSSProperties = {
@@ -303,11 +303,11 @@ export default function OpportunitiesPage() {
   };
 
   const cardStyle: React.CSSProperties = {
-    background: "#ffffff",
+    background: "var(--dz-surface)",
     borderRadius: 22,
     padding: 18,
-    border: "1px solid #e5e7eb",
-    boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+    border: "1px solid var(--dz-border)",
+    boxShadow: "0 8px 24px rgba(52, 60, 50, 0.06)",
   };
 
   const topRowStyle: React.CSSProperties = {
@@ -323,7 +323,7 @@ export default function OpportunitiesPage() {
     fontSize: 18,
     fontWeight: 800,
     lineHeight: 1.3,
-    color: "#0f172a",
+    color: "var(--dz-text-primary)",
   };
 
   const badgeStyle = (status: DealStatus): React.CSSProperties => ({
@@ -334,22 +334,22 @@ export default function OpportunitiesPage() {
     whiteSpace: "nowrap",
     background:
       status === "NEW"
-        ? "#ecfeff"
+        ? "var(--dz-info-bg-soft)"
         : status === "ACCEPTED"
-        ? "#ecfdf5"
-        : "#f8fafc",
+        ? "var(--dz-success-bg-soft)"
+        : "var(--dz-surface-muted)",
     color:
       status === "NEW"
-        ? "#0f766e"
+        ? "var(--dz-brand)"
         : status === "ACCEPTED"
-        ? "#166534"
-        : "#475569",
+        ? "var(--dz-success)"
+        : "var(--dz-text-secondary)",
     border:
       status === "NEW"
-        ? "1px solid #a5f3fc"
+        ? "1px solid var(--dz-info-border)"
         : status === "ACCEPTED"
-        ? "1px solid #bbf7d0"
-        : "1px solid #cbd5e1",
+        ? "1px solid var(--dz-success-border)"
+        : "1px solid var(--dz-border-strong)",
   });
 
   const scoreBadgeStyle = (score: number | null): React.CSSProperties => {
@@ -361,9 +361,9 @@ export default function OpportunitiesPage() {
         borderRadius: 999,
         fontSize: 12,
         fontWeight: 800,
-        background: "#ecfdf5",
-        color: "#166534",
-        border: "1px solid #bbf7d0",
+        background: "var(--dz-success-bg-soft)",
+        color: "var(--dz-success)",
+        border: "1px solid var(--dz-success-border)",
       };
     }
 
@@ -373,9 +373,9 @@ export default function OpportunitiesPage() {
         borderRadius: 999,
         fontSize: 12,
         fontWeight: 800,
-        background: "#eff6ff",
-        color: "#1d4ed8",
-        border: "1px solid #bfdbfe",
+        background: "var(--dz-info-bg-soft)",
+        color: "var(--dz-info)",
+        border: "1px solid var(--dz-info-border)",
       };
     }
 
@@ -385,9 +385,9 @@ export default function OpportunitiesPage() {
         borderRadius: 999,
         fontSize: 12,
         fontWeight: 800,
-        background: "#fff7ed",
-        color: "#c2410c",
-        border: "1px solid #fed7aa",
+        background: "var(--dz-warning-bg-soft)",
+        color: "var(--dz-danger)",
+        border: "1px solid var(--dz-warning-border)",
       };
     }
 
@@ -396,9 +396,9 @@ export default function OpportunitiesPage() {
       borderRadius: 999,
       fontSize: 12,
       fontWeight: 800,
-      background: "#f8fafc",
-      color: "#64748b",
-      border: "1px solid #cbd5e1",
+      background: "var(--dz-surface-muted)",
+      color: "var(--dz-text-muted)",
+      border: "1px solid var(--dz-border-strong)",
     };
   };
 
@@ -406,7 +406,7 @@ export default function OpportunitiesPage() {
     margin: "0 0 14px",
     fontSize: 14,
     lineHeight: 1.7,
-    color: "#475569",
+    color: "var(--dz-text-secondary)",
   };
 
   const metaGridStyle: React.CSSProperties = {
@@ -417,29 +417,29 @@ export default function OpportunitiesPage() {
   };
 
   const metaCardStyle: React.CSSProperties = {
-    background: "#f8fafc",
-    border: "1px solid #e2e8f0",
+    background: "var(--dz-surface-muted)",
+    border: "1px solid var(--dz-border)",
     borderRadius: 16,
     padding: "12px 10px",
   };
 
   const metaLabelStyle: React.CSSProperties = {
     fontSize: 11,
-    color: "#64748b",
+    color: "var(--dz-text-muted)",
     fontWeight: 700,
     marginBottom: 5,
   };
 
   const metaValueStyle: React.CSSProperties = {
     fontSize: 14,
-    color: "#0f172a",
+    color: "var(--dz-text-primary)",
     fontWeight: 800,
   };
 
   const reasonBoxStyle: React.CSSProperties = {
-    background: "#f0fdf4",
-    border: "1px solid #bbf7d0",
-    color: "#166534",
+    background: "var(--dz-success-bg-soft)",
+    border: "1px solid var(--dz-success-border)",
+    color: "var(--dz-success)",
     borderRadius: 16,
     padding: "12px 14px",
     fontSize: 13,
@@ -448,9 +448,9 @@ export default function OpportunitiesPage() {
   };
 
   const legacyInfoBoxStyle: React.CSSProperties = {
-    background: "#f8fafc",
-    border: "1px solid #cbd5e1",
-    color: "#475569",
+    background: "var(--dz-surface-muted)",
+    border: "1px solid var(--dz-border-strong)",
+    color: "var(--dz-text-secondary)",
     borderRadius: 16,
     padding: "12px 14px",
     fontSize: 13,
@@ -467,7 +467,7 @@ export default function OpportunitiesPage() {
   const primaryButtonStyle: React.CSSProperties = {
     border: "none",
     background: TOKEN.action.primary.background,
-    color: "#ffffff",
+    color: "var(--dz-text-on-brand)",
     borderRadius: 14,
     padding: "12px 16px",
     fontSize: 14,
@@ -477,9 +477,9 @@ export default function OpportunitiesPage() {
   };
 
   const secondaryButtonStyle: React.CSSProperties = {
-    border: "1px solid #cbd5e1",
-    background: "#ffffff",
-    color: "#334155",
+    border: "1px solid var(--dz-border-strong)",
+    background: "var(--dz-surface)",
+    color: "var(--dz-text-secondary)",
     borderRadius: 14,
     padding: "12px 16px",
     fontSize: 14,
@@ -489,18 +489,18 @@ export default function OpportunitiesPage() {
   };
 
   const emptyStyle: React.CSSProperties = {
-    background: "#ffffff",
+    background: "var(--dz-surface)",
     borderRadius: 22,
     padding: 24,
-    border: "1px dashed #cbd5e1",
+    border: "1px dashed var(--dz-border-strong)",
     textAlign: "center",
-    color: "#475569",
+    color: "var(--dz-text-secondary)",
   };
 
   const errorStyle: React.CSSProperties = {
-    background: "#fef2f2",
-    color: "#b91c1c",
-    border: "1px solid #fecaca",
+    background: "var(--dz-danger-bg-soft)",
+    color: "var(--dz-danger)",
+    border: "1px solid var(--dz-danger-border)",
     borderRadius: 16,
     padding: "12px 14px",
     marginBottom: 14,

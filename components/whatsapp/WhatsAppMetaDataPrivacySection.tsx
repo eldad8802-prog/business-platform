@@ -199,7 +199,7 @@ function DeleteMetaDataDialog({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(15, 23, 41, 0.42)",
+        background: "rgba(52, 60, 50, 0.42)",
         display: "flex",
         alignItems: "flex-end",
         justifyContent: "center",

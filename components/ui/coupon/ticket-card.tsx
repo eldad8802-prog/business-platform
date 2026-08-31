@@ -97,8 +97,8 @@ export function TicketCard({
               left: 8,
               fontSize: 9.5,
               fontWeight: 600,
-              color: "#fff",
-              background: "#B85C3F",
+              color: "var(--dz-text-on-brand)",
+              background: "var(--dz-danger-accent)",
               borderRadius: W.radius.pill,
               padding: "2px 8px",
             }}
@@ -116,8 +116,8 @@ export function TicketCard({
               // the label almost no separation from the ticket behind it.
               fontSize: 11.5,
               fontWeight: 600,
-              color: "#fff",
-              background: "rgba(0,0,0,0.34)",
+              color: "var(--dz-text-on-brand)",
+              background: "rgba(52, 60, 50, 0.26)",
               borderRadius: W.radius.pill,
               padding: "2px 8px",
             }}

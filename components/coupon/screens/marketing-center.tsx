@@ -116,7 +116,7 @@ function MarketingCenter({ active, ended, onCreate, onBack, onViewPublic }: { ac
           style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, textAlign: "start", background: "rgba(36,105,102,0.05)", border: `1px solid ${W.teal}`, borderRadius: W.radius.card, padding: "16px 18px", fontFamily: "inherit", cursor: "pointer", marginBottom: 24 }}
         >
           <span style={{ width: 42, height: 42, borderRadius: 12, background: W.grad, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: W.glow }}>
-            <StrokeIcon size={20} color="#fff" width={2.4}><path d="M12 5v14M5 12h14" /></StrokeIcon>
+            <StrokeIcon size={20} color="var(--dz-text-on-brand)" width={2.4}><path d="M12 5v14M5 12h14" /></StrokeIcon>
           </span>
           <span>
             <span style={{ display: "block", fontSize: 15.5, fontWeight: 600, color: W.tealDeep }}>צור קופון חדש</span>
@@ -190,7 +190,7 @@ function PublicPreviewScreen({ coupon, onBack }: { coupon: OwnerCoupon; onBack: 
       <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
         <PublicCouponContent view={view} interactive={false} />
         <div style={{ padding: "16px 20px 20px", borderTop: `1px solid ${W.line}`, background: W.canvas }}>
-          <div style={{ height: 50, borderRadius: 14, background: W.grad, color: "#fff", fontWeight: 600, fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: W.glow }}>קבל קופון</div>
+          <div style={{ height: 50, borderRadius: 14, background: W.grad, color: "var(--dz-text-on-brand)", fontWeight: 600, fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: W.glow }}>קבל קופון</div>
           <div style={{ textAlign: "center", fontSize: 12, color: W.muted2, marginTop: 10 }}>כך הלקוח רואה את הקופון שלך</div>
         </div>
       </div>
@@ -224,7 +224,7 @@ function DubizHomeEntry({ onOpen }: { onOpen: () => void }) {
               style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-start", textAlign: "start", background: t.active ? "rgba(36,105,102,0.05)" : W.surface, border: `1px solid ${t.active ? W.teal : W.line}`, borderRadius: W.radius.card, padding: 16, minHeight: 104, boxShadow: W.shadow, fontFamily: "inherit", cursor: t.active ? "pointer" : "default" }}
             >
               <span style={{ width: 40, height: 40, borderRadius: 11, background: t.active ? W.grad : W.surface2, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <StrokeIcon size={20} color={t.active ? "#fff" : W.muted} width={1.8}>{t.icon}</StrokeIcon>
+                <StrokeIcon size={20} color={t.active ? "var(--dz-text-on-brand)" : W.muted} width={1.8}>{t.icon}</StrokeIcon>
               </span>
               <span style={{ fontSize: 15, fontWeight: 600, color: t.active ? W.tealDeep : W.ink }}>{t.label}</span>
             </button>

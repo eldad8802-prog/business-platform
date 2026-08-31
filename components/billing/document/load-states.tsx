@@ -24,7 +24,7 @@ export function WorkspaceSkeleton() {
             height: h,
             borderRadius: 14,
             background:
-              "linear-gradient(90deg, rgba(246,236,221,1) 0%, rgba(253,244,235,1) 50%, rgba(246,236,221,1) 100%)",
+              "linear-gradient(90deg, rgba(239, 241, 235,1) 0%, rgba(252, 252, 250,1) 50%, rgba(239, 241, 235,1) 100%)",
             backgroundSize: "200% 100%",
             animation: "billing-skeleton 1.2s ease-in-out infinite",
             border: `1px solid ${TOKEN.border.DEFAULT}`,

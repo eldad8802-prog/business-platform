@@ -140,9 +140,9 @@ export default function GoalPage() {
   return (
     <div style={pageStyle}>
       <style>{`
-        .goal-card:focus-visible { outline: 3px solid #3b82f6; outline-offset: 3px; }
+        .goal-card:focus-visible { outline: 3px solid var(--dz-info-accent); outline-offset: 3px; }
         .goal-card:focus:not(:focus-visible) { outline: none; }
-        .platform-chip:focus-visible { outline: 3px solid #3b82f6; outline-offset: 2px; }
+        .platform-chip:focus-visible { outline: 3px solid var(--dz-info-accent); outline-offset: 2px; }
         .platform-chip:focus:not(:focus-visible) { outline: none; }
       `}</style>
 
@@ -240,7 +240,7 @@ export default function GoalPage() {
 
 const pageStyle: React.CSSProperties = {
   ...baseStyles.page,
-  background: "linear-gradient(180deg, #f4f6fb 0%, #ffffff 42%, #f8fafc 100%)",
+  background: "linear-gradient(180deg, var(--dz-surface-muted) 0%, var(--dz-surface-flat) 42%, var(--dz-surface-muted) 100%)",
 };
 
 const shellStyle: React.CSSProperties = {
@@ -278,7 +278,7 @@ const titleStyle: React.CSSProperties = {
   fontSize: "clamp(1.55rem, 5vw, 1.85rem)",
   fontWeight: 800,
   lineHeight: 1.25,
-  color: "#0f172a",
+  color: "var(--dz-text-primary)",
   margin: 0,
   marginBottom: 10,
   letterSpacing: "-0.02em",
@@ -287,7 +287,7 @@ const titleStyle: React.CSSProperties = {
 const subtitleStyle: React.CSSProperties = {
   fontSize: "clamp(0.95rem, 3.5vw, 1.05rem)",
   lineHeight: 1.65,
-  color: "#64748b",
+  color: "var(--dz-text-muted)",
   margin: 0,
 };
 
@@ -305,15 +305,15 @@ const goalCardStyle = (selected: boolean): React.CSSProperties => ({
   width: "100%",
   padding: "clamp(14px, 4vw, 18px) clamp(14px, 4vw, 18px)",
   borderRadius: 16,
-  border: selected ? "2.5px solid #0f172a" : "1.5px solid #e2e8f0",
+  border: selected ? "2.5px solid var(--dz-text-primary)" : "1.5px solid var(--dz-border)",
   background: selected
-    ? "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)"
-    : "#ffffff",
+    ? "linear-gradient(135deg, var(--dz-surface-muted) 0%, var(--dz-surface-muted) 100%)"
+    : "var(--dz-surface)",
   cursor: "pointer",
   textAlign: "right",
   boxShadow: selected
-    ? "0 8px 24px rgba(15,23,42,0.12)"
-    : "0 2px 10px rgba(15,23,42,0.06)",
+    ? "0 8px 24px rgba(52, 60, 50, 0.12)"
+    : "0 2px 10px rgba(52, 60, 50, 0.06)",
   transform: selected ? "scale(1.015)" : "scale(1)",
   transition:
     "border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease, background 0.18s ease",
@@ -339,14 +339,14 @@ const cardTitleStyle = (selected: boolean): React.CSSProperties => ({
   display: "block",
   fontSize: "clamp(0.92rem, 3.5vw, 1.05rem)",
   fontWeight: 800,
-  color: selected ? "#0f172a" : "#1e293b",
+  color: selected ? "var(--dz-text-primary)" : "var(--dz-text-primary)",
   lineHeight: 1.3,
 });
 
 const cardDescStyle: React.CSSProperties = {
   display: "block",
   fontSize: "clamp(0.75rem, 2.9vw, 0.84rem)",
-  color: "#64748b",
+  color: "var(--dz-text-muted)",
   lineHeight: 1.45,
 };
 
@@ -355,8 +355,8 @@ const cardRingStyle = (selected: boolean): React.CSSProperties => ({
   width: 16,
   height: 16,
   borderRadius: "50%",
-  border: selected ? "none" : "2px solid #cbd5e1",
-  background: selected ? "#0f172a" : "transparent",
+  border: selected ? "none" : "2px solid var(--dz-border-strong)",
+  background: selected ? "var(--dz-text-primary)" : "transparent",
   transition: "background 0.15s ease, border-color 0.15s ease",
 });
 
@@ -369,7 +369,7 @@ const platformSectionStyle: React.CSSProperties = {
 const platformLabelStyle: React.CSSProperties = {
   fontSize: "clamp(0.95rem, 3.5vw, 1rem)",
   fontWeight: 700,
-  color: "#0f172a",
+  color: "var(--dz-text-primary)",
   margin: 0,
   marginBottom: 12,
 };
@@ -385,15 +385,15 @@ const platformChipStyle = (selected: boolean): React.CSSProperties => ({
   height: 40,
   paddingInline: 18,
   borderRadius: 999,
-  border: selected ? "none" : "1.5px solid #e2e8f0",
-  background: selected ? "#0f172a" : "#ffffff",
-  color: selected ? "#ffffff" : "#374151",
+  border: selected ? "none" : "1.5px solid var(--dz-border)",
+  background: selected ? "var(--dz-text-primary)" : "var(--dz-surface)",
+  color: selected ? "var(--dz-text-on-brand)" : "var(--dz-text-secondary)",
   fontSize: "clamp(0.82rem, 3vw, 0.9rem)",
   fontWeight: 700,
   cursor: "pointer",
   boxShadow: selected
-    ? "0 4px 14px rgba(15,23,42,0.18)"
-    : "0 1px 6px rgba(15,23,42,0.06)",
+    ? "0 4px 14px rgba(52, 60, 50, 0.18)"
+    : "0 1px 6px rgba(52, 60, 50, 0.06)",
   transition:
     "background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease",
   WebkitTapHighlightColor: "transparent",
@@ -404,7 +404,7 @@ const footerStyle: React.CSSProperties = {
   position: "sticky",
   bottom: 0,
   zIndex: 20,
-  background: "linear-gradient(180deg, transparent 0%, #f8fafc 28%)",
+  background: "linear-gradient(180deg, transparent 0%, var(--dz-surface-muted) 28%)",
   paddingTop: 16,
   paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
   marginTop: "auto",
@@ -418,8 +418,8 @@ const ctaButtonStyle = (enabled: boolean): React.CSSProperties => ({
   height: 52,
   borderRadius: 16,
   border: "none",
-  background: enabled ? TOKEN.action.primary.background : "#cbd5e1",
-  color: "#ffffff",
+  background: enabled ? TOKEN.action.primary.background : "var(--dz-text-disabled)",
+  color: "var(--dz-text-on-brand)",
   fontSize: 16,
   fontWeight: 800,
   cursor: enabled ? "pointer" : "not-allowed",

@@ -375,7 +375,7 @@ export default function ShotDirectionPage() {
 const pageStyle: React.CSSProperties = {
   ...baseStyles.page,
   background:
-    "linear-gradient(180deg, #f8fafc 0%, #ffffff 35%, #f8fafc 100%)",
+    "linear-gradient(180deg, var(--dz-surface-muted) 0%, var(--dz-surface-flat) 35%, var(--dz-surface-muted) 100%)",
 };
 
 const shellStyle: React.CSSProperties = {
@@ -397,7 +397,7 @@ const topBarStyle: React.CSSProperties = {
 const topBarTitleStyle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
 };
 
 const topBarSpacerStyle: React.CSSProperties = {
@@ -412,7 +412,7 @@ const contentAreaStyle: React.CSSProperties = {
 
 const loadingTextStyle: React.CSSProperties = {
   fontSize: 15,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   textAlign: "center",
   padding: 40,
 };
@@ -427,9 +427,9 @@ const eyebrowStyle: React.CSSProperties = {
   justifyContent: "center",
   fontSize: 12,
   fontWeight: 800,
-  color: "#065f46",
-  background: "#ecfdf5",
-  border: "1px solid #a7f3d0",
+  color: "var(--dz-success)",
+  background: "var(--dz-success-bg-soft)",
+  border: "1px solid var(--dz-success-border)",
   borderRadius: 999,
   padding: "6px 10px",
   marginBottom: 12,
@@ -439,86 +439,86 @@ const titleStyle: React.CSSProperties = {
   fontSize: 30,
   fontWeight: 800,
   lineHeight: 1.15,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   margin: 0,
   marginBottom: 10,
 };
 
 const subtitleStyle: React.CSSProperties = {
   fontSize: 15,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   lineHeight: 1.7,
   margin: 0,
   maxWidth: 640,
 };
 
 const whyCardStyle: React.CSSProperties = {
-  background: "#ffffff",
+  background: "var(--dz-surface)",
   borderRadius: 18,
   padding: 16,
-  border: "1px solid #e5e7eb",
-  boxShadow: "0 4px 14px rgba(0,0,0,0.04)",
+  border: "1px solid var(--dz-border)",
+  boxShadow: "0 4px 14px rgba(52, 60, 50, 0.04)",
   marginBottom: 14,
 };
 
 const whyLabelStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 800,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   marginBottom: 8,
 };
 
 const whyTextStyle: React.CSSProperties = {
   fontSize: 14,
   lineHeight: 1.75,
-  color: "#374151",
+  color: "var(--dz-text-secondary)",
 };
 
 const hookReminderStyle: React.CSSProperties = {
   ...whyCardStyle,
-  background: "#eff6ff",
-  borderColor: "#bfdbfe",
+  background: "var(--dz-info-bg-soft)",
+  borderColor: "var(--dz-info-border)",
 };
 
 const hookLabelStyle: React.CSSProperties = {
   ...whyLabelStyle,
-  color: "#1e40af",
+  color: "var(--dz-info)",
 };
 
 const hookTextStyle: React.CSSProperties = {
   fontSize: 14,
   lineHeight: 1.75,
-  color: "#1e3a8a",
+  color: "var(--dz-info)",
   fontWeight: 600,
 };
 
 const hookSubtextStyle: React.CSSProperties = {
   marginTop: 8,
   fontSize: 12,
-  color: "#3b82f6",
+  color: "var(--dz-info-accent)",
   fontWeight: 600,
 };
 
 const checklistCardStyle: React.CSSProperties = {
-  background: "#ffffff",
+  background: "var(--dz-surface)",
   borderRadius: 18,
   padding: 16,
-  border: "1px solid #e5e7eb",
-  boxShadow: "0 4px 14px rgba(0,0,0,0.04)",
+  border: "1px solid var(--dz-border)",
+  boxShadow: "0 4px 14px rgba(52, 60, 50, 0.04)",
   marginBottom: 18,
 };
 
 const checklistTitleStyle: React.CSSProperties = {
   fontSize: 16,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   marginBottom: 12,
 };
 
 const checklistSectionLabelOptionalStyle: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 800,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   marginTop: 14,
   marginBottom: 8,
 };
@@ -535,9 +535,9 @@ const checklistBulletRequiredStyle: React.CSSProperties = {
   width: 22,
   height: 22,
   borderRadius: "50%",
-  background: "#ecfdf5",
-  border: "1px solid #a7f3d0",
-  color: "#065f46",
+  background: "var(--dz-success-bg-soft)",
+  border: "1px solid var(--dz-success-border)",
+  color: "var(--dz-success)",
   fontSize: 11,
   fontWeight: 900,
   display: "inline-flex",
@@ -551,9 +551,9 @@ const checklistBulletOptionalStyle: React.CSSProperties = {
   width: 22,
   height: 22,
   borderRadius: "50%",
-  background: "#f9fafb",
-  border: "1px solid #e5e7eb",
-  color: "#9ca3af",
+  background: "var(--dz-surface-muted)",
+  border: "1px solid var(--dz-border)",
+  color: "var(--dz-text-muted)",
   fontSize: 14,
   fontWeight: 900,
   display: "inline-flex",
@@ -565,36 +565,36 @@ const checklistBulletOptionalStyle: React.CSSProperties = {
 const checklistItemTextStyle: React.CSSProperties = {
   fontSize: 14,
   lineHeight: 1.65,
-  color: "#374151",
+  color: "var(--dz-text-secondary)",
 };
 
 const checklistItemOptionalTextStyle: React.CSSProperties = {
   fontSize: 14,
   lineHeight: 1.65,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
 };
 
 const checklistFootnoteStyle: React.CSSProperties = {
   marginTop: 14,
   fontSize: 13,
   lineHeight: 1.65,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   fontStyle: "italic",
 };
 
 const shotsIntroStyle: React.CSSProperties = {
   fontSize: 17,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   marginBottom: 12,
 };
 
 const momentCardStyle: React.CSSProperties = {
-  background: "#ffffff",
+  background: "var(--dz-surface)",
   borderRadius: 18,
   padding: 16,
-  border: "1px solid #e5e7eb",
-  boxShadow: "0 4px 14px rgba(0,0,0,0.04)",
+  border: "1px solid var(--dz-border)",
+  boxShadow: "0 4px 14px rgba(52, 60, 50, 0.04)",
   marginBottom: 12,
 };
 
@@ -609,13 +609,13 @@ const momentHeaderStyle: React.CSSProperties = {
 const momentTitleStyle: React.CSSProperties = {
   fontSize: 17,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
 };
 
 const momentIndexStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 800,
-  color: "#9ca3af",
+  color: "var(--dz-text-muted)",
   flexShrink: 0,
 };
 
@@ -626,23 +626,23 @@ const blockStyle: React.CSSProperties = {
 const blockLabelStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 800,
-  color: "#065f46",
+  color: "var(--dz-success)",
   marginBottom: 4,
 };
 
 const blockBodyStyle: React.CSSProperties = {
   fontSize: 14,
   lineHeight: 1.75,
-  color: "#374151",
+  color: "var(--dz-text-secondary)",
 };
 
 const tinyHelperStyle: React.CSSProperties = {
   fontSize: 12,
   lineHeight: 1.6,
-  color: "#9ca3af",
+  color: "var(--dz-text-muted)",
   marginTop: 4,
   paddingTop: 10,
-  borderTop: "1px solid #f3f4f6",
+  borderTop: "1px solid var(--dz-border-subtle)",
 };
 
 const footerStyle: React.CSSProperties = {
@@ -651,7 +651,7 @@ const footerStyle: React.CSSProperties = {
   zIndex: 20,
   background: "rgba(255,255,255,0.92)",
   backdropFilter: "blur(10px)",
-  borderTop: "1px solid #e5e7eb",
+  borderTop: "1px solid var(--dz-border)",
   padding: "12px 16px calc(12px + env(safe-area-inset-bottom)) 16px",
 };
 
@@ -662,7 +662,7 @@ const primaryButtonStyle: React.CSSProperties = {
   borderRadius: 14,
   border: "none",
   background: TOKEN.action.primary.background,
-  color: "#ffffff",
+  color: "var(--dz-text-on-brand)",
   fontSize: 15,
   fontWeight: 800,
   cursor: "pointer",

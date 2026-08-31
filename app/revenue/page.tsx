@@ -169,7 +169,7 @@ function CouponFeature() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            color: "#777067",
+            color: "var(--dz-text-secondary)",
             fontFamily: "'Heebo', system-ui, sans-serif",
             direction: "rtl",
           }}
@@ -206,7 +206,7 @@ function CouponFeature() {
 
 function Loading() {
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#777067", fontFamily: "'Heebo', system-ui, sans-serif", direction: "rtl" }}>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--dz-text-secondary)", fontFamily: "'Heebo', system-ui, sans-serif", direction: "rtl" }}>
       טוען…
     </div>
   );
@@ -219,7 +219,7 @@ export default function RevenuePage() {
   return (
     <main
       data-page-intent={SURFACE_INTENT}
-      style={{ minHeight: "100vh", background: "#FEF8F2", overflowX: "hidden" }}
+      style={{ minHeight: "100vh", background: "var(--dz-background)", overflowX: "hidden" }}
     >
       {/* `useSearchParams` needs a Suspense boundary to prerender. */}
       <Suspense fallback={<Loading />}>

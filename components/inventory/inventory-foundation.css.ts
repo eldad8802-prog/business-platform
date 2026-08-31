@@ -94,7 +94,7 @@ export const inventoryFoundationCss = `
   [data-inventory-module] .inv-hero-card p {
     margin: 0;
     max-width: 52ch;
-    color: rgba(254, 248, 242, 0.9);
+    color: rgba(251, 250, 246, 0.9);
     font-size: 14px;
     line-height: 1.65;
     font-weight: 400;
@@ -103,7 +103,7 @@ export const inventoryFoundationCss = `
   [data-inventory-module] .inv-kicker {
     display: inline-flex;
     border-radius: 999px;
-    background: rgba(254, 248, 242, 0.16);
+    background: rgba(251, 250, 246, 0.16);
     padding: 5px 10px;
     font-size: 12px;
     font-weight: 600;
@@ -720,7 +720,7 @@ export const inventoryFoundationCss = `
     position: sticky;
     top: 0;
     z-index: 40;
-    background: rgba(254, 248, 242, 0.92);
+    background: rgba(251, 250, 246, 0.92);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border-bottom: 1px solid var(--inv-border);

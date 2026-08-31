@@ -40,17 +40,17 @@ function InlineRedeemInput({
   return (
     <div
       style={{
-        background: "#ffffff",
+        background: "var(--dz-surface)",
         padding: 20,
         borderRadius: 20,
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--dz-border)",
       }}
     >
       <div
         style={{
           fontSize: 22,
           fontWeight: 700,
-          color: "#111827",
+          color: "var(--dz-text-primary)",
           marginBottom: 8,
           textAlign: "right",
         }}
@@ -61,7 +61,7 @@ function InlineRedeemInput({
       <div
         style={{
           fontSize: 14,
-          color: "#6b7280",
+          color: "var(--dz-text-muted)",
           marginBottom: 16,
           textAlign: "right",
           lineHeight: 1.5,
@@ -78,7 +78,7 @@ function InlineRedeemInput({
           width: "100%",
           padding: "14px",
           borderRadius: 12,
-          border: "1px solid #d1d5db",
+          border: "1px solid var(--dz-border-strong)",
           marginBottom: 12,
           outline: "none",
           fontSize: 16,
@@ -97,7 +97,7 @@ function InlineRedeemInput({
           borderRadius: 12,
           border: "none",
           background: TOKEN.action.primary.background,
-          color: "#ffffff",
+          color: "var(--dz-text-on-brand)",
           fontWeight: 700,
           fontSize: 16,
           cursor: "pointer",
@@ -114,9 +114,9 @@ function InlineRedeemInput({
           width: "100%",
           padding: "12px",
           borderRadius: 12,
-          border: "1px solid #d1d5db",
-          background: "#ffffff",
-          color: "#111827",
+          border: "1px solid var(--dz-border-strong)",
+          background: "var(--dz-surface)",
+          color: "var(--dz-text-primary)",
           fontWeight: 600,
           fontSize: 15,
           cursor: "pointer",
@@ -132,10 +132,10 @@ function InlineRedeemLoading() {
   return (
     <div
       style={{
-        background: "#ffffff",
+        background: "var(--dz-surface)",
         padding: 20,
         borderRadius: 20,
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--dz-border)",
         textAlign: "center",
       }}
     >
@@ -143,7 +143,7 @@ function InlineRedeemLoading() {
         style={{
           fontSize: 18,
           fontWeight: 700,
-          color: "#111827",
+          color: "var(--dz-text-primary)",
           marginBottom: 8,
         }}
       >
@@ -153,7 +153,7 @@ function InlineRedeemLoading() {
       <div
         style={{
           fontSize: 14,
-          color: "#6b7280",
+          color: "var(--dz-text-muted)",
         }}
       >
         מבצע בדיקת תקינות ואישור מימוש
@@ -193,10 +193,10 @@ function InlineRedeemSuccess({ result, onReset }: SuccessProps) {
   return (
     <div
       style={{
-        background: "#ffffff",
+        background: "var(--dz-surface)",
         padding: 20,
         borderRadius: 20,
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--dz-border)",
         textAlign: "center",
       }}
     >
@@ -205,7 +205,7 @@ function InlineRedeemSuccess({ result, onReset }: SuccessProps) {
           fontSize: 22,
           fontWeight: 700,
           marginBottom: 10,
-          color: "#111827",
+          color: "var(--dz-text-primary)",
         }}
       >
         המימוש אושר בהצלחה 🎉
@@ -215,7 +215,7 @@ function InlineRedeemSuccess({ result, onReset }: SuccessProps) {
         style={{
           fontSize: 18,
           fontWeight: 700,
-          color: "#111827",
+          color: "var(--dz-text-primary)",
           marginBottom: 8,
         }}
       >
@@ -226,7 +226,7 @@ function InlineRedeemSuccess({ result, onReset }: SuccessProps) {
         <div
           style={{
             fontSize: 14,
-            color: "#6b7280",
+            color: "var(--dz-text-muted)",
             lineHeight: 1.5,
             marginBottom: 12,
           }}
@@ -238,7 +238,7 @@ function InlineRedeemSuccess({ result, onReset }: SuccessProps) {
       <div
         style={{
           fontSize: 14,
-          color: "#111827",
+          color: "var(--dz-text-primary)",
           fontWeight: 600,
           marginBottom: redeemedAtText ? 8 : 16,
         }}
@@ -250,7 +250,7 @@ function InlineRedeemSuccess({ result, onReset }: SuccessProps) {
         <div
           style={{
             fontSize: 13,
-            color: "#6b7280",
+            color: "var(--dz-text-muted)",
             marginBottom: 16,
           }}
         >
@@ -266,7 +266,7 @@ function InlineRedeemSuccess({ result, onReset }: SuccessProps) {
           borderRadius: 12,
           border: "none",
           background: TOKEN.action.primary.background,
-          color: "#ffffff",
+          color: "var(--dz-text-on-brand)",
           fontWeight: 700,
           cursor: "pointer",
         }}
@@ -287,10 +287,10 @@ function InlineRedeemError({ message, onRetry, onManual }: ErrorProps) {
   return (
     <div
       style={{
-        background: "#ffffff",
+        background: "var(--dz-surface)",
         padding: 20,
         borderRadius: 20,
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--dz-border)",
         textAlign: "center",
       }}
     >
@@ -299,7 +299,7 @@ function InlineRedeemError({ message, onRetry, onManual }: ErrorProps) {
           fontSize: 18,
           fontWeight: 700,
           marginBottom: 10,
-          color: "#dc2626",
+          color: "var(--dz-danger)",
         }}
       >
         לא ניתן לממש את הקופון
@@ -308,7 +308,7 @@ function InlineRedeemError({ message, onRetry, onManual }: ErrorProps) {
       <div
         style={{
           marginBottom: 16,
-          color: "#374151",
+          color: "var(--dz-text-secondary)",
           lineHeight: 1.5,
         }}
       >
@@ -324,7 +324,7 @@ function InlineRedeemError({ message, onRetry, onManual }: ErrorProps) {
           borderRadius: 12,
           border: "none",
           background: TOKEN.action.primary.background,
-          color: "#ffffff",
+          color: "var(--dz-text-on-brand)",
           fontWeight: 700,
           cursor: "pointer",
           marginBottom: 10,
@@ -340,9 +340,9 @@ function InlineRedeemError({ message, onRetry, onManual }: ErrorProps) {
           width: "100%",
           padding: "12px 16px",
           borderRadius: 12,
-          border: "1px solid #d1d5db",
-          background: "#ffffff",
-          color: "#111827",
+          border: "1px solid var(--dz-border-strong)",
+          background: "var(--dz-surface)",
+          color: "var(--dz-text-primary)",
           fontWeight: 600,
           cursor: "pointer",
         }}
@@ -480,7 +480,7 @@ export default function RedeemScreen() {
     <main
       style={{
         minHeight: "100vh",
-        background: "#f8f5ef",
+        background: "var(--dz-surface-muted)",
         padding: "24px 16px",
       }}
     >
@@ -493,10 +493,10 @@ export default function RedeemScreen() {
         {flowState === "scan" && (
           <div
             style={{
-              background: "#ffffff",
+              background: "var(--dz-surface)",
               padding: 20,
               borderRadius: 20,
-              border: "1px solid #e5e7eb",
+              border: "1px solid var(--dz-border)",
               marginBottom: 12,
             }}
           >
@@ -504,7 +504,7 @@ export default function RedeemScreen() {
               style={{
                 fontSize: 22,
                 fontWeight: 700,
-                color: "#111827",
+                color: "var(--dz-text-primary)",
                 marginBottom: 8,
                 textAlign: "right",
               }}
@@ -515,7 +515,7 @@ export default function RedeemScreen() {
             <div
               style={{
                 fontSize: 14,
-                color: "#6b7280",
+                color: "var(--dz-text-muted)",
                 marginBottom: 8,
                 textAlign: "right",
                 lineHeight: 1.5,
@@ -527,7 +527,7 @@ export default function RedeemScreen() {
             <div
               style={{
                 fontSize: 13,
-                color: "#6b7280",
+                color: "var(--dz-text-muted)",
                 marginBottom: 16,
                 textAlign: "right",
                 lineHeight: 1.5,
@@ -548,9 +548,9 @@ export default function RedeemScreen() {
                 width: "100%",
                 padding: "12px",
                 borderRadius: 12,
-                border: "1px solid #d1d5db",
-                background: "#ffffff",
-                color: "#111827",
+                border: "1px solid var(--dz-border-strong)",
+                background: "var(--dz-surface)",
+                color: "var(--dz-text-primary)",
                 fontWeight: 600,
                 fontSize: 15,
                 cursor: "pointer",

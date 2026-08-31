@@ -55,33 +55,33 @@ export function DeleteAccountSection() {
 
   if (done) {
     return (
-      <div role="status" aria-live="polite" className="rounded-2xl bg-white p-4 text-sm text-gray-700 shadow-sm">
+      <div role="status" aria-live="polite" className="rounded-2xl bg-[var(--dz-surface)] p-4 text-sm text-[var(--dz-text-secondary)] shadow-sm">
         בקשת מחיקת החשבון התקבלה והחשבון נסגר. מעבירים אתכם למסך ההתחברות…
       </div>
     );
   }
 
   return (
-    <section className="rounded-2xl bg-white p-4 shadow-sm" dir="rtl">
-      <h2 className="mb-1 text-base font-bold text-gray-900">מחיקת חשבון</h2>
-      <p className="mb-3 text-sm leading-6 text-gray-600">
+    <section className="rounded-2xl bg-[var(--dz-surface)] p-4 shadow-sm" dir="rtl">
+      <h2 className="mb-1 text-base font-bold text-[var(--dz-text-primary)]">מחיקת חשבון</h2>
+      <p className="mb-3 text-sm leading-6 text-[var(--dz-text-muted)]">
         מחיקת החשבון תסיר את פרטי המשתמש והמידע התפעולי (לקוחות, שיחות, קבצים והחיבורים
         החיצוניים) ותנתק את השירותים המחוברים. מסמכים ורשומות שהחוק מחייב לשמור — כמו
         חשבוניות וקבלות ורשומות הנהלת חשבונות — עשויים להישמר לתקופת השמירה הקבועה בדין,
-        ולא ישמשו להפעלת חשבון פעיל. <span className="font-semibold text-gray-800">הפעולה בלתי הפיכה.</span>
+        ולא ישמשו להפעלת חשבון פעיל. <span className="font-semibold text-[var(--dz-text-primary)]">הפעולה בלתי הפיכה.</span>
       </p>
 
       {!open ? (
         <button
           type="button"
           onClick={() => { setOpen(true); setError(null); }}
-          className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-red-200 bg-white px-4 text-sm font-semibold text-red-700 hover:bg-red-50"
+          className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[var(--dz-danger-border)] bg-[var(--dz-surface)] px-4 text-sm font-semibold text-[var(--dz-danger)] hover:bg-[var(--dz-danger-bg-soft)]"
         >
           מחיקת החשבון שלי
         </button>
       ) : (
-        <div className="rounded-xl border border-red-200 bg-red-50/50 p-3">
-          <label htmlFor="delete-confirm" className="mb-1 block text-sm font-medium text-gray-800">
+        <div className="rounded-xl border border-[var(--dz-danger-border)] bg-[var(--dz-danger-bg-soft)] p-3">
+          <label htmlFor="delete-confirm" className="mb-1 block text-sm font-medium text-[var(--dz-text-primary)]">
             לאישור, הקלידו את המילה “{CONFIRM_WORD}”
           </label>
           <input
@@ -90,7 +90,7 @@ export function DeleteAccountSection() {
             autoComplete="off"
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
-            className="mb-3 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm"
+            className="mb-3 w-full rounded-xl border border-[var(--dz-border-strong)] px-3 py-2 text-sm"
             aria-describedby={error ? "delete-error" : undefined}
           />
           <div className="flex flex-wrap gap-2">
@@ -98,7 +98,7 @@ export function DeleteAccountSection() {
               type="button"
               disabled={busy || confirmText.trim() !== CONFIRM_WORD}
               onClick={handleDelete}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-2xl bg-red-600 px-4 text-sm font-semibold text-white disabled:opacity-50"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-2xl bg-[var(--dz-danger-accent)] px-4 text-sm font-semibold text-[var(--dz-text-on-brand)] disabled:opacity-50"
             >
               {busy ? "מוחק…" : "מחיקה סופית"}
             </button>
@@ -106,7 +106,7 @@ export function DeleteAccountSection() {
               type="button"
               disabled={busy}
               onClick={() => { setOpen(false); setConfirmText(""); setError(null); }}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-700"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[var(--dz-border-strong)] bg-[var(--dz-surface)] px-4 text-sm font-semibold text-[var(--dz-text-secondary)]"
             >
               ביטול
             </button>
@@ -115,7 +115,7 @@ export function DeleteAccountSection() {
       )}
 
       {error ? (
-        <p id="delete-error" role="alert" aria-live="assertive" className="mt-3 text-sm text-red-700">
+        <p id="delete-error" role="alert" aria-live="assertive" className="mt-3 text-sm text-[var(--dz-danger)]">
           {error}
         </p>
       ) : null}

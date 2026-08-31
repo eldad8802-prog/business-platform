@@ -5,7 +5,7 @@ export default function IssueHeader() {
         style={{
           fontSize: 14,
           fontWeight: 700,
-          color: "#6b7280",
+          color: "var(--dz-text-muted)",
           marginBottom: 8,
         }}
       >
@@ -17,7 +17,7 @@ export default function IssueHeader() {
           margin: 0,
           fontSize: 32,
           lineHeight: 1.1,
-          color: "#111827",
+          color: "var(--dz-text-primary)",
         }}
       >
         הוצאת קופון
@@ -29,7 +29,7 @@ export default function IssueHeader() {
           marginBottom: 0,
           fontSize: 16,
           lineHeight: 1.6,
-          color: "#4b5563",
+          color: "var(--dz-text-secondary)",
         }}
       >
    בחר הצעה והנפק קופון ממוקד לשימוש בתנאים ברורים.

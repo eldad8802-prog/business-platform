@@ -154,7 +154,7 @@ export default function DirectionPage() {
 const pageStyle: React.CSSProperties = {
   ...baseStyles.page,
   background:
-    "linear-gradient(180deg, #f8fafc 0%, #ffffff 35%, #f8fafc 100%)",
+    "linear-gradient(180deg, var(--dz-surface-muted) 0%, var(--dz-surface-flat) 35%, var(--dz-surface-muted) 100%)",
 };
 
 const shellStyle: React.CSSProperties = {
@@ -176,7 +176,7 @@ const topBarStyle: React.CSSProperties = {
 const topBarTitleStyle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
 };
 
 const topBarSpacerStyle: React.CSSProperties = {
@@ -199,9 +199,9 @@ const eyebrowStyle: React.CSSProperties = {
   justifyContent: "center",
   fontSize: 12,
   fontWeight: 800,
-  color: "#065f46",
-  background: "#ecfdf5",
-  border: "1px solid #a7f3d0",
+  color: "var(--dz-success)",
+  background: "var(--dz-success-bg-soft)",
+  border: "1px solid var(--dz-success-border)",
   borderRadius: 999,
   padding: "6px 10px",
   marginBottom: 12,
@@ -211,7 +211,7 @@ const titleStyle: React.CSSProperties = {
   fontSize: 30,
   fontWeight: 800,
   lineHeight: 1.15,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   margin: 0,
   marginBottom: 10,
 };
@@ -219,7 +219,7 @@ const titleStyle: React.CSSProperties = {
 const subtitleStyle: React.CSSProperties = {
   fontSize: 15,
   lineHeight: 1.7,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   margin: 0,
   maxWidth: 620,
 };
@@ -235,13 +235,13 @@ const directionCardStyle = (selected: boolean): React.CSSProperties => ({
   textAlign: "right",
   padding: 18,
   borderRadius: 20,
-  border: selected ? "2px solid #111827" : "1px solid #e5e7eb",
+  border: selected ? "2px solid var(--dz-text-primary)" : "1px solid var(--dz-border)",
   background: selected
-    ? "linear-gradient(180deg, #ffffff 0%, #f9fafb 100%)"
-    : "#ffffff",
+    ? "linear-gradient(180deg, var(--dz-surface-flat) 0%, var(--dz-surface-muted) 100%)"
+    : "var(--dz-surface)",
   boxShadow: selected
-    ? "0 10px 24px rgba(17,24,39,0.10)"
-    : "0 6px 18px rgba(0,0,0,0.04)",
+    ? "0 10px 24px rgba(52, 60, 50, 0.1)"
+    : "0 6px 18px rgba(52, 60, 50, 0.04)",
   cursor: "pointer",
 });
 
@@ -256,15 +256,15 @@ const cardTopRowStyle: React.CSSProperties = {
 const cardTitleStyle: React.CSSProperties = {
   fontSize: 18,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
 };
 
 const recommendedBadgeStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 800,
-  color: "#065f46",
-  background: "#ecfdf5",
-  border: "1px solid #a7f3d0",
+  color: "var(--dz-success)",
+  background: "var(--dz-success-bg-soft)",
+  border: "1px solid var(--dz-success-border)",
   borderRadius: 999,
   padding: "4px 8px",
   flexShrink: 0,
@@ -273,13 +273,13 @@ const recommendedBadgeStyle: React.CSSProperties = {
 const cardDescriptionStyle: React.CSSProperties = {
   fontSize: 14,
   lineHeight: 1.7,
-  color: "#4b5563",
+  color: "var(--dz-text-secondary)",
   marginBottom: 12,
 };
 
 const whyBoxStyle: React.CSSProperties = {
-  background: "#f9fafb",
-  border: "1px solid #eef2f7",
+  background: "var(--dz-surface-muted)",
+  border: "1px solid var(--dz-border)",
   borderRadius: 14,
   padding: 12,
 };
@@ -287,14 +287,14 @@ const whyBoxStyle: React.CSSProperties = {
 const whyLabelStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   marginBottom: 4,
 };
 
 const whyTextStyle: React.CSSProperties = {
   fontSize: 13,
   lineHeight: 1.7,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
 };
 
 const footerStyle: React.CSSProperties = {
@@ -303,7 +303,7 @@ const footerStyle: React.CSSProperties = {
   zIndex: 20,
   background: "rgba(255,255,255,0.92)",
   backdropFilter: "blur(10px)",
-  borderTop: "1px solid #e5e7eb",
+  borderTop: "1px solid var(--dz-border)",
   padding: "12px 16px calc(12px + env(safe-area-inset-bottom)) 16px",
   display: "flex",
   alignItems: "center",
@@ -315,8 +315,8 @@ const nextButtonStyle = (enabled: boolean): React.CSSProperties => ({
   height: 48,
   borderRadius: 14,
   border: "none",
-  background: enabled ? TOKEN.action.primary.background : "#9ca3af",
-  color: "#ffffff",
+  background: enabled ? TOKEN.action.primary.background : "var(--dz-text-muted)",
+  color: "var(--dz-text-on-brand)",
   fontSize: 15,
   fontWeight: 800,
   cursor: enabled ? "pointer" : "not-allowed",

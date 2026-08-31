@@ -18,7 +18,7 @@ export default function SettingsConnectionsPage() {
         <IntegrationStatusCards />
       </div>
       <SettingsSection>
-        <p className="text-sm leading-6 text-gray-600">
+        <p className="text-sm leading-6 text-[var(--dz-text-muted)]">
           מוצג כאן מצב החיבורים הקיימים. ניהול החיבור עצמו מתבצע במסך הייעודי של כל
           אינטגרציה.
         </p>

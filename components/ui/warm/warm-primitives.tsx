@@ -103,7 +103,7 @@ export function WarmButton({
     variant === "primary"
       ? {
           background: disabled ? W.muted2 : hover ? W.gradHover : W.grad,
-          color: "#fff",
+          color: "var(--dz-text-on-brand)",
           boxShadow: disabled ? "none" : hover ? W.glowHover : W.glow,
           transform: hover && !disabled ? "translateY(-1px)" : "translateY(0)",
         }

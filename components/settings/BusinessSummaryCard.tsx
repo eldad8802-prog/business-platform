@@ -29,8 +29,8 @@ function getAuthToken(): string | null {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3 py-2">
-      <span className="text-xs font-semibold text-gray-500">{label}</span>
-      <span className="text-sm font-medium text-gray-900">{value}</span>
+      <span className="text-xs font-semibold text-[var(--dz-text-muted)]">{label}</span>
+      <span className="text-sm font-medium text-[var(--dz-text-primary)]">{value}</span>
     </div>
   );
 }
@@ -86,20 +86,20 @@ export function BusinessSummaryCard() {
   }, []);
 
   return (
-    <section className="rounded-[24px] bg-white p-4 shadow-sm" dir="rtl">
-      <h2 className="text-sm font-bold text-gray-900">פרטי העסק</h2>
-      <p className="mt-1 text-xs leading-5 text-gray-500">
+    <section className="rounded-[24px] bg-[var(--dz-surface)] p-4 shadow-sm" dir="rtl">
+      <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">פרטי העסק</h2>
+      <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
         התקציר שמזהה את העסק שלך במערכת.
       </p>
 
       {status === "loading" ? (
-        <p className="mt-4 text-xs text-gray-400">טוען…</p>
+        <p className="mt-4 text-xs text-[var(--dz-text-muted)]">טוען…</p>
       ) : status === "error" ? (
-        <p className="mt-4 text-xs leading-5 text-red-600">
+        <p className="mt-4 text-xs leading-5 text-[var(--dz-danger)]">
           לא הצלחנו לטעון את פרטי העסק כרגע.
         </p>
       ) : info ? (
-        <div className="mt-3 divide-y divide-gray-100">
+        <div className="mt-3 divide-y divide-[var(--dz-border-subtle)]">
           <Row label="שם העסק" value={info.name?.trim() ? info.name : "—"} />
           {info.category ? <Row label="תחום" value={info.category} /> : null}
           {info.address ? <Row label="כתובת" value={info.address} /> : null}
@@ -109,7 +109,7 @@ export function BusinessSummaryCard() {
       <div className="mt-4">
         <Link
           href="/business"
-          className="inline-flex min-h-11 items-center rounded-2xl border border-gray-200 px-4 text-sm font-semibold text-gray-700"
+          className="inline-flex min-h-11 items-center rounded-2xl border border-[var(--dz-border)] px-4 text-sm font-semibold text-[var(--dz-text-secondary)]"
         >
           עריכת פרטי העסק
         </Link>

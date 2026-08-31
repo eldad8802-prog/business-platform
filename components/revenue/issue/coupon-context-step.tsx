@@ -89,8 +89,8 @@ export default function CouponContextStep({
 
 const styles: Record<string, React.CSSProperties> = {
   card: {
-    background: "#ffffff",
-    border: "1px solid #e5e7eb",
+    background: "var(--dz-surface)",
+    border: "1px solid var(--dz-border)",
     borderRadius: 24,
     padding: 20,
     marginBottom: 16,
@@ -116,14 +116,14 @@ const styles: Record<string, React.CSSProperties> = {
   option: {
     padding: "12px",
     borderRadius: 12,
-    border: "1px solid #d1d5db",
-    background: "#ffffff",
+    border: "1px solid var(--dz-border-strong)",
+    background: "var(--dz-surface)",
     cursor: "pointer",
     fontWeight: 700,
   },
   optionActive: {
-    background: "#111827",
-    color: "#ffffff",
+    background: "var(--dz-text-primary)",
+    color: "var(--dz-text-on-brand)",
     border: "none",
   },
   continueBtn: {
@@ -132,7 +132,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 14,
     border: "none",
     background: TOKEN.action.primary.background,
-    color: "#ffffff",
+    color: "var(--dz-text-on-brand)",
     fontWeight: 800,
     cursor: "pointer",
   },

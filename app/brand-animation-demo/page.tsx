@@ -33,8 +33,8 @@ export default function BrandAnimationDemoPage() {
         gap: 26,
         padding: 24,
         background:
-          "radial-gradient(circle at 50% 38%, #FDFBF6 0%, #F5EFE2 58%, #EDE4D3 100%)",
-        color: "#2D4B47",
+          "radial-gradient(circle at 50% 38%, var(--dz-surface-flat) 0%, var(--dz-surface-muted) 58%, var(--dz-surface-muted) 100%)",
+        color: "var(--dz-text-primary)",
         fontFamily: "inherit",
         textAlign: "center",
       }}
@@ -70,15 +70,15 @@ function btn(primary: boolean): React.CSSProperties {
     minHeight: 44,
     padding: "9px 20px",
     borderRadius: 999,
-    border: primary ? "1px solid rgba(255,255,255,0.3)" : "1px solid rgba(15,111,104,0.28)",
+    border: primary ? "1px solid rgba(255,255,255,0.3)" : "1px solid rgba(36, 105, 102,0.28)",
     background: primary
-      ? "linear-gradient(90deg, #0F6F68 0%, #2EAAA2 55%, #8FE3DA 100%)"
-      : "rgba(15,111,104,0.06)",
-    color: primary ? "#fff" : "#0F6F68",
+      ? "linear-gradient(90deg, var(--dz-brand) 0%, var(--dz-brand) 55%, var(--dz-brand-soft-strong) 100%)"
+      : "rgba(36, 105, 102,0.06)",
+    color: primary ? "var(--dz-text-on-brand)" : "var(--dz-brand)",
     fontFamily: "inherit",
     fontSize: 14,
     fontWeight: 700,
     cursor: "pointer",
-    boxShadow: primary ? "0 12px 30px rgba(46,170,162,0.32)" : "none",
+    boxShadow: primary ? "0 12px 30px rgba(36, 105, 102,0.32)" : "none",
   };
 }
