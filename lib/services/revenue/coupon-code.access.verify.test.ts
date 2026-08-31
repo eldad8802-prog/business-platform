@@ -10,6 +10,7 @@
  *   - public details DTO carries NO secret and NO internal coupon.id
  *   - public active card carries NO secret and NO internal coupon.id
  *   - production has NO bypass: auth stays enforced regardless of env
+ *   - a malformed public id fails closed as 404, never as a DB-level 500
  *
  * The route wires getCurrentUser → requireIssuerBusinessId → getCouponCode; the
  * DB-touching getCouponCode is exercised end-to-end in staging, not here.
@@ -21,6 +22,7 @@ import {
   type CouponCodeRecord,
 } from "@/lib/services/revenue/coupon-code.service";
 import { toPublicCouponDetailsDTO } from "@/lib/services/revenue/coupon-details-public.service";
+import { assertCouponPublicId } from "@/lib/services/revenue/coupon-public-id";
 import { toActiveCouponCard } from "@/lib/services/revenue/active-coupons.service";
 import {
   AppError,
@@ -235,6 +237,32 @@ throwsStatus(
   () => assertCouponCodeAccess({ coupon: activeCoupon(), requestingBusinessId: OTHER }),
   ForbiddenError,
   403
+);
+
+// --- public id shape ---------------------------------------------------
+// `Coupon.publicId` is a Postgres uuid column, so anything that is not a UUID
+// used to reach Prisma and surface as a 500 — anonymously on the public detail
+// route, and directly in front of the redemption secret on the code route.
+// It now fails closed, and it fails *identically* to a missing coupon so a
+// caller cannot tell a wrong shape from a wrong id (anti-enumeration).
+ok(
+  "well-formed uuid passes through unchanged",
+  assertCouponPublicId("3f2504e0-4f89-11d3-9a0c-0305e82c3301") ===
+    "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+);
+for (const bad of ["999999999", "abc", "", "3f2504e0-4f89-11d3-9a0c", "../../etc", "null"]) {
+  throwsStatus(
+    `malformed public id ${JSON.stringify(bad)} → 404, not 500`,
+    () => assertCouponPublicId(bad),
+    NotFoundError,
+    404
+  );
+}
+throwsStatus(
+  "non-string public id → 404",
+  () => assertCouponPublicId(undefined),
+  NotFoundError,
+  404
 );
 
 if (failed > 0) {
