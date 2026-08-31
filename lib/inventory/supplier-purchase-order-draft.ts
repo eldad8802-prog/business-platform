@@ -4,6 +4,11 @@ export const SUPPLIER_PURCHASE_ORDER_DRAFT_KEY =
 export type SupplierPurchaseOrderDraftV1 = {
   version: 1;
   savedAt: string;
+  /**
+   * Entity-FK of the chosen Supplier, when the owner picked a real one.
+   * Optional so a v1 draft written before this field existed still restores.
+   */
+  supplierId?: number | null;
   supplierName: string;
   order: Record<number, number>;
   unitCosts?: Record<number, number | null>;
@@ -20,6 +25,13 @@ export function readSupplierPurchaseOrderDraft(): SupplierPurchaseOrderDraftV1 |
     const parsed = JSON.parse(raw) as SupplierPurchaseOrderDraftV1;
     if (!parsed || parsed.version !== 1) return null;
     if (typeof parsed.supplierName !== "string") return null;
+    if (
+      parsed.supplierId != null &&
+      (typeof parsed.supplierId !== "number" ||
+        !Number.isInteger(parsed.supplierId))
+    ) {
+      return null;
+    }
     if (!parsed.order || typeof parsed.order !== "object") return null;
     if (
       parsed.unitCosts != null &&

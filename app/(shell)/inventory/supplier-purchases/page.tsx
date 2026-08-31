@@ -18,10 +18,14 @@ type PurchaseOrderLine = {
   id: number;
   orderedQty: number;
   unitCost: number | null;
+  /** Server-computed; the API has always returned these alongside each line. */
+  receivedQty?: number;
+  openQty?: number;
 };
 
 type PurchaseOrder = {
   id: number;
+  supplierId: number | null;
   supplierName: string | null;
   externalOrderId: string | null;
   status: string;
@@ -29,6 +33,22 @@ type PurchaseOrder = {
   createdAt: string;
   lines: PurchaseOrderLine[];
 };
+
+/**
+ * Is there anything left to receive against this order?
+ *
+ * Reads the server's own `openQty` (ordered − posted receipts − closed-short)
+ * and falls back to the ordered quantity only when the field is absent. This is
+ * what decides whether the receiving screen is offered — previously the offer
+ * was gated on status === "AWAITING_DELIVERY", a state nothing ever produced, so
+ * the receiving screen was unreachable from the normal flow.
+ */
+function hasOpenQuantity(order: PurchaseOrder): boolean {
+  if (order.status === "CLOSED" || order.status === "CANCELLED") return false;
+  return order.lines.some((line) =>
+    line.openQty != null ? line.openQty > 0 : line.orderedQty > 0
+  );
+}
 
 type Tab = "pending" | "transit" | "history";
 
@@ -131,6 +151,15 @@ export default function SupplierPurchasesHubPage() {
       }}
       bottomNav="orders"
     >
+      <div
+        className="inv-page-content"
+        style={{ padding: "0 clamp(16px,3.5vw,28px)", marginBottom: 4 }}
+      >
+        <a className="inv-btn-link" href="/suppliers">
+          כרטיסי הספקים ›
+        </a>
+      </div>
+
       <FilterChipRow<Tab | "import">
         value={tab}
         onChange={(value) => {
@@ -191,7 +220,7 @@ export default function SupplierPurchasesHubPage() {
               total > 0 ? `₪${total.toLocaleString("he-IL")}` : "",
               date || "",
             ].filter(Boolean);
-            const canReceive = order.status === "AWAITING_DELIVERY";
+            const canReceive = hasOpenQuantity(order);
             return (
               <InventoryRow
                 key={order.id}
@@ -199,7 +228,19 @@ export default function SupplierPurchasesHubPage() {
                 thumbBg="var(--inv-surface)"
                 title={
                   <>
-                    <bdi>{order.supplierName || "הזמנה ללא ספק"}</bdi>
+                    {order.supplierId != null ? (
+                      // One domain, two surfaces: an order that knows its
+                      // supplier entity links straight to that supplier's card.
+                      <a
+                        href={`/suppliers/${order.supplierId}`}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ color: "inherit" }}
+                      >
+                        <bdi>{order.supplierName || "ספק"}</bdi>
+                      </a>
+                    ) : (
+                      <bdi>{order.supplierName || "הזמנה ללא ספק"}</bdi>
+                    )}
                     {" · "}
                     <bdi>{idLabel}</bdi>
                   </>

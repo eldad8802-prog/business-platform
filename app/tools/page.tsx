@@ -32,7 +32,7 @@ const TOOLS: ToolItem[] = [
   {
     key: "suppliers",
     title: "ספקים",
-    description: "כרטיסי ספק — פרטי קשר, זמני אספקה והערות במקום אחד",
+    description: "כרטיסי ספק ורכש מספקים — פרטי הספק, ההזמנות והעלויות במקום אחד",
     href: "/suppliers",
     status: "active",
     icon: "🚚",
