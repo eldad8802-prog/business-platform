@@ -12,6 +12,7 @@ import {
   InventoryUnauthorizedError,
   InventoryValidationError,
 } from "@/lib/services/inventory/inventory.errors";
+import { settlePurchaseOrderStatus } from "@/lib/services/inventory/purchase-order-status";
 
 type Tx = Prisma.TransactionClient;
 type QueryClient = Tx | typeof prisma;
@@ -565,6 +566,18 @@ export const purchaseOrderService = {
           remainingDecidedAt: new Date(),
           remainingDecidedByUserId: input.decidedByUserId ?? null,
         },
+      });
+
+      // Writing off a remainder changes what is still expected from the
+      // supplier, exactly as receiving goods does — so it has to settle the
+      // order's status for the same reason. Without this, an order whose
+      // remainder was CLOSED_SHORT had nothing outstanding yet stayed in
+      // AWAITING_DELIVERY ("בדרך") permanently and never reached history.
+      // BACKORDER and KEEP_OPEN mean the goods are still coming, so settling
+      // leaves those orders open — the call is safe for every decision.
+      await settlePurchaseOrderStatus(tx, {
+        businessId,
+        purchaseOrderId,
       });
 
       const closedShortQty = getClosedShortQty(updatedLine);

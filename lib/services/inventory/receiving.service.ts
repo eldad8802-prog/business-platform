@@ -13,6 +13,7 @@ import {
   InventoryUnauthorizedError,
   InventoryValidationError,
 } from "@/lib/services/inventory/inventory.errors";
+import { settlePurchaseOrderStatus } from "@/lib/services/inventory/purchase-order-status";
 
 type Tx = Prisma.TransactionClient;
 type TxOptions = { tx?: Tx };
@@ -276,81 +277,6 @@ async function validateReceivingLines(
       orderedQty: purchaseOrderLine.orderedQty,
       alreadyReceived,
     };
-  });
-}
-
-/**
- * Recompute a purchase order's status from the reality of its lines.
- *
- * Pure derivation — it reads posted receipts and line decisions and writes one
- * status. It never moves a terminal order (CLOSED / CANCELLED stay put) and it
- * never downgrades an order that has nothing left open.
- */
-async function settlePurchaseOrderStatus(
-  tx: Tx,
-  input: { businessId: number; purchaseOrderId: number }
-) {
-  // ONE round trip: the order, its lines, and each line's POSTED receipts. This
-  // runs inside an already long approval transaction, so a second query here is
-  // not free — nesting the receipts into the same read keeps the added cost to a
-  // single statement.
-  const purchaseOrder = await tx.purchaseOrder.findFirst({
-    where: { id: input.purchaseOrderId, businessId: input.businessId },
-    select: {
-      id: true,
-      status: true,
-      lines: {
-        select: {
-          id: true,
-          status: true,
-          orderedQty: true,
-          remainingDecision: true,
-          remainingDecisionQty: true,
-          receivingLines: {
-            where: {
-              receivingSession: { status: ReceivingSessionStatus.POSTED },
-            },
-            select: { receivedQty: true },
-          },
-        },
-      },
-    },
-  });
-
-  if (!purchaseOrder) return;
-
-  if (
-    purchaseOrder.status === PurchaseOrderStatus.CLOSED ||
-    purchaseOrder.status === PurchaseOrderStatus.CANCELLED
-  ) {
-    return;
-  }
-
-  const hasOpenQuantity = purchaseOrder.lines.some((line) => {
-    if (line.status === PurchaseOrderLineStatus.CANCELLED) return false;
-
-    const received = line.receivingLines.reduce(
-      (sum, r) => sum + r.receivedQty,
-      0
-    );
-    const closedShort =
-      line.remainingDecision ===
-      PurchaseOrderLineRemainingDecision.CLOSED_SHORT
-        ? line.remainingDecisionQty ?? 0
-        : 0;
-
-    return line.orderedQty - received - closedShort > 0;
-  });
-
-  const nextStatus = hasOpenQuantity
-    ? PurchaseOrderStatus.AWAITING_DELIVERY
-    : PurchaseOrderStatus.CLOSED;
-
-  if (nextStatus === purchaseOrder.status) return;
-
-  await tx.purchaseOrder.update({
-    where: { id: purchaseOrder.id },
-    data: { status: nextStatus },
   });
 }
 

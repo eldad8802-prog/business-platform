@@ -279,6 +279,113 @@ async function main() {
     afterRename.body?.summary?.purchaseOrderCount === 1
   );
 
+  // ── 11b. Purchase order lifecycle, over HTTP ──────────────────────────────
+  // Confirm -> inspect -> open receiving -> partial -> inspect -> remainder ->
+  // inspect. The rule being proven: CLOSED means the order is genuinely over.
+  // Reaching it early is not cosmetic — the receiving service refuses goods
+  // against a closed order, so an early close would strand real stock.
+  const lifePo = await api("/api/inventory/purchase-orders", {
+    method: "POST",
+    body: JSON.stringify({
+      supplierId,
+      status: "CONFIRMED",
+      lines: [{ itemId, orderedQty: 10, unitCost: 5 }],
+    }),
+  });
+  const lifePoId = lifePo.body?.purchaseOrder?.id;
+  const lifeLineId = lifePo.body?.purchaseOrder?.lines?.[0]?.id;
+  check(
+    "11b. confirmed PO is CONFIRMED, not CLOSED (goods not received)",
+    lifePo.body?.purchaseOrder?.status === "CONFIRMED",
+    `status=${lifePo.body?.purchaseOrder?.status}`
+  );
+  check(
+    "11b. confirmed PO reports its full quantity as open",
+    lifePo.body?.purchaseOrder?.lines?.[0]?.openQty === 10
+  );
+
+  const partialSession = await api(
+    `/api/inventory/purchase-orders/${lifePoId}/receiving-sessions`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        lines: [{ purchaseOrderLineId: lifeLineId, receivedQty: 4 }],
+      }),
+    }
+  );
+  const partialSessionId =
+    partialSession.body?.receivingSession?.id ?? partialSession.body?.id;
+  check(
+    "11b. receiving is reachable on a confirmed order",
+    partialSession.status < 400 && Boolean(partialSessionId),
+    `status=${partialSession.status}`
+  );
+
+  const postPartial = await api(
+    `/api/inventory/receiving-sessions/${partialSessionId}/post`,
+    { method: "POST", body: JSON.stringify({}) }
+  );
+  check("11b. partial receipt posted", postPartial.status < 400, `status=${postPartial.status}`);
+
+  const afterPartial = await api(`/api/inventory/purchase-orders/${lifePoId}`);
+  check(
+    "11b. after partial receipt the order is NOT terminal",
+    afterPartial.body?.purchaseOrder?.status === "AWAITING_DELIVERY",
+    `status=${afterPartial.body?.purchaseOrder?.status}`
+  );
+  check(
+    "11b. after partial receipt the remainder is still open (4 in / 6 due)",
+    afterPartial.body?.purchaseOrder?.lines?.[0]?.receivedQty === 4 &&
+      afterPartial.body?.purchaseOrder?.lines?.[0]?.openQty === 6
+  );
+
+  const restSession = await api(
+    `/api/inventory/purchase-orders/${lifePoId}/receiving-sessions`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        lines: [{ purchaseOrderLineId: lifeLineId, receivedQty: 6 }],
+      }),
+    }
+  );
+  const restSessionId =
+    restSession.body?.receivingSession?.id ?? restSession.body?.id;
+  check(
+    "11b. the remainder is still receivable after a partial receipt",
+    restSession.status < 400 && Boolean(restSessionId),
+    `status=${restSession.status}`
+  );
+  await api(`/api/inventory/receiving-sessions/${restSessionId}/post`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+
+  const afterFull = await api(`/api/inventory/purchase-orders/${lifePoId}`);
+  check(
+    "11b. after full receipt the order is terminal (CLOSED)",
+    afterFull.body?.purchaseOrder?.status === "CLOSED",
+    `status=${afterFull.body?.purchaseOrder?.status}`
+  );
+  check(
+    "11b. nothing left open after full receipt",
+    afterFull.body?.purchaseOrder?.lines?.[0]?.openQty === 0
+  );
+
+  const refused = await api(
+    `/api/inventory/purchase-orders/${lifePoId}/receiving-sessions`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        lines: [{ purchaseOrderLineId: lifeLineId, receivedQty: 1 }],
+      }),
+    }
+  );
+  check(
+    "11b. a CLOSED order refuses further receipts (terminal for real)",
+    refused.status >= 400,
+    `status=${refused.status}`
+  );
+
   // ── 12. Tenant isolation, read-only probes only ───────────────────────────
   const otherToken = seeded.b.token;
 
