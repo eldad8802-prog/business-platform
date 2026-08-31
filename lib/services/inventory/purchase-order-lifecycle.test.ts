@@ -20,6 +20,10 @@ import { prisma } from "@/lib/prisma";
 import { purchaseOrderService } from "@/lib/services/inventory/purchase-order.service";
 import { receivingService } from "@/lib/services/inventory/receiving.service";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
+import {
+  InventoryNotFoundError,
+  InventoryValidationError,
+} from "@/lib/services/inventory/inventory.errors";
 import { supplierService } from "@/lib/services/inventory/supplier.service";
 
 const runId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -40,16 +44,26 @@ async function statusOf(id: number): Promise<PurchaseOrderStatus> {
   return row.status;
 }
 
-/** Can the receiving service still take goods in against this order? */
+/**
+ * Can the receiving service still take goods in against this order?
+ *
+ * createReceivingSession runs the same guards a real receipt runs, so a session
+ * that builds successfully proves the receiving screen would work. It is rolled
+ * back immediately, so the probe changes nothing.
+ *
+ * A "no" must mean the DOMAIN refused — never that the database hiccuped. This
+ * runs against a remote database, and an earlier version of this helper treated
+ * every thrown error as "not reachable", so a transaction timeout silently
+ * became a failed assertion about business rules. An unrecognised error is now
+ * rethrown: a flaky gate that cries wolf is worse than no gate, because it
+ * teaches everyone to re-run instead of read.
+ */
 async function receivingReachable(
   businessId: number,
   purchaseOrderId: number,
   purchaseOrderLineId: number
 ): Promise<boolean> {
   try {
-    // createReceivingSession runs the same guards a real receipt runs, so a
-    // successful DRAFT session proves the screen would work. It is rolled back
-    // immediately so this probe changes nothing.
     await prisma.$transaction(async (tx) => {
       await receivingService.createReceivingSession(
         {
@@ -64,7 +78,16 @@ async function receivingReachable(
     return true;
   } catch (err) {
     if (err instanceof Error && err.message === "__rollback__") return true;
-    return false;
+
+    // The guards this probe is actually testing. Anything else is infrastructure.
+    if (
+      err instanceof InventoryValidationError ||
+      err instanceof InventoryNotFoundError
+    ) {
+      return false;
+    }
+
+    throw err;
   }
 }
 
