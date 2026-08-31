@@ -14,7 +14,12 @@
 --     the p7adm_read family on other tables, and every existing app_admin grant
 --     (including the pre-existing append-only PlatformAuditEvent INSERT) are
 --     left exactly as they were.
---   * Never re-widens anything: it revokes, it does not grant.
+--   * Never re-widens anything: it revokes, it does not grant. In particular it
+--     does NOT resurrect the app_admin read capability that PW-2A removed:
+--     there is deliberately no PW-2A-only rollback artifact, because a rollback
+--     that restores a capability the architecture no longer has would be a
+--     silent re-widening. To undo PW-2A, revert the commit and re-run this
+--     artifact followed by the grants artifact.
 --
 -- IMPORTANT: this rolls back the DB ENFORCEMENT only. It does NOT and must not
 -- revert the application-layer repairs shipped with PW-2 — the tenant-context

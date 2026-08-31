@@ -51,13 +51,13 @@ CREATE POLICY p7pw2_tenant_read ON "BusinessFeatureAccess"
   FOR SELECT
   USING ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int);
 
--- 2b. Admin cross-tenant read — SELECT ONLY, the unchanged p7adm_read doctrine.
---     Permissive policies OR together, so this adds a read branch for members of
---     app_admin and changes nothing for any other role.
+-- 2b. NO admin cross-tenant read (D2/PW-2A). The platform-admin features screen
+--     reads ONE named business through the explicit-target tenant substrate, so
+--     app_admin has no consumer here and therefore gets no capability here. The
+--     DROP stays: it is what reconciles an environment that still carries the
+--     policy from the first PW-2 apply. Never re-add the CREATE without a real
+--     admin-client reader — CI-PRIVWRITE-22 fails the build if it comes back.
 DROP POLICY IF EXISTS p7adm_read ON "BusinessFeatureAccess";
-CREATE POLICY p7adm_read ON "BusinessFeatureAccess"
-  FOR SELECT TO app_admin
-  USING (true);
 
 -- 2c. The capability: control-plane INSERT, locked to the GUC-named business.
 DROP POLICY IF EXISTS p7pw2_ctl_insert ON "BusinessFeatureAccess";
