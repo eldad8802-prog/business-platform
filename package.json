@@ -72,6 +72,8 @@
     "verify:leads-service": "npx tsx lib/services/crm/lead.service.test.ts",
     "verify:leads-w2": "npx tsx lib/services/crm/lead-w2.service.test.ts",
     "smoke:leads": "node scripts/qa/leads-w1-prod-smoke.mjs",
+    "verify:cardcom-webhook-hardening": "npx tsx lib/services/payments/cardcom-webhook-hardening.test.ts",
+    "verify:payment-webhook": "npx tsx lib/services/payments/payment-webhook.test.ts",
     "verify:billing-issue-tenant-isolation": "npx tsx lib/services/billing/billing-issue.tenant-isolation.test.ts",
     "verify:coupon-v1": "npx tsx lib/revenue/coupon-v1.verify.test.ts",
     "verify:coupon-tenant": "npx tsx lib/services/revenue/coupon-tenant.db.test.ts",

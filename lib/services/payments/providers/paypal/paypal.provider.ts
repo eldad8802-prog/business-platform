@@ -358,12 +358,18 @@ export function createPayPalProvider(
     },
 
     verifyWebhook(input: VerifyWebhookInput): VerifyWebhookResult {
-      // Signal only; the authority is getPaymentStatus (an independent read from
-      // PayPal). When PAYPAL_WEBHOOK_SECRET is configured we gate on it; else we
-      // accept the signal. A forged webhook cannot fake PAID — verification
-      // re-reads the real order status from PayPal.
+      // PayPal is NOT provisioned: no active connection, no payment request and
+      // no configured secret in any environment. Wave D removes the former
+      // fail-OPEN branch (`if (!secret) return ok`), which let an unconfigured
+      // provider accept arbitrary anonymous callbacks. An unconfigured provider
+      // now refuses everything.
+      //
+      // Unlike CardCom, PayPal DOES publish a real verification mechanism
+      // (the `verify-webhook-signature` API together with a `PAYPAL_WEBHOOK_ID`).
+      // If PayPal is ever activated, that is what must be implemented here — not
+      // the invented header convention below, which PayPal does not send.
       const secret = input.secret;
-      if (!secret) return { ok: true };
+      if (!secret) return { ok: false, reason: "provider_not_configured" };
       const headerToken =
         input.headers["x-webhook-secret"] ??
         input.headers["x-paypal-secret"] ??

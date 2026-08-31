@@ -235,6 +235,11 @@ async function main() {
       store,
       resolveProvider: () => provider(fetchImpl),
       decryptConnectionCredential: () => null, // creds from env in prod; injected in tests
+      // Wave D: PayPal now fails CLOSED when unconfigured, so exercising the
+      // settlement path requires a configured secret. PayPal is dormant in every
+      // real environment; if it is ever activated, the real control is PayPal's
+      // verify-webhook-signature API, not this header convention.
+      resolveWebhookSecret: () => "paypal-test-secret",
     };
     const webhookBody = JSON.stringify({
       id: "EV-100",
@@ -245,7 +250,10 @@ async function main() {
       },
     });
 
-    const res = await processPaymentWebhook({ provider: "PAYPAL", rawBody: webhookBody }, deps);
+    const res = await processPaymentWebhook(
+      { provider: "PAYPAL", rawBody: webhookBody, headers: { "x-webhook-secret": "paypal-test-secret" } },
+      deps
+    );
     assert.equal(res.verified, true);
     assert.equal(res.paymentRequestStatus, "PAID");
     assert.equal(store.requests[0]?.status, "PAID");
@@ -254,7 +262,11 @@ async function main() {
 
     // idempotency: a duplicate webhook does not settle twice.
     const dup = await processPaymentWebhook(
-      { provider: "PAYPAL", rawBody: webhookBody.replace("EV-100", "EV-101") },
+      {
+        provider: "PAYPAL",
+        rawBody: webhookBody.replace("EV-100", "EV-101"),
+        headers: { "x-webhook-secret": "paypal-test-secret" },
+      },
       deps
     );
     assert.equal(dup.paymentRequestStatus, "PAID");

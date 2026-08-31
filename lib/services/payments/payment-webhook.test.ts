@@ -135,10 +135,15 @@ async function main() {
   );
   assert.equal(res.ok, false);
   assert.equal(res.processingStatus, "UNMATCHED");
+  assert.equal(res.reason, "no_matching_payment_request");
   assert.equal(store.transactions.length, 0);
+  // Wave D: an identifier this system never issued is refused BEFORE
+  // persistence — an anonymous caller leaves no database row behind.
+  assert.equal(res.eventId, null);
+  assert.equal(store.webhookEvents.length, 0);
 }
 
-// --- 5. garbage body => stored, UNMATCHED, no throw ---
+// --- 5. garbage body => refused before persistence, no throw ---
 {
   const { store, deps } = setup({ verifiedStatus: VERIFIED_PAID });
   const res = await processPaymentWebhook(
@@ -146,11 +151,14 @@ async function main() {
     deps
   );
   assert.equal(res.ok, false);
-  assert.equal(store.webhookEvents.length, 1);
+  // Wave D: this asserted 1 before — every body was stored first. An
+  // unparseable body can carry no correlation, so it is dropped without a write.
+  assert.equal(res.eventId, null);
+  assert.equal(store.webhookEvents.length, 0);
   assert.equal(store.transactions.length, 0);
 }
 
-// --- 6. bad signature => FAILED, no throw, no transaction ---
+// --- 6. bad signature => FAILED, no throw, no transaction, nothing stored ---
 {
   const { store, deps } = setup({ secret: "the-secret", verifiedStatus: VERIFIED_PAID });
   await seedPendingRequest(store);
@@ -166,6 +174,9 @@ async function main() {
   assert.equal(res.processingStatus, "FAILED");
   assert.equal(store.transactions.length, 0);
   assert.equal(store.requests[0]?.status, "PENDING"); // untouched
+  // Wave D: a caller that fails the structural/signature gate writes nothing.
+  assert.equal(res.eventId, null);
+  assert.equal(store.webhookEvents.length, 0);
 }
 
 // --- 7. verified FAILED outcome => request FAILED ---
