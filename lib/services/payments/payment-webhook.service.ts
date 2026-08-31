@@ -77,7 +77,13 @@ export interface VerifiedPaidEvent {
 
 export interface ProcessWebhookResult {
   ok: boolean;
-  eventId: number;
+  /**
+   * The persisted PaymentWebhookEvent id, or null when the callback was
+   * rejected BEFORE persistence because it could not be correlated to a
+   * payment flow this system created. Uncorrelated callbacks deliberately
+   * leave no database row — see `processPaymentWebhook`.
+   */
+  eventId: number | null;
   processingStatus: PaymentWebhookProcessingStatus;
   /** True when this exact event/effect was already applied. */
   duplicate: boolean;
@@ -151,7 +157,51 @@ export async function processPaymentWebhook(
   const headers = input.headers ?? {};
   const adapter = deps.resolveProvider(input.provider);
 
-  // Parse first (never throws) so we can extract the event id for dedup.
+  /**
+   * Pre-persistence rejection. The callback never became a stored event, so
+   * there is nothing to update — it is refused and dropped.
+   *
+   * Wave D ordering change: correlation now happens BEFORE persistence. The
+   * endpoint is public and (for CardCom) cannot be authenticated at the
+   * transport layer, so persisting every inbound body handed any anonymous
+   * caller an unbounded write into `PaymentWebhookEvent` and an unbounded
+   * outbound provider lookup. A caller who cannot reproduce identifiers this
+   * system generated now leaves no trace beyond a log line.
+   */
+  const reject = (
+    reason: string,
+    status: PaymentWebhookProcessingStatus = "UNMATCHED"
+  ): ProcessWebhookResult => {
+    console.warn("[payments-webhook] rejected before persistence", {
+      provider: input.provider,
+      reason,
+    });
+    return {
+      ok: false,
+      eventId: null,
+      processingStatus: status,
+      duplicate: false,
+      paymentRequestId: null,
+      paymentRequestStatus: null,
+      reason,
+      verified: null,
+    };
+  };
+
+  // A. STRUCTURAL GATE (no I/O). Fail closed: a provider adapter that cannot
+  // vouch for the shape (or, where the provider does sign, the signature) of
+  // this body stops the request here. No provider may accept by default.
+  const secret = deps.resolveWebhookSecret?.(input.provider) ?? null;
+  const verify = adapter.verifyWebhook({
+    rawBody: input.rawBody,
+    headers,
+    secret,
+  });
+  if (!verify.ok) {
+    return reject(`verify: ${verify.reason}`, "FAILED");
+  }
+
+  // B. parse (never throws).
   let parsed;
   try {
     parsed = adapter.parseWebhook({
@@ -161,16 +211,64 @@ export async function processPaymentWebhook(
   } catch {
     parsed = null;
   }
+  if (!parsed || parsed.outcome === "UNKNOWN") {
+    return reject("unparseable_or_unknown_outcome");
+  }
+  if (!parsed.providerRequestId) {
+    return reject("missing_provider_request_id");
+  }
+  // Hoisted: the null-check above does not narrow inside the tenant closure.
+  const providerRequestId = parsed.providerRequestId;
 
-  // 1. persist raw, idempotent on (provider, providerEventId).
+  // C. CORRELATION (read-only). The identifier must resolve to a PaymentRequest
+  // THIS system created — the lookup goes through PaymentProviderRouting and its
+  // consistency gate, which also fixes the tenant. An identifier we never issued
+  // resolves to nothing and the callback is refused here, before any write.
+  const request = await deps.store.findPaymentRequestByProviderRequestId(
+    input.provider,
+    providerRequestId
+  );
+  if (!request) {
+    return reject("no_matching_payment_request");
+  }
+
+  // D. SECOND CORRELATION CHANNEL. When the provider echoes a Dubiz-issued
+  // value through the round-trip (CardCom: `ReturnValue`, set to the
+  // PaymentRequest id at LowProfile/Create), it must agree with the request the
+  // identifier resolved to. A caller must therefore reproduce TWO values this
+  // system generated, and a real identifier lifted from one flow cannot be
+  // pointed at another.
+  if (
+    parsed.correlationValue != null &&
+    String(parsed.correlationValue) !== String(request.id)
+  ) {
+    return reject("correlation_value_mismatch");
+  }
+
+  // E. DECLARED-AMOUNT GATE. The payload is never authoritative for money, and
+  // the settlement below takes its amount from the stored request. But a body
+  // that *claims* a different amount or currency than the request it points at
+  // is incoherent, so it is refused rather than silently normalised.
+  if (parsed.amount != null && String(parsed.amount) !== String(request.amount)) {
+    return reject("amount_mismatch");
+  }
+  if (
+    parsed.currency != null &&
+    String(parsed.currency).toUpperCase() !== String(request.currency).toUpperCase()
+  ) {
+    return reject("currency_mismatch");
+  }
+
+  // F. Only a correlated callback is persisted. Idempotent on
+  // (provider, providerEventId).
   const { created, event } = await deps.store.insertWebhookEventIfNew({
     provider: input.provider,
-    eventType: parsed?.eventType ?? null,
-    providerEventId: parsed?.providerEventId ?? null,
+    eventType: parsed.eventType,
+    providerEventId: parsed.providerEventId,
     payload: input.parsedBody ?? input.rawBody,
   });
 
-  // 7. duplicate event already fully processed — no-op.
+  // G. duplicate event already fully processed — no-op.
   if (!created && event.processingStatus === "PROCESSED") {
     return {
       ok: true,
@@ -206,36 +304,6 @@ export async function processPaymentWebhook(
       verified: null,
     };
   };
-
-  // 2. verify authenticity.
-  const secret = deps.resolveWebhookSecret?.(input.provider) ?? null;
-  const verify = adapter.verifyWebhook({
-    rawBody: input.rawBody,
-    headers,
-    secret,
-  });
-  if (!verify.ok) {
-    return fail("FAILED", `signature: ${verify.reason}`);
-  }
-
-  // 3. require a usable parse.
-  if (!parsed || parsed.outcome === "UNKNOWN") {
-    return fail("UNMATCHED", "unparseable_or_unknown_outcome");
-  }
-
-  // 4. locate the payment request.
-  if (!parsed.providerRequestId) {
-    return fail("UNMATCHED", "missing_provider_request_id");
-  }
-  // Hoisted: the null-check above does not narrow inside the tenant closure.
-  const providerRequestId = parsed.providerRequestId;
-  const request = await deps.store.findPaymentRequestByProviderRequestId(
-    input.provider,
-    parsed.providerRequestId
-  );
-  if (!request) {
-    return fail("UNMATCHED", "no_matching_payment_request");
-  }
 
   // D2/P7-W4E — TENANT BOUNDARY. Everything above is pre-context provider
   // bookkeeping on non-RLS surfaces (the webhook-event ledger and the routing

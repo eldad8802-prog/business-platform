@@ -140,13 +140,19 @@ export const tranzilaProvider: PaymentProviderAdapter = {
   },
 
   verifyWebhook(input: VerifyWebhookInput): VerifyWebhookResult {
-    // DOCS-CONFIRM: Tranzila notification authentication. When a shared secret
-    // is configured we require it to match a header/field; when none is
-    // configured we accept (foundation stage) and rely on matching + the fact
-    // that no funds move through Dubiz. Harden before production.
+    // Tranzila is NOT provisioned: it has no active connection, no payment
+    // request and no configured secret in any environment. Wave D removes the
+    // former fail-OPEN branch (`if (!secret) return ok`), which let an
+    // unconfigured provider accept arbitrary anonymous callbacks. An
+    // unconfigured provider now refuses everything — the safe state for an
+    // integration nobody is using.
+    //
+    // If Tranzila is ever activated, this must be replaced with its documented
+    // notification-authentication mechanism, not with the header convention
+    // below (which Dubiz invented and Tranzila does not send).
     const secret = input.secret;
     if (!secret) {
-      return { ok: true };
+      return { ok: false, reason: "provider_not_configured" };
     }
 
     const headerToken =

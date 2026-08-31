@@ -102,6 +102,53 @@ jobs:
       - name: Leads W1 domain core (status, validation, follow-up due logic)
         run: npx tsx lib/services/crm/lead-core.test.ts
 
+      # CASA Wave D — the CardCom webhook trust model. CardCom publishes no
+      # signature mechanism, so authenticity rests entirely on correlation to a
+      # payment flow this system created plus an authenticated GetLpResult.
+      # These are the load-bearing tests for a public, unauthenticated,
+      # money-adjacent endpoint, so they belong in the BLOCKING job rather than
+      # in a script nobody runs. Pure in-memory: no DB, no network, no secrets.
+      # Local equivalent: npm run verify:cardcom-webhook-hardening
+      - name: CardCom webhook hardening (fail-closed + correlation + idempotency)
+        run: npx tsx lib/services/payments/cardcom-webhook-hardening.test.ts
+
+      - name: Payment webhook orchestration (authority + pre-persistence refusal)
+        run: npx tsx lib/services/payments/payment-webhook.test.ts
+
+      # Two negative proofs, each aimed at a control that is actually
+      # load-bearing. (A third candidate — re-planting the fail-open branch in
+      # CardCom's own verifyWebhook — was tried and DELIBERATELY dropped: the
+      # suite still passed, because correlation catches those callbacks anyway.
+      # That is defence-in-depth working as intended, but it makes for a proof
+      # that proves nothing, so it is not used.)
+      - name: Wave D negative proof 1 (restoring a provider fail-open must be caught)
+        run: |
+          F="lib/services/payments/providers/tranzila/tranzila.provider.ts"
+          cp "$F" "$F.bak"
+          # Re-introduce the exact defect Wave D removed: an unconfigured
+          # provider accepting arbitrary anonymous callbacks.
+          sed -i 's|      return { ok: false, reason: "provider_not_configured" };|      return { ok: true };|' "$F"
+          if npx tsx lib/services/payments/cardcom-webhook-hardening.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: verifier did not catch the restored fail-open branch"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: verifier caught the restored fail-open branch"
+
+      - name: Wave D negative proof 2 (dropping the ReturnValue correlation must be caught)
+        run: |
+          F="lib/services/payments/payment-webhook.service.ts"
+          cp "$F" "$F.bak"
+          # Disable the second correlation channel: a callback could then point a
+          # real LowProfileId at someone else's PaymentRequest.
+          sed -i 's|    String(parsed.correlationValue) !== String(request.id)|    false|' "$F"
+          if npx tsx lib/services/payments/cardcom-webhook-hardening.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: verifier did not catch the dropped correlation check"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: verifier caught the dropped correlation check"
+
       - name: Leads W1 negative proof (a broken due-date rule must be caught)
         run: |
           F="lib/services/crm/lead-core.ts"

@@ -51,7 +51,7 @@ async function main() {
   {
     const { fetchImpl, calls } = mockHttp((url) =>
       url.includes("/Create")
-        ? { json: { ResponseCode: 0, Url: "https://pay/lp-1", LowProfileId: "lp-1" } }
+        ? { json: { ResponseCode: 0, Url: "https://pay/11111111-2222-4333-8444-555555555555", LowProfileId: "11111111-2222-4333-8444-555555555555" } }
         : undefined
     );
     const p = provider(fetchImpl);
@@ -64,8 +64,8 @@ async function main() {
       merchantId: "1000",
       credential: CRED,
     });
-    assert.equal(r.paymentUrl, "https://pay/lp-1");
-    assert.equal(r.providerRequestId, "lp-1");
+    assert.equal(r.paymentUrl, "https://pay/11111111-2222-4333-8444-555555555555");
+    assert.equal(r.providerRequestId, "11111111-2222-4333-8444-555555555555");
 
     const body = calls[0]!.body!;
     assert.equal(body.ReturnValue, "42"); // PaymentRequest.id round-trips
@@ -139,7 +139,7 @@ async function main() {
         : undefined
     );
     const status = await provider(fetchImpl).getPaymentStatus!({
-      providerRequestId: "lp-1",
+      providerRequestId: "11111111-2222-4333-8444-555555555555",
       merchantId: "1000",
       credential: CRED,
     });
@@ -153,7 +153,7 @@ async function main() {
       json: { ResponseCode: 0, TranzactionInfo: { ResponseCode: 57, TranzactionId: 5 } },
     }));
     const status = await provider(fetchImpl).getPaymentStatus!({
-      providerRequestId: "lp-1",
+      providerRequestId: "11111111-2222-4333-8444-555555555555",
       merchantId: "1000",
       credential: CRED,
     });
@@ -170,12 +170,12 @@ async function main() {
   // --- 5. webhook parse extracts ReturnValue / LowProfileId / transaction id; never throws ---
   {
     const raw = JSON.stringify({
-      LowProfileId: "lp-1",
+      LowProfileId: "11111111-2222-4333-8444-555555555555",
       ReturnValue: "42",
       TranzactionInfo: { TranzactionId: 9988 },
     });
     const fields = extractCardComWebhookFields({ rawBody: raw });
-    assert.equal(fields.lowProfileId, "lp-1");
+    assert.equal(fields.lowProfileId, "11111111-2222-4333-8444-555555555555");
     assert.equal(fields.returnValue, "42");
     assert.equal(fields.transactionId, "9988");
 
@@ -183,7 +183,7 @@ async function main() {
       throw new Error("must not be called in parse");
     }) as unknown as CardComHttpClient);
     const ev = p.parseWebhook({ rawBody: raw });
-    assert.equal(ev.providerRequestId, "lp-1");
+    assert.equal(ev.providerRequestId, "11111111-2222-4333-8444-555555555555");
     assert.equal(ev.providerTransactionId, "9988");
     assert.equal(ev.outcome, "PENDING"); // signal only, never PAID
 
@@ -207,7 +207,7 @@ async function main() {
       status: "PENDING",
       expiresAt: null,
     });
-    await store.updatePaymentRequest(created.id, { providerRequestId: "lp-1" });
+    await store.updatePaymentRequest(created.id, { providerRequestId: "11111111-2222-4333-8444-555555555555" });
 
     const { fetchImpl } = mockHttp((url) =>
       url.includes("/GetLpResult") ? { json: verifyJson } : undefined
@@ -218,7 +218,7 @@ async function main() {
       decryptConnectionCredential: () => CRED,
     };
     const webhookBody = JSON.stringify({
-      LowProfileId: "lp-1",
+      LowProfileId: "11111111-2222-4333-8444-555555555555",
       ReturnValue: String(created.id),
       TranzactionInfo: { TranzactionId: 7 },
     });
@@ -269,7 +269,7 @@ async function main() {
     await assert.rejects(
       () =>
         p.getPaymentStatus!({
-          providerRequestId: "lp-1",
+          providerRequestId: "11111111-2222-4333-8444-555555555555",
           merchantId: "1000",
           credential: "not-json", // invalid
         }),

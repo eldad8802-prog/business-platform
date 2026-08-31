@@ -47,6 +47,21 @@ const GET_RESULT_PATH = "/api/v11/LowProfile/GetLpResult";
 const ISO_COIN_ID: Record<string, number> = { ILS: 1, USD: 2, EUR: 978 };
 
 /**
+ * CardCom LowProfileId shape — a canonical GUID.
+ *
+ * Verified against live production data before being used as a gate: every
+ * stored CardCom `PaymentRequest.providerRequestId` is a 36-character
+ * 8-4-4-4-12 hex GUID. Matching is case-insensitive so an uppercase variant is
+ * still accepted; the pattern is deliberately no stricter than that, because a
+ * gate that rejected a legitimate CardCom callback would break settlement.
+ *
+ * This is a cheap structural filter only. It is NOT authentication — see
+ * `verifyWebhook` for why CardCom cannot be authenticated at this layer.
+ */
+const LOW_PROFILE_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
  * CardCom ProductName length cap. Docs conflict (OpenAPI: 250, KB prose: 50);
  * we use the stricter 50 to avoid runtime rejection by CardCom.
  */
@@ -322,19 +337,34 @@ export function createCardComProvider(
     },
 
     verifyWebhook(input: VerifyWebhookInput): VerifyWebhookResult {
-      // The webhook is only a signal; authority is GetLpResult. When a shared
-      // secret is configured we require it; otherwise we accept the signal and
-      // rely on verification. (No funds move through Dubiz.)
-      const secret = input.secret;
-      if (!secret) return { ok: true };
-      const headerToken =
-        input.headers["x-cardcom-secret"] ??
-        input.headers["x-webhook-secret"] ??
-        null;
-      if (headerToken && headerToken === secret) return { ok: true };
+      // CardCom publishes NO webhook signing mechanism. Its documented callback
+      // model is an IndicatorUrl/WebHookUrl notification carrying LowProfileId
+      // and ReturnValue, with authenticity obtained out-of-band by the merchant
+      // calling LowProfile/GetLpResult with its own API credentials. There is no
+      // HMAC header, no signing secret, and no signature to verify.
+      //
+      // The previous implementation invented an `x-cardcom-secret` header and,
+      // when no secret was configured, returned ok — i.e. it FAILED OPEN. Worse,
+      // the invented header is one CardCom never sends, so configuring a secret
+      // would have rejected every legitimate callback. That model is removed
+      // here rather than papered over: it could never be a real provider
+      // authentication and pretending otherwise would misstate the control.
+      //
+      // What this function can honestly do is a fail-CLOSED structural gate. It
+      // is synchronous and has no database access, so it establishes only that
+      // the body is a well-formed CardCom LowProfile callback. Authenticity is
+      // established downstream, and is not optional:
+      //   1. the LowProfileId must resolve to a PaymentRequest THIS system
+      //      created (processPaymentWebhook correlates before any persistence);
+      //   2. ReturnValue must independently match that request's id;
+      //   3. the outcome comes only from an authenticated server-to-server
+      //      GetLpResult call — never from this payload.
+      // See the CASA 7.2.1/7.2.2 compensating-control memo.
       const fields = extractCardComWebhookFields({ rawBody: input.rawBody });
-      void fields;
-      return { ok: false, reason: "invalid_or_missing_secret" };
+      if (!fields.lowProfileId || !LOW_PROFILE_ID_PATTERN.test(fields.lowProfileId)) {
+        return { ok: false, reason: "malformed_lowprofileid" };
+      }
+      return { ok: true };
     },
 
     parseWebhook(input: ParseWebhookInput): ParsedWebhookEvent {
@@ -342,7 +372,11 @@ export function createCardComProvider(
       // Correlation is by LowProfileId (stored as providerRequestId). A usable
       // signal yields PENDING (which triggers verification); an unusable body
       // yields UNKNOWN (which the orchestration rejects before verifying).
-      const usable = fields.lowProfileId != null;
+      // NOTE: outcome is deliberately never PAID here — the payload is a signal,
+      // and only GetLpResult may establish a settlement.
+      const usable =
+        fields.lowProfileId != null &&
+        LOW_PROFILE_ID_PATTERN.test(fields.lowProfileId);
       return {
         providerEventId: fields.transactionId ?? fields.lowProfileId,
         eventType: "lowprofile",
@@ -351,6 +385,10 @@ export function createCardComProvider(
         outcome: usable ? "PENDING" : "UNKNOWN",
         amount: null,
         currency: null,
+        // Our own PaymentRequest id, round-tripped by CardCom via ReturnValue
+        // (set at LowProfile/Create). The orchestration asserts it matches the
+        // request that LowProfileId resolved to.
+        correlationValue: fields.returnValue,
       };
     },
   };
