@@ -14,16 +14,16 @@ export function SettingsSubPageHeader({
   backHref = "/settings",
 }: Props) {
   return (
-    <header className="mb-5 rounded-3xl bg-white px-4 py-4 shadow-sm">
+    <header className="mb-5 rounded-3xl dz-mist px-4 py-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <BackButton href={backHref} />
 
         <div className="min-w-0 flex-1 text-center">
-          <h1 className="truncate text-base font-bold text-gray-900">{title}</h1>
+          <h1 className="truncate text-base font-bold text-[var(--dz-text-primary)]">{title}</h1>
           {subtitle ? (
-            <p className="mt-1 text-xs text-gray-500">{subtitle}</p>
+            <p className="mt-1 text-xs text-[var(--dz-text-muted)]">{subtitle}</p>
           ) : (
-            <p className="mt-1 text-xs text-gray-500">הגדרות מערכת</p>
+            <p className="mt-1 text-xs text-[var(--dz-text-muted)]">הגדרות מערכת</p>
           )}
         </div>
 

@@ -42,15 +42,15 @@ function formatDate(value: string | null | undefined) {
 function statusLabel(status: PublicCouponDetailsDTO["coupon"]["status"]) {
   switch (status) {
     case "ACTIVE":
-      return { text: "פעיל", className: "bg-[#e8f6ee] text-[#1f7a5a]" };
+      return { text: "פעיל", className: "bg-[var(--dz-success-bg)] text-[var(--dz-brand)]" };
     case "REDEEMED":
-      return { text: "מומש", className: "bg-gray-100 text-gray-700" };
+      return { text: "מומש", className: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-secondary)]" };
     case "EXPIRED":
-      return { text: "פג תוקף", className: "bg-[#f4ead0] text-[#7a5a1f]" };
+      return { text: "פג תוקף", className: "bg-[var(--dz-warning-bg)] text-[var(--dz-warning)]" };
     case "CANCELLED":
-      return { text: "בוטל", className: "bg-[#fee2e2] text-[#991b1b]" };
+      return { text: "בוטל", className: "bg-[var(--dz-danger-bg)] text-[var(--dz-danger)]" };
     default:
-      return { text: status, className: "bg-gray-100 text-gray-700" };
+      return { text: status, className: "bg-[var(--dz-surface-muted)] text-[var(--dz-text-secondary)]" };
   }
 }
 
@@ -175,13 +175,13 @@ export default function RevenueCouponDetailsPage() {
 
   const renderCodeErrorBlock = () =>
     codeError ? (
-      <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+      <div className="mt-3 rounded-2xl border border-[var(--dz-danger-border)] bg-[var(--dz-danger-bg-soft)] p-4 text-sm font-semibold text-[var(--dz-danger)]">
         {codeError}
         {codeErrorKind === "login" ? (
           <button
             type="button"
             onClick={() => router.push("/login")}
-            className="mt-3 block w-full rounded-2xl bg-[#1f7a5a] px-4 py-3 text-sm font-bold text-white active:scale-[0.99]"
+            className="mt-3 block w-full rounded-2xl bg-[var(--dz-brand)] px-4 py-3 text-sm font-bold text-[var(--dz-text-on-brand)] active:scale-[0.99]"
           >
             התחברות
           </button>
@@ -221,9 +221,9 @@ export default function RevenueCouponDetailsPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f8f6f1] px-4 pb-10 pt-4 text-[#1f2937]">
+      <main className="min-h-screen bg-[var(--dz-background)] px-4 pb-10 pt-4 text-[var(--dz-text-primary)]">
         <div className="mx-auto w-full max-w-md sm:max-w-2xl lg:max-w-4xl">
-          <div className="rounded-[24px] bg-white p-5 shadow-sm">
+          <div className="rounded-[24px] dz-mist p-5 shadow-sm">
             טוען פרטי קופון…
           </div>
         </div>
@@ -233,24 +233,24 @@ export default function RevenueCouponDetailsPage() {
 
   if (error || !details) {
     return (
-      <main className="min-h-screen bg-[#f8f6f1] px-4 pb-10 pt-4 text-[#1f2937]">
+      <main className="min-h-screen bg-[var(--dz-background)] px-4 pb-10 pt-4 text-[var(--dz-text-primary)]">
         <div className="mx-auto w-full max-w-md sm:max-w-2xl lg:max-w-4xl">
-          <div className="rounded-[24px] bg-white p-5 shadow-sm">
-            <div className="text-sm font-semibold text-red-700">
+          <div className="rounded-[24px] dz-mist p-5 shadow-sm">
+            <div className="text-sm font-semibold text-[var(--dz-danger)]">
               {error || "לא הצלחנו לטעון את פרטי הקופון"}
             </div>
             <div className="mt-4 flex gap-2">
               <button
                 type="button"
                 onClick={() => router.push("/revenue")}
-                className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold"
+                className="rounded-2xl border border-[var(--dz-border)] dz-mist px-4 py-3 text-sm font-semibold"
               >
                 חזרה
               </button>
               <button
                 type="button"
                 onClick={loadDetails}
-                className="rounded-2xl bg-[#1f7a5a] px-4 py-3 text-sm font-semibold text-white"
+                className="rounded-2xl bg-[var(--dz-brand)] px-4 py-3 text-sm font-semibold text-[var(--dz-text-on-brand)]"
               >
                 נסה שוב
               </button>
@@ -281,12 +281,12 @@ export default function RevenueCouponDetailsPage() {
 
   const renderDetailsView = () => (
     <>
-      <div className="overflow-hidden rounded-[28px] bg-white shadow-sm">
-        <div className="relative h-[220px] w-full bg-[#f8f6f1]">
+      <div className="overflow-hidden rounded-[28px] dz-mist shadow-sm">
+        <div className="relative h-[220px] w-full bg-[var(--dz-background)]">
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center">
               <div className="text-3xl">🛍️</div>
-              <div className="mt-1 text-xs font-semibold text-gray-500">
+              <div className="mt-1 text-xs font-semibold text-[var(--dz-text-muted)]">
                 ללא תמונה
               </div>
             </div>
@@ -305,32 +305,32 @@ export default function RevenueCouponDetailsPage() {
         </div>
 
         <div className="p-5">
-          <div className="text-2xl font-extrabold leading-tight text-gray-900">
+          <div className="text-2xl font-extrabold leading-tight text-[var(--dz-text-primary)]">
             {details.offer.title}
           </div>
 
-          <div className="mt-3 text-base font-semibold leading-7 text-gray-700">
+          <div className="mt-3 text-base font-semibold leading-7 text-[var(--dz-text-secondary)]">
             {benefit}
           </div>
 
           {details.offer.description ? (
-            <div className="mt-3 text-sm leading-7 text-gray-600">
+            <div className="mt-3 text-sm leading-7 text-[var(--dz-text-muted)]">
               {details.offer.description}
             </div>
           ) : null}
 
-          <div className="mt-5 grid gap-2 text-sm text-gray-600">
+          <div className="mt-5 grid gap-2 text-sm text-[var(--dz-text-muted)]">
             <div>
-              <span className="font-semibold text-gray-900">העסק:</span>{" "}
+              <span className="font-semibold text-[var(--dz-text-primary)]">העסק:</span>{" "}
               {details.business.name}
             </div>
             <div>
-              <span className="font-semibold text-gray-900">תוקף עד:</span>{" "}
+              <span className="font-semibold text-[var(--dz-text-primary)]">תוקף עד:</span>{" "}
               {formatDate(details.coupon.expiresAt)}
             </div>
             {details.coupon.status === "REDEEMED" && details.coupon.redeemedAt ? (
               <div>
-                <span className="font-semibold text-gray-900">מומש:</span>{" "}
+                <span className="font-semibold text-[var(--dz-text-primary)]">מומש:</span>{" "}
                 {formatDate(details.coupon.redeemedAt)}
               </div>
             ) : null}
@@ -341,17 +341,17 @@ export default function RevenueCouponDetailsPage() {
               type="button"
               disabled={!canRevealCode || codeLoading}
               onClick={loadCode}
-              className={`w-full rounded-2xl px-4 py-3.5 text-sm font-bold text-white transition ${
+              className={`w-full rounded-2xl px-4 py-3.5 text-sm font-bold text-[var(--dz-text-on-brand)] transition ${
                 canRevealCode && !codeLoading
-                  ? "bg-[#1f7a5a] active:scale-[0.99]"
-                  : "bg-gray-300 cursor-not-allowed"
+                  ? "bg-[var(--dz-brand)] active:scale-[0.99]"
+                  : "bg-[var(--dz-border-strong)] cursor-not-allowed"
               }`}
             >
               {codeLoading ? "טוען קוד…" : REVEAL_BUTTON_LABEL}
             </button>
 
             {!canRevealCode ? (
-              <div className="mt-2 text-xs font-semibold text-gray-500">
+              <div className="mt-2 text-xs font-semibold text-[var(--dz-text-muted)]">
                 ניתן להציג קוד רק עבור קופון פעיל ובתוקף.
               </div>
             ) : null}
@@ -364,14 +364,14 @@ export default function RevenueCouponDetailsPage() {
   );
 
   const renderCodeView = () => (
-    <div className="overflow-hidden rounded-[28px] bg-white shadow-sm">
+    <div className="overflow-hidden rounded-[28px] dz-mist shadow-sm">
       <div className="p-5">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-base font-extrabold text-gray-900">
+            <div className="text-base font-extrabold text-[var(--dz-text-primary)]">
               קוד קופון
             </div>
-            <div className="mt-1 text-xs font-semibold text-gray-500">
+            <div className="mt-1 text-xs font-semibold text-[var(--dz-text-muted)]">
               הצג/שתף ללקוח. זה לא מבצע מימוש בפועל.
             </div>
           </div>
@@ -383,14 +383,14 @@ export default function RevenueCouponDetailsPage() {
               setShareMessage("");
               setQrSize(220);
             }}
-            className="shrink-0 rounded-2xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 active:scale-[0.99]"
+            className="shrink-0 rounded-2xl border border-[var(--dz-border)] dz-mist px-3 py-2 text-xs font-semibold text-[var(--dz-text-secondary)] active:scale-[0.99]"
           >
             חזרה לפרטי הקופון
           </button>
         </div>
 
         {codeLoading ? (
-          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm font-semibold text-gray-700">
+          <div className="rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface-muted)] p-4 text-sm font-semibold text-[var(--dz-text-secondary)]">
             טוען קוד…
           </div>
         ) : codeError ? (
@@ -398,7 +398,7 @@ export default function RevenueCouponDetailsPage() {
         ) : code ? (
           <>
             <div className="mt-3 flex justify-center">
-              <div className="rounded-[20px] border border-gray-200 bg-white p-4">
+              <div className="rounded-[20px] border border-[var(--dz-border)] dz-mist p-4">
                 <QRCodeCanvas value={code.qrValue} size={qrSize} includeMargin />
               </div>
             </div>
@@ -407,29 +407,29 @@ export default function RevenueCouponDetailsPage() {
               <button
                 type="button"
                 onClick={() => setQrSize((prev) => (prev === 220 ? 320 : 220))}
-                className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold active:scale-[0.99]"
+                className="rounded-2xl border border-[var(--dz-border)] dz-mist px-4 py-3 text-sm font-semibold active:scale-[0.99]"
               >
                 {qrSize === 220 ? "הגדל QR" : "הקטן QR"}
               </button>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-              <div className="text-xs font-semibold text-gray-600">קוד</div>
-              <div className="mt-1 break-all font-mono text-sm font-bold text-gray-900">
+            <div className="mt-4 rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface-muted)] p-4">
+              <div className="text-xs font-semibold text-[var(--dz-text-muted)]">קוד</div>
+              <div className="mt-1 break-all font-mono text-sm font-bold text-[var(--dz-text-primary)]">
                 {code.token}
               </div>
               <div className="mt-3 flex gap-2">
                 <button
                   type="button"
                   onClick={() => handleCopy(code.token, "הקוד הועתק")}
-                  className="flex-1 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold active:scale-[0.99]"
+                  className="flex-1 rounded-2xl border border-[var(--dz-border)] dz-mist px-4 py-3 text-sm font-semibold active:scale-[0.99]"
                 >
                   העתק קוד
                 </button>
                 <button
                   type="button"
                   onClick={() => handleCopy(code.qrValue, "הקישור הועתק")}
-                  className="flex-1 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold active:scale-[0.99]"
+                  className="flex-1 rounded-2xl border border-[var(--dz-border)] dz-mist px-4 py-3 text-sm font-semibold active:scale-[0.99]"
                 >
                   העתק קישור
                 </button>
@@ -440,20 +440,20 @@ export default function RevenueCouponDetailsPage() {
               <button
                 type="button"
                 onClick={() => handleShareWhatsApp(whatsappText)}
-                className="w-full rounded-2xl bg-[#111827] px-4 py-3.5 text-sm font-bold text-white active:scale-[0.99]"
+                className="w-full rounded-2xl bg-[var(--dz-text-primary)] px-4 py-3.5 text-sm font-bold text-[var(--dz-text-on-brand)] active:scale-[0.99]"
               >
                 שתף ב־WhatsApp
               </button>
             </div>
 
             {shareMessage ? (
-              <div className="mt-3 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-700">
+              <div className="mt-3 rounded-2xl border border-[var(--dz-success-border)] bg-[var(--dz-success-bg-soft)] p-4 text-sm font-semibold text-[var(--dz-success)]">
                 {shareMessage}
               </div>
             ) : null}
           </>
         ) : (
-          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm font-semibold text-gray-700">
+          <div className="rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface-muted)] p-4 text-sm font-semibold text-[var(--dz-text-secondary)]">
             אין קוד להצגה כרגע.
           </div>
         )}
@@ -462,13 +462,13 @@ export default function RevenueCouponDetailsPage() {
   );
 
   return (
-    <main className="min-h-screen bg-[#f8f6f1] px-4 pb-10 pt-4 text-[#1f2937]">
+    <main className="min-h-screen bg-[var(--dz-background)] px-4 pb-10 pt-4 text-[var(--dz-text-primary)]">
       <div className="mx-auto w-full max-w-md sm:max-w-2xl lg:max-w-4xl">
         <div className="mb-4 flex items-center justify-between gap-3">
           <button
             type="button"
             onClick={() => router.push("/revenue")}
-            className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700"
+            className="rounded-2xl border border-[var(--dz-border)] dz-mist px-4 py-3 text-sm font-semibold text-[var(--dz-text-secondary)]"
           >
             חזרה
           </button>

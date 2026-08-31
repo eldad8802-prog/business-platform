@@ -24,7 +24,7 @@ export function LogoutButton() {
     <button
       type="button"
       onClick={handleLogout}
-      className="min-h-11 rounded-2xl bg-gray-900 px-4 text-sm font-bold text-white"
+      className="min-h-11 rounded-2xl bg-[var(--dz-app-chrome)] px-4 text-sm font-bold text-[var(--dz-text-on-brand)]"
     >
       התנתקות
     </button>

@@ -54,7 +54,7 @@ export function LiveCouponDisplay({
             height: 7,
             borderRadius: "50%",
             background: W.teal,
-            boxShadow: "0 0 0 3px rgba(61,156,154,0.18)",
+            boxShadow: "0 0 0 3px rgba(36, 105, 102,0.18)",
           }}
         />
         {label}
@@ -72,7 +72,7 @@ export function LiveCouponDisplay({
         <div
           style={{
             background: COUPON.thema[thema],
-            color: "#fff",
+            color: "var(--dz-text-on-brand)",
             padding: "11px 16px",
             fontSize: 12.5,
             fontWeight: 500,

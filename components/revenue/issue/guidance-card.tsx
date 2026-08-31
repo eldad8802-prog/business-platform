@@ -11,9 +11,9 @@ export default function GuidanceCard({ guidance }: { guidance: Guidance }) {
   return (
     <div
       style={{
-        background: "#ffffff",
+        background: "var(--dz-surface)",
         borderRadius: 24,
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--dz-border)",
         padding: 20,
         marginBottom: 16,
       }}
@@ -23,7 +23,7 @@ export default function GuidanceCard({ guidance }: { guidance: Guidance }) {
           fontSize: 16,
           fontWeight: 700,
           marginBottom: 12,
-          color: "#111827",
+          color: "var(--dz-text-primary)",
         }}
       >
         קופון שיכול להתאים לעסק שלך
@@ -32,22 +32,22 @@ export default function GuidanceCard({ guidance }: { guidance: Guidance }) {
       <div style={{ display: "grid", gap: 10, fontSize: 14, lineHeight: 1.6 }}>
         <div>
           <strong>למה זה יכול לעבוד אצלך</strong>
-          <div style={{ color: "#4b5563" }}>{guidance.why}</div>
+          <div style={{ color: "var(--dz-text-secondary)" }}>{guidance.why}</div>
         </div>
 
         <div>
           <strong>טיפ חכם</strong>
-          <div style={{ color: "#4b5563" }}>{guidance.tip}</div>
+          <div style={{ color: "var(--dz-text-secondary)" }}>{guidance.tip}</div>
         </div>
 
         <div>
           <strong>דוגמה</strong>
-          <div style={{ color: "#4b5563" }}>{guidance.example}</div>
+          <div style={{ color: "var(--dz-text-secondary)" }}>{guidance.example}</div>
         </div>
 
         <div>
           <strong>ממה להיזהר</strong>
-          <div style={{ color: "#b91c1c" }}>{guidance.caution}</div>
+          <div style={{ color: "var(--dz-danger)" }}>{guidance.caution}</div>
         </div>
       </div>
     </div>

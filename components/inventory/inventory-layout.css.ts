@@ -5,7 +5,7 @@ export const inventoryLayoutCss = `
     min-height: 100dvh;
     display: flex;
     flex-direction: column;
-    background: var(--inv-page-bg, #FEF8F2);
+    background: var(--inv-page-bg, var(--dz-background));
     direction: rtl;
   }
 
@@ -77,11 +77,11 @@ export const inventoryLayoutCss = `
   }
 
   .inv-wizard-progress-seg.is-done {
-    background: var(--inv-brand-denim, #3D9C9A);
+    background: var(--inv-brand-denim, var(--dz-brand));
   }
 
   .inv-wizard-progress-seg.is-active {
-    background: var(--inv-accent-dark, #246966);
+    background: var(--inv-accent-dark, var(--dz-brand));
     height: 6px;
   }
 
@@ -128,9 +128,9 @@ export const inventoryLayoutCss = `
     margin-top: 8px;
     padding: 12px clamp(12px, 3.5vw, 16px);
     margin-inline: calc(-1 * clamp(12px, 3.5vw, 16px));
-    background: rgba(254, 248, 242, 0.92);
+    background: rgba(251, 250, 246, 0.92);
     backdrop-filter: blur(12px);
-    border-top: 1px solid var(--inv-border, #E9DDD0);
+    border-top: 1px solid var(--inv-border, var(--dz-surface-muted));
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -200,8 +200,8 @@ export const inventoryLayoutCss = `
       margin-inline: 0;
       padding: 16px;
       border-radius: 18px;
-      border: 1px solid var(--inv-border, #E9DDD0);
-      background: rgba(254, 248, 242, 0.96);
+      border: 1px solid var(--inv-border, var(--dz-border));
+      background: rgba(251, 250, 246, 0.96);
       box-shadow: var(--inv-shadow);
     }
 

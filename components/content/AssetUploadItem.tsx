@@ -78,39 +78,39 @@ export default function AssetUploadItem({
         <video
           src={uploaded.fileUrl}
           controls
-          className="h-56 w-full rounded-2xl bg-black object-cover"
+          className="h-56 w-full rounded-2xl bg-[var(--dz-app-chrome)] object-cover"
         />
       );
     }
 
     return (
-      <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+      <div className="rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface-muted)] p-4">
         <audio src={uploaded.fileUrl} controls className="w-full" />
       </div>
     );
   }, [asset.title, uploaded]);
 
   return (
-    <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
+    <div className="rounded-3xl border border-[var(--dz-border)] dz-mist p-4 shadow-sm sm:p-5">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span
           className={`rounded-full px-3 py-1 text-xs font-medium ${
             asset.required
-              ? "bg-neutral-900 text-white"
-              : "bg-neutral-100 text-neutral-700"
+              ? "bg-[var(--dz-app-chrome)] text-[var(--dz-text-on-brand)]"
+              : "bg-[var(--dz-surface-muted)] text-[var(--dz-text-secondary)]"
           }`}
         >
           {asset.required ? "חובה" : "אופציונלי"}
         </span>
 
-        <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-700">
+        <span className="rounded-full bg-[var(--dz-surface-muted)] px-3 py-1 text-xs font-medium text-[var(--dz-text-secondary)]">
           {getTypeLabel(asset.type)}
         </span>
       </div>
 
-      <h3 className="text-base font-semibold text-neutral-900">{asset.title}</h3>
+      <h3 className="text-base font-semibold text-[var(--dz-text-primary)]">{asset.title}</h3>
 
-      <p className="mt-1 text-sm leading-6 text-neutral-600">
+      <p className="mt-1 text-sm leading-6 text-[var(--dz-text-muted)]">
         {asset.description}
       </p>
 
@@ -119,16 +119,16 @@ export default function AssetUploadItem({
           <div className="space-y-3">
             {preview}
 
-            <div className="rounded-2xl bg-neutral-50 p-3">
-              <div className="text-xs text-neutral-500">הקובץ שנבחר</div>
-              <div className="mt-1 break-all text-sm font-medium text-neutral-900">
+            <div className="rounded-2xl bg-[var(--dz-surface-muted)] p-3">
+              <div className="text-xs text-[var(--dz-text-muted)]">הקובץ שנבחר</div>
+              <div className="mt-1 break-all text-sm font-medium text-[var(--dz-text-primary)]">
                 {uploaded.fileName}
               </div>
             </div>
 
             <label
               htmlFor={inputId}
-              className="flex min-h-[48px] w-full cursor-pointer items-center justify-center rounded-2xl border border-neutral-300 px-4 py-3 text-sm font-medium text-neutral-900 transition active:scale-[0.99]"
+              className="flex min-h-[48px] w-full cursor-pointer items-center justify-center rounded-2xl border border-[var(--dz-border-strong)] px-4 py-3 text-sm font-medium text-[var(--dz-text-primary)] transition active:scale-[0.99]"
             >
               החלף קובץ
             </label>
@@ -136,7 +136,7 @@ export default function AssetUploadItem({
         ) : (
           <label
             htmlFor={inputId}
-            className="flex min-h-[56px] w-full cursor-pointer items-center justify-center rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 px-4 py-4 text-sm font-medium text-neutral-700 transition active:scale-[0.99]"
+            className="flex min-h-[56px] w-full cursor-pointer items-center justify-center rounded-2xl border border-dashed border-[var(--dz-border-strong)] bg-[var(--dz-surface-muted)] px-4 py-4 text-sm font-medium text-[var(--dz-text-secondary)] transition active:scale-[0.99]"
           >
             העלה {getTypeLabel(asset.type)}
           </label>

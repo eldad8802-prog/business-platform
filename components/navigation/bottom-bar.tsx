@@ -42,14 +42,14 @@ export function BottomBar() {
   const tabs = PRIMARY_DESTINATIONS;
 
   // Unified Dubiz active state across every section of the app — the Documents
-  // feature teal (DS v1 accent #246966), so the whole app shares one language.
-  const activeColor = "#246966";
-  const activeBg = "rgba(36, 105, 102, 0.10)";
-  const activeRing = "rgba(36, 105, 102, 0.22)";
+  // feature teal (Dubiz Mist brand), so the whole app shares one language.
+  const activeColor = "var(--dz-nav-item-active)";
+  const activeBg = "var(--dz-nav-item-active-bg)";
+  const activeRing = "var(--dz-nav-item-active-ring)";
   const fabBackground =
-    "linear-gradient(115deg, #246966 0%, #2C7C79 52%, #3D9C9A 100%)";
+    "var(--dz-nav-fab)";
   const fabShadow =
-    "0 10px 28px rgba(36, 105, 102, 0.34), 0 2px 8px rgba(15, 23, 42, 0.12)";
+    "var(--dz-nav-fab-shadow)";
 
   return (
     <>
@@ -74,12 +74,11 @@ export function BottomBar() {
           paddingLeft: 8,
           paddingRight: 8,
           paddingBottom: `calc(${NAV_BOTTOM_PAD}px + env(safe-area-inset-bottom, 0px))`,
-          background: "rgba(255, 255, 255, 0.76)",
+          background: "var(--dz-nav-surface)",
           backdropFilter: "blur(18px) saturate(160%)",
           WebkitBackdropFilter: "blur(18px) saturate(160%)",
-          borderTop: "1px solid rgba(15, 23, 42, 0.06)",
-          boxShadow:
-            "0 1px 0 rgba(255, 255, 255, 0.65) inset, 0 -6px 28px rgba(15, 23, 42, 0.045)",
+          borderTop: "1px solid var(--dz-nav-border)",
+          boxShadow: "var(--dz-nav-shadow)",
           WebkitTapHighlightColor: "transparent",
           height: "fit-content",
           maxHeight: "132px",
@@ -137,12 +136,12 @@ export function BottomBar() {
               borderRadius: 999,
               border: "1px solid rgba(255, 255, 255, 0.32)",
               background: fabBackground,
-              color: "#ffffff",
+              color: "var(--dz-nav-fab-ink)",
               fontSize: 30,
               fontWeight: 300,
               lineHeight: 1,
               boxShadow: fabPressed
-                ? "0 4px 14px rgba(36, 105, 102, 0.35)"
+                ? "var(--dz-nav-fab-shadow-pressed)"
                 : fabShadow,
               display: "flex",
               alignItems: "center",
@@ -205,7 +204,7 @@ function BarLink({
   activeBg: string;
   activeRing: string;
 }) {
-  const color = active ? activeColor : "#64748b";
+  const color = active ? activeColor : "var(--dz-nav-item)";
 
   return (
     <Link
@@ -225,7 +224,7 @@ function BarLink({
         color,
         background: active ? activeBg : "transparent",
         boxShadow: active
-          ? `inset 0 0 0 1px ${activeRing}, 0 1px 2px rgba(15, 23, 42, 0.05)`
+          ? `inset 0 0 0 1px ${activeRing}, var(--dz-nav-item-active-shadow)`
           : "none",
         touchAction: "manipulation",
         WebkitTapHighlightColor: "transparent",

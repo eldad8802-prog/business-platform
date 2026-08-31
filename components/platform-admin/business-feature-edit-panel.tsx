@@ -224,7 +224,7 @@ export function BusinessFeatureEditPanel({
           style={{
             border: "none",
             background: canSave ? PA.success.accent : PA.border,
-            color: canSave ? "#fff" : PA.inkMeta,
+            color: canSave ? "var(--dz-text-on-brand)" : PA.inkMeta,
             borderRadius: 8,
             padding: "8px 16px",
             fontSize: 13,
@@ -259,7 +259,7 @@ export function BusinessFeatureEditPanel({
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(0,0,0,0.4)",
+            background: "rgba(52, 60, 50, 0.26)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -318,7 +318,7 @@ export function BusinessFeatureEditPanel({
                 style={{
                   border: "none",
                   background: PA.success.accent,
-                  color: "#fff",
+                  color: "var(--dz-text-on-brand)",
                   borderRadius: 8,
                   padding: "8px 16px",
                   fontSize: 13,

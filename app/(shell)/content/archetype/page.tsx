@@ -85,8 +85,8 @@ const DIRECTION_LIBRARY: DirectionCard[] = [
     contentArchetypeId: "video.creator",
     legacyGoal: "trust",
     legacyAngle: "explain",
-    accentBg: "#fff7ed",
-    accentBorder: "#fed7aa",
+    accentBg: "var(--dz-warning-bg-soft)",
+    accentBorder: "var(--dz-warning-bg)",
     goalAffinity: ["trust", "leads", "brand"],
     vibeAffinity: ["warm_personal"],
     cameraPreferred: true,
@@ -100,8 +100,8 @@ const DIRECTION_LIBRARY: DirectionCard[] = [
     contentArchetypeId: "video.stop_scroll",
     legacyGoal: "exposure",
     legacyAngle: "attention",
-    accentBg: "#f5f3ff",
-    accentBorder: "#ddd6fe",
+    accentBg: "var(--dz-brand-soft)",
+    accentBorder: "var(--dz-brand-soft-strong)",
     goalAffinity: ["exposure", "leads", "brand"],
     vibeAffinity: ["bold_energetic", "warm_personal", "professional_clean"],
     platformBoost: ["tiktok", "instagram"],
@@ -115,8 +115,8 @@ const DIRECTION_LIBRARY: DirectionCard[] = [
     contentArchetypeId: "video.trust",
     legacyGoal: "trust",
     legacyAngle: "trust",
-    accentBg: "#f0fdf4",
-    accentBorder: "#bbf7d0",
+    accentBg: "var(--dz-success-bg-soft)",
+    accentBorder: "var(--dz-success-bg)",
     goalAffinity: ["trust", "sales", "leads"],
     vibeAffinity: ["warm_personal", "professional_clean", "premium_luxury"],
   },
@@ -129,8 +129,8 @@ const DIRECTION_LIBRARY: DirectionCard[] = [
     contentArchetypeId: "video.opinion",
     legacyGoal: "exposure",
     legacyAngle: "show_difference",
-    accentBg: "#fefce8",
-    accentBorder: "#fde68a",
+    accentBg: "var(--dz-warning-bg-soft)",
+    accentBorder: "var(--dz-warning-bg)",
     goalAffinity: ["exposure", "brand", "trust"],
     vibeAffinity: ["professional_clean", "bold_energetic", "premium_luxury"],
   },
@@ -143,8 +143,8 @@ const DIRECTION_LIBRARY: DirectionCard[] = [
     contentArchetypeId: "video.leads",
     legacyGoal: "leads",
     legacyAngle: "cta",
-    accentBg: "#fff1f2",
-    accentBorder: "#fecdd3",
+    accentBg: "var(--dz-danger-bg-soft)",
+    accentBorder: "var(--dz-danger-bg)",
     goalAffinity: ["leads", "sales"],
     vibeAffinity: [
       "professional_clean",
@@ -286,7 +286,7 @@ export default function ContentDirectionPage() {
   return (
     <div style={pageStyle}>
       <style>{`
-        .direction-card:focus-visible { outline: 3px solid #3b82f6; outline-offset: 3px; }
+        .direction-card:focus-visible { outline: 3px solid var(--dz-info-accent); outline-offset: 3px; }
         .direction-card:focus:not(:focus-visible) { outline: none; }
       `}</style>
 
@@ -383,7 +383,7 @@ export default function ContentDirectionPage() {
 
 const pageStyle: React.CSSProperties = {
   ...baseStyles.page,
-  background: "linear-gradient(180deg, #f4f6fb 0%, #ffffff 42%, #f8fafc 100%)",
+  background: "linear-gradient(180deg, var(--dz-surface-muted) 0%, var(--dz-surface-flat) 42%, var(--dz-surface-muted) 100%)",
 };
 
 const shellStyle: React.CSSProperties = {
@@ -421,7 +421,7 @@ const titleStyle: React.CSSProperties = {
   fontSize: "clamp(1.55rem, 5vw, 1.85rem)",
   fontWeight: 800,
   lineHeight: 1.25,
-  color: "#0f172a",
+  color: "var(--dz-text-primary)",
   margin: 0,
   marginBottom: 10,
   letterSpacing: "-0.02em",
@@ -430,7 +430,7 @@ const titleStyle: React.CSSProperties = {
 const subtitleStyle: React.CSSProperties = {
   fontSize: "clamp(0.95rem, 3.5vw, 1.05rem)",
   lineHeight: 1.65,
-  color: "#64748b",
+  color: "var(--dz-text-muted)",
   margin: 0,
 };
 
@@ -454,8 +454,8 @@ const directionCardStyle = (
   width: "100%",
   minHeight: 152,
   borderRadius: 20,
-  border: selected ? `2.5px solid ${card.accentBorder}` : "1.5px solid #e2e8f0",
-  background: selected ? card.accentBg : "#ffffff",
+  border: selected ? `2.5px solid ${card.accentBorder}` : "1.5px solid var(--dz-border)",
+  background: selected ? card.accentBg : "var(--dz-surface)",
   padding: "clamp(16px, 4.5vw, 20px) clamp(16px, 4.5vw, 20px)",
   cursor: "pointer",
   textAlign: "right",
@@ -463,8 +463,8 @@ const directionCardStyle = (
   flexDirection: "column",
   gap: 0,
   boxShadow: selected
-    ? `0 10px 32px rgba(0,0,0,0.08), 0 0 0 1px ${card.accentBorder}66`
-    : "0 3px 12px rgba(15,23,42,0.07)",
+    ? `0 10px 32px rgba(52, 60, 50, 0.08), 0 0 0 1px ${card.accentBorder}66`
+    : "0 3px 12px rgba(52, 60, 50, 0.07)",
   transform: selected ? "scale(1.015)" : "scale(1)",
   transition:
     "border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease, background 0.18s ease",
@@ -480,8 +480,8 @@ const badgeStyle = (isRecommended: boolean): React.CSSProperties => ({
   letterSpacing: "0.02em",
   borderRadius: 999,
   padding: "4px 10px",
-  background: isRecommended ? "#0f172a" : "#0ea5e9",
-  color: "#ffffff",
+  background: isRecommended ? "var(--dz-text-primary)" : "var(--dz-info-accent)",
+  color: "var(--dz-text-on-brand)",
   pointerEvents: "none",
   whiteSpace: "nowrap",
 });
@@ -506,13 +506,13 @@ const cardIconStyle: React.CSSProperties = {
 const cardTitleTextStyle = (selected: boolean): React.CSSProperties => ({
   fontSize: "clamp(1rem, 4vw, 1.2rem)",
   fontWeight: 800,
-  color: selected ? "#0f172a" : "#1e293b",
+  color: selected ? "var(--dz-text-primary)" : "var(--dz-text-primary)",
   lineHeight: 1.25,
 });
 
 const vibeTagStyle = (selected: boolean): React.CSSProperties => ({
   fontSize: "clamp(0.82rem, 3vw, 0.92rem)",
-  color: selected ? "#374151" : "#64748b",
+  color: selected ? "var(--dz-text-secondary)" : "var(--dz-text-muted)",
   lineHeight: 1.5,
   margin: 0,
   marginBottom: 12,
@@ -521,28 +521,28 @@ const vibeTagStyle = (selected: boolean): React.CSSProperties => ({
 const dividerStyle = (selected: boolean): React.CSSProperties => ({
   width: "100%",
   height: 1,
-  background: selected ? "rgba(15,23,42,0.1)" : "rgba(226,232,240,0.9)",
+  background: selected ? "rgba(52, 60, 50, 0.1)" : "rgba(227, 229, 221,0.9)",
   marginBottom: 10,
   flexShrink: 0,
 });
 
 const fitsIfStyle: React.CSSProperties = {
   fontSize: "clamp(0.72rem, 2.7vw, 0.8rem)",
-  color: "#94a3b8",
+  color: "var(--dz-text-muted)",
   lineHeight: 1.5,
   margin: 0,
 };
 
 const fitsIfLabelStyle: React.CSSProperties = {
   fontWeight: 700,
-  color: "#64748b",
+  color: "var(--dz-text-muted)",
 };
 
 const footerStyle: React.CSSProperties = {
   position: "sticky",
   bottom: 0,
   zIndex: 20,
-  background: "linear-gradient(180deg, transparent 0%, #f8fafc 28%)",
+  background: "linear-gradient(180deg, transparent 0%, var(--dz-surface-muted) 28%)",
   paddingTop: 16,
   paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
   marginTop: "auto",
@@ -556,8 +556,8 @@ const ctaButtonStyle = (enabled: boolean): React.CSSProperties => ({
   height: 52,
   borderRadius: 16,
   border: "none",
-  background: enabled ? TOKEN.action.primary.background : "#cbd5e1",
-  color: "#ffffff",
+  background: enabled ? TOKEN.action.primary.background : "var(--dz-text-disabled)",
+  color: "var(--dz-text-on-brand)",
   fontSize: 16,
   fontWeight: 800,
   cursor: enabled ? "pointer" : "not-allowed",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 
 /**
  * AccessibilityFab — a floating, always-available accessibility menu.
@@ -25,10 +26,11 @@ const STORAGE_KEY = "dubiz.a11y.prefs.v1";
 // Base distance from the bottom edge when no bottom-nav bar is present.
 const BASE_BOTTOM = 20;
 
-// The new Dubiz turquoise CTA gradient — kept in sync with the brand primary.
-const TURQUOISE_GRADIENT =
-  "linear-gradient(90deg, #0F6F68 0%, #2EAAA2 55%, #8FE3DA 100%)";
-const TURQUOISE_SHADOW = "0 18px 38px rgba(46, 170, 162, 0.35)";
+// Trigger skin. These are GLOBAL CHROME: the FAB paints on every route,
+// including the excluded Home (/app), so they read freezable --dz-fab-* vars
+// rather than the Mist brand tokens directly.
+const TRIGGER_BACKGROUND = "var(--dz-fab-trigger-bg)";
+const TRIGGER_SHADOW = "var(--dz-fab-trigger-shadow)";
 
 type Prefs = {
   /** 0 = 100%, 1 = 110%, 2 = 125%. */
@@ -79,6 +81,8 @@ function applyPrefs(prefs: Prefs) {
 
 export function AccessibilityFab() {
   const [open, setOpen] = useState(false);
+  // See the trigger below — the Home route (/app) keeps the pre-Mist FAB skin.
+  const isHomeRoute = (usePathname() || "/") === "/app";
   // Lazy init reads saved prefs once at first render. On the server `readPrefs`
   // returns defaults; the trigger + closed panel don't depend on prefs, so the
   // client reading localStorage here never causes a hydration mismatch.
@@ -207,6 +211,13 @@ export function AccessibilityFab() {
       <button
         ref={triggerRef}
         type="button"
+        /*
+         * Home exclusion (Dubiz Mist §12): this FAB is mounted in the ROOT
+         * layout, outside [data-shell-root], so the shell's freeze flag cannot
+         * cascade here — it carries its own. On /app the --dz-fab-trigger-*
+         * vars resolve to their pre-Mist values, everywhere else to Mist.
+         */
+        data-dz-home={isHomeRoute ? "1" : undefined}
         aria-label="פתח תפריט נגישות"
         aria-expanded={open}
         aria-haspopup="dialog"
@@ -220,10 +231,10 @@ export function AccessibilityFab() {
           width: 54,
           height: 54,
           borderRadius: 999,
-          border: "1px solid rgba(255, 255, 255, 0.30)",
-          background: TURQUOISE_GRADIENT,
-          color: "#ffffff",
-          boxShadow: TURQUOISE_SHADOW,
+          border: "1px solid var(--dz-fab-trigger-border)",
+          background: TRIGGER_BACKGROUND,
+          color: "var(--dz-fab-trigger-ink)",
+          boxShadow: TRIGGER_SHADOW,
           cursor: "pointer",
           display: "inline-flex",
           alignItems: "center",
@@ -271,11 +282,11 @@ export function AccessibilityFab() {
             zIndex: 101,
             width: 288,
             maxWidth: "calc(100vw - 40px)",
-            background: "#ffffff",
-            color: "#111827",
+            background: "var(--dz-surface-raised)",
+            color: "var(--dz-text-primary)",
             borderRadius: 18,
-            border: "1px solid #e5e7eb",
-            boxShadow: "0 24px 60px rgba(15, 23, 42, 0.22)",
+            border: "1px solid var(--dz-border)",
+            boxShadow: "var(--dz-shadow-overlay)",
             padding: 16,
             fontFamily: "inherit",
           }}
@@ -302,7 +313,7 @@ export function AccessibilityFab() {
                 cursor: "pointer",
                 fontSize: 20,
                 lineHeight: 1,
-                color: "#6b7280",
+                color: "var(--dz-text-muted)",
                 padding: 4,
               }}
             >
@@ -364,9 +375,9 @@ export function AccessibilityFab() {
               width: "100%",
               minHeight: 40,
               borderRadius: 999,
-              border: "1px solid #e5e7eb",
-              background: anyActive ? "#f9fafb" : "#ffffff",
-              color: anyActive ? "#111827" : "#9ca3af",
+              border: "1px solid var(--dz-border)",
+              background: anyActive ? "var(--dz-surface-muted)" : "var(--dz-surface-raised-flat)",
+              color: anyActive ? "var(--dz-text-primary)" : "var(--dz-text-disabled)",
               fontFamily: "inherit",
               fontSize: 14,
               fontWeight: 600,
@@ -386,13 +397,13 @@ const rowStyle: React.CSSProperties = {
   alignItems: "center",
   justifyContent: "space-between",
   padding: "10px 0",
-  borderBottom: "1px solid #f3f4f6",
+  borderBottom: "1px solid var(--dz-border-subtle)",
 };
 
 const labelStyle: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 500,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
 };
 
 function stepBtnStyle(disabled: boolean): React.CSSProperties {
@@ -400,9 +411,9 @@ function stepBtnStyle(disabled: boolean): React.CSSProperties {
     minWidth: 40,
     height: 36,
     borderRadius: 10,
-    border: "1px solid #e5e7eb",
-    background: disabled ? "#f9fafb" : "#ffffff",
-    color: disabled ? "#c7ccd4" : "#111827",
+    border: "1px solid var(--dz-border)",
+    background: disabled ? "var(--dz-surface-muted)" : "var(--dz-surface-raised-flat)",
+    color: disabled ? "var(--dz-text-disabled)" : "var(--dz-text-primary)",
     fontFamily: "inherit",
     fontSize: 15,
     fontWeight: 700,
@@ -434,7 +445,7 @@ function ToggleRow({
           height: 28,
           borderRadius: 999,
           border: "none",
-          background: checked ? "#2EAAA2" : "#d1d5db",
+          background: checked ? "var(--dz-brand)" : "var(--dz-border-strong)",
           cursor: "pointer",
           transition: "background 150ms ease-out",
           padding: 0,
@@ -449,8 +460,8 @@ function ToggleRow({
             width: 22,
             height: 22,
             borderRadius: 999,
-            background: "#ffffff",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+            background: "var(--dz-surface-raised-flat)",
+            boxShadow: "var(--dz-shadow-card)",
             transition: "inset-inline-start 150ms ease-out",
           }}
         />

@@ -47,8 +47,8 @@ export default function RegisterPage() {
     if (!value) {
       return {
         text: "עדיין לא הוזנה סיסמה",
-        color: "#6b7280",
-        bg: "#f3f4f6",
+        color: "var(--dz-text-muted)",
+        bg: "var(--dz-surface-muted)",
         level: 0,
       };
     }
@@ -64,8 +64,8 @@ export default function RegisterPage() {
     if (score <= 2) {
       return {
         text: "סיסמה חלשה",
-        color: "#b91c1c",
-        bg: "#fee2e2",
+        color: "var(--dz-danger)",
+        bg: "var(--dz-danger-bg)",
         level: 1,
       };
     }
@@ -73,16 +73,16 @@ export default function RegisterPage() {
     if (score <= 4) {
       return {
         text: "סיסמה טובה",
-        color: "#a16207",
-        bg: "#fef3c7",
+        color: "var(--dz-warning)",
+        bg: "var(--dz-warning-bg)",
         level: 2,
       };
     }
 
     return {
       text: "סיסמה חזקה",
-      color: "#166534",
-      bg: "#dcfce7",
+      color: "var(--dz-success)",
+      bg: "var(--dz-success-bg)",
       level: 3,
     };
   }
@@ -262,7 +262,7 @@ export default function RegisterPage() {
   const pageStyle: React.CSSProperties = {
     minHeight: "100vh",
     background:
-      "radial-gradient(circle at top right, rgba(34,197,94,0.10), transparent 28%), linear-gradient(135deg, #f8fafc 0%, #eef2ff 45%, #ffffff 100%)",
+      "radial-gradient(circle at top right, rgba(30, 106, 74,0.10), transparent 28%), linear-gradient(135deg, var(--dz-surface-muted) 0%, var(--dz-brand-soft) 45%, var(--dz-surface-flat) 100%)",
     direction: "rtl",
     padding: "24px 16px",
     display: "flex",
@@ -274,9 +274,9 @@ export default function RegisterPage() {
     width: "100%",
     maxWidth: 540,
     background: "rgba(255,255,255,0.96)",
-    border: "1px solid #e5e7eb",
+    border: "1px solid var(--dz-border)",
     borderRadius: 28,
-    boxShadow: "0 20px 60px rgba(15, 23, 42, 0.12)",
+    boxShadow: "0 20px 60px rgba(52, 60, 50, 0.12)",
     overflow: "hidden",
     backdropFilter: "blur(8px)",
   };
@@ -284,8 +284,8 @@ export default function RegisterPage() {
   const headerStyle: React.CSSProperties = {
     padding: "32px 28px 20px",
     background:
-      "linear-gradient(135deg, #ffffff 0%, #f8fafc 55%, #ecfdf5 100%)",
-    borderBottom: "1px solid #eef2f7",
+      "linear-gradient(135deg, var(--dz-surface-flat) 0%, var(--dz-surface-muted) 55%, var(--dz-success-bg-soft) 100%)",
+    borderBottom: "1px solid var(--dz-border)",
   };
 
   const badgeStyle: React.CSSProperties = {
@@ -294,9 +294,9 @@ export default function RegisterPage() {
     gap: 8,
     padding: "8px 12px",
     borderRadius: 999,
-    background: "#f0fdf4",
-    border: "1px solid #bbf7d0",
-    color: "#166534",
+    background: "var(--dz-success-bg-soft)",
+    border: "1px solid var(--dz-success-border)",
+    color: "var(--dz-success)",
     fontWeight: 700,
     fontSize: 13,
     marginBottom: 18,
@@ -306,13 +306,13 @@ export default function RegisterPage() {
     margin: "0 0 10px 0",
     fontSize: 32,
     lineHeight: 1.1,
-    color: "#111827",
+    color: "var(--dz-text-primary)",
     letterSpacing: "-0.02em",
   };
 
   const subtitleStyle: React.CSSProperties = {
     margin: 0,
-    color: "#4b5563",
+    color: "var(--dz-text-secondary)",
     lineHeight: 1.7,
     fontSize: 15,
   };
@@ -329,7 +329,7 @@ export default function RegisterPage() {
     display: "block",
     marginBottom: 8,
     fontWeight: 700,
-    color: "#111827",
+    color: "var(--dz-text-primary)",
     fontSize: 14,
   };
 
@@ -341,19 +341,19 @@ export default function RegisterPage() {
   const baseInputStyle: React.CSSProperties = {
     width: "100%",
     padding: "14px 16px",
-    border: "1px solid #d1d5db",
+    border: "1px solid var(--dz-border-strong)",
     borderRadius: 14,
     outline: "none",
     fontSize: 16,
     lineHeight: 1.4,
-    background: "#ffffff",
-    color: "#111827",
-    caretColor: "#111827",
+    background: "var(--dz-surface)",
+    color: "var(--dz-text-primary)",
+    caretColor: "var(--dz-text-primary)",
     boxSizing: "border-box",
     fontFamily: "inherit",
     WebkitAppearance: "none",
     appearance: "none",
-    boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+    boxShadow: "0 1px 2px rgba(52, 60, 50, 0.04)",
   };
 
   const passwordInputStyle: React.CSSProperties = {
@@ -368,7 +368,7 @@ export default function RegisterPage() {
     transform: "translateY(-50%)",
     border: "none",
     background: "transparent",
-    color: "#374151",
+    color: "var(--dz-text-secondary)",
     fontWeight: 700,
     fontSize: 13,
     cursor: "pointer",
@@ -379,7 +379,7 @@ export default function RegisterPage() {
   const helperTextStyle: React.CSSProperties = {
     marginTop: 8,
     marginBottom: 0,
-    color: "#6b7280",
+    color: "var(--dz-text-muted)",
     fontSize: 13,
     lineHeight: 1.5,
   };
@@ -387,7 +387,7 @@ export default function RegisterPage() {
   const fieldErrorStyle: React.CSSProperties = {
     marginTop: 8,
     marginBottom: 0,
-    color: "#b91c1c",
+    color: "var(--dz-danger)",
     fontSize: 13,
     lineHeight: 1.5,
     fontWeight: 600,
@@ -421,7 +421,7 @@ export default function RegisterPage() {
     background:
       passwordStrength.level >= index
         ? passwordStrength.color
-        : "rgba(107,114,128,0.20)",
+        : "rgba(102, 111, 101,0.20)",
   });
 
 
@@ -429,9 +429,9 @@ export default function RegisterPage() {
     marginBottom: 16,
     padding: 12,
     borderRadius: 14,
-    background: "#fef2f2",
-    border: "1px solid #fecaca",
-    color: "#991b1b",
+    background: "var(--dz-danger-bg-soft)",
+    border: "1px solid var(--dz-danger-border)",
+    color: "var(--dz-danger)",
     fontSize: 14,
     lineHeight: 1.6,
   };
@@ -442,20 +442,20 @@ export default function RegisterPage() {
     gap: 12,
     marginTop: 22,
     marginBottom: 18,
-    color: "#9ca3af",
+    color: "var(--dz-text-muted)",
     fontSize: 13,
   };
 
   const lineStyle: React.CSSProperties = {
     flex: 1,
     height: 1,
-    background: "#e5e7eb",
+    background: "var(--dz-surface-muted)",
   };
 
   const footerTextStyle: React.CSSProperties = {
     marginTop: 0,
     marginBottom: 0,
-    color: "#6b7280",
+    color: "var(--dz-text-muted)",
     textAlign: "center",
     lineHeight: 1.8,
     fontSize: 14,
@@ -464,7 +464,7 @@ export default function RegisterPage() {
   const linkButtonStyle: React.CSSProperties = {
     border: "none",
     background: "transparent",
-    color: "#111827",
+    color: "var(--dz-text-primary)",
     cursor: "pointer",
     fontWeight: 800,
     textDecoration: "underline",
@@ -477,7 +477,7 @@ export default function RegisterPage() {
     return (
       <div style={pageStyle}>
         <div style={cardStyle}>
-          <div style={{ padding: 28, textAlign: "center", color: "#111827" }}>
+          <div style={{ padding: 28, textAlign: "center", color: "var(--dz-text-primary)" }}>
             טוען...
           </div>
         </div>
@@ -524,11 +524,11 @@ export default function RegisterPage() {
                 style={{
                   ...baseInputStyle,
                   borderColor:
-                    touched.name && errors.name ? "#fca5a5" : "#d1d5db",
+                    touched.name && errors.name ? "var(--dz-danger-border)" : "var(--dz-border-strong)",
                   boxShadow:
                     touched.name && errors.name
-                      ? "0 0 0 3px rgba(239,68,68,0.10)"
-                      : "0 1px 2px rgba(15, 23, 42, 0.04)",
+                      ? "0 0 0 3px rgba(155, 70, 52,0.10)"
+                      : "0 1px 2px rgba(52, 60, 50, 0.04)",
                 }}
                 placeholder="הכנס שם מלא"
                 autoFocus
@@ -566,12 +566,12 @@ export default function RegisterPage() {
                   ...baseInputStyle,
                   borderColor:
                     touched.businessName && errors.businessName
-                      ? "#fca5a5"
-                      : "#d1d5db",
+                      ? "var(--dz-danger-border)"
+                      : "var(--dz-border-strong)",
                   boxShadow:
                     touched.businessName && errors.businessName
-                      ? "0 0 0 3px rgba(239,68,68,0.10)"
-                      : "0 1px 2px rgba(15, 23, 42, 0.04)",
+                      ? "0 0 0 3px rgba(155, 70, 52,0.10)"
+                      : "0 1px 2px rgba(52, 60, 50, 0.04)",
                 }}
                 placeholder="הכנס את שם העסק"
               />
@@ -608,11 +608,11 @@ export default function RegisterPage() {
                 style={{
                   ...baseInputStyle,
                   borderColor:
-                    touched.email && errors.email ? "#fca5a5" : "#d1d5db",
+                    touched.email && errors.email ? "var(--dz-danger-border)" : "var(--dz-border-strong)",
                   boxShadow:
                     touched.email && errors.email
-                      ? "0 0 0 3px rgba(239,68,68,0.10)"
-                      : "0 1px 2px rgba(15, 23, 42, 0.04)",
+                      ? "0 0 0 3px rgba(155, 70, 52,0.10)"
+                      : "0 1px 2px rgba(52, 60, 50, 0.04)",
                 }}
                 placeholder="name@example.com"
                 autoComplete="email"
@@ -662,11 +662,11 @@ export default function RegisterPage() {
                 style={{
                   ...passwordInputStyle,
                   borderColor:
-                    touched.password && errors.password ? "#fca5a5" : "#d1d5db",
+                    touched.password && errors.password ? "var(--dz-danger-border)" : "var(--dz-border-strong)",
                   boxShadow:
                     touched.password && errors.password
-                      ? "0 0 0 3px rgba(239,68,68,0.10)"
-                      : "0 1px 2px rgba(15, 23, 42, 0.04)",
+                      ? "0 0 0 3px rgba(155, 70, 52,0.10)"
+                      : "0 1px 2px rgba(52, 60, 50, 0.04)",
                 }}
                 placeholder="הכנס סיסמה"
                 autoComplete="new-password"
@@ -727,12 +727,12 @@ export default function RegisterPage() {
                   ...passwordInputStyle,
                   borderColor:
                     touched.confirmPassword && errors.confirmPassword
-                      ? "#fca5a5"
-                      : "#d1d5db",
+                      ? "var(--dz-danger-border)"
+                      : "var(--dz-border-strong)",
                   boxShadow:
                     touched.confirmPassword && errors.confirmPassword
-                      ? "0 0 0 3px rgba(239,68,68,0.10)"
-                      : "0 1px 2px rgba(15, 23, 42, 0.04)",
+                      ? "0 0 0 3px rgba(155, 70, 52,0.10)"
+                      : "0 1px 2px rgba(52, 60, 50, 0.04)",
                 }}
                 placeholder="הכנס שוב את הסיסמה"
                 autoComplete="new-password"

@@ -20,7 +20,7 @@ export default function FullScreenQrModal({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(17, 24, 39, 0.92)",
+        background: "rgba(52, 60, 50, 0.26)",
         zIndex: 9999,
         display: "flex",
         alignItems: "center",
@@ -32,18 +32,18 @@ export default function FullScreenQrModal({
         style={{
           width: "100%",
           maxWidth: 460,
-          background: "#ffffff",
+          background: "var(--dz-surface)",
           borderRadius: 28,
           padding: 20,
           textAlign: "center",
-          boxShadow: "0 24px 60px rgba(0, 0, 0, 0.25)",
+          boxShadow: "0 24px 60px rgba(52, 60, 50, 0.25)",
         }}
       >
         <div
           style={{
             fontSize: 14,
             fontWeight: 700,
-            color: "#6b7280",
+            color: "var(--dz-text-muted)",
             marginBottom: 10,
           }}
         >
@@ -54,7 +54,7 @@ export default function FullScreenQrModal({
           style={{
             width: "100%",
             borderRadius: 24,
-            border: "1px solid #e5e7eb",
+            border: "1px solid var(--dz-border)",
             padding: 16,
             display: "flex",
             alignItems: "center",
@@ -78,7 +78,7 @@ export default function FullScreenQrModal({
         <div
           style={{
             fontSize: 13,
-            color: "#6b7280",
+            color: "var(--dz-text-muted)",
             marginBottom: 18,
             wordBreak: "break-word",
           }}
@@ -93,8 +93,8 @@ export default function FullScreenQrModal({
             padding: "14px 16px",
             borderRadius: 16,
             border: "none",
-            background: "#111827",
-            color: "#ffffff",
+            background: "var(--dz-text-primary)",
+            color: "var(--dz-text-on-brand)",
             fontWeight: 700,
             cursor: "pointer",
             width: "100%",

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { TOKEN } from "@/lib/design/tokens";
+import { usePathname } from "next/navigation";
 import { BottomBar } from "./bottom-bar";
 import { SideNav } from "./side-nav";
 import { useShellChromeHidden } from "./shell-chrome-visibility";
@@ -10,7 +10,6 @@ type ShellChromeProps = {
   children: ReactNode;
 };
 
-const d = TOKEN.dsv1;
 
 /**
  * Adaptive App Shell chrome — one shell, three device tiers, switched purely in
@@ -60,9 +59,9 @@ const shellCss = `
   z-index: 40;
   display: flex;
   flex-direction: column;
-  background: ${d.card};
-  border-inline-end: 1px solid ${d.line};
-  box-shadow: 0 1px 2px rgba(88, 62, 38, 0.05), 8px 0 22px rgba(120, 88, 52, 0.04);
+  background: var(--dz-nav-sidebar-surface);
+  border-inline-end: 1px solid var(--dz-nav-sidebar-border);
+  box-shadow: var(--dz-nav-sidebar-shadow);
   overflow-y: auto;
   overflow-x: hidden;
   direction: rtl;
@@ -72,8 +71,8 @@ const shellCss = `
 
 .shell-brand { display: flex; align-items: center; height: 44px; margin-bottom: 14px; padding-inline-start: 8px; }
 .shell-sidenav--rail .shell-brand { justify-content: center; padding: 0; }
-.shell-brand__word { font-size: 20px; font-weight: 600; letter-spacing: -0.4px; color: ${d.accent}; }
-.shell-brand__mark { width: 34px; height: 34px; border-radius: 10px; background: ${d.successBg}; color: ${d.accent}; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 600; }
+.shell-brand__word { font-size: 20px; font-weight: 600; letter-spacing: -0.4px; color: var(--dz-nav-brand-word); }
+.shell-brand__mark { width: 34px; height: 34px; border-radius: 10px; background: var(--dz-nav-brand-mark-bg); color: var(--dz-nav-brand-word); display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 600; }
 
 .shell-navlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; width: 100%; }
 .shell-navitem {
@@ -84,7 +83,7 @@ const shellCss = `
   height: 44px;
   padding: 0 12px;
   border-radius: 12px;
-  color: ${d.muted};
+  color: var(--dz-nav-sidebar-item);
   text-decoration: none;
   font-size: 14.5px;
   font-weight: 500;
@@ -92,14 +91,14 @@ const shellCss = `
 }
 .shell-sidenav--rail .shell-navitem { justify-content: center; width: 52px; height: 52px; padding: 0; margin-inline: auto; gap: 0; }
 .shell-navitem__icon { display: flex; width: 22px; height: 22px; align-items: center; justify-content: center; flex-shrink: 0; }
-.shell-navitem:hover { background: ${d.surface2}; color: ${d.ink}; }
-.shell-navitem[aria-current="page"] { background: ${d.successBg}; color: ${d.accent}; font-weight: 600; }
+.shell-navitem:hover { background: var(--dz-nav-item-hover-bg); color: var(--dz-nav-item-hover-ink); }
+.shell-navitem[aria-current="page"] { background: var(--dz-nav-item-active-bg); color: var(--dz-nav-item-active); font-weight: 600; }
 .shell-navitem[aria-current="page"]::before {
   content: ""; position: absolute; inset-inline-start: 0; top: 50%; transform: translateY(-50%);
-  width: 3px; height: 22px; border-radius: 999px; background: ${d.accent};
+  width: 3px; height: 22px; border-radius: 999px; background: var(--dz-nav-item-active);
 }
 .shell-sidenav--rail .shell-navitem[aria-current="page"]::before { height: 26px; }
-.shell-navitem:focus-visible { outline: 2px solid ${d.accent}; outline-offset: 2px; }
+.shell-navitem:focus-visible { outline: 2px solid var(--dz-nav-item-active); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .shell-navitem { transition: none; } }
 `;
 
@@ -109,6 +108,21 @@ const shellCss = `
  */
 export function ShellChrome({ children }: ShellChromeProps) {
   const chromeHidden = useShellChromeHidden();
+  const pathname = usePathname() || "/";
+
+  /**
+   * Home exclusion (Dubiz Mist §12). The authenticated Dubiz home is `/app` —
+   * `app/(shell)/page.tsx` redirects `/` there, so `/app` is the only pathname
+   * that ever renders it. The screen itself is self-scoped under `.dzhome` and
+   * reads no platform token, so the ONLY shared surfaces that paint on it are
+   * the nav chrome below. Flagging the route here restores their pre-Mist
+   * values through the `[data-dz-home]` block in `app/dubiz-mist.css`, which is
+   * what makes the Home guarantee pixel-exact rather than approximate.
+   *
+   * `usePathname` resolves during SSR in the App Router, so the attribute is
+   * present on the very first paint — no flash, no hydration branch.
+   */
+  const isHome = pathname === "/app";
 
   return (
     <div
@@ -116,7 +130,8 @@ export function ShellChrome({ children }: ShellChromeProps) {
       className="flex min-h-screen w-full flex-col"
       data-shell-root
       data-chrome={chromeHidden ? "off" : "on"}
-      style={{ background: "var(--background, #ffffff)" }}
+      data-dz-home={isHome ? "1" : undefined}
+      style={{ background: "var(--dz-shell-ground)" }}
     >
       <style>{shellCss}</style>
 

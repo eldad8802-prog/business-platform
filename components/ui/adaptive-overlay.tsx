@@ -73,7 +73,7 @@ export function AdaptiveOverlay({
     position: "fixed",
     inset: 0,
     zIndex: LAYOUT.z.overlay,
-    background: "rgba(23, 20, 16, 0.45)",
+    background: "rgba(35, 48, 43, 0.45)",
     display: "flex",
     alignItems: sheet ? "flex-end" : "center",
     justifyContent: "center",
@@ -87,7 +87,7 @@ export function AdaptiveOverlay({
         height: "100%",
         overflow: "auto",
         overscrollBehavior: "contain",
-        background: "#FEF8F2",
+        background: "var(--dz-background)",
         paddingTop: "var(--dz-safe-top)",
         paddingBottom: "var(--dz-safe-bottom)",
       }
@@ -98,7 +98,7 @@ export function AdaptiveOverlay({
           maxHeight: "86dvh",
           overflow: "auto",
           overscrollBehavior: "contain",
-          background: "#FEF8F2",
+          background: "var(--dz-background)",
           borderRadius: "22px 22px 0 0",
           padding: `18px 18px calc(18px + var(--dz-safe-bottom))`,
           boxSizing: "border-box",
@@ -110,11 +110,11 @@ export function AdaptiveOverlay({
           maxHeight: "min(82dvh, 900px)",
           overflow: "auto",
           overscrollBehavior: "contain",
-          background: "#FEF8F2",
+          background: "var(--dz-background)",
           borderRadius: 22,
           padding: 22,
           boxSizing: "border-box",
-          boxShadow: "0 18px 60px rgba(23, 20, 16, 0.28)",
+          boxShadow: "0 18px 60px rgba(35, 48, 43, 0.28)",
         };
 
   return createPortal(

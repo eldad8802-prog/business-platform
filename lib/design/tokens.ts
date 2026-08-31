@@ -1,60 +1,77 @@
 /**
  * Design tokens — single source of truth for the platform.
  *
- * Visual direction: premium SaaS, monochrome slate with restrained semantic
- * accent. Surfaces are white, depth comes from borders + subtle elevation.
- * No tinted card backgrounds; signal lives in chips, accent bars, and avatars.
+ * Visual direction: **Dubiz Mist**. A warm off-white ground with a very subtle
+ * misty-sage undertone; surfaces are near-white paper that receive an ambient,
+ * borderless colour diffusion; depth comes from hairlines and wide, low-opacity
+ * shadows; the Dubiz teal carries every primary action and active state.
+ *
+ * Every colour below resolves through `lib/design/mist.ts` → `--dz-*` custom
+ * properties declared in `app/dubiz-mist.css`. NOTHING in this file is a
+ * hand-authored colour: to change the palette, change the stylesheet.
+ * `npm run verify:mist-tokens` proves the three layers stay in step.
+ *
+ * The historical split between the "cool" set (`surface`/`brand`/`ink`) and the
+ * "warm" DS v1 set (`dsv1`/`warm`) is retained as an API — ~120 files import one
+ * or the other — but both now resolve to the SAME Mist values, so the product
+ * finally speaks one language. The duplicate groups are kept (rather than
+ * deleted) purely so no call site has to change; new code should read `dsv1`.
+ *
+ * IMPORTANT: `surface.card` / `surface.overlay` / `dsv1.card` and friends carry
+ * a background-IMAGE stack (that is the Mist treatment). They are valid in the
+ * `background` shorthand only — never in `backgroundColor`. Where a flat colour
+ * is genuinely required (canvas, SVG paint, server-rendered PDF/e-mail HTML),
+ * import `MIST_FLAT` from `lib/design/mist.ts`.
  */
+
+import { MIST } from "./mist";
 
 export const TOKEN = {
   surface: {
-    /** Near-black for primary buttons, app icon rail, selected tabs. */
-    appChrome: "#0A0A0F",
-    /** Cool off-white page background for shells and side panels. */
-    page: "#F5F6F8",
-    /** Cards, panels, banners — always pure white. */
-    card: "#FFFFFF",
-    /** Inset surface inside cards: inputs, draft container, business bubble. */
-    inset: "#F5F6F8",
-    /** Floating overlays (drawer/sheet/dropdown) — always white. */
-    overlay: "#FFFFFF",
+    /** Deep chrome for inverted panels/rails — graphite green, never pure black. */
+    appChrome: MIST.appChrome,
+    /** Page ground — flat and even (§1: the diffusion lives on the surfaces). */
+    page: MIST.background,
+    /** Cards, panels, banners — near-white paper carrying the Mist treatment. */
+    card: MIST.surface,
+    /** Inset surface inside cards: inputs, tiles, draft containers — clean, no diffusion. */
+    inset: MIST.surfaceMuted,
+    /** Floating overlays (drawer/sheet/dropdown/dialog). */
+    overlay: MIST.surfaceRaised,
+    /** Hero / feature panels — the same diffusion, a touch more present. */
+    feature: MIST.surfaceStrong,
   },
 
   /**
-   * Dubiz brand — the navy→light-blue gradient is the primary brand expression.
-   * Use it for primary actions, active states, selected tabs/stations/filters,
-   * central badges. Links/interactive text use {@link brand.mid}. Text stays ink,
-   * surfaces stay white — the brand lives in actions and active states, not chrome.
+   * Dubiz brand — the teal taken from the logo. It carries primary actions and
+   * active states; surfaces stay near-white and text stays ink, so the brand
+   * lives in actions and selection, never in chrome.
    */
   brand: {
-    /** Deep, stable navy — gradient start, solid emphasis on dark surfaces. */
-    navy: "#132944",
-    /** Soft light blue — gradient end (matches the reference button). */
-    denim: "#6F91BE",
-    /** @deprecated use denim. */
-    light: "#6F91BE",
-    /** Middle tone — interactive links, active text, icon accents on white (AA on white). */
-    mid: "#2E527F",
-    /**
-     * Primary action / active gradient — the Dubiz turquoise CTA (deep teal →
-     * bright aqua, left-to-right per the reference). White text stays legible on
-     * the deep-teal body. The warm DS v1 teal (`dsv1`/`warm`) is a separate,
-     * governed identity and is intentionally left untouched.
-     */
-    gradient: "linear-gradient(90deg, #0F6F68 0%, #2EAAA2 55%, #8FE3DA 100%)",
-    /** Hover — brighten each stop slightly for a livelier press-ready state. */
-    gradientHover: "linear-gradient(90deg, #147D74 0%, #35BDB4 55%, #A6EDE4 100%)",
-    /** Soft tinted fill for active/selected surfaces on white. */
-    soft: "#EEF3F9",
+    /** @deprecated historical name for the deep brand tone — now the teal. */
+    navy: MIST.brand,
+    /** @deprecated historical gradient tail — now the teal accent. */
+    denim: MIST.infoAccent,
+    /** @deprecated use `mid`. */
+    light: MIST.infoAccent,
+    /** Interactive links, active text, icon accents (AA on every Mist ground). */
+    mid: MIST.brand,
+    /** Primary action / active gradient — soft, premium, never neon. */
+    gradient: MIST.brandGradient,
+    /** Hover deepens rather than brightens. */
+    gradientHover: MIST.brandGradientHover,
+    /** Soft mist fill for active/selected surfaces (nav selection, soft chips). */
+    soft: MIST.brandSoft,
     /** Border for active/selected surfaces and soft chips. */
-    softBorder: "#C7D6E9",
-    /** Focus ring — bright-but-restrained brand blue at low alpha. */
-    focus: "rgba(46, 82, 127, 0.35)",
+    softBorder: MIST.brandBorder,
+    /** Focus ring — the brand teal at low alpha. */
+    focus: MIST.focusRing,
     /**
      * WhatsApp channel brand — used ONLY on the WhatsApp connection screens
      * for the connect / reconnect / retry primary action and the glyph.
-     * `green` is the official WhatsApp brand color; production should swap the
-     * approximated glyph for the licensed asset (Brand Review required).
+     * `green` is the official WhatsApp brand colour and is deliberately NOT
+     * re-tinted by Dubiz Mist (it represents WhatsApp, not Dubiz); production
+     * should swap the approximated glyph for the licensed asset.
      */
     whatsapp: {
       green: "#25D366",
@@ -66,183 +83,223 @@ export const TOKEN = {
   },
 
   action: {
-    // Turquoise CTA — the primary action fill for every token-driven primary
-    // button. Shares the exact gradient with `brand.gradient`. The soft turquoise
-    // glow + inset top highlight give the requested glass/soft-glow feel.
+    /** The Dubiz primary CTA — teal gradient, soft wide glow, no halo. */
     primary: {
-      background: "linear-gradient(90deg, #0F6F68 0%, #2EAAA2 55%, #8FE3DA 100%)",
-      backgroundHover: "linear-gradient(90deg, #147D74 0%, #35BDB4 55%, #A6EDE4 100%)",
-      color: "#FFFFFF",
-      border: "1px solid rgba(255, 255, 255, 0.30)",
-      shadow: "0 18px 38px rgba(46, 170, 162, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.30)",
-      shadowSoft: "0 12px 26px rgba(46, 170, 162, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.24)",
+      background: MIST.brandGradient,
+      backgroundHover: MIST.brandGradientHover,
+      color: MIST.textOnBrand,
+      border: "0",
+      shadow: MIST.shadowGlow,
+      shadowSoft: MIST.shadowGlow,
     },
+    /** Secondary action (§5): off-white surface, subtle border, muted dark ink. */
     glass: {
-      background: "rgba(255, 255, 255, 0.78)",
-      backgroundHover: "rgba(255, 255, 255, 0.92)",
-      color: "#132944",
-      border: "1px solid rgba(111, 145, 190, 0.34)",
-      shadow: "0 8px 20px rgba(19, 41, 68, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.72)",
+      background: MIST.surfaceRaised,
+      backgroundHover: MIST.brandSoft,
+      color: MIST.textPrimary,
+      border: `1px solid ${MIST.border}`,
+      shadow: MIST.shadowCard,
     },
     danger: {
-      background: "#FFFFFF",
-      color: "#991B1B",
-      border: "1px solid #FECACA",
-      shadow: "0 8px 18px rgba(153, 27, 27, 0.08)",
+      background: MIST.surfaceRaised,
+      color: MIST.danger,
+      border: `1px solid ${MIST.dangerBorder}`,
+      shadow: MIST.shadowCard,
     },
   },
 
   ink: {
-    /** Primary content + buttons. */
-    primary: "#0A0A0F",
+    /** Primary content — deep graphite green-black, never pure black (§7). */
+    primary: MIST.textPrimary,
     /** Secondary text — sub-lines, labels in lists. */
-    secondary: "#4B5563",
+    secondary: MIST.textSecondary,
     /** Muted text — captions, supporting metadata. */
-    muted: "#6B7280",
-    /** Meta — timestamps, counts, less-prominent labels. */
-    meta: "#9CA3AF",
-    /** Disabled/placeholder. */
-    disabled: "#D1D5DB",
-    /** On dark surfaces (rail, primary buttons). */
-    inverse: "#FFFFFF",
+    muted: MIST.textMuted,
+    /**
+     * Meta — timestamps, counts, less-prominent labels. Folded onto `muted`:
+     * the pre-Mist value (#9CA3AF) sat at 2.4:1 and failed WCAG AA as real
+     * text. The hierarchy loses one step; legibility gains a whole tier.
+     */
+    meta: MIST.textMuted,
+    /** Disabled/placeholder (WCAG 1.4.3 exempts disabled controls). */
+    disabled: MIST.textDisabled,
+    /** On the brand gradient / deep chrome. */
+    inverse: MIST.textOnBrand,
   },
 
   border: {
-    /** Single canonical border for cards, inputs, separators. */
-    DEFAULT: "#E5E7EB",
+    /** Single canonical hairline for cards, inputs, separators (§8). */
+    DEFAULT: MIST.border,
     /** Hover state border. */
-    hover: "#D1D5DB",
-    /** Selection / active emphasis — uses ink primary. */
-    strong: "#0A0A0F",
+    hover: MIST.borderStrong,
+    /** Selection / active emphasis — the brand teal, never black. */
+    strong: MIST.brand,
     transparent: "transparent",
   },
 
+  /**
+   * Semantic signals (§10) — the meaning is untouched (success = green,
+   * warning = amber, danger = red, info = blue); only the saturation is
+   * softened so the signals sit calmly on the Mist ground. Every ink/bg pair
+   * below is AA-verified by `verify:mist-tokens`.
+   */
   semantic: {
     urgent: {
-      ink: "#991B1B",
-      bg: "#FEE2E2",
-      bgSoft: "#FEF2F2",
-      border: "#FECACA",
-      accent: "#DC2626",
+      ink: MIST.danger,
+      bg: MIST.dangerBg,
+      bgSoft: MIST.dangerBgSoft,
+      border: MIST.dangerBorder,
+      accent: MIST.dangerAccent,
     },
     attention: {
-      ink: "#92400E",
-      bg: "#FEF3C7",
-      bgSoft: "#FFFBEB",
-      border: "#FDE68A",
-      accent: "#F59E0B",
+      ink: MIST.warning,
+      bg: MIST.warningBg,
+      bgSoft: MIST.warningBgSoft,
+      border: MIST.warningBorder,
+      accent: MIST.warningAccent,
     },
     success: {
-      ink: "#065F46",
-      bg: "#D1FAE5",
-      bgSoft: "#ECFDF5",
-      border: "#A7F3D0",
-      accent: "#10B981",
+      ink: MIST.success,
+      bg: MIST.successBg,
+      bgSoft: MIST.successBgSoft,
+      border: MIST.successBorder,
+      accent: MIST.successAccent,
     },
     info: {
-      ink: "#1E40AF",
-      bg: "#DBEAFE",
-      bgSoft: "#EFF6FF",
-      border: "#BFDBFE",
-      accent: "#3B82F6",
+      ink: MIST.info,
+      bg: MIST.infoBg,
+      bgSoft: MIST.infoBgSoft,
+      border: MIST.infoBorder,
+      accent: MIST.infoAccent,
     },
-  },
-
-  /** Saturated avatar backgrounds — white text inside. */
-  avatar: {
-    red: "#EF4444",
-    orange: "#F97316",
-    amber: "#F59E0B",
-    green: "#10B981",
-    blue: "#3B82F6",
-    purple: "#8B5CF6",
-    pink: "#EC4899",
-    slate: "#64748B",
-  },
-
-  /** Payment Secretary / Business Memory visual language. */
-  secretary: {
-    ink: "#0F1729",
-    muted: "#6B7280",
-    line: "#E1E7EF",
-    canvas: "#FFFFFF",
-    surface: "#F5F7F9",
-    surface2: "#EEF1F6",
-    action: "#0F6FFF",
-    grad: "linear-gradient(100deg, #17334F 0%, #3D608F 58%, #7597C7 100%)",
-    brand: "#17334F",
-    brandShadow: "0 16px 34px rgba(23, 51, 79, 0.28)",
-    primaryShadow: "0 18px 34px rgba(23, 51, 79, 0.26)",
-    focusShadow: "0 18px 44px rgba(15, 23, 42, 0.10)",
-    hi: "#22C55E",
-    hiBg: "#DCFCE7",
-    hiInk: "#166534",
-    md: "#F59E0B",
-    mdBg: "#FEF3C7",
-    mdInk: "#92400E",
-    lo: "#14B8A6",
-    loBg: "#CCFBF1",
-    loInk: "#0F766E",
-    infoBg: "#E0EDFF",
-    infoInk: "#1D4ED8",
-    calm: "#14B8A6",
-    calmBg: "#CCFBF1",
-    calmInk: "#0F766E",
-    purple: "#8B5CF6",
-    purpleBg: "#EDE9FE",
-    purpleInk: "#5B21B6",
-    neutralText: "#64748B",
-    softIcon: "#DBEAFE",
-    selectedBorder: "#86EFAC",
-    dashedBorder: "#CBD5E1",
-    sheetDim: "rgba(15, 23, 42, 0.45)",
-    activeRing: "rgba(15, 111, 255, 0.18)",
-    homeWash:
-      "linear-gradient(180deg, rgba(239, 246, 255, 0.92) 0%, rgba(255, 255, 255, 0.98) 42%, #FFFFFF 100%)",
-    homeShadowSoft:
-      "0 18px 44px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04)",
-    homeShadowLift:
-      "0 24px 60px rgba(15, 23, 42, 0.12), 0 6px 16px rgba(15, 23, 42, 0.06)",
-    homeGoColor: "#2E527F",
   },
 
   /**
-   * Dubiz Design System v1 — the warm cream/teal visual language extracted from
-   * the Collection reference (docs Dubiz Design System v1). Additive: features
-   * migrate onto this palette one at a time; the Secretary is the first.
-   * Values are the DS source-of-truth — do not invent or alter them.
+   * Avatar backgrounds — identity colours, white text inside. Hue identity is
+   * preserved; saturation is pulled back into the Mist range, and every value
+   * clears 4.3:1 against `ink.inverse` (they were previously as low as 2.1:1).
+   */
+  avatar: {
+    red: "#A4503F",
+    orange: "#9F5F39",
+    amber: "#8A6731",
+    green: "#2F7A57",
+    blue: "#3F6E96",
+    purple: "#67588F",
+    pink: "#93506F",
+    slate: "#5C665E",
+  },
+
+  /**
+   * Payment Secretary / Business Memory visual language.
+   *
+   * Historical group with no current consumers (the Secretary reads `dsv1` via
+   * `secretaryVars()`). Re-pointed at Mist so it cannot become a cool-navy
+   * island if something adopts it again.
+   */
+  secretary: {
+    ink: MIST.textPrimary,
+    muted: MIST.textMuted,
+    line: MIST.border,
+    canvas: MIST.surface,
+    surface: MIST.background,
+    surface2: MIST.surfaceMuted,
+    action: MIST.brand,
+    grad: MIST.brandGradient,
+    brand: MIST.brand,
+    brandShadow: MIST.shadowGlow,
+    primaryShadow: MIST.shadowGlow,
+    focusShadow: MIST.shadowRaised,
+    hi: MIST.successAccent,
+    hiBg: MIST.successBg,
+    hiInk: MIST.success,
+    md: MIST.warningAccent,
+    mdBg: MIST.warningBg,
+    mdInk: MIST.warning,
+    lo: MIST.brand,
+    loBg: MIST.brandSoft,
+    loInk: MIST.brand,
+    infoBg: MIST.infoBg,
+    infoInk: MIST.info,
+    calm: MIST.brand,
+    calmBg: MIST.brandSoft,
+    calmInk: MIST.brand,
+    purple: "#67588F",
+    purpleBg: "#EDEAF3",
+    purpleInk: "#514279",
+    neutralText: MIST.textMuted,
+    softIcon: MIST.brandSoft,
+    selectedBorder: MIST.brandBorder,
+    dashedBorder: MIST.borderStrong,
+    sheetDim: MIST.backdrop,
+    activeRing: MIST.focusRing,
+    homeWash: MIST.surface,
+    homeShadowSoft: MIST.shadowCard,
+    homeShadowLift: MIST.shadowCardHover,
+    homeGoColor: MIST.brand,
+  },
+
+  /**
+   * Dubiz Design System v1 — the platform palette group. Originally the warm
+   * cream/teal set; now the **Dubiz Mist** identity. This is the hub every
+   * feature theme (`documents-theme`, `billing-theme`, `bot-theme`,
+   * `crm-theme`, `inventory-tokens`, `warm-primitives`, `marketing-tokens`,
+   * `secretaryVars`) derives from — change it here, and the whole product
+   * follows. Values come from `MIST`; never invent or alter one.
    */
   dsv1: {
-    canvas: "#FEF8F2",
-    card: "#FDF4EB",
-    surface2: "#F6ECDD",
-    ink: "#2D2B28",
-    muted: "#777067",
-    tertiary: "#A79C8D",
-    line: "#E9DDD0",
-    accent: "#246966",
-    gradient: "linear-gradient(115deg, #246966 0%, #2C7C79 52%, #3D9C9A 100%)",
-    gradientHover: "linear-gradient(115deg, #2A7370 0%, #348C89 52%, #49AEAC 100%)",
-    onAccent: "#FEF8F2",
-    success: "#246966",
-    successBg: "rgba(36, 105, 102, 0.10)",
-    warning: "#B88755",
-    warningInk: "#8A6238",
-    warningBg: "rgba(184, 135, 85, 0.12)",
-    error: "#B85C3F",
-    errorBg: "rgba(184, 92, 63, 0.10)",
-    info: "#3D9C9A",
-    infoInk: "#2A6E6B",
-    infoBg: "rgba(61, 156, 154, 0.12)",
-    ring: "rgba(36, 105, 102, 0.22)",
-    backdrop: "rgba(70, 50, 30, 0.35)",
-    shadowCard: "0 1px 2px rgba(88, 62, 38, 0.05), 0 8px 22px rgba(120, 88, 52, 0.06)",
-    shadowCardHover: "0 1px 2px rgba(88, 62, 38, 0.06), 0 12px 28px rgba(120, 88, 52, 0.10)",
-    shadowGlow: "0 6px 18px rgba(36, 105, 102, 0.28)",
-    shadowGlowHover: "0 6px 18px rgba(36, 105, 102, 0.38)",
-    shadowOverlay: "0 20px 60px rgba(70, 50, 30, 0.18)",
-    homeWash:
-      "linear-gradient(180deg, rgba(254, 248, 242, 0.92) 0%, rgba(253, 244, 235, 0.98) 42%, #FDF4EB 100%)",
+    /** Page ground — flat, even, calm. */
+    canvas: MIST.background,
+    /** Card / panel paper, carrying the Mist diffusion. */
+    card: MIST.surface,
+    /** Inset surface — inputs, tiles, segmented backgrounds. */
+    surface2: MIST.surfaceMuted,
+    /** Floating overlay paper (dialog / drawer / sheet). */
+    overlay: MIST.surfaceRaised,
+    /** Hero / feature panel — a touch more diffusion. */
+    feature: MIST.surfaceStrong,
+    ink: MIST.textPrimary,
+    muted: MIST.textSecondary,
+    tertiary: MIST.textMuted,
+    line: MIST.border,
+    /** Hairline for quiet separators inside a surface. */
+    lineSubtle: MIST.borderSubtle,
+    accent: MIST.brand,
+    accentHover: MIST.brandHover,
+    /** Soft mist fill for active/selected surfaces and soft chips. */
+    accentSoft: MIST.brandSoft,
+    accentSoftStrong: MIST.brandSoftStrong,
+    accentSoftBorder: MIST.brandBorder,
+    gradient: MIST.brandGradient,
+    gradientHover: MIST.brandGradientHover,
+    onAccent: MIST.textOnBrand,
+    /**
+     * Semantic signals. DS v1 originally folded `success` onto the brand teal;
+     * Dubiz Mist §10 restores the real green so success/warning/danger/info
+     * keep their meaning. Brand-soft fills now read `accentSoft` instead.
+     */
+    success: MIST.success,
+    successBg: MIST.successBg,
+    successBorder: MIST.successBorder,
+    warning: MIST.warningAccent,
+    warningInk: MIST.warning,
+    warningBg: MIST.warningBg,
+    warningBorder: MIST.warningBorder,
+    error: MIST.danger,
+    errorBg: MIST.dangerBg,
+    errorBorder: MIST.dangerBorder,
+    info: MIST.infoAccent,
+    infoInk: MIST.info,
+    infoBg: MIST.infoBg,
+    infoBorder: MIST.infoBorder,
+    ring: MIST.focusRing,
+    backdrop: MIST.backdrop,
+    shadowCard: MIST.shadowCard,
+    shadowCardHover: MIST.shadowCardHover,
+    shadowGlow: MIST.shadowGlow,
+    shadowGlowHover: MIST.shadowGlowHover,
+    shadowOverlay: MIST.shadowOverlay,
+    homeWash: MIST.surface,
     radius: { field: 12, button: 14, card: 16, dialog: 20, sheet: 24, pill: 999 },
     weight: { light: 300, regular: 400, medium: 500, semibold: 600 },
   },
@@ -287,15 +344,15 @@ export const TOKEN = {
     bold: 700,
   },
 
+  /** Elevation (§9): reduced, very soft, wide, low opacity. */
   shadow: {
     none: "none",
-    /** Resting cards — works alongside a 1px border. */
-    elevated: "0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.03)",
+    /** Resting cards — works alongside a 1px hairline. */
+    elevated: MIST.shadowCard,
     /** Floating overlays — drawer, sheet, dropdown. */
-    floating:
-      "0 10px 25px -5px rgba(15, 23, 42, 0.10), 0 4px 6px -4px rgba(15, 23, 42, 0.04)",
+    floating: MIST.shadowOverlay,
     /** App rail edge shadow. */
-    nav: "4px 0 16px rgba(0, 0, 0, 0.04)",
+    nav: MIST.shadowCard,
   },
 
   transition: {
@@ -305,50 +362,49 @@ export const TOKEN = {
   },
 
   /**
-   * Warm palette (Collection / Payments) — ADDITIVE, isolated set.
-   * Seeds the warm "collection secretary" language: cream surfaces, teal brand
-   * gradient, clay/brown/teal status signals. Deliberately separate from
-   * `brand`/`action`/`secretary` (the cool navy set) — the two coexist until a
-   * governed brand migration. Never mix warm + cool tokens in one surface.
-   * Weights here stay ≤600 (no 700) per the warm UI-language doc.
+   * Collection / Payments palette group.
+   *
+   * Historically the isolated "warm" set that coexisted with the cool one.
+   * Under Dubiz Mist there is only one language, so this group is now an alias
+   * layer over the same `MIST` values — kept so its call sites keep compiling.
+   * Prefer `dsv1` in new code.
    */
   warm: {
-    canvas: "#FEF8F2",
-    surface: "#FDF4EB",
-    surface2: "#F6ECDD",
-    ink: "#2D2B28",
-    muted: "#777067",
-    muted2: "#A79C8D",
-    line: "#E9DDD0",
-    tealDeep: "#246966",
-    teal: "#3D9C9A",
-    tealLight: "#9BE4E3",
-    brown: "#B88755",
-    brownLight: "#D7B48A",
-    clay: "#B85C3F",
-    /** Brand gradient — weighted so white text stays legible (deep-teal body, light-teal tail). */
-    grad: "linear-gradient(115deg, #246966 0%, #2C7C79 52%, #3D9C9A 100%)",
-    gradHover: "linear-gradient(115deg, #2A7370 0%, #348C89 52%, #49AEAC 100%)",
-    shadow: "0 1px 2px rgba(88, 62, 38, 0.05), 0 8px 22px rgba(120, 88, 52, 0.06)",
-    shadowHover: "0 1px 2px rgba(88, 62, 38, 0.06), 0 12px 28px rgba(120, 88, 52, 0.10)",
-    glow: "0 6px 18px rgba(36, 105, 102, 0.28)",
-    glowHover: "0 10px 26px rgba(36, 105, 102, 0.38)",
+    canvas: MIST.background,
+    surface: MIST.surface,
+    surface2: MIST.surfaceMuted,
+    ink: MIST.textPrimary,
+    muted: MIST.textSecondary,
+    muted2: MIST.textMuted,
+    line: MIST.border,
+    tealDeep: MIST.brand,
+    teal: MIST.infoAccent,
+    tealLight: MIST.brandSoftStrong,
+    brown: MIST.warningAccent,
+    brownLight: MIST.warningBorder,
+    clay: MIST.dangerAccent,
+    grad: MIST.brandGradient,
+    gradHover: MIST.brandGradientHover,
+    shadow: MIST.shadowCard,
+    shadowHover: MIST.shadowCardHover,
+    glow: MIST.shadowGlow,
+    glowHover: MIST.shadowGlowHover,
     /** Warm radii — softer than the cool set. */
     radius: { card: 16, control: 12, cta: 14, pill: 999 },
     /**
-     * Truth/status signals — warm, derived from the palette (never cool).
-     * Only two states are real in v1 (waiting · verified); partial is framed
-     * (Billing-owned), late is a derived timing signal.
+     * Truth/status signals. Only two states are real in v1 (waiting ·
+     * verified); partial is framed (Billing-owned), late is a derived timing
+     * signal. Meanings unchanged — only the palette moved to Mist.
      */
     status: {
       /** באיחור */
-      late: { ink: "#B85C3F", bg: "rgba(184, 92, 63, 0.10)" },
+      late: { ink: MIST.danger, bg: MIST.dangerBg },
       /** נגבה ואומת */
-      verified: { ink: "#246966", bg: "rgba(36, 105, 102, 0.10)" },
+      verified: { ink: MIST.success, bg: MIST.successBg },
       /** שולם חלקית */
-      partial: { ink: "#B88755", bg: "rgba(184, 135, 85, 0.12)" },
+      partial: { ink: MIST.warning, bg: MIST.warningBg },
       /** ממתין */
-      waiting: { ink: "#777067", bg: "#F6ECDD" },
+      waiting: { ink: MIST.textMuted, bg: MIST.surfaceMuted },
     },
   },
 } as const;

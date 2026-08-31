@@ -283,7 +283,7 @@ function TransitionBeat({ onStart, onExit }: { onStart: () => void; onExit?: () 
       <ScreenBody style={{ justifyContent: "center", textAlign: "center", padding: "8px 28px 32px" }}>
         <Spring />
         <div style={{ width: 64, height: 64, borderRadius: 20, background: COUPON.thema.teal, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 22px", boxShadow: W.glow }}>
-          <StrokeIcon size={30} color="#fff" width={1.9}><path d="M12 3l1.8 4.4L18 9l-4.2 1.6L12 15l-1.8-4.4L6 9z" /></StrokeIcon>
+          <StrokeIcon size={30} color="var(--dz-text-on-brand)" width={1.9}><path d="M12 3l1.8 4.4L18 9l-4.2 1.6L12 15l-1.8-4.4L6 9z" /></StrokeIcon>
         </div>
         <div style={{ fontSize: 13, fontWeight: 500, color: W.muted2, marginBottom: 10 }}>ראית מה עסקים אחרים מציעים</div>
         <div style={{ fontSize: 24, fontWeight: 600, lineHeight: 1.35, letterSpacing: "-0.4px" }}>
@@ -322,7 +322,7 @@ function SectionHead({ children, hint, htmlFor }: { children: ReactNode; hint?: 
 function FieldNote({ id, message }: { id: string; message?: string }) {
   if (!message) return null;
   return (
-    <div id={id} role="alert" style={{ marginTop: 8, fontSize: 12.5, fontWeight: 500, color: "#A3372F" }}>
+    <div id={id} role="alert" style={{ marginTop: 8, fontSize: 12.5, fontWeight: 500, color: "var(--dz-danger)" }}>
       {message}
     </div>
   );
@@ -330,8 +330,8 @@ function FieldNote({ id, message }: { id: string; message?: string }) {
 
 function ErrorBanner({ message, onRetry, retrying }: { message: string; onRetry?: () => void; retrying?: boolean }) {
   return (
-    <div role="alert" style={{ margin: "0 0 18px", padding: 14, borderRadius: W.radius.control, background: "rgba(163,55,47,0.06)", border: "1px solid rgba(163,55,47,0.28)" }}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: "#A3372F" }}>הקופון לא פורסם</div>
+    <div role="alert" style={{ margin: "0 0 18px", padding: 14, borderRadius: W.radius.control, background: "rgba(155, 70, 52,0.06)", border: "1px solid rgba(155, 70, 52,0.28)" }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--dz-danger)" }}>הקופון לא פורסם</div>
       <div style={{ fontSize: 13, color: W.ink, marginTop: 5, lineHeight: 1.5 }}>{message}</div>
       {onRetry ? (
         <button type="button" onClick={retrying ? undefined : onRetry} disabled={retrying}
@@ -449,7 +449,7 @@ function BuilderStep({ draft, patch, header, onNext, serverErrors, identityStatu
                   aria-describedby={valueError ? `${valueId}-err` : undefined}
                   onBlur={() => setTouched(true)}
                   onChange={(e) => onNumberChange(e.target.value)}
-                  style={{ flex: 1, height: 52, background: W.canvas, border: `1px solid ${valueError ? "#A3372F" : W.line}`, borderRadius: W.radius.control, textAlign: "center", fontSize: 24, fontWeight: 600, color: W.ink, fontFamily: "inherit", outline: "none" }} />
+                  style={{ flex: 1, height: 52, background: W.canvas, border: `1px solid ${valueError ? "var(--dz-danger-border)" : W.line}`, borderRadius: W.radius.control, textAlign: "center", fontSize: 24, fontWeight: 600, color: W.ink, fontFamily: "inherit", outline: "none" }} />
                 <span aria-hidden="true" style={{ fontSize: 18, fontWeight: 600, color: W.muted }}>{unit}</span>
               </div>
             ) : (
@@ -457,7 +457,7 @@ function BuilderStep({ draft, patch, header, onNext, serverErrors, identityStatu
                 aria-invalid={valueError ? true : undefined}
                 aria-describedby={valueError ? `${valueId}-err` : undefined}
                 onBlur={() => setTouched(true)}
-                style={{ width: "100%", minHeight: 52, background: W.canvas, border: `1px solid ${valueError ? "#A3372F" : W.line}`, borderRadius: W.radius.control, padding: 14, fontSize: 15, color: W.ink, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
+                style={{ width: "100%", minHeight: 52, background: W.canvas, border: `1px solid ${valueError ? "var(--dz-danger-border)" : W.line}`, borderRadius: W.radius.control, padding: 14, fontSize: 15, color: W.ink, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
             )}
             <FieldNote id={`${valueId}-err`} message={valueError} />
           </div>
@@ -484,7 +484,7 @@ function BuilderStep({ draft, patch, header, onNext, serverErrors, identityStatu
                 aria-invalid={scopeError ? true : undefined}
                 aria-describedby={scopeError ? `${scopeId}-err` : undefined}
                 onBlur={() => setTouched(true)}
-                style={{ width: "100%", minHeight: 52, background: W.surface, border: `1px solid ${scopeError ? "#A3372F" : W.line}`, borderRadius: W.radius.control, padding: 14, fontSize: 15, color: W.ink, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
+                style={{ width: "100%", minHeight: 52, background: W.surface, border: `1px solid ${scopeError ? "var(--dz-danger-border)" : W.line}`, borderRadius: W.radius.control, padding: 14, fontSize: 15, color: W.ink, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
               <FieldNote id={`${scopeId}-err`} message={scopeError} />
             </div>
           ) : null}
@@ -575,7 +575,7 @@ function TermsStep({ draft, patch, header, onCreate, busy, error, onBackToBuilde
             aria-describedby={dateError ? `${dateId}-err` : undefined}
             onBlur={() => setTouched(true)}
             onChange={(e) => patch({ validUntilDate: e.target.value })}
-            style={{ width: "100%", height: 52, background: W.surface, border: `1px solid ${dateError ? "#A3372F" : W.line}`, borderRadius: W.radius.control, padding: "0 14px", fontSize: 15, fontWeight: 500, color: W.ink, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
+            style={{ width: "100%", height: 52, background: W.surface, border: `1px solid ${dateError ? "var(--dz-danger-border)" : W.line}`, borderRadius: W.radius.control, padding: "0 14px", fontSize: 15, fontWeight: 500, color: W.ink, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
           <FieldNote id={`${dateId}-err`} message={dateError} />
         </div>
 
@@ -601,7 +601,7 @@ function TermsStep({ draft, patch, header, onCreate, busy, error, onBackToBuilde
                   aria-describedby={minError ? `${minId}-err` : undefined}
                   onBlur={() => setTouched(true)}
                   onChange={(e) => patch({ minPurchase: e.target.value.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1").slice(0, 9) })}
-                  style={{ flex: 1, height: 52, background: W.surface, border: `1px solid ${minError ? "#A3372F" : W.line}`, borderRadius: W.radius.control, textAlign: "center", fontSize: 20, fontWeight: 600, color: W.ink, fontFamily: "inherit", outline: "none" }} />
+                  style={{ flex: 1, height: 52, background: W.surface, border: `1px solid ${minError ? "var(--dz-danger-border)" : W.line}`, borderRadius: W.radius.control, textAlign: "center", fontSize: 20, fontWeight: 600, color: W.ink, fontFamily: "inherit", outline: "none" }} />
                 <span aria-hidden="true" style={{ fontSize: 18, fontWeight: 600, color: W.muted }}>₪</span>
               </div>
               <FieldNote id={`${minId}-err`} message={minError} />
@@ -675,7 +675,7 @@ function PublishedStep({ draft, published, header, onDone }: { draft: CouponDraf
         <div style={{ border: `1px solid ${W.line}`, borderRadius: 16, overflow: "hidden", boxShadow: W.shadow }}>
           <PublicCouponContent view={view} interactive={false} />
           <div style={{ padding: "0 16px 16px", background: W.canvas }}>
-            <div aria-hidden="true" style={{ height: 46, borderRadius: 14, background: W.grad, color: "#fff", fontWeight: 600, fontSize: 14.5, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: W.glow }}>קבל קופון</div>
+            <div aria-hidden="true" style={{ height: 46, borderRadius: 14, background: W.grad, color: "var(--dz-text-on-brand)", fontWeight: 600, fontSize: 14.5, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: W.glow }}>קבל קופון</div>
           </div>
         </div>
 

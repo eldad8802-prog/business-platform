@@ -38,9 +38,9 @@ const W = TOKEN.warm;
 
 const STATE_TONE: Record<CouponLifecycleState, { color: string; bg: string }> = {
   ACTIVE: { color: W.tealDeep, bg: "rgba(36,105,102,0.10)" },
-  REDEEMED: { color: "#5B4A87", bg: "rgba(91,74,135,0.10)" },
+  REDEEMED: { color: "var(--dz-brand)", bg: "rgba(36, 105, 102,0.10)" },
   EXPIRED: { color: W.muted, bg: W.surface2 },
-  DISABLED: { color: "#A3372F", bg: "rgba(163,55,47,0.08)" },
+  DISABLED: { color: "var(--dz-danger)", bg: "rgba(155, 70, 52,0.08)" },
 };
 
 function StatePill({ state }: { state: CouponLifecycleState }) {
@@ -134,7 +134,7 @@ function CouponCard({
       </div>
 
       {error ? (
-        <div role="alert" style={{ marginTop: 11, fontSize: 12.5, fontWeight: 500, color: "#A3372F" }}>{error}</div>
+        <div role="alert" style={{ marginTop: 11, fontSize: 12.5, fontWeight: 500, color: "var(--dz-danger)" }}>{error}</div>
       ) : null}
 
       {/*
@@ -264,7 +264,7 @@ export function MyCouponsScreen({
           // A load failure is never rendered as "you have no coupons" — the two
           // are different facts and the owner is told which one this is.
           <Centered>
-            <div style={{ color: "#A3372F", fontWeight: 600, marginBottom: 10 }}>{error}</div>
+            <div style={{ color: "var(--dz-danger)", fontWeight: 600, marginBottom: 10 }}>{error}</div>
             <SecondaryButton onClick={() => { setCoupons(null); void load(); }}>נסה שוב</SecondaryButton>
           </Centered>
         ) : coupons.length === 0 ? (

@@ -88,7 +88,7 @@ export default function Page() {
       <div style={baseStyles.container}>
         <h1 style={{ marginBottom: 8 }}>בוא נוודא שהכל מדויק</h1>
 
-        <p style={{ marginBottom: 20, color: "#555" }}>
+        <p style={{ marginBottom: 20, color: "var(--dz-text-secondary)" }}>
           המערכת תמשיך לבנות את התוכן לפי הבחירות שלך
         </p>
 
@@ -128,14 +128,14 @@ function card(title: string, value: string) {
 const cardStyle = {
   padding: 16,
   borderRadius: 12,
-  border: "1px solid #e5e7eb",
+  border: "1px solid var(--dz-border)",
   marginBottom: 12,
-  background: "#fff",
+  background: "var(--dz-surface)",
 };
 
 const cardTitle = {
   fontSize: 12,
-  color: "#777",
+  color: "var(--dz-text-muted)",
   marginBottom: 6,
 };
 
@@ -145,8 +145,8 @@ const cardValue = {
 };
 
 const emptyCard = {
-  background: "#f3f4f6",
-  color: "#555",
+  background: "var(--dz-surface-muted)",
+  color: "var(--dz-text-secondary)",
   padding: 16,
   borderRadius: 12,
 };

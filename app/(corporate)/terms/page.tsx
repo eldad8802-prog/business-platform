@@ -14,10 +14,10 @@ export default function CorporateTermsPage() {
         <h1 className="text-3xl font-extrabold leading-tight text-[var(--mkt-ink)] sm:text-4xl">
           תנאי שימוש
         </h1>
-        <p className="mt-3 text-sm text-gray-500">עודכן לאחרונה: 4 ביוני 2026</p>
+        <p className="mt-3 text-sm text-[var(--dz-text-muted)]">עודכן לאחרונה: 4 ביוני 2026</p>
       </header>
 
-      <div className="mt-10 max-w-3xl space-y-9 text-sm leading-7 text-gray-600 sm:text-base">
+      <div className="mt-10 max-w-3xl space-y-9 text-sm leading-7 text-[var(--dz-text-muted)] sm:text-base">
         <section>
           <h2 className="text-lg font-bold text-[var(--mkt-ink)]">קבלת תנאים</h2>
           <p className="mt-3">

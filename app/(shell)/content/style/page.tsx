@@ -65,7 +65,7 @@ export default function Page() {
 const btn = (selected: boolean) => ({
   padding: 14,
   borderRadius: 12,
-  border: selected ? "2px solid #111" : "1px solid #ddd",
+  border: selected ? "2px solid var(--dz-text-primary)" : "1px solid var(--dz-border)",
   marginTop: 10,
   cursor: "pointer",
 });

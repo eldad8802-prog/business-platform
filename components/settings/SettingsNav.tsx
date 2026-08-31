@@ -5,7 +5,7 @@ import { SettingsSection } from "./SettingsSection";
 export function SettingsNav() {
   return (
     <SettingsSection>
-      <nav aria-label="הגדרות" className="flex flex-col divide-y divide-gray-100">
+      <nav aria-label="הגדרות" className="flex flex-col divide-y divide-[var(--dz-border-subtle)]">
         {SETTINGS_CATEGORIES.map((item) => (
           <SettingsRow
             key={item.key}

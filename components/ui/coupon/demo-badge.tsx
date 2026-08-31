@@ -25,7 +25,7 @@ export function DemoBadge({
         fontSize: 10,
         fontWeight: 600,
         color: W.brown,
-        background: "#FBF3E7",
+        background: "var(--dz-surface-muted)",
         border: `1px solid ${W.line}`,
         borderRadius: W.radius.pill,
         padding: "1px 8px",

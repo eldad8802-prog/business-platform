@@ -9,10 +9,10 @@ export default function RedeemError({ message, onRetry }: Props) {
   return (
     <div
       style={{
-        background: "#ffffff",
+        background: "var(--dz-surface)",
         padding: 20,
         borderRadius: 20,
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--dz-border)",
         textAlign: "center",
       }}
     >
@@ -21,7 +21,7 @@ export default function RedeemError({ message, onRetry }: Props) {
           fontSize: 18,
           fontWeight: 700,
           marginBottom: 10,
-          color: "#dc2626",
+          color: "var(--dz-danger)",
         }}
       >
         שגיאה
@@ -30,7 +30,7 @@ export default function RedeemError({ message, onRetry }: Props) {
       <div
         style={{
           marginBottom: 16,
-          color: "#374151",
+          color: "var(--dz-text-secondary)",
           lineHeight: 1.5,
         }}
       >
@@ -45,7 +45,7 @@ export default function RedeemError({ message, onRetry }: Props) {
           borderRadius: 12,
           border: "none",
           background: TOKEN.action.primary.background,
-          color: "#ffffff",
+          color: "var(--dz-text-on-brand)",
           fontWeight: 700,
           cursor: "pointer",
         }}

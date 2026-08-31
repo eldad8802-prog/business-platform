@@ -26,8 +26,8 @@ function num(n: number | null): string {
   return n === null ? "—" : String(n);
 }
 
-const cell: React.CSSProperties = { padding: "6px 10px", borderBottom: "1px solid #eee", textAlign: "left" };
-const th: React.CSSProperties = { ...cell, fontWeight: 600, background: "#fafafa" };
+const cell: React.CSSProperties = { padding: "6px 10px", borderBottom: "1px solid var(--dz-border-subtle)", textAlign: "left" };
+const th: React.CSSProperties = { ...cell, fontWeight: 600, background: "var(--dz-surface-muted)" };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -90,7 +90,7 @@ export default function LearningCenterPage() {
   return (
     <div style={{ padding: 32, maxWidth: 1100, fontFamily: "system-ui, sans-serif" }}>
       <h1 style={{ fontSize: 22, margin: 0 }}>Learning Center</h1>
-      <p style={{ color: "#666", marginTop: 4 }}>
+      <p style={{ color: "var(--dz-text-secondary)", marginTop: 4 }}>
         Internal decision-support over the General Decision Ledger. Read-only.
       </p>
 
@@ -102,9 +102,9 @@ export default function LearningCenterPage() {
             style={{
               padding: "6px 12px",
               borderRadius: 6,
-              border: "1px solid #ccc",
-              background: windowKey === w ? "#0f6fff" : "#fff",
-              color: windowKey === w ? "#fff" : "#333",
+              border: "1px solid var(--dz-border-strong)",
+              background: windowKey === w ? "var(--dz-info-accent)" : "var(--dz-surface)",
+              color: windowKey === w ? "var(--dz-text-on-brand)" : "var(--dz-text-primary)",
               cursor: "pointer",
             }}
           >
@@ -185,7 +185,7 @@ function Overview({ data }: { data: LearningCenterOverview }) {
           <Stat label="Resolved-but-corrected" value={num(data.amountSlice.resolvedButCorrected)} />
           <Stat label="Abstained-but-needed" value={num(data.amountSlice.abstainedButNeeded)} />
         </div>
-        <p style={{ color: "#666", fontSize: 13, marginTop: 8 }}>
+        <p style={{ color: "var(--dz-text-secondary)", fontSize: 13, marginTop: 8 }}>
           basis: {Object.entries(data.amountSlice.byBasis).map(([k, v]) => `${k}=${v}`).join(", ") || "—"}
         </p>
       </Section>
@@ -224,7 +224,7 @@ function Overview({ data }: { data: LearningCenterOverview }) {
           rows={data.engineHealth.map((r) => [r.engineId, r.status, num(r.totalRuns), num(r.failures), num(r.avgRuntimeMs)])} />
       </Section>
 
-      <p style={{ color: "#999", fontSize: 12, marginTop: 24 }}>
+      <p style={{ color: "var(--dz-text-muted)", fontSize: 12, marginTop: 24 }}>
         generated {data.generatedAt} · window {data.window.key}
       </p>
     </>
@@ -234,7 +234,7 @@ function Overview({ data }: { data: LearningCenterOverview }) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ minWidth: 120 }}>
-      <div style={{ fontSize: 12, color: "#888" }}>{label}</div>
+      <div style={{ fontSize: 12, color: "var(--dz-text-muted)" }}>{label}</div>
       <div style={{ fontSize: 20, fontWeight: 600 }}>{value}</div>
     </div>
   );

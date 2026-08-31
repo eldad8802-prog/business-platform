@@ -272,7 +272,7 @@ export default function AssetsUploadPage() {
 const pageStyle: React.CSSProperties = {
   ...baseStyles.page,
   background:
-    "linear-gradient(180deg, #f8fafc 0%, #ffffff 35%, #f8fafc 100%)",
+    "linear-gradient(180deg, var(--dz-surface-muted) 0%, var(--dz-surface-flat) 35%, var(--dz-surface-muted) 100%)",
 };
 
 const shellStyle: React.CSSProperties = {
@@ -294,7 +294,7 @@ const topBarStyle: React.CSSProperties = {
 const topBarTitleStyle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
 };
 
 const topBarSpacerStyle: React.CSSProperties = {
@@ -317,9 +317,9 @@ const eyebrowStyle: React.CSSProperties = {
   justifyContent: "center",
   fontSize: 12,
   fontWeight: 800,
-  color: "#065f46",
-  background: "#ecfdf5",
-  border: "1px solid #a7f3d0",
+  color: "var(--dz-success)",
+  background: "var(--dz-success-bg-soft)",
+  border: "1px solid var(--dz-success-border)",
   borderRadius: 999,
   padding: "6px 10px",
   marginBottom: 12,
@@ -329,38 +329,38 @@ const titleStyle: React.CSSProperties = {
   fontSize: 30,
   fontWeight: 800,
   lineHeight: 1.15,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   margin: 0,
   marginBottom: 10,
 };
 
 const subtitleStyle: React.CSSProperties = {
   fontSize: 15,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   lineHeight: 1.7,
   margin: 0,
   maxWidth: 640,
 };
 
 const summaryCardStyle: React.CSSProperties = {
-  background: "#ffffff",
+  background: "var(--dz-surface)",
   borderRadius: 18,
   padding: 16,
-  border: "1px solid #e5e7eb",
-  boxShadow: "0 4px 14px rgba(0,0,0,0.04)",
+  border: "1px solid var(--dz-border)",
+  boxShadow: "0 4px 14px rgba(52, 60, 50, 0.04)",
   marginBottom: 14,
 };
 
 const summaryTitleStyle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   marginBottom: 4,
 };
 
 const summaryTextStyle: React.CSSProperties = {
   fontSize: 13,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   lineHeight: 1.6,
 };
 
@@ -371,11 +371,11 @@ const shotsWrapStyle: React.CSSProperties = {
 };
 
 const shotCardStyle: React.CSSProperties = {
-  background: "#ffffff",
+  background: "var(--dz-surface)",
   padding: 16,
   borderRadius: 18,
-  border: "1px solid #e5e7eb",
-  boxShadow: "0 4px 14px rgba(0,0,0,0.04)",
+  border: "1px solid var(--dz-border)",
+  boxShadow: "0 4px 14px rgba(52, 60, 50, 0.04)",
 };
 
 const shotHeaderRowStyle: React.CSSProperties = {
@@ -389,15 +389,15 @@ const shotHeaderRowStyle: React.CSSProperties = {
 const sectionTitleStyle: React.CSSProperties = {
   fontWeight: 800,
   fontSize: 16,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
 };
 
 const uploadedBadgeStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 800,
-  color: "#065f46",
-  background: "#ecfdf5",
-  border: "1px solid #a7f3d0",
+  color: "var(--dz-success)",
+  background: "var(--dz-success-bg-soft)",
+  border: "1px solid var(--dz-success-border)",
   borderRadius: 999,
   padding: "4px 8px",
   flexShrink: 0,
@@ -406,9 +406,9 @@ const uploadedBadgeStyle: React.CSSProperties = {
 const pendingBadgeStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 800,
-  color: "#92400e",
-  background: "#fffbeb",
-  border: "1px solid #fde68a",
+  color: "var(--dz-warning)",
+  background: "var(--dz-warning-bg-soft)",
+  border: "1px solid var(--dz-warning-border)",
   borderRadius: 999,
   padding: "4px 8px",
   flexShrink: 0,
@@ -421,45 +421,45 @@ const fieldGroupStyle: React.CSSProperties = {
 const fieldLabelStyle: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   marginBottom: 4,
 };
 
 const fieldTextStyle: React.CSSProperties = {
   fontSize: 14,
   lineHeight: 1.7,
-  color: "#4b5563",
+  color: "var(--dz-text-secondary)",
 };
 
 const uploadAreaStyle: React.CSSProperties = {
   marginTop: 12,
-  background: "#f9fafb",
-  border: "1px solid #eef2f7",
+  background: "var(--dz-surface-muted)",
+  border: "1px solid var(--dz-border)",
   borderRadius: 14,
   padding: 12,
 };
 
 const uploadBoxStyle: React.CSSProperties = {
   display: "block",
-  border: "2px dashed #d1d5db",
+  border: "2px dashed var(--dz-border-strong)",
   borderRadius: 14,
   padding: 18,
   textAlign: "center",
   cursor: "pointer",
-  background: "#ffffff",
+  background: "var(--dz-surface)",
 };
 
 const uploadBoxTitleStyle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   marginBottom: 6,
 };
 
 const uploadBoxTextStyle: React.CSSProperties = {
   fontSize: 13,
   lineHeight: 1.6,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
 };
 
 const hiddenInputStyle: React.CSSProperties = {
@@ -469,21 +469,21 @@ const hiddenInputStyle: React.CSSProperties = {
 const uploadingTextStyle: React.CSSProperties = {
   marginTop: 8,
   fontSize: 13,
-  color: "#1d4ed8",
+  color: "var(--dz-info)",
   lineHeight: 1.6,
 };
 
 const uploadedTextStyle: React.CSSProperties = {
   marginTop: 8,
   fontSize: 13,
-  color: "#065f46",
+  color: "var(--dz-success)",
   lineHeight: 1.6,
 };
 
 const helperTextStyle: React.CSSProperties = {
   marginTop: 8,
   fontSize: 13,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   lineHeight: 1.6,
 };
 
@@ -494,13 +494,13 @@ const previewMediaStyle: React.CSSProperties = {
   maxHeight: 200,
   borderRadius: 10,
   objectFit: "cover",
-  border: "1px solid #e5e7eb",
+  border: "1px solid var(--dz-border)",
 };
 
 const errorBoxStyle: React.CSSProperties = {
-  background: "#fee2e2",
-  border: "1px solid #fecaca",
-  color: "#991b1b",
+  background: "var(--dz-danger-bg)",
+  border: "1px solid var(--dz-danger-border)",
+  color: "var(--dz-danger)",
   borderRadius: 14,
   padding: 12,
   fontSize: 13,
@@ -525,7 +525,7 @@ const footerStyle: React.CSSProperties = {
   zIndex: 20,
   background: "rgba(255,255,255,0.92)",
   backdropFilter: "blur(10px)",
-  borderTop: "1px solid #e5e7eb",
+  borderTop: "1px solid var(--dz-border)",
   padding: "12px 16px calc(12px + env(safe-area-inset-bottom)) 16px",
   display: "flex",
   alignItems: "center",
@@ -537,8 +537,8 @@ const nextButtonStyle = (enabled: boolean): React.CSSProperties => ({
   height: 48,
   borderRadius: 14,
   border: "none",
-  background: enabled ? TOKEN.action.primary.background : "#9ca3af",
-  color: "#ffffff",
+  background: enabled ? TOKEN.action.primary.background : "var(--dz-text-muted)",
+  color: "var(--dz-text-on-brand)",
   fontSize: 15,
   fontWeight: 800,
   cursor: enabled ? "pointer" : "not-allowed",

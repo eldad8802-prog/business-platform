@@ -1,0 +1,280 @@
+/* ==========================================================================
+ * Dubiz Mist — the platform Color System + Surface Treatment.
+ *
+ * SINGLE SOURCE OF TRUTH for every Dubiz colour. `lib/design/mist.ts` mirrors
+ * these as `var(--dz-*, <flat fallback>)` strings for inline styles, and
+ * `lib/design/tokens.ts` re-points the whole TOKEN set at them — so a palette
+ * change happens HERE and nowhere else. `npm run verify:mist-tokens` fails if
+ * the two ever drift apart.
+ *
+ * Language: a warm off-white ground with a very subtle misty-sage undertone;
+ * surfaces are near-white paper that receives an ambient, borderless colour
+ * diffusion rather than a linear gradient. Static, blur-free, two weak radial
+ * layers per surface — paint-only, no extra compositing layer, no animation.
+ * ====================================================================== */
+
+:root {
+  /* --- Ground & surfaces (flat colours) -------------------------------- */
+  --dz-background: #f4f5f0;
+  --dz-surface-flat: #fcfcfa;
+  --dz-surface-muted: #eff1eb;
+  --dz-surface-raised-flat: #ffffff;
+  --dz-app-chrome: #23302b;
+  /* Translucent paper — only for chrome that sits over scrolling content
+   * (the corporate sticky header). Tailwind cannot apply an /opacity modifier
+   * to a var() colour, so the translucency is baked into the token. */
+  --dz-surface-translucent: rgba(252, 252, 250, 0.9);
+
+  /* --- Mist diffusion stops -------------------------------------------- */
+  --dz-mist-sage: rgba(122, 158, 142, 0.11);
+  --dz-mist-cream: rgba(206, 178, 134, 0.1);
+  --dz-mist-sage-strong: rgba(122, 158, 142, 0.17);
+  --dz-mist-cream-strong: rgba(206, 178, 134, 0.15);
+  --dz-mist-sage-faint: rgba(122, 158, 142, 0.07);
+  --dz-mist-cream-faint: rgba(206, 178, 134, 0.06);
+
+  /*
+   * Surface stacks — the Mist treatment itself. Two very weak radial layers
+   * over a flat base: sage entering from one corner, cream from the opposite
+   * one, both fading out well before any edge so no line is ever visible.
+   * Consumed as a `background` value (never `background-color`, which cannot
+   * hold an image layer).
+   */
+  --dz-surface: radial-gradient(
+      118% 92% at 84% 2%,
+      var(--dz-mist-sage) 0%,
+      transparent 56%
+    ),
+    radial-gradient(
+      112% 88% at 6% 98%,
+      var(--dz-mist-cream) 0%,
+      transparent 60%
+    ),
+    var(--dz-surface-flat);
+
+  --dz-surface-strong: radial-gradient(
+      118% 92% at 84% 2%,
+      var(--dz-mist-sage-strong) 0%,
+      transparent 58%
+    ),
+    radial-gradient(
+      112% 88% at 6% 98%,
+      var(--dz-mist-cream-strong) 0%,
+      transparent 62%
+    ),
+    var(--dz-surface-flat);
+
+  --dz-surface-raised: radial-gradient(
+      110% 86% at 86% 0%,
+      var(--dz-mist-sage-faint) 0%,
+      transparent 54%
+    ),
+    radial-gradient(
+      104% 82% at 4% 100%,
+      var(--dz-mist-cream-faint) 0%,
+      transparent 58%
+    ),
+    var(--dz-surface-raised-flat);
+
+  /* --- Borders (§8: thin, light, soft sage-gray) ----------------------- */
+  --dz-border: #e3e5dd;
+  --dz-border-subtle: #edefe8;
+  --dz-border-strong: #d2d5c9;
+
+  /* --- Text (§7: never pure black; deep graphite green-black) ---------- */
+  --dz-text-primary: #23302b;
+  --dz-text-secondary: #566159;
+  --dz-text-muted: #666f65;
+  --dz-text-disabled: #a8afa4;
+  --dz-text-on-brand: #fbfaf6;
+
+  /* --- Brand (§4: the Dubiz teal from the logo, calm and mature) ------- */
+  --dz-brand: #246966;
+  --dz-brand-hover: #1c5451;
+  --dz-brand-soft: #e6efec;
+  --dz-brand-soft-strong: #d9e7e3;
+  --dz-brand-border: #bfd7d2;
+  --dz-focus-ring: rgba(36, 105, 102, 0.32);
+  /*
+   * Primary action gradient. EVERY stop clears 4.5:1 against
+   * `--dz-text-on-brand` (6.12 / 5.53 / 4.84), so the label stays AA along the
+   * whole sweep. The pre-Mist tail was #3d9c9a, which read at only 3.13:1 —
+   * legible-looking but failing, and the reason this ramp was tightened rather
+   * than carried over. `verify:mist-tokens` locks the floor.
+   */
+  --dz-brand-gradient: linear-gradient(
+    115deg,
+    #246966 0%,
+    #28706e 52%,
+    #2b7a78 100%
+  );
+  /* Hover deepens rather than brightens — calm, never neon. */
+  --dz-brand-gradient-hover: linear-gradient(
+    115deg,
+    #1c5451 0%,
+    #21615e 52%,
+    #246966 100%
+  );
+
+  /* --- Semantic (§10: meaning preserved, saturation softened) ---------- */
+  --dz-success: #1e6a4a;
+  --dz-success-bg: #e7f1e9;
+  --dz-success-bg-soft: #f1f7f2;
+  --dz-success-border: #c6dfce;
+  --dz-success-accent: #3e8f68;
+
+  --dz-warning: #815a32;
+  --dz-warning-bg: #f6efe2;
+  --dz-warning-bg-soft: #fbf7ef;
+  --dz-warning-border: #e6d7be;
+  --dz-warning-accent: #b98a4e;
+
+  --dz-danger: #9b4634;
+  --dz-danger-bg: #f7eae6;
+  --dz-danger-bg-soft: #fcf4f1;
+  --dz-danger-border: #edd3cb;
+  --dz-danger-accent: #c2664f;
+
+  --dz-info: #2b5a85;
+  --dz-info-bg: #e7f0f6;
+  --dz-info-bg-soft: #f2f7fa;
+  --dz-info-border: #c7dbea;
+  --dz-info-accent: #5185b0;
+
+  /* --- Elevation (§9: softer, wider, lower opacity) -------------------- */
+  --dz-shadow-card: 0 1px 2px rgba(52, 60, 50, 0.04),
+    0 10px 28px -14px rgba(52, 60, 50, 0.14);
+  --dz-shadow-card-hover: 0 1px 2px rgba(52, 60, 50, 0.05),
+    0 16px 36px -16px rgba(52, 60, 50, 0.18);
+  --dz-shadow-raised: 0 1px 2px rgba(52, 60, 50, 0.05),
+    0 18px 44px -20px rgba(52, 60, 50, 0.2);
+  --dz-shadow-overlay: 0 24px 64px -24px rgba(35, 48, 43, 0.26);
+  --dz-shadow-glow: 0 6px 18px -4px rgba(36, 105, 102, 0.24);
+  --dz-shadow-glow-hover: 0 8px 22px -4px rgba(36, 105, 102, 0.3);
+  --dz-backdrop: rgba(35, 48, 43, 0.38);
+
+  /* --- Global chrome (shell ground / nav / FAB) ------------------------
+   * Indirected so the Home route can freeze them — see `[data-dz-home]`.
+   *
+   * `--dz-shell-ground` is the App Shell's own backdrop. It is visible as a
+   * band below `.shell-content` (the desktop bottom padding), so it counts as
+   * shared chrome even though no component "owns" it. */
+  --dz-shell-ground: var(--dz-background);
+  --dz-nav-surface: rgba(252, 252, 250, 0.82);
+  --dz-nav-border: rgba(52, 60, 50, 0.08);
+  --dz-nav-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 -6px 28px rgba(52, 60, 50, 0.05);
+  --dz-nav-item: #666f65;
+  --dz-nav-item-hover-bg: #eff1eb;
+  --dz-nav-item-hover-ink: #23302b;
+  --dz-nav-item-active: #246966;
+  --dz-nav-item-active-bg: #e6efec;
+  --dz-nav-item-active-ring: rgba(36, 105, 102, 0.22);
+  --dz-nav-sidebar-surface: #fcfcfa;
+  --dz-nav-sidebar-border: #e3e5dd;
+  --dz-nav-sidebar-shadow: 0 1px 2px rgba(52, 60, 50, 0.04),
+    8px 0 22px rgba(52, 60, 50, 0.04);
+  --dz-nav-sidebar-item: #666f65;
+  --dz-nav-brand-word: #246966;
+  --dz-nav-brand-mark-bg: #e6efec;
+  --dz-nav-item-active-shadow: 0 1px 2px rgba(52, 60, 50, 0.05);
+  --dz-nav-fab: linear-gradient(115deg, #246966 0%, #28706e 52%, #2b7a78 100%);
+  --dz-nav-fab-ink: #fbfaf6;
+  --dz-nav-fab-shadow: 0 10px 28px rgba(36, 105, 102, 0.34),
+    0 2px 8px rgba(52, 60, 50, 0.12);
+  --dz-nav-fab-shadow-pressed: 0 4px 14px rgba(36, 105, 102, 0.3);
+
+  /* Accessibility FAB trigger — also global chrome, also frozen on Home. */
+  --dz-fab-trigger-bg: linear-gradient(
+    115deg,
+    #246966 0%,
+    #28706e 52%,
+    #2b7a78 100%
+  );
+  --dz-fab-trigger-ink: #fbfaf6;
+  --dz-fab-trigger-border: rgba(255, 255, 255, 0.3);
+  --dz-fab-trigger-shadow: 0 10px 28px -6px rgba(36, 105, 102, 0.32);
+}
+
+/* --------------------------------------------------------------------------
+ * Home exclusion (owner requirement §12): `/app` — the authenticated Dubiz
+ * home — must show ZERO visual diff under Dubiz Mist.
+ *
+ * The home screen itself (`features/home/components/home-screen.tsx`) is fully
+ * self-scoped under `.dzhome`, declares its own custom properties and reads no
+ * platform token, so it is unaffected by construction. The only SHARED
+ * surfaces that paint on the home route are the global nav chrome and the
+ * accessibility FAB — those read the `--dz-nav-*` / `--dz-fab-*` vars above,
+ * and this block restores their exact pre-Mist values for that route only.
+ *
+ * The literals below are verbatim the pre-Mist values (DS v1 warm for the
+ * sidebar, the bottom bar's own glass constants for mobile). Do not "tidy"
+ * them — they exist to guarantee a pixel-identical Home.
+ * ---------------------------------------------------------------------- */
+[data-dz-home="1"] {
+  --dz-shell-ground: #ffffff;
+  --dz-nav-surface: rgba(255, 255, 255, 0.76);
+  --dz-nav-border: rgba(15, 23, 42, 0.06);
+  --dz-nav-shadow: 0 1px 0 rgba(255, 255, 255, 0.65) inset,
+    0 -6px 28px rgba(15, 23, 42, 0.045);
+  --dz-nav-item: #64748b;
+  --dz-nav-item-hover-bg: #f6ecdd;
+  --dz-nav-item-hover-ink: #2d2b28;
+  --dz-nav-item-active: #246966;
+  --dz-nav-item-active-bg: rgba(36, 105, 102, 0.1);
+  --dz-nav-item-active-ring: rgba(36, 105, 102, 0.22);
+  --dz-nav-sidebar-surface: #fdf4eb;
+  --dz-nav-sidebar-border: #e9ddd0;
+  --dz-nav-sidebar-shadow: 0 1px 2px rgba(88, 62, 38, 0.05),
+    8px 0 22px rgba(120, 88, 52, 0.04);
+  --dz-nav-sidebar-item: #777067;
+  --dz-nav-brand-word: #246966;
+  --dz-nav-brand-mark-bg: rgba(36, 105, 102, 0.1);
+  --dz-nav-item-active-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --dz-nav-fab: linear-gradient(115deg, #246966 0%, #2c7c79 52%, #3d9c9a 100%);
+  --dz-nav-fab-ink: #ffffff;
+  --dz-nav-fab-shadow: 0 10px 28px rgba(36, 105, 102, 0.34),
+    0 2px 8px rgba(15, 23, 42, 0.12);
+  --dz-nav-fab-shadow-pressed: 0 4px 14px rgba(36, 105, 102, 0.35);
+
+  --dz-fab-trigger-bg: linear-gradient(
+    90deg,
+    #0f6f68 0%,
+    #2eaaa2 55%,
+    #8fe3da 100%
+  );
+  --dz-fab-trigger-ink: #ffffff;
+  --dz-fab-trigger-border: rgba(255, 255, 255, 0.3);
+  --dz-fab-trigger-shadow: 0 18px 38px rgba(46, 170, 162, 0.35);
+}
+
+/* --------------------------------------------------------------------------
+ * Mist surface utilities — the reusable implementation for surfaces styled by
+ * class rather than by token (CSS modules, shared primitives, plain markup).
+ * Identical output to the `--dz-surface*` stacks.
+ * ---------------------------------------------------------------------- */
+.dz-mist {
+  background: var(--dz-surface);
+}
+.dz-mist-strong {
+  background: var(--dz-surface-strong);
+}
+.dz-mist-raised {
+  background: var(--dz-surface-raised);
+}
+/* The app canvas stays a calm, even colour (§1: no visible side-to-side
+ * gradient) — the diffusion belongs to the surfaces sitting on top of it. */
+.dz-ground {
+  background: var(--dz-background);
+}
+
+/* The nav glass is the only translucent chrome in the app; make it opaque when
+ * the platform asks for reduced transparency. */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --dz-nav-surface: #fcfcfa;
+  }
+  [data-dz-home="1"] {
+    --dz-nav-surface: #ffffff;
+  }
+}

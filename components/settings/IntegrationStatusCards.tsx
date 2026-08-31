@@ -30,17 +30,17 @@ const STATUS_LABEL: Record<Exclude<CardStatus, "loading">, string> = {
 function StatusBadge({ status }: { status: CardStatus }) {
   if (status === "loading") {
     return (
-      <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-400">
+      <span className="rounded-full bg-[var(--dz-surface-muted)] px-3 py-1 text-xs font-bold text-[var(--dz-text-muted)]">
         טוען…
       </span>
     );
   }
   const tone =
     status === "connected"
-      ? "bg-emerald-50 text-emerald-700"
+      ? "bg-[var(--dz-success-bg-soft)] text-[var(--dz-success)]"
       : status === "error"
-        ? "bg-red-50 text-red-700"
-        : "bg-gray-100 text-gray-500";
+        ? "bg-[var(--dz-danger-bg-soft)] text-[var(--dz-danger)]"
+        : "bg-[var(--dz-surface-muted)] text-[var(--dz-text-muted)]";
   return (
     <span className={`rounded-full px-3 py-1 text-xs font-bold ${tone}`}>
       {STATUS_LABEL[status]}
@@ -64,21 +64,21 @@ function IntegrationCard({
   manageHref,
 }: CardProps) {
   return (
-    <section className="rounded-[24px] bg-white p-4 shadow-sm" dir="rtl">
+    <section className="rounded-[24px] dz-mist p-4 shadow-sm" dir="rtl">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-bold text-gray-900">{title}</h2>
+        <h2 className="text-sm font-bold text-[var(--dz-text-primary)]">{title}</h2>
         <StatusBadge status={status} />
       </div>
-      <p className="mt-1 text-xs leading-5 text-gray-500">{description}</p>
+      <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">{description}</p>
 
       {status === "connected" && detail ? (
-        <div className="mt-3 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600">
+        <div className="mt-3 rounded-2xl border border-[var(--dz-border)] bg-[var(--dz-surface-muted)] px-4 py-3 text-xs text-[var(--dz-text-muted)]">
           {detail}
         </div>
       ) : null}
 
       {status === "error" ? (
-        <p className="mt-3 text-xs leading-5 text-red-600">
+        <p className="mt-3 text-xs leading-5 text-[var(--dz-danger)]">
           לא הצלחנו לבדוק את מצב החיבור כרגע.
         </p>
       ) : null}
@@ -86,7 +86,7 @@ function IntegrationCard({
       <div className="mt-3">
         <Link
           href={manageHref}
-          className="inline-flex min-h-11 items-center rounded-2xl border border-gray-200 px-4 text-sm font-semibold text-gray-700"
+          className="inline-flex min-h-11 items-center rounded-2xl border border-[var(--dz-border)] px-4 text-sm font-semibold text-[var(--dz-text-secondary)]"
         >
           נהל חיבור
         </Link>

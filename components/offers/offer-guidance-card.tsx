@@ -14,10 +14,10 @@ export default function OfferGuidanceCard({
   return (
     <div
       style={{
-        background: "#ffffff",
+        background: "var(--dz-surface)",
         borderRadius: 20,
         padding: 18,
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--dz-border)",
         marginBottom: 16,
       }}
     >
@@ -26,7 +26,7 @@ export default function OfferGuidanceCard({
           fontWeight: 800,
           marginBottom: 12,
           fontSize: 16,
-          color: "#111827",
+          color: "var(--dz-text-primary)",
         }}
       >
         מה כדאי לדעת לפני שיוצרים קופון
@@ -37,7 +37,7 @@ export default function OfferGuidanceCard({
         <div
           style={{
             marginTop: 4,
-            color: "#4b5563",
+            color: "var(--dz-text-secondary)",
             lineHeight: 1.6,
             fontSize: 14,
           }}
@@ -51,7 +51,7 @@ export default function OfferGuidanceCard({
         <div
           style={{
             marginTop: 4,
-            color: "#4b5563",
+            color: "var(--dz-text-secondary)",
             lineHeight: 1.6,
             fontSize: 14,
           }}
@@ -65,7 +65,7 @@ export default function OfferGuidanceCard({
         <div
           style={{
             marginTop: 4,
-            color: "#4b5563",
+            color: "var(--dz-text-secondary)",
             lineHeight: 1.6,
             fontSize: 14,
           }}

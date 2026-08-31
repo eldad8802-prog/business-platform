@@ -14,10 +14,10 @@ export default function RedeemInput({
   return (
     <div
       style={{
-        background: "#ffffff",
+        background: "var(--dz-surface)",
         padding: 20,
         borderRadius: 20,
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--dz-border)",
       }}
     >
       <div
@@ -38,7 +38,7 @@ export default function RedeemInput({
           width: "100%",
           padding: "14px",
           borderRadius: 12,
-          border: "1px solid #d1d5db",
+          border: "1px solid var(--dz-border-strong)",
           marginBottom: 12,
           outline: "none",
           fontSize: 16,
@@ -55,7 +55,7 @@ export default function RedeemInput({
           borderRadius: 12,
           border: "none",
           background: TOKEN.action.primary.background,
-          color: "#ffffff",
+          color: "var(--dz-text-on-brand)",
           fontWeight: 700,
           fontSize: 16,
           cursor: "pointer",

@@ -56,12 +56,12 @@ export function DataTable<Row>({
 [data-dt="${scope}"] { width: 100%; border-collapse: collapse; direction: rtl; table-layout: fixed; }
 [data-dt="${scope}"] thead th {
   text-align: start; padding: 10px 12px; font-size: 12px; font-weight: 600;
-  color: #6B6459; border-bottom: 1px solid rgba(15,23,42,0.10); white-space: nowrap;
+  color: var(--dz-text-secondary); border-bottom: 1px solid rgba(52, 60, 50, 0.1); white-space: nowrap;
   letter-spacing: 0.2px;
 }
 [data-dt="${scope}"] tbody td {
-  padding: 11px 12px; font-size: 14px; color: #23201C;
-  border-bottom: 1px solid rgba(15,23,42,0.06); vertical-align: middle;
+  padding: 11px 12px; font-size: 14px; color: var(--dz-text-primary);
+  border-bottom: 1px solid rgba(52, 60, 50, 0.06); vertical-align: middle;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 [data-dt="${scope}"] tbody tr.dt-openable { cursor: pointer; }
@@ -71,7 +71,7 @@ export function DataTable<Row>({
   font: inherit; color: inherit; text-align: inherit; cursor: pointer;
   width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-[data-dt="${scope}"] .dt-open:focus-visible { outline: 2px solid #246966; outline-offset: 2px; border-radius: 4px; }
+[data-dt="${scope}"] .dt-open:focus-visible { outline: 2px solid var(--dz-brand); outline-offset: 2px; border-radius: 4px; }
 `;
 
   return (

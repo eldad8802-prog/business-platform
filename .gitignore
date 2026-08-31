@@ -94,3 +94,6 @@ stash-backup-*.patch
 # Leads W1 E2E fixture — holds short-lived auth tokens for the QA tenants.
 # Never commit: it is a secret by construction, and it is regenerated per run.
 .leads-e2e/
+
+# Local Dubiz Mist verification scratch (screenshots, diff harness) — never committed.
+.tmp-mist/

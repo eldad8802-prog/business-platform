@@ -106,7 +106,7 @@ export default function StandalonePaymentsPage() {
       dir="rtl"
       style={{
         minHeight: "100%",
-        background: "#ffffff",
+        background: "var(--dz-surface)",
         padding: "24px 18px 40px",
       }}
     >
@@ -128,7 +128,7 @@ export default function StandalonePaymentsPage() {
               margin: "6px 0 0",
               fontSize: 14,
               lineHeight: 1.5,
-              color: "#64748b",
+              color: "var(--dz-text-muted)",
             }}
           >
             קבלת תשלום מהירה — ללא חשבונית וללא מסמך מס.
@@ -185,8 +185,8 @@ export default function StandalonePaymentsPage() {
                 margin: 0,
                 fontSize: 13,
                 fontWeight: 600,
-                color: "#b91c1c",
-                background: "rgba(185, 28, 28, 0.07)",
+                color: "var(--dz-danger)",
+                background: "rgba(155, 70, 52, 0.07)",
                 borderRadius: 12,
                 padding: "10px 12px",
               }}
@@ -202,8 +202,8 @@ export default function StandalonePaymentsPage() {
               minHeight: 52,
               borderRadius: 14,
               border: "none",
-              background: !amountValid || busy ? "#9db4d4" : BRAND,
-              color: "#ffffff",
+              background: !amountValid || busy ? "var(--dz-info-border)" : BRAND,
+              color: "var(--dz-text-on-brand)",
               fontSize: 16,
               fontWeight: 800,
               cursor: !amountValid || busy ? "default" : "pointer",
@@ -223,7 +223,7 @@ export default function StandalonePaymentsPage() {
               margin: 0,
               fontSize: 12,
               lineHeight: 1.5,
-              color: "#94a3b8",
+              color: "var(--dz-text-muted)",
               textAlign: "center",
             }}
           >
@@ -238,18 +238,18 @@ export default function StandalonePaymentsPage() {
 const labelStyle: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 700,
-  color: "#334155",
+  color: "var(--dz-text-secondary)",
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
   minHeight: 48,
   borderRadius: 12,
-  border: "1px solid rgba(148, 163, 184, 0.5)",
-  background: "#ffffff",
+  border: "1px solid rgba(102, 111, 101, 0.5)",
+  background: "var(--dz-surface)",
   padding: "0 14px",
   fontSize: 16,
-  color: "#0f172a",
+  color: "var(--dz-text-primary)",
   outline: "none",
   boxSizing: "border-box",
 };

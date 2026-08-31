@@ -399,7 +399,7 @@ useEffect(() => {
 const pageStyle: React.CSSProperties = {
   ...baseStyles.page,
   background:
-    "linear-gradient(180deg, #f8fafc 0%, #ffffff 35%, #f8fafc 100%)",
+    "linear-gradient(180deg, var(--dz-surface-muted) 0%, var(--dz-surface-flat) 35%, var(--dz-surface-muted) 100%)",
 };
 
 const shellStyle: React.CSSProperties = {
@@ -421,7 +421,7 @@ const topBarStyle: React.CSSProperties = {
 const topBarTitleStyle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
 };
 
 const topBarSpacerStyle: React.CSSProperties = {
@@ -444,9 +444,9 @@ const eyebrowStyle: React.CSSProperties = {
   justifyContent: "center",
   fontSize: 12,
   fontWeight: 800,
-  color: "#065f46",
-  background: "#ecfdf5",
-  border: "1px solid #a7f3d0",
+  color: "var(--dz-success)",
+  background: "var(--dz-success-bg-soft)",
+  border: "1px solid var(--dz-success-border)",
   borderRadius: 999,
   padding: "6px 10px",
   marginBottom: 12,
@@ -456,32 +456,32 @@ const titleStyle: React.CSSProperties = {
   fontSize: 30,
   fontWeight: 800,
   lineHeight: 1.15,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   margin: 0,
   marginBottom: 10,
 };
 
 const subtitleStyle: React.CSSProperties = {
   fontSize: 15,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   lineHeight: 1.7,
   margin: 0,
   maxWidth: 620,
 };
 
 const summaryCardStyle: React.CSSProperties = {
-  background: "#ffffff",
+  background: "var(--dz-surface)",
   padding: 18,
   borderRadius: 20,
-  border: "1px solid #e5e7eb",
-  boxShadow: "0 6px 18px rgba(0,0,0,0.04)",
+  border: "1px solid var(--dz-border)",
+  boxShadow: "0 6px 18px rgba(52, 60, 50, 0.04)",
   marginBottom: 14,
 };
 
 const summaryTitleStyle: React.CSSProperties = {
   fontSize: 17,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   marginBottom: 14,
 };
 
@@ -492,8 +492,8 @@ const summaryGridStyle: React.CSSProperties = {
 };
 
 const summaryItemStyle: React.CSSProperties = {
-  background: "#f9fafb",
-  border: "1px solid #eef2f7",
+  background: "var(--dz-surface-muted)",
+  border: "1px solid var(--dz-border)",
   borderRadius: 14,
   padding: 12,
 };
@@ -501,30 +501,30 @@ const summaryItemStyle: React.CSSProperties = {
 const summaryLabelStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   marginBottom: 6,
 };
 
 const summaryValueStyle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   lineHeight: 1.4,
 };
 
 const stepsCardStyle: React.CSSProperties = {
-  background: "#ffffff",
+  background: "var(--dz-surface)",
   padding: 18,
   borderRadius: 20,
-  border: "1px solid #e5e7eb",
-  boxShadow: "0 6px 18px rgba(0,0,0,0.04)",
+  border: "1px solid var(--dz-border)",
+  boxShadow: "0 6px 18px rgba(52, 60, 50, 0.04)",
   marginBottom: 14,
 };
 
 const stepsTitleStyle: React.CSSProperties = {
   fontSize: 17,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   marginBottom: 16,
 };
 
@@ -565,15 +565,15 @@ const stepMarkerStyle = ({
   justifyContent: "center",
   fontSize: 12,
   fontWeight: 800,
-  border: isActive || isDone ? "2px solid #111827" : "1px solid #d1d5db",
-  background: isDone ? "#111827" : isActive ? "#f9fafb" : "#ffffff",
-  color: isDone ? "#ffffff" : isPending ? "#9ca3af" : "#111827",
+  border: isActive || isDone ? "2px solid var(--dz-text-primary)" : "1px solid var(--dz-border-strong)",
+  background: isDone ? "var(--dz-text-primary)" : isActive ? "var(--dz-surface-muted)" : "var(--dz-surface)",
+  color: isDone ? "var(--dz-text-on-brand)" : isPending ? "var(--dz-text-muted)" : "var(--dz-text-primary)",
 });
 
 const stepLineStyle = (isDone: boolean): React.CSSProperties => ({
   width: 2,
   minHeight: 40,
-  background: isDone ? "#111827" : "#e5e7eb",
+  background: isDone ? "var(--dz-text-primary)" : "var(--dz-surface-muted)",
   marginTop: 6,
 });
 
@@ -586,19 +586,19 @@ const stepContentStyle: React.CSSProperties = {
 const stepTitleStyle = (activeOrDone: boolean): React.CSSProperties => ({
   fontSize: 15,
   fontWeight: 800,
-  color: activeOrDone ? "#111827" : "#6b7280",
+  color: activeOrDone ? "var(--dz-text-primary)" : "var(--dz-text-muted)",
   marginBottom: 6,
 });
 
 const stepDescriptionStyle: React.CSSProperties = {
   fontSize: 13,
   lineHeight: 1.7,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
 };
 
 const statusCardStyle = (ready: boolean): React.CSSProperties => ({
-  background: ready ? "#ecfdf5" : "#f9fafb",
-  border: ready ? "1px solid #a7f3d0" : "1px solid #eef2f7",
+  background: ready ? "var(--dz-success-bg-soft)" : "var(--dz-surface-muted)",
+  border: ready ? "1px solid var(--dz-success-border)" : "1px solid var(--dz-border)",
   padding: 16,
   borderRadius: 18,
   marginBottom: 8,
@@ -607,13 +607,13 @@ const statusCardStyle = (ready: boolean): React.CSSProperties => ({
 const statusTitleStyle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   marginBottom: 6,
 };
 
 const statusTextStyle: React.CSSProperties = {
   fontSize: 14,
-  color: "#4b5563",
+  color: "var(--dz-text-secondary)",
   lineHeight: 1.7,
 };
 
@@ -623,7 +623,7 @@ const footerStyle: React.CSSProperties = {
   zIndex: 20,
   background: "rgba(255,255,255,0.92)",
   backdropFilter: "blur(10px)",
-  borderTop: "1px solid #e5e7eb",
+  borderTop: "1px solid var(--dz-border)",
   padding: "12px 16px calc(12px + env(safe-area-inset-bottom)) 16px",
   display: "flex",
   alignItems: "center",
@@ -635,8 +635,8 @@ const nextButtonStyle = (enabled: boolean): React.CSSProperties => ({
   height: 48,
   borderRadius: 14,
   border: "none",
-  background: enabled ? TOKEN.action.primary.background : "#9ca3af",
-  color: "#ffffff",
+  background: enabled ? TOKEN.action.primary.background : "var(--dz-text-muted)",
+  color: "var(--dz-text-on-brand)",
   fontSize: 15,
   fontWeight: 800,
   cursor: enabled ? "pointer" : "not-allowed",
@@ -658,11 +658,11 @@ const loadingTitleStyle: React.CSSProperties = {
 };
 
 const loadingTextStyle: React.CSSProperties = {
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
 };
 
 const errorWrapStyle: React.CSSProperties = {
   padding: 20,
-  color: "#b91c1c",
+  color: "var(--dz-danger)",
   lineHeight: 1.7,
 };

@@ -9,10 +9,10 @@ export default function RedeemSuccess({ result, onReset }: Props) {
   return (
     <div
       style={{
-        background: "#ffffff",
+        background: "var(--dz-surface)",
         padding: 20,
         borderRadius: 20,
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--dz-border)",
         textAlign: "center",
       }}
     >
@@ -36,7 +36,7 @@ export default function RedeemSuccess({ result, onReset }: Props) {
           padding: "12px 16px",
           borderRadius: 12,
           background: TOKEN.action.primary.background,
-          color: "#fff",
+          color: "var(--dz-text-on-brand)",
           cursor: "pointer",
         }}
       >

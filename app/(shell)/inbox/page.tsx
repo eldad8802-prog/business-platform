@@ -146,8 +146,8 @@ function getSmartIndicator(params: {
     return {
       label: "דורש תגובה",
       emoji: "🔥",
-      color: "#b45309",
-      border: "#f59e0b",
+      color: "var(--dz-warning)",
+      border: "var(--dz-warning-accent)",
     };
   }
 
@@ -155,8 +155,8 @@ function getSmartIndicator(params: {
     return {
       label: "ממתין לבעל העסק",
       emoji: "⏳",
-      color: "#1d4ed8",
-      border: "#60a5fa",
+      color: "var(--dz-info)",
+      border: "var(--dz-info-accent)",
     };
   }
 
@@ -164,8 +164,8 @@ function getSmartIndicator(params: {
     return {
       label: "שיחה מתקדמת",
       emoji: "⚡",
-      color: "#166534",
-      border: "#4ade80",
+      color: "var(--dz-success)",
+      border: "var(--dz-success-accent)",
     };
   }
 
@@ -173,16 +173,16 @@ function getSmartIndicator(params: {
     return {
       label: "שיחה פעילה",
       emoji: "💬",
-      color: "#7c3aed",
-      border: "#a78bfa",
+      color: "var(--dz-brand)",
+      border: "var(--dz-brand)",
     };
   }
 
   return {
     label: "שיחה חדשה",
     emoji: "🆕",
-    color: "#374151",
-    border: "#d1d5db",
+    color: "var(--dz-text-secondary)",
+    border: "var(--dz-border-strong)",
   };
 }
 
@@ -1011,35 +1011,35 @@ function InboxPageContent() {
     padding: "12px 14px",
     borderRadius: 14,
     fontWeight: 700,
-    color: "#111827",
-    boxShadow: "0 6px 20px rgba(15, 23, 42, 0.08)",
-    border: "1px solid #d6d3d1",
+    color: "var(--dz-text-primary)",
+    boxShadow: "0 6px 20px rgba(52, 60, 50, 0.08)",
+    border: "1px solid var(--dz-border-strong)",
   };
 
   const softButtonStyle: React.CSSProperties = {
     ...baseActionStyle,
-    background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+    background: "linear-gradient(180deg, var(--dz-surface-flat) 0%, var(--dz-surface-muted) 100%)",
   };
 
   const accentButtonStyle: React.CSSProperties = {
     ...baseActionStyle,
-    background: "linear-gradient(180deg, #dcfce7 0%, #bbf7d0 100%)",
-    border: "1px solid #86efac",
-    color: "#166534",
+    background: "linear-gradient(180deg, var(--dz-success-bg) 0%, var(--dz-success-bg) 100%)",
+    border: "1px solid var(--dz-success-border)",
+    color: "var(--dz-success)",
   };
 
   const warmButtonStyle: React.CSSProperties = {
     ...baseActionStyle,
-    background: "linear-gradient(180deg, #fef3c7 0%, #fde68a 100%)",
-    border: "1px solid #f5c542",
-    color: "#92400e",
+    background: "linear-gradient(180deg, var(--dz-warning-bg) 0%, var(--dz-warning-bg) 100%)",
+    border: "1px solid var(--dz-warning-accent)",
+    color: "var(--dz-warning)",
   };
 
   const dangerButtonStyle: React.CSSProperties = {
     ...baseActionStyle,
-    background: "linear-gradient(180deg, #fee2e2 0%, #fecaca 100%)",
-    border: "1px solid #fca5a5",
-    color: "#991b1b",
+    background: "linear-gradient(180deg, var(--dz-danger-bg) 0%, var(--dz-danger-bg) 100%)",
+    border: "1px solid var(--dz-danger-border)",
+    color: "var(--dz-danger)",
   };
 
   if (!authChecked) {
@@ -1048,7 +1048,7 @@ function InboxPageContent() {
 
   if (!authToken) {
     return (
-      <div style={{ direction: "rtl", padding: 32, textAlign: "center", color: "#64748b" }}>
+      <div style={{ direction: "rtl", padding: 32, textAlign: "center", color: "var(--dz-text-muted)" }}>
         יש להתחבר כדי לגשת לתיבת הדואר.
       </div>
     );
@@ -1104,7 +1104,7 @@ function InboxPageContent() {
   // lives in this consumer's CSS-toggled wrappers — the primitive stays a bare
   // two-region structure and Customers' shared-scroll adoption is untouched.
   const inboxCss = `
-[data-inbox="${inboxScope}"] { height: 100%; box-sizing: border-box; background: #f8fafc; direction: rtl; overflow-x: hidden; }
+[data-inbox="${inboxScope}"] { height: 100%; box-sizing: border-box; background: var(--dz-surface-muted); direction: rtl; overflow-x: hidden; }
 [data-inbox="${inboxScope}"] > .inbox-frame { height: 100%; box-sizing: border-box; }
 [data-inbox="${inboxScope}"] .list-frame { height: 100%; box-sizing: border-box; }
 [data-inbox="${inboxScope}"] .list-frame > .list-desktop { display: none; }
@@ -1114,14 +1114,14 @@ function InboxPageContent() {
   [data-inbox="${inboxScope}"] > .inbox-frame { max-width: 1280px; margin: 0 auto; padding: 16px 20px; }
   [data-inbox="${inboxScope}"] .list-frame > .list-desktop {
     display: flex; flex-direction: column; height: 100%;
-    background: #ffffff; border: 1px solid rgba(15, 23, 42, 0.08); border-radius: 22px;
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05); overflow: hidden;
+    background: var(--dz-surface); border: 1px solid rgba(52, 60, 50, 0.08); border-radius: 22px;
+    box-shadow: 0 8px 24px rgba(52, 60, 50, 0.05); overflow: hidden;
   }
   [data-inbox="${inboxScope}"] .list-frame > .list-mobile { display: none; }
   [data-inbox="${inboxScope}"] .cv-frame {
     margin-inline-start: 14px;
-    background: #ffffff; border: 1px solid rgba(15, 23, 42, 0.08); border-radius: 22px;
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05); overflow: hidden;
+    background: var(--dz-surface); border: 1px solid rgba(52, 60, 50, 0.08); border-radius: 22px;
+    box-shadow: 0 8px 24px rgba(52, 60, 50, 0.05); overflow: hidden;
   }
 }
 `;
@@ -1262,24 +1262,24 @@ function DesktopSummaryCard({
     { background: string; border: string; color: string }
   > = {
     urgent: {
-      background: "linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%)",
-      border: "rgba(249, 115, 22, 0.28)",
-      color: "#c2410c",
+      background: "linear-gradient(180deg, var(--dz-warning-bg-soft) 0%, var(--dz-warning-bg) 100%)",
+      border: "rgba(129, 90, 50, 0.28)",
+      color: "var(--dz-danger)",
     },
     calm: {
-      background: "linear-gradient(180deg, #ecfdf5 0%, #dcfce7 100%)",
-      border: "rgba(34, 197, 94, 0.25)",
-      color: "#166534",
+      background: "linear-gradient(180deg, var(--dz-success-bg-soft) 0%, var(--dz-success-bg) 100%)",
+      border: "rgba(30, 106, 74, 0.25)",
+      color: "var(--dz-success)",
     },
     bot: {
-      background: "linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%)",
-      border: "rgba(99, 102, 241, 0.25)",
-      color: "#3730a3",
+      background: "linear-gradient(180deg, var(--dz-brand-soft) 0%, var(--dz-brand-soft) 100%)",
+      border: "rgba(36, 105, 102, 0.25)",
+      color: "var(--dz-brand)",
     },
     neutral: {
-      background: "#ffffff",
-      border: "rgba(15, 23, 42, 0.08)",
-      color: "#334155",
+      background: "var(--dz-surface)",
+      border: "rgba(52, 60, 50, 0.08)",
+      color: "var(--dz-text-secondary)",
     },
   };
 
@@ -1295,13 +1295,13 @@ function DesktopSummaryCard({
         minWidth: 0,
       }}
     >
-      <div style={{ fontSize: 12, fontWeight: 800, color: "#64748b", marginBottom: 8 }}>
+      <div style={{ fontSize: 12, fontWeight: 800, color: "var(--dz-text-muted)", marginBottom: 8 }}>
         {label}
       </div>
       <div style={{ fontSize: 27, fontWeight: 950, color: style.color, lineHeight: 1 }}>
         {value}
       </div>
-      <div style={{ fontSize: 12, color: "#64748b", marginTop: 8, lineHeight: 1.35 }}>
+      <div style={{ fontSize: 12, color: "var(--dz-text-muted)", marginTop: 8, lineHeight: 1.35 }}>
         {helper}
       </div>
     </div>
@@ -1348,10 +1348,10 @@ function DesktopFocusTabs({
     <div
       style={{
         padding: "16px 16px 4px",
-        borderBottom: "1px solid rgba(15, 23, 42, 0.06)",
+        borderBottom: "1px solid rgba(52, 60, 50, 0.06)",
       }}
     >
-      <div style={{ fontSize: 18, fontWeight: 900, color: "#111827", marginBottom: 12 }}>
+      <div style={{ fontSize: 18, fontWeight: 900, color: "var(--dz-text-primary)", marginBottom: 12 }}>
         שיחות
       </div>
       <input
@@ -1362,13 +1362,13 @@ function DesktopFocusTabs({
         style={{
           width: "100%",
           boxSizing: "border-box",
-          border: "1px solid rgba(15, 23, 42, 0.08)",
+          border: "1px solid rgba(52, 60, 50, 0.08)",
           borderRadius: 14,
           padding: "11px 14px",
           fontSize: 14,
           fontFamily: "inherit",
           outline: "none",
-          background: "#f8fafc",
+          background: "var(--dz-surface-muted)",
           marginBottom: 12,
         }}
       />
@@ -1385,10 +1385,10 @@ function DesktopFocusTabs({
               onClick={() => onSelect(row.id)}
               style={{
                 border: isSelected
-                  ? "1px solid rgba(79, 70, 229, 0.42)"
-                  : "1px solid rgba(15, 23, 42, 0.08)",
-                background: isSelected ? "#eef2ff" : isUrgent ? "#fff7ed" : "#ffffff",
-                color: isUrgent ? "#9a3412" : isSelected ? "#3730a3" : "#334155",
+                  ? "1px solid rgba(36, 105, 102, 0.42)"
+                  : "1px solid rgba(52, 60, 50, 0.08)",
+                background: isSelected ? "var(--dz-brand-soft)" : isUrgent ? "var(--dz-warning-bg-soft)" : "var(--dz-surface)",
+                color: isUrgent ? "var(--dz-danger)" : isSelected ? "var(--dz-brand)" : "var(--dz-text-secondary)",
                 borderRadius: 999,
                 padding: "8px 11px",
                 fontSize: 12,
@@ -1405,7 +1405,7 @@ function DesktopFocusTabs({
                   minWidth: 18,
                   height: 18,
                   borderRadius: 999,
-                  background: count > 0 ? "rgba(15, 23, 42, 0.06)" : "transparent",
+                  background: count > 0 ? "rgba(52, 60, 50, 0.06)" : "transparent",
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -1454,10 +1454,10 @@ function SendNoticeToast({
         display: "flex",
         alignItems: "flex-start",
         gap: 10,
-        background: "#FEF3C7",
-        border: "1px solid #FDE68A",
+        background: "var(--dz-warning-bg)",
+        border: "1px solid var(--dz-warning-border)",
         borderRadius: 14,
-        boxShadow: "0 10px 25px -5px rgba(15, 23, 42, 0.15)",
+        boxShadow: "0 10px 25px -5px rgba(52, 60, 50, 0.15)",
         padding: "12px 14px",
         boxSizing: "border-box",
       }}
@@ -1467,7 +1467,7 @@ function SendNoticeToast({
           flex: 1,
           fontSize: 13,
           fontWeight: 600,
-          color: "#92400E",
+          color: "var(--dz-warning)",
           lineHeight: 1.5,
         }}
       >
@@ -1481,7 +1481,7 @@ function SendNoticeToast({
           flex: "0 0 auto",
           border: "none",
           background: "transparent",
-          color: "#92400E",
+          color: "var(--dz-warning)",
           fontSize: 18,
           fontWeight: 800,
           lineHeight: 1,

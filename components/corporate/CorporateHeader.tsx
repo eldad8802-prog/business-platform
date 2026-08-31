@@ -18,12 +18,12 @@ export function CorporateHeader() {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-[var(--mkt-border)] bg-white/90 backdrop-blur">
+    <header className="sticky top-0 z-50 border-b border-[var(--mkt-border)] bg-[var(--dz-surface-translucent)] backdrop-blur">
       <CorporateContainer className="flex h-16 items-center justify-between gap-3">
         <Link
           href="/home"
           onClick={() => setOpen(false)}
-          className="flex items-center gap-2 text-lg font-extrabold text-gray-900"
+          className="flex items-center gap-2 text-lg font-extrabold text-[var(--dz-text-primary)]"
         >
           <Image
             src="/dubiz-logo.png"
@@ -52,7 +52,7 @@ export function CorporateHeader() {
       </CorporateContainer>
 
       {open ? (
-        <div className="border-t border-[var(--mkt-border)] bg-white sm:hidden">
+        <div className="border-t border-[var(--mkt-border)] dz-mist sm:hidden">
           <CorporateContainer className="flex flex-col gap-3 py-4">
             <CorporateNav
               orientation="vertical"

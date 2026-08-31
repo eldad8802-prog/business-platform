@@ -55,7 +55,7 @@ export function PhoneFrame({ children, style }: { children: ReactNode; style?: C
         background: W.canvas,
         borderRadius: screen ? 0 : 22,
         overflow: "hidden",
-        boxShadow: screen ? "none" : "0 16px 40px rgba(70,50,30,0.14)",
+        boxShadow: screen ? "none" : "0 16px 40px rgba(35, 48, 43,0.14)",
         minHeight: screen ? "100vh" : 720,
         display: "flex",
         flexDirection: "column",
@@ -243,7 +243,7 @@ const btnBase: CSSProperties = {
 export function PrimaryButton({ children, onClick, style, disabled }: { children: ReactNode; onClick?: () => void; style?: CSSProperties; disabled?: boolean }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled}
-      style={{ ...btnBase, height: 50, background: W.grad, color: "#fff", fontSize: 15, boxShadow: W.glow, ...(disabled ? { opacity: 0.55, cursor: "not-allowed", boxShadow: "none" } : null), ...style }}>
+      style={{ ...btnBase, height: 50, background: W.grad, color: "var(--dz-text-on-brand)", fontSize: 15, boxShadow: W.glow, ...(disabled ? { opacity: 0.55, cursor: "not-allowed", boxShadow: "none" } : null), ...style }}>
       {children}
     </button>
   );
@@ -258,8 +258,8 @@ export function SecondaryButton({ children, onClick, style, disabled }: { childr
 }
 export function WaButton({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
   return (
-    <button type="button" onClick={onClick} style={{ ...btnBase, height: 48, background: COUPON.accent.whatsapp, color: "#fff", fontSize: 15 }}>
-      <svg viewBox="0 0 24 24" width={18} height={18} fill="#fff" aria-hidden><path d="M12 2a10 10 0 00-8.6 15l-1.4 5 5.1-1.3A10 10 0 1012 2z" /></svg>
+    <button type="button" onClick={onClick} style={{ ...btnBase, height: 48, background: COUPON.accent.whatsapp, color: "var(--dz-text-on-brand)", fontSize: 15 }}>
+      <svg viewBox="0 0 24 24" width={18} height={18} fill="var(--dz-text-on-brand)" aria-hidden><path d="M12 2a10 10 0 00-8.6 15l-1.4 5 5.1-1.3A10 10 0 1012 2z" /></svg>
       {children}
     </button>
   );

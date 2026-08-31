@@ -2,12 +2,12 @@
 
 export default function ProgressBar({ progress }: { progress: number }) {
   return (
-    <div style={{ height: 4, background: "#e5e7eb" }}>
+    <div style={{ height: 4, background: "var(--dz-surface-muted)" }}>
       <div
         style={{
           height: "100%",
           width: `${progress}%`,
-          background: "#111",
+          background: "var(--dz-text-primary)",
         }}
       />
     </div>

@@ -761,7 +761,7 @@ function PerfField(props: {
 
 const pageStyle: React.CSSProperties = {
   ...baseStyles.page,
-  background: "linear-gradient(180deg, #f8fafc 0%, #ffffff 35%, #f8fafc 100%)",
+  background: "linear-gradient(180deg, var(--dz-surface-muted) 0%, var(--dz-surface-flat) 35%, var(--dz-surface-muted) 100%)",
 };
 
 const shellStyle: React.CSSProperties = {
@@ -783,7 +783,7 @@ const topBarStyle: React.CSSProperties = {
 const topBarTitleStyle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
 };
 
 const topBarSpacerStyle: React.CSSProperties = {
@@ -806,9 +806,9 @@ const eyebrowStyle: React.CSSProperties = {
   justifyContent: "center",
   fontSize: 12,
   fontWeight: 800,
-  color: "#065f46",
-  background: "#ecfdf5",
-  border: "1px solid #a7f3d0",
+  color: "var(--dz-success)",
+  background: "var(--dz-success-bg-soft)",
+  border: "1px solid var(--dz-success-border)",
   borderRadius: 999,
   padding: "6px 10px",
   marginBottom: 12,
@@ -818,23 +818,23 @@ const titleStyle: React.CSSProperties = {
   fontSize: 30,
   fontWeight: 800,
   lineHeight: 1.15,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   margin: 0,
   marginBottom: 10,
 };
 
 const subtitleStyle: React.CSSProperties = {
   fontSize: 15,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   lineHeight: 1.7,
   margin: 0,
   maxWidth: 700,
 };
 
 const errorBoxStyle: React.CSSProperties = {
-  background: "#fee2e2",
-  border: "1px solid #fecaca",
-  color: "#991b1b",
+  background: "var(--dz-danger-bg)",
+  border: "1px solid var(--dz-danger-border)",
+  color: "var(--dz-danger)",
   borderRadius: 14,
   padding: 12,
   marginBottom: 16,
@@ -852,11 +852,11 @@ const errorTextStyle: React.CSSProperties = {
 };
 
 const videoCardStyle: React.CSSProperties = {
-  background: "#ffffff",
+  background: "var(--dz-surface)",
   borderRadius: 18,
   padding: 16,
-  border: "1px solid #e5e7eb",
-  boxShadow: "0 4px 14px rgba(0,0,0,0.04)",
+  border: "1px solid var(--dz-border)",
+  boxShadow: "0 4px 14px rgba(52, 60, 50, 0.04)",
   marginBottom: 18,
 };
 
@@ -883,36 +883,36 @@ const videoMetaStyle: React.CSSProperties = {
 const videoMetaTitleStyle: React.CSSProperties = {
   fontSize: 18,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
 };
 
 const videoMetaTextStyle: React.CSSProperties = {
   fontSize: 14,
   lineHeight: 1.8,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
 };
 
 // ── Publish-ready card ────────────────────────────────────────────────────────
 
 const publishReadyCardStyle: React.CSSProperties = {
-  background: "#ffffff",
+  background: "var(--dz-surface)",
   borderRadius: 18,
   padding: 18,
-  border: "1px solid #e5e7eb",
-  boxShadow: "0 4px 14px rgba(0,0,0,0.04)",
+  border: "1px solid var(--dz-border)",
+  boxShadow: "0 4px 14px rgba(52, 60, 50, 0.04)",
   marginBottom: 18,
 };
 
 const publishReadyTitleStyle: React.CSSProperties = {
   fontSize: 18,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   marginBottom: 4,
 };
 
 const publishReadySubtitleStyle: React.CSSProperties = {
   fontSize: 14,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   lineHeight: 1.6,
   marginBottom: 16,
 };
@@ -924,14 +924,14 @@ const publishReadySectionStyle: React.CSSProperties = {
 const publishReadyLabelStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 800,
-  color: "#374151",
+  color: "var(--dz-text-secondary)",
   marginBottom: 6,
 };
 
 const hookBoxStyle: React.CSSProperties = {
-  background: "#eff6ff",
-  border: "1px solid #bfdbfe",
-  color: "#1e3a8a",
+  background: "var(--dz-info-bg-soft)",
+  border: "1px solid var(--dz-info-border)",
+  color: "var(--dz-info)",
   borderRadius: 14,
   padding: 14,
   fontSize: 15,
@@ -940,9 +940,9 @@ const hookBoxStyle: React.CSSProperties = {
 };
 
 const captionBoxStyle: React.CSSProperties = {
-  background: "#f3f4f6",
-  border: "1px solid #e5e7eb",
-  color: "#374151",
+  background: "var(--dz-surface-muted)",
+  border: "1px solid var(--dz-border)",
+  color: "var(--dz-text-secondary)",
   borderRadius: 14,
   padding: 14,
   fontSize: 14,
@@ -952,25 +952,25 @@ const captionBoxStyle: React.CSSProperties = {
 // ── Social trace card ─────────────────────────────────────────────────────────
 
 const socialTraceCardStyle: React.CSSProperties = {
-  background: "#ffffff",
+  background: "var(--dz-surface)",
   borderRadius: 18,
   padding: 16,
-  border: "1px solid #e5e7eb",
-  boxShadow: "0 4px 14px rgba(0,0,0,0.04)",
+  border: "1px solid var(--dz-border)",
+  boxShadow: "0 4px 14px rgba(52, 60, 50, 0.04)",
   marginBottom: 18,
 };
 
 const socialTraceTitleStyle: React.CSSProperties = {
   fontSize: 18,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   marginBottom: 6,
 };
 
 const socialTraceSubtitleStyle: React.CSSProperties = {
   fontSize: 14,
   lineHeight: 1.8,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   marginBottom: 14,
 };
 
@@ -990,28 +990,28 @@ const socialTraceFieldStyle: React.CSSProperties = {
 const socialTraceLabelStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 800,
-  color: "#374151",
+  color: "var(--dz-text-secondary)",
 };
 
 const socialTraceSelectStyle: React.CSSProperties = {
   height: 42,
   borderRadius: 12,
-  border: "1px solid #e5e7eb",
+  border: "1px solid var(--dz-border)",
   padding: "0 12px",
-  background: "#ffffff",
+  background: "var(--dz-surface)",
   fontSize: 14,
   fontWeight: 700,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
 };
 
 const socialTraceInputStyle: React.CSSProperties = {
   height: 42,
   borderRadius: 12,
-  border: "1px solid #e5e7eb",
+  border: "1px solid var(--dz-border)",
   padding: "0 12px",
-  background: "#ffffff",
+  background: "var(--dz-surface)",
   fontSize: 14,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
 };
 
 const socialTraceActionsStyle: React.CSSProperties = {
@@ -1027,8 +1027,8 @@ const socialTraceButtonStyle = (disabled: boolean): React.CSSProperties => ({
   borderRadius: 12,
   border: "none",
   padding: "0 14px",
-  background: disabled ? "#d1d5db" : "#111827",
-  color: "#ffffff",
+  background: disabled ? "var(--dz-text-disabled)" : "var(--dz-text-primary)",
+  color: "var(--dz-text-on-brand)",
   fontSize: 14,
   fontWeight: 800,
   cursor: disabled ? "not-allowed" : "pointer",
@@ -1036,14 +1036,14 @@ const socialTraceButtonStyle = (disabled: boolean): React.CSSProperties => ({
 
 const socialTraceHintStyle: React.CSSProperties = {
   fontSize: 12,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   fontWeight: 700,
 };
 
 const socialTraceErrorStyle: React.CSSProperties = {
-  background: "#fff7ed",
-  border: "1px solid #fed7aa",
-  color: "#9a3412",
+  background: "var(--dz-warning-bg-soft)",
+  border: "1px solid var(--dz-warning-border)",
+  color: "var(--dz-danger)",
   borderRadius: 12,
   padding: 10,
   fontSize: 13,
@@ -1052,9 +1052,9 @@ const socialTraceErrorStyle: React.CSSProperties = {
 };
 
 const socialTraceSuccessStyle: React.CSSProperties = {
-  background: "#ecfdf5",
-  border: "1px solid #a7f3d0",
-  color: "#065f46",
+  background: "var(--dz-success-bg-soft)",
+  border: "1px solid var(--dz-success-border)",
+  color: "var(--dz-success)",
   borderRadius: 12,
   padding: 10,
   fontSize: 13,
@@ -1065,11 +1065,11 @@ const socialTraceSuccessStyle: React.CSSProperties = {
 // ── Performance card ──────────────────────────────────────────────────────────
 
 const perfCardStyle: React.CSSProperties = {
-  background: "#ffffff",
+  background: "var(--dz-surface)",
   borderRadius: 18,
   padding: 16,
-  border: "1px solid #e5e7eb",
-  boxShadow: "0 4px 14px rgba(0,0,0,0.04)",
+  border: "1px solid var(--dz-border)",
+  boxShadow: "0 4px 14px rgba(52, 60, 50, 0.04)",
   marginBottom: 20,
 };
 
@@ -1085,15 +1085,15 @@ const perfCardHeaderStyle: React.CSSProperties = {
 const perfTitleStyle: React.CSSProperties = {
   fontSize: 16,
   fontWeight: 800,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
 };
 
 const perfOptionalTagStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 700,
-  color: "#6b7280",
-  background: "#f3f4f6",
-  border: "1px solid #e5e7eb",
+  color: "var(--dz-text-muted)",
+  background: "var(--dz-surface-muted)",
+  border: "1px solid var(--dz-border)",
   borderRadius: 999,
   padding: "3px 8px",
   flexShrink: 0,
@@ -1102,7 +1102,7 @@ const perfOptionalTagStyle: React.CSSProperties = {
 const perfSubtitleStyle: React.CSSProperties = {
   fontSize: 13,
   lineHeight: 1.7,
-  color: "#6b7280",
+  color: "var(--dz-text-muted)",
   marginBottom: 12,
 };
 
@@ -1123,11 +1123,11 @@ const perfNoteStyle: React.CSSProperties = {
   width: "100%",
   minHeight: 84,
   borderRadius: 12,
-  border: "1px solid #e5e7eb",
+  border: "1px solid var(--dz-border)",
   padding: "10px 12px",
-  background: "#ffffff",
+  background: "var(--dz-surface)",
   fontSize: 14,
-  color: "#111827",
+  color: "var(--dz-text-primary)",
   resize: "vertical",
   boxSizing: "border-box",
 };
@@ -1140,7 +1140,7 @@ const footerStyle: React.CSSProperties = {
   zIndex: 20,
   background: "rgba(255,255,255,0.92)",
   backdropFilter: "blur(10px)",
-  borderTop: "1px solid #e5e7eb",
+  borderTop: "1px solid var(--dz-border)",
   padding: "12px 16px calc(12px + env(safe-area-inset-bottom)) 16px",
   display: "flex",
   alignItems: "center",
@@ -1154,7 +1154,7 @@ const primaryButtonStyle: React.CSSProperties = {
   borderRadius: 14,
   border: "none",
   background: TOKEN.action.primary.background,
-  color: "#ffffff",
+  color: "var(--dz-text-on-brand)",
   fontSize: 15,
   fontWeight: 800,
   cursor: "pointer",
@@ -1165,11 +1165,11 @@ const secondaryButtonStyle: React.CSSProperties = {
   minWidth: 150,
   height: 48,
   borderRadius: 14,
-  border: "1px solid #e5e7eb",
-  background: "#ffffff",
-  color: "#111827",
+  border: "1px solid var(--dz-border)",
+  background: "var(--dz-surface)",
+  color: "var(--dz-text-primary)",
   fontSize: 15,
   fontWeight: 800,
   cursor: "pointer",
-  boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
+  boxShadow: "0 2px 10px rgba(52, 60, 50, 0.04)",
 };

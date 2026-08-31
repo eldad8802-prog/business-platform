@@ -486,7 +486,7 @@ export function InventorySkeletonBlock({
             height,
             borderRadius: inventoryRadius.lg,
             background:
-              "linear-gradient(90deg, rgba(246,236,221,0.65), rgba(253,244,235,0.92), rgba(246,236,221,0.65))",
+              "linear-gradient(90deg, rgba(239, 241, 235,0.65), rgba(252, 252, 250,0.92), rgba(239, 241, 235,0.65))",
             backgroundSize: "220% 100%",
           }}
         />
@@ -779,7 +779,7 @@ export const inventoryResponsiveCss = `
     left: 0;
     right: 0;
     z-index: 50;
-    background: rgba(254, 248, 242, 0.96);
+    background: rgba(251, 250, 246, 0.96);
     backdrop-filter: blur(12px);
     border-top: 1px solid var(--inv-border);
     padding: 6px 8px calc(6px + env(safe-area-inset-bottom));

@@ -2,9 +2,9 @@ export default function IssueLoadingState() {
   return (
     <div
       style={{
-        background: "#ffffff",
+        background: "var(--dz-surface)",
         borderRadius: 24,
-        border: "1px solid #e5e7eb",
+        border: "1px solid var(--dz-border)",
         padding: 24,
         textAlign: "center",
       }}
@@ -13,7 +13,7 @@ export default function IssueLoadingState() {
         style={{
           fontSize: 18,
           fontWeight: 700,
-          color: "#111827",
+          color: "var(--dz-text-primary)",
           marginBottom: 10,
         }}
       >
@@ -23,7 +23,7 @@ export default function IssueLoadingState() {
       <div
         style={{
           fontSize: 15,
-          color: "#6b7280",
+          color: "var(--dz-text-muted)",
         }}
       >
         עוד רגע ה־QR יהיה מוכן

@@ -52,7 +52,7 @@ function ContentContextPageInner() {
       <div style={baseStyles.container}>
         <h1 style={{ marginBottom: 8 }}>למי התוכן מיועד?</h1>
 
-        <p style={{ marginBottom: 20, color: "#555" }}>
+        <p style={{ marginBottom: 20, color: "var(--dz-text-secondary)" }}>
           תאר את הקהל שאתה רוצה למשוך כדי שנוכל לדייק את הכיוון
         </p>
 
@@ -67,7 +67,7 @@ function ContentContextPageInner() {
             minHeight: 120,
             padding: 16,
             borderRadius: 12,
-            border: "1px solid #ddd",
+            border: "1px solid var(--dz-border)",
             fontSize: 14,
             marginBottom: 20,
           }}
@@ -113,7 +113,7 @@ export default function Page() {
 const buttonStyle = (selected: boolean) => ({
   padding: 12,
   borderRadius: 10,
-  border: selected ? "2px solid #111" : "1px solid #ddd",
+  border: selected ? "2px solid var(--dz-text-primary)" : "1px solid var(--dz-border)",
   marginTop: 10,
   cursor: "pointer",
 });

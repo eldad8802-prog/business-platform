@@ -145,7 +145,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
         style={{
           position: "absolute",
           inset: 0,
-          background: "rgba(15, 23, 42, 0.42)",
+          background: "rgba(52, 60, 50, 0.26)",
           opacity: overlayOpacity,
           transition: `opacity ${TRANS_MS}ms ${visualOpen ? EASE_OUT : EASE_IN}`,
           pointerEvents: visualOpen ? "auto" : "none",
@@ -168,7 +168,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
           borderTopRightRadius: 24,
           background: "rgba(255, 255, 255, 0.98)",
           boxShadow:
-            "0 -8px 32px rgba(15, 23, 42, 0.08), 0 -2px 12px rgba(15, 23, 42, 0.04)",
+            "0 -8px 32px rgba(52, 60, 50, 0.08), 0 -2px 12px rgba(52, 60, 50, 0.04)",
           transform: sheetTransform,
           transition: `transform ${TRANS_MS}ms ${visualOpen ? EASE_OUT : EASE_IN}`,
           willChange: "transform",
@@ -191,7 +191,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
               width: 40,
               height: 4,
               borderRadius: 999,
-              background: "rgba(15, 23, 42, 0.12)",
+              background: "rgba(52, 60, 50, 0.12)",
               marginBottom: 12,
             }}
           />
@@ -201,7 +201,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
           style={{
             fontSize: 17,
             fontWeight: 800,
-            color: "#0f172a",
+            color: "var(--dz-text-primary)",
             marginBottom: 4,
             textAlign: "right",
             letterSpacing: "-0.02em",
@@ -213,7 +213,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
           style={{
             margin: "0 0 16px",
             fontSize: 13,
-            color: "#64748b",
+            color: "var(--dz-text-muted)",
             lineHeight: 1.45,
             textAlign: "right",
           }}
@@ -242,14 +242,14 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
                 minHeight: 76,
                 padding: "14px 12px",
                 borderRadius: 16,
-                border: "1px solid rgba(148, 163, 184, 0.35)",
+                border: "1px solid rgba(102, 111, 101, 0.35)",
                 background:
-                  "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+                  "linear-gradient(180deg, var(--dz-surface-flat) 0%, var(--dz-surface-muted) 100%)",
                 cursor: "pointer",
                 textAlign: "right",
                 touchAction: "manipulation",
                 WebkitTapHighlightColor: "transparent",
-                boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+                boxShadow: "0 1px 2px rgba(52, 60, 50, 0.04)",
                 transition:
                   "transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease",
                 ...(index === QUICK_ACTIONS.length - 1 &&
@@ -271,7 +271,7 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
                     flex: 1,
                     fontSize: 14,
                     fontWeight: 700,
-                    color: "#0f172a",
+                    color: "var(--dz-text-primary)",
                     lineHeight: 1.25,
                   }}
                 >
@@ -286,8 +286,8 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    background: "rgba(63, 97, 156, 0.08)",
-                    color: "#3F619C",
+                    background: "rgba(43, 90, 133, 0.08)",
+                    color: "var(--dz-info)",
                   }}
                   aria-hidden
                 >
@@ -306,11 +306,11 @@ export function ActionSheet({ open, onClose }: ActionSheetProps) {
             marginTop: 14,
             minHeight: 50,
             borderRadius: 16,
-            border: "1px solid rgba(148, 163, 184, 0.4)",
-            background: "#ffffff",
+            border: "1px solid rgba(102, 111, 101, 0.4)",
+            background: "var(--dz-surface)",
             fontSize: 15,
             fontWeight: 700,
-            color: "#475569",
+            color: "var(--dz-text-secondary)",
             cursor: "pointer",
             touchAction: "manipulation",
             WebkitTapHighlightColor: "transparent",

@@ -231,21 +231,21 @@ function initials(name: string): string {
 }
 
 function avatarAccentColor(item: InboxItemViewModel | null): string {
-  if (!item?.businessSituation) return "#94a3b8";
+  if (!item?.businessSituation) return "var(--dz-text-muted)";
   const byKind: Record<string, string> = {
-    CUSTOMER_WAITING: "#dc2626",
-    DRAFT_READY: "#6366f1",
-    BOT_HANDOFF: "#ea580c",
-    BOT_COLLECTING: "#16a34a",
-    QUOTE_WAITING: "#b45309",
-    FOLLOW_UP_DUE: "#7c3aed",
-    WAITING_ON_CUSTOMER: "#2563eb",
-    HOT_OPPORTUNITY: "#ea580c",
-    NEW_LEAD: "#0891b2",
-    ACTIVE: "#94a3b8",
-    CLOSED: "#94a3b8",
+    CUSTOMER_WAITING: "var(--dz-danger)",
+    DRAFT_READY: "var(--dz-brand)",
+    BOT_HANDOFF: "var(--dz-warning)",
+    BOT_COLLECTING: "var(--dz-success)",
+    QUOTE_WAITING: "var(--dz-warning)",
+    FOLLOW_UP_DUE: "var(--dz-brand)",
+    WAITING_ON_CUSTOMER: "var(--dz-info)",
+    HOT_OPPORTUNITY: "var(--dz-warning)",
+    NEW_LEAD: "var(--dz-info)",
+    ACTIVE: "var(--dz-text-muted)",
+    CLOSED: "var(--dz-text-muted)",
   };
-  return byKind[item.businessSituation.kind] ?? "#94a3b8";
+  return byKind[item.businessSituation.kind] ?? "var(--dz-text-muted)";
 }
 
 /** Single ambient whisper — presentation only, no logic changes. */
@@ -576,8 +576,8 @@ export function ConversationView(props: {
             padding: 24,
           }}
         >
-          <h2 style={{ marginTop: 0, color: "#111827", fontSize: 18 }}>בחר שיחה</h2>
-          <div style={{ color: "#64748b", lineHeight: 1.6, fontSize: 14 }}>
+          <h2 style={{ marginTop: 0, color: "var(--dz-text-primary)", fontSize: 18 }}>בחר שיחה</h2>
+          <div style={{ color: "var(--dz-text-muted)", lineHeight: 1.6, fontSize: 14 }}>
             בחר שיחה מהרשימה כדי להמשיך את השיחה עם הלקוח.
           </div>
         </div>
@@ -611,13 +611,13 @@ export function ConversationView(props: {
                   width: 36,
                   height: 36,
                   borderRadius: 999,
-                  background: "#f1f5f9",
+                  background: "var(--dz-surface-muted)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   fontSize: 13,
                   fontWeight: 800,
-                  color: "#475569",
+                  color: "var(--dz-text-secondary)",
                 }}
               >
                 {initials(headerTitle)}
@@ -633,7 +633,7 @@ export function ConversationView(props: {
                     height: 10,
                     borderRadius: 999,
                     background: accentColor,
-                    border: "2px solid #ffffff",
+                    border: "2px solid var(--dz-surface-raised-flat)",
                   }}
                 />
               ) : null}
@@ -644,7 +644,7 @@ export function ConversationView(props: {
                 style={{
                   fontSize: 15,
                   fontWeight: 800,
-                  color: "#111827",
+                  color: "var(--dz-text-primary)",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
@@ -683,7 +683,7 @@ export function ConversationView(props: {
                     borderRadius: 999,
                     border: "none",
                     background: "transparent",
-                    color: "#94a3b8",
+                    color: "var(--dz-text-muted)",
                     fontSize: 20,
                     fontWeight: 700,
                     cursor: "pointer",
@@ -701,10 +701,10 @@ export function ConversationView(props: {
                       left: 0,
                       marginTop: 4,
                       minWidth: 168,
-                      background: "#ffffff",
+                      background: "var(--dz-surface)",
                       border: `1px solid ${INBOX_SURFACE.border}`,
                       borderRadius: 12,
-                      boxShadow: "0 8px 24px rgba(15, 23, 42, 0.12)",
+                      boxShadow: "0 8px 24px rgba(52, 60, 50, 0.12)",
                       padding: 4,
                       zIndex: 30,
                     }}
@@ -722,7 +722,7 @@ export function ConversationView(props: {
                           width: "100%",
                           border: "none",
                           background: "transparent",
-                          color: "#334155",
+                          color: "var(--dz-text-secondary)",
                           fontSize: 13,
                           fontWeight: 700,
                           padding: "10px 12px",
@@ -745,7 +745,7 @@ export function ConversationView(props: {
                         width: "100%",
                         border: "none",
                         background: "transparent",
-                        color: "#64748b",
+                        color: "var(--dz-text-muted)",
                         fontSize: 13,
                         fontWeight: 600,
                         padding: "10px 12px",
@@ -773,10 +773,10 @@ export function ConversationView(props: {
                 gap: 10,
                 padding: "8px 18px",
                 borderBottom: `1px solid ${INBOX_SURFACE.border}`,
-                background: "#f8fafc",
+                background: "var(--dz-surface-muted)",
               }}
             >
-              <span style={{ fontSize: 12, color: "#64748b", lineHeight: 1.4 }}>
+              <span style={{ fontSize: 12, color: "var(--dz-text-muted)", lineHeight: 1.4 }}>
                 אפשר לקחת שליטה בכל רגע
               </span>
               <button
@@ -785,10 +785,10 @@ export function ConversationView(props: {
                 onClick={() => onTakeOverConversation()}
                 style={{
                   flexShrink: 0,
-                  border: "1px solid #cbd5e1",
+                  border: "1px solid var(--dz-border-strong)",
                   borderRadius: 999,
-                  background: "#ffffff",
-                  color: "#334155",
+                  background: "var(--dz-surface)",
+                  color: "var(--dz-text-secondary)",
                   fontSize: 13,
                   fontWeight: 700,
                   padding: "7px 14px",
@@ -823,7 +823,7 @@ export function ConversationView(props: {
                 <div
                   style={{
                     alignSelf: "center",
-                    color: "#94a3b8",
+                    color: "var(--dz-text-muted)",
                     fontSize: 13,
                     padding: "24px 8px",
                   }}
@@ -851,14 +851,14 @@ export function ConversationView(props: {
                         borderRadius: isBusiness
                           ? "14px 14px 4px 14px"
                           : "14px 14px 14px 4px",
-                        background: isBusiness ? INBOX_SURFACE.greenBubble : "#ffffff",
+                        background: isBusiness ? INBOX_SURFACE.greenBubble : "var(--dz-surface)",
                         border: isBusiness ? "none" : `1px solid ${INBOX_SURFACE.border}`,
                         boxSizing: "border-box",
                         overflowWrap: "anywhere",
                         wordBreak: "break-word",
                       }}
                     >
-                      <div style={{ color: "#111827", lineHeight: 1.5, fontSize: 14.5 }}>
+                      <div style={{ color: "var(--dz-text-primary)", lineHeight: 1.5, fontSize: 14.5 }}>
                         {msg.contentText}
                       </div>
                       <div
@@ -866,14 +866,14 @@ export function ConversationView(props: {
                           display: "flex",
                           justifyContent: "flex-end",
                           marginTop: 2,
-                          color: "#94a3b8",
+                          color: "var(--dz-text-muted)",
                           fontSize: 10,
                           fontWeight: 500,
                         }}
                       >
                         <span>{formatMessageTime(msg.createdAt)}</span>
                         {isBusiness ? (
-                          <span style={{ color: "#22c55e", marginRight: 4 }}>✓</span>
+                          <span style={{ color: "var(--dz-success-accent)", marginRight: 4 }}>✓</span>
                         ) : null}
                       </div>
                     </div>
@@ -949,9 +949,9 @@ export function ConversationView(props: {
                         padding: "8px 14px",
                         fontSize: 13,
                         fontWeight: 650,
-                        color: "#334155",
+                        color: "var(--dz-text-secondary)",
                         cursor: "pointer",
-                        boxShadow: "0 1px 2px rgba(15, 23, 42, 0.06)",
+                        boxShadow: "0 1px 2px rgba(52, 60, 50, 0.06)",
                         whiteSpace: "nowrap",
                       }}
                     >
@@ -966,10 +966,10 @@ export function ConversationView(props: {
                   display: "flex",
                   alignItems: "flex-end",
                   gap: 6,
-                  background: "#ffffff",
+                  background: "var(--dz-surface)",
                   borderRadius: 24,
                   padding: "4px 6px 4px 8px",
-                  boxShadow: "0 1px 3px rgba(15, 23, 42, 0.08)",
+                  boxShadow: "0 1px 3px rgba(52, 60, 50, 0.08)",
                 }}
               >
                 <button
@@ -984,7 +984,7 @@ export function ConversationView(props: {
                     borderRadius: 999,
                     border: "none",
                     background: "transparent",
-                    color: "#94a3b8",
+                    color: "var(--dz-text-muted)",
                     fontSize: 18,
                     cursor: "pointer",
                     display: "inline-flex",
@@ -1011,7 +1011,7 @@ export function ConversationView(props: {
                     fontSize: 15,
                     lineHeight: 1.4,
                     outline: "none",
-                    color: "#111827",
+                    color: "var(--dz-text-primary)",
                     background: "transparent",
                   }}
                   placeholder="הודעה"
@@ -1033,7 +1033,7 @@ export function ConversationView(props: {
                       borderRadius: 999,
                       border: "none",
                       background: "transparent",
-                      color: "#94a3b8",
+                      color: "var(--dz-text-muted)",
                       fontSize: 16,
                       cursor: "pointer",
                       flexShrink: 0,
@@ -1053,7 +1053,7 @@ export function ConversationView(props: {
                     borderRadius: 999,
                     border: "none",
                     background: INBOX_SURFACE.purple,
-                    color: "#ffffff",
+                    color: "var(--dz-text-on-brand)",
                     fontSize: 16,
                     cursor: hasDraft ? "pointer" : "default",
                     opacity: hasDraft ? 1 : 0.35,

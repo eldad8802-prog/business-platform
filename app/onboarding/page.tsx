@@ -149,7 +149,7 @@ export default function OnboardingPage() {
     <div
       style={{
         minHeight: "100vh",
-        background: "#f8fafc",
+        background: "var(--dz-surface-muted)",
         direction: "rtl",
         padding: "24px 16px",
         display: "flex",
@@ -161,25 +161,25 @@ export default function OnboardingPage() {
         style={{
           width: "100%",
           maxWidth: 560,
-          background: "#ffffff",
-          border: "1px solid #e5e7eb",
+          background: "var(--dz-surface)",
+          border: "1px solid var(--dz-border)",
           borderRadius: 22,
-          boxShadow: "0 10px 30px rgba(15, 23, 42, 0.07)",
+          boxShadow: "0 10px 30px rgba(52, 60, 50, 0.07)",
           overflow: "hidden",
         }}
       >
         <div
           style={{
             padding: "28px 24px 18px",
-            background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 55%, #eef2ff 100%)",
-            borderBottom: "1px solid #eef2f7",
+            background: "linear-gradient(135deg, var(--dz-surface-flat) 0%, var(--dz-surface-muted) 55%, var(--dz-brand-soft) 100%)",
+            borderBottom: "1px solid var(--dz-border)",
           }}
         >
-          <h1 style={{ margin: "0 0 8px 0", fontSize: 30, color: "#111827" }}>
+          <h1 style={{ margin: "0 0 8px 0", fontSize: 30, color: "var(--dz-text-primary)" }}>
             הגדרת העסק
           </h1>
 
-          <p style={{ margin: 0, color: "#6b7280", lineHeight: 1.7 }}>
+          <p style={{ margin: 0, color: "var(--dz-text-muted)", lineHeight: 1.7 }}>
             כדי להתאים את המערכת לעסק שלך, נבקש ממך לבחור 3 פרטים בסיסיים בלבד.
           </p>
         </div>
@@ -191,7 +191,7 @@ export default function OnboardingPage() {
                 display: "block",
                 marginBottom: 8,
                 fontWeight: 700,
-                color: "#111827",
+                color: "var(--dz-text-primary)",
                 fontSize: 14,
               }}
             >
@@ -204,10 +204,10 @@ export default function OnboardingPage() {
               style={{
                 width: "100%",
                 padding: "12px 14px",
-                border: "1px solid #d1d5db",
+                border: "1px solid var(--dz-border-strong)",
                 borderRadius: 12,
                 fontSize: 15,
-                background: "#fff",
+                background: "var(--dz-surface)",
                 boxSizing: "border-box",
               }}
             >
@@ -222,7 +222,7 @@ export default function OnboardingPage() {
             <div
               style={{
                 marginTop: 8,
-                color: "#6b7280",
+                color: "var(--dz-text-muted)",
                 fontSize: 13,
                 lineHeight: 1.6,
               }}
@@ -237,7 +237,7 @@ export default function OnboardingPage() {
                 display: "block",
                 marginBottom: 8,
                 fontWeight: 700,
-                color: "#111827",
+                color: "var(--dz-text-primary)",
                 fontSize: 14,
               }}
             >
@@ -251,10 +251,10 @@ export default function OnboardingPage() {
               style={{
                 width: "100%",
                 padding: "12px 14px",
-                border: "1px solid #d1d5db",
+                border: "1px solid var(--dz-border-strong)",
                 borderRadius: 12,
                 fontSize: 15,
-                background: category ? "#fff" : "#f3f4f6",
+                background: category ? "var(--dz-surface)" : "var(--dz-surface-muted)",
                 boxSizing: "border-box",
               }}
             >
@@ -271,7 +271,7 @@ export default function OnboardingPage() {
             <div
               style={{
                 marginTop: 8,
-                color: "#6b7280",
+                color: "var(--dz-text-muted)",
                 fontSize: 13,
                 lineHeight: 1.6,
               }}
@@ -286,7 +286,7 @@ export default function OnboardingPage() {
                 display: "block",
                 marginBottom: 8,
                 fontWeight: 700,
-                color: "#111827",
+                color: "var(--dz-text-primary)",
                 fontSize: 14,
               }}
             >
@@ -299,10 +299,10 @@ export default function OnboardingPage() {
               style={{
                 width: "100%",
                 padding: "12px 14px",
-                border: "1px solid #d1d5db",
+                border: "1px solid var(--dz-border-strong)",
                 borderRadius: 12,
                 fontSize: 15,
-                background: "#fff",
+                background: "var(--dz-surface)",
                 boxSizing: "border-box",
               }}
             >
@@ -316,7 +316,7 @@ export default function OnboardingPage() {
             <div
               style={{
                 marginTop: 8,
-                color: "#6b7280",
+                color: "var(--dz-text-muted)",
                 fontSize: 13,
                 lineHeight: 1.6,
               }}
@@ -332,9 +332,9 @@ export default function OnboardingPage() {
               width: "100%",
               padding: "14px 16px",
               borderRadius: 12,
-              border: "1px solid #111827",
+              border: "1px solid var(--dz-text-primary)",
               background: TOKEN.action.primary.background,
-              color: "#ffffff",
+              color: "var(--dz-text-on-brand)",
               cursor: loading ? "not-allowed" : "pointer",
               fontWeight: 700,
               fontSize: 15,

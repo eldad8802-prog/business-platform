@@ -45,7 +45,7 @@ function Field({
 }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      <span style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: "var(--dz-text-secondary)" }}>
         {label}
       </span>
       {multiline ? (
@@ -57,7 +57,7 @@ function Field({
           style={{
             padding: "8px 10px",
             borderRadius: 8,
-            border: "1px solid #cbd5e1",
+            border: "1px solid var(--dz-border-strong)",
             fontSize: 13,
             resize: "vertical",
             fontFamily: "inherit",
@@ -72,7 +72,7 @@ function Field({
           style={{
             padding: "8px 10px",
             borderRadius: 8,
-            border: "1px solid #cbd5e1",
+            border: "1px solid var(--dz-border-strong)",
             fontSize: 13,
             fontFamily: "inherit",
           }}
@@ -174,7 +174,7 @@ export default function BusinessProfilePage() {
   };
 
   return (
-    <div dir="rtl" style={{ minHeight: "100dvh", background: "#f8fafc" }}>
+    <div dir="rtl" style={{ minHeight: "100dvh", background: "var(--dz-surface-muted)" }}>
       <PageHeader
         title="העסק שלי"
         backHref="/tools"
@@ -189,7 +189,7 @@ export default function BusinessProfilePage() {
           boxSizing: "border-box",
         }}
       >
-        <p style={{ fontSize: 14, color: "#64748b", marginTop: 0 }}>
+        <p style={{ fontSize: 14, color: "var(--dz-text-muted)", marginTop: 0 }}>
           כאן מגדירים את <strong>זהות העסק</strong> שמופיעה במסמכים (חשבוניות,
           הצעות מחיר וכו׳). עריכה כאן לא דרך מסמך בודד.
         </p>
@@ -199,10 +199,10 @@ export default function BusinessProfilePage() {
             marginTop: 12,
             padding: "12px 14px",
             borderRadius: 12,
-            background: "#fffbeb",
-            border: "1px solid #fde68a",
+            background: "var(--dz-warning-bg-soft)",
+            border: "1px solid var(--dz-warning-border)",
             fontSize: 13,
-            color: "#92400e",
+            color: "var(--dz-warning)",
             lineHeight: 1.5,
           }}
         >
@@ -211,13 +211,13 @@ export default function BusinessProfilePage() {
         </div>
 
         {loading ? (
-          <div style={{ marginTop: 24, color: "#94a3b8" }}>טוען…</div>
+          <div style={{ marginTop: 24, color: "var(--dz-text-muted)" }}>טוען…</div>
         ) : (
           <div style={{ display: "grid", gap: 20, marginTop: 20 }}>
             <section
               style={{
-                background: "#fff",
-                border: "1px solid #e2e8f0",
+                background: "var(--dz-surface)",
+                border: "1px solid var(--dz-border)",
                 borderRadius: 14,
                 padding: 16,
               }}
@@ -227,7 +227,7 @@ export default function BusinessProfilePage() {
                   margin: "0 0 12px",
                   fontSize: 15,
                   fontWeight: 800,
-                  color: "#0f172a",
+                  color: "var(--dz-text-primary)",
                 }}
               >
                 זהות עסקית
@@ -237,7 +237,7 @@ export default function BusinessProfilePage() {
                   style={{
                     margin: "0 0 12px",
                     fontSize: 13,
-                    color: "#b45309",
+                    color: "var(--dz-warning)",
                     fontWeight: 600,
                   }}
                 >
@@ -260,8 +260,8 @@ export default function BusinessProfilePage() {
 
             <section
               style={{
-                background: "#fff",
-                border: "1px solid #e2e8f0",
+                background: "var(--dz-surface)",
+                border: "1px solid var(--dz-border)",
                 borderRadius: 14,
                 padding: 16,
               }}
@@ -271,7 +271,7 @@ export default function BusinessProfilePage() {
                   margin: "0 0 12px",
                   fontSize: 15,
                   fontWeight: 800,
-                  color: "#0f172a",
+                  color: "var(--dz-text-primary)",
                 }}
               >
                 פרטים נוספים במסמך (אופציונלי)
@@ -308,8 +308,8 @@ export default function BusinessProfilePage() {
               <div
                 role="alert"
                 style={{
-                  background: "#fef2f2",
-                  color: "#991b1b",
+                  background: "var(--dz-danger-bg-soft)",
+                  color: "var(--dz-danger)",
                   padding: "10px 12px",
                   borderRadius: 8,
                   fontSize: 13,
@@ -329,11 +329,11 @@ export default function BusinessProfilePage() {
                   borderRadius: 10,
                   border: "none",
                   background: saving
-                    ? "#94a3b8"
+                    ? "var(--dz-text-muted)"
                     : savedOk
-                      ? "#166534"
+                      ? "var(--dz-success-accent)"
                       : TOKEN.action.primary.background,
-                  color: "#fff",
+                  color: "var(--dz-text-on-brand)",
                   fontSize: 15,
                   fontWeight: 700,
                   cursor: saving ? "not-allowed" : "pointer",
@@ -347,9 +347,9 @@ export default function BusinessProfilePage() {
                   role="status"
                   aria-live="polite"
                   style={{
-                    background: "#ecfdf5",
-                    border: "1px solid #bbf7d0",
-                    color: "#166534",
+                    background: "var(--dz-success-bg-soft)",
+                    border: "1px solid var(--dz-success-border)",
+                    color: "var(--dz-success)",
                     borderRadius: 10,
                     padding: "10px 12px",
                     fontSize: 14,
@@ -367,7 +367,7 @@ export default function BusinessProfilePage() {
               style={{
                 fontSize: 14,
                 fontWeight: 600,
-                color: "#2563eb",
+                color: "var(--dz-info)",
                 textDecoration: "none",
               }}
             >

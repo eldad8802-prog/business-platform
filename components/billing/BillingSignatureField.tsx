@@ -15,7 +15,7 @@ import { TOKEN } from "@/lib/design/tokens";
 
 const MAX_BYTES = 500_000; // matches the server-side validator
 const ACCEPT = "image/png,image/jpeg,image/webp";
-const ERROR_INK = "#B85C3F";
+const ERROR_INK = "var(--dz-danger-accent)";
 
 function getAuthToken(): string {
   if (typeof window === "undefined") return "1";
@@ -161,7 +161,7 @@ export function BillingSignatureField() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            background: "#FFFFFF",
+            background: "var(--dz-surface)",
             overflow: "hidden",
             padding: 8,
             boxSizing: "border-box",

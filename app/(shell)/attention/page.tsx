@@ -42,49 +42,49 @@ function severityBadge(severity: Severity): {
     case "CRITICAL":
       return {
         label: "קריטי",
-        bg: "#fef2f2",
-        color: "#b91c1c",
-        border: "rgba(185, 28, 28, 0.22)",
+        bg: "var(--dz-danger-bg-soft)",
+        color: "var(--dz-danger)",
+        border: "rgba(155, 70, 52, 0.22)",
         weight: 700,
       };
     case "HIGH":
       return {
         label: "גבוה",
-        bg: "#fffbeb",
-        color: "#b45309",
-        border: "rgba(180, 83, 9, 0.22)",
+        bg: "var(--dz-warning-bg-soft)",
+        color: "var(--dz-warning)",
+        border: "rgba(129, 90, 50, 0.22)",
         weight: 700,
       };
     case "MEDIUM":
       return {
         label: "בינוני",
-        bg: "#f1f5f9",
-        color: "#475569",
-        border: "rgba(15, 23, 42, 0.1)",
+        bg: "var(--dz-surface-muted)",
+        color: "var(--dz-text-secondary)",
+        border: "rgba(52, 60, 50, 0.1)",
         weight: 600,
       };
     case "LOW":
       return {
         label: "נמוך",
-        bg: "#f8fafc",
-        color: "#64748b",
-        border: "rgba(15, 23, 42, 0.06)",
+        bg: "var(--dz-surface-muted)",
+        color: "var(--dz-text-muted)",
+        border: "rgba(52, 60, 50, 0.06)",
         weight: 500,
       };
     case "INFO":
       return {
         label: "מידע",
-        bg: "#f8fafc",
-        color: "#94a3b8",
-        border: "rgba(15, 23, 42, 0.05)",
+        bg: "var(--dz-surface-muted)",
+        color: "var(--dz-text-muted)",
+        border: "rgba(52, 60, 50, 0.05)",
         weight: 500,
       };
     default:
       return {
         label: severity,
-        bg: "#f8fafc",
-        color: "#64748b",
-        border: "rgba(15, 23, 42, 0.06)",
+        bg: "var(--dz-surface-muted)",
+        color: "var(--dz-text-muted)",
+        border: "rgba(52, 60, 50, 0.06)",
         weight: 500,
       };
   }
@@ -273,7 +273,7 @@ export default function AttentionPage() {
       style={{
         direction: "rtl",
         minHeight: "100vh",
-        background: "#f1f5f9",
+        background: "var(--dz-surface-muted)",
         padding: "12px 0 40px",
         boxSizing: "border-box",
         maxWidth: "100%",
@@ -292,7 +292,7 @@ export default function AttentionPage() {
               margin: "0 0 8px 0",
               fontSize: 22,
               fontWeight: 700,
-              color: "#0f172a",
+              color: "var(--dz-text-primary)",
               letterSpacing: "-0.02em",
               lineHeight: 1.25,
             }}
@@ -303,7 +303,7 @@ export default function AttentionPage() {
             style={{
               margin: 0,
               fontSize: 15,
-              color: "#64748b",
+              color: "var(--dz-text-muted)",
               lineHeight: 1.6,
             }}
           >
@@ -314,7 +314,7 @@ export default function AttentionPage() {
               style={{
                 margin: "10px 0 0",
                 fontSize: 12,
-                color: "#94a3b8",
+                color: "var(--dz-text-muted)",
               }}
             >
               עודכן {snapshotLabel}
@@ -339,7 +339,7 @@ export default function AttentionPage() {
             style={{
               padding: "32px 12px",
               textAlign: "center",
-              color: "#94a3b8",
+              color: "var(--dz-text-muted)",
               fontSize: 15,
             }}
           >
@@ -352,9 +352,9 @@ export default function AttentionPage() {
             style={{
               padding: "18px 16px",
               borderRadius: 14,
-              border: "1px solid rgba(180, 83, 9, 0.2)",
-              background: "#fffbeb",
-              color: "#92400e",
+              border: "1px solid rgba(129, 90, 50, 0.2)",
+              background: "var(--dz-warning-bg-soft)",
+              color: "var(--dz-warning)",
               fontSize: 14,
               lineHeight: 1.65,
             }}
@@ -369,12 +369,12 @@ export default function AttentionPage() {
               padding: "36px 22px",
               textAlign: "center",
               borderRadius: 14,
-              border: "1px solid rgba(15, 23, 42, 0.06)",
-              background: "#ffffff",
-              color: "#64748b",
+              border: "1px solid rgba(52, 60, 50, 0.06)",
+              background: "var(--dz-surface)",
+              color: "var(--dz-text-muted)",
               fontSize: 16,
               lineHeight: 1.65,
-              boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+              boxShadow: "0 1px 2px rgba(52, 60, 50, 0.04)",
             }}
           >
             כרגע אין דברים שדורשים טיפול.
@@ -455,7 +455,7 @@ function PaperworkObservation({
         marginBottom: 28,
         padding: "20px 18px 18px",
         borderRadius: 16,
-        background: "rgba(248, 250, 252, 0.95)",
+        background: "rgba(239, 241, 235, 0.95)",
         boxSizing: "border-box",
       }}
     >
@@ -464,7 +464,7 @@ function PaperworkObservation({
           margin: "0 0 12px 0",
           fontSize: 12,
           fontWeight: 600,
-          color: "#94a3b8",
+          color: "var(--dz-text-muted)",
         }}
       >
         שמים לב
@@ -474,7 +474,7 @@ function PaperworkObservation({
           margin: "0 0 10px 0",
           fontSize: 17,
           fontWeight: 600,
-          color: "#1e293b",
+          color: "var(--dz-text-primary)",
           lineHeight: 1.35,
         }}
       >
@@ -484,7 +484,7 @@ function PaperworkObservation({
         style={{
           margin: "0 0 16px 0",
           fontSize: 14,
-          color: "#64748b",
+          color: "var(--dz-text-muted)",
           lineHeight: 1.65,
         }}
       >
@@ -495,7 +495,7 @@ function PaperworkObservation({
           margin: "0 0 18px 0",
           padding: "0 18px 0 0",
           fontSize: 14,
-          color: "#475569",
+          color: "var(--dz-text-secondary)",
           lineHeight: 1.7,
         }}
       >
@@ -509,7 +509,7 @@ function PaperworkObservation({
           padding: "12px 16px",
           fontSize: 15,
           fontWeight: 600,
-          color: "#1d4ed8",
+          color: "var(--dz-info)",
           background: "transparent",
           border: "none",
           cursor: "pointer",
@@ -547,15 +547,15 @@ function StatusCard({
         borderRadius: 14,
         border: isStrong
           ? `1px solid ${badge.border}`
-          : "1px solid rgba(15, 23, 42, 0.06)",
-        background: "#ffffff",
+          : "1px solid rgba(52, 60, 50, 0.06)",
+        background: "var(--dz-surface)",
         cursor: "pointer",
         boxSizing: "border-box",
         WebkitTapHighlightColor: "transparent",
         touchAction: "manipulation",
         boxShadow: isStrong
-          ? "0 1px 4px rgba(15, 23, 42, 0.06)"
-          : "0 1px 2px rgba(15, 23, 42, 0.04)",
+          ? "0 1px 4px rgba(52, 60, 50, 0.06)"
+          : "0 1px 2px rgba(52, 60, 50, 0.04)",
       }}
     >
       <div
@@ -572,7 +572,7 @@ function StatusCard({
             style={{
               fontWeight: 700,
               fontSize: 16,
-              color: "#0f172a",
+              color: "var(--dz-text-primary)",
               lineHeight: 1.35,
               wordBreak: "break-word",
             }}
@@ -599,7 +599,7 @@ function StatusCard({
       <div
         style={{
           fontSize: 11,
-          color: "#94a3b8",
+          color: "var(--dz-text-muted)",
           marginBottom: item.summary ? 10 : 6,
         }}
       >
@@ -611,7 +611,7 @@ function StatusCard({
         <div
           style={{
             fontSize: 14,
-            color: "#475569",
+            color: "var(--dz-text-secondary)",
             lineHeight: 1.55,
             wordBreak: "break-word",
             marginBottom: 14,
@@ -631,7 +631,7 @@ function StatusCard({
           style={{
             fontSize: 14,
             fontWeight: 600,
-            color: "#2563eb",
+            color: "var(--dz-info)",
           }}
         >
           {item.primaryAction.label}

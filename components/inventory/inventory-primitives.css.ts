@@ -22,7 +22,7 @@ export const inventoryPrimitivesCss = `
     position: sticky;
     top: 0;
     z-index: 40;
-    background: rgba(254, 248, 242, 0.92);
+    background: rgba(251, 250, 246, 0.92);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border-bottom: 1px solid var(--inv-border);
@@ -165,7 +165,7 @@ export const inventoryPrimitivesCss = `
     height: 50px;
     border-radius: 15px;
     border: 1px solid var(--inv-border);
-    background: var(--inv-surface, #F6ECDD);
+    background: var(--inv-surface, var(--dz-surface-muted));
     font-size: 26px;
     font-weight: 600;
     color: var(--inv-text);
@@ -186,7 +186,7 @@ export const inventoryPrimitivesCss = `
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    background: var(--inv-surface, #F6ECDD);
+    background: var(--inv-surface, var(--dz-surface-muted));
     border-radius: 12px;
     padding: 4px;
     flex-shrink: 0;
@@ -434,7 +434,7 @@ export const inventoryPrimitivesCss = `
   }
   [data-inventory-module] .inv-modal__confirm--danger {
     background: var(--inv-danger);
-    box-shadow: 0 6px 18px rgba(184, 92, 63, 0.28);
+    box-shadow: 0 6px 18px rgba(155, 70, 52, 0.28);
   }
 
   /* ===== order/cart/receiving line (mockup .oline) ===== */
@@ -525,7 +525,7 @@ export const inventoryPrimitivesCss = `
   [data-inventory-module] .inv-steps__s {
     padding: 6px 13px;
     border-radius: 18px;
-    background: var(--inv-surface, #F6ECDD);
+    background: var(--inv-surface, var(--dz-surface-muted));
     color: var(--inv-text-muted);
   }
   [data-inventory-module] .inv-steps__s.is-on { background: var(--inv-accent); color: var(--inv-on-accent); }
@@ -547,7 +547,7 @@ export const inventoryPrimitivesCss = `
     min-height: 50px;
     border: 1px solid var(--inv-border);
     border-radius: 12px;
-    background: var(--inv-surface, #F6ECDD);
+    background: var(--inv-surface, var(--dz-surface-muted));
     padding: 0 14px;
     font-family: inherit;
     font-size: 15.5px;
@@ -561,7 +561,7 @@ export const inventoryPrimitivesCss = `
     box-shadow: 0 0 0 3px var(--inv-focus, rgba(36, 105, 102, 0.22));
   }
   [data-inventory-module] .inv-field__help { font-size: 12px; color: var(--inv-text-muted); font-weight: 500; margin-top: 6px; }
-  [data-inventory-module] .inv-field__err { font-size: 12.5px; color: var(--inv-danger, #B85C3F); font-weight: 600; margin-top: 6px; line-height: 1.45; }
+  [data-inventory-module] .inv-field__err { font-size: 12.5px; color: var(--inv-danger, var(--dz-danger-accent)); font-weight: 600; margin-top: 6px; line-height: 1.45; }
   [data-inventory-module] .inv-input--err { border-color: var(--inv-danger) !important; box-shadow: 0 0 0 3px var(--inv-danger-bg) !important; }
   [data-inventory-module] .inv-two { display: flex; gap: 11px; }
   [data-inventory-module] .inv-two > .inv-field { flex: 1; }
@@ -597,7 +597,7 @@ export const inventoryPrimitivesCss = `
     margin: 0 auto;
   }
   [data-inventory-module] .inv-tag {
-    background: var(--inv-surface, #F6ECDD);
+    background: var(--inv-surface, var(--dz-surface-muted));
     color: var(--inv-text-muted);
     font-size: 12.5px;
     font-weight: 600;
@@ -615,7 +615,7 @@ export const inventoryPrimitivesCss = `
   [data-inventory-module] .inv-statusblock__top { display: flex; align-items: center; justify-content: space-between; }
   [data-inventory-module] .inv-bigqty { font-size: 34px; font-weight: 600; letter-spacing: -1px; color: var(--inv-text); }
   [data-inventory-module] .inv-bigqty small { font-size: 14px; font-weight: 600; color: var(--inv-text-muted); }
-  [data-inventory-module] .inv-track { height: 6px; background: var(--inv-surface-2, #F6ECDD); border-radius: 4px; overflow: hidden; }
+  [data-inventory-module] .inv-track { height: 6px; background: var(--inv-surface-2, var(--dz-surface-muted)); border-radius: 4px; overflow: hidden; }
   [data-inventory-module] .inv-track__fill { height: 100%; border-radius: 4px; }
   [data-inventory-module] .inv-barcap { font-size: 11.5px; color: var(--inv-text-muted); font-weight: 600; margin-top: 5px; }
   [data-inventory-module] .inv-seclabel {

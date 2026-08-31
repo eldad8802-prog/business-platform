@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: "הגדרות" };
 export default function SettingsLayout({ children }: { children: ReactNode }) {
   return (
     <ShellChrome>
-      <div className="min-h-screen bg-[#f8f6f1] text-[#1f2937]" dir="rtl">
+      <div className="min-h-screen bg-[var(--dz-background)] text-[var(--dz-text-primary)]" dir="rtl">
         <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-8 pt-4 sm:max-w-2xl sm:px-6 lg:max-w-4xl">
           <div className="flex-1">{children}</div>
           <SettingsSystemFooter appVersion={packageJson.version} />

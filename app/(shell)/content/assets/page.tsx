@@ -115,7 +115,7 @@ export default function Page() {
         {isAI ? (
           <div style={card}>
             <h2 style={h2}>יצירה אוטומטית</h2>
-            <p style={{ color: "#555" }}>
+            <p style={{ color: "var(--dz-text-secondary)" }}>
               המערכת תיצור עבורך את התוכן באופן אוטומטי לפי הנתונים שהזנת
             </p>
           </div>
@@ -124,7 +124,7 @@ export default function Page() {
         {guidance ? (
           <div style={card}>
             <h2 style={h2}>הכוונה</h2>
-            <p style={{ color: "#555" }}>{guidance}</p>
+            <p style={{ color: "var(--dz-text-secondary)" }}>{guidance}</p>
           </div>
         ) : null}
       </div>
@@ -146,11 +146,11 @@ function mapFormat(value: string) {
 }
 
 const card = {
-  background: "#fff",
+  background: "var(--dz-surface)",
   borderRadius: 12,
   padding: 16,
   marginBottom: 16,
-  border: "1px solid #eee",
+  border: "1px solid var(--dz-border-subtle)",
 };
 
 const h2 = {
@@ -167,8 +167,8 @@ const instruction = {
 };
 
 const emptyCard = {
-  background: "#f3f4f6",
-  color: "#555",
+  background: "var(--dz-surface-muted)",
+  color: "var(--dz-text-secondary)",
   padding: 16,
   borderRadius: 12,
 };

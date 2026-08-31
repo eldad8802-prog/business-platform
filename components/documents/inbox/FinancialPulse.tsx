@@ -24,7 +24,7 @@ function StatCell({
         flex: "1 1 70px",
         minWidth: 0,
         padding: "10px 14px",
-        borderLeft: "1px solid rgba(120, 88, 52, 0.12)",
+        borderLeft: "1px solid rgba(52, 60, 50, 0.12)",
       }}
     >
       <div
