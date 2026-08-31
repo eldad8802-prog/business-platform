@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePlatformAdminOrResponse } from "@/lib/auth/platform-admin";
 import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
-import { getPlatformAdminBusinessFeatures } from "@/lib/services/feature-access/platform-admin-business-features.service";
+import { getPlatformAdminBusinessFeatures } from "@/lib/services/platform-admin/platform-business-features.service";
 
 function parseBusinessId(raw: string): number {
   const id = Number(raw);

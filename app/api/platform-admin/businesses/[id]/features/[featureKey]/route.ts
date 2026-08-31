@@ -7,7 +7,7 @@ import {
 } from "@/lib/errors";
 import { isFeatureAccessMutationsEnabled } from "@/lib/services/feature-access/feature-access-mutations";
 import type { BusinessFeatureOverrideState } from "@/lib/services/feature-access/feature-access.types";
-import { updateBusinessFeatureAccess } from "@/lib/services/feature-access/update-business-feature-access.service";
+import { updateBusinessFeatureAccess } from "@/lib/services/platform-admin/update-business-feature-access.service";
 
 function parseBusinessId(raw: string): number {
   const id = Number(raw);

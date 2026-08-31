@@ -38,6 +38,15 @@ jobs:
           fi
           echo "NEGATIVE-PROOF PASS: guard caught the synthetic offender"; rm -rf "$NEG"
 
+      # D2/PRIVILEGED-WRITE-2 — the control-plane capability guards run on EVERY PR,
+      # not only on PRs that touch the wave's own paths. The import-isolation and
+      # actor/target guards must catch a leak introduced anywhere in the tree.
+      - name: CI-PRIVWRITE control-plane guards (positive — must pass)
+        run: bash scripts/ci/privwrite-guard.sh .
+
+      - name: CI-PRIVWRITE negative self-proofs (planted violations must be caught)
+        run: bash scripts/ci/privwrite-guard.sh --self-test
+
       - name: Admin-boundary guard CI-2/3/4 (positive — must pass)
         run: bash scripts/ci/admin-boundary-guard.sh .
 
