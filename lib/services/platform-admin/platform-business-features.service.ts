@@ -1,10 +1,21 @@
-import { prisma } from "@/lib/prisma";
+/**
+ * D2 / PRIVILEGED-WRITE-2 — platform-admin feature-access READ surface.
+ *
+ * Moved here from `lib/services/feature-access/` (which is tenant territory) so
+ * it sits inside the CI-2/CI-4-guarded admin module. It reads across tenants
+ * through the SELECT-only admin client and the additive `p7adm_read` policy.
+ *
+ * It must NEVER use the tenant singleton: `BusinessFeatureAccess` is FORCE-RLS'd
+ * and a context-less tenant read returns zero overrides, which would render
+ * every business as "no override" — a fail-silent admin display.
+ */
+import { getPrismaAdmin } from "@/lib/prisma-admin";
 import { NotFoundError } from "@/lib/errors";
 import { PLATFORM_SYSTEM_BUSINESS_NAME } from "@/lib/services/platform-admin/constants";
 import {
   PLATFORM_FEATURE_CATALOG,
   type PlatformFeatureKey,
-} from "./platform-feature-catalog";
+} from "@/lib/services/feature-access/platform-feature-catalog";
 import {
   categoryLabelHe,
   categoryToGroup,
@@ -15,16 +26,20 @@ import {
   featureCategoryGroupLabel,
   FEATURE_CATEGORY_GROUP_ORDER,
   type FeatureAccessCategoryGroup,
-} from "./feature-access-display";
-import { resolveBusinessCapabilities } from "./resolve-feature-access";
+} from "@/lib/services/feature-access/feature-access-display";
+import {
+  resolveBusinessCapabilitiesWith,
+  type FeatureAccessReader,
+} from "@/lib/services/feature-access/resolve-feature-access";
+import type { FeatureAccessResult } from "@/lib/services/feature-access/feature-access.types";
 import type {
   PlatformAdminBusinessFeatureItem,
   PlatformAdminBusinessFeaturesResponse,
-} from "./feature-access.types";
+} from "@/lib/services/feature-access/feature-access.types";
 
 export function buildPlatformAdminBusinessFeatureItem(
   entry: (typeof PLATFORM_FEATURE_CATALOG)[number],
-  access: Awaited<ReturnType<typeof resolveBusinessCapabilities>>[PlatformFeatureKey]
+  access: FeatureAccessResult
 ): PlatformAdminBusinessFeatureItem {
   const displayState = computeFeatureAccessDisplayState({
     allowed: access.allowed,
@@ -92,7 +107,9 @@ function buildGroups(
 export async function getPlatformAdminBusinessFeatures(
   businessId: number
 ): Promise<PlatformAdminBusinessFeaturesResponse> {
-  const business = await prisma.business.findFirst({
+  const db = getPrismaAdmin();
+
+  const business = await db.business.findFirst({
     where: {
       id: businessId,
       name: { not: PLATFORM_SYSTEM_BUSINESS_NAME },
@@ -104,7 +121,10 @@ export async function getPlatformAdminBusinessFeatures(
     throw new NotFoundError("Business not found");
   }
 
-  const resolved = await resolveBusinessCapabilities(businessId);
+  const resolved = await resolveBusinessCapabilitiesWith(
+    db as unknown as FeatureAccessReader,
+    businessId
+  );
 
   const features = PLATFORM_FEATURE_CATALOG.map((entry) =>
     buildPlatformAdminBusinessFeatureItem(
