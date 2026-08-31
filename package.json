@@ -71,6 +71,7 @@
     "verify:leads-w2": "npx tsx lib/services/crm/lead-w2.service.test.ts",
     "verify:conversation-state-contract": "npx tsx lib/conversation-state/conversation-state.contract.test.ts",
     "verify:conversation-state-w25": "npx tsx lib/conversation-state/conversation-state.w25.test.ts",
+    "qa:w25-runtime": "node scripts/qa/ui/conversation-state-w25-runtime.mjs",
     "smoke:leads": "node scripts/qa/leads-w1-prod-smoke.mjs",
     "verify:billing-issue-tenant-isolation": "npx tsx lib/services/billing/billing-issue.tenant-isolation.test.ts",
     "verify:coupon-v1": "npx tsx lib/revenue/coupon-v1.verify.test.ts",
