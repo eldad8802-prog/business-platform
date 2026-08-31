@@ -115,6 +115,43 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: verifier caught the broken follow-up rule"
 
+      # W2.5: the Conversation State Writer. Its behavioural proof needs a
+      # database and stays local (npm run verify:conversation-state-w25), but
+      # both blockers the activation audit found were SHAPES of code — a
+      # read-modify-write `increment` that double-counted on replay, and a
+      # `conversation.update({ where: { id } })` with no tenant predicate. A
+      # refactor can reintroduce a shape long after anyone last ran the
+      # DB-backed suite, so the shape itself is guarded here: pure fs scan, no
+      # DB, no secrets. Local equivalent: npm run verify:conversation-state-contract
+      - name: Conversation State Writer structural contract (replay + tenant safety)
+        run: npx tsx lib/conversation-state/conversation-state.contract.test.ts
+
+      - name: Writer negative proof (an untenanted write must be caught)
+        run: |
+          F="lib/conversation-state/conversation-state.service.ts"
+          cp "$F" "$F.bak"
+          # Drop the businessId predicate: mutate the conversation by id alone.
+          sed -i 's/const updated = await db.conversation.updateMany({/const updated = await db.conversation.update({/' "$F"
+          if npx tsx lib/conversation-state/conversation-state.contract.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: guard did not catch the untenanted write"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: guard caught the untenanted write"
+
+      - name: Writer negative proof (a re-introduced increment must be caught)
+        run: |
+          F="lib/conversation-state/conversation-state.service.ts"
+          cp "$F" "$F.bak"
+          # Put the non-idempotent counter back.
+          sed -i 's/unansweredInboundCount: unansweredAfterEvent,/unansweredInboundCount: { increment: 1 },/' "$F"
+          if npx tsx lib/conversation-state/conversation-state.contract.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: guard did not catch the read-modify-write counter"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: guard caught the read-modify-write counter"
+
       - name: IMPL-2 negative proof (a synthetic Prisma type import must be caught)
         run: |
           F="lib/business-memory/evidence/review-event.reader.ts"
