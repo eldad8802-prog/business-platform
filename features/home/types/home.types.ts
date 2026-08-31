@@ -26,8 +26,19 @@ export type BusinessSnapshot = {
   ownerName?: string;
 };
 
+/**
+ * The one Leads signal Home carries: how many open leads are asking for the
+ * owner right now, and where to see exactly those. Deliberately a count and a
+ * link — Home stays a starting point, not a CRM dashboard.
+ */
+export type LeadsAttention = {
+  count: number;
+  href: string;
+};
+
 export type HomeResponse = {
   heroAction: HeroAction;
   quickActions: QuickAction[];
   businessSnapshot: BusinessSnapshot;
+  leadsAttention: LeadsAttention;
 };

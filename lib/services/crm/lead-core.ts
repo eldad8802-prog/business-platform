@@ -287,6 +287,19 @@ export function endOfLeadDayUtc(now: Date): Date {
   return new Date(instant - 1);
 }
 
+/**
+ * The FIRST instant of today in Israel, as a UTC `Date`. The mirror of
+ * {@link endOfLeadDayUtc}, and the boundary a "did this arrive before today?"
+ * SQL filter needs so the database can answer it.
+ */
+export function startOfLeadDayUtc(now: Date): Date {
+  const [y, m, d] = leadDayKey(now).split("-").map(Number);
+  const localMidnightUtcFields = Date.UTC(y, m - 1, d);
+  let instant = localMidnightUtcFields - leadTimeZoneOffsetMs(now);
+  instant = localMidnightUtcFields - leadTimeZoneOffsetMs(new Date(instant));
+  return new Date(instant);
+}
+
 export type LeadFollowUpState =
   | { kind: "none" }
   | { kind: "scheduled"; at: string; inDays: number }

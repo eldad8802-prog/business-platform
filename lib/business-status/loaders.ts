@@ -25,12 +25,19 @@ async function dbStep<T>(
 }
 
 import {
+  OPEN_LEAD_STATUSES,
+  endOfLeadDayUtc,
+  startOfLeadDayUtc,
+} from "@/lib/services/crm/lead-core";
+
+import {
   BS_ATTENTION_PENDING_SUGGESTION_CAP,
   BS_ATTENTION_WAITING_CAP,
   BS_BILLING_PDF_FAILED_CAP,
   BS_BILLING_PENDING_CAP,
   BS_DOCUMENTS_CAP,
   BS_INVENTORY_CAP,
+  BS_LEADS_CAP,
   BS_OPEN_CONVERSATION_SCAN_CAP,
   BS_SUPPLIER_CAP,
 } from "./limits";
@@ -90,6 +97,15 @@ export type BillingDocRaw = {
   pdfRenderStatus: BillingPdfRenderStatus;
   pdfRenderError: string | null;
   documentNumberFormatted: string | null;
+};
+
+export type LeadAttentionRaw = {
+  id: number;
+  customerName: string | null;
+  status: string;
+  nextFollowUpAt: Date | null;
+  followUpNote: string | null;
+  createdAt: Date;
 };
 
 export type SupplierDraftRaw = {
@@ -383,6 +399,42 @@ export async function loadBillingPdfFailed(
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     take: BS_BILLING_PDF_FAILED_CAP,
     select: BILLING_SELECT,
+  });
+}
+
+/**
+ * Open leads that want the owner: a follow-up already due, or an untouched new
+ * lead from before today. The SQL mirrors `evaluateLeadAttention` exactly —
+ * filtering here rather than in JS keeps the cap honest (a capped list that was
+ * filtered afterwards would silently hide the very items it exists to show).
+ */
+export async function loadLeadsNeedingAttention(
+  businessId: number,
+  now: Date
+): Promise<LeadAttentionRaw[]> {
+  return prisma.lead.findMany({
+    where: {
+      businessId,
+      status: { in: [...OPEN_LEAD_STATUSES] },
+      OR: [
+        { nextFollowUpAt: { lte: endOfLeadDayUtc(now) } },
+        {
+          status: "NEW",
+          nextFollowUpAt: null,
+          createdAt: { lt: startOfLeadDayUtc(now) },
+        },
+      ],
+    },
+    orderBy: [{ nextFollowUpAt: "asc" }, { createdAt: "asc" }],
+    take: BS_LEADS_CAP,
+    select: {
+      id: true,
+      customerName: true,
+      status: true,
+      nextFollowUpAt: true,
+      followUpNote: true,
+      createdAt: true,
+    },
   });
 }
 
