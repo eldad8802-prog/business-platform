@@ -102,6 +102,32 @@ jobs:
       - name: Leads W1 domain core (status, validation, follow-up due logic)
         run: npx tsx lib/services/crm/lead-core.test.ts
 
+      # Import/Export Center I-1 — the data-transfer FORMAT layer. It is in the
+      # BLOCKING job for one reason: it holds the CSV formula-injection guard.
+      # A regression there does not fail loudly at runtime — it silently ships
+      # an export that executes attacker-controlled content when the owner opens
+      # it in Excel. The same file also pins the Accountant Export byte layout
+      # (differential vs a reproduction of the pre-fix renderer), so the security
+      # fix cannot drift into a data-format change. Needs no DB and no secret;
+      # ExcelJS comes from the npm ci step above.
+      # Local equivalent: npm run verify:data-transfer-format
+      - name: Data-transfer format layer (CSV injection guard + accountant byte layout)
+        run: npx tsx lib/data-transfer/format/format.verify.test.ts
+
+      - name: Data-transfer negative proof (removing the formula guard must be caught)
+        run: |
+          F="lib/data-transfer/format/csv-writer.ts"
+          cp "$F" "$F.bak"
+          # Neuter the guard exactly the way a careless refactor would: make it
+          # never fire, leaving the quoting (which is NOT a formula defence).
+          sed -i 's|^export function needsCsvFormulaGuard(value: string): boolean {|export function needsCsvFormulaGuard(value: string): boolean {\n  return false;|' "$F"
+          if npx tsx lib/data-transfer/format/format.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: verifier passed with the formula guard disabled"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: disabling the formula guard fails the verifier"
+
       # CASA Wave B — platform-admin TOTP MFA (CASA 3.3.1). The elevation
       # envelope and the guard decide whether a privileged request is allowed at
       # all, so they belong in the BLOCKING job. Deterministic and offline: no

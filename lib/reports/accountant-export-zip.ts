@@ -19,6 +19,10 @@ import {
 } from "@/lib/services/documents/document-storage.service";
 import { StorageObjectNotFoundError } from "@/lib/storage/storage.errors";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
+import {
+  writeCsvBuffer,
+  writeCsvText,
+} from "@/lib/data-transfer/format/csv-writer";
 
 export type AccountantPackBody = {
   type: "month" | "quarter" | "year";
@@ -89,17 +93,22 @@ const REPORT_COLUMN_HEADERS = [
   "קובץ מקור",
 ] as const;
 
-/** Semicolon — `_meta` CSV for scripts / debug. */
+/**
+ * Semicolon — `_meta` CSV for scripts / debug.
+ *
+ * The BOM / `sep=;` / CRLF / always-quote behaviour first proven here is now
+ * owned by the canonical writer (`lib/data-transfer/format/csv-writer.ts`),
+ * which this file delegates to. The byte layout is unchanged for ordinary data.
+ *
+ * SECURITY (intentional behaviour change): the local `escapeCsvField` that this
+ * replaced quoted every field but did NOT neutralize spreadsheet formulas.
+ * Quoting is a CSV-PARSING rule, not a formula-EVALUATION rule, so an OCR'd
+ * `vendorName` beginning with `=`, `+`, `@`, TAB or CR became executable
+ * content the moment the accountant opened the pack. The canonical writer
+ * prefixes such a value with `'`. Plain numbers are exempt, so every negative
+ * `amount` still exports as a real number.
+ */
 const ACCOUNTANT_CSV_SEP = ";";
-
-const EXCEL_SEPARATOR_DIRECTIVE = "sep=;";
-
-const UTF8_BOM_BYTES = Buffer.from([0xef, 0xbb, 0xbf]);
-
-function escapeCsvField(value: string | number): string {
-  const s = String(value);
-  return `"${s.replace(/"/g, '""')}"`;
-}
 
 export function resolveExportDateRange(body: AccountantPackBody): {
   fromDate: Date | undefined;
@@ -183,44 +192,48 @@ function loadRecordsForExport(
   }));
 }
 
-function buildAccountantCsvText(
-  records: Awaited<ReturnType<typeof loadRecordsForExport>>
-): string {
-  const headerLine = REPORT_COLUMN_HEADERS.map(escapeCsvField).join(
-    ACCOUNTANT_CSV_SEP
+/** Column order matches REPORT_COLUMN_HEADERS exactly. */
+function toAccountantCsvRow(
+  r: Awaited<ReturnType<typeof loadRecordsForExport>>[number]
+): (string | number)[] {
+  const doc = r.document;
+  const ex = doc?.extractedData;
+  const confidence = mapConfidenceHe(
+    ex?.amountConfidence ?? undefined,
+    ex?.confidenceScore ?? undefined
   );
-  const lines: string[] = [EXCEL_SEPARATOR_DIRECTIVE, headerLine];
-
-  for (const r of records) {
-    const doc = r.document;
-    const ex = doc?.extractedData;
-    const confidence = mapConfidenceHe(
-      ex?.amountConfidence ?? undefined,
-      ex?.confidenceScore ?? undefined
-    );
-    const row = [
-      formatDateIl(new Date(r.date)),
-      r.vendorName,
-      categoryLabel(r.category),
-      r.amount,
-      mapDirectionHe(r.direction),
-      mapStatusHe(doc?.status),
-      confidence,
-      sourceFileLabel(doc ?? undefined),
-    ].map(escapeCsvField);
-    lines.push(row.join(ACCOUNTANT_CSV_SEP));
-  }
-
-  return lines.join("\r\n");
+  return [
+    formatDateIl(new Date(r.date)),
+    r.vendorName,
+    categoryLabel(r.category),
+    r.amount,
+    mapDirectionHe(r.direction),
+    mapStatusHe(doc?.status),
+    confidence,
+    sourceFileLabel(doc ?? undefined),
+  ];
 }
 
-function buildAccountantCsvBuffer(
+/** Exported for the deterministic regression proof; not part of the ZIP API. */
+export function buildAccountantCsvText(
+  records: Awaited<ReturnType<typeof loadRecordsForExport>>
+): string {
+  return writeCsvText(REPORT_COLUMN_HEADERS, records.map(toAccountantCsvRow), {
+    delimiter: ACCOUNTANT_CSV_SEP,
+    excelSepDirective: true,
+    eol: "\r\n",
+  });
+}
+
+/** Exported for the deterministic regression proof; not part of the ZIP API. */
+export function buildAccountantCsvBuffer(
   records: Awaited<ReturnType<typeof loadRecordsForExport>>
 ): Buffer {
-  return Buffer.concat([
-    UTF8_BOM_BYTES,
-    Buffer.from(buildAccountantCsvText(records), "utf8"),
-  ]);
+  return writeCsvBuffer(REPORT_COLUMN_HEADERS, records.map(toAccountantCsvRow), {
+    delimiter: ACCOUNTANT_CSV_SEP,
+    excelSepDirective: true,
+    eol: "\r\n",
+  });
 }
 
 const COL_WIDTHS = [14, 28, 16, 12, 12, 14, 22, 36];
