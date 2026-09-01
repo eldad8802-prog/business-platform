@@ -79,6 +79,7 @@
     "verify:admin-step-up": "npx tsx lib/platform-admin/admin-step-up.test.ts",
     "verify:auth-token-ttl": "npx tsx lib/auth-token.test.ts",
     "verify:cardcom-webhook-hardening": "npx tsx lib/services/payments/cardcom-webhook-hardening.test.ts",
+    "verify:payment-webhook-quarantine": "npx tsx lib/services/payments/payment-webhook-quarantine.test.ts",
     "verify:payment-webhook": "npx tsx lib/services/payments/payment-webhook.test.ts",
     "verify:billing-issue-tenant-isolation": "npx tsx lib/services/billing/billing-issue.tenant-isolation.test.ts",
     "verify:coupon-v1": "npx tsx lib/revenue/coupon-v1.verify.test.ts",

@@ -75,6 +75,9 @@ jobs:
       - name: Account-deletion orchestrator unit matrix
         run: npx tsx lib/services/account/account-deletion.test.ts
 
+      - name: Late-webhook quarantine proof (no payment resurrection)
+        run: npx tsx lib/services/payments/payment-webhook-quarantine.test.ts
+
       - name: Tenant primitives (context + job)
         run: |
           npx tsx lib/tenant/context.test.ts
