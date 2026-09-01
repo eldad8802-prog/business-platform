@@ -27,7 +27,7 @@ import {
 import {
   decryptAdminMfaSecret,
   encryptAdminMfaSecret,
-} from "../services/platform-admin/admin-mfa-crypto";
+} from "./admin-mfa-crypto";
 
 process.env.AUTH_TOKEN_SECRET =
   process.env.AUTH_TOKEN_SECRET || "wave_b_synthetic_secret_not_a_real_key";

@@ -11,7 +11,7 @@
  */
 import { NextResponse } from "next/server";
 import { requirePlatformAdminIdentityOrResponse } from "@/lib/auth/platform-admin";
-import { verifyAdminMfaCode } from "@/lib/services/platform-admin/admin-mfa.service";
+import { verifyAdminMfaCode } from "@/lib/auth/admin-mfa.service";
 import {
   ADMIN_ELEVATION_TTL_SECONDS,
   issueAdminElevation,
