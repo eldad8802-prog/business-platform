@@ -157,16 +157,14 @@ async function main() {
     const conv = await owner.conversation.create({
       data: { businessId: b.id, customerId: c.id, channel: "WHATSAPP" },
     });
-    await owner.message.create({
-      data: {
-        businessId: b.id,
-        conversationId: conv.id,
-        channel: "WHATSAPP",
-        direction: "INBOUND",
-        senderType: "CUSTOMER",
-        contentText: `${MARK}secret`,
-      },
-    });
+    // Raw INSERT, deliberately: Preview lags main by the W2.5 Message columns, and the
+    // generated Prisma client would name a column this database does not have yet. None
+    // of the security assertions depend on those columns, so the fixture names only what
+    // exists rather than mutating Preview to satisfy a test.
+    await owner.$executeRawUnsafe(
+      `INSERT INTO "Message" ("businessId","conversationId","channel","direction","senderType","contentText","createdAt")
+       VALUES (${b.id}, ${conv.id}, 'WHATSAPP', 'INBOUND', 'CUSTOMER', '${MARK}secret', now())`
+    );
     return { biz: b, user: u, customer: c, conversation: conv };
   };
   const A = await mkBiz("A");
