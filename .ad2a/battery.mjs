@@ -170,7 +170,7 @@ async function main() {
         channel: "WHATSAPP",
         direction: "INBOUND",
         senderType: "CUSTOMER",
-        content: `${MARK}secret`,
+        contentText: `${MARK}secret`,
       },
     });
     await owner.crmNote.create({
