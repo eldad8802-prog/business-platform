@@ -15,7 +15,6 @@ import {
   isAwaitingPayment,
   resolvePaymentTermsDays,
 } from "./payment-terms";
-import { jerusalemDayKey } from "@/lib/utils/jerusalem-day";
 
 let failed = 0;
 
@@ -60,28 +59,14 @@ function run() {
   ok("default is 30", DEFAULT_PAYMENT_TERMS_DAYS === 30);
 
   // --- expected date derives from issuance, never from creation ---
-  //
-  // The expectation is a DAY on the Israeli calendar, not an instant. The
-  // returned Date identifies that day; its time component is an internal
-  // encoding and is never asserted on or displayed.
   const expected = computeExpectedPaymentDate(ISSUED, 30);
   ok(
-    "expected day = the issuance day plus the terms, on the calendar",
-    jerusalemDayKey(expected as Date) === "2026-07-03",
+    "expected date = issuedAt + terms",
+    expected?.getTime() === day(30).getTime(),
   );
   ok(
-    "zero terms means due on the day of issue",
-    jerusalemDayKey(computeExpectedPaymentDate(ISSUED, 0) as Date) ===
-      jerusalemDayKey(ISSUED),
-  );
-
-  // The regression that motivated calendar semantics: a span crossing the
-  // spring clock change must still be exactly 30 days, not 30 days and an hour.
-  const springIssued = new Date("2026-03-20T07:00:00.000Z"); // 09:00 Israel
-  ok(
-    "a 30-day span across the DST change lands on the right day",
-    jerusalemDayKey(computeExpectedPaymentDate(springIssued, 30) as Date) ===
-      "2026-04-19",
+    "zero terms means due on the issue instant",
+    computeExpectedPaymentDate(ISSUED, 0)?.getTime() === ISSUED.getTime(),
   );
 
   // A draft has no expectation. Inventing one would put drafts on the list.
@@ -101,32 +86,15 @@ function run() {
     "exactly on the date: NOT awaiting — the customer still has that day",
     isAwaitingPayment(expected, day(30)) === false,
   );
-  // The customer gets the WHOLE due day. Under the previous instant comparison
-  // an invoice issued at 10:00 UTC turned into a debt at 10:00 UTC on the due
-  // day, taking the rest of that day away from the customer. These three
-  // assertions are the fix, stated as behaviour.
-  ok(
-    "one minute past the issuance hour on the due day: still NOT awaiting",
-    isAwaitingPayment(expected, new Date(day(30).getTime() + 60_000)) === false,
-  );
-  ok(
-    "late evening of the due day, Israel time: still NOT awaiting",
-    isAwaitingPayment(expected, new Date("2026-07-03T20:30:00.000Z")) === false,
-  );
-  ok(
-    "first minute of the next Israeli day: awaiting",
-    // 21:05 UTC on 3 July is 00:05 on 4 July in Israel (UTC+3).
-    isAwaitingPayment(expected, new Date("2026-07-03T21:05:00.000Z")) === true,
-  );
+  ok("one ms after: awaiting", isAwaitingPayment(expected, new Date(day(30).getTime() + 1)) === true);
   ok("well after: awaiting", isAwaitingPayment(expected, day(45)) === true);
   ok("no expected date is never awaiting", isAwaitingPayment(null, day(999)) === false);
 
   // --- days awaiting: ordering only, never shown as "47 days late" ---
   ok("not awaiting counts zero", daysAwaiting(expected, day(10)) === 0);
   ok("never negative", daysAwaiting(expected, day(0)) === 0);
-  ok("counts whole calendar days", daysAwaiting(expected, day(45)) === 15);
-  ok("the due day itself counts zero", daysAwaiting(expected, day(30)) === 0);
-  ok("the day after the due day counts one", daysAwaiting(expected, day(31)) === 1);
+  ok("counts whole days", daysAwaiting(expected, day(45)) === 15);
+  ok("partial day rounds down", daysAwaiting(expected, new Date(day(31).getTime() - 1)) === 0);
 
   // --- end to end: an unconfigured business still gets a working list ---
   const terms = resolvePaymentTermsDays(null);

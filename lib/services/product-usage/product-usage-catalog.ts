@@ -1,8 +1,6 @@
 /** Stable feature keys — do not rename without migration plan. */
 export const PRODUCT_USAGE_FEATURES = {
   AUTH_LOGIN: "auth.login",
-  AUTH_REGISTER: "auth.register",
-  AUTH_LOGOUT: "auth.logout",
   DOCUMENTS_INBOX: "documents.inbox",
   DOCUMENTS_UPLOAD: "documents.upload",
   DOCUMENTS_REVIEW_APPROVE: "documents.review.approve",
