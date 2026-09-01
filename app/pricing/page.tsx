@@ -634,7 +634,7 @@ export default function PricingPage() {
                 </p>
                 <button
                   type="button"
-                  style={primaryBtnStyle(false)}
+                  style={primaryBtnStyle(false)} data-dz-action="primary"
                   className="pricing-pressable"
                   onClick={openCreate}
                 >
@@ -766,7 +766,7 @@ export default function PricingPage() {
                 <div style={bottomBarStyle}>
                   <button
                     type="button"
-                    style={primaryBtnStyle(loadingCalculation)}
+                    style={primaryBtnStyle(loadingCalculation)} data-dz-action="primary"
                     className="pricing-pressable"
                     disabled={loadingCalculation}
                     onClick={() => void handleCalculate()}
@@ -944,7 +944,7 @@ export default function PricingPage() {
                 <div style={bottomBarStyle}>
                   <button
                     type="button"
-                    style={primaryBtnStyle(savingProfile)}
+                    style={primaryBtnStyle(savingProfile)} data-dz-action="primary"
                     className="pricing-pressable"
                     disabled={savingProfile}
                     onClick={() => void handleSaveProfileDefaults()}
@@ -975,7 +975,7 @@ export default function PricingPage() {
                 <div style={successActionsStyle}>
                   <button
                     type="button"
-                    style={primaryBtnStyle(false)}
+                    style={primaryBtnStyle(false)} data-dz-action="primary"
                     className="pricing-pressable"
                     onClick={() => {
                       if (selectedItemId) openCalculate(selectedItemId);
@@ -1102,7 +1102,7 @@ export default function PricingPage() {
             <div style={bottomBarStyle}>
               <button
                 type="button"
-                style={primaryBtnStyle(creatingItem)}
+                style={primaryBtnStyle(creatingItem)} data-dz-action="primary"
                 className="pricing-pressable"
                 disabled={creatingItem}
                 onClick={() => {
@@ -1143,7 +1143,7 @@ export default function PricingPage() {
             <div style={successActionsStyle}>
               <button
                 type="button"
-                style={primaryBtnStyle(false)}
+                style={primaryBtnStyle(false)} data-dz-action="primary"
                 className="pricing-pressable"
                 onClick={() => {
                   if (selectedItemId) openCalculate(selectedItemId);

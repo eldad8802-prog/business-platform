@@ -85,7 +85,9 @@ export const homeCss = `
   box-shadow: var(--inv-shadow-glow);
   transition: transform 0.16s var(--inv-home-ease);
 }
-[data-inventory-home] .inv-hm-scan:hover { transform: translateY(-2px) rotate(-4deg); }
+[data-inventory-home] .inv-hm-scan:hover { background: var(--dz-action-primary-hover); transform: translateY(-2px) rotate(-4deg); }
+[data-inventory-home] .inv-hm-scan:active { background: var(--dz-action-primary-active); }
+[data-inventory-home] .inv-hm-scan:focus-visible { outline: var(--dz-focus-ring-width) solid var(--dz-focus-ring-color); outline-offset: var(--dz-focus-ring-offset); }
 [data-inventory-home] .inv-hm-scan:focus-visible { outline: 2px solid var(--inv-home-teal-1); outline-offset: 2px; }
 [data-inventory-home] .inv-hm-scan svg { width: 24px; height: 24px; }
 

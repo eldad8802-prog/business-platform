@@ -378,6 +378,7 @@ export default function BillingHubPage() {
               className="billing-action-button"
               type="button"
               onClick={() => openCreateFlow("TAX_INVOICE")}
+              data-dz-action="primary"
               style={{
                 ...primaryActionStyle({ height: 48 }),
                 padding: "12px 18px",
@@ -394,6 +395,7 @@ export default function BillingHubPage() {
               className="billing-action-button"
               type="button"
               onClick={() => openCreateFlow("QUOTE")}
+              data-dz-action="secondary"
               style={{
                 ...glassActionStyle({ height: 48 }),
                 padding: "12px 18px",
@@ -695,8 +697,8 @@ export default function BillingHubPage() {
         .billing-hub-header button:focus-visible,
         .billing-doc-row:focus-visible,
         .billing-active-record:focus-visible {
-          outline: 3px solid ${TOKEN.brand.focus};
-          outline-offset: 2px;
+          outline: var(--dz-focus-ring-width) solid var(--dz-focus-ring-color);
+          outline-offset: var(--dz-focus-ring-offset);
         }
 
         @media (max-width: 980px) {

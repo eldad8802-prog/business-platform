@@ -167,8 +167,8 @@ select {
   padding: 10px 18px;
   border: 0;
   border-radius: 14px;
-  background-image: var(--dz-brand-gradient);
-  color: var(--dz-text-on-brand);
+  background: var(--dz-action-primary);
+  color: var(--dz-action-primary-text);
   font-family: inherit;
   font-size: 14px;
   font-weight: 600;
@@ -178,8 +178,8 @@ select {
   cursor: pointer;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  box-shadow: var(--dz-shadow-glow);
-  transition: background-image 0.15s ease, box-shadow 0.15s ease,
+  box-shadow: var(--dz-action-primary-shadow);
+  transition: background 0.15s ease, box-shadow 0.15s ease,
     transform 0.1s ease;
 }
 /* Full-width variant — form submits (login / register) stay full-width. */
@@ -187,25 +187,24 @@ select {
   width: 100%;
 }
 .dz-btn-primary:hover {
-  background-image: var(--dz-brand-gradient-hover);
-  box-shadow: var(--dz-shadow-glow-hover);
+  background: var(--dz-action-primary-hover);
+  box-shadow: var(--dz-action-primary-shadow);
 }
-/* Accessible keyboard focus — a crisp ring (cream gap + teal), NOT the old
- * blurred halo. Only shows for keyboard users via :focus-visible. */
+/* Keyboard focus — the one shared Mist focus ring, so this CTA and every
+ * `data-dz-action` control announce focus identically. Never the browser's
+ * default blue. Only shows for keyboard users via :focus-visible. */
 .dz-btn-primary:focus-visible {
-  outline: none;
-  box-shadow: var(--dz-shadow-glow), 0 0 0 3px var(--dz-text-on-brand),
-    0 0 0 5px var(--dz-brand);
+  outline: var(--dz-focus-ring-width) solid var(--dz-focus-ring-color);
+  outline-offset: var(--dz-focus-ring-offset);
 }
 .dz-btn-primary:active {
   transform: translateY(1px);
-  box-shadow: var(--dz-shadow-glow);
+  background: var(--dz-action-primary-active);
 }
 .dz-btn-primary:disabled,
 .dz-btn-primary[aria-disabled="true"] {
-  background-image: none;
-  background-color: var(--dz-surface-muted);
-  color: var(--dz-text-disabled);
+  background: var(--dz-action-disabled-bg);
+  color: var(--dz-action-disabled-text);
   box-shadow: none;
   cursor: not-allowed;
   transform: none;

@@ -29,8 +29,8 @@ import { TOKEN } from "@/lib/design/tokens";
 
 export const marketingVars = {
   /** Primary CTA background — DS v1 warm teal gradient (parity with .dz-btn-primary; currently unconsumed). */
-  "--mkt-cta": TOKEN.dsv1.gradient,
-  "--mkt-cta-hover": TOKEN.dsv1.gradientHover,
+  "--mkt-cta": TOKEN.dsv1.actionPrimary,
+  "--mkt-cta-hover": TOKEN.dsv1.actionPrimaryHover,
   /** CTA surface treatment — warm teal glow + hairline (parity; currently unconsumed). */
   "--mkt-cta-border": `1px solid ${TOKEN.dsv1.onAccent}`,
   "--mkt-cta-shadow": TOKEN.dsv1.shadowGlow,

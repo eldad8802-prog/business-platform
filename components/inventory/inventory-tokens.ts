@@ -28,12 +28,12 @@ export const inventoryTheme = {
   /** Brand / link accent — DS v1 teal accent. */
   accent: d.accent,
   accentDark: d.accent,
-  /** Primary CTA — DS v1 teal brand gradient. */
-  primaryBtn: d.gradient,
-  primaryBtnHover: d.gradientHover,
+  /** Primary CTA — the interaction role token (flat, restrained). */
+  primaryBtn: d.actionPrimary,
+  primaryBtnHover: d.actionPrimaryHover,
   primaryBorder: "0",
-  primaryShadow: d.shadowGlow,
-  primaryShadowSoft: d.shadowGlow,
+  primaryShadow: d.actionPrimaryShadow,
+  primaryShadowSoft: d.actionPrimaryShadow,
   glassBg: d.card,
   glassBorder: `1px solid ${d.line}`,
   glassText: d.ink,
@@ -154,6 +154,9 @@ export const inventoryCssVars = `
   --inv-brand-denim: ${d.info};
   --inv-primary: ${inventoryTheme.primaryBtn};
   --inv-primary-hover: ${inventoryTheme.primaryBtnHover};
+  --inv-selection-bg: ${d.selectionBg};
+  --inv-selection-text: ${d.selectionText};
+  --inv-selection-border: ${d.selectionBorder};
   --inv-primary-border: ${inventoryTheme.primaryBorder};
   --inv-primary-shadow: ${inventoryTheme.primaryShadow};
   --inv-primary-shadow-soft: ${inventoryTheme.primaryShadowSoft};
@@ -203,7 +206,8 @@ export const inventoryCssVars = `
 export const inventoryHomePalette = {
   /** Brand teal ramp — hero gradient stops + teal controls. */
   teal1: "var(--dz-brand)",
-  teal2: "var(--dz-brand)",
+  /* FAB fill — the primary action role, not the raw brand. */
+  teal2: "var(--dz-action-primary)",
   teal3: "var(--dz-brand)",
   onTeal: d.onAccent,
   /** Categorical action-icon accents, tinted to read on the warm beige cards. */

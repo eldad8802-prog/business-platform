@@ -389,6 +389,56 @@ for (const [ink, bg] of [
   const r = ratio(MIST_FLAT[ink], MIST_FLAT[bg]);
   check(r >= 4.5, `AA: ${ink} on ${bg}`, `${r.toFixed(2)}:1`);
 }
+// ---------------------------------------------------------------- 5b ----
+/*
+ * The interaction layer. Role tokens are checked in the pairings they are
+ * actually rendered in: primary is a FILL so its label rides on top of it,
+ * and the selection pair is what a selected chip / segment / tab paints.
+ */
+{
+  const IA: Array<[string, string, string]> = [
+    ["actionPrimary label", "#fbfaf6", "#2f615c"],
+    ["actionPrimary hover label", "#fbfaf6", "#2c5a55"],
+    ["actionPrimary active label", "#fbfaf6", "#26504c"],
+    ["selection text on selection bg", MIST_FLAT.brandHover, MIST_FLAT.brandSoft],
+    ["selection text on selection hover", MIST_FLAT.brandHover, MIST_FLAT.brandSoftStrong],
+    ["secondary text on secondary bg", MIST_FLAT.textPrimary, MIST_FLAT.surface],
+    ["secondary text on secondary hover", MIST_FLAT.textPrimary, MIST_FLAT.surfaceMuted],
+  ];
+  for (const [label, fg, bg] of IA) {
+    const r = ratio(fg, bg);
+    check(r >= 4.5, `AA: ${label}`, `${r.toFixed(2)}:1`);
+  }
+  // The focus ring is a non-text UI indicator: 3:1 against what surrounds it.
+  for (const [label, ground] of [
+    ["focus ring on ground", MIST_FLAT.background],
+    ["focus ring on surface", MIST_FLAT.surface],
+  ] as const) {
+    const r = ratio(MIST_FLAT.brand, ground);
+    check(r >= 3, `non-text: ${label}`, `${r.toFixed(2)}:1`);
+  }
+}
+
+// The primary ACTION token must be declared, and must not silently fall back
+// to the brand gradient — that collapse is the whole reason this layer exists.
+for (const name of [
+  "--dz-action-primary",
+  "--dz-action-primary-hover",
+  "--dz-action-primary-active",
+  "--dz-selection-bg",
+  "--dz-selection-text",
+  "--dz-selection-border",
+  "--dz-focus-ring-color",
+  "--dz-action-disabled-bg",
+]) {
+  check(rootVars.has(name), `interaction token ${name} declared`);
+}
+check(
+  (rootVars.get("--dz-action-primary") ?? "").includes("gradient") === false,
+  "primary action is not a gradient",
+  rootVars.get("--dz-action-primary"),
+);
+
 // On-brand text over the solid brand colour.
 {
   const r = ratio(MIST_FLAT.textOnBrand, MIST_FLAT.brand);

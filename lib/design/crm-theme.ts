@@ -22,8 +22,12 @@ export const CRM_THEME_CSS = `
   --crm-tertiary:${d.tertiary};
   --crm-line:${d.line};
   --crm-accent:${d.accent};
-  --crm-accent-grad:${d.gradient};
-  --crm-accent-grad-hover:${d.gradientHover};
+  /* Primary action fill — the interaction role, not the brand gradient. */
+  --crm-accent-grad:${d.actionPrimary};
+  --crm-accent-grad-hover:${d.actionPrimaryHover};
+  --crm-selection-bg:${d.selectionBg};
+  --crm-selection-text:${d.selectionText};
+  --crm-selection-border:${d.selectionBorder};
   --crm-on-accent:${d.onAccent};
   --crm-success:${d.success};
   --crm-success-bg:${d.successBg};

@@ -390,7 +390,7 @@ export default function Dashboard() {
                   )}. אפשר להציג טווח אחר או לעבור ל"כל התקופות".`}
             </p>
             <Link href="/documents/upload" style={{ textDecoration: "none" }}>
-              <button type="button" style={primaryBtn}>
+              <button type="button" style={primaryBtn} data-dz-action="primary">
                 העלאת מסמך חדש
               </button>
             </Link>
@@ -490,7 +490,7 @@ export default function Dashboard() {
             href="/documents/accountant-pack"
             style={{ textDecoration: "none" }}
           >
-            <button type="button" style={primaryBtn}>
+            <button type="button" style={primaryBtn} data-dz-action="primary">
               צור חבילה לרואה חשבון
             </button>
           </Link>

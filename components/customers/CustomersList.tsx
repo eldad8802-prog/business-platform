@@ -158,13 +158,18 @@ export function CustomersList({ selectedId }: { selectedId: string | null }) {
               className="crm-chip"
               onClick={() => setStatus(f.key)}
               aria-pressed={selected}
+              // Selection, not a primary action — the milky-sage treatment the
+              // sidebar already uses. `data-dz-selectable` picks up the shared
+              // hover/focus layer, keyed off the same aria-pressed above.
+              data-dz-selectable
               style={{
                 cursor: "pointer",
-                border: `1px solid ${selected ? "transparent" : "var(--crm-line)"}`,
+                border: `1px solid ${selected ? "var(--crm-selection-border)" : "var(--crm-line)"}`,
                 ...(selected
                   ? {
-                      background: "var(--crm-accent)",
-                      color: "var(--crm-on-accent)",
+                      background: "var(--crm-selection-bg)",
+                      color: "var(--crm-selection-text)",
+                      fontWeight: 600,
                     }
                   : {}),
               }}

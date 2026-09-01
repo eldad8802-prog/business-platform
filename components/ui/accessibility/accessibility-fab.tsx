@@ -218,6 +218,7 @@ export function AccessibilityFab() {
          * vars resolve to their pre-Mist values, everywhere else to Mist.
          */
         data-dz-home={isHomeRoute ? "1" : undefined}
+        data-dz-action="primary"
         aria-label="פתח תפריט נגישות"
         aria-expanded={open}
         aria-haspopup="dialog"

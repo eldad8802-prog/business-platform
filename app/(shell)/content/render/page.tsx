@@ -689,7 +689,7 @@ const nextButtonStyle = (enabled: boolean): React.CSSProperties => ({
   height: 48,
   borderRadius: 14,
   border: "none",
-  background: enabled ? TOKEN.action.primary.background : "var(--dz-text-muted)",
+  background: enabled ? TOKEN.action.primary.background : "var(--dz-action-disabled-bg)",
   color: "var(--dz-text-on-brand)",
   fontSize: 15,
   fontWeight: 800,

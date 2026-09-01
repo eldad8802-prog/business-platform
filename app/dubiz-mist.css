@@ -153,6 +153,68 @@
   --dz-shadow-glow-hover: 0 8px 22px -4px rgba(36, 105, 102, 0.3);
   --dz-backdrop: rgba(35, 48, 43, 0.38);
 
+  /* ====================================================================
+   * INTERACTION LAYER — role-based, not brand-based.
+   *
+   * Before this layer, one value (`--dz-brand-gradient`) fed primary
+   * buttons, FABs, segmented controls and filter chips alike, so a
+   * selection looked exactly like a primary action. These tokens say what a
+   * colour is FOR, so those roles can diverge — which is what the canonical
+   * reference ("02 — ערפל מרווה") actually shows: a restrained brand fill for
+   * actions, milky sage for selection.
+   *
+   * `--dz-brand*` is unchanged and still means "the Dubiz brand". It is no
+   * longer the semantic source for controls.
+   * ================================================================= */
+
+  /* --- Primary action -------------------------------------------------
+   * Flat, not a gradient: the gradient's light tail (#2b7a78) was what read
+   * loud, and a flat fill also makes the state layer a single-variable
+   * rebind. Deeper on hover and press — never brighter. */
+  --dz-action-primary: #2f615c;
+  --dz-action-primary-hover: #2c5a55;
+  --dz-action-primary-active: #26504c;
+  --dz-action-primary-text: var(--dz-text-on-brand);
+  --dz-action-primary-shadow: 0 6px 18px -6px rgba(47, 97, 92, 0.34);
+
+  /* --- Selection ------------------------------------------------------
+   * Selected nav, segmented controls, filter chips, tabs, selectable pills.
+   * This is the treatment already proven in the sidebar. A selected control
+   * changes background AND ink AND border, so selection never rests on
+   * colour alone. */
+  --dz-selection-bg: var(--dz-brand-soft);
+  --dz-selection-bg-hover: var(--dz-brand-soft-strong);
+  --dz-selection-text: var(--dz-brand-hover);
+  --dz-selection-border: var(--dz-brand-border);
+
+  /* --- Secondary action ----------------------------------------------- */
+  --dz-action-secondary-bg: var(--dz-surface-flat);
+  --dz-action-secondary-hover: var(--dz-surface-muted);
+  --dz-action-secondary-border: var(--dz-border);
+  --dz-action-secondary-text: var(--dz-text-primary);
+
+  /* --- Neutral control states (tertiary, icon, rows) ------------------- */
+  --dz-control-hover: var(--dz-surface-muted);
+  --dz-control-active: var(--dz-brand-soft);
+
+  /* --- Disabled — unmistakably inert, never mistakable for selected ---- */
+  --dz-action-disabled-bg: var(--dz-surface-muted);
+  --dz-action-disabled-text: var(--dz-text-disabled);
+  --dz-action-disabled-border: var(--dz-border);
+
+  /* --- Destructive ----------------------------------------------------- */
+  --dz-action-danger-bg: var(--dz-surface-flat);
+  --dz-action-danger-hover: var(--dz-danger-bg);
+  --dz-action-danger-border: var(--dz-danger-border);
+  --dz-action-danger-text: var(--dz-danger);
+
+  /* --- Focus ----------------------------------------------------------
+   * The brand teal, never the browser's default blue: 5.83:1 on the ground
+   * and 6.22:1 on a surface, both clear of the 3:1 floor for UI components. */
+  --dz-focus-ring-color: var(--dz-brand);
+  --dz-focus-ring-width: 2px;
+  --dz-focus-ring-offset: 2px;
+
   /* --- Global chrome (shell ground / nav / FAB) ------------------------
    * Indirected so the Home route can freeze them — see `[data-dz-home]`.
    *
@@ -178,22 +240,21 @@
   --dz-nav-brand-word: #246966;
   --dz-nav-brand-mark-bg: #e6efec;
   --dz-nav-item-active-shadow: 0 1px 2px rgba(52, 60, 50, 0.05);
-  --dz-nav-fab: linear-gradient(115deg, #246966 0%, #28706e 52%, #2b7a78 100%);
-  --dz-nav-fab-ink: #fbfaf6;
-  --dz-nav-fab-shadow: 0 10px 28px rgba(36, 105, 102, 0.34),
-    0 2px 8px rgba(52, 60, 50, 0.12);
-  --dz-nav-fab-shadow-pressed: 0 4px 14px rgba(36, 105, 102, 0.3);
+  --dz-nav-fab: var(--dz-action-primary);
+  --dz-nav-fab-ink: var(--dz-action-primary-text);
+  --dz-nav-fab-shadow: 0 10px 28px -10px rgba(47, 97, 92, 0.42),
+    0 2px 8px rgba(52, 60, 50, 0.10);
+  --dz-nav-fab-shadow-pressed: 0 4px 14px -6px rgba(47, 97, 92, 0.36);
+  --dz-nav-fab-hover: var(--dz-action-primary-hover);
 
-  /* Accessibility FAB trigger — also global chrome, also frozen on Home. */
-  --dz-fab-trigger-bg: linear-gradient(
-    115deg,
-    #246966 0%,
-    #28706e 52%,
-    #2b7a78 100%
-  );
-  --dz-fab-trigger-ink: #fbfaf6;
-  --dz-fab-trigger-border: rgba(255, 255, 255, 0.3);
-  --dz-fab-trigger-shadow: 0 10px 28px -6px rgba(36, 105, 102, 0.32);
+  /* Accessibility FAB trigger — global chrome, frozen on Home.
+   * Outside Home it speaks the new primary-action language; on /app the
+   * [data-dz-home] block below restores its pre-change appearance. */
+  --dz-fab-trigger-bg: var(--dz-action-primary);
+  --dz-fab-trigger-ink: var(--dz-action-primary-text);
+  --dz-fab-trigger-border: transparent;
+  --dz-fab-trigger-shadow: 0 10px 28px -10px rgba(47, 97, 92, 0.40);
+  --dz-fab-trigger-bg-hover: var(--dz-action-primary-hover);
 }
 
 /* --------------------------------------------------------------------------
@@ -236,6 +297,7 @@
   --dz-nav-fab-shadow: 0 10px 28px rgba(36, 105, 102, 0.34),
     0 2px 8px rgba(15, 23, 42, 0.12);
   --dz-nav-fab-shadow-pressed: 0 4px 14px rgba(36, 105, 102, 0.35);
+  --dz-nav-fab-hover: var(--dz-nav-fab);
 
   --dz-fab-trigger-bg: linear-gradient(
     90deg,
@@ -246,6 +308,8 @@
   --dz-fab-trigger-ink: #ffffff;
   --dz-fab-trigger-border: rgba(255, 255, 255, 0.3);
   --dz-fab-trigger-shadow: 0 18px 38px rgba(46, 170, 162, 0.35);
+  /* Frozen equal to rest: Home must not gain a hover it never had. */
+  --dz-fab-trigger-bg-hover: var(--dz-fab-trigger-bg);
 }
 
 /* --------------------------------------------------------------------------
@@ -253,6 +317,66 @@
  * class rather than by token (CSS modules, shared primitives, plain markup).
  * Identical output to the `--dz-surface*` stacks.
  * ---------------------------------------------------------------------- */
+/* --------------------------------------------------------------------------
+ * INTERACTION STATES — hover / active / focus-visible for controls.
+ *
+ * Dubiz has no shared Button component: ~520 `<button>` elements are styled
+ * inline, and an inline style cannot carry a pseudo-class. Rather than rewrite
+ * those call sites, these rules REBIND THE VARIABLE the inline style already
+ * reads. A control opts in with one attribute and keeps its own styling:
+ *
+ *   style={{ background: "var(--dz-action-primary)" }}   ← untouched
+ *   data-dz-action="primary"                             ← the only addition
+ *
+ * so `:hover` swaps what `--dz-action-primary` resolves to, and the inline
+ * declaration re-resolves. No `!important`, no specificity fight, no refactor.
+ *
+ * These selectors deliberately style NOTHING by themselves — they only move
+ * variables. A control that opts in but paints some other way is unaffected.
+ * ---------------------------------------------------------------------- */
+[data-dz-action="primary"]:hover:not(:disabled):not([aria-disabled="true"]) {
+  --dz-action-primary: var(--dz-action-primary-hover);
+  /* The accessibility FAB reads `--dz-fab-trigger-bg`, which is itself defined
+   * as `var(--dz-action-primary)` on :root. Custom properties are substituted
+   * where they are DECLARED, so rebinding `--dz-action-primary` on this element
+   * never reaches through that extra hop — the FAB token has to be rebound too.
+   * On Home `--dz-fab-trigger-bg-hover` is frozen equal to the rest value, so
+   * the excluded route gains no hover it never had. */
+  --dz-fab-trigger-bg: var(--dz-fab-trigger-bg-hover);
+}
+[data-dz-action="primary"]:active:not(:disabled):not([aria-disabled="true"]) {
+  --dz-action-primary: var(--dz-action-primary-active);
+}
+[data-dz-action="secondary"]:hover:not(:disabled):not([aria-disabled="true"]) {
+  --dz-action-secondary-bg: var(--dz-action-secondary-hover);
+}
+[data-dz-action="tertiary"]:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--dz-control-hover);
+}
+[data-dz-action="danger"]:hover:not(:disabled):not([aria-disabled="true"]) {
+  --dz-action-danger-bg: var(--dz-action-danger-hover);
+}
+
+/* Selectable controls: chips, segmented items, tabs, selectable pills.
+ * Selection is signalled by the SAME attribute the assistive tech reads, so
+ * the visual state and the announced state cannot drift apart. */
+[data-dz-selectable]:hover:not([aria-pressed="true"]):not([aria-selected="true"]):not(:disabled) {
+  background: var(--dz-control-hover);
+}
+[data-dz-selectable][aria-pressed="true"]:hover,
+[data-dz-selectable][aria-selected="true"]:hover {
+  --dz-selection-bg: var(--dz-selection-bg-hover);
+}
+
+/* Keyboard focus is mandatory and Mist-native — never the browser default
+ * blue, which clashes with the palette. `:focus-visible` only, so pointer
+ * users never see a ring. */
+[data-dz-action]:focus-visible,
+[data-dz-selectable]:focus-visible {
+  outline: var(--dz-focus-ring-width) solid var(--dz-focus-ring-color);
+  outline-offset: var(--dz-focus-ring-offset);
+}
+
 .dz-mist {
   background: var(--dz-surface);
 }

@@ -162,6 +162,7 @@ export function SegmentedControl<T extends string>({
           type="button"
           role="tab"
           aria-selected={opt.value === value}
+          data-dz-selectable
           className={`inv-segbtn${opt.value === value ? " is-on" : ""}`}
           onClick={() => onChange(opt.value)}
         >
@@ -191,6 +192,7 @@ export function FilterChipRow<T extends string>({
           type="button"
           role="tab"
           aria-selected={opt.value === value}
+          data-dz-selectable
           className={`inv-chip${opt.value === value ? " is-on" : ""}`}
           onClick={() => onChange(opt.value)}
         >

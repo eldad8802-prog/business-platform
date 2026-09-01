@@ -75,6 +75,7 @@ export function DeleteAccountSection() {
         <button
           type="button"
           onClick={() => { setOpen(true); setError(null); }}
+          data-dz-action="danger"
           className="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-[var(--dz-danger-border)] bg-[var(--dz-surface-flat)] px-4 text-sm font-semibold text-[var(--dz-danger)] hover:bg-[var(--dz-danger-bg-soft)]"
         >
           מחיקת החשבון שלי
