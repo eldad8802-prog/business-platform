@@ -132,7 +132,7 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
     return prisma.$transaction(async (tx) => {
       // Same advisory lock the in-transaction write gate takes. Whichever side gets
       // it first runs to completion; the other then observes the committed state.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(${ADVISORY_NAMESPACE}::int, ${businessId}::int)`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADVISORY_NAMESPACE}::int, ${businessId}::int)`;
       const transitioned = await tx.business.updateMany({
         where: { id: businessId, deletionRequestedAt: null, deletedAt: null },
         data: { deletionRequestedAt: now },

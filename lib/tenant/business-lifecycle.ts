@@ -159,7 +159,7 @@ export async function assertBusinessAcceptsWritesTx(
   if (!Number.isInteger(businessId) || businessId <= 0) {
     throw new BusinessQuarantinedError(businessId, "UNKNOWN");
   }
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(${ADVISORY_NAMESPACE}::int, ${businessId}::int)`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADVISORY_NAMESPACE}::int, ${businessId}::int)`;
   const rows = await tx.$queryRaw<BusinessLifecycleRow[]>`
     SELECT "deletionRequestedAt", "deletedAt"
     FROM "Business"
