@@ -164,7 +164,14 @@ async function main() {
       data: { businessId: b.id, customerId: c.id, channel: "WHATSAPP" },
     });
     await owner.message.create({
-      data: { businessId: b.id, conversationId: conv.id, direction: "INBOUND", content: `${MARK}secret` },
+      data: {
+        businessId: b.id,
+        conversationId: conv.id,
+        channel: "WHATSAPP",
+        direction: "INBOUND",
+        senderType: "CUSTOMER",
+        content: `${MARK}secret`,
+      },
     });
     await owner.crmNote.create({
       data: { businessId: b.id, subjectType: "CUSTOMER", subjectId: c.id, body: `${MARK}note`, createdByUserId: u.id },
