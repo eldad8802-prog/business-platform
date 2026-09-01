@@ -44,14 +44,25 @@ export async function loadAwaitingPaymentList(
   const termsDays = resolvePaymentTermsDays(profile?.billingPaymentTermsDays ?? null);
 
   /**
-   * An invoice is awaited once `issuedAt + terms` is in the past, so anything
-   * issued on or after this instant cannot be due yet. Filtering here rather
-   * than in JavaScript keeps the query on the
-   * `[businessId, status, issuedAt]` index and keeps not-yet-due invoices out
-   * of memory entirely. It is exactly equivalent to the pure `isAwaitingPayment`
-   * check, which still runs on every row.
+   * Index-friendly narrowing, NOT the rule.
+   *
+   * The rule is `isAwaitingPayment`, which counts calendar days in Israel and
+   * still runs on every row that comes back. This bound only keeps invoices that
+   * cannot possibly be due out of memory, so that the query stays on the
+   * `[businessId, status, issuedAt]` index.
+   *
+   * It is deliberately widened by one day. Millisecond arithmetic and calendar
+   * arithmetic disagree at the edges — by an hour across a DST change, and by up
+   * to a day depending on the time of issuance — so an exact bound could exclude
+   * a row the real rule would have selected, silently dropping a debt from the
+   * list. A one-day margin makes the filter a strict over-approximation: it may
+   * admit a few rows that the rule then rejects, which costs nothing, and it can
+   * never hide one.
    */
-  const dueBefore = new Date(now.getTime() - termsDays * MS_PER_DAY);
+  const PREFILTER_MARGIN_DAYS = 1;
+  const dueBefore = new Date(
+    now.getTime() - (termsDays - PREFILTER_MARGIN_DAYS) * MS_PER_DAY,
+  );
 
   const documents = await prisma.billingDocument.findMany({
     where: {

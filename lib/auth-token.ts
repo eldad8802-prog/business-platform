@@ -52,6 +52,16 @@ type AuthTokenPayload = {
   sub: number;
   iat: number;
   exp: number;
+  /**
+   * Token generation, compared against `User.tokenVersion` when the request is
+   * authenticated. Logout increments that column, so every token minted before
+   * it — on this device and on every other one — stops verifying.
+   *
+   * Optional when decoding: tokens issued before revocation existed carry no
+   * `tv`, and are read as generation 0. Every existing row already defaults to
+   * 0, so adding this signs nobody out.
+   */
+  tv?: number;
 };
 
 function getAuthTokenSecret(): string | null {
@@ -101,16 +111,33 @@ function decodePayload(payloadB64: string): AuthTokenPayload | null {
       sub: parsed.sub,
       iat: parsed.iat,
       exp: parsed.exp,
+      // A malformed `tv` is read as generation 0 rather than rejected: it is
+      // the value every pre-revocation token and every untouched row already
+      // carries, so this fails toward the existing behaviour, never toward
+      // accepting a generation the user never had.
+      tv:
+        typeof parsed.tv === "number" && Number.isInteger(parsed.tv)
+          ? parsed.tv
+          : 0,
     };
   } catch {
     return null;
   }
 }
 
-/** Issues an HMAC-SHA256 signed bearer token for the given user id. */
-export function signAuthToken(userId: number): string {
+/**
+ * Issues an HMAC-SHA256 signed bearer token for the given user id.
+ *
+ * `tokenVersion` defaults to 0 so that callers which do not participate in
+ * revocation — test fixtures, QA seeds — keep working unchanged. Request paths
+ * that mint a session for a real person must pass the user's current value.
+ */
+export function signAuthToken(userId: number, tokenVersion = 0): string {
   if (!Number.isInteger(userId) || userId <= 0) {
     throw new Error("signAuthToken: userId must be a positive integer");
+  }
+  if (!Number.isInteger(tokenVersion) || tokenVersion < 0) {
+    throw new Error("signAuthToken: tokenVersion must be a non-negative integer");
   }
 
   const secret = requireAuthTokenSecret();
@@ -124,17 +151,32 @@ export function signAuthToken(userId: number): string {
     sub: userId,
     iat: now,
     exp: now + ttlSeconds,
+    tv: tokenVersion,
   });
   const signature = signPayload(payloadB64, secret).toString("base64url");
 
   return `${TOKEN_VERSION}.${payloadB64}.${signature}`;
 }
 
+/** What a valid token asserts. The generation still has to be checked against the user row. */
+export type VerifiedAuthToken = {
+  userId: number;
+  tokenVersion: number;
+};
+
 /**
- * Verifies a signed bearer token and returns the user id, or null when invalid.
- * Legacy numeric tokens are always rejected (hard cutover).
+ * Verifies the envelope — signature, version, expiry — and returns what the
+ * token claims, or null when the token is not authentic.
+ *
+ * This is deliberately NOT the whole authentication decision. It proves the
+ * token was minted by this server and has not expired; it cannot prove the
+ * session is still current, because revocation lives in the database. The
+ * caller must compare `tokenVersion` against the user's, and `getCurrentUser`
+ * is the one place that does.
  */
-export function verifyAuthToken(rawToken: string): number | null {
+export function verifyAuthTokenPayload(
+  rawToken: string
+): VerifiedAuthToken | null {
   const token = rawToken.trim();
   if (!token || /^\d+$/.test(token)) {
     return null;
@@ -180,5 +222,17 @@ export function verifyAuthToken(rawToken: string): number | null {
     return null;
   }
 
-  return payload.sub;
+  return { userId: payload.sub, tokenVersion: payload.tv ?? 0 };
+}
+
+/**
+ * Envelope check only, returning just the user id.
+ *
+ * Kept because test fixtures and QA scripts assert on it. Production request
+ * authentication must go through `getCurrentUser`, which additionally checks
+ * the token generation against the user row — this function cannot detect a
+ * token that was revoked by logging out.
+ */
+export function verifyAuthToken(rawToken: string): number | null {
+  return verifyAuthTokenPayload(rawToken)?.userId ?? null;
 }
