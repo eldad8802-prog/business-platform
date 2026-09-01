@@ -3,7 +3,7 @@ import {
   isPlatformAdminMfaRequired,
   requirePlatformAdminIdentityOrResponse,
 } from "@/lib/auth/platform-admin";
-import { getAdminMfaState } from "@/lib/services/platform-admin/admin-mfa.service";
+import { getAdminMfaState } from "@/lib/auth/admin-mfa.service";
 import {
   readAdminElevationHeader,
   verifyAdminElevation,

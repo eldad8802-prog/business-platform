@@ -10,7 +10,7 @@
  */
 import { NextResponse } from "next/server";
 import { requirePlatformAdminIdentityOrResponse } from "@/lib/auth/platform-admin";
-import { confirmAdminMfaEnrollment } from "@/lib/services/platform-admin/admin-mfa.service";
+import { confirmAdminMfaEnrollment } from "@/lib/auth/admin-mfa.service";
 import { issueAdminElevation, ADMIN_ELEVATION_TTL_SECONDS } from "@/lib/auth/platform-admin-elevation";
 
 export const runtime = "nodejs";

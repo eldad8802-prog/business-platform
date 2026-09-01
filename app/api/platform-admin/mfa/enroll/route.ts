@@ -13,8 +13,8 @@ import { NextResponse } from "next/server";
 import {
   requirePlatformAdminIdentityOrResponse,
 } from "@/lib/auth/platform-admin";
-import { beginAdminMfaEnrollment } from "@/lib/services/platform-admin/admin-mfa.service";
-import { isAdminMfaCryptoConfigured } from "@/lib/services/platform-admin/admin-mfa-crypto";
+import { beginAdminMfaEnrollment } from "@/lib/auth/admin-mfa.service";
+import { isAdminMfaCryptoConfigured } from "@/lib/auth/admin-mfa-crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
