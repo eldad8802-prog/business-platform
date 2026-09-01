@@ -238,6 +238,13 @@ model User {
   role                UserRole             @default(USER)
   lastLoginAt         DateTime?
   loginCount          Int                  @default(0)
+  /// Session generation. Every bearer token carries the value it was minted
+  /// under, and `getCurrentUser` refuses a token whose generation does not
+  /// match the row. Logging out increments it, invalidating every token issued
+  /// before that moment on every device. Additive and defaulted, so existing
+  /// rows and existing tokens are both generation 0 — introducing it signs
+  /// nobody out. Never decremented.
+  tokenVersion        Int                  @default(0)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   business            Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
