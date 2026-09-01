@@ -29,13 +29,7 @@ export const DEFAULT_PAYMENT_TERMS_DAYS = 30;
 export const MIN_PAYMENT_TERMS_DAYS = 0;
 export const MAX_PAYMENT_TERMS_DAYS = 365;
 
-import {
-  addCalendarDays,
-  dayKeyIsBefore,
-  dayKeyToStableInstant,
-  daysBetweenDayKeys,
-  jerusalemDayKey,
-} from "@/lib/utils/jerusalem-day";
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
  * The terms actually in force for a business.
@@ -61,18 +55,8 @@ export function resolvePaymentTermsDays(
 /**
  * When payment is expected, derived from issuance.
  *
- * שוטף+30 is a promise about DAYS, not about elapsed milliseconds, so it is
- * counted on the Israeli calendar. Adding `30 * 86_400_000` to the issuance
- * instant used to drift by an hour across the March and October clock changes:
- * an invoice issued 20 March at 09:00 came due 19 April at 10:00. Nobody agreed
- * to those terms, and no owner could have explained the extra hour to a
- * customer.
- *
  * Returns null for an invoice that was never issued: a draft has no expectation
  * attached to it, and inventing one would put drafts on a collection list.
- *
- * The returned value identifies the DUE DAY. Its time component is an internal
- * encoding with no meaning — never render it.
  */
 export function computeExpectedPaymentDate(
   issuedAt: Date | null | undefined,
@@ -81,33 +65,26 @@ export function computeExpectedPaymentDate(
   if (!(issuedAt instanceof Date) || Number.isNaN(issuedAt.getTime())) {
     return null;
   }
-  const dueDay = addCalendarDays(jerusalemDayKey(issuedAt), termsDays);
-  return dayKeyToStableInstant(dueDay);
+  return new Date(issuedAt.getTime() + termsDays * MS_PER_DAY);
 }
 
 /**
- * Has the expected payment day passed?
+ * Has the expected payment date passed?
  *
- * The customer gets the WHOLE due day. They are awaiting payment only once the
- * Israeli calendar has moved past it — not at one minute past the hour of
- * issuance, which is what an instant comparison meant and which took roughly
- * fourteen hours of the final day away from them.
- *
- * Off-by-one here is the difference between a fair reminder and an unfair one.
+ * Exactly-on the expected date is NOT yet awaiting — the customer still has that
+ * day. Off-by-one here is the difference between a fair reminder and an unfair
+ * one.
  */
 export function isAwaitingPayment(
   expectedPaymentDate: Date | null,
   now: Date,
 ): boolean {
   if (expectedPaymentDate === null) return false;
-  return dayKeyIsBefore(
-    jerusalemDayKey(expectedPaymentDate),
-    jerusalemDayKey(now),
-  );
+  return now.getTime() > expectedPaymentDate.getTime();
 }
 
 /**
- * Whole calendar days since payment was expected. Never negative.
+ * Whole days since payment was expected. Never negative.
  *
  * Presentation only. The owner is shown "since 3 June", not "47 days late" —
  * a count invites a judgement, a date states a fact (Constitution, Article 8).
@@ -118,8 +95,6 @@ export function daysAwaiting(
   now: Date,
 ): number {
   if (!isAwaitingPayment(expectedPaymentDate, now)) return 0;
-  return daysBetweenDayKeys(
-    jerusalemDayKey(expectedPaymentDate as Date),
-    jerusalemDayKey(now),
-  );
+  const ms = now.getTime() - (expectedPaymentDate as Date).getTime();
+  return Math.floor(ms / MS_PER_DAY);
 }

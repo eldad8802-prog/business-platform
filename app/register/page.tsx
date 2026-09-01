@@ -218,36 +218,34 @@ export default function RegisterPage() {
       const registerData = await registerRes.json();
 
       if (!registerRes.ok) {
-        // A duplicate address is not a system error — it is a fact about this
-        // one field, so it is shown on that field with a way forward, rather
-        // than as a red banner the person can only re-read.
-        if (registerData?.code === "EMAIL_ALREADY_REGISTERED") {
-          setErrors({ email: registerData.error });
-          setTouched((prev) => ({ ...prev, email: true }));
-          return;
-        }
-
-        // The server names the offending field when it can; honour that so the
-        // error lands where the correction has to be made.
-        if (typeof registerData?.field === "string") {
-          setErrors({ [registerData.field]: registerData.error });
-          setTouched((prev) => ({ ...prev, [registerData.field]: true }));
-          return;
-        }
-
         throw new Error(registerData?.error || "שגיאה בהרשמה");
       }
 
-      // Signup now returns the session itself. There is no second login call to
-      // fail, so a created account can no longer strand its owner.
-      if (!registerData?.token) {
+      const loginRes = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+        }),
+      });
+
+      const loginData = await loginRes.json();
+
+      if (!loginRes.ok) {
+        throw new Error(loginData?.error || "שגיאה בהתחברות");
+      }
+
+      if (!loginData?.token) {
         throw new Error("לא התקבל token מהשרת");
       }
 
-      localStorage.setItem("token", registerData.token);
+      localStorage.setItem("token", loginData.token);
 
-      if (registerData.user) {
-        localStorage.setItem("user", JSON.stringify(registerData.user));
+      if (loginData.user) {
+        localStorage.setItem("user", JSON.stringify(loginData.user));
       }
 
       router.replace("/app");
