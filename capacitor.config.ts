@@ -19,7 +19,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 const serverUrl = process.env.CAP_SERVER_URL?.trim();
 
 const config: CapacitorConfig = {
-  appId: "co.il.promaxgroup.dubiz",
+  appId: "il.co.promaxgroup.dubiz",
   appName: "Dubiz",
   webDir: "capacitor/www",
   server: {
@@ -59,7 +59,7 @@ const config: CapacitorConfig = {
     // shell called SplashScreen.hide(). W7 run 4 proved that traps the app: on
     // a cold emulator the remote page had not painted within 5s, the activity
     // never added a focused window, and Android raised
-    //   ANR in co.il.promaxgroup.dubiz — Input dispatching timed out
+    //   ANR in il.co.promaxgroup.dubiz — Input dispatching timed out
     //     (Application does not have a focused window)
     // with the splash still on screen (see the W7 evidence screenshots). A
     // remote page must never be able to hold the launch window open: the

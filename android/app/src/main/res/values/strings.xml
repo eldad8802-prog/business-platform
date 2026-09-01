@@ -2,6 +2,6 @@
 <resources>
     <string name="app_name">Dubiz</string>
     <string name="title_activity_main">Dubiz</string>
-    <string name="package_name">co.il.promaxgroup.dubiz</string>
-    <string name="custom_url_scheme">co.il.promaxgroup.dubiz</string>
+    <string name="package_name">il.co.promaxgroup.dubiz</string>
+    <string name="custom_url_scheme">il.co.promaxgroup.dubiz</string>
 </resources>
