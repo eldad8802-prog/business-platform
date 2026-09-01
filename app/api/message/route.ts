@@ -1,12 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
+// Value import (not `import type`): P2002 detection needs the runtime class.
+import { Prisma } from "@prisma/client";
 import { analyzeMessage } from "@/lib/conversation-analysis/analyze-message";
 import { generateReplySuggestions } from "@/lib/reply-suggestions/generate-reply-suggestions";
 import { getContextMessages } from "@/lib/conversation-context/get-context-messages";
 import { getSuggestionMode } from "@/lib/decision/get-suggestion-mode";
 import { applyMessageEvent } from "@/lib/conversation-state/conversation-state.service";
 import { getCurrentUser } from "@/lib/auth";
-import type { Prisma } from "@prisma/client";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { sendWhatsAppTextForBusiness } from "@/lib/services/integrations/whatsapp/outbound-send.service";
@@ -295,21 +296,62 @@ async function handleAuthedPost(
     const direction = body.direction ?? "INBOUND";
     const senderType = body.senderType ?? "CUSTOMER";
 
-    const createdMessage = await withTenantTransaction((tx) =>
-      tx.message.create({
-        data: {
-          conversationId,
-          businessId: user.businessId,
-          customerId: body.customerId ?? null,
-          channel: body.channel ?? "WHATSAPP",
-          messageType: body.messageType ?? "TEXT",
-          direction,
-          senderType,
-          contentText: body.contentText ?? null,
-          generatedFromSuggestionId: body.generatedFromSuggestionId ?? null,
-        },
-      })
-    );
+    // W2.5 send idempotency (opt-in).
+    //
+    // The state writer is replay-safe, but it cannot undo a DUPLICATE MESSAGE
+    // ROW: two rows are two real messages, and the derived unanswered count
+    // would then be correct about wrong data. This route had no guard at either
+    // end, so a double-tap or a retry created a second message.
+    //
+    // When the caller supplies a token we let the unique index decide, and a
+    // collision returns the message that already exists rather than a second
+    // one. Callers that send no token behave exactly as before.
+    const clientRequestId =
+      typeof body.clientRequestId === "string" && body.clientRequestId.trim()
+        ? body.clientRequestId.trim().slice(0, 100)
+        : null;
+
+    let createdMessage;
+    try {
+      createdMessage = await withTenantTransaction((tx) =>
+        tx.message.create({
+          data: {
+            conversationId,
+            businessId: user.businessId,
+            customerId: body.customerId ?? null,
+            channel: body.channel ?? "WHATSAPP",
+            messageType: body.messageType ?? "TEXT",
+            direction,
+            senderType,
+            contentText: body.contentText ?? null,
+            generatedFromSuggestionId: body.generatedFromSuggestionId ?? null,
+            clientRequestId,
+          },
+        })
+      );
+    } catch (error) {
+      const isDuplicateSend =
+        clientRequestId !== null &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002";
+      if (!isDuplicateSend) throw error;
+
+      const existing = await runWithTenantContext(
+        { businessId: user.businessId },
+        () =>
+          withTenantTransaction((tx) =>
+            tx.message.findFirst({
+              where: { businessId: user.businessId, clientRequestId },
+            })
+          )
+      );
+      // Nothing further to do: the message exists and its state event already
+      // ran on the first attempt.
+      return NextResponse.json(
+        { message: existing, duplicateSuppressed: true },
+        { status: 200 }
+      );
+    }
 
     if (!(direction === "INBOUND" && senderType === "CUSTOMER")) {
       // ── WhatsApp outbound delivery (Stage 1: text only) ─────────────────

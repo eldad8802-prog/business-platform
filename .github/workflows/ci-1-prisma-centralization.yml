@@ -38,6 +38,15 @@ jobs:
           fi
           echo "NEGATIVE-PROOF PASS: guard caught the synthetic offender"; rm -rf "$NEG"
 
+      # D2/PRIVILEGED-WRITE-2 — the control-plane capability guards run on EVERY PR,
+      # not only on PRs that touch the wave's own paths. The import-isolation and
+      # actor/target guards must catch a leak introduced anywhere in the tree.
+      - name: CI-PRIVWRITE control-plane guards (positive — must pass)
+        run: bash scripts/ci/privwrite-guard.sh .
+
+      - name: CI-PRIVWRITE negative self-proofs (planted violations must be caught)
+        run: bash scripts/ci/privwrite-guard.sh --self-test
+
       - name: Admin-boundary guard CI-2/3/4 (positive — must pass)
         run: bash scripts/ci/admin-boundary-guard.sh .
 
@@ -93,6 +102,79 @@ jobs:
       - name: Leads W1 domain core (status, validation, follow-up due logic)
         run: npx tsx lib/services/crm/lead-core.test.ts
 
+      # CASA Wave A — the application session lifetime (CASA 2.2.3). This token
+      # is stateless and non-revocable, so its 24h ceiling IS the control; there
+      # is no session store to fall back on. Enforced in code rather than by
+      # configuration, and guarded here so no future change — or environment
+      # variable — can quietly buy back a longer session.
+      # Local equivalent: npm run verify:auth-token-ttl
+      - name: Application session TTL ceiling (CASA 2.2.3)
+        env:
+          AUTH_TOKEN_SECRET: wave_a_ci_synthetic_secret
+        run: npx tsx lib/auth-token.test.ts
+
+      - name: Wave A negative proof (restoring a >24h lifetime must be caught)
+        env:
+          AUTH_TOKEN_SECRET: wave_a_ci_synthetic_secret
+        run: |
+          F="lib/auth-token.ts"
+          cp "$F" "$F.bak"
+          # Re-introduce the exact defect Wave A removed: a 30-day ceiling.
+          sed -i 's|const MAX_TTL_SECONDS = 24 \* 60 \* 60;|const MAX_TTL_SECONDS = 30 * 24 * 60 * 60;|' "$F"
+          if npx tsx lib/auth-token.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: verifier did not catch the restored 30-day lifetime"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: verifier caught the restored 30-day lifetime"
+
+      # CASA Wave D — the CardCom webhook trust model. CardCom publishes no
+      # signature mechanism, so authenticity rests entirely on correlation to a
+      # payment flow this system created plus an authenticated GetLpResult.
+      # These are the load-bearing tests for a public, unauthenticated,
+      # money-adjacent endpoint, so they belong in the BLOCKING job rather than
+      # in a script nobody runs. Pure in-memory: no DB, no network, no secrets.
+      # Local equivalent: npm run verify:cardcom-webhook-hardening
+      - name: CardCom webhook hardening (fail-closed + correlation + idempotency)
+        run: npx tsx lib/services/payments/cardcom-webhook-hardening.test.ts
+
+      - name: Payment webhook orchestration (authority + pre-persistence refusal)
+        run: npx tsx lib/services/payments/payment-webhook.test.ts
+
+      # Two negative proofs, each aimed at a control that is actually
+      # load-bearing. (A third candidate — re-planting the fail-open branch in
+      # CardCom's own verifyWebhook — was tried and DELIBERATELY dropped: the
+      # suite still passed, because correlation catches those callbacks anyway.
+      # That is defence-in-depth working as intended, but it makes for a proof
+      # that proves nothing, so it is not used.)
+      - name: Wave D negative proof 1 (restoring a provider fail-open must be caught)
+        run: |
+          F="lib/services/payments/providers/tranzila/tranzila.provider.ts"
+          cp "$F" "$F.bak"
+          # Re-introduce the exact defect Wave D removed: an unconfigured
+          # provider accepting arbitrary anonymous callbacks.
+          sed -i 's|      return { ok: false, reason: "provider_not_configured" };|      return { ok: true };|' "$F"
+          if npx tsx lib/services/payments/cardcom-webhook-hardening.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: verifier did not catch the restored fail-open branch"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: verifier caught the restored fail-open branch"
+
+      - name: Wave D negative proof 2 (dropping the ReturnValue correlation must be caught)
+        run: |
+          F="lib/services/payments/payment-webhook.service.ts"
+          cp "$F" "$F.bak"
+          # Disable the second correlation channel: a callback could then point a
+          # real LowProfileId at someone else's PaymentRequest.
+          sed -i 's|    String(parsed.correlationValue) !== String(request.id)|    false|' "$F"
+          if npx tsx lib/services/payments/cardcom-webhook-hardening.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: verifier did not catch the dropped correlation check"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: verifier caught the dropped correlation check"
+
       - name: Leads W1 negative proof (a broken due-date rule must be caught)
         run: |
           F="lib/services/crm/lead-core.ts"
@@ -105,6 +187,43 @@ jobs:
           fi
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: verifier caught the broken follow-up rule"
+
+      # W2.5: the Conversation State Writer. Its behavioural proof needs a
+      # database and stays local (npm run verify:conversation-state-w25), but
+      # both blockers the activation audit found were SHAPES of code — a
+      # read-modify-write `increment` that double-counted on replay, and a
+      # `conversation.update({ where: { id } })` with no tenant predicate. A
+      # refactor can reintroduce a shape long after anyone last ran the
+      # DB-backed suite, so the shape itself is guarded here: pure fs scan, no
+      # DB, no secrets. Local equivalent: npm run verify:conversation-state-contract
+      - name: Conversation State Writer structural contract (replay + tenant safety)
+        run: npx tsx lib/conversation-state/conversation-state.contract.test.ts
+
+      - name: Writer negative proof (an untenanted write must be caught)
+        run: |
+          F="lib/conversation-state/conversation-state.service.ts"
+          cp "$F" "$F.bak"
+          # Drop the businessId predicate: mutate the conversation by id alone.
+          sed -i 's/const updated = await db.conversation.updateMany({/const updated = await db.conversation.update({/' "$F"
+          if npx tsx lib/conversation-state/conversation-state.contract.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: guard did not catch the untenanted write"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: guard caught the untenanted write"
+
+      - name: Writer negative proof (a re-introduced increment must be caught)
+        run: |
+          F="lib/conversation-state/conversation-state.service.ts"
+          cp "$F" "$F.bak"
+          # Put the non-idempotent counter back.
+          sed -i 's/unansweredInboundCount: unansweredAfterEvent,/unansweredInboundCount: { increment: 1 },/' "$F"
+          if npx tsx lib/conversation-state/conversation-state.contract.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: guard did not catch the read-modify-write counter"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: guard caught the read-modify-write counter"
 
       - name: IMPL-2 negative proof (a synthetic Prisma type import must be caught)
         run: |

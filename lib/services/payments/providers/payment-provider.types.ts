@@ -68,6 +68,17 @@ export interface ParsedWebhookEvent {
   outcome: ParsedPaymentOutcome;
   amount: string | null;
   currency: string | null;
+  /**
+   * Optional echo of a Dubiz-issued correlation value that the provider carried
+   * through the payment round-trip (CardCom: `ReturnValue`, set to the
+   * PaymentRequest id at LowProfile/Create time).
+   *
+   * When a provider supplies one, the orchestration asserts it equals the id of
+   * the PaymentRequest that `providerRequestId` resolved to. It is a SECOND,
+   * independent correlation channel: a caller must reproduce two values Dubiz
+   * generated, not one. Null when the provider carries no such value.
+   */
+  correlationValue?: string | null;
 }
 
 export interface GetPaymentStatusInput {

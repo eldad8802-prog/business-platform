@@ -186,6 +186,25 @@ function getSmartIndicator(params: {
   };
 }
 
+/**
+ * A stable token per send ATTEMPT (W2.5).
+ *
+ * Paired with the unique index behind `Message.clientRequestId`, this makes a
+ * send exactly-once: a double-tap or a retry carries the same token, so the
+ * server returns the message that already exists instead of creating a second
+ * one. `randomUUID` is not available on insecure origins, hence the fallback.
+ */
+function newSendToken(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch {
+    /* fall through */
+  }
+  return `snd-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function InboxPageContent() {
   const router = useRouter();
   const pathname = usePathname();
@@ -219,6 +238,8 @@ function InboxPageContent() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
 
   const [input, setInput] = useState("");
+  // Guards both send handlers against a double-tap reaching the server twice.
+  const sendingRef = useRef(false);
   const [selectedSuggestionId, setSelectedSuggestionId] = useState<number | null>(null);
   const [listSearchQuery, setListSearchQuery] = useState("");
   // SSR-safe scope for the Inbox layout's breakpoint CSS (framing + desktop/mobile
@@ -578,8 +599,15 @@ function InboxPageContent() {
     setInput("");
   }
 
+
   async function handleSendBusinessMessage() {
+    // In-flight guard: neither send handler had one, so a double-tap really did
+    // reach the server twice. The token above makes that harmless; this stops
+    // it happening at all.
     if (!input.trim() || !activeConversationId) return;
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    const sendToken = newSendToken();
 
     try {
       const customerId = activeConversation?.customerId ?? null;
@@ -620,6 +648,7 @@ function InboxPageContent() {
           direction: "OUTBOUND",
           senderType: "BUSINESS_USER",
           generatedFromSuggestionId: selectedSuggestionId ?? null,
+          clientRequestId: sendToken,
         }),
       });
 
@@ -680,11 +709,16 @@ function InboxPageContent() {
       setSelectedSuggestionId(null);
     } catch (error) {
       console.error("handleSendBusinessMessage error", error);
+    } finally {
+      sendingRef.current = false;
     }
   }
 
   async function handleSimulateCustomerMessage() {
     if (!input.trim() || !activeConversationId) return;
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    const sendToken = newSendToken();
 
     try {
       const customerId = activeConversation?.customerId ?? null;
@@ -701,6 +735,7 @@ function InboxPageContent() {
           contentText: input,
           direction: "INBOUND",
           senderType: "CUSTOMER",
+          clientRequestId: sendToken,
         }),
       });
 
@@ -725,6 +760,8 @@ function InboxPageContent() {
       setSelectedSuggestionId(null);
     } catch (error) {
       console.error("handleSimulateCustomerMessage error", error);
+    } finally {
+      sendingRef.current = false;
     }
   }
 

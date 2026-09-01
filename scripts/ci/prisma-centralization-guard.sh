@@ -12,6 +12,9 @@
 #   - lib/prisma.ts           the canonical tenant singleton
 #   - lib/prisma-admin.ts     the SANCTIONED admin client (D2/P7-W2-GATE; its
 #                             import surface is enforced by admin-boundary-guard)
+#   - lib/prisma-control-plane.ts  the SANCTIONED control-plane client
+#                             (D2/PRIVILEGED-WRITE-2; its import surface is
+#                             enforced by privwrite-guard CI-PRIVWRITE-7/8)
 #   - *.test.ts / *.deps.ts   test / dependency-injection seam files
 #   - **/__mocks__/**         test mocks
 #
@@ -28,6 +31,7 @@ matches="$(
     --include="*.ts" --include="*.tsx" 2>/dev/null \
     | grep -vE "(^|/)lib/prisma\.ts:" \
     | grep -vE "(^|/)lib/prisma-admin\.ts:" \
+    | grep -vE "(^|/)lib/prisma-control-plane\.ts:" \
     | grep -vE "\.test\.ts:|\.deps\.ts:|/__mocks__/" \
     || true
 )"

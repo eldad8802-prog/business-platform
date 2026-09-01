@@ -1,7 +1,45 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 const TOKEN_VERSION = "v1";
-const DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+/**
+ * CASA 2.2.3 — "Non-revocable stateless authentication tokens shall have an
+ * expiration time within 24 hours of being issued."
+ *
+ * This token is exactly that: a stateless HMAC envelope with no server-side
+ * session store, no `jti`, and no revocation list. There is therefore no
+ * lifetime above 24 hours that this token may be issued with, and
+ * `MAX_TTL_SECONDS` is that ceiling — not a default, a *maximum*.
+ *
+ * It was 30 days before Wave A. The ceiling is enforced in code rather than
+ * left to configuration, so that a compliance guarantee never depends on an
+ * environment variable being present and correct in every environment.
+ */
+const MAX_TTL_SECONDS = 24 * 60 * 60;
+const DEFAULT_TTL_SECONDS = MAX_TTL_SECONDS;
+
+/**
+ * Resolve the token lifetime. `AUTH_TOKEN_TTL_SECONDS` may LOWER it (useful for
+ * tests and for tightening an environment) but can never raise it: any value
+ * above the ceiling is clamped, and anything unparseable, zero or negative
+ * falls back to the compliant default. No configuration path can reintroduce a
+ * session longer than 24 hours.
+ */
+export function resolveAuthTokenTtlSeconds(
+  raw: string | undefined = process.env.AUTH_TOKEN_TTL_SECONDS
+): number {
+  if (typeof raw !== "string" || raw.trim().length === 0) {
+    return DEFAULT_TTL_SECONDS;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_TTL_SECONDS;
+  }
+  return Math.min(Math.floor(parsed), MAX_TTL_SECONDS);
+}
+
+/** The hard ceiling, exported so tests and evidence can assert against it. */
+export const AUTH_TOKEN_MAX_TTL_SECONDS = MAX_TTL_SECONDS;
 
 export class AuthTokenConfigError extends Error {
   constructor(message: string) {
@@ -77,13 +115,10 @@ export function signAuthToken(userId: number): string {
 
   const secret = requireAuthTokenSecret();
   const now = Math.floor(Date.now() / 1000);
-  const ttlRaw = process.env.AUTH_TOKEN_TTL_SECONDS;
-  const ttl =
-    typeof ttlRaw === "string" && ttlRaw.trim().length > 0
-      ? Number(ttlRaw)
-      : DEFAULT_TTL_SECONDS;
-  const ttlSeconds =
-    Number.isFinite(ttl) && ttl > 0 ? Math.floor(ttl) : DEFAULT_TTL_SECONDS;
+  // Single TTL authority: the clamp lives in resolveAuthTokenTtlSeconds, so no
+  // caller — and no environment variable — can widen the lifetime past the
+  // CASA 2.2.3 ceiling.
+  const ttlSeconds = resolveAuthTokenTtlSeconds();
 
   const payloadB64 = encodePayload({
     sub: userId,

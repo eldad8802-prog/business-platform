@@ -1,0 +1,219 @@
+# D2 / PRIVILEGED-WRITE-2 — Preview apply + proof (Neon branch DB, PREVIEW ONLY).
+#
+# Gate A identity, prior-wave drift gates, create-once provisioning of the
+# control-plane LOGIN role, PW-2 migration + grants via owner, then the full
+# matrix as the three REAL Preview credentials (runtime / admin / control
+# plane). Residue=0. Substrate persists on PASS; rollback-on-failure armed.
+#
+# Transient secrets (set -> run -> DELETE IMMEDIATELY, never printed, never
+# committed):
+#   W1_RUNTIME_PW   password of app_runtime_preview_p4b
+#   W2G_ADMIN_PW    password of app_admin_preview
+#   PW2_CTL_PW      password for app_ctlplane_preview (create-once / rotate-only)
+#
+# NO PRODUCTION. The deny-list aborts on ep-flat-brook / ep-winter-bread.
+# verify_only dispatch input = READ-ONLY substrate verification.
+
+name: d2/pw2 — control-plane preview apply+proof (neon)
+
+on:
+  # push trigger DISARMED post-apply (proven pattern): substrate applied and
+  # proven on Preview (run 33420538976, PASS=79 FAIL=0, residue=0), transient
+  # secrets deleted. workflow_dispatch (incl. verify_only) remains.
+  workflow_dispatch:
+    inputs:
+      verify_only:
+        description: "READ-ONLY substrate verification (no apply/fixtures/roles)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d2-pw2-preview
+  cancel-in-progress: false
+
+env:
+  NEON_BASE: https://console.neon.tech/api/v2
+  P4_PROJECT_ID: orange-shape-16620903
+  P4_BRANCH_ID: br-red-scene-amth33qx
+  P4_EXPECT_ENDPOINT: ep-wispy-dawn-amr74bwz
+  P4_EXPECT_DB: neondb
+  P4_EXPECT_HOST_SUFFIX: us-east-1.aws.neon.tech
+  P4_DENY_ENDPOINTS: ep-flat-brook-am4bhq1y ep-winter-bread-ami5o8p5
+
+jobs:
+  gate_a_identity:
+    name: Gate A — Preview target identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      gate_a: ${{ steps.verify.outputs.gate_a }}
+    steps:
+      - name: Verify project/branch/endpoint via Neon API
+        id: verify
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${NEON_API_KEY:-}" ] || { echo "::error::NEON_API_KEY missing"; exit 1; }
+          api() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "$1"; }
+          ep=$(api "${NEON_BASE}/projects/${P4_PROJECT_ID}/endpoints/${P4_EXPECT_ENDPOINT}")
+          ep_id=$(printf '%s' "$ep" | jq -r '.endpoint.id')
+          ep_branch=$(printf '%s' "$ep" | jq -r '.endpoint.branch_id')
+          ep_host=$(printf '%s' "$ep" | jq -r '.endpoint.host')
+          fail=0
+          [ "$ep_id" = "${P4_EXPECT_ENDPOINT}" ] || { echo "::error::endpoint"; fail=1; }
+          [ "$ep_branch" = "${P4_BRANCH_ID}" ] || { echo "::error::endpoint branch"; fail=1; }
+          case "$ep_host" in *"${P4_EXPECT_HOST_SUFFIX}") : ;; *) echo "::error::suffix"; fail=1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "$ep_host" in *"$d"*) echo "::error::DENY"; fail=1 ;; esac; done
+          [ "$fail" -eq 0 ] || { echo "gate_a=FAIL" >> "$GITHUB_OUTPUT"; exit 1; }
+          echo "gate_a=PASS" >> "$GITHUB_OUTPUT"; echo "GATE A = PASS"
+
+  pw2_preview:
+    name: PW-2 apply + proof on Preview
+    needs: gate_a_identity
+    if: needs.gate_a_identity.outputs.gate_a == 'PASS'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .pw2/shared.mjs && node --check .pw2/battery.mjs
+
+      - name: CI-PRIVWRITE guards (blocking)
+        run: |
+          bash scripts/ci/privwrite-guard.sh .
+          bash scripts/ci/privwrite-guard.sh --self-test
+
+      - name: Provision app_ctlplane_preview (create-once, rotate-only) + run battery
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          W1_RUNTIME_PW: ${{ secrets.W1_RUNTIME_PW }}
+          W2G_ADMIN_PW: ${{ secrets.W2G_ADMIN_PW }}
+          PW2_CTL_PW: ${{ secrets.PW2_CTL_PW }}
+          AUTH_TOKEN_SECRET: pw2_ci_auth_secret_synthetic
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERIFY_ONLY="${{ inputs.verify_only && '1' || '' }}"
+          if [ "${VERIFY_ONLY}" != "1" ]; then
+            [ -n "${W1_RUNTIME_PW:-}" ] || { echo "::error::W1_RUNTIME_PW missing (transient secret)"; exit 1; }
+            [ -n "${W2G_ADMIN_PW:-}" ] || { echo "::error::W2G_ADMIN_PW missing (transient secret)"; exit 1; }
+            [ -n "${PW2_CTL_PW:-}" ] || { echo "::error::PW2_CTL_PW missing (transient secret)"; exit 1; }
+          fi
+          for s in "${W1_RUNTIME_PW:-}" "${W2G_ADMIN_PW:-}" "${PW2_CTL_PW:-}"; do
+            [ -z "$s" ] || echo "::add-mask::$s"
+          done
+
+          uri() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" \
+            "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=$1" | jq -r '.uri'; }
+          DBP="$(uri true)"; DBD="$(uri false)"
+          echo "::add-mask::${DBP}"; echo "::add-mask::${DBD}"
+          for u in "${DBP}" "${DBD}"; do
+            [ -n "$u" ] && [ "$u" != "null" ] || { echo "::error::empty URI"; exit 1; }
+            case "$u" in *"${P4_EXPECT_ENDPOINT}"*) : ;; *) echo "::error::URI endpoint mismatch"; exit 1 ;; esac
+            for d in ${P4_DENY_ENDPOINTS}; do case "$u" in *"$d"*) echo "::error::URI DENY"; exit 1 ;; esac; done
+          done
+
+          if [ "${VERIFY_ONLY}" != "1" ]; then
+            cat > .pw2/role.gen.mjs <<'ROLE_EOF'
+            import { PrismaClient } from '@prisma/client';
+            const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
+            const pw = process.env.PW2_CTL_PW;
+            if (!pw) throw new Error('PW2_CTL_PW missing');
+            const r = await c.$queryRawUnsafe(`SELECT count(*)::int AS c FROM pg_roles WHERE rolname='app_ctlplane_preview'`);
+            if (Number(r[0].c) === 0) {
+              // Create-once. NEVER drop/recreate: the Neon pooler caches role OIDs.
+              await c.$executeRawUnsafe(`CREATE ROLE app_ctlplane_preview LOGIN PASSWORD '${pw}' NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION INHERIT`);
+              console.log('[role] app_ctlplane_preview CREATED');
+            } else {
+              await c.$executeRawUnsafe(`ALTER ROLE app_ctlplane_preview PASSWORD '${pw}'`);
+              console.log('[role] app_ctlplane_preview password ROTATED');
+            }
+            const p = (await c.$queryRawUnsafe(`SELECT rolsuper, rolbypassrls, rolcanlogin, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname='app_ctlplane_preview'`))[0];
+            if (p.rolsuper || p.rolbypassrls || p.rolcreatedb || p.rolcreaterole || !p.rolcanlogin) {
+              throw new Error('role posture violation: ' + JSON.stringify(p));
+            }
+            console.log('[role] posture OK (LOGIN, NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE)');
+            await c.$disconnect();
+          ROLE_EOF
+            DIRECT_URL="${DBD}" PW2_CTL_PW="${PW2_CTL_PW}" node .pw2/role.gen.mjs
+          fi
+
+          # Build the three role URLs from the owner URI (host/db preserved).
+          mkurl() {
+            node -e '
+              const u = new URL(process.argv[1]);
+              u.username = process.argv[2];
+              u.password = process.argv[3];
+              process.stdout.write(u.toString());
+            ' "$1" "$2" "$3"
+          }
+          RUNTIME_URL="$(mkurl "${DBP}" app_runtime_preview_p4b "${W1_RUNTIME_PW:-x}")"
+          ADMIN_URL="$(mkurl "${DBP}" app_admin_preview "${W2G_ADMIN_PW:-x}")"
+          CTL_URL="$(mkurl "${DBP}" app_ctlplane_preview "${PW2_CTL_PW:-x}")"
+          echo "::add-mask::${RUNTIME_URL}"; echo "::add-mask::${ADMIN_URL}"; echo "::add-mask::${CTL_URL}"
+
+          BATTERY_TARGET=neon PW2_VERIFY_ONLY="${VERIFY_ONLY}" \
+          DATABASE_URL="${DBP}" DIRECT_URL="${DBD}" \
+          RUNTIME_URL="${RUNTIME_URL}" ADMIN_URL="${ADMIN_URL}" CTL_URL="${CTL_URL}" \
+          npx tsx .pw2/battery.mjs
+
+      - name: Fixtures cleanup net (always — marker-based backstop)
+        if: always() && !inputs.verify_only
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          DBD="$(curl -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri')"
+          echo "::add-mask::${DBD}"
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || exit 0
+          cat > .pw2/fixnet.gen.mjs <<'FIX_EOF'
+          import { PrismaClient } from '@prisma/client';
+          const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
+          const bids = `SELECT id FROM "Business" WHERE name LIKE 'pw2-%'`;
+          await c.$executeRawUnsafe(`DELETE FROM "PlatformAuditEvent" WHERE "actorUserId" IN (SELECT id FROM "User" WHERE email LIKE '%@pw2.test')`);
+          await c.$executeRawUnsafe('DELETE FROM "BusinessFeatureAccess" WHERE "businessId" IN (' + bids + ')');
+          await c.$executeRawUnsafe(`DELETE FROM "User" WHERE email LIKE '%@pw2.test'`);
+          await c.$executeRawUnsafe(`DELETE FROM "Business" WHERE name LIKE 'pw2-%'`);
+          const r = await c.$queryRaw`SELECT (SELECT count(*)::int FROM "Business" WHERE name LIKE 'pw2-%') AS biz`;
+          console.log('[fixnet] residue business=' + r[0].biz);
+          await c.$disconnect();
+          FIX_EOF
+          DIRECT_URL="${DBD}" node .pw2/fixnet.gen.mjs || true
+
+      - name: Rollback on failure (restore pre-PW-2 posture)
+        if: failure() && !inputs.verify_only
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "battery failed — rolling PW-2 policies+grants back (roles untouched)"
+          DBD="$(curl -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri')"
+          echo "::add-mask::${DBD}"
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || exit 0
+          cat > .pw2/rollback.gen.mjs <<'RB_EOF'
+          import { readFileSync } from 'node:fs';
+          import { PrismaClient } from '@prisma/client';
+          const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
+          const sql = readFileSync('scripts/security/d2-pw2-rollback.sql', 'utf8')
+            .replaceAll(':ROLE', 'app_runtime_preview_p4b')
+            .replaceAll(':CTL_LOGIN_ROLE', 'app_ctlplane_preview');
+          for (const stmt of sql.split(/;\s*\n/).map(s => s.replace(/^\s*--.*$/gm, '').trim()).filter(Boolean)) {
+            try { await c.$executeRawUnsafe(stmt); } catch (e) { console.log('[rollback] skip: ' + String(e.message).slice(0, 80)); }
+          }
+          const r = await c.$queryRawUnsafe("SELECT count(*)::int AS c FROM pg_policies WHERE tablename='BusinessFeatureAccess'");
+          console.log('[rollback] remaining BusinessFeatureAccess policies=' + r[0].c);
+          await c.$disconnect();
+          if (Number(r[0].c) !== 0) process.exit(1);
+          RB_EOF
+          DIRECT_URL="${DBD}" node .pw2/rollback.gen.mjs
