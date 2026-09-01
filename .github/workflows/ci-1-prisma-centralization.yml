@@ -128,6 +128,29 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: verifier caught the unbound elevation"
 
+      # CASA Wave B — the BROWSER half of the same control. Enforcement is
+      # useless if the console cannot answer the challenge, and it was proven
+      # that it could not: the admin client never sent x-admin-elevation. This
+      # matrix pins the step-up contract (one challenge, one retry, no loop, no
+      # retained code). Deterministic and offline: fetch and localStorage are
+      # stubbed. Local equivalent: npm run verify:admin-step-up
+      - name: Platform-admin MFA step-up client (challenge, single retry, no code retention)
+        run: npx tsx lib/platform-admin/admin-step-up.test.ts
+
+      - name: Wave B negative proof (retrying a cancelled challenge must be caught)
+        run: |
+          F="lib/platform-admin/fetch-platform-admin.ts"
+          cp "$F" "$F.bak"
+          # Drop the cancel guard: a cancelled or failed verification would then
+          # still retry the privileged request instead of surfacing the refusal.
+          sed -i 's|      if (!fresh) {|      if (false) {|' "$F"
+          if npx tsx lib/platform-admin/admin-step-up.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: matrix did not catch the retry-after-cancel"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: matrix caught the retry-after-cancel"
+
       # CASA Wave A — the application session lifetime (CASA 2.2.3). This token
       # is stateless and non-revocable, so its 24h ceiling IS the control; there
       # is no session store to fall back on. Enforced in code rather than by

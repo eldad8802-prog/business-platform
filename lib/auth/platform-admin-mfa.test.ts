@@ -28,6 +28,7 @@ import {
   decryptAdminMfaSecret,
   encryptAdminMfaSecret,
 } from "./admin-mfa-crypto";
+import { __testing as mfaService } from "./admin-mfa.service";
 
 process.env.AUTH_TOKEN_SECRET =
   process.env.AUTH_TOKEN_SECRET || "wave_b_synthetic_secret_not_a_real_key";
@@ -312,7 +313,90 @@ async function main() {
     assert.equal(noKey, null, "a missing key must fail closed");
   }
 
-  console.log("platform-admin MFA (Wave B / CASA 3.3.1): OK — 17/17");
+  // ── Provisioning-URI compatibility ────────────────────────────────────────
+
+  // 18. the URI the application hands the admin produces tokens the
+  //     application's own verifier accepts.
+  //
+  //     The suite used to build its own TOTP object and validate its own token,
+  //     which proves the library works and nothing about OUR contract: the URI
+  //     is generated in one place (beginAdminMfaEnrollment) and the token is
+  //     checked in another (confirm/verify), and a mismatch between them is
+  //     invisible until an admin cannot enroll. Synthetic seed only.
+  {
+    const seed = new OTPAuth.Secret({ size: 20 }).base32;
+
+    // Exactly what beginAdminMfaEnrollment returns to the admin.
+    const uri = mfaService.buildTotp(seed).toString();
+    const params = new URL(uri.replace("otpauth://", "https://")).searchParams;
+    assert.equal(params.get("secret"), seed, "the URI must carry the stored seed verbatim");
+    assert.equal(params.get("algorithm"), "SHA1", "authenticator-compatible algorithm");
+    assert.equal(params.get("digits"), "6", "authenticator-compatible digit count");
+    assert.equal(params.get("period"), "30", "authenticator-compatible period");
+    assert.equal(params.get("issuer"), "Dubiz");
+
+    // Exactly what an authenticator app does with it.
+    const provisioned = OTPAuth.URI.parse(uri);
+    assert.ok(provisioned instanceof OTPAuth.TOTP, "the URI must parse as TOTP");
+    assert.equal(provisioned.secret.base32, seed, "the seed must survive the round trip");
+
+    const now = Date.now();
+    const token = provisioned.generate({ timestamp: now });
+    assert.match(token, /^[0-9]{6}$/, "an authenticator produces six digits");
+
+    // The verifier half — the same call confirm/verify make.
+    assert.equal(
+      mfaService.buildTotp(seed).validate({
+        token,
+        window: mfaService.DRIFT_WINDOW,
+        timestamp: now,
+      }),
+      0,
+      "URI -> authenticator token -> verifier must round-trip"
+    );
+
+    // The drift boundary, from the authenticator's side of the contract.
+    const step = mfaService.PERIOD_SECONDS * 1000;
+    for (const offset of [-1, 1]) {
+      assert.notEqual(
+        mfaService.buildTotp(seed).validate({
+          token: provisioned.generate({ timestamp: now + offset * step }),
+          window: mfaService.DRIFT_WINDOW,
+          timestamp: now,
+        }),
+        null,
+        `one step of drift (${offset}) must be tolerated`
+      );
+    }
+    for (const offset of [-2, 2]) {
+      assert.equal(
+        mfaService.buildTotp(seed).validate({
+          token: provisioned.generate({ timestamp: now + offset * step }),
+          window: mfaService.DRIFT_WINDOW,
+          timestamp: now,
+        }),
+        null,
+        `two steps of drift (${offset}) must be refused`
+      );
+    }
+
+    // A different enrollment's authenticator must never validate — this is the
+    // exact failure an admin hits when the seed transfer went wrong.
+    const otherSeed = new OTPAuth.Secret({ size: 20 }).base32;
+    assert.equal(
+      mfaService.buildTotp(seed).validate({
+        token: OTPAuth.URI.parse(mfaService.buildTotp(otherSeed).toString()).generate({
+          timestamp: now,
+        }),
+        window: mfaService.DRIFT_WINDOW,
+        timestamp: now,
+      }),
+      null,
+      "a token from a different seed must be refused"
+    );
+  }
+
+  console.log("platform-admin MFA (Wave B / CASA 3.3.1): OK — 18/18");
 }
 
 main().catch((err) => {

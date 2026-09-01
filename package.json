@@ -76,6 +76,7 @@
     "qa:w25-runtime": "node scripts/qa/ui/conversation-state-w25-runtime.mjs",
     "smoke:leads": "node scripts/qa/leads-w1-prod-smoke.mjs",
     "verify:admin-mfa": "npx tsx lib/auth/platform-admin-mfa.test.ts",
+    "verify:admin-step-up": "npx tsx lib/platform-admin/admin-step-up.test.ts",
     "verify:auth-token-ttl": "npx tsx lib/auth-token.test.ts",
     "verify:cardcom-webhook-hardening": "npx tsx lib/services/payments/cardcom-webhook-hardening.test.ts",
     "verify:payment-webhook": "npx tsx lib/services/payments/payment-webhook.test.ts",
