@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { buildFinancialRecordsCsvBuffer } from "@/lib/reports/financial-records-csv";
 
 export async function GET(req: Request) {
   const user = await getCurrentUser(req);
@@ -38,22 +39,17 @@ export async function GET(req: Request) {
       },
     })));
 
-    const headers = ["Date", "Vendor", "Category", "Amount", "Direction"];
+    // Columns, order, values, delimiter and line ending are unchanged. What
+    // changed is that fields are now escaped and formula-guarded, and the body
+    // carries a UTF-8 BOM — the previous `r.join(",")` corrupted any row whose
+    // vendor/category contained a comma, quote or newline, and shipped
+    // OCR-derived text straight into the spreadsheet as executable content.
+    // See lib/reports/financial-records-csv.ts.
+    const csv = buildFinancialRecordsCsvBuffer(records);
 
-    const rows = records.map((r) => [
-      new Date(r.date).toISOString().split("T")[0],
-      r.vendorName,
-      r.category,
-      r.amount,
-      r.direction,
-    ]);
-
-    const csv =
-      [headers, ...rows].map((r) => r.join(",")).join("\n");
-
-    return new Response(csv, {
+    return new Response(new Uint8Array(csv), {
       headers: {
-        "Content-Type": "text/csv",
+        "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": "attachment; filename=report.csv",
       },
     });
