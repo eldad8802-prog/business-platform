@@ -37,7 +37,7 @@ import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
 import { runTenantJob } from "@/lib/tenant/job";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
-import { lifecycleOf } from "@/lib/tenant/business-lifecycle";
+import { ADVISORY_NAMESPACE, lifecycleOf } from "@/lib/tenant/business-lifecycle";
 import type {
   AccountDeletionStore,
   BusinessDeletionState,
@@ -130,6 +130,9 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
    */
   async quarantineAndRevokeIntegrations(businessId, now) {
     return prisma.$transaction(async (tx) => {
+      // Same advisory lock the in-transaction write gate takes. Whichever side gets
+      // it first runs to completion; the other then observes the committed state.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(${ADVISORY_NAMESPACE}, ${businessId})`;
       const transitioned = await tx.business.updateMany({
         where: { id: businessId, deletionRequestedAt: null, deletedAt: null },
         data: { deletionRequestedAt: now },

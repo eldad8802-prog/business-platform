@@ -27,7 +27,6 @@ import {
   type PaymentWebhookProcessingStatus,
 } from "./payments.types";
 import { runWithTenantContext } from "@/lib/tenant/context";
-import { readBusinessLifecycle } from "@/lib/tenant/business-lifecycle";
 import type {
   ParsedPaymentOutcome,
   PaymentProviderAdapter,
@@ -322,7 +321,7 @@ export async function processPaymentWebhook(
   // business that is being erased. The event is recorded as terminally not-processed,
   // and the handler answers HTTP 200 regardless, so the provider stops retrying
   // without any tenant row being resurrected.
-  const lifecycle = await readBusinessLifecycle(request.businessId);
+  const lifecycle = await deps.store.getBusinessLifecycle(request.businessId);
   if (lifecycle !== "ACTIVE") {
     return fail(
       "FAILED",

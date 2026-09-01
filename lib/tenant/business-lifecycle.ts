@@ -34,6 +34,12 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
+/**
+ * Advisory-lock namespace for the account-deletion lifecycle. Any two callers that
+ * must not interleave around a quarantine take `pg_advisory_xact_lock(this, businessId)`.
+ */
+export const ADVISORY_NAMESPACE = 0x41_44; // 'AD'
+
 export type BusinessLifecycle = "ACTIVE" | "DELETION_REQUESTED" | "PURGED";
 
 /** The lifecycle-bearing columns. Kept structural so any client shape can supply them. */
@@ -127,12 +133,19 @@ export async function assertBusinessAcceptsWrites(
 /**
  * Race-safe gate, checked INSIDE the caller's transaction.
  *
- * `FOR UPDATE` takes a row lock on the Business row. The quarantine transition locks
- * the same row, so the two serialise: either this transaction reads ACTIVE and holds
- * the lock until it commits (the transition waits, then observes the committed
- * write), or the transition committed first and this read returns the quarantined
- * state and throws. There is no interleaving in which a normal write commits after
- * the quarantine has committed.
+ * Serialisation is by a TRANSACTION-SCOPED ADVISORY LOCK keyed on the business,
+ * not by `SELECT ... FOR UPDATE`. That matters for a reason worth recording: row
+ * locking requires UPDATE/DELETE/TRUNCATE privilege in addition to SELECT, and the
+ * tenant runtime deliberately holds SELECT-only on Business — the table has no RLS,
+ * so giving the runtime write privilege there would hand it a cross-tenant write
+ * capability. An advisory lock needs no table privilege, releases at transaction
+ * end, and provides exactly the mutual exclusion required.
+ *
+ * The quarantine transition takes the SAME lock, so the two serialise: either this
+ * transaction takes the lock, reads ACTIVE and commits (the transition waits behind
+ * it), or the transition holds the lock, commits, and this read then observes the
+ * quarantined state and throws. There is no interleaving in which a normal write
+ * commits after the quarantine has committed.
  *
  * `Business` carries no RLS, so this read is not tenant-scoped by policy — which is
  * exactly right: the caller has already established WHICH business it is acting for
@@ -146,11 +159,11 @@ export async function assertBusinessAcceptsWritesTx(
   if (!Number.isInteger(businessId) || businessId <= 0) {
     throw new BusinessQuarantinedError(businessId, "UNKNOWN");
   }
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(${ADVISORY_NAMESPACE}, ${businessId})`;
   const rows = await tx.$queryRaw<BusinessLifecycleRow[]>`
     SELECT "deletionRequestedAt", "deletedAt"
     FROM "Business"
     WHERE "id" = ${businessId}
-    FOR UPDATE
   `;
   if (rows.length === 0) {
     throw new BusinessQuarantinedError(businessId, "UNKNOWN");

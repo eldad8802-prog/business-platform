@@ -10,7 +10,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getTenantContext, runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
-import { assertBusinessAcceptsWritesTx } from "@/lib/tenant/business-lifecycle";
+import { assertBusinessAcceptsWritesTx, readBusinessLifecycle } from "@/lib/tenant/business-lifecycle";
 import type {
   AppendPaymentAuditEventRow,
   CreatePaymentRequestRow,
@@ -307,6 +307,12 @@ export function createPaymentPrismaStore(): PaymentStore {
         },
       }));
       return toRequestRecord(updated);
+    },
+
+    async getBusinessLifecycle(businessId: number) {
+      // Deliberately NOT tenant-scoped and NOT inside a tenant transaction: this is
+      // the pre-context question 'may I enter this tenant at all?'.
+      return readBusinessLifecycle(businessId);
     },
 
     async findPaymentRequestById(id: number) {

@@ -260,6 +260,17 @@ export interface PaymentStore {
   ): Promise<PaymentRequestRecord>;
 
   findPaymentRequestById(id: number): Promise<PaymentRequestRecord | null>;
+  /**
+   * D2/AD-2A account-deletion gate. The webhook resolves its tenant from the
+   * STORED PaymentRequest and must then refuse to enter a business that is being
+   * erased. It lives on the store because the store IS this service's database
+   * seam — every consumer already injects one, so the gate is exercised by the
+   * same fake that exercises everything else, instead of becoming a separate
+   * dependency each caller could forget.
+   *
+   * null = the business does not exist; callers must treat that as deny.
+   */
+  getBusinessLifecycle(businessId: number): Promise<"ACTIVE" | "DELETION_REQUESTED" | "PURGED" | null>;
 
   findPaymentRequestByProviderRequestId(
     provider: PaymentProvider,

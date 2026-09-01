@@ -75,8 +75,8 @@ run_guard() {
     echo "CI-AD-3 FAIL: the orchestrator has no quarantine stage"; fail=1
   fi
   local q_line p_line
-  q_line="$(tscode "$SVC" | grep -n "store.quarantineAndRevokeIntegrations" | head -1 | cut -d: -f1)"
-  p_line="$(tscode "$SVC" | grep -n "store.purgeOperationalData" | head -1 | cut -d: -f1)"
+  q_line="$(tscode "$SVC" | grep -n "store.quarantineAndRevokeIntegrations" | awk -F: 'NR==1{print $1}' || true)"
+  p_line="$(tscode "$SVC" | grep -n "store.purgeOperationalData" | awk -F: 'NR==1{print $1}' || true)"
   if [ -n "$q_line" ] && [ -n "$p_line" ] && [ "$q_line" -ge "$p_line" ]; then
     echo "CI-AD-3 FAIL: destructive work is ordered before the quarantine"; fail=1
   fi
@@ -119,12 +119,12 @@ run_guard() {
   fi
 
   # ── 8: the payment webhook gates before the tenant boundary ──────────────
-  if ! tscode "$WEBHOOK" | grep "readBusinessLifecycle" >/dev/null 2>&1; then
+  if ! tscode "$WEBHOOK" | grep "getBusinessLifecycle" >/dev/null 2>&1; then
     echo "CI-AD-8 FAIL: the payment webhook does not check the deletion lifecycle"; fail=1
   fi
   local w_gate w_ctx
-  w_gate="$(tscode "$WEBHOOK" | grep -n "readBusinessLifecycle(" | head -1 | cut -d: -f1)"
-  w_ctx="$(tscode "$WEBHOOK" | grep -n "runWithTenantContext({ businessId: request.businessId }" | head -1 | cut -d: -f1)"
+  w_gate="$(tscode "$WEBHOOK" | grep -n "getBusinessLifecycle(" | awk -F: 'NR==1{print $1}' || true)"
+  w_ctx="$(tscode "$WEBHOOK" | grep -n "runWithTenantContext({ businessId: request.businessId }" | awk -F: 'NR==1{print $1}' || true)"
   if [ -n "$w_gate" ] && [ -n "$w_ctx" ] && [ "$w_gate" -ge "$w_ctx" ]; then
     echo "CI-AD-8 FAIL: the webhook enters the tenant before checking the lifecycle"; fail=1
   fi
@@ -265,9 +265,9 @@ TS
 
     cat > "$T/lib/services/payments/payment-webhook.service.ts" <<'TS'
 import { runWithTenantContext } from "@/lib/tenant/context";
-import { readBusinessLifecycle } from "@/lib/tenant/business-lifecycle";
+import { runWithTenantContext } from "@/lib/tenant/context";
 export async function processPaymentWebhook() {
-  const lifecycle = await readBusinessLifecycle(request.businessId);
+  const lifecycle = await deps.store.getBusinessLifecycle(request.businessId);
   if (lifecycle !== "ACTIVE") { return fail("FAILED", "business_quarantined"); }
   return runWithTenantContext({ businessId: request.businessId }, async () => {});
 }
@@ -364,7 +364,7 @@ import { runWithTenantContext } from "@/lib/tenant/context";
 import { readBusinessLifecycle } from "@/lib/tenant/business-lifecycle";
 export async function processPaymentWebhook() {
   return runWithTenantContext({ businessId: request.businessId }, async () => {
-    const lifecycle = await readBusinessLifecycle(request.businessId);
+    const lifecycle = await deps.store.getBusinessLifecycle(request.businessId);
   });
 }
 TS
