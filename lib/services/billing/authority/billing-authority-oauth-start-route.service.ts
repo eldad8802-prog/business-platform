@@ -26,6 +26,15 @@ export type AuthorityStartActor = {
 export type ResolveAuthorityStartInput = {
   /** Null when the request carries no authenticated Dubiz user. */
   user: AuthorityStartActor | null;
+  /**
+   * CASA 3.3.1: whether this request carries a valid platform-admin MFA
+   * elevation. Required for the cross-tenant admin branch below — that branch is
+   * an administrative capability living on a TENANT route, so it cannot go
+   * through the admin guard and must assert the second factor itself.
+   * Optional and defaulting to false, so a caller that forgets it gets the SAFE
+   * answer (no cross-tenant targeting) rather than the permissive one.
+   */
+  adminElevated?: boolean;
   /** Optional `?businessId` override; defaults to the actor's own business. */
   requestedBusinessId?: string | number | null;
   /** Optional `?environment`; defaults to SANDBOX (sandbox-first). */
@@ -130,7 +139,11 @@ export async function resolveAuthorityOAuthStart(
         reason: AUTHORITY_START_REASONS.INVALID_BUSINESS,
       };
     }
-    const isAdmin = input.user.role === UserRole.PLATFORM_ADMIN;
+    // Cross-tenant targeting is an ADMIN capability. It requires the role AND,
+    // when MFA enforcement is on, a proven second factor — otherwise a stolen
+    // admin session alone could pivot into any tenant from a non-admin route.
+    const isAdmin =
+      input.user.role === UserRole.PLATFORM_ADMIN && input.adminElevated === true;
     if (requested !== actorBusinessId && !isAdmin) {
       return {
         ok: false,

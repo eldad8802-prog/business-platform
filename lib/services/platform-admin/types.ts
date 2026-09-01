@@ -62,6 +62,19 @@ export type PlatformAdminSessionResponse = {
   };
   serverTime: string;
   environment: string;
+  /**
+   * CASA 3.3.1 step-up state. Lets the admin UI decide whether to prompt for
+   * enrollment or for a code, without ever exposing the seed or any code.
+   */
+  mfa: {
+    /** Whether enforcement is on in this environment. */
+    required: boolean;
+    /** Whether this admin has a confirmed authenticator. */
+    enrolled: boolean;
+    /** Whether THIS request carried a valid, unexpired elevation. */
+    elevated: boolean;
+    recoveryCodesRemaining: number;
+  };
 };
 
 export type PlatformAttentionSeverity =

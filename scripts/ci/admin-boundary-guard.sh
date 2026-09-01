@@ -47,12 +47,52 @@ if [ -n "$ci2" ]; then
 fi
 
 # ---------- CI-3: canonical guard on every admin route ----------
+#
+# CASA Wave B added an identity-only variant, requirePlatformAdminIdentity
+# [OrResponse], which checks admin identity but NOT the MFA elevation. It exists
+# only because a step-up endpoint cannot require the step-up it issues. That
+# makes it a deliberate bypass of the MFA-aware guard, so CI-3 now polices it:
+# a route may use it ONLY if explicitly allowlisted here. Everything else under
+# the admin namespaces must call the full requirePlatformAdmin[OrResponse],
+# which enforces MFA once PLATFORM_ADMIN_MFA_REQUIRED is on.
+CI3_IDENTITY_ONLY_ALLOWLIST="app/api/platform-admin/mfa/(enroll|confirm|verify)/route\.ts|app/api/platform-admin/session/route\.ts"
+
 while IFS= read -r route; do
-  if ! grep -qE "requirePlatformAdmin(OrResponse)?" "$route"; then
+  rel="${route#"$ROOT"/}"
+  rel="${rel#./}"
+  if ! grep -qE "requirePlatformAdmin(Identity)?(OrResponse)?" "$route"; then
     echo "CI-3 VIOLATION — admin route without canonical requirePlatformAdmin guard: $route"
     fail=1
+    continue
+  fi
+  if grep -qE "requirePlatformAdminIdentity(OrResponse)?" "$route"; then
+    if ! printf '%s' "$rel" | grep -qE "^($CI3_IDENTITY_ONLY_ALLOWLIST)$"; then
+      echo "CI-3 VIOLATION — route uses the identity-only guard (no MFA elevation) but is not allowlisted: $rel"
+      echo "                 use requirePlatformAdmin[OrResponse], or justify it in CI3_IDENTITY_ONLY_ALLOWLIST."
+      fail=1
+    fi
   fi
 done < <(find "$ROOT/app/api/platform-admin" "$ROOT/app/api/dev" -name "route.ts" 2>/dev/null)
+
+# ---------- CI-3b: privileged surfaces OUTSIDE the admin namespaces ----------
+# The Wave B inventory found two privileged capabilities CI-3's directory scan
+# never saw: an admin-gated POST under the WhatsApp integration, and the
+# cross-tenant branch of the Tax Authority OAuth start. Both are pinned here so
+# a future edit that drops their admin control is caught.
+while IFS=: read -r relpath token; do
+  [ -z "$relpath" ] && continue
+  f="$ROOT/$relpath"
+  if [ ! -f "$f" ]; then
+    echo "CI-3b VIOLATION — known privileged surface moved or deleted: $relpath"
+    fail=1
+  elif ! grep -q "$token" "$f"; then
+    echo "CI-3b VIOLATION — privileged surface lost its admin control ($token): $relpath"
+    fail=1
+  fi
+done <<'CI3B_EOF'
+app/api/integrations/whatsapp/connection/route.ts:requirePlatformAdmin
+app/api/taxes/oauth/connect/route.ts:hasAdminElevation
+CI3B_EOF
 
 # ---------- CI-4: no tenant Prisma inside admin services (ratchet) ----------
 # Legacy = admin services still on the tenant singleton, pending migration.

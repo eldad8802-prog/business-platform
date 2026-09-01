@@ -252,6 +252,48 @@ model User {
   billingAuthorityConnectionsOauthAuthorized BillingAuthorityConnection[] @relation("BillingAuthorityOauthAuthorizedBy")
   crmNotesCreated                          CrmNote[]
   crmAttachmentsUploaded                   CrmAttachment[]
+  platformAdminMfa                         PlatformAdminMfa?
+}
+
+/// CASA 3.3.1 — second authentication factor for PLATFORM-LEVEL administrators.
+///
+/// Deliberately a dedicated model rather than columns on `User`: this is
+/// platform-plane authentication state, not ordinary business-tenant state. It
+/// carries NO `businessId`, is never tenant-scoped, and is never read through
+/// the tenant Prisma client.
+///
+/// The TOTP seed is stored ONLY as AES-256-GCM ciphertext produced by
+/// `lib/services/platform-admin/admin-mfa-crypto.ts` under the dedicated
+/// `ADMIN_MFA_ENCRYPTION_KEY`. There is no plaintext column, and the seed is
+/// never returned again after enrollment.
+model PlatformAdminMfa {
+  id     Int  @id @default(autoincrement())
+  userId Int  @unique
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// `gcm_v1:<b64 iv>.<b64 tag>.<b64 ciphertext>` — never plaintext.
+  secretEncrypted String
+  /// Key version, so a future key can be rolled forward per row.
+  encryptionKeyId String
+
+  /// NULL until a valid code has been proven. An abandoned enrollment leaves
+  /// this NULL, so MFA stays OFF for that admin and cannot half-enable.
+  enrolledAt     DateTime?
+  lastVerifiedAt DateTime?
+
+  /// Replay defence: the last accepted 30-second TOTP step. A code is accepted
+  /// at most once, so an observed code cannot be reused inside its own window.
+  lastUsedStep BigInt?
+
+  /// Single-use recovery codes, stored ONLY as SHA-256 hashes. Consuming one
+  /// removes its hash. Never logged, never re-displayed.
+  recoveryCodeHashes       String[]
+  recoveryCodesGeneratedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enrolledAt])
 }
 
 /// Generic CRM subject reference (see docs/dubiz-crm-foundation-spec-v1.md §2 / E1).
