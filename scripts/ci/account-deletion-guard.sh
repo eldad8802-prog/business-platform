@@ -55,23 +55,23 @@ run_guard() {
   if [ "$fail" -ne 0 ]; then return 1; fi
 
   # ── 1: the purge runs under an explicit tenant context ───────────────────
-  if ! tscode "$STORE" | grep -q "runTenantJob"; then
+  if ! tscode "$STORE" | grep "runTenantJob" >/dev/null 2>&1; then
     echo "CI-AD-1 FAIL: the erasure purge establishes no explicit tenant context"; fail=1
   fi
-  if ! tscode "$STORE" | grep -q "withTenantTransaction"; then
+  if ! tscode "$STORE" | grep "withTenantTransaction" >/dev/null 2>&1; then
     echo "CI-AD-1 FAIL: the erasure purge does not run in a tenant transaction (RLS would zero it)"; fail=1
   fi
 
   # ── 2: silent-zero backstop ──────────────────────────────────────────────
-  if ! tscode "$STORE" | grep -q "assertTenantContextIs"; then
+  if ! tscode "$STORE" | grep "assertTenantContextIs" >/dev/null 2>&1; then
     echo "CI-AD-2 FAIL: the purge does not prove its tenant context before mutating"; fail=1
   fi
-  if ! tscode "$STORE" | grep -qE "assertExactlyOne|assertAtLeastOne"; then
+  if ! tscode "$STORE" | grep -E "assertExactlyOne|assertAtLeastOne" >/dev/null 2>&1; then
     echo "CI-AD-2 FAIL: the purge has no affected-row assertion"; fail=1
   fi
 
   # ── 3: quarantine first ──────────────────────────────────────────────────
-  if ! tscode "$SVC" | grep -q "quarantineAndRevokeIntegrations"; then
+  if ! tscode "$SVC" | grep "quarantineAndRevokeIntegrations" >/dev/null 2>&1; then
     echo "CI-AD-3 FAIL: the orchestrator has no quarantine stage"; fail=1
   fi
   local q_line p_line
@@ -82,10 +82,10 @@ run_guard() {
   fi
 
   # ── 4: audit atomic, never swallowed ─────────────────────────────────────
-  if ! tscode "$STORE" | grep -qE "logAuditEvent\(|createPlatformAuditEventTx\("; then
+  if ! tscode "$STORE" | grep -E "logAuditEvent\(|createPlatformAuditEventTx\(" >/dev/null 2>&1; then
     echo "CI-AD-4 FAIL: the erasure writes no audit evidence"; fail=1
   fi
-  if ! tscode "$STORE" | grep -q "{ tx }"; then
+  if ! tscode "$STORE" | grep "{ tx }" >/dev/null 2>&1; then
     echo "CI-AD-4 FAIL: the erasure audit is not bound to the transition transaction (its failure would be swallowed)"; fail=1
   fi
 
@@ -103,23 +103,23 @@ run_guard() {
   fi
 
   # ── 6: tenant jobs are gated by default ──────────────────────────────────
-  if ! tscode "$JOB" | grep -q "assertBusinessAcceptsWrites"; then
+  if ! tscode "$JOB" | grep "assertBusinessAcceptsWrites" >/dev/null 2>&1; then
     echo "CI-AD-6 FAIL: runTenantJob does not check the deletion lifecycle"; fail=1
   fi
-  if ! tscode "$JOB" | grep -qE 'policy === "normal"'; then
+  if ! tscode "$JOB" | grep -E 'policy === "normal"' >/dev/null 2>&1; then
     echo "CI-AD-6 FAIL: runTenantJob does not default to the guarded policy"; fail=1
   fi
 
   # ── 7: session auth gates the whole quarantine ───────────────────────────
-  if ! tscode "$AUTH" | grep -q "acceptsNormalWrites"; then
+  if ! tscode "$AUTH" | grep "acceptsNormalWrites" >/dev/null 2>&1; then
     echo "CI-AD-7 FAIL: getCurrentUser does not use the canonical lifecycle gate"; fail=1
   fi
-  if tscode "$AUTH" | grep -qE "business\?\.deletedAt|business\.deletedAt"; then
+  if tscode "$AUTH" | grep -E "business\?\.deletedAt|business\.deletedAt" >/dev/null 2>&1; then
     echo "CI-AD-7 FAIL: getCurrentUser still gates on deletedAt alone (the quarantine window stays authenticated)"; fail=1
   fi
 
   # ── 8: the payment webhook gates before the tenant boundary ──────────────
-  if ! tscode "$WEBHOOK" | grep -q "readBusinessLifecycle"; then
+  if ! tscode "$WEBHOOK" | grep "readBusinessLifecycle" >/dev/null 2>&1; then
     echo "CI-AD-8 FAIL: the payment webhook does not check the deletion lifecycle"; fail=1
   fi
   local w_gate w_ctx
@@ -130,28 +130,28 @@ run_guard() {
   fi
 
   # ── 9: settlement writes are race-safe ───────────────────────────────────
-  if ! tscode "$PAYSTORE" | grep -q "assertBusinessAcceptsWritesTx"; then
+  if ! tscode "$PAYSTORE" | grep "assertBusinessAcceptsWritesTx" >/dev/null 2>&1; then
     echo "CI-AD-9 FAIL: payment settlement writes have no in-transaction lifecycle check (TOCTOU)"; fail=1
   fi
-  if ! tscode "$PAYSTORE" | grep -q "guardedDbStep"; then
+  if ! tscode "$PAYSTORE" | grep "guardedDbStep" >/dev/null 2>&1; then
     echo "CI-AD-9 FAIL: the guarded step helper is gone"; fail=1
   fi
 
   # ── 10: no request-supplied tenant on the deletion route ─────────────────
-  if tscode "$ROUTE" | grep -qE "req\.json\(\)|searchParams|params"; then
+  if tscode "$ROUTE" | grep -E "req\.json\(\)|searchParams|params" >/dev/null 2>&1; then
     echo "CI-AD-10 FAIL: the deletion route reads a target from the request"; fail=1
   fi
-  if ! tscode "$ROUTE" | grep -q "businessId: user.businessId"; then
+  if ! tscode "$ROUTE" | grep "businessId: user.businessId" >/dev/null 2>&1; then
     echo "CI-AD-10 FAIL: the deletion route does not take the tenant from the session"; fail=1
   fi
 
   # ── 11: the integrity scanner mutates nothing ────────────────────────────
   # Comments are stripped first: this file DESCRIBES what it must never do, and a
   # naive grep would trip on its own documentation.
-  if tscode "$SCAN" | grep -qiE "(INSERT INTO|DELETE FROM|TRUNCATE|ALTER TABLE|DROP TABLE|CREATE TABLE|UPDATE \"[A-Za-z])"; then
+  if tscode "$SCAN" | grep -iE "(INSERT INTO|DELETE FROM|TRUNCATE|ALTER TABLE|DROP TABLE|CREATE TABLE|UPDATE \"[A-Za-z])" >/dev/null 2>&1; then
     echo "CI-AD-11 FAIL: the integrity scanner contains a mutating statement"; fail=1
   fi
-  if tscode "$SCAN" | grep -qE '\$executeRaw\b|\$executeRawUnsafe'; then
+  if tscode "$SCAN" | grep -E '\$executeRaw\b|\$executeRawUnsafe' >/dev/null 2>&1; then
     echo "CI-AD-11 FAIL: the integrity scanner can execute non-query SQL"; fail=1
   fi
 
