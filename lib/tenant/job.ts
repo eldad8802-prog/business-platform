@@ -64,10 +64,21 @@ export type TenantJobIdentity = {
  * tenant tables must go through `withTenantTransaction` so the RLS GUC is
  * set on the same connection.
  */
+/**
+ * `checkLifecycle` exists ONLY so this primitive stays unit-testable without a
+ * database. It had no Prisma dependency at all before AD-2A, and losing that
+ * would have made a security primitive impossible to exercise in isolation. It
+ * defaults to the real gate, and CI-AD-6 pins that the default is not swapped out.
+ */
+export type RunTenantJobOptions = {
+  quarantinePolicy?: TenantJobQuarantinePolicy;
+  checkLifecycle?: (businessId: number) => Promise<void>;
+};
+
 export async function runTenantJob<T>(
   identity: TenantJobIdentity,
   fn: () => Promise<T>,
-  options?: { quarantinePolicy?: TenantJobQuarantinePolicy }
+  options?: RunTenantJobOptions
 ): Promise<T> {
   const businessId = identity?.businessId;
   if (
@@ -89,7 +100,7 @@ export async function runTenantJob<T>(
     // all. Security-critical writes additionally re-check inside their own
     // transaction (assertBusinessAcceptsWritesTx) — a pre-check alone cannot survive
     // a quarantine that commits while the job is running.
-    await assertBusinessAcceptsWrites(businessId);
+    await (options?.checkLifecycle ?? assertBusinessAcceptsWrites)(businessId);
   }
   return runWithTenantContext({ businessId }, fn);
 }
