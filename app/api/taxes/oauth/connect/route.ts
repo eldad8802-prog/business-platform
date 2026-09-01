@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { resolveAuthorityOAuthStart } from "@/lib/services/billing/authority/billing-authority-oauth-start-route.service";
+import { hasAdminElevation } from "@/lib/auth/platform-admin";
 
 export const runtime = "nodejs";
 
@@ -44,6 +45,7 @@ export async function GET(req: NextRequest) {
 
     const outcome = await resolveAuthorityOAuthStart({
       user: { id: user.id, businessId: user.businessId, role: user.role },
+      adminElevated: hasAdminElevation(req, user.id),
       requestedBusinessId: sp.get("businessId"),
       environment: sp.get("environment"),
       redirectBaseUrl,

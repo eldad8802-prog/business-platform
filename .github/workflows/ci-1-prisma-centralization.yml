@@ -102,6 +102,32 @@ jobs:
       - name: Leads W1 domain core (status, validation, follow-up due logic)
         run: npx tsx lib/services/crm/lead-core.test.ts
 
+      # CASA Wave B — platform-admin TOTP MFA (CASA 3.3.1). The elevation
+      # envelope and the guard decide whether a privileged request is allowed at
+      # all, so they belong in the BLOCKING job. Deterministic and offline: no
+      # DB, no network, no real secret.
+      # Local equivalent: npm run verify:admin-mfa
+      - name: Platform-admin MFA matrix (elevation, binding, expiry, seed storage)
+        env:
+          AUTH_TOKEN_SECRET: wave_b_ci_synthetic_secret
+        run: npx tsx lib/auth/platform-admin-mfa.test.ts
+
+      - name: Wave B negative proof (unbinding the elevation from the user must be caught)
+        env:
+          AUTH_TOKEN_SECRET: wave_b_ci_synthetic_secret
+        run: |
+          F="lib/auth/platform-admin-elevation.ts"
+          cp "$F" "$F.bak"
+          # Drop the user-binding check: an elevation minted for one admin would
+          # then elevate any other.
+          sed -i 's|  if (payload.sub !== expectedUserId) {|  if (false) {|' "$F"
+          if npx tsx lib/auth/platform-admin-mfa.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: verifier did not catch the unbound elevation"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: verifier caught the unbound elevation"
+
       # CASA Wave A — the application session lifetime (CASA 2.2.3). This token
       # is stateless and non-revocable, so its 24h ceiling IS the control; there
       # is no session store to fall back on. Enforced in code rather than by

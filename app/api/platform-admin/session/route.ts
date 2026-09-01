@@ -1,12 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePlatformAdminOrResponse } from "@/lib/auth/platform-admin";
+import {
+  isPlatformAdminMfaRequired,
+  requirePlatformAdminIdentityOrResponse,
+} from "@/lib/auth/platform-admin";
+import { getAdminMfaState } from "@/lib/services/platform-admin/admin-mfa.service";
+import {
+  readAdminElevationHeader,
+  verifyAdminElevation,
+} from "@/lib/auth/platform-admin-elevation";
 import { handleError } from "@/lib/handle-error";
 import { logPlatformAdminAreaEnteredIfDue } from "@/lib/services/platform-admin/platform-audit.service";
 import type { PlatformAdminSessionResponse } from "@/lib/services/platform-admin/types";
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requirePlatformAdminOrResponse(req);
+    // IDENTITY-ONLY by design: this is the endpoint the admin UI calls to find out
+    // whether it must prompt for enrollment or for a code. Requiring elevation here
+    // would make that impossible to discover.
+    const auth = await requirePlatformAdminIdentityOrResponse(req);
     if (auth instanceof NextResponse) {
       return auth;
     }
@@ -20,6 +31,16 @@ export async function GET(req: NextRequest) {
         name: auth.name,
       },
       serverTime: new Date().toISOString(),
+      mfa: await (async () => {
+        const state = await getAdminMfaState(auth.id);
+        const elevation = verifyAdminElevation(readAdminElevationHeader(req), auth.id);
+        return {
+          required: isPlatformAdminMfaRequired(),
+          enrolled: state.enrolled,
+          elevated: elevation.ok,
+          recoveryCodesRemaining: state.recoveryCodesRemaining,
+        };
+      })(),
       environment: process.env.NODE_ENV ?? "development",
     };
 
