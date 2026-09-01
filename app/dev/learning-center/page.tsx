@@ -11,6 +11,11 @@ import type {
   LearningCenterOverview,
   TimeWindowKey,
 } from "@/lib/services/learning-center/learning-center.types";
+import {
+  PlatformAdminFetchError,
+  fetchLearningCenterOverview,
+} from "@/lib/platform-admin/fetch-platform-admin";
+import { AdminStepUpDialog } from "@/components/platform-admin/admin-step-up-dialog";
 
 type State =
   | { status: "loading" }
@@ -49,26 +54,26 @@ export default function LearningCenterPage() {
     let active = true;
     (async () => {
       try {
-        const res = await fetch(`/api/dev/learning-center?window=${windowKey}`, {
-          cache: "no-store",
-        });
-        if (!active) return;
-        if (!res.ok) {
-          setState({
-            status: "error",
-            code: res.status,
-            message:
-              res.status === 401 || res.status === 403
-                ? "Platform-admin access required."
-                : `Request failed (${res.status})`,
-          });
-          return;
-        }
-        const data = (await res.json()) as LearningCenterOverview;
+        // Shared platform-admin client: sends the Bearer token (this page sent
+        // none, so it could only ever have received 401) and answers the
+        // server's MFA step-up challenge before retrying.
+        const data =
+          await fetchLearningCenterOverview<LearningCenterOverview>(windowKey);
         if (!active) return;
         setState({ status: "ready", data });
       } catch (err) {
         if (active) {
+          if (err instanceof PlatformAdminFetchError) {
+            setState({
+              status: "error",
+              code: err.status,
+              message:
+                err.status === 401 || err.status === 403
+                  ? "Platform-admin access required."
+                  : `Request failed (${err.status})`,
+            });
+            return;
+          }
           setState({
             status: "error",
             code: 0,
@@ -89,6 +94,7 @@ export default function LearningCenterPage() {
 
   return (
     <div style={{ padding: 32, maxWidth: 1100, fontFamily: "system-ui, sans-serif" }}>
+      <AdminStepUpDialog />
       <h1 style={{ fontSize: 22, margin: 0 }}>Learning Center</h1>
       <p style={{ color: "var(--dz-text-secondary)", marginTop: 4 }}>
         Internal decision-support over the General Decision Ledger. Read-only.
