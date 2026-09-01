@@ -1,4 +1,4 @@
-package co.il.promaxgroup.dubiz;
+package il.co.promaxgroup.dubiz;
 
 import com.getcapacitor.BridgeActivity;
 

@@ -14,7 +14,7 @@ set -uo pipefail
 
 OUT="native-evidence"
 APK="android/app/build/outputs/apk/debug/app-debug.apk"
-PKG="co.il.promaxgroup.dubiz"
+PKG="il.co.promaxgroup.dubiz"
 FAILED=0
 
 mkdir -p "$OUT/shots"
