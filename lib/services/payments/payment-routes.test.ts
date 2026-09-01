@@ -4,6 +4,11 @@
  * Exercises the route-facing seams (connection service, webhook handler, list
  * filtering) with the in-memory store + stub provider — no DB, no real
  * provider, no crypto key. Routes themselves are thin wrappers over these.
+ *
+ * CASA Wave E: these cases used TRANZILA as an arbitrary provider label while
+ * asserting orchestration behaviour, not Tranzila behaviour. Tranzila is now a
+ * disabled capability whose webhooks are refused before processing, so the same
+ * assertions run against CardCom — the live provider — and keep their meaning.
  */
 import assert from "node:assert/strict";
 import {
@@ -129,7 +134,7 @@ async function main() {
   {
     const store = createInMemoryPaymentStore();
     const baseRow = {
-      provider: "TRANZILA" as const,
+      provider: "CARDCOM" as const,
       amount: "10.00",
       currency: "ILS",
       description: null,
@@ -153,12 +158,12 @@ async function main() {
   // --- webhook handler always 200 { ok: true } ---
   {
     const store = createInMemoryPaymentStore();
-    store.seedConnection({ businessId: 1, provider: "TRANZILA", isActive: true });
+    store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
     const created = await store.createPaymentRequest({
       businessId: 1,
       customerId: null,
       billingDocumentId: null,
-      provider: "TRANZILA",
+      provider: "CARDCOM",
       amount: "100.00",
       currency: "ILS",
       description: null,
@@ -177,7 +182,7 @@ async function main() {
 
     const paid = await handleProviderWebhook(
       {
-        provider: "TRANZILA",
+        provider: "CARDCOM",
         rawBody: JSON.stringify({
           eventId: "e1",
           providerRequestId: "req-1",
@@ -194,7 +199,7 @@ async function main() {
     // unmatched
     const unmatched = await handleProviderWebhook(
       {
-        provider: "TRANZILA",
+        provider: "CARDCOM",
         rawBody: JSON.stringify({ eventId: "e2", providerRequestId: "nope", outcome: "PAID" }),
       },
       deps
@@ -204,7 +209,7 @@ async function main() {
 
     // garbage body
     const garbage = await handleProviderWebhook(
-      { provider: "TRANZILA", rawBody: "not-json" },
+      { provider: "CARDCOM", rawBody: "not-json" },
       deps
     );
     assert.equal(garbage.status, 200);
@@ -222,7 +227,7 @@ async function main() {
       resolveProvider: () => createStubProvider(),
     };
     const res = await handleProviderWebhook(
-      { provider: "TRANZILA", rawBody: JSON.stringify({ eventId: "e", outcome: "PAID" }) },
+      { provider: "CARDCOM", rawBody: JSON.stringify({ eventId: "e", outcome: "PAID" }) },
       throwingDeps
     );
     assert.equal(res.status, 200);

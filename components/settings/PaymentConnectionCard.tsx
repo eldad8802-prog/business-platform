@@ -38,6 +38,20 @@ type PublicConnection = {
   hasCredential: boolean;
 };
 
+/**
+ * Providers a business may CONNECT. Deliberately narrower than ProviderKey:
+ * Tranzila and PayPal remain in the union so an existing connection still
+ * renders with its real name, but neither can be selected — their webhook
+ * consumers were disabled in CASA Wave E, and offering a provider whose
+ * callback is switched off would let a business take a payment that could
+ * never be confirmed.
+ *
+ * Guarded by lib/services/payments/dormant-provider-closure.test.ts: this list
+ * must equal the server's enabled set, so re-adding an option here without
+ * re-enabling the capability fails CI.
+ */
+const SELECTABLE_PROVIDERS: readonly ProviderKey[] = ["CARDCOM"] as const;
+
 const PROVIDER_LABEL: Record<ProviderKey, string> = {
   TRANZILA: "Tranzila",
   CARDCOM: "CardCom",
@@ -57,7 +71,7 @@ export function PaymentConnectionCard() {
   const [notice, setNotice] = useState<string | null>(null);
 
   // Form state
-  const [provider, setProvider] = useState<ProviderKey>("TRANZILA");
+  const [provider, setProvider] = useState<ProviderKey>("CARDCOM");
   const [merchantId, setMerchantId] = useState("");
   const [secret, setSecret] = useState(""); // Tranzila credential (write-only)
   const [apiName, setApiName] = useState(""); // CardCom
@@ -284,9 +298,11 @@ export function PaymentConnectionCard() {
                 }}
                 style={warmInputStyle()}
               >
-                <option value="TRANZILA">Tranzila</option>
-                <option value="CARDCOM">CardCom</option>
-                <option value="PAYPAL">PayPal (sandbox)</option>
+                {SELECTABLE_PROVIDERS.map((key) => (
+                  <option key={key} value={key}>
+                    {PROVIDER_LABEL[key]}
+                  </option>
+                ))}
               </select>
             </WarmField>
 

@@ -9,6 +9,7 @@
 import type { PaymentProvider } from "../payments.types";
 import type { PaymentProviderAdapter } from "./payment-provider.types";
 import type { ProviderDescriptor } from "./provider-descriptor.types";
+import { isPaymentProviderEnabled } from "./provider-availability";
 import { tranzilaProvider, tranzilaDescriptor } from "./tranzila/tranzila.provider";
 import { cardComProvider, cardComDescriptor } from "./cardcom/cardcom.provider";
 import { payPalProvider, payPalDescriptor } from "./paypal/paypal.provider";
@@ -60,7 +61,19 @@ export function getProviderDescriptor(
   return DESCRIPTORS[provider];
 }
 
-/** All provider descriptors (catalog source; metadata only, no secrets). */
+/**
+ * Provider descriptors offered as ACTIVE capabilities (catalog source; metadata
+ * only, no secrets). Disabled providers keep their descriptor — historical
+ * records stay interpretable — but are not advertised, so the data-driven
+ * settings UI cannot present an option whose webhook has been switched off.
+ */
 export function listProviderDescriptors(): ProviderDescriptor[] {
+  return Object.values(DESCRIPTORS).filter((d) =>
+    isPaymentProviderEnabled(d.key)
+  );
+}
+
+/** Every descriptor, including disabled ones — for historical interpretation. */
+export function listAllProviderDescriptors(): ProviderDescriptor[] {
   return Object.values(DESCRIPTORS);
 }

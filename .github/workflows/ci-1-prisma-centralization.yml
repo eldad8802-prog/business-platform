@@ -151,6 +151,30 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: matrix caught the retry-after-cancel"
 
+      # CASA Wave E — PayPal and Tranzila were live, unauthenticated webhook
+      # consumers verified only by a static token compared with '==='. Production
+      # held zero rows for either provider, so the capability was disabled rather
+      # than given invented cryptography. This matrix pins what makes that real:
+      # a dormant callback reaches no processing, and the connect path is closed
+      # server-side so removing the UI option is not the control.
+      # Local equivalent: npm run verify:dormant-providers
+      - name: Dormant payment providers stay closed (PayPal + Tranzila)
+        run: npx tsx lib/services/payments/dormant-provider-closure.test.ts
+
+      - name: Wave E negative proof (removing the webhook capability gate must be caught)
+        run: |
+          F="lib/services/payments/payment-webhook-handler.ts"
+          cp "$F" "$F.bak"
+          # Drop the capability gate: a dormant provider's callback would then
+          # reach processing, persistence and provider verification again.
+          sed -i 's|  if (!isPaymentProviderEnabled(input.provider)) {|  if (false) {|' "$F"
+          if npx tsx lib/services/payments/dormant-provider-closure.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: matrix did not catch the removed capability gate"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: matrix caught the removed capability gate"
+
       # CASA Wave A — the application session lifetime (CASA 2.2.3). This token
       # is stateless and non-revocable, so its 24h ceiling IS the control; there
       # is no session store to fall back on. Enforced in code rather than by

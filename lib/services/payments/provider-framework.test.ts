@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import {
   getProviderDescriptor,
+  listAllProviderDescriptors,
   listProviderDescriptors,
   isSupportedProvider,
 } from "./providers/provider-registry";
@@ -37,8 +38,14 @@ function capturingDeps() {
 async function main() {
   // === catalog / registry ===================================================
   {
+    // CASA Wave E: the catalogue is the ENABLED set (what the settings UI may
+    // offer). Every descriptor remains resolvable for historical records.
     const cat = listProviderDescriptors();
-    assert.deepEqual(cat.map((d) => d.key).sort(), ["CARDCOM", "PAYPAL", "TRANZILA"]);
+    assert.deepEqual(cat.map((d) => d.key).sort(), ["CARDCOM"]);
+    assert.deepEqual(
+      listAllProviderDescriptors().map((d) => d.key).sort(),
+      ["CARDCOM", "PAYPAL", "TRANZILA"]
+    );
 
     const cc = getProviderDescriptor("CARDCOM");
     const tz = getProviderDescriptor("TRANZILA");
@@ -85,12 +92,23 @@ async function main() {
   // === Tranzila generic connect: credential = JSON {secret} =================
   {
     const { deps, getPlaintext } = capturingDeps();
+    // CASA Wave E: Tranzila can no longer be connected, so the descriptor-driven
+    // credential shaping is asserted through the live provider instead.
     const conn = await connectProviderFromDescriptor(
-      { businessId: 1, provider: "TRANZILA", fields: { merchantId: "term1", secret: "s3cr3t" } },
+      {
+        businessId: 1,
+        provider: "CARDCOM",
+        fields: { terminalNumber: "term1", apiName: "n", apiPassword: "s3cr3t" },
+      },
       deps
     );
     assert.equal(conn.merchantId, "term1");
-    assert.equal(getPlaintext(), JSON.stringify({ secret: "s3cr3t" }));
+    // terminalNumber is CardCom's merchantId field, so it is stored as the
+    // connection merchantId rather than inside the credential blob.
+    assert.equal(
+      getPlaintext(),
+      JSON.stringify({ apiName: "n", apiPassword: "s3cr3t" })
+    );
   }
 
   // === merchantId fallback key works (canonical `merchantId`) ================
@@ -135,7 +153,9 @@ async function main() {
     await assert.rejects(
       () =>
         connectProviderFromDescriptor(
-          { businessId: 1, provider: "TRANZILA", fields: { secret: "x" } },
+          // CASA Wave E: asserted through the live provider — for a disabled one
+          // the capability gate fires first, by design, before field validation.
+          { businessId: 1, provider: "CARDCOM", fields: { apiName: "x" } },
           deps
         ),
       /required/

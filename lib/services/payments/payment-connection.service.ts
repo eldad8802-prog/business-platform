@@ -19,6 +19,7 @@ import type {
 } from "./payments.types";
 import { recordPaymentAuditEvent } from "./payment-audit.service";
 import { getProviderDescriptor } from "./providers/provider-registry";
+import { assertPaymentProviderEnabled } from "./providers/provider-availability";
 
 export interface ConnectProviderInput {
   businessId: number;
@@ -144,6 +145,12 @@ export async function connectProviderFromDescriptor(
       `Unknown payment provider: ${String(input.provider)}`
     );
   }
+
+  // CASA Wave E: capability gate. Every connect route — the generic one and the
+  // backward-compatible per-provider wrappers — funnels through here, so a
+  // disabled provider cannot be connected by a direct API call either. Hiding
+  // the option in the UI would not have been enough.
+  assertPaymentProviderEnabled(descriptor.key);
 
   const merchantRaw =
     input.fields[descriptor.merchantIdField.key] ?? input.fields.merchantId;
