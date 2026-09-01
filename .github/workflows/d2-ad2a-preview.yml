@@ -13,6 +13,10 @@
 name: d2/ad2a — account-deletion preview proof (neon)
 
 on:
+  # TEMPORARY arm so GitHub registers this new workflow; a new file cannot be
+  # dispatched on a non-default branch until it has run once. Removed immediately after.
+  push:
+    branches: [feat/d2-account-deletion-2a]
   workflow_dispatch:
 
 permissions:
