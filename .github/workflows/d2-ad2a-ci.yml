@@ -1,0 +1,94 @@
+# D2 / ACCOUNT-DELETION-2A — lifecycle + erasure-execution battery (ephemeral PG17).
+#
+# Runs the REAL orchestrator, the REAL Prisma erasure adapter, the REAL session check
+# and the REAL payment settlement store against tenant tables that are actually under
+# FORCE RLS — because the defect this wave fixes is invisible without RLS.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO Production.
+
+name: d2/ad2a — account-deletion lifecycle battery (ephemeral PG17)
+
+on:
+  push:
+    branches: [feat/d2-account-deletion-2a]
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/account/**"
+      - "lib/tenant/**"
+      - "lib/auth.ts"
+      - "lib/services/payments/**"
+      - "app/api/account/**"
+      - "scripts/security/conversation-integrity-scan.mjs"
+      - "scripts/ci/account-deletion-guard.sh"
+      - ".ad2a/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ad2a-battery:
+    name: AD-2A battery (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ad2a_owner
+          POSTGRES_PASSWORD: ad2a_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_ad2a
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ad2a_owner -d dubiz_ad2a"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://ad2a_owner:ad2a_ci_synthetic_owner_pw@localhost:5432/dubiz_ad2a
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .ad2a/battery.mjs && node --check scripts/security/conversation-integrity-scan.mjs
+
+      - name: CI-AD guards + negative self-proofs (blocking)
+        run: |
+          bash scripts/ci/account-deletion-guard.sh .
+          bash scripts/ci/account-deletion-guard.sh --self-test
+
+      - name: Existing guard families (no regression)
+        run: |
+          bash scripts/ci/prisma-centralization-guard.sh .
+          bash scripts/ci/admin-boundary-guard.sh .
+          bash scripts/ci/w4-context-guard.sh .
+          bash scripts/ci/privwrite-guard.sh .
+
+      - name: Account-deletion orchestrator unit matrix
+        run: npx tsx lib/services/account/account-deletion.test.ts
+
+      - name: Tenant primitives (context + job)
+        run: |
+          npx tsx lib/tenant/context.test.ts
+          npx tsx lib/tenant/job.test.ts
+
+      - name: Push schema (lab; migrate-from-zero is a known separate defect)
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Run AD-2A battery
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
+        run: npx tsx .ad2a/battery.mjs

@@ -1,11 +1,28 @@
 /**
- * Account deletion — pure orchestrator (Wave 1B). Server-only, tenant-safe, fail-closed,
+ * Account deletion — pure orchestrator. Server-only, tenant-safe, fail-closed,
  * idempotent. Enforces the ratified rules (docs/privacy-account-deletion-erasure-design-v1.md):
  *   - SOLE-ACTIVE-USER gate (v1): a business is deletable only when it has exactly one
  *     active user AND that user is the authenticated requester.
  *   - idempotent: re-requesting on an already-deleted business is a no-op success.
- *   - ORDER: revoke integrations → anonymize/purge operational PII → mark business
- *     deleted → write erasure audit. Legally-retained fiscal/evidence records untouched.
+ *
+ * ORDER (D2/AD-2A — quarantine first, and this ordering IS the security property):
+ *
+ *   1. QUARANTINE   mark DELETION_REQUESTED and destroy integration credentials at
+ *                   rest, in ONE transaction. The instant it commits, the business
+ *                   stops accepting normal writes everywhere: sessions die
+ *                   (getCurrentUser), background jobs are refused (runTenantJob) and
+ *                   provider webhooks are refused at their tenant boundary. Nothing
+ *                   destructive has happened yet, so a failure here leaves an ACTIVE
+ *                   business and the request can simply be retried.
+ *   2. PURGE        anonymize + delete operational PII, under an explicit tenant
+ *                   context so the FORCE-RLS'd tables are actually reachable.
+ *   3. FINALIZE     mark PURGED and append the erasure evidence, atomically.
+ *
+ * The previous order did the destructive work FIRST and marked the business LAST,
+ * which left the entire erasure window fully authenticated and open to provider and
+ * background resurrection.
+ *
+ * Legally-retained fiscal/evidence records are never touched at any stage.
  *
  * The concrete Prisma work lives behind `AccountDeletionStore` (adapter). This module is
  * DB-free so the gate/idempotency/order are unit-testable without a database.
@@ -26,19 +43,35 @@ export class AccountDeletionError extends Error {
   }
 }
 
+/** The lifecycle a deletion moves through. See lib/tenant/business-lifecycle.ts. */
+export type BusinessDeletionState = "ACTIVE" | "DELETION_REQUESTED" | "PURGED";
+
 export interface AccountDeletionStore {
   /** Tenant-scoped read; null if the business doesn't exist. */
-  getBusiness(businessId: number): Promise<{ id: number; deletedAt: Date | null } | null>;
+  getBusiness(
+    businessId: number
+  ): Promise<{ id: number; state: BusinessDeletionState } | null>;
   /** Active (non-deleted) user ids for the business. */
   listActiveUserIds(businessId: number): Promise<number[]>;
-  /** Revoke + clear all integration credentials (bucket C). Best-effort provider revoke. */
-  revokeIntegrations(businessId: number): Promise<void>;
-  /** Anonymize (bucket B.1) + delete (bucket B.2) operational PII. Retains bucket A. */
-  anonymizeAndPurgeOperationalData(businessId: number): Promise<void>;
-  /** Mark the tenant closed: deletedAt/archivedAt/archivedByUserId. */
-  markBusinessDeleted(businessId: number, actorUserId: number, now: Date): Promise<void>;
-  /** Append-only erasure audit entry (categories/when/by whom — never erased content). */
-  writeErasureAudit(businessId: number, actorUserId: number, now: Date): Promise<void>;
+  /**
+   * STAGE 1 — atomically enter DELETION_REQUESTED and destroy integration
+   * credentials at rest (bucket C). Conditional on the business still being ACTIVE,
+   * so two concurrent requests cannot both believe they started the deletion.
+   * Returns false when another request won the race. Contains NO network call.
+   */
+  quarantineAndRevokeIntegrations(businessId: number, now: Date): Promise<boolean>;
+  /**
+   * STAGE 2 — anonymize (bucket B.1) + delete (bucket B.2) operational PII under an
+   * explicit tenant context. Retains bucket A. Idempotent: safe to re-run after a
+   * partial failure, because every operation is a state-convergent overwrite.
+   */
+  purgeOperationalData(businessId: number): Promise<void>;
+  /**
+   * STAGE 3 — mark PURGED and append the erasure evidence in ONE transaction. If the
+   * evidence cannot be written the transition must not commit: a deletion that
+   * reports success without durable evidence is worse than one that fails.
+   */
+  finalizeAndAudit(businessId: number, actorUserId: number, now: Date): Promise<void>;
 }
 
 export type DeletionResult = { status: "deleted" | "already_deleted" };
@@ -67,26 +100,32 @@ export async function deleteOwnBusinessAccount(
   if (!business) {
     throw new AccountDeletionError("business_not_found", "business not found for this session");
   }
-  // Idempotent: already closed → no-op success (safe to retry).
-  if (business.deletedAt) {
+  // Idempotent: already finished → no-op success (safe to retry).
+  if (business.state === "PURGED") {
     return { status: "already_deleted" };
   }
 
   // Sole-active-user gate (v1). Fail closed if more than one active user, or if the
-  // requester is not that single user.
-  const activeUsers = await store.listActiveUserIds(businessId);
-  if (activeUsers.length !== 1 || activeUsers[0] !== actorUserId) {
-    throw new AccountDeletionError(
-      "not_sole_user",
-      "account deletion requires being the sole active user of the business"
-    );
+  // requester is not that single user. Evaluated only while the business is still
+  // ACTIVE: once quarantined the session is dead by design, so a resumed purge must
+  // not be blocked by re-checking an authorization that can no longer be satisfied.
+  if (business.state === "ACTIVE") {
+    const activeUsers = await store.listActiveUserIds(businessId);
+    if (activeUsers.length !== 1 || activeUsers[0] !== actorUserId) {
+      throw new AccountDeletionError(
+        "not_sole_user",
+        "account deletion requires being the sole active user of the business"
+      );
+    }
+
+    // STAGE 1. Quarantine before anything destructive.
+    await store.quarantineAndRevokeIntegrations(businessId, now);
   }
 
-  // Ordered erasure. Retained fiscal/evidence records are never touched.
-  await store.revokeIntegrations(businessId);
-  await store.anonymizeAndPurgeOperationalData(businessId);
-  await store.markBusinessDeleted(businessId, actorUserId, now);
-  await store.writeErasureAudit(businessId, actorUserId, now);
+  // STAGE 2 + 3. Reaching here with an already-quarantined business means a previous
+  // attempt failed mid-purge; both stages are safe to repeat.
+  await store.purgeOperationalData(businessId);
+  await store.finalizeAndAudit(businessId, actorUserId, now);
 
   return { status: "deleted" };
 }
