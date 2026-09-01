@@ -83,21 +83,28 @@ export const TOKEN = {
   },
 
   action: {
-    /** The Dubiz primary CTA — teal gradient, soft wide glow, no halo. */
+    /**
+     * The Dubiz primary CTA. Reads the ROLE token, not the brand gradient:
+     * a flat, restrained fill that hover/active deepen. Every token-driven
+     * primary button in the product resolves through here.
+     */
     primary: {
-      background: MIST.brandGradient,
-      backgroundHover: MIST.brandGradientHover,
-      color: MIST.textOnBrand,
+      background: MIST.actionPrimary,
+      backgroundHover: MIST.actionPrimaryHover,
+      color: MIST.actionPrimaryText,
       border: "0",
-      shadow: MIST.shadowGlow,
-      shadowSoft: MIST.shadowGlow,
+      shadow: MIST.actionPrimaryShadow,
+      shadowSoft: MIST.actionPrimaryShadow,
     },
     /** Secondary action (§5): off-white surface, subtle border, muted dark ink. */
     glass: {
-      background: MIST.surfaceRaised,
-      backgroundHover: MIST.brandSoft,
-      color: MIST.textPrimary,
-      border: `1px solid ${MIST.border}`,
+      // Reads the secondary ROLE token so [data-dz-action="secondary"]:hover
+      // can rebind it. Pointing at a surface token directly would leave the
+      // hover rule rebinding a variable this element never reads.
+      background: MIST.actionSecondaryBg,
+      backgroundHover: MIST.actionSecondaryHover,
+      color: MIST.actionSecondaryText,
+      border: `1px solid ${MIST.actionSecondaryBorder}`,
       shadow: MIST.shadowCard,
     },
     danger: {
@@ -274,6 +281,25 @@ export const TOKEN = {
     gradientHover: MIST.brandGradientHover,
     onAccent: MIST.textOnBrand,
     /**
+     * Interaction roles. Feature themes read THESE for controls; `gradient`
+     * stays available for genuinely decorative brand surfaces (hero panels,
+     * meters, badges) where a gradient is the point.
+     */
+    actionPrimary: MIST.actionPrimary,
+    actionPrimaryHover: MIST.actionPrimaryHover,
+    actionPrimaryActive: MIST.actionPrimaryActive,
+    actionPrimaryText: MIST.actionPrimaryText,
+    actionPrimaryShadow: MIST.actionPrimaryShadow,
+    selectionBg: MIST.selectionBg,
+    selectionBgHover: MIST.selectionBgHover,
+    selectionText: MIST.selectionText,
+    selectionBorder: MIST.selectionBorder,
+    controlHover: MIST.controlHover,
+    actionSecondaryBg: MIST.actionSecondaryBg,
+    actionSecondaryHover: MIST.actionSecondaryHover,
+    actionSecondaryBorder: MIST.actionSecondaryBorder,
+    actionSecondaryText: MIST.actionSecondaryText,
+    /**
      * Semantic signals. DS v1 originally folded `success` onto the brand teal;
      * Dubiz Mist §10 restores the real green so success/warning/danger/info
      * keep their meaning. Brand-soft fills now read `accentSoft` instead.
@@ -383,12 +409,14 @@ export const TOKEN = {
     brown: MIST.warningAccent,
     brownLight: MIST.warningBorder,
     clay: MIST.dangerAccent,
-    grad: MIST.brandGradient,
-    gradHover: MIST.brandGradientHover,
+    /* Primary action fill for the Collection/Payments primitives (WarmButton).
+     * The interaction role, not the brand gradient. */
+    grad: MIST.actionPrimary,
+    gradHover: MIST.actionPrimaryHover,
     shadow: MIST.shadowCard,
     shadowHover: MIST.shadowCardHover,
-    glow: MIST.shadowGlow,
-    glowHover: MIST.shadowGlowHover,
+    glow: MIST.actionPrimaryShadow,
+    glowHover: MIST.actionPrimaryShadow,
     /** Warm radii — softer than the cool set. */
     radius: { card: 16, control: 12, cta: 14, pill: 999 },
     /**

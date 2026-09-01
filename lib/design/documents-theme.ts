@@ -56,18 +56,22 @@ export const TOKEN = {
 
   action: {
     primary: {
-      background: d.gradient,
-      backgroundHover: d.gradientHover,
-      color: d.onAccent,
+      // Role token, not the brand gradient — see lib/design/tokens.ts.
+      background: d.actionPrimary,
+      backgroundHover: d.actionPrimaryHover,
+      color: d.actionPrimaryText,
       border: "0",
-      shadow: d.shadowGlow,
-      shadowSoft: d.shadowGlow,
+      shadow: d.actionPrimaryShadow,
+      shadowSoft: d.actionPrimaryShadow,
     },
     glass: {
-      background: d.card,
-      backgroundHover: d.surface2,
-      color: d.ink,
-      border: `1px solid ${d.line}`,
+      // Secondary ROLE tokens, so [data-dz-action="secondary"]:hover can rebind
+      // them. Reading d.card directly would leave the hover rule rebinding a
+      // variable this control never looks at.
+      background: d.actionSecondaryBg,
+      backgroundHover: d.actionSecondaryHover,
+      color: d.actionSecondaryText,
+      border: `1px solid ${d.actionSecondaryBorder}`,
       shadow: d.shadowCard,
     },
     danger: {

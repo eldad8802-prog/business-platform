@@ -88,6 +88,15 @@
 .crm-btn--primary:hover {
   background: var(--crm-accent-grad-hover);
 }
+.crm-btn--primary:active {
+  background: var(--dz-action-primary-active);
+}
+/* One shared Mist focus ring — same treatment as every data-dz-action control. */
+.crm-btn:focus-visible,
+.crm-chip:focus-visible {
+  outline: var(--dz-focus-ring-width) solid var(--dz-focus-ring-color);
+  outline-offset: var(--dz-focus-ring-offset);
+}
 .crm-btn--ghost {
   background: var(--crm-card);
   color: var(--crm-ink);

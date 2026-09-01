@@ -418,7 +418,7 @@ const ctaButtonStyle = (enabled: boolean): React.CSSProperties => ({
   height: 52,
   borderRadius: 16,
   border: "none",
-  background: enabled ? TOKEN.action.primary.background : "var(--dz-text-disabled)",
+  background: enabled ? TOKEN.action.primary.background : "var(--dz-action-disabled-bg)",
   color: "var(--dz-text-on-brand)",
   fontSize: 16,
   fontWeight: 800,

@@ -108,10 +108,11 @@ export const inventoryPrimitivesCss = `
     box-shadow: var(--inv-glass-shadow);
   }
   [data-inventory-module] .inv-segbtn.is-on {
-    background: var(--inv-primary);
-    color: var(--inv-on-accent);
-    border: var(--inv-primary-border);
-    box-shadow: var(--inv-primary-shadow-soft);
+    /* Selection, not a primary action — the milky-sage treatment. */
+    background: var(--inv-selection-bg);
+    color: var(--inv-selection-text);
+    border: 1px solid var(--inv-selection-border);
+    box-shadow: none;
   }
 
   /* ===== filter chips ===== */
@@ -145,10 +146,11 @@ export const inventoryPrimitivesCss = `
     box-shadow: var(--inv-glass-shadow);
   }
   [data-inventory-module] .inv-chip.is-on {
-    background: var(--inv-primary);
-    color: var(--inv-on-accent);
-    border: var(--inv-primary-border);
-    box-shadow: var(--inv-primary-shadow-soft);
+    /* Selection, not a primary action — the milky-sage treatment. */
+    background: var(--inv-selection-bg);
+    color: var(--inv-selection-text);
+    border: 1px solid var(--inv-selection-border);
+    box-shadow: none;
   }
   [data-inventory-module] .inv-chip__dot { width: 8px; height: 8px; border-radius: 50%; }
 

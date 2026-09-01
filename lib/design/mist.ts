@@ -167,6 +167,51 @@ export const MIST = {
     "0 8px 22px -4px rgba(36, 105, 102, 0.3)",
   ),
   backdrop: v("--dz-backdrop", "rgba(35, 48, 43, 0.38)"),
+
+  /**
+   * INTERACTION LAYER — role-based tokens for controls.
+   *
+   * `brand*` above says what the Dubiz brand IS. These say what a colour is
+   * FOR. Keeping them apart is the whole point: one value used to feed primary
+   * buttons, FABs, segmented controls and chips alike, so a selection was
+   * indistinguishable from a primary action.
+   *
+   * A control that opts into the shared state layer (`data-dz-action` /
+   * `data-dz-selectable`) gets hover/active/focus for free, because those
+   * rules rebind these very variables.
+   */
+  actionPrimary: v("--dz-action-primary", "#2f615c"),
+  actionPrimaryHover: v("--dz-action-primary-hover", "#2c5a55"),
+  actionPrimaryActive: v("--dz-action-primary-active", "#26504c"),
+  actionPrimaryText: v("--dz-action-primary-text", MIST_FLAT.textOnBrand),
+  actionPrimaryShadow: v(
+    "--dz-action-primary-shadow",
+    "0 6px 18px -6px rgba(47, 97, 92, 0.34)",
+  ),
+
+  selectionBg: v("--dz-selection-bg", MIST_FLAT.brandSoft),
+  selectionBgHover: v("--dz-selection-bg-hover", MIST_FLAT.brandSoftStrong),
+  selectionText: v("--dz-selection-text", MIST_FLAT.brandHover),
+  selectionBorder: v("--dz-selection-border", MIST_FLAT.brandBorder),
+
+  actionSecondaryBg: v("--dz-action-secondary-bg", MIST_FLAT.surface),
+  actionSecondaryHover: v("--dz-action-secondary-hover", MIST_FLAT.surfaceMuted),
+  actionSecondaryBorder: v("--dz-action-secondary-border", MIST_FLAT.border),
+  actionSecondaryText: v("--dz-action-secondary-text", MIST_FLAT.textPrimary),
+
+  controlHover: v("--dz-control-hover", MIST_FLAT.surfaceMuted),
+  controlActive: v("--dz-control-active", MIST_FLAT.brandSoft),
+
+  actionDisabledBg: v("--dz-action-disabled-bg", MIST_FLAT.surfaceMuted),
+  actionDisabledText: v("--dz-action-disabled-text", MIST_FLAT.textDisabled),
+  actionDisabledBorder: v("--dz-action-disabled-border", MIST_FLAT.border),
+
+  actionDangerBg: v("--dz-action-danger-bg", MIST_FLAT.surface),
+  actionDangerHover: v("--dz-action-danger-hover", MIST_FLAT.dangerBg),
+  actionDangerBorder: v("--dz-action-danger-border", MIST_FLAT.dangerBorder),
+  actionDangerText: v("--dz-action-danger-text", MIST_FLAT.danger),
+
+  focusRingColor: v("--dz-focus-ring-color", MIST_FLAT.brand),
 } as const;
 
 export type MistToken = typeof MIST;
