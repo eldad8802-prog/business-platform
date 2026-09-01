@@ -10,6 +10,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getTenantContext, runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { assertBusinessAcceptsWritesTx, readBusinessLifecycle } from "@/lib/tenant/business-lifecycle";
 import type {
   AppendPaymentAuditEventRow,
   CreatePaymentRequestRow,
@@ -194,6 +195,26 @@ async function dbStep<T>(fn: (db: typeof prisma) => Promise<T>): Promise<T> {
   return fn(prisma);
 }
 
+// D2/AD-2A: the same step, plus a race-safe account-deletion gate INSIDE the
+// transaction. A webhook that resolved its tenant while the business was healthy can
+// still be mid-flight when erasure begins; a pre-flight check would already be stale.
+// The guard takes a row lock on Business, so it serialises against the quarantine
+// transition: either this write commits first, or the transition did and this throws.
+// Used for the two OPERATIONAL settlement writes — the money row and the request
+// status. Reads stay ungated: a quarantined tenant may still be read, only not written.
+async function guardedDbStep<T>(
+  businessId: number,
+  fn: (db: typeof prisma) => Promise<T>
+): Promise<T> {
+  if (getTenantContext() !== undefined) {
+    return withTenantTransaction(async (tx) => {
+      await assertBusinessAcceptsWritesTx(tx, businessId);
+      return fn(tx as unknown as typeof prisma);
+    });
+  }
+  return fn(prisma);
+}
+
 // Explicit BOOTSTRAP boundary. These operations run before any tenant is known
 // (a provider callback names only its own ids) and touch only tables that are
 // deliberately outside tenant RLS: PaymentWebhookEvent (no businessId, DB-level
@@ -271,7 +292,11 @@ export function createPaymentPrismaStore(): PaymentStore {
     },
 
     async updatePaymentRequest(id: number, patch: PaymentRequestPatch) {
-      const updated = await dbStep((db) => db.paymentRequest.update({
+      const tenant = getTenantContext();
+      const step = tenant
+        ? <T,>(f: (db: typeof prisma) => Promise<T>) => guardedDbStep(tenant.businessId, f)
+        : dbStep;
+      const updated = await step((db) => db.paymentRequest.update({
         where: { id },
         data: {
           status: patch.status,
@@ -282,6 +307,12 @@ export function createPaymentPrismaStore(): PaymentStore {
         },
       }));
       return toRequestRecord(updated);
+    },
+
+    async getBusinessLifecycle(businessId: number) {
+      // Deliberately NOT tenant-scoped and NOT inside a tenant transaction: this is
+      // the pre-context question 'may I enter this tenant at all?'.
+      return readBusinessLifecycle(businessId);
     },
 
     async findPaymentRequestById(id: number) {
@@ -425,7 +456,11 @@ export function createPaymentPrismaStore(): PaymentStore {
     },
 
     async createTransaction(row: CreateTransactionRow) {
-      const created = await dbStep((db) => db.paymentTransaction.create({
+      const tenant = getTenantContext();
+      const step = tenant
+        ? <T,>(f: (db: typeof prisma) => Promise<T>) => guardedDbStep(tenant.businessId, f)
+        : dbStep;
+      const created = await step((db) => db.paymentTransaction.create({
         data: {
           paymentRequestId: row.paymentRequestId,
           provider: row.provider,

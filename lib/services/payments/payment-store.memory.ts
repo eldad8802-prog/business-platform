@@ -39,6 +39,7 @@ export interface InMemoryPaymentStore extends PaymentStore {
 }
 
 export function createInMemoryPaymentStore(): InMemoryPaymentStore {
+  const lifecycles = new Map<number, "ACTIVE" | "DELETION_REQUESTED" | "PURGED">();
   const connections: PaymentConnectionRecord[] = [];
   const requests: PaymentRequestRecord[] = [];
   const transactions: PaymentTransactionRecord[] = [];
@@ -153,6 +154,13 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
       if (patch.expiresAt !== undefined) record.expiresAt = patch.expiresAt;
       if (patch.paidAt !== undefined) record.paidAt = patch.paidAt;
       return { ...record };
+    },
+
+    // D2/AD-2A: ACTIVE unless a test says otherwise, so the deletion gate is
+    // exercised by the same fake as everything else. `seedBusinessLifecycle`
+    // lets a test quarantine a business and prove the webhook refuses it.
+    async getBusinessLifecycle(businessId: number) {
+      return lifecycles.get(businessId) ?? "ACTIVE";
     },
 
     async findPaymentRequestById(id: number) {

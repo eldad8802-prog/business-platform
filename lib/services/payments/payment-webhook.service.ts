@@ -313,6 +313,24 @@ export async function processPaymentWebhook(
   // read and written at all. The provider verification call below stays OUTSIDE
   // any transaction: a context is ALS, not a tx, and each DB step opens its own
   // short transaction.
+  // D2/AD-2A — ACCOUNT-DELETION GATE, placed exactly at the tenant boundary.
+  // Bootstrap resolution above is deliberately still allowed: the webhook ledger and
+  // the routing index are how we identify the event at all, and refusing to record a
+  // received event would only make the provider retry it forever. What must not happen
+  // is the next line — entering the tenant and creating operational state for a
+  // business that is being erased. The event is recorded as terminally not-processed,
+  // and the handler answers HTTP 200 regardless, so the provider stops retrying
+  // without any tenant row being resurrected.
+  const lifecycle = await deps.store.getBusinessLifecycle(request.businessId);
+  if (lifecycle !== "ACTIVE") {
+    return fail(
+      "FAILED",
+      `business_quarantined:${lifecycle ?? "UNKNOWN"}`,
+      request.id,
+      request.status
+    );
+  }
+
   return runWithTenantContext({ businessId: request.businessId }, async () => {
 
   // 5. AUTHORITY. The webhook is only a signal. A PaymentRequest may move to

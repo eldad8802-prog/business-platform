@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "./prisma";
 import { verifyAuthToken } from "./auth-token";
+import { acceptsNormalWrites } from "./tenant/business-lifecycle";
 
 export { AuthTokenConfigError, signAuthToken, verifyAuthToken } from "./auth-token";
 
@@ -29,10 +30,12 @@ export async function getCurrentUser(req: Request) {
       },
     });
 
-    // Fail closed for a deleted account (Wave 1B): once the business is closed, any
-    // still-valid bearer token must not grant access. Auth is stateless (no session
-    // store), so this is the revocation point.
-    if (user && user.business?.deletedAt) {
+    // Fail closed for a business under account-deletion quarantine (D2/AD-2A).
+    // Tokens are stateless HMAC with no server-side session store, so this DB check
+    // IS the revocation boundary — and it must fire the moment deletion is REQUESTED,
+    // not only once the purge has finished. Checking deletedAt alone left the whole
+    // quarantine window authenticated.
+    if (user && user.business && !acceptsNormalWrites(user.business)) {
       return null;
     }
 

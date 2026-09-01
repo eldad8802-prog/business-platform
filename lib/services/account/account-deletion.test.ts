@@ -37,7 +37,7 @@ async function catchErr(fn: () => Promise<unknown>): Promise<unknown> {
 const NOW = new Date("2026-08-23T12:00:00Z");
 
 type StoreState = {
-  business: { id: number; deletedAt: Date | null } | null;
+  business: { id: number; state: "ACTIVE" | "DELETION_REQUESTED" | "PURGED" } | null;
   activeUserIds: number[];
 };
 function makeStore(state: StoreState) {
@@ -51,18 +51,17 @@ function makeStore(state: StoreState) {
       calls.push("listActiveUserIds");
       return [...state.activeUserIds];
     },
-    async revokeIntegrations() {
-      calls.push("revokeIntegrations");
+    async quarantineAndRevokeIntegrations() {
+      calls.push("quarantineAndRevokeIntegrations");
+      if (state.business) state.business.state = "DELETION_REQUESTED";
+      return true;
     },
-    async anonymizeAndPurgeOperationalData() {
-      calls.push("anonymizeAndPurgeOperationalData");
+    async purgeOperationalData() {
+      calls.push("purgeOperationalData");
     },
-    async markBusinessDeleted() {
-      calls.push("markBusinessDeleted");
-      if (state.business) state.business.deletedAt = NOW;
-    },
-    async writeErasureAudit() {
-      calls.push("writeErasureAudit");
+    async finalizeAndAudit() {
+      calls.push("finalizeAndAudit");
+      if (state.business) state.business.state = "PURGED";
     },
   };
   return { store, calls, state };
@@ -94,48 +93,50 @@ function makeStore(state: StoreState) {
 
   // ---- sole user → deleted, in order ----
   {
-    const { store, calls } = makeStore({ business: { id: 7, deletedAt: null }, activeUserIds: [3] });
+    const { store, calls } = makeStore({ business: { id: 7, state: "ACTIVE" }, activeUserIds: [3] });
     const res = await deleteOwnBusinessAccount(store, { businessId: 7, actorUserId: 3, now: NOW });
     ok("sole user → deleted", res.status === "deleted");
     ok(
-      "execution order: revoke → anonymize → mark → audit",
-      calls.join(">").includes("revokeIntegrations>anonymizeAndPurgeOperationalData>markBusinessDeleted>writeErasureAudit")
+      "execution order: QUARANTINE FIRST → purge → finalize+audit",
+      calls
+        .join(">")
+        .includes("quarantineAndRevokeIntegrations>purgeOperationalData>finalizeAndAudit")
     );
   }
 
   // ---- second active user → denied, no destructive calls ----
   {
-    const { store, calls } = makeStore({ business: { id: 7, deletedAt: null }, activeUserIds: [3, 9] });
+    const { store, calls } = makeStore({ business: { id: 7, state: "ACTIVE" }, activeUserIds: [3, 9] });
     const e = await catchErr(() => deleteOwnBusinessAccount(store, { businessId: 7, actorUserId: 3, now: NOW }));
     ok("multi-user → AccountDeletionError not_sole_user", e instanceof AccountDeletionError && (e as AccountDeletionError).code === "not_sole_user");
-    ok("multi-user → no destructive calls", !calls.includes("revokeIntegrations") && !calls.includes("markBusinessDeleted"));
+    ok("multi-user → no destructive calls", !calls.includes("quarantineAndRevokeIntegrations") && !calls.includes("purgeOperationalData"));
   }
 
   // ---- requester is not the sole user → denied ----
   {
-    const { store } = makeStore({ business: { id: 7, deletedAt: null }, activeUserIds: [99] });
+    const { store } = makeStore({ business: { id: 7, state: "ACTIVE" }, activeUserIds: [99] });
     const e = await catchErr(() => deleteOwnBusinessAccount(store, { businessId: 7, actorUserId: 3, now: NOW }));
     ok("sole user but not requester → denied", (e as AccountDeletionError)?.code === "not_sole_user");
   }
 
   // ---- cross-tenant / unknown business → not_found ----
   {
-    const { store } = makeStore({ business: { id: 7, deletedAt: null }, activeUserIds: [3] });
+    const { store } = makeStore({ business: { id: 7, state: "ACTIVE" }, activeUserIds: [3] });
     const e = await catchErr(() => deleteOwnBusinessAccount(store, { businessId: 8, actorUserId: 3, now: NOW }));
     ok("unknown/cross-tenant business → business_not_found", (e as AccountDeletionError)?.code === "business_not_found");
   }
 
   // ---- idempotent: already deleted → no-op success, no destructive calls ----
   {
-    const { store, calls } = makeStore({ business: { id: 7, deletedAt: NOW }, activeUserIds: [3] });
+    const { store, calls } = makeStore({ business: { id: 7, state: "PURGED" }, activeUserIds: [3] });
     const res = await deleteOwnBusinessAccount(store, { businessId: 7, actorUserId: 3, now: NOW });
     ok("already-deleted → already_deleted", res.status === "already_deleted");
-    ok("already-deleted → no destructive calls, no user-gate needed", !calls.includes("revokeIntegrations") && !calls.includes("listActiveUserIds"));
+    ok("already-deleted → no destructive calls, no user-gate needed", !calls.includes("quarantineAndRevokeIntegrations") && !calls.includes("listActiveUserIds"));
   }
 
   // ---- re-request after deletion is a no-op (idempotency across two calls) ----
   {
-    const { store } = makeStore({ business: { id: 7, deletedAt: null }, activeUserIds: [3] });
+    const { store } = makeStore({ business: { id: 7, state: "ACTIVE" }, activeUserIds: [3] });
     const first = await deleteOwnBusinessAccount(store, { businessId: 7, actorUserId: 3, now: NOW });
     const second = await deleteOwnBusinessAccount(store, { businessId: 7, actorUserId: 3, now: NOW });
     ok("first deletes, second is idempotent", first.status === "deleted" && second.status === "already_deleted");
@@ -143,9 +144,37 @@ function makeStore(state: StoreState) {
 
   // ---- invalid input ----
   {
-    const { store } = makeStore({ business: { id: 7, deletedAt: null }, activeUserIds: [3] });
+    const { store } = makeStore({ business: { id: 7, state: "ACTIVE" }, activeUserIds: [3] });
     const e = await catchErr(() => deleteOwnBusinessAccount(store, { businessId: 0, actorUserId: 3, now: NOW }));
     ok("invalid businessId → invalid_input", (e as AccountDeletionError)?.code === "invalid_input");
+  }
+
+  // ---- resume after a failed purge: already quarantined, gate not re-run ----
+  {
+    const { store, calls } = makeStore({ business: { id: 7, state: "DELETION_REQUESTED" }, activeUserIds: [3] });
+    const res = await deleteOwnBusinessAccount(store, { businessId: 7, actorUserId: 3, now: NOW });
+    ok("quarantined business → purge resumes to deleted", res.status === "deleted");
+    ok(
+      "resume does NOT re-quarantine and does NOT re-run the sole-user gate",
+      !calls.includes("quarantineAndRevokeIntegrations") && !calls.includes("listActiveUserIds")
+    );
+    ok(
+      "resume still purges and finalizes",
+      calls.includes("purgeOperationalData") && calls.includes("finalizeAndAudit")
+    );
+  }
+
+  // ---- quarantine precedes every destructive stage ----
+  {
+    const { store, calls } = makeStore({ business: { id: 7, state: "ACTIVE" }, activeUserIds: [3] });
+    await deleteOwnBusinessAccount(store, { businessId: 7, actorUserId: 3, now: NOW });
+    const q = calls.indexOf("quarantineAndRevokeIntegrations");
+    const purge = calls.indexOf("purgeOperationalData");
+    const fin = calls.indexOf("finalizeAndAudit");
+    ok(
+      "quarantine commits BEFORE anything destructive (the whole point of AD-2A)",
+      q >= 0 && q < purge && purge < fin
+    );
   }
 
   if (failed > 0) {

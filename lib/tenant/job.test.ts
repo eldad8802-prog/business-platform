@@ -4,6 +4,17 @@
  *   npx tsx lib/tenant/job.test.ts
  */
 import { runTenantJob, TenantJobError } from "./job";
+
+// D2/AD-2A: runTenantJob now refuses work on a business under account-deletion
+// quarantine, and that check reads the database — while this file is a DB-free
+// unit proof. The tests therefore inject a stub gate. The DEFAULT (the real gate)
+// is proven against a live database in .ad2a/battery.mjs, and CI-AD-6 pins that
+// the default is the real one, so a stub can never become shipped behaviour.
+const allowAll = async () => {};
+const runJob = <T,>(
+  identity: { businessId: number },
+  fn: () => Promise<T>
+): Promise<T> => runTenantJob(identity, fn, { checkLifecycle: allowAll });
 import {
   getTenantContext,
   runWithTenantContext,
@@ -37,11 +48,11 @@ async function expectThrow(
 
 async function main(): Promise<void> {
   // A → A, B → B.
-  const a = await runTenantJob({ businessId: 11 }, async () => {
+  const a = await runJob({ businessId: 11 }, async () => {
     return getTenantContext()?.businessId;
   });
   ok("explicit job A runs under tenant A", a === 11, `got ${a}`);
-  const b = await runTenantJob({ businessId: 22 }, async () => {
+  const b = await runJob({ businessId: 22 }, async () => {
     return getTenantContext()?.businessId;
   });
   ok("explicit job B runs under tenant B", b === 22, `got ${b}`);
@@ -50,13 +61,13 @@ async function main(): Promise<void> {
   await expectThrow(
     "missing businessId throws TenantJobError",
     () =>
-      runTenantJob(undefined as unknown as { businessId: number }, async () => 1),
+      runJob(undefined as unknown as { businessId: number }, async () => 1),
     "TenantJobError"
   );
   for (const bad of [0, -3, 1.5, NaN, "7" as unknown as number, null as unknown as number]) {
     await expectThrow(
       `invalid businessId (${String(bad)}) throws TenantJobError`,
-      () => runTenantJob({ businessId: bad }, async () => 1),
+      () => runJob({ businessId: bad }, async () => 1),
       "TenantJobError"
     );
   }
@@ -68,7 +79,7 @@ async function main(): Promise<void> {
     getTenantContext() === undefined,
     JSON.stringify(getTenantContext())
   );
-  const bare = await runTenantJob({ businessId: 33 }, async () => {
+  const bare = await runJob({ businessId: 33 }, async () => {
     // Cross an async boundary (macrotask) — context must survive it.
     await new Promise((r) => setTimeout(r, 5));
     return getTenantContext()?.businessId;
@@ -82,13 +93,13 @@ async function main(): Promise<void> {
     "explicit B job inside established A context throws (no silent switch)",
     () =>
       runWithTenantContext({ businessId: 11 }, () =>
-        runTenantJob({ businessId: 22 }, async () => getTenantContext()?.businessId)
+        runJob({ businessId: 22 }, async () => getTenantContext()?.businessId)
       ),
     "TenantContextError"
   );
   // Same-tenant nesting is allowed and stays on the same tenant.
   const same = await runWithTenantContext({ businessId: 11 }, () =>
-    runTenantJob({ businessId: 11 }, async () => getTenantContext()?.businessId)
+    runJob({ businessId: 11 }, async () => getTenantContext()?.businessId)
   );
   ok("same-tenant nesting keeps tenant A", same === 11, `got ${same}`);
 
@@ -98,7 +109,7 @@ async function main(): Promise<void> {
   runWithTenantContext({ businessId: 44 }, () => {
     const trustedBusinessId = 44; // server-derived inside the request
     deferred.push(() =>
-      runTenantJob({ businessId: trustedBusinessId }, async () => {
+      runJob({ businessId: trustedBusinessId }, async () => {
         await new Promise((r) => setTimeout(r, 5));
         return getTenantContext()?.businessId;
       })
@@ -117,7 +128,7 @@ async function main(): Promise<void> {
   await expectThrow(
     "job body errors propagate",
     () =>
-      runTenantJob({ businessId: 55 }, async () => {
+      runJob({ businessId: 55 }, async () => {
         throw new TenantJobError("boom");
       }),
     "TenantJobError"
@@ -126,6 +137,41 @@ async function main(): Promise<void> {
 
   console.log(`\n[job.test] PASS=${pass} FAIL=${fail}`);
   if (fail > 0) process.exit(1);
+  // ---- AD-2A: the account-deletion quarantine gate ----
+  {
+    const seen: number[] = [];
+    await runTenantJob({ businessId: 77 }, async () => 1, {
+      checkLifecycle: async (id) => {
+        seen.push(id);
+      },
+    });
+    ok("quarantine gate is consulted with the job's own businessId", seen.join() === "77");
+
+    let refused = false;
+    try {
+      await runTenantJob({ businessId: 88 }, async () => 1, {
+        checkLifecycle: async () => {
+          throw new Error("quarantined");
+        },
+      });
+    } catch {
+      refused = true;
+    }
+    ok("a refused gate stops the job before any work runs", refused);
+
+    const erasureSeen: number[] = [];
+    await runTenantJob({ businessId: 99 }, async () => 1, {
+      quarantinePolicy: "erasure",
+      checkLifecycle: async (id) => {
+        erasureSeen.push(id);
+      },
+    });
+    ok(
+      "the erasure policy skips the gate (it must act ON a quarantined business)",
+      erasureSeen.length === 0
+    );
+  }
+
   console.log("ALL CHECKS PASS");
 }
 
