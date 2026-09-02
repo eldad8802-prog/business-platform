@@ -67,14 +67,28 @@ async function main() {
   for (const p of before.policies) console.log(`    ${p.tablename.padEnd(18)} ${p.policyname} (${p.cmd})`);
 
   const residueBefore = before.policies.filter((p) => p.policyname === "p4b_tenant");
-  ok(`Preview carries the unmigrated p4b_tenant residue (${residueBefore.length} policies)`,
-    residueBefore.length === 5, JSON.stringify(residueBefore.map((p) => p.tablename)));
-  ok("...and every one of them is FOR ALL, i.e. it silently grants DELETE",
-    residueBefore.every((p) => p.cmd === "ALL"), JSON.stringify(residueBefore.map((p) => p.cmd)));
+  const canonBefore = before.policies.filter((p) => p.policyname.startsWith("p7pilot_tenant_"));
   const admBefore = before.policies.filter((p) => p.policyname === "p7adm_read");
   ok("the canonical W2-GATE admin policies are present before", admBefore.length === 2);
-  const canonBefore = before.policies.filter((p) => p.policyname.startsWith("p7pilot_tenant_"));
-  ok("no canonical policy exists yet", canonBefore.length === 0);
+
+  // Preview converges on the FIRST application and stays converged, so this proof has
+  // to be honest about which of the two states it actually found rather than assuming
+  // it is always the first run. Both are meaningful: the first proves convergence FROM
+  // the residue, later ones prove the migration is idempotent against its own output.
+  const FIRST_RUN = residueBefore.length > 0;
+  if (FIRST_RUN) {
+    console.log("  -> found the UNCONVERGED state: proving convergence from the real residue");
+    ok(`Preview carries the unmigrated p4b_tenant residue (${residueBefore.length} policies)`,
+      residueBefore.length === 5, JSON.stringify(residueBefore.map((p) => p.tablename)));
+    ok("...and every one of them is FOR ALL, i.e. it silently grants DELETE",
+      residueBefore.every((p) => p.cmd === "ALL"), JSON.stringify(residueBefore.map((p) => p.cmd)));
+    ok("no canonical policy exists yet", canonBefore.length === 0);
+  } else {
+    console.log("  -> found the CONVERGED state: proving the migration is idempotent");
+    ok("the p4b_tenant residue is already gone (converged by an earlier run)", residueBefore.length === 0);
+    ok("the 15 canonical policies are already present", canonBefore.length === 15, `got ${canonBefore.length}`);
+    ok("still ZERO DELETE policy before re-applying", before.policies.every((p) => p.cmd !== "DELETE"));
+  }
 
   // ---- APPLY ----------------------------------------------------------------
   console.log("\n== APPLY the canonical migration ==");
