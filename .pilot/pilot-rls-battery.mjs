@@ -64,6 +64,20 @@ async function main() {
 
   // ---- 1. repository-truth reconstruction, EXCLUDING this wave -------------
   console.log("\n== 1. repository truth BEFORE this migration ==");
+  // Lab provisioning the reconstruction cannot supply: `app_admin` and `app_ctlplane`
+  // are created by migrations inside `DO $$ ... $$` blocks, and this reconstruction
+  // splits statements on ';' — which shatters a DO block. Rather than write a SQL
+  // parser for one case, create the two NOLOGIN groups directly; they are exactly
+  // what those DO blocks create, and `prisma db push` never creates roles at all.
+  // This is lab setup, not a claim about what the repository ships.
+  for (const r of ["app_admin", "app_ctlplane"]) {
+    await owner.$executeRawUnsafe(
+      `DO $do$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${r}') THEN
+         CREATE ROLE ${r} NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
+       END IF; END $do$`
+    );
+  }
+
   const migDirs = readdirSync("prisma/migrations").filter((d) => /^\d/.test(d)).sort();
   let applied = 0;
   for (const d of migDirs) {
@@ -183,9 +197,25 @@ async function main() {
   await owner.message.create({
     data: { businessId: A.id, conversationId: convA.id, channel: "WHATSAPP",
             direction: "INBOUND", senderType: "CUSTOMER", contentText: "pilot inbound" } });
+  const userA = await owner.user.create({
+    data: { businessId: A.id, email: "pilot-a@pilot.test", password: "x", name: "pilot A" },
+  });
   const apptA = await owner.appointment.create({
-    data: { businessId: A.id, customerId: custA.id, sourceConversationId: convA.id,
-            status: "PENDING", startAt: new Date() } }).catch((e) => { console.log("  (appointment fixture skipped: " + String(e.message).slice(0, 80) + ")"); return null; });
+    data: {
+      businessId: A.id,
+      customerId: custA.id,
+      sourceConversationId: convA.id,
+      status: "CONFIRMED",
+      startAt: new Date(),
+      createdByActor: "OWNER",
+      sourceChannel: "INBOX_WEB",
+      createdByUserId: userA.id,
+    },
+  }).catch((e) => {
+    console.log("  (appointment fixture failed: " + String(e.message).slice(0, 160) + ")");
+    return null;
+  });
+  ok("Appointment fixture created (so its isolation is proven on real rows)", apptA !== null);
   ok("non-empty two-tenant fixtures created", !!custA.id && !!convA.id);
 
   const rt = new PrismaClient({ datasourceUrl: roleUrl(ownerUrl, RT_ROLE, RT_PW) });
@@ -307,6 +337,7 @@ async function main() {
   await owner.message.deleteMany({ where: { businessId: { in: [A.id, B.id] } } });
   await owner.conversation.deleteMany({ where: { businessId: { in: [A.id, B.id] } } });
   await owner.customer.deleteMany({ where: { businessId: { in: [A.id, B.id] } } });
+  await owner.user.deleteMany({ where: { email: { endsWith: "@pilot.test" } } });
   await owner.business.deleteMany({ where: { name: { startsWith: "pilot-" } } });
   await owner.$executeRawUnsafe(`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM ${RT_ROLE}`);
