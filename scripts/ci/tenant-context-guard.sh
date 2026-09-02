@@ -102,8 +102,13 @@ fi
 ok "CI-TC-6  tenantTx exists, sets context + transaction, and rejects a bad businessId" "$n"
 
 # --- 7. bare tenant transactions cannot GROW -------------------------------
+# Paths are normalised by keeping everything from the first `app/` or `lib/` segment,
+# NOT by removing "$ROOT". `sed "s|^$ROOT/||"` silently fails whenever ROOT is an
+# absolute path — its slashes and dots are live in the pattern — and the failure runs
+# in the dangerous direction: every file then looks unmatched, so the check reports
+# violations that do not exist AND its negative proof passes for the wrong reason.
 found="$(grep -rln 'prisma\.\$transaction' --include=*.ts "$ROOT/app" "$ROOT/lib" 2>/dev/null \
-         | grep -v '\.test\.' | sed "s|^$ROOT/||" | sort || true)"
+         | grep -v '\.test\.' | sed -E 's#^.*/(app/|lib/)#\1#' | sort -u || true)"
 unknown=""
 for f in $found; do
   case "$KNOWN_BARE_TX" in
