@@ -86,7 +86,10 @@ for (const [label, width, height] of VIEWPORTS) {
   const metrics = await page.evaluate(() => {
     const doc = document.documentElement;
     const nav = document.querySelector('nav[aria-label="ייבוא וייצוא"]');
-    const rows = nav ? Array.from(nav.querySelectorAll("a")) : [];
+    // Count ROWS, not links: an action that is planned but not yet usable
+    // renders as a non-interactive row (see ImportExportPendingRow), so a
+    // link count would under-report the hub from I-3 onward.
+    const rows = nav ? Array.from(nav.children) : [];
     const dirOf = (el) => (el ? getComputedStyle(el).direction : null);
     return {
       scrollWidth: doc.scrollWidth,
@@ -95,7 +98,9 @@ for (const [label, width, height] of VIEWPORTS) {
       navFound: Boolean(nav),
       rowCount: rows.length,
       rowTexts: rows.map((a) => a.innerText.replace(/\s+/g, " ").trim()),
-      rowHrefs: rows.map((a) => a.getAttribute("href")),
+      rowHrefs: rows.map((el) =>
+        el.tagName === "A" ? el.getAttribute("href") : "(not a link)"
+      ),
       rowBoxes: rows.map((a) => {
         const r = a.getBoundingClientRect();
         return { w: Math.round(r.width), h: Math.round(r.height) };

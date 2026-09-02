@@ -42,7 +42,7 @@ export const IMPORT_EXPORT_ROUTE = "/settings/import-export";
  * False until a real capability exists behind the screen. See the module note:
  * flipping this WITHOUT shipping a working flow re-creates dead navigation.
  */
-export const IMPORT_EXPORT_RELEASED = false;
+export const IMPORT_EXPORT_RELEASED = true;
 
 /**
  * The Settings row, ready to list. Held here rather than in

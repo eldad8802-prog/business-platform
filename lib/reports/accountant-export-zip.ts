@@ -1,4 +1,5 @@
 import archiver from "archiver";
+import { collectArchiveToBuffer } from "@/lib/archive/zip-buffer";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
@@ -539,41 +540,14 @@ async function mapWithConcurrency<T, R>(
 }
 
 /**
- * Runs `build` against a fresh zip archiver and collects the full output into
- * a Buffer.
- *
- * The output collector is attached BEFORE anything is appended and BEFORE
- * `finalize()` is awaited. `finalize()` only resolves once the underlying
- * zip-stream has flushed to a consumer — awaiting it with no consumer attached
- * deadlocks as soon as the archive outgrows the internal stream buffers
- * (~1MB), which is exactly the historic 504 on real months. Mirrors the proven
- * collect pattern in lib/services/billing/uniform/uniform-export-package.service.ts.
+ * Re-exported from `lib/archive/zip-buffer.ts`, where the implementation now
+ * lives unchanged. It moved because the Import/Export Center needs the same
+ * collector for multi-domain CSV archives, and importing it from THIS module
+ * would have pulled Prisma, object storage and ExcelJS into a path that needs
+ * none of them. Existing callers and tests import it from here and are
+ * unaffected.
  */
-export async function collectArchiveToBuffer(
-  build: (archive: archiver.Archiver) => Promise<void>
-): Promise<Buffer> {
-  const archive = archiver("zip", { zlib: { level: 6 } });
-
-  const chunks: Buffer[] = [];
-  const collected = new Promise<void>((resolve, reject) => {
-    archive.on("data", (chunk: Buffer) => {
-      chunks.push(chunk);
-    });
-    archive.on("warning", (err) => {
-      // ENOENT-style warnings mean a silently incomplete archive — treat as fatal.
-      reject(err);
-    });
-    archive.on("error", reject);
-    archive.on("end", resolve);
-  });
-
-  await build(archive);
-  // Awaited together: if the archive errors while finalize() is in flight, the
-  // rejection must be observed immediately (not after finalize settles).
-  await Promise.all([archive.finalize(), collected]);
-
-  return Buffer.concat(chunks);
-}
+export { collectArchiveToBuffer };
 
 /** Builds the full accountant pack as a single in-memory ZIP Buffer. */
 export async function buildAccountantPackZipBuffer(

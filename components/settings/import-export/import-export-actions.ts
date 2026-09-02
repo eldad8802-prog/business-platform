@@ -26,6 +26,13 @@
  * Replaced with glyphs that differ in overall SHAPE, and that match the Hebrew
  * verb each row already uses: a folder for "העבר מידע" (the files you already
  * have) and a download arrow for "הורד עותק".
+ *
+ * # `available`
+ *
+ * Import is planned but not built. It stays VISIBLE — the Center supports both
+ * directions and hiding half of it would misrepresent the product — but it is
+ * rendered as a non-interactive row with a "בקרוב" pill, never as a link to a
+ * route that does not exist. See `ImportExportPendingRow`.
  */
 
 import { IMPORT_EXPORT_ROUTE } from "./import-export-release";
@@ -36,6 +43,8 @@ export type ImportExportAction = {
   title: string;
   description: string;
   icon: string;
+  /** False while the flow is planned but not yet usable. */
+  available: boolean;
 };
 
 export const IMPORT_EXPORT_ACTIONS: readonly ImportExportAction[] = [
@@ -45,6 +54,7 @@ export const IMPORT_EXPORT_ACTIONS: readonly ImportExportAction[] = [
     title: "ייבוא",
     description: "העבר מידע ממערכת אחרת לדוביז",
     icon: "📂",
+    available: false,
   },
   {
     key: "export",
@@ -52,5 +62,6 @@ export const IMPORT_EXPORT_ACTIONS: readonly ImportExportAction[] = [
     title: "ייצוא",
     description: "הורד עותק של הנתונים והמסמכים שלך",
     icon: "⬇️",
+    available: true,
   },
 ] as const;

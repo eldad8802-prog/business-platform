@@ -153,25 +153,50 @@ jobs:
       - name: Import/Export foundation (six-domain scope + no dead navigation)
         run: npx tsx lib/data-transfer/import-export-foundation.verify.test.ts
 
-      - name: I-2 negative proof (listing the feature before release must be caught)
+      - name: I-2 negative proof (release and Settings listing drifting apart must be caught)
         run: |
           F="components/settings/settings-categories.ts"
           cp "$F" "$F.bak"
-          # Exactly the mistake this guard exists for: the Settings row is added
-          # while the route is still gated, so it would open a 404.
+          # Break the atomicity from the released side: the route stays open but
+          # the Settings row disappears, so a working capability becomes
+          # invisible to the only person who can use it. (Before release the
+          # same guard catches the opposite mistake — a listed row that 404s.)
           node -e '
             const fs = require("fs");
             const p = process.argv[1];
-            let s = fs.readFileSync(p, "utf8");
-            s = s.replace(/\n\];\s*$/, "\n  { key: \"import-export\", href: \"/settings/import-export\", title: \"x\", description: \"y\", icon: \"z\" },\n];\n");
-            fs.writeFileSync(p, s);
+            const s = fs.readFileSync(p, "utf8");
+            fs.writeFileSync(p, s.replace(/\n\s*IMPORT_EXPORT_SETTINGS_CATEGORY,/, ""));
           ' "$F"
           if npx tsx lib/data-transfer/import-export-foundation.verify.test.ts >/dev/null 2>&1; then
             mv "$F.bak" "$F"
-            echo "NEGATIVE-PROOF FAIL: verifier passed with dead navigation exposed"; exit 1
+            echo "NEGATIVE-PROOF FAIL: verifier passed with release/listing out of step"; exit 1
           fi
           mv "$F.bak" "$F"
-          echo "NEGATIVE-PROOF PASS: exposing the unreleased row fails the verifier"
+          echo "NEGATIVE-PROOF PASS: release/listing drift fails the verifier"
+
+      # Import/Export Center I-3 — Tabular Export. Blocking because this is the
+      # first surface that reads whole tables and hands them to the browser as a
+      # file. The properties it pins are the ones whose failure is SILENT: a
+      # query that stops filtering by tenant still returns rows; an OFFSET page
+      # still returns rows; a formula-guard regression still produces a valid
+      # CSV. Pure — the descriptors run against an in-memory fake tx, so no DB.
+      # Local equivalent: npm run verify:data-transfer-export
+      - name: Tabular export (keyset paging, tenant filter, packaging, injection)
+        run: npx tsx lib/data-transfer/export/export.verify.test.ts
+
+      - name: I-3 negative proof (dropping the tenant filter must be caught)
+        run: |
+          F="lib/data-transfer/export/domains/customers.export.ts"
+          cp "$F" "$F.bak"
+          # The cross-tenant leak, planted exactly as a careless edit would make
+          # it: the keyset stays, the businessId predicate goes.
+          sed -i 's|where: { businessId, id: { gt: afterId } },|where: { id: { gt: afterId } },|' "$F"
+          if npx tsx lib/data-transfer/export/export.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: verifier passed with the tenant filter removed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: removing the tenant filter fails the verifier"
 
       # CASA Wave B — platform-admin TOTP MFA (CASA 3.3.1). The elevation
       # envelope and the guard decide whether a privileged request is allowed at

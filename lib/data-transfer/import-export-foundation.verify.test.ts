@@ -114,22 +114,35 @@ check("the three kinds carry the domains they must", () => {
 
 /* ============================================= 2. no dead navigation ===== */
 
-check("UNRELEASED: the feature is not listed in Settings", () => {
+check("the listing matches the release state, whichever state that is", () => {
   const keys = SETTINGS_CATEGORIES.map((c) => c.key);
   const hrefs = SETTINGS_CATEGORIES.map((c) => c.href);
-  assert.equal(IMPORT_EXPORT_RELEASED, false);
-  assert.equal(keys.includes(IMPORT_EXPORT_SETTINGS_CATEGORY.key), false);
-  assert.equal(hrefs.includes(IMPORT_EXPORT_ROUTE), false);
-  assert.equal(
-    hrefs.some((h) => h.startsWith(IMPORT_EXPORT_ROUTE)),
-    false
-  );
+
+  if (IMPORT_EXPORT_RELEASED) {
+    // Released (I-3 onward): the row must be there, or a working capability is
+    // invisible to the only person who can use it.
+    assert.equal(keys.includes(IMPORT_EXPORT_SETTINGS_CATEGORY.key), true);
+    assert.equal(hrefs.includes(IMPORT_EXPORT_ROUTE), true);
+  } else {
+    assert.equal(keys.includes(IMPORT_EXPORT_SETTINGS_CATEGORY.key), false);
+    assert.equal(
+      hrefs.some((h) => h.startsWith(IMPORT_EXPORT_ROUTE)),
+      false
+    );
+  }
 });
 
-check("UNRELEASED: the route refuses to render (notFound, not a hidden link)", () => {
-  const src = fs.readFileSync("app/settings/import-export/page.tsx", "utf8");
-  assert.equal(src.includes("IMPORT_EXPORT_RELEASED"), true);
-  assert.equal(src.includes("notFound()"), true);
+check("the route is gated by the flag, in both directions", () => {
+  // The gate itself is permanent: whether it opens depends on the flag, but a
+  // page that stopped consulting it could never be closed again.
+  for (const page of [
+    "app/settings/import-export/page.tsx",
+    "app/settings/import-export/export/page.tsx",
+  ]) {
+    const src = fs.readFileSync(page, "utf8");
+    assert.equal(src.includes("IMPORT_EXPORT_RELEASED"), true, page);
+    assert.equal(src.includes("notFound()"), true, page);
+  }
 });
 
 check("RELEASE IS ATOMIC: listing and the flag can only move together", () => {
@@ -149,7 +162,12 @@ check("RELEASE IS ATOMIC: listing and the flag can only move together", () => {
   );
 });
 
-check("no OTHER surface links to the unreleased route", () => {
+check("while unreleased, no OTHER surface links the route", () => {
+  if (IMPORT_EXPORT_RELEASED) {
+    // Released: linking it is the point. The atomicity check above is what
+    // keeps the listing and the gate in step from here on.
+    return;
+  }
   // A stray <Link href="/settings/import-export"> anywhere in the app would
   // re-open the hole from a direction this file's other checks cannot see.
   const roots = ["app", "components"];

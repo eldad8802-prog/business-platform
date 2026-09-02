@@ -51,6 +51,11 @@ export async function GET(req: Request) {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": "attachment; filename=report.csv",
+        // This body is the tenant's financial records. Without an explicit
+        // directive a CSV download is cacheable by any shared cache and stays
+        // in the browser's disk cache after logout. Matches the sibling
+        // accountant pack (/api/reports/export-zip), which already sets it.
+        "Cache-Control": "private, no-store",
       },
     });
   } catch {

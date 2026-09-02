@@ -266,6 +266,15 @@ check("STRUCTURAL: the route delegates and keeps no hand-rolled join(\",\")", ()
     false,
     "a hand-rolled join reintroduces corruption and injection"
   );
+  // The tenant's financial records must never sit in a shared cache or the
+  // browser's disk cache after logout. The sibling accountant pack already
+  // sets this; this endpoint did not until I-3.
+  assert.equal(
+    /"Cache-Control":\s*"private, no-store"/.test(src),
+    true,
+    "the CSV response must send Cache-Control: private, no-store"
+  );
+
   // The auth / tenant / query path must be untouched by this fix.
   for (const needle of [
     "getCurrentUser",
