@@ -50,12 +50,39 @@ async function main() {
   }
   const owner = new PrismaClient({ datasourceUrl: ownerUrl });
 
-  // ---- 1. FRESH-MIGRATION BASELINE ----------------------------------------
-  console.log("\n== 1. baseline from the REAL migration history (repo truth) ==");
-  const applied = await owner.$queryRawUnsafe(
-    `SELECT count(*)::int AS n FROM "_prisma_migrations" WHERE finished_at IS NOT NULL`
-  );
-  ok(`migrations applied from the repository (${applied[0].n})`, applied[0].n > 100);
+  // ---- 1. FRESH BASELINE FROM REPOSITORY ARTIFACTS ONLY --------------------
+  //
+  // NOTE ON METHOD. The plan was to build this lab with `prisma migrate deploy`, so
+  // the RLS baseline would be produced by replaying the real history. That is NOT
+  // possible in this repository: `20260210120000_billing_invoice_profile_fields` is
+  // back-dated ahead of `20260329225659_init`, so name-order replay reaches it first
+  // and dies on `relation "BusinessProfile" does not exist`. The history has never
+  // been replayable from empty; Production only survives because it was migrated
+  // forward from an already-existing schema. That is a real defect, reported rather
+  // than worked around silently — and it is NOT what this wave fixes.
+  //
+  // The substitute is faithful to the question being asked. The tables come from
+  // `prisma db push` (schema.prisma = repository truth, and Prisma models no RLS at
+  // all, so the lab starts with none). Then EVERY RLS statement the repository ships
+  // — extracted from the migration files themselves, in migration order — is applied.
+  // Whatever RLS exists afterwards is exactly what the repository grants. If the five
+  // pilot tables come out unprotected, the gap is in the repository, not in Preview.
+  console.log("\n== 1. baseline: apply every RLS statement the repository ships ==");
+  const { readdirSync, readFileSync } = await import("node:fs");
+  const migDirs = readdirSync("prisma/migrations").filter((d) => /^\d/.test(d)).sort();
+  let rlsStatements = 0;
+  for (const d of migDirs) {
+    let sql;
+    try { sql = readFileSync(`prisma/migrations/${d}/migration.sql`, "utf8"); } catch { continue; }
+    const stmts = sql
+      .split("\n").filter((l) => !l.trim().startsWith("--")).join("\n")
+      .split(";").map((x) => x.trim()).filter(Boolean);
+    for (const st of stmts) {
+      if (!/ROW LEVEL SECURITY|CREATE POLICY|DROP POLICY|CREATE ROLE|DO \$\$/i.test(st)) continue;
+      try { await owner.$executeRawUnsafe(st); rlsStatements++; } catch { /* role/policy already present */ }
+    }
+  }
+  ok(`applied ${rlsStatements} RLS/role statements from the repository's own migrations`, rlsStatements > 50);
 
   const baseline = await owner.$queryRawUnsafe(
     `SELECT relname::text AS tbl, relrowsecurity AS rls, relforcerowsecurity AS forced

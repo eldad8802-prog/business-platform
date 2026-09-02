@@ -89,13 +89,16 @@ jobs:
           npx prisma validate
           npx prisma generate
 
-      # THE governance step: build the lab from the real migration history so the
-      # RLS baseline it produces is repository truth, not Preview residue.
-      - name: Build the lab from the REAL migration history
+      # The lab schema comes from schema.prisma (repository truth). Prisma models no
+      # RLS, so the lab starts with NONE — the battery then applies every RLS
+      # statement the repository ships, extracted from the migration files in order.
+      # `prisma migrate deploy` cannot be used here: the history is not replayable
+      # from empty (a back-dated migration precedes the init that creates its table).
+      - name: Build the lab schema (RLS-free by construction)
         env:
           DATABASE_URL: ${{ env.OWNER_URL }}
           DIRECT_URL: ${{ env.OWNER_URL }}
-        run: npx prisma migrate deploy
+        run: npx prisma db push --skip-generate
 
       - name: Tenant context closure battery
         run: npx tsx .tcx/context-closure-battery.mjs
