@@ -97,3 +97,41 @@ stash-backup-*.patch
 
 # Local Dubiz Mist verification scratch (screenshots, diff harness) — never committed.
 .tmp-mist/
+# ---------------------------------------------------------------------------
+# Local scratch directories — never version-controlled.
+#
+# `.tmp/` holds dev-server logs, DB probe scripts and one-off seeds; `screenshots/`
+# holds review captures. Neither has a single tracked file today, and the managed
+# equivalents already exist (`/artifacts/`, `/docs/screenshots/`), so these two are
+# ignored wholesale rather than pattern-matched. Anything that genuinely needs to
+# be version-controlled belongs in one of the managed locations, not here.
+/.tmp/
+/screenshots/
+
+# ---------------------------------------------------------------------------
+# Credential-shaped notes — MUST NOT enter git, from any directory.
+#
+# Deliberately matched by SHAPE, not by extension: a blanket `*.txt` would hide
+# legitimate tracked files such as `docs/coupon/*.txt` and `public/fonts/*.txt`.
+# Keep local secret notes in `/secrets/` (already ignored above).
+*backup-code*
+*backup_code*
+*recovery-code*
+*recovery_code*
+*2fa-codes*
+*mfa-codes*
+*otp-codes*
+*credentials*.txt
+*credentials*.json
+*service-account*.json
+קודים אימות*
+סיסמאות*
+id_rsa
+id_rsa.*
+*.p12
+*.pfx
+
+# Stray console dumps at the repository ROOT only. Every legitimate tracked .txt
+# in this repo lives under `docs/` or `public/`, which this rule cannot reach.
+# If a root-level .txt ever needs tracking, add a `!/name.txt` exception below.
+/*.txt
