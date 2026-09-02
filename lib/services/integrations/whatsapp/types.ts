@@ -14,5 +14,11 @@ export type WhatsAppWebhookParseResult = {
   object: string | null;
   entryCount: number;
   changeCount: number;
+  /**
+   * Changes dropped because their `field` is not the supported event class.
+   * Surfaced so the boundary is visible in logs — a security boundary nobody
+   * can observe is one nobody can verify.
+   */
+  unsupportedChangeCount: number;
   messages: WhatsAppWebhookMessageSummary[];
 };

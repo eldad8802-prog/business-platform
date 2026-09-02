@@ -26,6 +26,7 @@ function safeWebhookLog(summary: {
   object: string | null;
   entryCount: number;
   changeCount: number;
+  unsupportedChangeCount: number;
   messageCount: number;
   messageTypes: string[];
 }): void {
@@ -33,6 +34,8 @@ function safeWebhookLog(summary: {
     object: summary.object,
     entryCount: summary.entryCount,
     changeCount: summary.changeCount,
+    // Changes dropped by the event-class boundary (field !== "messages").
+    unsupportedChangeCount: summary.unsupportedChangeCount,
     messageCount: summary.messageCount,
     messageTypes: summary.messageTypes,
   });
@@ -86,6 +89,7 @@ export async function POST(req: NextRequest) {
     object: parsed.object,
     entryCount: parsed.entryCount,
     changeCount: parsed.changeCount,
+    unsupportedChangeCount: parsed.unsupportedChangeCount,
     messageCount: parsed.messages.length,
     messageTypes: [
       ...new Set(

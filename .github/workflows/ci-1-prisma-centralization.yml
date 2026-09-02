@@ -175,6 +175,30 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: matrix caught the removed capability gate"
 
+      # WhatsApp webhook EVENT-CLASS boundary. A read-only audit found that
+      # acceptance was decided by payload SHAPE, not event class: change.field
+      # was never read, so any change carrying a value.messages[] array reached
+      # dispatch. Inertness of other fields depended on Meta choosing not to
+      # emit a messages-shaped array elsewhere — an assumption about the
+      # provider, not a property of this code. Deterministic and offline.
+      # Local equivalent: npm run verify:whatsapp-event-class
+      - name: WhatsApp webhook event-class boundary (field must be "messages")
+        run: npx tsx lib/services/integrations/whatsapp/webhook-event-class-boundary.test.ts
+
+      - name: Negative proof (removing the WhatsApp event-class boundary must be caught)
+        run: |
+          F="lib/services/integrations/whatsapp/webhook-parse.service.ts"
+          cp "$F" "$F.bak"
+          # Drop the event-class check: a hostile non-messages field carrying a
+          # crafted messages[] array would again reach the dispatch loop.
+          sed -i 's|      if (asString(changeRec?.field ?? null) !== SUPPORTED_CHANGE_FIELD) {|      if (false) {|' "$F"
+          if npx tsx lib/services/integrations/whatsapp/webhook-event-class-boundary.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: matrix did not catch the removed event-class boundary"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: matrix caught the removed event-class boundary"
+
       # CASA Wave A — the application session lifetime (CASA 2.2.3). This token
       # is stateless and non-revocable, so its 24h ceiling IS the control; there
       # is no session store to fall back on. Enforced in code rather than by

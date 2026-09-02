@@ -88,6 +88,9 @@ const docPayload = parseWhatsAppWebhookPayload({
     {
       changes: [
         {
+          // CASA event-class boundary: this fixture exercises document media
+          // extraction, so it must declare the supported event class.
+          field: "messages",
           value: {
             metadata: { phone_number_id: "999" },
             messages: [
