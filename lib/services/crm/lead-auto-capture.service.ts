@@ -36,8 +36,10 @@
  * lead per phone".
  */
 
-import type { Conversation, Message, Prisma } from "@prisma/client";
-import { leadService } from "@/lib/services/crm/lead.service";
+import type { Conversation, Message } from "@prisma/client";
+import { leadService, isOpenPhoneCollision } from "@/lib/services/crm/lead.service";
+import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { ValidationError } from "@/lib/errors";
 
 const FLAG_ENV_NAME = "LEADS_AUTO_CAPTURE_ENABLED";
 
@@ -52,6 +54,8 @@ export type AutoCaptureRefusalReason =
   | "already_linked"
   | "tenant_mismatch"
   | "no_identity"
+  /** The race was detected but recovery could not find the canonical lead. */
+  | "collision_unresolved"
   | "error";
 
 export type AutoCaptureResult =
@@ -73,9 +77,20 @@ export type AutoCaptureInput = {
  * Returns a reason rather than throwing: a capture failure must never break the
  * message that triggered it.
  */
+/**
+ * NOTE ON THE MISSING `tx` PARAMETER.
+ *
+ * This deliberately does NOT accept a caller's transaction. Recovery from the
+ * unique-index race requires a SECOND transaction, and a caller that handed us
+ * its own would have that transaction aborted underneath it by the collision —
+ * taking the caller's other work down with it. Owning both boundaries here is
+ * what makes the race recoverable at all.
+ *
+ * Callers must invoke this INSIDE `runWithTenantContext` (both already do), and
+ * must not wrap it in a transaction of their own.
+ */
 export async function maybeCaptureLeadFromMessage(
-  input: AutoCaptureInput,
-  options?: { tx?: Prisma.TransactionClient }
+  input: AutoCaptureInput
 ): Promise<AutoCaptureResult> {
   if (!isLeadAutoCaptureEnabled()) {
     return { captured: false, reason: "flag_disabled" };
@@ -109,28 +124,112 @@ export async function maybeCaptureLeadFromMessage(
     return { captured: false, reason: "already_linked" };
   }
 
+  // ── Attempt, in a transaction this service OWNS ──────────────────────────
+  //
+  // The boundary lives here rather than in the caller for one reason: when the
+  // partial unique index rejects the insert, Postgres ABORTS that transaction.
+  // Every later statement in it fails, so the adopt branch inside
+  // `createFromConversation` cannot run — it is trying to recover inside the
+  // very transaction that just died. Owning the boundary is what makes a second
+  // one possible.
   try {
-    const result = await leadService.createFromConversation(
-      { businessId, conversationId: conversation.id, name: null },
-      options
+    const result = await withTenantTransaction((tx) =>
+      leadService.createFromConversation(
+        { businessId, conversationId: conversation.id, name: null },
+        { tx }
+      )
     );
-    return {
-      captured: true,
-      leadId: result.lead.id,
-      outcome: result.outcome,
-    };
+    return { captured: true, leadId: result.lead.id, outcome: result.outcome };
   } catch (error) {
     // A lead with no derivable name is the common, legitimate refusal: an
     // unknown WhatsApp number with no profile name gives us nothing to call
     // the person, and inventing a placeholder would pollute the CRM.
     const messageText = error instanceof Error ? error.message : String(error);
-    if (/name/i.test(messageText)) {
+    if (isMissingIdentity(error, messageText)) {
       return { captured: false, reason: "no_identity" };
     }
-    console.warn(
-      `[lead-auto-capture] failed conversationId=${conversation.id} messageId=${message.id}:`,
-      messageText
-    );
-    return { captured: false, reason: "error" };
+
+    if (!isRecoverableCaptureRace(error)) {
+      console.warn(
+        `[lead-auto-capture] failed conversationId=${conversation.id} messageId=${message.id}:`,
+        messageText
+      );
+      return { captured: false, reason: "error" };
+    }
+
+    // ── Recovery, in a FRESH transaction ──────────────────────────────────
+    //
+    // Another conversation for this phone won the race and created the open
+    // lead. The aborted transaction is gone; this one starts clean, and
+    // `createFromConversation` now takes its ordinary adopt path — the same
+    // code that runs when the two inquiries arrive a second apart instead of
+    // simultaneously. So the loser converges NOW, not on its next message.
+    //
+    // Exactly ONE retry. The only thing that can send us here is an open lead
+    // existing, and an open lead cannot un-exist, so a second failure means
+    // something else is wrong and looping would just hide it.
+    try {
+      const adopted = await withTenantTransaction((tx) =>
+        leadService.createFromConversation(
+          { businessId, conversationId: conversation.id, name: null },
+          { tx }
+        )
+      );
+      return { captured: true, leadId: adopted.lead.id, outcome: adopted.outcome };
+    } catch (retryError) {
+      // Fail CLOSED and loudly. Creating a lead blindly here is precisely how a
+      // race turns into duplicate opportunities.
+      console.warn(
+        `[lead-auto-capture] collision recovery failed conversationId=${conversation.id} messageId=${message.id}:`,
+        retryError instanceof Error ? retryError.message : retryError
+      );
+      return { captured: false, reason: "collision_unresolved" };
+    }
   }
+}
+
+/**
+ * Is this failure the concurrent-capture race, and therefore worth exactly one
+ * retry in a clean transaction?
+ *
+ * TWO signatures, because the loser does not always see the collision itself:
+ *
+ *   1. The unique violation (P2002 on Lead's open-phone index) — what the loser
+ *      sees when nothing has swallowed it yet.
+ *
+ *   2. Postgres 25P02, "current transaction is aborted". This is the one that
+ *      actually arrives in practice. `createFromConversation` catches the
+ *      P2002 and tries to adopt the winner's lead — but that query runs in the
+ *      transaction the violation just killed, so IT fails, and 25P02 is what
+ *      propagates. Matching only the P2002 meant the retry never fired: the
+ *      error we were looking for had already been consumed upstream.
+ *
+ * Deliberately narrow. 25P02 means precisely "a previous statement in this
+ * transaction failed"; retrying it on a fresh transaction is always the right
+ * response. Anything else — a validation error, a dead connection, a genuine
+ * bug — is returned to the caller untouched.
+ */
+function isRecoverableCaptureRace(error: unknown): boolean {
+  if (isOpenPhoneCollision(error)) return true;
+
+  const text =
+    error instanceof Error ? `${error.message}` : typeof error === "string" ? error : "";
+  return (
+    text.includes("25P02") ||
+    /current transaction is aborted/i.test(text)
+  );
+}
+
+/**
+ * The "no name to call this person" refusal.
+ *
+ * Matched on the ValidationError the service throws rather than on any message
+ * containing "name" — `customerName`, `businessName` and half the schema would
+ * otherwise qualify.
+ */
+function isMissingIdentity(error: unknown, messageText: string): boolean {
+  return (
+    error instanceof ValidationError &&
+    /derive a name/i.test(messageText)
+  );
 }

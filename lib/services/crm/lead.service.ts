@@ -212,20 +212,51 @@ function clampLimit(value?: number | null): number {
 }
 
 /** True when a Prisma error is the open-lead-per-phone collision. */
-function isOpenPhoneCollision(error: unknown): boolean {
+/**
+ * Is this the "another OPEN lead already holds this phone" race, and only that?
+ *
+ * Prisma does not report the offending constraint in one shape. Depending on
+ * the driver and the kind of index it hands back either the index NAME
+ * ("Lead_open_phone_key") or the COLUMN LIST (["businessId", "phone"]), and for
+ * a partial index it sometimes reports nothing useful at all. Matching only the
+ * name — which is what this did — meant the adopt path never fired under a real
+ * concurrent insert, because Postgres reported the columns.
+ *
+ * All three shapes are accepted, but nothing wider: the error must be P2002 AND
+ * be about the `Lead` model. Turning every unique violation into "adopt the
+ * existing lead" would silently swallow a genuinely different constraint the
+ * day one is added.
+ *
+ * `Lead_open_phone_key` is currently the ONLY unique constraint on Lead, which
+ * is what makes the no-target fallback safe — and what makes this comment worth
+ * reading if that ever stops being true.
+ */
+export function isOpenPhoneCollision(error: unknown): boolean {
   if (
     !(error instanceof Prisma.PrismaClientKnownRequestError) ||
     error.code !== "P2002"
   ) {
     return false;
   }
+
+  const model = error.meta?.modelName;
+  if (typeof model === "string" && model !== "Lead") return false;
+
   const target = error.meta?.target;
-  if (typeof target === "string") return target.includes(OPEN_PHONE_INDEX);
-  if (Array.isArray(target)) return target.join(",").includes(OPEN_PHONE_INDEX);
-  // Postgres partial indexes are not always echoed in `meta.target`; the
-  // service pre-checks the same rule, so reaching here means a genuine race on
-  // that index and treating it as the collision is the correct reading.
-  return true;
+  const named =
+    typeof target === "string"
+      ? target
+      : Array.isArray(target)
+        ? target.join(",")
+        : null;
+
+  if (named === null) {
+    // No usable target. Only reachable from the Lead insert path, where the
+    // partial phone index is the sole unique constraint.
+    return true;
+  }
+  if (named.includes(OPEN_PHONE_INDEX)) return true;
+  return named.includes("businessId") && named.includes("phone");
 }
 
 function openLeadConflict(existingLeadId: number | null): ConflictError {
