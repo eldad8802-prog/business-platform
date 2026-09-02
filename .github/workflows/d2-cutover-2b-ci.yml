@@ -12,9 +12,7 @@
 name: d2/cutover-2b — canonical five-pilot RLS (ephemeral PG17)
 
 on:
-  # TEMPORARY push trigger so the PG17 proof runs before the PR exists; disarmed after.
-  push:
-    branches: [feat/five-pilot-rls]
+  # push trigger DISARMED after the PG17 proof ran (run 33682326888, PASS=68 FAIL=0).
   pull_request:
     branches: [main]
     paths:

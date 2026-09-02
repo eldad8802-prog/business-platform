@@ -11,9 +11,8 @@
 name: d2/cutover-2b — five-pilot RLS convergence (neon preview)
 
 on:
-  # TEMPORARY push trigger so the convergence proof runs before the PR exists.
-  push:
-    branches: [feat/five-pilot-rls]
+  # push trigger DISARMED after the convergence proof ran: run 33682753461 proved
+  # convergence FROM the real residue, run 33683118012 proved idempotent re-apply.
   workflow_dispatch:
 
 permissions:
