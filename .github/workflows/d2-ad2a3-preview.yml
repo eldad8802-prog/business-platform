@@ -1,0 +1,127 @@
+# D2 / ACCOUNT-DELETION-2A.3 — structural proof on the canonical Preview branch.
+#
+# Gate A proves the target identity through the Neon API before a single statement
+# runs, then the REAL migration is applied to the REAL Preview schema and the
+# cross-tenant attacks are executed against it.
+#
+# Writes are limited to synthetic `ad2a3-prev-` fixtures plus the structural DDL the
+# migration itself performs; fixtures are removed with an always-on backstop.
+# NO grant, NO role change, NO RLS change — this wave ships no privilege artifact.
+#
+# NO PRODUCTION. The deny-list aborts on ep-flat-brook / ep-winter-bread.
+
+name: d2/ad2a3 — conversation tenant coherence (neon preview)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d2-ad2a3-preview
+  cancel-in-progress: false
+
+env:
+  NEON_BASE: https://console.neon.tech/api/v2
+  P4_PROJECT_ID: orange-shape-16620903
+  P4_BRANCH_ID: br-red-scene-amth33qx
+  P4_EXPECT_ENDPOINT: ep-wispy-dawn-amr74bwz
+  P4_EXPECT_DB: neondb
+  P4_EXPECT_HOST_SUFFIX: us-east-1.aws.neon.tech
+  P4_DENY_ENDPOINTS: ep-flat-brook-am4bhq1y ep-winter-bread-ami5o8p5
+
+jobs:
+  gate_a_identity:
+    name: Gate A — Preview target identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      gate_a: ${{ steps.verify.outputs.gate_a }}
+    steps:
+      - name: Verify project/branch/endpoint via the Neon API
+        id: verify
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${NEON_API_KEY:-}" ] || { echo "::error::NEON_API_KEY missing"; exit 1; }
+          api() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "$1"; }
+          ep=$(api "${NEON_BASE}/projects/${P4_PROJECT_ID}/endpoints/${P4_EXPECT_ENDPOINT}")
+          ep_id=$(printf '%s' "$ep" | jq -r '.endpoint.id')
+          ep_branch=$(printf '%s' "$ep" | jq -r '.endpoint.branch_id')
+          ep_host=$(printf '%s' "$ep" | jq -r '.endpoint.host')
+          fail=0
+          [ "$ep_id" = "${P4_EXPECT_ENDPOINT}" ] || { echo "::error::endpoint mismatch"; fail=1; }
+          [ "$ep_branch" = "${P4_BRANCH_ID}" ] || { echo "::error::endpoint branch mismatch"; fail=1; }
+          case "$ep_host" in *"${P4_EXPECT_HOST_SUFFIX}") : ;; *) echo "::error::host suffix"; fail=1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "$ep_host" in *"$d"*) echo "::error::DENY-LIST HIT"; fail=1 ;; esac; done
+          [ "$fail" -eq 0 ] || { echo "gate_a=FAIL" >> "$GITHUB_OUTPUT"; exit 1; }
+          echo "gate_a=PASS" >> "$GITHUB_OUTPUT"; echo "GATE A = PASS"
+
+  ad2a3_preview:
+    name: AD-2A.3 structural proof on Preview
+    needs: gate_a_identity
+    if: needs.gate_a_identity.outputs.gate_a == 'PASS'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .ad2a3/preview.mjs
+
+      - name: CI-CC guard (blocking)
+        run: |
+          bash scripts/ci/conversation-coherence-guard.sh .
+          bash scripts/ci/conversation-coherence-guard.sh --self-test .
+
+      - name: Generate the Prisma client
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+          DIRECT_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+        run: npx prisma generate
+
+      - name: Run the AD-2A.3 Preview proof
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          uri() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" \
+            "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri'; }
+          DBD="$(uri)"
+          echo "::add-mask::${DBD}"
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || { echo "::error::empty URI"; exit 1; }
+          case "${DBD}" in *"${P4_EXPECT_ENDPOINT}"*) : ;; *) echo "::error::URI endpoint mismatch"; exit 1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "${DBD}" in *"$d"*) echo "::error::URI DENY-LIST HIT"; exit 1 ;; esac; done
+          DIRECT_URL="${DBD}" npx tsx .ad2a3/preview.mjs
+
+      - name: Fixture cleanup net (always — marker-based backstop)
+        if: always()
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          DBD="$(curl -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri')"
+          echo "::add-mask::${DBD}"
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || exit 0
+          cat > .ad2a3/fixnet.gen.mjs <<'FIX_EOF'
+          import { PrismaClient } from '@prisma/client';
+          const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
+          const bids = `SELECT id FROM "Business" WHERE name LIKE 'ad2a3-prev-%'`;
+          await c.$executeRawUnsafe('DELETE FROM "MessageAnalysis" WHERE "messageId" IN (SELECT id FROM "Message" WHERE "businessId" IN (' + bids + '))');
+          await c.$executeRawUnsafe('DELETE FROM "ReplySuggestion" WHERE "businessId" IN (' + bids + ')');
+          await c.$executeRawUnsafe('DELETE FROM "Message" WHERE "businessId" IN (' + bids + ')');
+          await c.$executeRawUnsafe('DELETE FROM "Conversation" WHERE "businessId" IN (' + bids + ')');
+          await c.$executeRawUnsafe(`DELETE FROM "Business" WHERE name LIKE 'ad2a3-prev-%'`);
+          const r = await c.$queryRaw`SELECT (SELECT count(*)::int FROM "Business" WHERE name LIKE 'ad2a3-prev-%') AS biz`;
+          console.log('[fixnet] residue business=' + r[0].biz);
+          await c.$disconnect();
+          FIX_EOF
+          DIRECT_URL="${DBD}" node .ad2a3/fixnet.gen.mjs || true
