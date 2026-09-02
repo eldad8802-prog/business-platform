@@ -10,6 +10,7 @@ import {
   LEAD_CHANGED_EVENT,
   type LeadListRow,
   type LeadStatusFilter,
+  type LeadRankingConfidence,
 } from "@/lib/api/leads";
 import {
   getClientAuthToken,
@@ -60,6 +61,10 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
   const [leads, setLeads] = useState<LeadListRow[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterKey>(initialFilter);
+  // How much the server is willing to claim about the order it returned. When
+  // it is only "best-effort" the list must stop implying "this is THE most
+  // urgent lead" — see the note rendered above the rows.
+  const [ranking, setRanking] = useState<LeadRankingConfidence>("authoritative");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -71,7 +76,9 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
     async (
       q: string,
       f: FilterKey
-    ): Promise<{ leads: LeadListRow[] } | { error: string } | null> => {
+    ): Promise<
+      { leads: LeadListRow[]; ranking: LeadRankingConfidence } | { error: string } | null
+    > => {
       const token = getClientAuthToken();
       if (!token) {
         redirectToLogin();
@@ -80,7 +87,7 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
       try {
         const { status, needsAction } = toQuery(f);
         const data = await getLeads({ query: q, status, needsAction });
-        return { leads: Array.isArray(data) ? data : [] };
+        return { leads: data.leads, ranking: data.ranking };
       } catch (err: unknown) {
         if (isUnauthorizedError(err)) {
           redirectToLogin();
@@ -95,12 +102,15 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
     []
   );
 
-  function apply(res: { leads: LeadListRow[] } | { error: string } | null) {
+  function apply(
+    res: { leads: LeadListRow[]; ranking: LeadRankingConfidence } | { error: string } | null
+  ) {
     if (!res) return;
     if ("error" in res) setError(res.error);
     else {
       setError(null);
       setLeads(res.leads);
+      setRanking(res.ranking);
     }
     setLoading(false);
   }
@@ -257,6 +267,18 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
         />
       ) : (
         <div className="crm-rows">
+          {/* FAIL-SAFE. When the server could not score every lead that might
+              outrank these, the list stops implying "this is THE one to handle
+              first" and says what it actually is: the most urgent it found.
+              Each row's own reason is still exact — only the global superlative
+              is withdrawn. Deliberately one quiet line, not a warning: the
+              owner is not being told about a bound, they are being told not to
+              read the top row as a verdict. */}
+          {ranking === "best-effort" ? (
+            <p className="crm-note-empty" style={{ margin: "0 0 8px" }}>
+              מוצגים הלידים הדחופים ביותר שנמצאו — יש עוד לידים שממתינים.
+            </p>
+          ) : null}
           {leads.map((l) => (
             <div key={l.id}>
               <LeadRow lead={l} selected={String(l.id) === selectedId} />

@@ -18,10 +18,7 @@ import { prisma } from "@/lib/prisma";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { leadService } from "@/lib/services/crm/lead.service";
-import {
-  deriveLeadConversationIntelligence,
-  evaluateLeadPriority,
-} from "@/lib/services/crm/lead-intelligence";
+import { evaluateLeadPriority } from "@/lib/services/crm/lead-intelligence";
 import { evaluateLeadAttention } from "@/lib/services/crm/lead-attention";
 import type { LeadStatusValue } from "@/lib/services/crm/lead-core";
 

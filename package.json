@@ -74,6 +74,7 @@
     "verify:leads-intelligence": "npx tsx lib/services/crm/lead-intelligence.test.ts",
     "verify:leads-w3": "npx tsx lib/services/crm/lead-w3.service.test.ts",
     "verify:leads-priority-order": "npx tsx lib/services/crm/lead-priority-order.test.ts",
+    "verify:leads-w3-closure": "npx tsx lib/services/crm/lead-w3-closure.test.ts",
     "qa:leads-w3-e2e": "node scripts/qa/ui/leads-w3-e2e.mjs",
     "verify:conversation-state-contract": "npx tsx lib/conversation-state/conversation-state.contract.test.ts",
     "verify:conversation-state-w25": "npx tsx lib/conversation-state/conversation-state.w25.test.ts",
