@@ -65,6 +65,16 @@ type Tx = Prisma.TransactionClient;
 type TxOptions = { tx?: Tx };
 
 const LIST_MAX_LIMIT = 100;
+/**
+ * How many "could be urgent" leads the ranked list will consider at once.
+ *
+ * Below this the global ordering is EXACT. Above it the caller is told the
+ * answer was truncated — a silent cap on a queue that claims to show "who needs
+ * me now" would be worse than no queue at all.
+ */
+const URGENT_CANDIDATE_CAP = 500;
+/** `bucketTemperature` calls this hot. Kept in sync by lead-intelligence tests. */
+const HOT_TEMPERATURE_THRESHOLD = 0.7;
 const LIST_DEFAULT_LIMIT = 50;
 
 /** The unique index that enforces "one OPEN lead per phone per business". */
@@ -484,6 +494,101 @@ export const leadService = {
         },
       },
     });
+  },
+
+  /**
+   * W3 — every lead that COULD score above zero, as one database predicate.
+   *
+   * WHY THIS EXISTS
+   * The Leads queue promises "who needs me now". Ordering by priority only
+   * INSIDE a fetched page cannot keep that promise: a waiting customer whose
+   * `lastActivityAt` puts them 51st is dropped by `take` before anything has a
+   * chance to rank them — and since the client never sends a cursor, "page 2"
+   * is not somewhere the owner can scroll to. It is simply invisible.
+   *
+   * W2 solved exactly this for follow-ups by expressing attention as a SQL
+   * predicate rather than a filter applied after `take`. This is the same move,
+   * extended to what the conversation says.
+   *
+   * ── THE PROOF ───────────────────────────────────────────────────────────
+   * `evaluateLeadPriority` returns a score above zero in exactly three cases,
+   * and each maps to one branch below:
+   *
+   *   1. lead attention          → follow-up due/overdue, or an untouched NEW
+   *                                lead from before today (the same two clauses
+   *                                the `needsAction` filter already uses);
+   *   2. a customer waiting      → requires `unansweredInboundCount > 0` on some
+   *                                conversation;
+   *   3. a hot thread            → requires `bucketTemperature(score) === "hot"`,
+   *                                which is exactly `temperatureScore >= 0.7`.
+   *
+   * Closed leads are forced to zero by the scorer, so they are excluded here.
+   *
+   * Therefore: score > 0 ⟹ the lead matches this predicate. The complement can
+   * only ever score zero, so it can never outrank a candidate. Ranking the
+   * candidates plus the ordinary page is ranking everything that matters.
+   *
+   * ── THE BOUND, AND WHERE IT STOPS BEING EXACT ───────────────────────────
+   * Candidates are capped. Up to {@link URGENT_CANDIDATE_CAP} the result is
+   * EXACT — every lead that can score above zero was scored. Beyond it the
+   * answer is a best-effort top slice, and the caller is TOLD so (`overflow`)
+   * rather than being handed a silent approximation.
+   */
+  async listUrgentCandidates(
+    input: {
+      businessId: number;
+      query?: string | null;
+      sourceChannel?: string | null;
+      now?: Date;
+    },
+    options?: TxOptions
+  ) {
+    assertBusinessId(input.businessId);
+    const db = options?.tx ?? prisma;
+    const now = input.now ?? new Date();
+    const q = typeof input.query === "string" ? input.query.trim() : "";
+
+    const urgent: Prisma.LeadWhereInput = {
+      businessId: input.businessId,
+      status: { in: [...OPEN_LEAD_STATUSES] },
+      OR: [
+        // 1. lead attention — the same two clauses `needsAction` uses.
+        { nextFollowUpAt: { lte: endOfLeadDayUtc(now) } },
+        { status: "NEW", nextFollowUpAt: null, createdAt: { lt: startOfLeadDayUtc(now) } },
+        // 2. a customer is waiting on one of its conversations.
+        { conversations: { some: { businessId: input.businessId, unansweredInboundCount: { gt: 0 } } } },
+        // 3. one of its conversations is hot.
+        {
+          conversations: {
+            some: { businessId: input.businessId, temperatureScore: { gte: HOT_TEMPERATURE_THRESHOLD } },
+          },
+        },
+      ],
+    };
+
+    const and: Prisma.LeadWhereInput[] = [];
+    if (q.length > 0) {
+      and.push({
+        OR: [
+          { customerName: { contains: q, mode: "insensitive" } },
+          { phone: { contains: q, mode: "insensitive" } },
+          { email: { contains: q, mode: "insensitive" } },
+        ],
+      });
+    }
+    if (input.sourceChannel) and.push({ sourceChannel: input.sourceChannel });
+    if (and.length > 0) urgent.AND = and;
+
+    const rows = await db.lead.findMany({
+      where: urgent,
+      // One over the cap, purely so overflow is detectable rather than assumed.
+      take: URGENT_CANDIDATE_CAP + 1,
+      orderBy: [{ lastActivityAt: "desc" }, { id: "desc" }],
+      include: { customer: { select: { id: true, name: true, phone: true, email: true } } },
+    });
+
+    const overflow = rows.length > URGENT_CANDIDATE_CAP;
+    return { rows: overflow ? rows.slice(0, URGENT_CANDIDATE_CAP) : rows, overflow };
   },
 
   /**

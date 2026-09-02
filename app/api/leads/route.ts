@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
+
+/** Mirrors the service's own default page size. */
+const DEFAULT_PAGE_SIZE = 50;
 import { evaluateLeadAttention } from "@/lib/services/crm/lead-attention";
 import {
   evaluateLeadPriority,
@@ -111,15 +114,16 @@ export async function GET(req: NextRequest) {
 
     // ONE tenant transaction for the page and its intelligence, so the rows and
     // the conversation readings describe the same instant.
-    const { leads, intelligence } = await runWithTenantContext(
+    const { leads, intelligence, overflow } = await runWithTenantContext(
       { businessId: user.businessId },
       () =>
         withTenantTransaction(async (tx) => {
+          const statusFilter = parseStatusFilter(searchParams.get("status"));
           const rows = await leadService.listLeads(
             {
               businessId: user.businessId,
               query: searchParams.get("q"),
-              status: parseStatusFilter(searchParams.get("status")),
+              status: statusFilter,
               sourceChannel: searchParams.get("source"),
               needsAction: searchParams.get("needsAction") === "true",
               limit: parseIntParam(searchParams.get("limit"), "limit"),
@@ -129,17 +133,44 @@ export async function GET(req: NextRequest) {
             { tx }
           );
 
-          // ONE extra query for the whole page — never one per lead.
+          // GLOBAL ORDERING (W3 closure).
+          //
+          // Ranking only the rows `take` happened to return cannot answer "who
+          // needs me now": a waiting customer sitting 51st by `lastActivityAt`
+          // is cut before anything ranks them, and since no client sends a
+          // cursor there is no page 2 to find them on. So the ranked list is
+          // built from the page PLUS every lead that could possibly outrank it
+          // — a set defined by a single database predicate, with the proof in
+          // `listUrgentCandidates`. Anything outside it scores exactly zero.
+          const urgent = statusFilter === "closed"
+            ? { rows: [], overflow: false }
+            : await leadService.listUrgentCandidates(
+                {
+                  businessId: user.businessId,
+                  query: searchParams.get("q"),
+                  sourceChannel: searchParams.get("source"),
+                  now,
+                },
+                { tx }
+              );
+
+          // Union by id, page first so its rows win on identity.
+          const byId = new Map<number, (typeof rows)[number]>();
+          for (const row of rows) byId.set(row.id, row);
+          for (const row of urgent.rows) if (!byId.has(row.id)) byId.set(row.id, row);
+          const merged = [...byId.values()];
+
+          // ONE extra query for the whole set — never one per lead.
           const attached = await leadService.attachLeadIntelligence(
             {
               businessId: user.businessId,
-              leadIds: rows.map((r) => r.id),
+              leadIds: merged.map((r) => r.id),
               now,
             },
             { tx }
           );
 
-          return { leads: rows, intelligence: attached };
+          return { leads: merged, intelligence: attached, overflow: urgent.overflow };
         })
     );
 
@@ -147,10 +178,10 @@ export async function GET(req: NextRequest) {
       toListRow(l, now, intelligence.get(l.id)?.intelligence ?? null)
     );
 
-    // W3 ordering: the queue answers "who needs me next", so priority leads and
-    // `lastActivityAt` only breaks ties. Sorting the PAGE (not the query) keeps
-    // keyset pagination intact — the cursor still walks activity order, and the
-    // page the owner is looking at is ordered by urgency.
+    // The one ordering contract, applied to the whole candidate set:
+    //   priority DESC → last activity DESC → id DESC.
+    // Total and deterministic: `id` is unique, so no two rows can tie all the
+    // way down, and the same input always produces the same sequence.
     items.sort(
       (a, b) =>
         b.priority.score - a.priority.score ||
@@ -159,7 +190,18 @@ export async function GET(req: NextRequest) {
         b.id - a.id
     );
 
-    return NextResponse.json({ leads: items }, { status: 200 });
+    const limit = parseIntParam(searchParams.get("limit"), "limit") ?? DEFAULT_PAGE_SIZE;
+    const page = items.slice(0, limit);
+
+    return NextResponse.json(
+      {
+        leads: page,
+        // Never a silent cap: above the candidate ceiling the ordering is a best
+        // effort over the newest urgent leads, and the client is told so.
+        ...(overflow ? { rankingTruncated: true } : {}),
+      },
+      { status: 200 }
+    );
   } catch (error) {
     return handleError(error);
   }
