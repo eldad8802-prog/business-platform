@@ -90,7 +90,8 @@
     "verify:documents-previous-year-month": "npx tsx lib/documents/previous-year-month.test.ts",
     "verify:documents-pulse-delta": "npx tsx components/documents/home/PulseCard.test.ts",
     "postinstall": "prisma generate",
-    "verify:mist-tokens": "npx tsx lib/design/mist.verify.test.ts"
+    "verify:mist-tokens": "npx tsx lib/design/mist.verify.test.ts",
+    "verify:conversation-coherence": "bash scripts/ci/conversation-coherence-guard.sh . && bash scripts/ci/conversation-coherence-guard.sh --self-test ."
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",

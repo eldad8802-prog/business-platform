@@ -1,0 +1,101 @@
+# D2 / ACCOUNT-DELETION-2A.3 — structural tenant-coherence battery (ephemeral PG17).
+#
+# Proves that the Conversation -> Message / ReplySuggestion ownership invariant is
+# enforced by the RELATIONAL layer: cross-tenant children are rejected on INSERT and
+# on UPDATE, through Prisma, through nested writes and through raw SQL, and the
+# destructive cascade therefore has nothing cross-tenant to reach.
+#
+# Runs the REAL migration.sql and the REAL rollback artifact through a full
+# apply -> verify -> attack -> rollback -> reapply cycle.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO Production.
+
+name: d2/ad2a3 — conversation tenant coherence (ephemeral PG17)
+
+on:
+  # push trigger DISARMED after the PG17 proof ran (run 33580297897, PASS=67 FAIL=0).
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/schema.prisma"
+      - "prisma/migrations/**"
+      - "scripts/security/conversation-coherence-preflight.mjs"
+      - "scripts/security/d2-ad2a3-rollback.sql"
+      - "scripts/ci/conversation-coherence-guard.sh"
+      - ".ad2a3/**"
+      - ".github/workflows/d2-ad2a3-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d2-ad2a3-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ad2a3-battery:
+    name: AD-2A.3 structural battery (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ad2a3_owner
+          POSTGRES_PASSWORD: ad2a3_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_ad2a3
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ad2a3_owner -d dubiz_ad2a3"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://ad2a3_owner:ad2a3_ci_synthetic_owner_pw@localhost:5432/dubiz_ad2a3
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .ad2a3/battery.mjs && node --check scripts/security/conversation-coherence-preflight.mjs
+
+      - name: CI-CC structural guard + negative self-proofs (blocking)
+        run: |
+          bash scripts/ci/conversation-coherence-guard.sh .
+          bash scripts/ci/conversation-coherence-guard.sh --self-test .
+
+      - name: Existing guard families (no regression)
+        run: |
+          bash scripts/ci/prisma-centralization-guard.sh .
+          bash scripts/ci/admin-boundary-guard.sh .
+          bash scripts/ci/w4-context-guard.sh .
+          bash scripts/ci/privwrite-guard.sh .
+          bash scripts/ci/account-deletion-guard.sh .
+          bash scripts/ci/account-deletion-guard.sh --self-test
+
+      - name: Prisma validate + generate
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          npx prisma validate
+          npx prisma generate
+
+      - name: Build the lab schema
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: AD-2A.3 structural battery
+        run: npx tsx .ad2a3/battery.mjs
+
+      - name: Typecheck
+        run: npx tsc --noEmit

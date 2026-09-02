@@ -927,6 +927,13 @@ model Conversation {
   messages                  Message[]
   replySuggestions          ReplySuggestion[]
   appointments              Appointment[]
+
+  /// D2/AD-2A.3 — the relational target that makes tenant ownership structural.
+  /// `id` alone is already unique; this composite exists so destructive children
+  /// (Message, ReplySuggestion) can reference (conversationId, businessId) and be
+  /// physically unable to attach across tenants. Postgres requires the referenced
+  /// column list to be UNIQUE, so this constraint IS the enforcement mechanism.
+  @@unique([id, businessId])
 }
 
 model Message {
@@ -972,7 +979,7 @@ model Message {
   sendAttemptedAt           DateTime?
   createdAt                 DateTime            @default(now())
   business                  Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  conversation              Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation              Conversation        @relation(fields: [conversationId, businessId], references: [id, businessId], onDelete: Cascade)
   customer                  Customer?           @relation(fields: [customerId], references: [id])
   generatedFromSuggestion   ReplySuggestion?    @relation("GeneratedFromSuggestion", fields: [generatedFromSuggestionId], references: [id])
   recommendation            Recommendation?     @relation(fields: [recommendationId], references: [id])
@@ -1038,10 +1045,18 @@ model ReplySuggestion {
   createdAt           DateTime              @default(now())
   generatedMessages   Message[]             @relation("GeneratedFromSuggestion")
   business            Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  conversation        Conversation          @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation        Conversation          @relation(fields: [conversationId, businessId], references: [id, businessId], onDelete: Cascade)
   message             Message?              @relation("SuggestionSourceMessage", fields: [messageId], references: [id])
   recommendation      Recommendation?       @relation(fields: [recommendationId], references: [id])
   sentMessage         Message?              @relation("SuggestionSentMessage", fields: [sentMessageId], references: [id])
+
+  /// D2/AD-2A.3 — cascade + FK support. ReplySuggestion had NO index on
+  /// conversationId at all, so deleting a Conversation had to sequentially scan
+  /// this table to find the children the CASCADE must remove, and the new
+  /// composite FK had no supporting index on the referencing side either.
+  /// Not required for CORRECTNESS (Postgres never requires an index on the
+  /// referencing side) — required so the destructive path stays bounded.
+  @@index([conversationId, businessId])
 }
 
 model Recommendation {
