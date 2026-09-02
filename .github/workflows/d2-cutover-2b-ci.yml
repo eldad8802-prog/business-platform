@@ -1,0 +1,103 @@
+# D2 / PRODUCTION-RUNTIME-CUTOVER-2B — canonical five-pilot RLS battery (PG17).
+#
+# The lab schema comes from `prisma db push` (Prisma models no RLS, so it starts with
+# none). The battery then applies every RLS statement the repository already ships,
+# EXCLUDING this wave, to reproduce the gap from main alone — and only then applies the
+# new migration. `prisma migrate deploy` is deliberately NOT used: this repository's
+# history is not replayable from empty (a back-dated migration precedes the init that
+# creates its table), which is separate pre-existing baseline debt.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO Production.
+
+name: d2/cutover-2b — canonical five-pilot RLS (ephemeral PG17)
+
+on:
+  # TEMPORARY push trigger so the PG17 proof runs before the PR exists; disarmed after.
+  push:
+    branches: [feat/five-pilot-rls]
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/migrations/**"
+      - "scripts/security/d2-cutover2b-rollback.sql"
+      - "scripts/ci/pilot-rls-guard.sh"
+      - ".pilot/**"
+      - "lib/**"
+      - "app/**"
+      - ".github/workflows/d2-cutover-2b-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d2-cutover-2b-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pilot-rls:
+    name: five-pilot RLS battery (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: pilot_owner
+          POSTGRES_PASSWORD: pilot_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_pilot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pilot_owner -d dubiz_pilot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://pilot_owner:pilot_ci_synthetic_owner_pw@localhost:5432/dubiz_pilot
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .pilot/pilot-rls-battery.mjs
+
+      - name: CI-PR pilot RLS guard + negative self-proofs (blocking)
+        run: |
+          bash scripts/ci/pilot-rls-guard.sh .
+          bash scripts/ci/pilot-rls-guard.sh --self-test .
+
+      - name: Existing guard families (no regression)
+        run: |
+          bash scripts/ci/prisma-centralization-guard.sh .
+          bash scripts/ci/admin-boundary-guard.sh .
+          bash scripts/ci/w4-context-guard.sh .
+          bash scripts/ci/privwrite-guard.sh .
+          bash scripts/ci/account-deletion-guard.sh .
+          bash scripts/ci/conversation-coherence-guard.sh .
+          bash scripts/ci/tenant-context-guard.sh .
+
+      - name: Prisma validate + generate
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          npx prisma validate
+          npx prisma generate
+
+      - name: Build the lab schema (RLS-free by construction)
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Five-pilot RLS battery
+        run: npx tsx .pilot/pilot-rls-battery.mjs
+
+      - name: Typecheck
+        run: npx tsc --noEmit
