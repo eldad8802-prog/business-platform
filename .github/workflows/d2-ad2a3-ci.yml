@@ -13,6 +13,10 @@
 name: d2/ad2a3 — conversation tenant coherence (ephemeral PG17)
 
 on:
+  # TEMPORARY push trigger so the PG17 proof can run before the PR exists;
+  # disarmed immediately after the run (workflow_dispatch works once on main).
+  push:
+    branches: [feat/conversation-tenant-coherence]
   pull_request:
     branches: [main]
     paths:
