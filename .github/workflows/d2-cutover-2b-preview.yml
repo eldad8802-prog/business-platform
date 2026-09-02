@@ -1,0 +1,107 @@
+# D2 / PRODUCTION-RUNTIME-CUTOVER-2B — five-pilot RLS convergence on canonical Preview.
+#
+# Preview is the one environment carrying the real unmigrated P4-B residue: five
+# `p4b_tenant` policies, each FOR ALL (so each silently grants DELETE), present in no
+# migration. Gate A proves the target identity through the Neon API, then the exact
+# migration is applied and the catalog is compared before/after.
+#
+# Writes: the migration's own DDL only. NO grant, NO role, NO credential change.
+# NO PRODUCTION. The deny-list aborts on ep-flat-brook / ep-winter-bread.
+
+name: d2/cutover-2b — five-pilot RLS convergence (neon preview)
+
+on:
+  # TEMPORARY push trigger so the convergence proof runs before the PR exists.
+  push:
+    branches: [feat/five-pilot-rls]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d2-cutover2b-preview
+  cancel-in-progress: false
+
+env:
+  NEON_BASE: https://console.neon.tech/api/v2
+  P4_PROJECT_ID: orange-shape-16620903
+  P4_BRANCH_ID: br-red-scene-amth33qx
+  P4_EXPECT_ENDPOINT: ep-wispy-dawn-amr74bwz
+  P4_EXPECT_DB: neondb
+  P4_EXPECT_HOST_SUFFIX: us-east-1.aws.neon.tech
+  P4_DENY_ENDPOINTS: ep-flat-brook-am4bhq1y ep-winter-bread-ami5o8p5
+
+jobs:
+  gate_a_identity:
+    name: Gate A — Preview target identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      gate_a: ${{ steps.verify.outputs.gate_a }}
+    steps:
+      - name: Verify project/branch/endpoint via the Neon API
+        id: verify
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${NEON_API_KEY:-}" ] || { echo "::error::NEON_API_KEY missing"; exit 1; }
+          api() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "$1"; }
+          ep=$(api "${NEON_BASE}/projects/${P4_PROJECT_ID}/endpoints/${P4_EXPECT_ENDPOINT}")
+          ep_id=$(printf '%s' "$ep" | jq -r '.endpoint.id')
+          ep_branch=$(printf '%s' "$ep" | jq -r '.endpoint.branch_id')
+          ep_host=$(printf '%s' "$ep" | jq -r '.endpoint.host')
+          fail=0
+          [ "$ep_id" = "${P4_EXPECT_ENDPOINT}" ] || { echo "::error::endpoint mismatch"; fail=1; }
+          [ "$ep_branch" = "${P4_BRANCH_ID}" ] || { echo "::error::endpoint branch mismatch"; fail=1; }
+          case "$ep_host" in *"${P4_EXPECT_HOST_SUFFIX}") : ;; *) echo "::error::host suffix"; fail=1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "$ep_host" in *"$d"*) echo "::error::DENY-LIST HIT"; fail=1 ;; esac; done
+          [ "$fail" -eq 0 ] || { echo "gate_a=FAIL" >> "$GITHUB_OUTPUT"; exit 1; }
+          echo "gate_a=PASS" >> "$GITHUB_OUTPUT"; echo "GATE A = PASS"
+
+  ad2a3_preview:
+    name: five-pilot RLS convergence on Preview
+    needs: gate_a_identity
+    if: needs.gate_a_identity.outputs.gate_a == 'PASS'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .pilot/preview.mjs
+
+      - name: CI-PR guard (blocking)
+        run: |
+          bash scripts/ci/pilot-rls-guard.sh .
+          bash scripts/ci/pilot-rls-guard.sh --self-test .
+
+      - name: Generate the Prisma client
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+          DIRECT_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+        run: npx prisma generate
+
+      - name: Run the convergence proof
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          uri() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" \
+            "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri'; }
+          DBD="$(uri)"
+          echo "::add-mask::${DBD}"
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || { echo "::error::empty URI"; exit 1; }
+          case "${DBD}" in *"${P4_EXPECT_ENDPOINT}"*) : ;; *) echo "::error::URI endpoint mismatch"; exit 1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "${DBD}" in *"$d"*) echo "::error::URI DENY-LIST HIT"; exit 1 ;; esac; done
+          DIRECT_URL="${DBD}" npx tsx .pilot/preview.mjs
+
+      - name: Post-state summary (read-only)
+        if: always()
+        run: echo "convergence proof complete — this wave creates no fixtures, so there is nothing to clean up"
