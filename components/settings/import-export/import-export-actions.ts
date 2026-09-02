@@ -52,9 +52,13 @@ export const IMPORT_EXPORT_ACTIONS: readonly ImportExportAction[] = [
     key: "import",
     href: `${IMPORT_EXPORT_ROUTE}/import`,
     title: "ייבוא",
-    description: "העבר מידע ממערכת אחרת לדוביז",
+    // The wording matches what the screen can actually do TODAY. Promising
+    // "העבר מידע ממערכת אחרת" while only a dry run exists would be the same
+    // dishonesty the "בקרוב" row avoided, wearing a nicer coat. It becomes a
+    // transfer when I-6 makes it one.
+    description: "בדקו קובץ ממערכת אחרת לפני קליטה",
     icon: "📂",
-    available: false,
+    available: true,
   },
   {
     // Sits directly under the pending Import row because it belongs to that

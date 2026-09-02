@@ -18,6 +18,10 @@ import {
   InventoryValidationError,
   NegativeInventoryError,
 } from "./inventory.errors";
+import {
+  assertInventoryItemName,
+  assertNonNegativeQuantity,
+} from "./inventory-core";
 
 type Tx = Prisma.TransactionClient;
 type TxOptions = { tx?: Tx };
@@ -50,13 +54,12 @@ class InventoryService {
       throw new InventoryUnauthorizedError("Invalid business id");
     }
 
-    if (!name?.trim()) {
-      throw new InventoryValidationError("Item name is required");
-    }
-
-    if (initialQuantity < 0) {
-      throw new NegativeInventoryError();
-    }
+    // Same rules, same error types, same messages, same order — now shared
+    // with the Import preview through inventory-core.ts, so a dry run can tell
+    // an owner whether a row is acceptable without opening a transaction.
+    // Equivalence is asserted in inventory-core.verify.test.ts.
+    assertInventoryItemName(name);
+    assertNonNegativeQuantity(initialQuantity);
 
     const run = async (tx: Tx) => {
       const item = await tx.inventoryItem.create({

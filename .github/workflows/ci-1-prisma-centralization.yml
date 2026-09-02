@@ -223,6 +223,61 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: template/import drift fails the verifier"
 
+      # The two validator extractions (I-5). Both moved rules OUT of live
+      # services so the Import dry run can evaluate a row without a database.
+      # These verifiers run the pre-extraction implementations side by side with
+      # the extracted ones and require identical value, exception type and
+      # message — because "we only moved it" is a claim, not a property.
+      # Local: npm run verify:customer-core / npm run verify:inventory-core
+      - name: Customer core extraction equivalence
+        run: npx tsx lib/services/crm/customer-core.verify.test.ts
+
+      - name: Inventory core extraction equivalence
+        run: npx tsx lib/services/inventory/inventory-core.verify.test.ts
+
+      # Import/Export Center I-5 — the Import DRY RUN. Blocking because every
+      # failure mode here is silent: a mapping that picks the wrong column, a
+      # number read as 1000x its value, a preview token that validates for the
+      # wrong business or a different file, or a WRITE appearing in what is
+      # supposed to be a read-only check. Pure — no DB, no network.
+      # Local equivalent: npm run verify:import-dry-run
+      - name: Import dry run (mapping, normalization, duplicates, token, zero writes)
+        env:
+          AUTH_TOKEN_SECRET: i5_ci_synthetic_secret
+        run: npx tsx lib/data-transfer/import/import.verify.test.ts
+
+      - name: I-5 negative proof (a write in the dry run must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i5_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/import/duplicates/duplicate-detect.ts"
+          cp "$F" "$F.bak"
+          # Plant exactly the mistake that would turn a preview into an import.
+          sed -i '0,/const existing = await tx\.customer\.findMany({/s//await tx.customer.create({ data: {} });\n        const existing = await tx.customer.findMany({/' "$F"
+          if npx tsx lib/data-transfer/import/import.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: verifier passed with a write in the dry run"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a write in the dry run fails the verifier"
+
+      - name: I-5 negative proof (an unscoped duplicate lookup must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i5_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/import/duplicates/duplicate-detect.ts"
+          cp "$F" "$F.bak"
+          # The cross-tenant leak, planted where it would actually happen: the
+          # duplicate lookup keeps working and starts matching OTHER businesses'
+          # customers. Nothing crashes — which is exactly why it needs a guard.
+          sed -i '0,/where: { businessId, phone: { in: phones } },/s//where: { phone: { in: phones } },/' "$F"
+          if npx tsx lib/data-transfer/import/import.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an unscoped duplicate lookup passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an unscoped duplicate lookup fails the verifier"
+
       # CASA Wave B — platform-admin TOTP MFA (CASA 3.3.1). The elevation
       # envelope and the guard decide whether a privileged request is allowed at
       # all, so they belong in the BLOCKING job. Deterministic and offline: no

@@ -505,22 +505,28 @@ check("the template route is a read-only GET that touches no tenant data", () =>
 
 /* ======================================== 6. the hub does not mislead == */
 
-check("the templates row is a real link; Import stays 'בקרוב'", () => {
+check("every hub row that is a link points at a screen that exists", () => {
   const src = readCode(
     "components/settings/import-export/import-export-actions.ts"
   );
   assert.equal(/key: "templates",[\s\S]*?available: true/.test(src), true);
-  assert.equal(/key: "import",[\s\S]*?available: false/.test(src), true);
   assert.equal(/key: "export",[\s\S]*?available: true/.test(src), true);
+  // Import became available in I-5 — as a DRY RUN. Its wording must not claim
+  // more than that until I-6 makes it a transfer.
+  assert.equal(/key: "import",[\s\S]*?available: true/.test(src), true);
+  assert.equal(
+    /key: "import",[\s\S]*?description: "בדקו קובץ ממערכת אחרת לפני קליטה"/.test(src),
+    true,
+    "the Import row must describe a check, not a transfer"
+  );
 });
 
-check("the templates screen leads with the fact that import is not live", () => {
+check("the templates screen still says preparation, not importing", () => {
   const src = fs.readFileSync(
     "components/settings/import-export/TemplatesScreen.tsx",
     "utf8"
   );
-  assert.equal(src.includes("אפשרות הייבוא עצמה תתווסף בהמשך"), true);
-  assert.equal(src.includes("אי אפשר עדיין להעלות"), true);
+  assert.equal(src.includes("הכינו את המידע"), true);
 });
 
 console.log(`\nIMPORT TEMPLATES VERIFY PASS — ${passed} checks green.`);

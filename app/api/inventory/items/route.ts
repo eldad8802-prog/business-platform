@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { InventoryUnitType } from "@prisma/client";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
 import { getInventoryAuthenticatedUser as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
+// Moved to lib/services/inventory/inventory-core.ts so the Import preview can
+// reach the same rule without importing a route.
+import { parseInventoryUnitType } from "@/lib/services/inventory/inventory-core";
 import {
   InventoryError,
   InventoryNotFoundError,
@@ -12,19 +14,6 @@ import {
   NegativeInventoryError,
 } from "@/lib/services/inventory/inventory.errors";
 
-function parseInventoryUnitType(value: unknown): InventoryUnitType {
-  if (typeof value !== "string") {
-    throw new InventoryValidationError("unitType is required");
-  }
-
-  const normalizedValue = value.trim().toUpperCase();
-
-  if (!Object.values(InventoryUnitType).includes(normalizedValue as InventoryUnitType)) {
-    throw new InventoryValidationError("Invalid unitType");
-  }
-
-  return normalizedValue as InventoryUnitType;
-}
 
 function parseOptionalNumber(value: unknown, fieldName: string): number | undefined {
   if (value === undefined || value === null || value === "") {

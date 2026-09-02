@@ -21,11 +21,17 @@ import {
   ConflictError,
 } from "@/lib/errors";
 import { normalizeCustomerPhone } from "@/lib/services/integrations/whatsapp/phone";
+import {
+  CUSTOMER_CITY_MAX,
+  CUSTOMER_EMAIL_MAX,
+  CUSTOMER_NOTES_MAX,
+  normalizeCustomerName,
+  normalizeCustomerOptionalText,
+} from "@/lib/services/crm/customer-core";
 
-const NAME_MAX = 200;
-const EMAIL_MAX = 200;
-const CITY_MAX = 120;
-const NOTES_MAX = 5000;
+const EMAIL_MAX = CUSTOMER_EMAIL_MAX;
+const CITY_MAX = CUSTOMER_CITY_MAX;
+const NOTES_MAX = CUSTOMER_NOTES_MAX;
 const LIST_MAX_LIMIT = 100;
 
 type Tx = Prisma.TransactionClient;
@@ -90,33 +96,12 @@ function assertBusinessId(businessId: number): void {
   }
 }
 
-function normalizeName(value: unknown): string {
-  if (typeof value !== "string" || !value.trim()) {
-    throw new ValidationError("name is required");
-  }
-  const trimmed = value.trim();
-  if (trimmed.length > NAME_MAX) {
-    throw new ValidationError(`name must be at most ${NAME_MAX} characters`);
-  }
-  return trimmed;
-}
-
-function normalizeOptionalText(
-  value: unknown,
-  field: string,
-  max: number
-): string | null {
-  if (value == null) return null;
-  if (typeof value !== "string") {
-    throw new ValidationError(`${field} must be a string or null`);
-  }
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (trimmed.length > max) {
-    throw new ValidationError(`${field} must be at most ${max} characters`);
-  }
-  return trimmed;
-}
+// Moved VERBATIM to `customer-core.ts` — same limits, same messages, same
+// trim-then-check order — so the Import preview can tell an owner whether a row
+// would be accepted WITHOUT importing a module that instantiates Prisma.
+// Aliased here so every call site below is untouched.
+const normalizeName = normalizeCustomerName;
+const normalizeOptionalText = normalizeCustomerOptionalText;
 
 function normalizeCustomerId(value: number): number {
   const parsed = Number(value);

@@ -231,9 +231,11 @@ check("both actions describe what the owner gets, in Hebrew", () => {
     assert.equal(hebrew.test(action.description), true, action.key);
     assert.equal(action.href.startsWith(`${IMPORT_EXPORT_ROUTE}/`), true, action.key);
   }
+  // The Import row's wording tracks what the screen can actually do. In I-5 it
+  // is a DRY RUN, so it says so; it becomes a transfer when I-6 makes it one.
   assert.equal(
     IMPORT_EXPORT_ACTIONS.find((a) => a.key === "import")?.description,
-    "העבר מידע ממערכת אחרת לדוביז"
+    "בדקו קובץ ממערכת אחרת לפני קליטה"
   );
   assert.equal(
     IMPORT_EXPORT_ACTIONS.find((a) => a.key === "export")?.description,

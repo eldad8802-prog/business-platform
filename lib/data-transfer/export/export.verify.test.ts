@@ -144,20 +144,38 @@ check("leads-dormant-fields: the six omitted columns still have NO writer", () =
   // product flow starts writing one of these, THIS FAILS, and the export must
   // be re-evaluated.
   //
-  // Scope: the Leads domain's own write paths. `Conversation.currentStage` /
-  // `temperatureScore` live on a different table and are irrelevant here.
-  const sources = [
-    "lib/services/crm/lead.service.ts",
-    "lib/services/crm/lead-core.ts",
-    "app/api/leads/route.ts",
-    "app/api/leads/[id]/route.ts",
-    "app/api/conversations/[id]/lead/route.ts",
-  ].filter((p) => fs.existsSync(p));
+  // The sweep is DISCOVERED, not a hardcoded file list. The Leads domain keeps
+  // growing (lead-intelligence, lead-auto-capture arrived after this guard was
+  // written), and a fixed list quietly goes blind on whatever was added last.
+  //
+  // Matching is scoped to `lead` WRITE payloads specifically, because
+  // `Conversation.currentStage` and `Conversation.temperatureScore` are real,
+  // actively-written fields on a DIFFERENT table — a file-wide scan would fire
+  // on `tx.conversation.create({ currentStage: "NEW" })` and be disabled as a
+  // false alarm within a week.
+  const sources: string[] = [];
+  const sweep = (dir: string) => {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) sweep(full);
+      else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+        sources.push(full);
+      }
+    }
+  };
+  sweep("lib/services/crm");
+  sweep("app/api/leads");
+  sweep("app/api/conversations");
 
-  assert.equal(sources.length >= 3, true, "lead write paths not found to scan");
+  assert.equal(sources.length >= 5, true, "lead write paths not found to scan");
 
   const blockComment = new RegExp(String.raw`/\*[\s\S]*?\*/`, "g");
   const lineComment = new RegExp(String.raw`^\s*//`);
+  // `tx.lead.create({ ... })` / `.lead.updateMany({ ... })` and friends.
+  const LEAD_WRITE = /\.lead\.(create|createMany|update|updateMany|upsert)\s*\(\s*\{/g;
+
+  let scannedWrites = 0;
 
   for (const path of sources) {
     const src = fs
@@ -167,17 +185,35 @@ check("leads-dormant-fields: the six omitted columns still have NO writer", () =
       .filter((line) => !lineComment.test(line))
       .join("\n");
 
+    // Any `data.<field> =` in a lead file is a write no matter where it sits.
     for (const field of LEAD_DORMANT_FIELDS) {
-      // A write shows up as `field:` inside a data payload or `data.field =`.
-      const assigned = new RegExp(String.raw`\bdata\.${field}\s*=`).test(src);
-      const inPayload = new RegExp(String.raw`^\s*${field}\s*:`, "m").test(src);
       assert.equal(
-        assigned || inPayload,
+        new RegExp(String.raw`\bdata\.${field}\s*=`).test(src),
         false,
-        `${path} now writes Lead.${field} — re-evaluate whether it belongs in the export`
+        `${path} assigns Lead.${field} — re-evaluate whether it belongs in the export`
       );
     }
+
+    // And the payload of every lead write is inspected on its own.
+    LEAD_WRITE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = LEAD_WRITE.exec(src)) !== null) {
+      scannedWrites += 1;
+      // Take a generous window after the call opens; brace-matching a TS blob
+      // is overkill when the payload is always the first thing inside.
+      const body = src.slice(match.index, match.index + 1200);
+      for (const field of LEAD_DORMANT_FIELDS) {
+        assert.equal(
+          new RegExp(String.raw`^\s*${field}\s*:`, "m").test(body),
+          false,
+          `${path} writes Lead.${field} — re-evaluate whether it belongs in the export`
+        );
+      }
+    }
   }
+
+  // The sweep must actually have found lead writes, or it proves nothing.
+  assert.equal(scannedWrites >= 3, true, `only ${scannedWrites} lead writes scanned`);
 });
 
 check("the Leads descriptor exports none of the dormant fields", () => {
@@ -657,16 +693,24 @@ check("RELEASED: the hub is listed and Export is a real link", () => {
     "utf8"
   );
   assert.equal(/key: "export",[\s\S]*?available: true/.test(actions), true);
-  assert.equal(/key: "import",[\s\S]*?available: false/.test(actions), true);
 });
 
-check("the unbuilt Import row is NOT a link and NOT a disabled control", () => {
+check("an UNAVAILABLE hub action can never become a link or a dead control", () => {
+  // Import stopped being pending in I-5, but the MECHANISM stays: it is how
+  // Documents and Invoices import get presented before they exist. What is
+  // pinned here is the contract — a not-yet-usable action is non-interactive
+  // and says so, never a link to nothing, never a disabled-looking control.
   const src = readCode("components/settings/import-export/ImportExportPendingRow.tsx");
   assert.equal(src.includes("<Link"), false, "pending row must not navigate");
   assert.equal(src.includes("href"), false, "pending row must not carry an href");
   assert.equal(src.includes("<button"), false, "pending row must not look pressable");
   assert.equal(src.includes("disabled"), false, "a disabled control reads as a bug");
   assert.equal(src.includes("בקרוב"), true);
+
+  // And the hub must still route unavailable actions through it.
+  const hub = readCode("components/settings/import-export/ImportExportHub.tsx");
+  assert.equal(hub.includes("action.available"), true);
+  assert.equal(hub.includes("ImportExportPendingRow"), true);
 });
 
 console.log(`\nTABULAR EXPORT VERIFY PASS — ${passed} checks green.`);
