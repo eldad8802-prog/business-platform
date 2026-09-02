@@ -29,8 +29,28 @@ function ok(name: string, cond: boolean, detail?: string): void {
 const ROOT = process.cwd();
 const SCAN_DIRS = ["app", "lib", "components", "features", "hooks"];
 
-/** The single gated creation path. Anything else must justify itself here. */
-const ALLOWLIST = new Set(["app/api/auth/register/route.ts"]);
+/**
+ * The single gated creation path. Anything else must justify itself here.
+ *
+ * `lib/auth/signup.ts` holds the actual write. It was extracted from the route
+ * so that Business + User could be created in ONE transaction — previously they
+ * were two separate writes, and a failure between them left an orphan Business
+ * that nobody could ever log into.
+ *
+ * Extracting it means the creation is no longer syntactically inside the gated
+ * route, so this allowlist entry would weaken the guarantee on its own. It does
+ * not, because the check further down pins the compensating property: that
+ * module is importable ONLY from the gated route. Reachability replaces
+ * co-location, and the guarantee is unchanged.
+ */
+const ALLOWLIST = new Set([
+  "app/api/auth/register/route.ts",
+  "lib/auth/signup.ts",
+]);
+
+/** Only the gated route may import the account-creation module. */
+const SIGNUP_MODULE_IMPORTERS = new Set(["app/api/auth/register/route.ts"]);
+const SIGNUP_IMPORT_PATTERN = /from\s+["'][^"']*\/auth\/signup["']/;
 
 /** Prisma writes that can mint a tenant or an account. */
 const CREATION_PATTERNS = [
@@ -83,6 +103,28 @@ function main() {
       }
     }
   }
+  // 1b. The extracted creation module is reachable ONLY from the gated route.
+  //     This is what makes allowlisting lib/auth/signup.ts safe: the write lives
+  //     in its own file, but nothing except the gated route can call it, so no
+  //     un-gated path can reach a create.
+  const illegalImporters: string[] = [];
+  for (const file of files) {
+    const relPath = rel(file);
+    if (SIGNUP_MODULE_IMPORTERS.has(relPath)) continue;
+    if (relPath === "lib/auth/signup.ts") continue;
+    // Tests are not shipped and may exercise the module directly.
+    if (/\.test\.ts$/.test(relPath)) continue;
+    const src = fs.readFileSync(file, "utf8");
+    if (SIGNUP_IMPORT_PATTERN.test(src)) {
+      illegalImporters.push(relPath);
+    }
+  }
+  ok(
+    "the account-creation module is imported only by the gated route",
+    illegalImporters.length === 0,
+    illegalImporters.join("\n        ")
+  );
+
   ok(
     "registration is the only User/Business creation path in runtime code",
     offenders.length === 0,
