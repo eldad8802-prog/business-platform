@@ -11,6 +11,27 @@
  * Money columns are typed `currency` so they carry the shekel format, and
  * quantities are `number` rather than `integer` — the unit vocabulary includes
  * ML / GRAM / KG / LITER, where a fractional quantity is normal.
+ *
+ * # IMPORT CONTRACT — evidence
+ *
+ * `inventoryService.createItemWithInitialStock` accepts: `name`, `unitType`,
+ * `supplierName`, `initialQuantity`, `minimumQuantity`, `reorderPoint`,
+ * `costPerUnit`, `sellPricePerUnit`, `sku`, `barcode`, `imageUrl`, `categoryId`.
+ *
+ * TWO required fields, from two different sources:
+ *  - `name` — the service throws
+ *    `InventoryValidationError("Item name is required")` on a blank name.
+ *  - `unitType` — the service passes it straight to a NOT NULL column that has
+ *    no default, and the items route's `parseInventoryUnitType` throws
+ *    "unitType is required". A quantity means nothing without its unit.
+ *
+ * "קטגוריה" is EXPORTABLE (joined as a name) but NOT importable: the service
+ * takes a `categoryId`, an internal key. Accepting a category NAME would mean
+ * resolving-or-creating categories during import — an I-6 decision, not
+ * something a template should quietly imply.
+ *
+ * "עלות רכישה אחרונה" / "תאריך רכישה אחרונה" are derived from purchase history,
+ * and "פעיל" is lifecycle. None are create inputs.
  */
 
 import { InventoryUnitType } from "@prisma/client";
@@ -47,22 +68,136 @@ const UNIT_TYPE_LABELS: Record<InventoryUnitType, string> = {
   BOX: "מארז",
 };
 
+/** The owner-facing unit vocabulary, in the enum's own order. */
+const UNIT_TYPE_VALUES = Object.values(UNIT_TYPE_LABELS);
+
+/**
+ * Order below is the SHIPPED export order and must not be rearranged — the
+ * cell projection in `readPage` is positional.
+ */
 const COLUMNS = [
-  { header: "שם פריט", type: "text", width: 30 },
-  { header: "מק״ט", type: "text", width: 16 },
-  { header: "ברקוד", type: "text", width: 18 },
-  { header: "קטגוריה", type: "text", width: 18 },
-  { header: "יחידת מידה", type: "text", width: 14 },
-  { header: "ספק", type: "text", width: 22 },
-  { header: "כמות במלאי", type: "number", width: 14 },
-  { header: "כמות מינימום", type: "number", width: 14 },
-  { header: "נקודת הזמנה", type: "number", width: 14 },
-  { header: "עלות ליחידה", type: "currency", width: 14 },
-  { header: "מחיר מכירה", type: "currency", width: 14 },
-  { header: "עלות רכישה אחרונה", type: "currency", width: 18 },
-  { header: "תאריך רכישה אחרונה", type: "date", width: 18 },
-  { header: "פעיל", type: "text", width: 10 },
-  { header: "נוצר בתאריך", type: "date", width: 14 },
+  {
+    header: "שם פריט",
+    type: "text",
+    width: 30,
+    exportable: true,
+    importable: true,
+    required: true,
+    help: "שם הפריט כפי שתזהו אותו. שדה חובה.",
+    example: "חלב 3% ליטר",
+  },
+  {
+    header: "מק״ט",
+    type: "text",
+    width: 16,
+    exportable: true,
+    importable: true,
+    help: "מזהה פנימי שלכם לפריט. טקסט חופשי.",
+    example: "MILK-3-1L",
+  },
+  {
+    header: "ברקוד",
+    type: "text",
+    width: 18,
+    exportable: true,
+    importable: true,
+    help: "ברקוד המוצר, ספרות בלבד. שמרו את העמודה כטקסט כדי לא לאבד אפסים מובילים.",
+    example: "7290000000001",
+  },
+  {
+    header: "קטגוריה",
+    type: "text",
+    width: 18,
+    exportable: true,
+    importable: false,
+  },
+  {
+    header: "יחידת מידה",
+    type: "text",
+    width: 14,
+    exportable: true,
+    importable: true,
+    required: true,
+    allowedValues: UNIT_TYPE_VALUES,
+    help: "אחד מהערכים המותרים בלבד. שדה חובה — כמות בלי יחידה אינה אומרת דבר.",
+    example: "ליטר",
+  },
+  {
+    header: "ספק",
+    type: "text",
+    width: 22,
+    exportable: true,
+    importable: true,
+    help: "שם הספק, טקסט חופשי.",
+    example: "תנובה",
+  },
+  {
+    header: "כמות במלאי",
+    type: "number",
+    width: 14,
+    exportable: true,
+    importable: true,
+    help: "הכמות שיש עכשיו. אם יישאר ריק — ייקלט 0.",
+    example: "24",
+  },
+  {
+    header: "כמות מינימום",
+    type: "number",
+    width: 14,
+    exportable: true,
+    importable: true,
+    help: "הכמות שמתחתיה תרצו לקבל התראה.",
+    example: "6",
+  },
+  {
+    header: "נקודת הזמנה",
+    type: "number",
+    width: 14,
+    exportable: true,
+    importable: true,
+    help: "הכמות שבה כדאי להזמין מחדש מהספק.",
+    example: "10",
+  },
+  {
+    header: "עלות ליחידה",
+    type: "currency",
+    width: 14,
+    exportable: true,
+    importable: true,
+    help: "כמה עולה לכם פריט אחד, בשקלים. מספר בלבד, בלי ₪.",
+    example: "4.9",
+  },
+  {
+    header: "מחיר מכירה",
+    type: "currency",
+    width: 14,
+    exportable: true,
+    importable: true,
+    help: "המחיר ללקוח, בשקלים. מספר בלבד, בלי ₪.",
+    example: "7.5",
+  },
+  {
+    header: "עלות רכישה אחרונה",
+    type: "currency",
+    width: 18,
+    exportable: true,
+    importable: false,
+  },
+  {
+    header: "תאריך רכישה אחרונה",
+    type: "date",
+    width: 18,
+    exportable: true,
+    importable: false,
+  },
+  { header: "פעיל", type: "text", width: 10, exportable: true, importable: false },
+  {
+    header: "נוצר בתאריך",
+    type: "date",
+    width: 14,
+    exportable: true,
+    importable: false,
+  },
 ] as const;
 
 export const inventoryExportDescriptor: ExportDomainDescriptor = {

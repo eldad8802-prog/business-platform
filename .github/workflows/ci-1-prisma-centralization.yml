@@ -198,6 +198,31 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: removing the tenant filter fails the verifier"
 
+      # Import/Export Center I-4 — downloadable import templates. Blocking
+      # because a template's whole job is to tell the owner what the importer
+      # will accept: if the template columns and the domain's importable fields
+      # drift apart, the file becomes a confident lie and nothing crashes. Also
+      # pins that generation reads NO business data (it is a pure function of a
+      # domain id and a date) and that the data sheet carries no example rows,
+      # which would be uploadable by accident.
+      # Local equivalent: npm run verify:import-templates
+      - name: Import templates (field-model drift, privacy, guide contract)
+        run: npx tsx lib/data-transfer/templates/templates.verify.test.ts
+
+      - name: I-4 negative proof (template/import drift must be caught)
+        run: |
+          F="lib/data-transfer/export/domains/customers.export.ts"
+          cp "$F" "$F.bak"
+          # Promote the first field the create service does NOT accept. The
+          # template would then teach the owner a column the importer ignores.
+          sed -i '0,/importable: false,/s//importable: true,/' "$F"
+          if npx tsx lib/data-transfer/templates/templates.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: verifier passed with the import contract drifted"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: template/import drift fails the verifier"
+
       # CASA Wave B — platform-admin TOTP MFA (CASA 3.3.1). The elevation
       # envelope and the guard decide whether a privileged request is allowed at
       # all, so they belong in the BLOCKING job. Deterministic and offline: no

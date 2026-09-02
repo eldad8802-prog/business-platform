@@ -28,28 +28,44 @@ import {
   yesNo,
 } from "@/lib/data-transfer/export/export-values";
 
+/**
+ * IMPORT CONTRACT — evidence.
+ *
+ * `supplierService.createSupplier` accepts `name`, `phone`, `email`, `notes`,
+ * `defaultLeadTimeDays` PLUS the whole `SupplierProfileInput` (legalName,
+ * taxId, taxIdType, category, website, contact*, address*, paymentTermsDays,
+ * preferredPaymentMethod). `normalizeName` throws
+ * InventoryValidationError("Supplier name is required") on a blank name, so
+ * NAME is the one required field and every other accepted field is optional —
+ * the service is explicitly built so a supplier stays creatable in seconds.
+ *
+ * `isActive` and `createdAt` are system-owned and are exportable only.
+ *
+ * Order below is the SHIPPED export order and must not be rearranged — the
+ * cell projection in readPage is positional.
+ */
 const COLUMNS = [
-  { header: "שם ספק", type: "text", width: 28 },
-  { header: "שם משפטי", type: "text", width: 28 },
-  { header: "סוג עוסק", type: "text", width: 16 },
-  { header: "מספר עוסק / ח.פ.", type: "text", width: 20 },
-  { header: "תחום", type: "text", width: 18 },
-  { header: "טלפון", type: "text", width: 18 },
-  { header: "אימייל", type: "text", width: 28 },
-  { header: "אתר", type: "text", width: 26 },
-  { header: "איש קשר", type: "text", width: 20 },
-  { header: "תפקיד איש קשר", type: "text", width: 18 },
-  { header: "טלפון איש קשר", type: "text", width: 18 },
-  { header: "אימייל איש קשר", type: "text", width: 28 },
-  { header: "רחוב", type: "text", width: 24 },
-  { header: "עיר", type: "text", width: 16 },
-  { header: "מיקוד", type: "text", width: 12 },
-  { header: "ימי תשלום", type: "integer", width: 12 },
-  { header: "אמצעי תשלום מועדף", type: "text", width: 20 },
-  { header: "ימי אספקה", type: "integer", width: 12 },
-  { header: "הערות", type: "text", width: 40 },
-  { header: "פעיל", type: "text", width: 10 },
-  { header: "נוצר בתאריך", type: "date", width: 14 },
+  {"header":"שם ספק","type":"text","width":28,"exportable":true,"importable":true,"required":true,"help":"שם הספק כפי שתזהו אותו. שדה חובה.","example":"תנובה בע״מ"},
+  {"header":"שם משפטי","type":"text","width":28,"exportable":true,"importable":true,"help":"השם הרשום, אם שונה משם התצוגה.","example":"תנובה מרכז שיתופי בע״מ"},
+  {"header":"סוג עוסק","type":"text","width":16,"exportable":true,"importable":true,"allowedValues":["עוסק מורשה","עוסק פטור","חברה בע\"מ","ת.ז.","אחר"],"help":"אחד מהערכים המותרים בלבד.","example":"חברה בע\"מ"},
+  {"header":"מספר עוסק / ח.פ.","type":"text","width":20,"exportable":true,"importable":true,"help":"מספר הזיהוי העסקי, ספרות בלבד.","example":"512345678"},
+  {"header":"תחום","type":"text","width":18,"exportable":true,"importable":true,"help":"תחום הספק, טקסט חופשי.","example":"מוצרי חלב"},
+  {"header":"טלפון","type":"text","width":18,"exportable":true,"importable":true,"help":"מספר ישראלי בכל צורה מקובלת.","example":"03-123-4567"},
+  {"header":"אימייל","type":"text","width":28,"exportable":true,"importable":true,"help":"כתובת דוא״ל אחת.","example":"orders@example.co.il"},
+  {"header":"אתר","type":"text","width":26,"exportable":true,"importable":true,"help":"כתובת אתר.","example":"https://example.co.il"},
+  {"header":"איש קשר","type":"text","width":20,"exportable":true,"importable":true,"help":"שם איש הקשר אצל הספק.","example":"רונית לוי"},
+  {"header":"תפקיד איש קשר","type":"text","width":18,"exportable":true,"importable":true,"help":"התפקיד שלו.","example":"מנהלת מכירות"},
+  {"header":"טלפון איש קשר","type":"text","width":18,"exportable":true,"importable":true,"help":"טלפון ישיר.","example":"054-111-2222"},
+  {"header":"אימייל איש קשר","type":"text","width":28,"exportable":true,"importable":true,"help":"דוא״ל ישיר.","example":"ronit@example.co.il"},
+  {"header":"רחוב","type":"text","width":24,"exportable":true,"importable":true,"help":"רחוב ומספר.","example":"הרצל 10"},
+  {"header":"עיר","type":"text","width":16,"exportable":true,"importable":true,"help":"עיר או יישוב.","example":"רחובות"},
+  {"header":"מיקוד","type":"text","width":12,"exportable":true,"importable":true,"help":"מיקוד.","example":"7630000"},
+  {"header":"ימי תשלום","type":"integer","width":12,"exportable":true,"importable":true,"help":"תנאי תשלום במספר ימים. 0 = מיידי, 30 = שוטף+30.","example":"30"},
+  {"header":"אמצעי תשלום מועדף","type":"text","width":20,"exportable":true,"importable":true,"allowedValues":["העברה בנקאית","כרטיס אשראי","צ׳ק","מזומן","ביט","פייבוקס","אחר"],"help":"אחד מהערכים המותרים בלבד.","example":"העברה בנקאית"},
+  {"header":"ימי אספקה","type":"integer","width":12,"exportable":true,"importable":true,"help":"כמה ימים בדרך כלל לוקח לספק לספק.","example":"3"},
+  {"header":"הערות","type":"text","width":40,"exportable":true,"importable":true,"help":"טקסט חופשי.","example":"מינימום הזמנה 500 ₪"},
+  {"header":"פעיל","type":"text","width":10,"exportable":true,"importable":false},
+  {"header":"נוצר בתאריך","type":"date","width":14,"exportable":true,"importable":false},
 ] as const;
 
 export const suppliersExportDescriptor: ExportDomainDescriptor = {

@@ -57,19 +57,44 @@ export const LEAD_DORMANT_FIELDS = [
   "currency",
 ] as const;
 
+/**
+ * IMPORT CONTRACT — evidence.
+ *
+ * `leadService.createLead` (lib/services/crm/lead.service.ts) accepts exactly:
+ * `name`, `phone`, `email`, `intentSnapshot`, `sourceChannel`.
+ * `normalizeLeadName` throws `ValidationError("name is required")` on a blank
+ * name, so NAME is the one required field. `sourceChannel` falls back to
+ * LEAD_SOURCE_MANUAL when absent, so it is optional.
+ *
+ * Status and the follow-up fields are LIFECYCLE ACTIONS, not create inputs: a
+ * lead is created as NEW and moved by an explicit transition that stamps
+ * closedAt / lostReason. Letting a spreadsheet set them would let an import
+ * fabricate a history no transition ever happened.
+ *
+ * Order is the SHIPPED export order and must not be rearranged — the cell
+ * projection in readPage is positional.
+ */
 const COLUMNS = [
-  { header: "שם", type: "text", width: 24 },
-  { header: "טלפון", type: "text", width: 18 },
-  { header: "אימייל", type: "text", width: 28 },
-  { header: "סטטוס", type: "text", width: 16 },
-  { header: "מקור הפנייה", type: "text", width: 18 },
-  { header: "מה ביקשו", type: "text", width: 44 },
-  { header: "מעקב הבא", type: "date", width: 14 },
-  { header: "נושא המעקב", type: "text", width: 32 },
-  { header: "פעילות אחרונה", type: "date", width: 14 },
-  { header: "נסגר בתאריך", type: "date", width: 14 },
-  { header: "סיבת אי-סגירה", type: "text", width: 32 },
-  { header: "נוצר בתאריך", type: "date", width: 14 },
+  { header: "שם", type: "text", width: 24, exportable: true, importable: true, required: true,
+    help: "שם הפונה. שדה חובה.", example: "דנה כהן" },
+  { header: "טלפון", type: "text", width: 18, exportable: true, importable: true,
+    help: "מספר ישראלי בכל צורה מקובלת. ליד פתוח נוסף עם אותו טלפון ייחסם ככפילות.",
+    example: "052-987-6543" },
+  { header: "אימייל", type: "text", width: 28, exportable: true, importable: true,
+    help: "כתובת דוא״ל אחת.", example: "dana@example.co.il" },
+  { header: "סטטוס", type: "text", width: 16, exportable: true, importable: false },
+  { header: "מקור הפנייה", type: "text", width: 18, exportable: true, importable: true,
+    help: "מאיפה הגיעה הפנייה. אם יישאר ריק — ייקלט כפנייה ידנית.",
+    example: "פייסבוק" },
+  { header: "מה ביקשו", type: "text", width: 44, exportable: true, importable: true,
+    help: "מה הפונה ביקש, במילים שלכם או שלו.",
+    example: "בקשה להצעת מחיר לאירוע ביוני" },
+  { header: "מעקב הבא", type: "date", width: 14, exportable: true, importable: false },
+  { header: "נושא המעקב", type: "text", width: 32, exportable: true, importable: false },
+  { header: "פעילות אחרונה", type: "date", width: 14, exportable: true, importable: false },
+  { header: "נסגר בתאריך", type: "date", width: 14, exportable: true, importable: false },
+  { header: "סיבת אי-סגירה", type: "text", width: 32, exportable: true, importable: false },
+  { header: "נוצר בתאריך", type: "date", width: 14, exportable: true, importable: false },
 ] as const;
 
 export const leadsExportDescriptor: ExportDomainDescriptor = {

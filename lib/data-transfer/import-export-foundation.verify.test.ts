@@ -198,12 +198,30 @@ check("while unreleased, no OTHER surface links the route", () => {
 
 /* ================================================= 3. hub composition === */
 
-check("the hub asks direction first — exactly two actions", () => {
-  assert.equal(IMPORT_EXPORT_ACTIONS.length, 2);
+check("the hub asks direction first, and never shows the six domains", () => {
+  // Two DIRECTIONS (in / out), plus the one thing an owner can actually do
+  // about importing today: prepare their data. Domain selection belongs to the
+  // next step of each flow, where the direction is already known — a six-item
+  // grid here would ask the second question first.
   assert.deepEqual(
     IMPORT_EXPORT_ACTIONS.map((a) => a.key),
-    ["import", "export"]
+    ["import", "templates", "export"]
   );
+  // Templates sits with Import, not after Export: it belongs to that journey.
+  assert.equal(IMPORT_EXPORT_ACTIONS[0].key, "import");
+  assert.equal(IMPORT_EXPORT_ACTIONS[1].key, "templates");
+
+  // Structural, not a word scan: no hub action IS a domain. (The Export copy
+  // legitimately says "והמסמכים שלך" as ordinary Hebrew, so matching domain
+  // titles as substrings would fire on approved wording.)
+  const domainIds = new Set<string>(DATA_TRANSFER_DOMAINS.map((d) => d.id));
+  for (const action of IMPORT_EXPORT_ACTIONS) {
+    assert.equal(
+      domainIds.has(action.key),
+      false,
+      `hub exposes the domain "${action.key}" as a top-level action`
+    );
+  }
 });
 
 check("both actions describe what the owner gets, in Hebrew", () => {

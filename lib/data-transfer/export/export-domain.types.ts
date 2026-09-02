@@ -20,16 +20,17 @@
  */
 
 import type { SheetCell } from "@/lib/data-transfer/format/table.types";
-import type { XlsxColumnType } from "@/lib/data-transfer/format/xlsx-writer";
 import type { TenantTx } from "@/lib/tenant/transaction";
 import type { DataTransferDomainId } from "@/lib/data-transfer/domains";
+import type { DomainFieldSpec } from "@/lib/data-transfer/domain-fields";
 
-/** One owner-facing column. `header` is Hebrew; never an internal field name. */
-export type ExportColumnSpec = {
-  header: string;
-  type: XlsxColumnType;
-  width?: number;
-};
+/**
+ * A domain's columns are its FIELDS (see `lib/data-transfer/domain-fields.ts`):
+ * one declaration per field, filtered per surface. Export renders the
+ * `exportable` ones; the import template offers the `importable` ones. Two
+ * separately-maintained lists would drift, and the drift would be silent.
+ */
+export type ExportColumnSpec = DomainFieldSpec;
 
 /** One keyset page of already-projected cells. */
 export type ExportPage = {

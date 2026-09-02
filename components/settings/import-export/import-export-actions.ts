@@ -38,7 +38,7 @@
 import { IMPORT_EXPORT_ROUTE } from "./import-export-release";
 
 export type ImportExportAction = {
-  key: "import" | "export";
+  key: "import" | "templates" | "export";
   href: string;
   title: string;
   description: string;
@@ -55,6 +55,18 @@ export const IMPORT_EXPORT_ACTIONS: readonly ImportExportAction[] = [
     description: "העבר מידע ממערכת אחרת לדוביז",
     icon: "📂",
     available: false,
+  },
+  {
+    // Sits directly under the pending Import row because it belongs to that
+    // journey: the one useful thing an owner CAN do about importing today is
+    // get their data into the right shape. Its own screen leads with the fact
+    // that importing is not live yet, so this row cannot imply otherwise.
+    key: "templates",
+    href: `${IMPORT_EXPORT_ROUTE}/templates`,
+    title: "תבניות לייבוא",
+    description: "הורידו קובץ לדוגמה והכינו את המידע מראש",
+    icon: "📋",
+    available: true,
   },
   {
     key: "export",
