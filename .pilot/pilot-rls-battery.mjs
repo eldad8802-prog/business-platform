@@ -200,22 +200,31 @@ async function main() {
   const userA = await owner.user.create({
     data: { businessId: A.id, email: "pilot-a@pilot.test", password: "x", name: "pilot A" },
   });
-  const apptA = await owner.appointment.create({
-    data: {
-      businessId: A.id,
-      customerId: custA.id,
-      sourceConversationId: convA.id,
-      status: "CONFIRMED",
-      startAt: new Date(),
-      createdByActor: "OWNER",
-      sourceChannel: "INBOX_WEB",
-      createdByUserId: userA.id,
-    },
-  }).catch((e) => {
-    console.log("  (appointment fixture failed: " + String(e.message).slice(0, 160) + ")");
-    return null;
+  const userB = await owner.user.create({
+    data: { businessId: B.id, email: "pilot-b@pilot.test", password: "x", name: "pilot B" },
   });
-  ok("Appointment fixture created (so its isolation is proven on real rows)", apptA !== null);
+  const mkAppt = (bizId, custId, convId, userId) =>
+    owner.appointment.create({
+      data: {
+        businessId: bizId,
+        customerId: custId,
+        sourceConversationId: convId,
+        status: "CONFIRMED",
+        startsAt: new Date(),
+        createdByActor: "OWNER",
+        sourceChannel: "INBOX_WEB",
+        createdByUserId: userId,
+      },
+    }).catch((e) => {
+      console.log("  (appointment fixture failed: " + String(e?.message ?? e).slice(0, 200) + ")");
+      return null;
+    });
+  const apptA = await mkAppt(A.id, custA.id, convA.id, userA.id);
+  // Tenant B gets one too, so "A cannot see B's appointments" is a real denial
+  // rather than an empty table trivially satisfying the assertion.
+  const apptB = await mkAppt(B.id, custB.id, null, userB.id);
+  ok("Appointment fixtures created for BOTH tenants (isolation proven on real rows)",
+    apptA !== null && apptB !== null);
   ok("non-empty two-tenant fixtures created", !!custA.id && !!convA.id);
 
   const rt = new PrismaClient({ datasourceUrl: roleUrl(ownerUrl, RT_ROLE, RT_PW) });
@@ -231,8 +240,13 @@ async function main() {
                   BillingDocument: "billingDocument", PaymentRequest: "paymentRequest" };
   for (const t of PILOT) {
     const m = model[t];
+    // Prove B actually HAS rows for this table first, so a zero result is a real
+    // denial and not an empty table trivially satisfying the assertion.
+    const bHas = await owner[m].count({ where: { businessId: B.id } });
     const theirs = await withTenant(A.id, (tx) => tx[m].findMany({ where: { businessId: B.id } }));
-    ok(`${t}: tenant A cannot SELECT tenant B's rows`, theirs.length === 0, `saw ${theirs.length}`);
+    ok(`${t}: tenant A cannot SELECT tenant B's rows${bHas > 0 ? "" : " (VACUOUS — B has none)"}`,
+      theirs.length === 0, `saw ${theirs.length}`);
+    if (bHas > 0) ok(`${t}: ...and that denial is non-vacuous (B really has ${bHas} row(s))`, true);
     const noCtx = await rt[m].findMany({});
     ok(`${t}: a context-less SELECT returns zero (fail-closed, silently — by design)`, noCtx.length === 0);
   }
