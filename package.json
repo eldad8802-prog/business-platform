@@ -110,7 +110,9 @@
     "verify:release-guard": "node scripts/ci/release-guard.self-test.mjs",
     "verify:notification-policy": "npx tsx lib/notifications/notification-policy.verify.test.ts",
     "verify:data-transfer-format": "npx tsx lib/data-transfer/format/format.verify.test.ts",
-    "verify:financial-records-csv": "npx tsx lib/reports/financial-records-csv.verify.test.ts"
+    "verify:financial-records-csv": "npx tsx lib/reports/financial-records-csv.verify.test.ts",
+    "verify:import-export-foundation": "npx tsx lib/data-transfer/import-export-foundation.verify.test.ts",
+    "qa:import-export-foundation": "node scripts/qa/ui/import-export-foundation.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",

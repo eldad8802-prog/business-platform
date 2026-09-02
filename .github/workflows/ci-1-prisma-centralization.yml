@@ -141,6 +141,38 @@ jobs:
       - name: /api/reports/export CSV (escaping, injection guard, BOM, compat)
         run: npx tsx lib/reports/financial-records-csv.verify.test.ts
 
+      # Import/Export Center I-2 — the Settings foundation. Blocking for one
+      # reason: DEAD NAVIGATION fails silently. Nothing crashes when someone
+      # adds the Settings row "so it's ready" ahead of the capability — a
+      # business owner simply finds a screen that does nothing. This asserts the
+      # two halves of releasing (the flag and the Settings listing) can only
+      # move TOGETHER, that no other surface links the unreleased route, and
+      # that the transferable scope is exactly the six ratified domains.
+      # Pure: no DB, no network, no rendering.
+      # Local equivalent: npm run verify:import-export-foundation
+      - name: Import/Export foundation (six-domain scope + no dead navigation)
+        run: npx tsx lib/data-transfer/import-export-foundation.verify.test.ts
+
+      - name: I-2 negative proof (listing the feature before release must be caught)
+        run: |
+          F="components/settings/settings-categories.ts"
+          cp "$F" "$F.bak"
+          # Exactly the mistake this guard exists for: the Settings row is added
+          # while the route is still gated, so it would open a 404.
+          node -e '
+            const fs = require("fs");
+            const p = process.argv[1];
+            let s = fs.readFileSync(p, "utf8");
+            s = s.replace(/\n\];\s*$/, "\n  { key: \"import-export\", href: \"/settings/import-export\", title: \"x\", description: \"y\", icon: \"z\" },\n];\n");
+            fs.writeFileSync(p, s);
+          ' "$F"
+          if npx tsx lib/data-transfer/import-export-foundation.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: verifier passed with dead navigation exposed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: exposing the unreleased row fails the verifier"
+
       # CASA Wave B — platform-admin TOTP MFA (CASA 3.3.1). The elevation
       # envelope and the guard decide whether a privileged request is allowed at
       # all, so they belong in the BLOCKING job. Deterministic and offline: no
