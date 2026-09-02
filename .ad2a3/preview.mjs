@@ -157,10 +157,45 @@ async function main() {
   ok("Preview preflight is clean, so the migration may be applied", pre.ok === true);
   ok("all four composite-key columns are NOT NULL on Preview", pre.nullable.length === 0);
 
-  // ---- apply --------------------------------------------------------------
-  console.log("\n== apply the real migration ==");
-  const n = await runSqlFile(db, MIGRATION);
-  ok(`migration applied to Preview (${n} statements)`, n > 0);
+  // ---- apply, and MEASURE the locks it actually takes ----------------------
+  //
+  // "no locks" is never a true statement about DDL. Rather than assert a lock
+  // profile from the documentation, apply the migration inside one explicit
+  // transaction and read pg_locks from inside that same transaction, so the
+  // reported modes are the ones PostgreSQL actually acquired.
+  console.log("\n== apply the real migration (with measured lock profile) ==");
+  const stmts = readFileSync(MIGRATION, "utf8")
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("--"))
+    .join("\n")
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const locks = await db.$transaction(async (tx) => {
+    for (const s of stmts) await tx.$executeRawUnsafe(s);
+    return tx.$queryRawUnsafe(
+      `SELECT c.relname::text AS rel, l.mode::text AS mode
+         FROM pg_locks l JOIN pg_class c ON c.oid = l.relation
+        WHERE l.pid = pg_backend_pid()
+          AND l.locktype = 'relation'
+          AND c.relname IN ('Conversation','Message','ReplySuggestion',
+                            'Conversation_id_businessId_key',
+                            'ReplySuggestion_conversationId_businessId_idx')
+        ORDER BY c.relname, l.mode`
+    );
+  });
+  ok(`migration applied to Preview (${stmts.length} statements, one transaction)`, stmts.length > 0);
+  console.log("  MEASURED LOCK PROFILE (locks held by the migrating transaction):");
+  for (const l of locks) console.log(`    ${l.rel.padEnd(46)} ${l.mode}`);
+  ok("the migration did take locks (a zero-lock claim would be false)", locks.length > 0);
+  const modes = new Set(locks.map((l) => l.mode));
+  ok(
+    "no lock stronger than ShareRowExclusiveLock/AccessExclusiveLock-on-new-index was taken on Conversation",
+    !locks.some((l) => l.rel === "Conversation" && l.mode === "AccessExclusiveLock"),
+    JSON.stringify(locks.filter((l) => l.rel === "Conversation"))
+  );
+  console.log(`  distinct modes: ${[...modes].join(", ")}`);
 
   const mFk = await fkDef(db, "Message", "Message_conversationId_businessId_fkey");
   const rFk = await fkDef(db, "ReplySuggestion", "ReplySuggestion_conversationId_businessId_fkey");

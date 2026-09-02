@@ -13,6 +13,10 @@
 name: d2/ad2a3 — conversation tenant coherence (neon preview)
 
 on:
+  # TEMPORARY push trigger so the Preview proof can run before the PR exists;
+  # disarmed immediately after the run.
+  push:
+    branches: [feat/conversation-tenant-coherence]
   workflow_dispatch:
 
 permissions:
