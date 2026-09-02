@@ -225,6 +225,22 @@ async function main() {
   const apptB = await mkAppt(B.id, custB.id, null, userB.id);
   ok("Appointment fixtures created for BOTH tenants (isolation proven on real rows)",
     apptA !== null && apptB !== null);
+
+  // BillingDocument and PaymentRequest get rows for BOTH tenants too. These two
+  // matter most: they are the tables W4E-A and W4E-B-2 assumed were already
+  // FORCE-RLS'd by the pilot, so their isolation must be demonstrated against real
+  // rows rather than an empty table.
+  for (const [biz, cust] of [[A.id, custA.id], [B.id, custB.id]]) {
+    await owner.billingDocument.create({
+      data: { businessId: biz, documentType: "QUOTE", customerId: cust },
+    }).catch((e) => console.log("  (billingDocument fixture failed: " + String(e?.message ?? e).slice(0, 160) + ")"));
+    await owner.paymentRequest.create({
+      data: { businessId: biz, provider: "TRANZILA", amount: "100.00" },
+    }).catch((e) => console.log("  (paymentRequest fixture failed: " + String(e?.message ?? e).slice(0, 160) + ")"));
+  }
+  ok("BillingDocument + PaymentRequest fixtures created for both tenants",
+    (await owner.billingDocument.count({ where: { businessId: B.id } })) === 1 &&
+      (await owner.paymentRequest.count({ where: { businessId: B.id } })) === 1);
   ok("non-empty two-tenant fixtures created", !!custA.id && !!convA.id);
 
   const rt = new PrismaClient({ datasourceUrl: roleUrl(ownerUrl, RT_ROLE, RT_PW) });
@@ -347,6 +363,8 @@ async function main() {
   ok("reapply restored exactly 15 canonical policies (idempotent, no duplicates)", rePol[0].n === 15);
 
   // ---- cleanup -------------------------------------------------------------
+  await owner.paymentRequest.deleteMany({ where: { businessId: { in: [A.id, B.id] } } });
+  await owner.billingDocument.deleteMany({ where: { businessId: { in: [A.id, B.id] } } });
   await owner.appointment.deleteMany({ where: { businessId: { in: [A.id, B.id] } } });
   await owner.message.deleteMany({ where: { businessId: { in: [A.id, B.id] } } });
   await owner.conversation.deleteMany({ where: { businessId: { in: [A.id, B.id] } } });
