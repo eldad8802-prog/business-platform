@@ -100,7 +100,11 @@
     "verify:signup-closed-e2e": "npx tsx lib/auth/signup-closed.e2e.test.ts",
     "postinstall": "prisma generate",
     "verify:mist-tokens": "npx tsx lib/design/mist.verify.test.ts",
-    "verify:conversation-coherence": "bash scripts/ci/conversation-coherence-guard.sh . && bash scripts/ci/conversation-coherence-guard.sh --self-test ."
+    "verify:conversation-coherence": "bash scripts/ci/conversation-coherence-guard.sh . && bash scripts/ci/conversation-coherence-guard.sh --self-test .",
+    "verify:signup-identity": "npx tsx lib/auth/signup.verify.test.ts",
+    "verify:token-revocation": "npx tsx lib/auth/token-revocation.verify.test.ts",
+    "verify:jerusalem-day": "npx tsx lib/utils/jerusalem-day.verify.test.ts",
+    "verify:prelaunch": "npm run verify:signup-identity && npm run verify:token-revocation && npm run verify:jerusalem-day && npm run verify:collection-terms && npm run verify:signup-gate && npm run verify:signup-gate-route && npm run verify:signup-gate-coverage"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",

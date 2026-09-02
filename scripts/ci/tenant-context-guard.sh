@@ -47,6 +47,17 @@ ALLOW_GLOBAL_PILOT="lib/services/platform-admin/"
 # EARLIER waves already put under RLS (inventory/W3, coupons, content). They are a
 # pre-existing gap that this wave did not create and does not close — its scope is
 # the five pilot tables. Recorded explicitly so the set cannot GROW.
+#
+# ONE entry below is NOT that category and must not be read as a gap:
+#
+#   lib/auth/signup.ts — account creation. It writes Business and User, which NO
+#   migration in this repository has ever put under RLS, and it is the act that
+#   BRINGS A TENANT INTO EXISTENCE. A tenant-scoped transaction is not merely
+#   unused here, it is impossible: there is no businessId to scope to until this
+#   transaction commits one. Wrapping it in tenant context would mean inventing
+#   an id before the row exists. Bare by necessity, not by omission — and
+#   reachable only from the gated registration route, which
+#   lib/auth/signup-gate-coverage.test.ts pins.
 KNOWN_BARE_TX="lib/services/inventory/inventory.service.ts
 lib/services/inventory/pending-match.service.ts
 lib/services/inventory/purchase-order.service.ts
@@ -59,7 +70,8 @@ lib/services/platform-admin/update-business-feature-access.service.ts
 lib/services/account/account-deletion.prisma-store.ts
 lib/services/payments/payments.deps.ts
 lib/tenant/transaction.ts
-lib/services/billing/billing-tenant-tx.ts"
+lib/services/billing/billing-tenant-tx.ts
+lib/auth/signup.ts"
 
 run_checks() {
 echo "== CI-TC: tenant context closure =="

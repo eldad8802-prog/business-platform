@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { AuthTokenConfigError, signAuthToken } from "@/lib/auth";
+import { normalizeEmail } from "@/lib/auth/signup-identity";
 import bcrypt from "bcrypt";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
 import {
@@ -48,7 +49,15 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { email, password } = body;
 
-    if (!email || !password) {
+    // Typed rather than merely truthy: a non-string email reached the folding
+    // step below and threw, which surfaced as a 500 on what is really a bad
+    // request.
+    if (
+      typeof email !== "string" ||
+      typeof password !== "string" ||
+      !email ||
+      !password
+    ) {
       await recordLoginFailure({ reason: "missing_credentials" });
       return NextResponse.json(
         { error: "Missing email or password" },
@@ -56,12 +65,25 @@ export async function POST(req: Request) {
       );
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email },
-      include: {
-        business: true,
-      },
+    // Signup stores the folded address, so that is what we look for first.
+    // Accounts created before folding existed may still hold a mixed-case
+    // address, and those owners must not be locked out of their own business —
+    // so a miss falls back to the address exactly as typed. The fallback only
+    // runs when folding actually changed something, and it is a lookup on the
+    // same unique index, never a scan.
+    const normalizedEmail = normalizeEmail(email);
+
+    let user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      include: { business: true },
     });
+
+    if (!user && email !== normalizedEmail) {
+      user = await prisma.user.findUnique({
+        where: { email },
+        include: { business: true },
+      });
+    }
 
     if (!user) {
       await recordLoginFailure({ reason: "invalid_credentials" });
@@ -106,7 +128,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      token: signAuthToken(user.id),
+      // Minted at the user's CURRENT generation. A token signed at generation 0
+      // for someone who has logged out three times would be refused on its very
+      // first request.
+      token: signAuthToken(user.id, user.tokenVersion),
       sessionId,
       user: {
         id: user.id,

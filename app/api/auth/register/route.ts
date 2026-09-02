@@ -1,12 +1,28 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import bcrypt from "bcrypt";
-import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
+import { randomUUID } from "node:crypto";
+
+import { AuthTokenConfigError, signAuthToken } from "@/lib/auth";
+import {
+  EmailAlreadyRegisteredError,
+  SignupValidationError,
+  createAccount,
+  hashSignupPassword,
+  normalizeSignupInput,
+  type CreateAccountInput,
+  type CreatedAccount,
+} from "@/lib/auth/signup";
 import {
   SIGNUP_DISABLED_STATUS,
   isPublicSignupEnabled,
   signupDisabledBody,
 } from "@/lib/auth/signup-gate";
+import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
+import {
+  PRODUCT_USAGE_ACTIONS,
+  PRODUCT_USAGE_FEATURES,
+  PRODUCT_USAGE_OUTCOMES,
+} from "@/lib/services/product-usage/product-usage-catalog";
+import { recordProductUsageEvent } from "@/lib/services/product-usage/record-product-usage-event";
 
 export const dynamic = "force-dynamic";
 
@@ -20,31 +36,56 @@ export const dynamic = "force-dynamic";
  * a partial User or Business behind, and can never consume rate-limit budget or
  * DB connections. Login is deliberately untouched: existing users are never
  * affected by this flag.
+ *
+ * BEHIND the gate, account creation is atomic. `Business` and its first `User`
+ * used to be two separate writes: when the second failed the first stayed, and
+ * the result was a tenant nobody could ever log into. They are now one
+ * transaction. There is also no pre-flight duplicate lookup — a check followed
+ * by a write can be raced, and the loser surfaced as a 500. The unique index is
+ * the arbiter, and its rejection becomes a 409 that names the field.
+ *
+ * A successful signup returns the SESSION as well. The client used to call this
+ * and then call /api/auth/login separately; when that second call failed the
+ * account existed but the owner was told "שגיאה בהתחברות", and retrying said the
+ * user already existed — a dead end with no way out. There is no second call.
  */
 export type RegisterDeps = {
   isSignupEnabled: () => boolean;
   rateLimit: typeof consumeRateLimit;
-  findUserByEmail: (email: string) => Promise<{ id: number } | null>;
-  createBusiness: (input: { name: string }) => Promise<{ id: number }>;
-  createUser: (input: {
-    email: string;
-    password: string;
-    name: string;
-    businessId: number;
-  }) => Promise<{ id: number }>;
   hashPassword: (plain: string) => Promise<string>;
+  /** Atomic. Throws EmailAlreadyRegisteredError when the unique index rejects. */
+  createAccount: (input: CreateAccountInput) => Promise<CreatedAccount>;
+  signToken: (userId: number, tokenVersion: number) => string;
+  /**
+   * Usage telemetry. Injected so the route stays testable without a database —
+   * the real implementation swallows its own errors, but it still opens a
+   * connection, which a pure dependency-injection test must not do.
+   */
+  recordUsage: typeof recordProductUsageEvent;
 };
 
 const defaultDeps: RegisterDeps = {
   isSignupEnabled: isPublicSignupEnabled,
   rateLimit: consumeRateLimit,
-  findUserByEmail: (email) =>
-    prisma.user.findUnique({ where: { email }, select: { id: true } }),
-  createBusiness: ({ name }) =>
-    prisma.business.create({ data: { name }, select: { id: true } }),
-  createUser: (data) => prisma.user.create({ data, select: { id: true } }),
-  hashPassword: (plain) => bcrypt.hash(plain, 10),
+  hashPassword: hashSignupPassword,
+  createAccount,
+  signToken: signAuthToken,
+  recordUsage: recordProductUsageEvent,
 };
+
+async function recordSignupFailure(
+  deps: RegisterDeps,
+  reason: string
+) {
+  await deps.recordUsage({
+    businessId: null,
+    userId: null,
+    featureKey: PRODUCT_USAGE_FEATURES.AUTH_REGISTER,
+    action: PRODUCT_USAGE_ACTIONS.FAILED,
+    outcome: PRODUCT_USAGE_OUTCOMES.FAILURE,
+    metadata: { reason },
+  });
+}
 
 export async function handleRegister(
   req: Request,
@@ -67,54 +108,107 @@ export async function handleRegister(
     });
 
     if (!rl.allowed) {
+      await recordSignupFailure(deps, "rate_limited");
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
         { status: 429 }
       );
     }
 
-    const body = await req.json();
-    const { email, password, name, businessName } = body;
-
-    if (!email || !password || !name || !businessName) {
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      await recordSignupFailure(deps, "malformed_body");
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Invalid request body" },
         { status: 400 }
       );
     }
 
-    const existingUser = await deps.findUserByEmail(email);
+    const input = normalizeSignupInput(body as never);
+    const passwordHash = await deps.hashPassword(input.password);
 
-    if (existingUser) {
-      return NextResponse.json(
-        { error: "User already exists" },
-        { status: 400 }
-      );
-    }
+    const account = await deps.createAccount({
+      email: input.email,
+      passwordHash,
+      name: input.name,
+      businessName: input.businessName,
+    });
 
-    const hashedPassword = await deps.hashPassword(password);
+    // Minted before any bookkeeping below, so a failure there can never cost the
+    // owner the session they just earned.
+    const token = deps.signToken(account.userId, account.tokenVersion);
+    const sessionId = randomUUID();
 
-    const business = await deps.createBusiness({ name: businessName });
-
-    const user = await deps.createUser({
-      email,
-      password: hashedPassword,
-      name,
-      businessId: business.id,
+    await deps.recordUsage({
+      businessId: account.businessId,
+      userId: account.userId,
+      sessionId,
+      featureKey: PRODUCT_USAGE_FEATURES.AUTH_REGISTER,
+      action: PRODUCT_USAGE_ACTIONS.COMPLETED,
+      outcome: PRODUCT_USAGE_OUTCOMES.SUCCESS,
     });
 
     return NextResponse.json({
       success: true,
-      userId: user.id,
-      businessId: business.id,
+      // Retained from the previous contract so an older client build keeps
+      // working through a rolling deploy.
+      userId: account.userId,
+      businessId: account.businessId,
+      token,
+      sessionId,
+      user: {
+        id: account.userId,
+        email: account.email,
+        name: account.name,
+        businessId: account.businessId,
+        businessName: account.businessName,
+      },
     });
   } catch (error) {
-    console.error("REGISTER_ERROR:", error);
+    if (error instanceof SignupValidationError) {
+      await recordSignupFailure(deps, `invalid_${error.field}`);
+      return NextResponse.json(
+        { error: error.message, field: error.field },
+        { status: 400 }
+      );
+    }
 
-    return NextResponse.json(
-      { error: "Server error" },
-      { status: 500 }
-    );
+    if (error instanceof EmailAlreadyRegisteredError) {
+      await recordSignupFailure(deps, "duplicate_email");
+      // 409 states the specific truth: the request was well-formed, it lost to
+      // an existing account. The old code returned 400 after a racy pre-check,
+      // or 500 when the race was lost at the index.
+      return NextResponse.json(
+        {
+          error: "כתובת האימייל הזו כבר רשומה במערכת",
+          field: "email",
+          code: "EMAIL_ALREADY_REGISTERED",
+        },
+        { status: 409 }
+      );
+    }
+
+    if (error instanceof AuthTokenConfigError) {
+      // The account exists at this point; only the session could not be minted.
+      // Say so plainly rather than implying the signup failed.
+      console.error("REGISTER_ERROR:", error.message);
+      await recordSignupFailure(deps, "auth_token_misconfigured");
+      return NextResponse.json(
+        {
+          error:
+            process.env.NODE_ENV === "production"
+              ? "Server configuration error"
+              : error.message,
+        },
+        { status: 503 }
+      );
+    }
+
+    console.error("REGISTER_ERROR:", error);
+    await recordSignupFailure(deps, "server_error");
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
 
