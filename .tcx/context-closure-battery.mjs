@@ -88,9 +88,19 @@ async function main() {
     `SELECT relname::text AS tbl, relrowsecurity AS rls, relforcerowsecurity AS forced
        FROM pg_class WHERE relnamespace='public'::regnamespace AND relname = ANY($1::text[])
       ORDER BY relname`, PILOT);
+  // CUTOVER-2B INVERTED THIS ASSERTION, DELIBERATELY.
+  //
+  // When 2A ran, this asserted the five pilot tables came out of the repository with
+  // NO RLS — that was the gap 2A existed to document, and it matched Production
+  // exactly while Preview (carrying unmigrated pilot residue) disagreed. 2B then
+  // shipped 20260902120000_d2_cutover2b_pilot_tenant_rls, so the repository now DOES
+  // grant them RLS. The old assertion is not "broken", it is obsolete: it described a
+  // hole that has since been filled. Asserting the stronger post-2B truth instead —
+  // and doing so HERE, in the battery that first proved the gap, keeps the two waves
+  // reading as one continuous story rather than leaving a stale claim behind.
   for (const r of baseline) {
-    ok(`BASELINE: ${r.tbl} has NO RLS from repository migrations (repo truth, matches Production)`,
-      r.rls === false && r.forced === false, JSON.stringify(r));
+    ok(`BASELINE: ${r.tbl} now GETS RLS from repository migrations (the 2A gap, closed by 2B)`,
+      r.rls === true && r.forced === true, JSON.stringify(r));
   }
   const tenantTables = await owner.$queryRawUnsafe(
     `SELECT count(*)::int AS total,
@@ -101,8 +111,14 @@ async function main() {
                      WHERE col.table_schema='public' AND col.table_name=c.relname
                        AND col.column_name='businessId')`);
   console.log(`  tenant tables: ${tenantTables[0].with_rls}/${tenantTables[0].total} under RLS from migrations alone`);
-  ok("the five pilot tables are the repository's RLS gap, reproducible from main alone",
-    tenantTables[0].total - tenantTables[0].with_rls >= PILOT.length);
+  // Same inversion. Before 2B the repository left at least the five pilot tables
+  // unprotected (60/70, matching Production). After 2B those five are covered, so the
+  // uncovered remainder must have SHRUNK by exactly five. The tables still uncovered
+  // are the deliberate bootstrap set — User, WhatsAppConnection, POSApiKey,
+  // PaymentProviderRouting — plus ProductUsageEvent, which is tracked separately.
+  ok("the five pilot tables are no longer part of the repository's uncovered set",
+    tenantTables[0].total - tenantTables[0].with_rls <= 5,
+    `uncovered=${tenantTables[0].total - tenantTables[0].with_rls}`);
 
   // ---- 2. restricted role + TEST-ONLY RLS overlay --------------------------
   console.log("\n== 2. restricted runtime role + test-only RLS overlay ==");
