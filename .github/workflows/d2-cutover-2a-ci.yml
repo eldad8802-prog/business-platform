@@ -1,0 +1,104 @@
+# D2 / PRODUCTION-RUNTIME-CUTOVER-2A — application context closure battery (PG17).
+#
+# The lab is built with `prisma migrate deploy` — the REAL migration history — and
+# NOT with `db push` or a Preview clone. That is the point: the baseline it produces
+# is what the REPOSITORY ships, which is how the five P4-B pilot tables are shown to
+# have no RLS from main alone (Preview's copy of that state is unmigrated residue).
+#
+# Then the real application services run against a restricted NOBYPASSRLS role to
+# prove the refactor removed the silent-zero read.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO Production.
+
+name: d2/cutover-2a — tenant context closure (ephemeral PG17)
+
+on:
+  # TEMPORARY push trigger so the PG17 proof runs before the PR exists; disarmed after.
+  push:
+    branches: [feat/tenant-context-closure]
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "lib/**"
+      - "features/**"
+      - "scripts/ci/tenant-context-guard.sh"
+      - ".tcx/**"
+      - ".github/workflows/d2-cutover-2a-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d2-cutover-2a-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  closure:
+    name: tenant context closure (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: tcx_owner
+          POSTGRES_PASSWORD: tcx_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_tcx
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tcx_owner -d dubiz_tcx"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://tcx_owner:tcx_ci_synthetic_owner_pw@localhost:5432/dubiz_tcx
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .tcx/context-closure-battery.mjs
+
+      - name: CI-TC tenant-context guard + negative self-proofs (blocking)
+        run: |
+          bash scripts/ci/tenant-context-guard.sh .
+          bash scripts/ci/tenant-context-guard.sh --self-test .
+
+      - name: Existing guard families (no regression)
+        run: |
+          bash scripts/ci/prisma-centralization-guard.sh .
+          bash scripts/ci/admin-boundary-guard.sh .
+          bash scripts/ci/w4-context-guard.sh .
+          bash scripts/ci/privwrite-guard.sh .
+          bash scripts/ci/account-deletion-guard.sh .
+          bash scripts/ci/conversation-coherence-guard.sh .
+
+      - name: Prisma validate + generate
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          npx prisma validate
+          npx prisma generate
+
+      # THE governance step: build the lab from the real migration history so the
+      # RLS baseline it produces is repository truth, not Preview residue.
+      - name: Build the lab from the REAL migration history
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma migrate deploy
+
+      - name: Tenant context closure battery
+        run: npx tsx .tcx/context-closure-battery.mjs
+
+      - name: Typecheck
+        run: npx tsc --noEmit

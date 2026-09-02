@@ -8,6 +8,7 @@
  * (which use an in-memory store); wired for real use in Phase 2B-3.
  */
 import { prisma } from "@/lib/prisma";
+import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
 import type {
   SignedArtifactStore,
@@ -24,7 +25,8 @@ export const prismaSignedArtifactStore: SignedArtifactStore = {
     // Atomic single-writer: set the three operational fields ONLY when currently
     // unsigned (signedPdfStorageKey IS NULL) and the document is this tenant's and
     // ISSUED (the intent merges `status: ISSUED`). BatchPayload.count is 0 or 1.
-    const res = await updateBillingDocuments(prisma, {
+    const res = await billingTenantTx(args.businessId, (tx) =>
+      updateBillingDocuments(tx, {
       intent: "issued_operational",
       where: {
         id: args.documentId,
@@ -36,7 +38,8 @@ export const prismaSignedArtifactStore: SignedArtifactStore = {
         signedPdfHash: args.artifact.hash,
         signedAt: args.artifact.signedAt,
       },
-    });
+    })
+    );
     return res.count;
   },
 
@@ -44,10 +47,12 @@ export const prismaSignedArtifactStore: SignedArtifactStore = {
     documentId: number;
     businessId: number;
   }): Promise<SignedArtifactFields | null> {
-    const doc = await prisma.billingDocument.findFirst({
+    const doc = await billingTenantTx(args.businessId, (tx) =>
+    tx.billingDocument.findFirst({
       where: { id: args.documentId, businessId: args.businessId },
       select: { signedPdfStorageKey: true, signedPdfHash: true, signedAt: true },
-    });
+    })
+  );
     if (!doc) return null;
     return {
       signedPdfStorageKey: doc.signedPdfStorageKey,

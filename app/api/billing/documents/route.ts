@@ -8,6 +8,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 import {
   createBillingDraft,
   CreateBillingDraftInput,
@@ -202,19 +203,25 @@ export async function GET(req: NextRequest) {
         : {}),
     };
 
-    const [documents, rawTotals] = await Promise.all([
-      prisma.billingDocument.findMany({
-        where,
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        take: limit,
-        select: LIST_SELECT,
-      }),
-      prisma.billingDocument.groupBy({
-        by: ["documentType", "status"],
-        where: { businessId: user.businessId },
-        _count: { _all: true },
-      }),
-    ]);
+    // CUTOVER-2A: sequential inside ONE tenant transaction rather than
+    // Promise.all — a transaction client is a single connection, and both reads
+    // need `app.current_business_id` or they return empty under FORCE RLS.
+    const [documents, rawTotals] = await billingTenantTx(
+      user.businessId,
+      async (tx) => [
+        await tx.billingDocument.findMany({
+          where,
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          take: limit,
+          select: LIST_SELECT,
+        }),
+        await tx.billingDocument.groupBy({
+          by: ["documentType", "status"],
+          where: { businessId: user.businessId },
+          _count: { _all: true },
+        }),
+      ]
+    );
 
     const totals = {
       all: rawTotals.reduce((s, r) => s + r._count._all, 0),

@@ -135,14 +135,16 @@ export function hashApprovalPayload(payload: InvoiceApprovalRequest): string {
 
 export const defaultSubmissionExecutionDeps: SubmissionExecutionDeps = {
   loadDocumentWithSubmission: async (businessId, billingDocumentId) => {
-    const doc = await prisma.billingDocument.findFirst({
+    const doc = await billingTenantTx(businessId, (tx) =>
+    tx.billingDocument.findFirst({
       where: { id: billingDocumentId, businessId },
       select: {
         id: true, businessId: true, status: true, lockedAt: true,
         legalSnapshotHash: true, issuedSnapshot: true,
         authoritySubmission: { select: { id: true, status: true, authorityPayloadHash: true } },
       },
-    });
+    })
+  );
     if (!doc) return null;
     const { authoritySubmission, ...rest } = doc;
     return { ...rest, submission: authoritySubmission };

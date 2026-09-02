@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { getCurrentUser } from "@/lib/auth";
 
 type RouteContext = {
@@ -20,27 +20,35 @@ export async function POST(req: Request, context: RouteContext) {
     const { id } = await context.params;
     const conversationId = Number(id);
 
-    const conversation = await prisma.conversation.findFirst({
-      where: {
-        id: conversationId,
-        businessId: user.businessId,
-      },
+    // CUTOVER-2A: the ownership check and the write belong in ONE tenant
+    // transaction. Split across the global client they carry no
+    // `app.current_business_id`, and under the restricted runtime the check would
+    // silently find nothing — turning "closed successfully" into a 404 for rows the
+    // tenant actually owns.
+    const updated = await tenantTx(user.businessId, async (tx) => {
+      const conversation = await tx.conversation.findFirst({
+        where: {
+          id: conversationId,
+          businessId: user.businessId,
+        },
+      });
+      if (!conversation) return null;
+
+      return tx.conversation.update({
+        where: { id: conversationId },
+        data: {
+          status: "CLOSED",
+          closedAt: new Date(),
+        },
+      });
     });
 
-    if (!conversation) {
+    if (!updated) {
       return NextResponse.json(
         { error: "Conversation not found" },
         { status: 404 }
       );
     }
-
-    const updated = await prisma.conversation.update({
-      where: { id: conversationId },
-      data: {
-        status: "CLOSED",
-        closedAt: new Date(),
-      },
-    });
 
     return NextResponse.json({
       success: true,

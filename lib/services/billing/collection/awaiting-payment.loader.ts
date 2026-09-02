@@ -16,6 +16,7 @@
 import { BillingDocumentStatus, BillingDocumentType, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 
 import {
   buildAwaitingPaymentList,
@@ -53,7 +54,8 @@ export async function loadAwaitingPaymentList(
    */
   const dueBefore = new Date(now.getTime() - termsDays * MS_PER_DAY);
 
-  const documents = await prisma.billingDocument.findMany({
+  const documents = await billingTenantTx(businessId, (tx) =>
+    tx.billingDocument.findMany({
     where: {
       businessId,
       documentType: BillingDocumentType.TAX_INVOICE,
@@ -84,7 +86,8 @@ export async function loadAwaitingPaymentList(
       },
     },
     orderBy: { issuedAt: "asc" },
-  });
+  })
+  );
 
   const rows: InvoiceRow[] = documents.map((doc) => ({
     id: doc.id,

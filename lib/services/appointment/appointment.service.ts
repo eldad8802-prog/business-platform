@@ -14,6 +14,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import {
   __parsers,
   clearPendingAppointmentRequestTx,
@@ -73,7 +74,10 @@ export async function create(input: CreateInput): Promise<AppointmentResult> {
     return { ok: false, reason: "invalid_input" };
   }
 
-  return prisma.$transaction((tx) => createWithinTx(tx, input));
+  // CUTOVER-2A: Appointment is a P4-B pilot table. A bare $transaction opens
+  // a transaction with NO app.current_business_id, so under FORCE RLS its reads
+  // return nothing and its writes are refused.
+  return tenantTx(input.businessId, (tx) => createWithinTx(tx, input));
 }
 
 async function createWithinTx(
@@ -134,7 +138,7 @@ export async function createFromPending(
     return { ok: false, reason: "invalid_input" };
   }
 
-  return prisma.$transaction(async (tx) => {
+  return tenantTx(input.businessId, async (tx) => {
     const conv = await tx.conversation.findFirst({
       where: { id: input.conversationId, businessId: input.businessId },
       select: {
@@ -199,7 +203,7 @@ async function transition(
     return { ok: false, reason: "invalid_input" };
   }
 
-  return prisma.$transaction(async (tx) => {
+  return tenantTx(input.businessId, async (tx) => {
     const current = await tx.appointment.findFirst({
       where: { id: input.appointmentId, businessId: input.businessId },
     });
@@ -255,7 +259,7 @@ export async function reschedule(
     return { ok: false, reason: "invalid_input" };
   }
 
-  return prisma.$transaction(async (tx) => {
+  return tenantTx(input.businessId, async (tx) => {
     const current = await tx.appointment.findFirst({
       where: { id: input.appointmentId, businessId: input.businessId },
     });
@@ -278,9 +282,15 @@ export async function reschedule(
 /** Read helpers (source of truth), scoped by businessId. */
 export async function getById(appointmentId: number, businessId: number) {
   if (!isPositiveInt(appointmentId) || !isPositiveInt(businessId)) return null;
-  return prisma.appointment.findFirst({
-    where: { id: appointmentId, businessId },
-  });
+  // CUTOVER-2A: Appointment is one of the five tables the P4-B pilot protected on
+  // Preview only. Read inside the tenant transaction so the GUC is present once
+  // RLS actually ships — a context-less read would return null and be
+  // indistinguishable from "no such appointment".
+  return tenantTx(businessId, (tx) =>
+    tx.appointment.findFirst({
+      where: { id: appointmentId, businessId },
+    })
+  );
 }
 
 export async function listForConversation(
@@ -288,8 +298,10 @@ export async function listForConversation(
   businessId: number
 ) {
   if (!isPositiveInt(conversationId) || !isPositiveInt(businessId)) return [];
-  return prisma.appointment.findMany({
-    where: { sourceConversationId: conversationId, businessId },
-    orderBy: { createdAt: "desc" },
-  });
+  return tenantTx(businessId, (tx) =>
+    tx.appointment.findMany({
+      where: { sourceConversationId: conversationId, businessId },
+      orderBy: { createdAt: "desc" },
+    })
+  );
 }

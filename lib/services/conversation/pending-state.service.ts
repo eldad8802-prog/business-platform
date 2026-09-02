@@ -13,7 +13,7 @@
  */
 
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 export type PendingFollowUp = {
   /** ISO-8601 UTC timestamp when the owner created the follow-up. */
@@ -91,14 +91,23 @@ function parsePendingAppointmentRequest(
   };
 }
 
+/**
+ * CUTOVER-2A: reads on the caller's tenant transaction client rather than the
+ * global one. Every public function below now runs its check AND its write inside
+ * a single `tenantTx`, which fixes two things at once: the statements carry
+ * `app.current_business_id` (a context-less read returns zero rows under FORCE RLS
+ * without raising, so "not found" would be reported for rows the tenant owns), and
+ * the check/write pair stops being a TOCTOU across two connections.
+ */
 async function loadConversationScoped(
+  tx: Prisma.TransactionClient,
   conversationId: number,
   businessId: number
 ): Promise<{
   pendingFollowUp: unknown;
   pendingAppointmentRequest: unknown;
 } | null> {
-  const row = await prisma.conversation.findFirst({
+  const row = await tx.conversation.findFirst({
     where: { id: conversationId, businessId },
     select: { pendingFollowUp: true, pendingAppointmentRequest: true },
   });
@@ -112,12 +121,14 @@ export async function getOpenPendingState(
   followUp: PendingFollowUp | null;
   appointment: PendingAppointmentRequest | null;
 } | null> {
-  const row = await loadConversationScoped(conversationId, businessId);
-  if (!row) return null;
-  return {
-    followUp: parsePendingFollowUp(row.pendingFollowUp),
-    appointment: parsePendingAppointmentRequest(row.pendingAppointmentRequest),
-  };
+  return tenantTx(businessId, async (tx) => {
+    const row = await loadConversationScoped(tx, conversationId, businessId);
+    if (!row) return null;
+    return {
+      followUp: parsePendingFollowUp(row.pendingFollowUp),
+      appointment: parsePendingAppointmentRequest(row.pendingAppointmentRequest),
+    };
+  });
 }
 
 export async function setPendingFollowUp(
@@ -129,40 +140,44 @@ export async function setPendingFollowUp(
     note: string | null;
   }
 ): Promise<SetResult<PendingFollowUp>> {
-  const row = await loadConversationScoped(conversationId, businessId);
-  if (!row) return { ok: false, reason: "conversation_not_found" };
+  return tenantTx(businessId, async (tx) => {
+    const row = await loadConversationScoped(tx, conversationId, businessId);
+    if (!row) return { ok: false, reason: "conversation_not_found" };
 
-  const existing = parsePendingFollowUp(row.pendingFollowUp);
-  if (existing) {
-    return { ok: false, reason: "already_exists", pending: existing };
-  }
+    const existing = parsePendingFollowUp(row.pendingFollowUp);
+    if (existing) {
+      return { ok: false, reason: "already_exists", pending: existing };
+    }
 
-  const pending: PendingFollowUp = {
-    createdAt: new Date().toISOString(),
-    createdByOwnerId: input.createdByOwnerId,
-    originMessageId: input.originMessageId,
-    note: input.note,
-  };
+    const pending: PendingFollowUp = {
+      createdAt: new Date().toISOString(),
+      createdByOwnerId: input.createdByOwnerId,
+      originMessageId: input.originMessageId,
+      note: input.note,
+    };
 
-  await prisma.conversation.update({
-    where: { id: conversationId },
-    data: { pendingFollowUp: pending },
+    await tx.conversation.update({
+      where: { id: conversationId },
+      data: { pendingFollowUp: pending },
+    });
+
+    return { ok: true, pending };
   });
-
-  return { ok: true, pending };
 }
 
 export async function clearPendingFollowUp(
   conversationId: number,
   businessId: number
 ): Promise<ClearResult> {
-  const row = await loadConversationScoped(conversationId, businessId);
-  if (!row) return { ok: false, reason: "conversation_not_found" };
-  await prisma.conversation.update({
-    where: { id: conversationId },
-    data: { pendingFollowUp: Prisma.DbNull },
+  return tenantTx(businessId, async (tx) => {
+    const row = await loadConversationScoped(tx, conversationId, businessId);
+    if (!row) return { ok: false, reason: "conversation_not_found" };
+    await tx.conversation.update({
+      where: { id: conversationId },
+      data: { pendingFollowUp: Prisma.DbNull },
+    });
+    return { ok: true };
   });
-  return { ok: true };
 }
 
 export async function setPendingAppointmentRequest(
@@ -174,40 +189,44 @@ export async function setPendingAppointmentRequest(
     customerHint: string | null;
   }
 ): Promise<SetResult<PendingAppointmentRequest>> {
-  const row = await loadConversationScoped(conversationId, businessId);
-  if (!row) return { ok: false, reason: "conversation_not_found" };
+  return tenantTx(businessId, async (tx) => {
+    const row = await loadConversationScoped(tx, conversationId, businessId);
+    if (!row) return { ok: false, reason: "conversation_not_found" };
 
-  const existing = parsePendingAppointmentRequest(row.pendingAppointmentRequest);
-  if (existing) {
-    return { ok: false, reason: "already_exists", pending: existing };
-  }
+    const existing = parsePendingAppointmentRequest(row.pendingAppointmentRequest);
+    if (existing) {
+      return { ok: false, reason: "already_exists", pending: existing };
+    }
 
-  const pending: PendingAppointmentRequest = {
-    createdAt: new Date().toISOString(),
-    createdByOwnerId: input.createdByOwnerId,
-    originMessageId: input.originMessageId,
-    customerHint: input.customerHint,
-  };
+    const pending: PendingAppointmentRequest = {
+      createdAt: new Date().toISOString(),
+      createdByOwnerId: input.createdByOwnerId,
+      originMessageId: input.originMessageId,
+      customerHint: input.customerHint,
+    };
 
-  await prisma.conversation.update({
-    where: { id: conversationId },
-    data: { pendingAppointmentRequest: pending },
+    await tx.conversation.update({
+      where: { id: conversationId },
+      data: { pendingAppointmentRequest: pending },
+    });
+
+    return { ok: true, pending };
   });
-
-  return { ok: true, pending };
 }
 
 export async function clearPendingAppointmentRequest(
   conversationId: number,
   businessId: number
 ): Promise<ClearResult> {
-  const row = await loadConversationScoped(conversationId, businessId);
-  if (!row) return { ok: false, reason: "conversation_not_found" };
-  await prisma.conversation.update({
-    where: { id: conversationId },
-    data: { pendingAppointmentRequest: Prisma.DbNull },
+  return tenantTx(businessId, async (tx) => {
+    const row = await loadConversationScoped(tx, conversationId, businessId);
+    if (!row) return { ok: false, reason: "conversation_not_found" };
+    await tx.conversation.update({
+      where: { id: conversationId },
+      data: { pendingAppointmentRequest: Prisma.DbNull },
+    });
+    return { ok: true };
   });
-  return { ok: true };
 }
 
 /**

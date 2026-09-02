@@ -115,14 +115,16 @@ export async function getOrRenderQuotePdf(
     });
   });
 
-  const doc = await prisma.billingDocument.findFirst({
+  const doc = await billingTenantTx(input.businessId, (tx) =>
+    tx.billingDocument.findFirst({
     where: {
       id: input.billingDocumentId,
       businessId: input.businessId,
       documentType: BillingDocumentType.QUOTE,
     },
     include: { lines: { orderBy: { lineIndex: "asc" } } },
-  });
+  })
+  );
 
   if (!doc) {
     throw new NotFoundError("Quote document not found");
@@ -178,8 +180,10 @@ export async function getOrRenderQuotePdf(
     | null = null;
 
   if (doc.customerId !== null) {
-    const customer = await prisma.customer.findFirst({
-      where: { id: doc.customerId, businessId: input.businessId },
+    const docCustomerId = doc.customerId;
+    const customer = await billingTenantTx(input.businessId, (tx) =>
+    tx.customer.findFirst({
+      where: { id: docCustomerId, businessId: input.businessId },
       select: {
         id: true,
         name: true,
@@ -187,7 +191,8 @@ export async function getOrRenderQuotePdf(
         email: true,
         city: true,
       },
-    });
+    })
+  );
     if (customer) {
       customerData = customer;
     }
@@ -275,7 +280,8 @@ export async function getOrRenderQuotePdf(
         : "PDF rendering failed"
     );
     try {
-      await updateBillingDocuments(prisma, {
+      await billingTenantTx(input.businessId, (tx) =>
+      updateBillingDocuments(tx, {
         where: {
           id: doc.id,
           businessId: input.businessId,
@@ -287,7 +293,8 @@ export async function getOrRenderQuotePdf(
           pdfRenderStatus: BillingPdfRenderStatus.FAILED,
           pdfRenderError: message,
         },
-      });
+      })
+    );
     } catch (dbErr) {
       console.error("quote-pdf: failed to record FAILED status", dbErr);
     }
@@ -310,7 +317,8 @@ export async function getOrRenderQuotePdf(
 
   let dbUpdateCount = 0;
   try {
-    const result = await updateBillingDocuments(prisma, {
+    const result = await billingTenantTx(input.businessId, (tx) =>
+      updateBillingDocuments(tx, {
       where: {
         id: doc.id,
         businessId: input.businessId,
@@ -329,7 +337,8 @@ export async function getOrRenderQuotePdf(
         pdfRenderedAt: new Date(),
         pdfRenderError: null,
       },
-    });
+    })
+    );
     dbUpdateCount = result.count;
   } catch (dbErr) {
     console.error("quote-pdf: failed to record RENDERED status", dbErr);

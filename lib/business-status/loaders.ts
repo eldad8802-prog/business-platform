@@ -139,7 +139,7 @@ function pickLatestMessagePerConversation<
 export async function loadAttentionWaiting(
   businessId: number
 ): Promise<AttentionWaitingRaw[]> {
-  const openRows = await prisma.conversation.findMany({
+  const openRows = await dbStep((db) => db.conversation.findMany({
     where: { businessId, status: "OPEN" },
     orderBy: { updatedAt: "desc" },
     take: BS_OPEN_CONVERSATION_SCAN_CAP,
@@ -149,7 +149,7 @@ export async function loadAttentionWaiting(
       createdAt: true,
       customer: { select: { name: true } },
     },
-  });
+  }));
 
   const openIds = openRows.map((c) => c.id);
   const convById = new Map(openRows.map((c) => [c.id, c]));
@@ -228,12 +228,12 @@ export async function loadAttentionPendingSuggestions(
   businessId: number,
   excludeConversationIds: Set<number>
 ): Promise<AttentionPendingSuggestionRaw[]> {
-  const openRows = await prisma.conversation.findMany({
+  const openRows = await dbStep((db) => db.conversation.findMany({
     where: { businessId, status: "OPEN" },
     orderBy: { updatedAt: "desc" },
     take: BS_OPEN_CONVERSATION_SCAN_CAP,
     select: { id: true },
-  });
+  }));
   const openIds = openRows.map((r) => r.id);
   if (openIds.length === 0) return [];
 
@@ -264,7 +264,7 @@ export async function loadAttentionPendingSuggestions(
   const convIdsNeeded = [...new Set(picked.map((s) => s.conversationId))];
   if (convIdsNeeded.length === 0) return [];
 
-  const convRows = await prisma.conversation.findMany({
+  const convRows = await dbStep((db) => db.conversation.findMany({
     where: {
       id: { in: convIdsNeeded },
       businessId,
@@ -276,7 +276,7 @@ export async function loadAttentionPendingSuggestions(
       createdAt: true,
       customer: { select: { name: true } },
     },
-  });
+  }));
   const convMap = new Map(convRows.map((c) => [c.id, c]));
 
   const out: AttentionPendingSuggestionRaw[] = [];
@@ -377,7 +377,7 @@ const BILLING_SELECT = {
 export async function loadBillingPendingReview(
   businessId: number
 ): Promise<BillingDocRaw[]> {
-  return prisma.billingDocument.findMany({
+  return dbStep((db) => db.billingDocument.findMany({
     where: {
       businessId,
       status: BillingDocumentStatus.PENDING_REVIEW,
@@ -385,13 +385,13 @@ export async function loadBillingPendingReview(
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: BS_BILLING_PENDING_CAP,
     select: BILLING_SELECT,
-  });
+  }));
 }
 
 export async function loadBillingPdfFailed(
   businessId: number
 ): Promise<BillingDocRaw[]> {
-  return prisma.billingDocument.findMany({
+  return dbStep((db) => db.billingDocument.findMany({
     where: {
       businessId,
       pdfRenderStatus: BillingPdfRenderStatus.FAILED,
@@ -399,7 +399,7 @@ export async function loadBillingPdfFailed(
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     take: BS_BILLING_PDF_FAILED_CAP,
     select: BILLING_SELECT,
-  });
+  }));
 }
 
 /**
