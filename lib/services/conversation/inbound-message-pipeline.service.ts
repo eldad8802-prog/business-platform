@@ -317,12 +317,13 @@ export async function runInboundMessagePipeline(
   // 4c. W3 — auto-capture, behind LEADS_AUTO_CAPTURE_ENABLED (OFF by default).
   // A real inquiry should not depend on the owner noticing a button.
   try {
-    const captured = await withTenantTransaction((tx) =>
-      maybeCaptureLeadFromMessage(
-        { businessId, conversation, message: labelledMessage },
-        { tx }
-      )
-    );
+    // No transaction wrapper: auto-capture owns its own boundaries so it can
+    // recover from the unique-index race in a fresh one.
+    const captured = await maybeCaptureLeadFromMessage({
+      businessId,
+      conversation,
+      message: labelledMessage,
+    });
     if (captured.captured) {
       emit(source, "LEAD_AUTO_CAPTURED", {
         conversationId: conversation.id,

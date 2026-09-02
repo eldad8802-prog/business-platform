@@ -323,16 +323,13 @@ async function recordW3SideEffects(input: {
   }
 
   try {
-    await withTenantTransaction((tx) =>
-      maybeCaptureLeadFromMessage(
-        {
-          businessId: input.businessId,
-          conversation: input.conversation as never,
-          message: input.message as never,
-        },
-        { tx }
-      )
-    );
+    // No transaction wrapper: auto-capture owns its own boundaries so it can
+    // recover from the unique-index race in a fresh one.
+    await maybeCaptureLeadFromMessage({
+      businessId: input.businessId,
+      conversation: input.conversation as never,
+      message: input.message as never,
+    });
   } catch (error) {
     console.warn("[api/message] lead auto-capture failed:", error);
   }

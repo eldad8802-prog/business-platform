@@ -142,8 +142,8 @@ async function main() {
       ["TRUE ", '"TRUE " (trims and lowercases → enabled)'],
     ] as const) {
       const result = await withFlag(value, () =>
-        asTenant(businessA, async (tx) =>
-          maybeCaptureLeadFromMessage({ businessId: businessA, conversation, message }, { tx })
+        runWithTenantContext({ businessId: businessA }, async () =>
+          maybeCaptureLeadFromMessage({ businessId: businessA, conversation, message })
         )
       );
       if (value === "TRUE ") {
@@ -172,8 +172,8 @@ async function main() {
       const { customerId, conversation } = await seedConversation(businessA, "2");
       const message = await addMessage(businessA, conversation.id, customerId);
 
-      const first = await asTenant(businessA, async (tx) =>
-        maybeCaptureLeadFromMessage({ businessId: businessA, conversation, message }, { tx })
+      const first = await runWithTenantContext({ businessId: businessA }, async () =>
+        maybeCaptureLeadFromMessage({ businessId: businessA, conversation, message })
       );
       check(first.captured === true, "C1 a first inbound customer message creates a lead", JSON.stringify(first));
       check(
@@ -185,15 +185,13 @@ async function main() {
       // Replay the SAME message. The conversation now carries the lead, so the
       // cheap guard refuses; even without it `createFromConversation` is
       // idempotent.
-      const replay = await asTenant(businessA, async (tx) =>
+      const replay = await runWithTenantContext({ businessId: businessA }, async () =>
         maybeCaptureLeadFromMessage(
           {
             businessId: businessA,
-            conversation: await tx2Conversation(tx, conversation.id),
+            conversation: await prisma.conversation.findUniqueOrThrow({ where: { id: conversation.id } }),
             message,
-          },
-          { tx }
-        )
+          })
       );
       check(
         replay.captured === false && replay.reason === "already_linked",
@@ -208,15 +206,13 @@ async function main() {
       const second = await addMessage(businessA, conversation.id, customerId, {
         contentText: "עוד שאלה",
       });
-      const again = await asTenant(businessA, async (tx) =>
+      const again = await runWithTenantContext({ businessId: businessA }, async () =>
         maybeCaptureLeadFromMessage(
           {
             businessId: businessA,
-            conversation: await tx2Conversation(tx, conversation.id),
+            conversation: await prisma.conversation.findUniqueOrThrow({ where: { id: conversation.id } }),
             message: second,
-          },
-          { tx }
-        )
+          })
       );
       check(again.captured === false, "C5 a second inbound on a captured thread captures nothing", JSON.stringify(again));
       const leadsAfter = await prisma.lead.count({ where: { businessId: businessA } });
@@ -232,8 +228,8 @@ async function main() {
         senderType: "BUSINESS_USER",
         contentText: "שלום, איך אפשר לעזור?",
       });
-      const r = await asTenant(businessA, async (tx) =>
-        maybeCaptureLeadFromMessage({ businessId: businessA, conversation, message: outbound }, { tx })
+      const r = await runWithTenantContext({ businessId: businessA }, async () =>
+        maybeCaptureLeadFromMessage({ businessId: businessA, conversation, message: outbound })
       );
       check(
         r.captured === false && r.reason === "not_customer_inbound",
@@ -248,8 +244,8 @@ async function main() {
         senderType: "SYSTEM",
         contentText: "conversation started",
       });
-      const r = await asTenant(businessA, async (tx) =>
-        maybeCaptureLeadFromMessage({ businessId: businessA, conversation, message: system }, { tx })
+      const r = await runWithTenantContext({ businessId: businessA }, async () =>
+        maybeCaptureLeadFromMessage({ businessId: businessA, conversation, message: system })
       );
       check(
         r.captured === false && r.reason === "not_customer_inbound",
@@ -261,8 +257,8 @@ async function main() {
     {
       const { customerId, conversation } = await seedConversation(businessA, "5");
       const empty = await addMessage(businessA, conversation.id, customerId, { contentText: "   " });
-      const r = await asTenant(businessA, async (tx) =>
-        maybeCaptureLeadFromMessage({ businessId: businessA, conversation, message: empty }, { tx })
+      const r = await runWithTenantContext({ businessId: businessA }, async () =>
+        maybeCaptureLeadFromMessage({ businessId: businessA, conversation, message: empty })
       );
       check(
         r.captured === false && r.reason === "empty_message",
@@ -276,11 +272,9 @@ async function main() {
       const a = await seedConversation(businessA, "6");
       const b = await seedConversation(businessB, "7");
       const foreign = await addMessage(businessB, b.conversation.id, b.customerId);
-      const r = await asTenant(businessA, async (tx) =>
+      const r = await runWithTenantContext({ businessId: businessA }, async () =>
         maybeCaptureLeadFromMessage(
-          { businessId: businessA, conversation: a.conversation, message: foreign },
-          { tx }
-        )
+          { businessId: businessA, conversation: a.conversation, message: foreign })
       );
       check(
         r.captured === false && r.reason === "tenant_mismatch",
@@ -296,8 +290,8 @@ async function main() {
     {
       const { customerId, conversation } = await seedConversation(businessA, "8");
       const message = await addMessage(businessA, conversation.id, customerId);
-      const created = await asTenant(businessA, async (tx) =>
-        maybeCaptureLeadFromMessage({ businessId: businessA, conversation, message }, { tx })
+      const created = await runWithTenantContext({ businessId: businessA }, async () =>
+        maybeCaptureLeadFromMessage({ businessId: businessA, conversation, message })
       );
       assert.equal(created.captured, true);
       const leadId = created.captured ? created.leadId : 0;
@@ -320,11 +314,9 @@ async function main() {
       const newInquiry = await addMessage(businessA, second.id, customerId, {
         contentText: "היי, יש לי פרויקט חדש",
       });
-      const reopened = await asTenant(businessA, async (tx) =>
+      const reopened = await runWithTenantContext({ businessId: businessA }, async () =>
         maybeCaptureLeadFromMessage(
-          { businessId: businessA, conversation: second, message: newInquiry },
-          { tx }
-        )
+          { businessId: businessA, conversation: second, message: newInquiry })
       );
       check(
         reopened.captured === true && reopened.leadId !== leadId,
@@ -479,17 +471,15 @@ async function main() {
       },
     });
     const lead = await withFlag("true", () =>
-      asTenant(businessA, async (tx) =>
+      runWithTenantContext({ businessId: businessA }, async () =>
         maybeCaptureLeadFromMessage(
           {
             businessId: businessA,
-            conversation: await tx2Conversation(tx, conversation.id),
+            conversation: await prisma.conversation.findUniqueOrThrow({ where: { id: conversation.id } }),
             message: await prisma.message.findFirstOrThrow({
               where: { conversationId: conversation.id },
             }),
-          },
-          { tx }
-        )
+          })
       )
     );
     assert.equal(lead.captured, true);
@@ -550,11 +540,6 @@ async function main() {
   process.exit(failures.length === 0 ? 0 : 1);
 }
 
-/** Re-read a conversation inside the current tenant transaction. */
-async function tx2Conversation(tx: never, id: number) {
-  const db = tx as unknown as typeof prisma;
-  return db.conversation.findFirstOrThrow({ where: { id } });
-}
 
 main().catch((err) => {
   console.error("\nSUITE ERROR:", err?.message || err);
