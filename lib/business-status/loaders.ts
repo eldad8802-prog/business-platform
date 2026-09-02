@@ -12,16 +12,27 @@ import { prisma } from "@/lib/prisma";
 import { getTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 
-// D2/P7-W4B: reads of FORCE-RLS'd tables run on a short tenant transaction
-// when a tenant context is established (the business-status route always
-// sets one); outside a context they read directly (legacy/tests).
+// D2/P7-W4B, hardened in CUTOVER-2A: every read here goes through a tenant
+// transaction so it carries `app.current_business_id`.
+//
+// This used to fall back to the global client when no tenant context was
+// established. That fallback was the silent-zero vector in person: under the
+// restricted runtime a context-less SELECT does not raise, it matches zero rows —
+// so the attention list, the counts and the derived business status would all come
+// back empty behind a green 200. The CUTOVER-2A battery caught exactly that.
+//
+// It now fails loud instead. The only caller is /api/business-status, which
+// establishes the session tenant context; anything else must do the same rather
+// than quietly receive an empty world.
 async function dbStep<T>(
   fn: (db: Prisma.TransactionClient | typeof prisma) => Promise<T>
 ): Promise<T> {
-  if (getTenantContext() !== undefined) {
-    return withTenantTransaction((tx) => fn(tx));
+  if (getTenantContext() === undefined) {
+    throw new Error(
+      "business-status loaders require a tenant context — wrap the call in runWithTenantContext({ businessId })"
+    );
   }
-  return fn(prisma);
+  return withTenantTransaction((tx) => fn(tx));
 }
 
 import {
@@ -139,7 +150,7 @@ function pickLatestMessagePerConversation<
 export async function loadAttentionWaiting(
   businessId: number
 ): Promise<AttentionWaitingRaw[]> {
-  const openRows = await prisma.conversation.findMany({
+  const openRows = await dbStep((db) => db.conversation.findMany({
     where: { businessId, status: "OPEN" },
     orderBy: { updatedAt: "desc" },
     take: BS_OPEN_CONVERSATION_SCAN_CAP,
@@ -149,7 +160,7 @@ export async function loadAttentionWaiting(
       createdAt: true,
       customer: { select: { name: true } },
     },
-  });
+  }));
 
   const openIds = openRows.map((c) => c.id);
   const convById = new Map(openRows.map((c) => [c.id, c]));
@@ -228,12 +239,12 @@ export async function loadAttentionPendingSuggestions(
   businessId: number,
   excludeConversationIds: Set<number>
 ): Promise<AttentionPendingSuggestionRaw[]> {
-  const openRows = await prisma.conversation.findMany({
+  const openRows = await dbStep((db) => db.conversation.findMany({
     where: { businessId, status: "OPEN" },
     orderBy: { updatedAt: "desc" },
     take: BS_OPEN_CONVERSATION_SCAN_CAP,
     select: { id: true },
-  });
+  }));
   const openIds = openRows.map((r) => r.id);
   if (openIds.length === 0) return [];
 
@@ -264,7 +275,7 @@ export async function loadAttentionPendingSuggestions(
   const convIdsNeeded = [...new Set(picked.map((s) => s.conversationId))];
   if (convIdsNeeded.length === 0) return [];
 
-  const convRows = await prisma.conversation.findMany({
+  const convRows = await dbStep((db) => db.conversation.findMany({
     where: {
       id: { in: convIdsNeeded },
       businessId,
@@ -276,7 +287,7 @@ export async function loadAttentionPendingSuggestions(
       createdAt: true,
       customer: { select: { name: true } },
     },
-  });
+  }));
   const convMap = new Map(convRows.map((c) => [c.id, c]));
 
   const out: AttentionPendingSuggestionRaw[] = [];
@@ -377,7 +388,7 @@ const BILLING_SELECT = {
 export async function loadBillingPendingReview(
   businessId: number
 ): Promise<BillingDocRaw[]> {
-  return prisma.billingDocument.findMany({
+  return dbStep((db) => db.billingDocument.findMany({
     where: {
       businessId,
       status: BillingDocumentStatus.PENDING_REVIEW,
@@ -385,13 +396,13 @@ export async function loadBillingPendingReview(
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: BS_BILLING_PENDING_CAP,
     select: BILLING_SELECT,
-  });
+  }));
 }
 
 export async function loadBillingPdfFailed(
   businessId: number
 ): Promise<BillingDocRaw[]> {
-  return prisma.billingDocument.findMany({
+  return dbStep((db) => db.billingDocument.findMany({
     where: {
       businessId,
       pdfRenderStatus: BillingPdfRenderStatus.FAILED,
@@ -399,7 +410,7 @@ export async function loadBillingPdfFailed(
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     take: BS_BILLING_PDF_FAILED_CAP,
     select: BILLING_SELECT,
-  });
+  }));
 }
 
 /**

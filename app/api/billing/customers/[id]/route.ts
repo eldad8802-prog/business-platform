@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { NotFoundError, ValidationError } from "@/lib/errors";
-import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import {
   CUSTOMER_BILLING_IDENTITY_SELECT,
   parseCustomerIdentityPayload,
@@ -29,10 +29,15 @@ export async function GET(
     const { id } = await context.params;
     const customerId = parseCustomerId(id);
 
-    const customer = await prisma.customer.findFirst({
-      where: { id: customerId, businessId: user.businessId },
-      select: CUSTOMER_BILLING_IDENTITY_SELECT,
-    });
+    // CUTOVER-2A: Customer is one of the five P4-B pilot tables. A context-less
+    // read returns null under FORCE RLS, which this handler would report as
+    // "Customer not found" for a customer the tenant owns.
+    const customer = await tenantTx(user.businessId, (tx) =>
+      tx.customer.findFirst({
+        where: { id: customerId, businessId: user.businessId },
+        select: CUSTOMER_BILLING_IDENTITY_SELECT,
+      })
+    );
 
     if (!customer) {
       throw new NotFoundError("Customer not found");
@@ -69,19 +74,24 @@ export async function PATCH(
       throw new ValidationError("No updatable fields provided");
     }
 
-    const existing = await prisma.customer.findFirst({
-      where: { id: customerId, businessId: user.businessId },
-      select: { id: true },
+    // Ownership check and update in ONE tenant transaction.
+    const customer = await tenantTx(user.businessId, async (tx) => {
+      const existing = await tx.customer.findFirst({
+        where: { id: customerId, businessId: user.businessId },
+        select: { id: true },
+      });
+      if (!existing) return null;
+
+      return tx.customer.update({
+        where: { id: customerId },
+        data: identity,
+        select: CUSTOMER_BILLING_IDENTITY_SELECT,
+      });
     });
-    if (!existing) {
+
+    if (!customer) {
       throw new NotFoundError("Customer not found");
     }
-
-    const customer = await prisma.customer.update({
-      where: { id: customerId },
-      data: identity,
-      select: CUSTOMER_BILLING_IDENTITY_SELECT,
-    });
 
     return NextResponse.json({ customer }, { status: 200 });
   } catch (error) {

@@ -423,9 +423,15 @@ async function main() {
   ok("paperwork insight: C's records do not affect D (D sees its 6 pending + 0 approved)",
     insD !== null && /6 /.test(insD.evidenceLines[0]) && /\b0\b/.test(insD.evidenceLines[1]),
     JSON.stringify(insD?.evidenceLines));
-  const insNoCtx = await evaluatePaperworkInsight(bizC.id);
-  ok("paperwork insight without tenant context = fail-closed (no data, no insight)",
-    insNoCtx === null, `got ${JSON.stringify(insNoCtx)}`);
+  // CUTOVER-2A hardened this: a context-less call used to fall back to the global
+  // client and return null ("no data, no insight"). Returning null is indistinguishable
+  // from a business that genuinely has nothing, which is the silent zero. It now RAISES,
+  // which is strictly more fail-closed — assert the stronger behaviour.
+  let noCtxErr = null;
+  try { await evaluatePaperworkInsight(bizC.id); } catch (e) { noCtxErr = e; }
+  ok("paperwork insight without tenant context = fail-LOUD (raises, never a silent null)",
+    noCtxErr !== null && /tenant context/i.test(String(noCtxErr?.message)),
+    String(noCtxErr?.message).slice(0, 120));
 
   // ── Phase 8: pipeline continuation + process route ──────────────────────
   console.log("--- pipeline + process route ---");

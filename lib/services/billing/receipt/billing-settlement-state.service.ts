@@ -1,6 +1,7 @@
 import { BillingDocumentType, Prisma } from "@prisma/client";
 import { NotFoundError, UnauthorizedError, ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 import { billingDbStep } from "../billing-db-step";
 
 /**
@@ -54,10 +55,12 @@ export async function getInvoiceSettlementState(args: {
   }
   assertPositiveInteger(args.invoiceDocumentId, "invoiceDocumentId");
 
-  const invoice = await prisma.billingDocument.findFirst({
+  const invoice = await billingTenantTx(args.businessId, (tx) =>
+    tx.billingDocument.findFirst({
     where: { id: args.invoiceDocumentId, businessId: args.businessId },
     select: { id: true, documentType: true, totalAmount: true },
-  });
+  })
+  );
   if (!invoice) {
     throw new NotFoundError("Invoice not found");
   }

@@ -15,22 +15,17 @@
  * exactly the paths that are hardest to notice.
  */
 import type { Prisma } from "@prisma/client";
-import { runWithTenantContext } from "@/lib/tenant/context";
-import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 
+/**
+ * CUTOVER-2A: the shape proven here has been promoted to the canonical `tenantTx`
+ * helper, so this delegates rather than carrying a second copy of the same logic —
+ * one implementation, one place for the fail-loud guard. The name is kept because
+ * Billing's call sites read better with it and it marks the domain boundary.
+ */
 export function billingTenantTx<T>(
   businessId: number,
   fn: (tx: Prisma.TransactionClient) => Promise<T>
 ): Promise<T> {
-  if (!Number.isInteger(businessId) || businessId <= 0) {
-    // Fail loud: a billing transaction with no trusted tenant must never run.
-    // Silently falling back to a context-less transaction is what W4E-B exists
-    // to remove.
-    throw new Error(
-      "billingTenantTx: a positive, server-derived businessId is required"
-    );
-  }
-  return runWithTenantContext({ businessId }, () =>
-    withTenantTransaction((tx) => fn(tx))
-  );
+  return tenantTx(businessId, fn);
 }

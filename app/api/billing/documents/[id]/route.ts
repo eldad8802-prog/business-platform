@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 import {
   updateBillingDraftHeader,
   UpdateBillingDraftHeaderInput,
@@ -34,15 +35,17 @@ export async function GET(
     const { id } = await context.params;
     const billingDocumentId = parseBillingDocumentId(id);
 
-    const document = await prisma.billingDocument.findFirst({
-      where: {
-        id: billingDocumentId,
-        businessId: user.businessId,
-      },
-      include: {
-        lines: { orderBy: { lineIndex: "asc" } },
-      },
-    });
+    const document = await billingTenantTx(user.businessId, (tx) =>
+      tx.billingDocument.findFirst({
+        where: {
+          id: billingDocumentId,
+          businessId: user.businessId,
+        },
+        include: {
+          lines: { orderBy: { lineIndex: "asc" } },
+        },
+      })
+    );
 
     if (!document) {
       throw new NotFoundError("Billing document not found");

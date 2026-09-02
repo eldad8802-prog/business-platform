@@ -9,7 +9,7 @@ import {
   UnauthorizedError,
   ValidationError,
 } from "@/lib/errors";
-import { prisma } from "@/lib/prisma";
+import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 import { logAuditEvent } from "@/lib/services/audit.service";
 import { assertCanMutateBillingLegalFields } from "@/lib/services/billing/domain/billing-immutability.guard";
 import { updateBillingDocuments } from "@/lib/services/billing/domain/billing-document-mutation.gateway";
@@ -37,14 +37,16 @@ export async function submitBillingDraftForReview(
 ): Promise<BillingDocument & { lines: BillingDocumentLine[] }> {
   assertBusinessId(input.businessId);
 
-  const existing = await prisma.billingDocument.findFirst({
-    where: {
-      id: input.billingDocumentId,
-      businessId: input.businessId,
-      status: BillingDocumentStatus.DRAFT,
-    },
-    include: { lines: { orderBy: { lineIndex: "asc" } } },
-  });
+  const existing = await billingTenantTx(input.businessId, (tx) =>
+    tx.billingDocument.findFirst({
+      where: {
+        id: input.billingDocumentId,
+        businessId: input.businessId,
+        status: BillingDocumentStatus.DRAFT,
+      },
+      include: { lines: { orderBy: { lineIndex: "asc" } } },
+    })
+  );
 
   if (!existing) {
     throw new ForbiddenError("Cannot submit document for review");
@@ -71,7 +73,8 @@ export async function submitBillingDraftForReview(
     );
   }
 
-  const result = await updateBillingDocuments(prisma, {
+  const result = await billingTenantTx(input.businessId, (tx) =>
+    updateBillingDocuments(tx, {
     where: {
       id: input.billingDocumentId,
       businessId: input.businessId,
@@ -81,19 +84,22 @@ export async function submitBillingDraftForReview(
     data: {
       status: BillingDocumentStatus.PENDING_REVIEW,
     },
-  });
+  })
+  );
 
   if (result.count !== 1) {
     throw new ForbiddenError("Cannot submit document for review");
   }
 
-  const doc = await prisma.billingDocument.findFirstOrThrow({
-    where: {
-      id: input.billingDocumentId,
-      businessId: input.businessId,
-    },
-    include: { lines: { orderBy: { lineIndex: "asc" } } },
-  });
+  const doc = await billingTenantTx(input.businessId, (tx) =>
+    tx.billingDocument.findFirstOrThrow({
+      where: {
+        id: input.billingDocumentId,
+        businessId: input.businessId,
+      },
+      include: { lines: { orderBy: { lineIndex: "asc" } } },
+    })
+  );
 
   await logAuditEvent({
     businessId: input.businessId,
@@ -114,13 +120,15 @@ export async function revertBillingDocumentToDraft(
 ): Promise<BillingDocument & { lines: BillingDocumentLine[] }> {
   assertBusinessId(input.businessId);
 
-  const existing = await prisma.billingDocument.findFirst({
-    where: {
-      id: input.billingDocumentId,
-      businessId: input.businessId,
-    },
-    select: { status: true },
-  });
+  const existing = await billingTenantTx(input.businessId, (tx) =>
+    tx.billingDocument.findFirst({
+      where: {
+        id: input.billingDocumentId,
+        businessId: input.businessId,
+      },
+      select: { status: true },
+    })
+  );
 
   if (!existing) {
     throw new ForbiddenError("Cannot revert document to draft");
@@ -128,7 +136,8 @@ export async function revertBillingDocumentToDraft(
 
   assertCanMutateBillingLegalFields(existing.status);
 
-  const result = await updateBillingDocuments(prisma, {
+  const result = await billingTenantTx(input.businessId, (tx) =>
+    updateBillingDocuments(tx, {
     where: {
       id: input.billingDocumentId,
       businessId: input.businessId,
@@ -138,19 +147,22 @@ export async function revertBillingDocumentToDraft(
     data: {
       status: BillingDocumentStatus.DRAFT,
     },
-  });
+  })
+  );
 
   if (result.count !== 1) {
     throw new ForbiddenError("Cannot revert document to draft");
   }
 
-  const doc = await prisma.billingDocument.findFirstOrThrow({
-    where: {
-      id: input.billingDocumentId,
-      businessId: input.businessId,
-    },
-    include: { lines: { orderBy: { lineIndex: "asc" } } },
-  });
+  const doc = await billingTenantTx(input.businessId, (tx) =>
+    tx.billingDocument.findFirstOrThrow({
+      where: {
+        id: input.billingDocumentId,
+        businessId: input.businessId,
+      },
+      include: { lines: { orderBy: { lineIndex: "asc" } } },
+    })
+  );
 
   await logAuditEvent({
     businessId: input.businessId,

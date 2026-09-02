@@ -99,13 +99,15 @@ export type DecisionExecutionDeps = {
 
 export const defaultDecisionExecutionDeps: DecisionExecutionDeps = {
   loadContext: async (businessId, billingDocumentId) => {
-    const doc = await prisma.billingDocument.findFirst({
+    const doc = await billingTenantTx(businessId, (tx) =>
+    tx.billingDocument.findFirst({
       where: { id: billingDocumentId, businessId },
       select: {
         id: true, businessId: true, status: true, issuedSnapshot: true,
         authoritySubmission: { select: { id: true, status: true, heldDecisionType: true, heldDecisionReportedAt: true } },
       },
-    });
+    })
+  );
     if (!doc) return null;
     const { authoritySubmission, ...rest } = doc;
     return { ...rest, submission: authoritySubmission };

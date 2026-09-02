@@ -72,10 +72,13 @@ async function resolveCustomerForCreate(
   });
 
   if (parsed.customerId !== null) {
-    const customer = await prisma.customer.findFirst({
-      where: { id: parsed.customerId, businessId },
-      select: { id: true, name: true },
-    });
+    const parsedCustomerId = parsed.customerId;
+    const customer = await billingTenantTx(businessId, (tx) =>
+      tx.customer.findFirst({
+        where: { id: parsedCustomerId, businessId },
+        select: { id: true, name: true },
+      })
+    );
     if (!customer) {
       throw new ValidationError(
         "customerId does not belong to this business"
@@ -240,12 +243,14 @@ export async function updateBillingDraftHeader(
 ): Promise<BillingDocument> {
   assertBusinessId(input.businessId);
 
-  const existing = await prisma.billingDocument.findFirst({
-    where: {
-      id: input.billingDocumentId,
-      businessId: input.businessId,
-    },
-  });
+  const existing = await billingTenantTx(input.businessId, (tx) =>
+    tx.billingDocument.findFirst({
+      where: {
+        id: input.billingDocumentId,
+        businessId: input.businessId,
+      },
+    })
+  );
 
   if (!existing) {
     throw new NotFoundError("Billing document not found");
@@ -268,10 +273,13 @@ export async function updateBillingDraftHeader(
       data.customerId = null;
       data.customerNameSnapshot = null;
     } else {
-      const customer = await prisma.customer.findFirst({
-        where: { id: input.customerId, businessId: input.businessId },
-        select: { id: true, name: true },
-      });
+      const inputCustomerId = input.customerId;
+      const customer = await billingTenantTx(input.businessId, (tx) =>
+        tx.customer.findFirst({
+          where: { id: inputCustomerId, businessId: input.businessId },
+          select: { id: true, name: true },
+        })
+      );
       if (!customer) {
         throw new ValidationError(
           "customerId does not belong to this business"
@@ -315,32 +323,36 @@ export async function updateBillingDraftHeader(
   }
 
   if (Object.keys(data).length === 0) {
-    return prisma.billingDocument.findFirstOrThrow({
+    return billingTenantTx(input.businessId, (tx) =>
+      tx.billingDocument.findFirstOrThrow({
+        where: {
+          id: input.billingDocumentId,
+          businessId: input.businessId,
+        },
+      })
+    );
+  }
+
+  const doc = await billingTenantTx(input.businessId, async (tx) => {
+    const result = await updateBillingDocuments(tx, {
+      where: {
+        id: input.billingDocumentId,
+        businessId: input.businessId,
+      },
+      intent: "pre_issue_edit",
+      data,
+    });
+
+    if (result.count !== 1) {
+      throw new ForbiddenError("Document state changed during header update");
+    }
+
+    return tx.billingDocument.findFirstOrThrow({
       where: {
         id: input.billingDocumentId,
         businessId: input.businessId,
       },
     });
-  }
-
-  const result = await updateBillingDocuments(prisma, {
-    where: {
-      id: input.billingDocumentId,
-      businessId: input.businessId,
-    },
-    intent: "pre_issue_edit",
-    data,
-  });
-
-  if (result.count !== 1) {
-    throw new ForbiddenError("Document state changed during header update");
-  }
-
-  const doc = await prisma.billingDocument.findFirstOrThrow({
-    where: {
-      id: input.billingDocumentId,
-      businessId: input.businessId,
-    },
   });
 
   await logAuditEvent({

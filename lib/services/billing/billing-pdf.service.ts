@@ -28,6 +28,7 @@ import {
   ValidationError,
 } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 import { logAuditEvent } from "@/lib/services/audit.service";
 import { createBillingAuditEventBestEffort } from "@/lib/services/billing/billing-audit.service";
 import { deriveAllocationNumber } from "@/lib/services/billing/billing-allocation-number";
@@ -133,7 +134,8 @@ export async function getOrRenderBillingPdf(
 ): Promise<GetOrRenderBillingPdfResult> {
   validateInput(input);
 
-  const doc = await prisma.billingDocument.findFirst({
+  const doc = await billingTenantTx(input.businessId, (tx) =>
+    tx.billingDocument.findFirst({
     where: {
       id: input.billingDocumentId,
       businessId: input.businessId,
@@ -163,7 +165,8 @@ export async function getOrRenderBillingPdf(
         },
       },
     },
-  });
+  })
+  );
 
   if (!doc) {
     throw new NotFoundError("Billing document not found");
@@ -341,7 +344,8 @@ export async function getOrRenderBillingPdf(
     // Best-effort: only mark FAILED if the document is still ISSUED and
     // not already RENDERED (don't clobber a successful concurrent render).
     try {
-      await updateBillingDocuments(prisma, {
+      await billingTenantTx(input.businessId, (tx) =>
+      updateBillingDocuments(tx, {
         where: {
           id: doc.id,
           businessId: input.businessId,
@@ -352,7 +356,8 @@ export async function getOrRenderBillingPdf(
           pdfRenderStatus: BillingPdfRenderStatus.FAILED,
           pdfRenderError: message,
         },
-      });
+      })
+    );
     } catch (dbErr) {
       console.error("billing-pdf: failed to record FAILED status", dbErr);
     }
@@ -395,7 +400,8 @@ export async function getOrRenderBillingPdf(
   // ---------------------------------------------------------------------
   let dbUpdateCount = 0;
   try {
-    const result = await updateBillingDocuments(prisma, {
+    const result = await billingTenantTx(input.businessId, (tx) =>
+      updateBillingDocuments(tx, {
       where: {
         id: doc.id,
         businessId: input.businessId,
@@ -413,7 +419,8 @@ export async function getOrRenderBillingPdf(
         pdfRenderedAt: new Date(),
         pdfRenderError: null,
       },
-    });
+    })
+    );
     dbUpdateCount = result.count;
   } catch (dbErr) {
     // The bytes are already on disk and hashed. Don't fail the user;

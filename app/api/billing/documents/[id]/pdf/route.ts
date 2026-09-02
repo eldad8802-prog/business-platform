@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 import { getOrRenderQuotePdf } from "@/lib/services/billing/quote-pdf.service";
 import { getFiscalBillingPdfForDelivery } from "@/lib/services/billing/signed-pdf-delivery.wiring";
 
@@ -55,10 +56,12 @@ export async function GET(
     const { id } = await context.params;
     const billingDocumentId = parseBillingDocumentId(id);
 
-    const meta = await prisma.billingDocument.findFirst({
-      where: { id: billingDocumentId, businessId: user.businessId },
-      select: { documentType: true },
-    });
+    const meta = await billingTenantTx(user.businessId, (tx) =>
+      tx.billingDocument.findFirst({
+        where: { id: billingDocumentId, businessId: user.businessId },
+        select: { documentType: true },
+      })
+    );
 
     if (!meta) {
       throw new NotFoundError("Billing document not found");
