@@ -261,6 +261,28 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: verifier caught the broken follow-up rule"
 
+      # Leads W3: the rules that decide "who needs me next". Pure functions over
+      # an in-memory conversation row — no DB, no network, no secrets — and the
+      # single most load-bearing judgement in the product: if the queue order
+      # stops being trustworthy the owner stops opening the screen. Blocking, so
+      # a change to the bands has to be deliberate.
+      # Local equivalent: npm run verify:leads-intelligence
+      - name: Leads W3 intelligence + priority (aggregation, bands, safety)
+        run: npx tsx lib/services/crm/lead-intelligence.test.ts
+
+      - name: Leads W3 negative proof (a hot thread must not outrank an overdue promise)
+        run: |
+          F="lib/services/crm/lead-intelligence.ts"
+          cp "$F" "$F.bak"
+          # Let a hot thread score above the overdue follow-up band.
+          sed -i 's/candidates.push({ score: 45, reason: "HOT_THREAD" });/candidates.push({ score: 99, reason: "HOT_THREAD" });/' "$F"
+          if npx tsx lib/services/crm/lead-intelligence.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: the suite did not catch an inflated hot-thread score"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: the suite caught the inflated hot-thread score"
+
       # W2.5: the Conversation State Writer. Its behavioural proof needs a
       # database and stays local (npm run verify:conversation-state-w25), but
       # both blockers the activation audit found were SHAPES of code — a

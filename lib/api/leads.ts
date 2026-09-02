@@ -1,5 +1,9 @@
 import { buildClientAuthHeaders } from "@/lib/client-session";
 import type {
+  LeadConversationIntelligence,
+  LeadPriority,
+} from "@/lib/services/crm/lead-intelligence";
+import type {
   LeadFollowUpState,
   LeadStatusValue,
 } from "@/lib/services/crm/lead-core";
@@ -19,6 +23,10 @@ export type LeadListRow = {
   followUp: LeadFollowUpState;
   needsAttention: boolean;
   customer: { id: number; name: string } | null;
+  /** W3 — live conversation readings. Null when the lead has no conversation. */
+  intelligence: LeadConversationIntelligence | null;
+  /** W3 — why this lead sits where it does in the queue. */
+  priority: LeadPriority;
 };
 
 export type LeadCardDTO = {
@@ -58,6 +66,10 @@ export type LeadCardDTO = {
     }>;
     total: number;
   };
+  /** W3 — live conversation readings. Null when the lead has no conversation. */
+  intelligence: LeadConversationIntelligence | null;
+  /** W3 — why this lead sits where it does in the queue. */
+  priority: LeadPriority;
 };
 
 /**
@@ -121,11 +133,29 @@ async function parseError(res: Response, fallback: string): Promise<never> {
   throw new Error(message);
 }
 
+/**
+ * What the server is willing to CLAIM about the order it just returned.
+ *
+ * `authoritative` — every lead that could possibly outrank these was scored, so
+ * the first row really is the one to handle first.
+ *
+ * `best-effort` — the urgent-candidate set was larger than the ranking bound,
+ * so the order is the best answer available over the newest urgent leads and
+ * NOT a claim about the whole business. Each lead's own reason is still exact;
+ * only the global superlative is withdrawn.
+ */
+export type LeadRankingConfidence = "authoritative" | "best-effort";
+
+export type LeadListResult = {
+  leads: LeadListRow[];
+  ranking: LeadRankingConfidence;
+};
+
 export async function getLeads(params?: {
   query?: string;
   status?: LeadStatusFilter;
   needsAction?: boolean;
-}): Promise<LeadListRow[]> {
+}): Promise<LeadListResult> {
   const qs = new URLSearchParams();
   if (params?.query?.trim()) qs.set("q", params.query.trim());
   if (params?.status) qs.set("status", params.status);
@@ -138,7 +168,10 @@ export async function getLeads(params?: {
   });
   if (!res.ok) await parseError(res, "לא הצלחנו לטעון את רשימת הלידים");
   const data = await res.json();
-  return Array.isArray(data?.leads) ? data.leads : [];
+  return {
+    leads: Array.isArray(data?.leads) ? data.leads : [],
+    ranking: data?.rankingTruncated === true ? "best-effort" : "authoritative",
+  };
 }
 
 export async function createLead(input: CreateLeadInput): Promise<LeadListRow> {

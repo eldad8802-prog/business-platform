@@ -81,7 +81,24 @@ export type ApplyMessageEventInput = {
  * is visible as a REASON rather than as a silent no-op.
  */
 export type ApplyMessageEventResult =
-  | { applied: true; unansweredInboundCount: number }
+  | {
+      applied: true;
+      unansweredInboundCount: number;
+      /**
+       * W3 — what was actually written, so a caller can tell a TRANSITION from
+       * a recomputation without re-reading the row or duplicating the maths.
+       *
+       * This is a pure report of this call's outcome. The writer still knows
+       * nothing about leads, CRM or learning, and still makes exactly the same
+       * decisions and the same single write it made before.
+       */
+      state: {
+        stageBefore: ConversationStage | null;
+        stageAfter: ConversationStage;
+        temperatureBefore: number | null;
+        temperatureAfter: number;
+      };
+    }
   | {
       applied: false;
       reason:
@@ -318,7 +335,19 @@ export async function applyMessageEvent(
     return refused("conversation_not_found", conversation.id, message.id);
   }
 
-  return { applied: true, unansweredInboundCount: unansweredAfterEvent };
+  return {
+    applied: true,
+    unansweredInboundCount: unansweredAfterEvent,
+    state: {
+      stageBefore: conversation.currentStage ?? null,
+      stageAfter: effectiveStage,
+      temperatureBefore:
+        typeof conversation.temperatureScore === "number"
+          ? conversation.temperatureScore
+          : null,
+      temperatureAfter: temperature,
+    },
+  };
 }
 
 /**

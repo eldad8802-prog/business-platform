@@ -29,6 +29,16 @@ import {
   ValidationError,
 } from "@/lib/errors";
 import { logAuditEvent } from "@/lib/services/audit.service";
+import { PENDING_SUGGESTION_STATUSES } from "@/lib/inbox-view/inbox-item.serializer";
+import {
+  deriveLeadConversationIntelligence,
+  type LeadConversationIntelligence,
+} from "@/lib/services/crm/lead-intelligence";
+
+/** What {@link leadService.attachLeadIntelligence} returns per lead. */
+export type LeadIntelligenceForLead = {
+  intelligence: LeadConversationIntelligence;
+};
 import { customerService } from "@/lib/services/crm/customer.service";
 import { normalizeCustomerPhone } from "@/lib/services/integrations/whatsapp/phone";
 import {
@@ -55,6 +65,16 @@ type Tx = Prisma.TransactionClient;
 type TxOptions = { tx?: Tx };
 
 const LIST_MAX_LIMIT = 100;
+/**
+ * How many "could be urgent" leads the ranked list will consider at once.
+ *
+ * Below this the global ordering is EXACT. Above it the caller is told the
+ * answer was truncated — a silent cap on a queue that claims to show "who needs
+ * me now" would be worse than no queue at all.
+ */
+const URGENT_CANDIDATE_CAP = 500;
+/** `bucketTemperature` calls this hot. Kept in sync by lead-intelligence tests. */
+const HOT_TEMPERATURE_THRESHOLD = 0.7;
 const LIST_DEFAULT_LIMIT = 50;
 
 /** The unique index that enforces "one OPEN lead per phone per business". */
@@ -474,6 +494,175 @@ export const leadService = {
         },
       },
     });
+  },
+
+  /**
+   * W3 — every lead that COULD score above zero, as one database predicate.
+   *
+   * WHY THIS EXISTS
+   * The Leads queue promises "who needs me now". Ordering by priority only
+   * INSIDE a fetched page cannot keep that promise: a waiting customer whose
+   * `lastActivityAt` puts them 51st is dropped by `take` before anything has a
+   * chance to rank them — and since the client never sends a cursor, "page 2"
+   * is not somewhere the owner can scroll to. It is simply invisible.
+   *
+   * W2 solved exactly this for follow-ups by expressing attention as a SQL
+   * predicate rather than a filter applied after `take`. This is the same move,
+   * extended to what the conversation says.
+   *
+   * ── THE PROOF ───────────────────────────────────────────────────────────
+   * `evaluateLeadPriority` returns a score above zero in exactly three cases,
+   * and each maps to one branch below:
+   *
+   *   1. lead attention          → follow-up due/overdue, or an untouched NEW
+   *                                lead from before today (the same two clauses
+   *                                the `needsAction` filter already uses);
+   *   2. a customer waiting      → requires `unansweredInboundCount > 0` on some
+   *                                conversation;
+   *   3. a hot thread            → requires `bucketTemperature(score) === "hot"`,
+   *                                which is exactly `temperatureScore >= 0.7`.
+   *
+   * Closed leads are forced to zero by the scorer, so they are excluded here.
+   *
+   * Therefore: score > 0 ⟹ the lead matches this predicate. The complement can
+   * only ever score zero, so it can never outrank a candidate. Ranking the
+   * candidates plus the ordinary page is ranking everything that matters.
+   *
+   * ── THE BOUND, AND WHERE IT STOPS BEING EXACT ───────────────────────────
+   * Candidates are capped. Up to {@link URGENT_CANDIDATE_CAP} the result is
+   * EXACT — every lead that can score above zero was scored. Beyond it the
+   * answer is a best-effort top slice, and the caller is TOLD so (`overflow`)
+   * rather than being handed a silent approximation.
+   */
+  async listUrgentCandidates(
+    input: {
+      businessId: number;
+      query?: string | null;
+      sourceChannel?: string | null;
+      now?: Date;
+    },
+    options?: TxOptions
+  ) {
+    assertBusinessId(input.businessId);
+    const db = options?.tx ?? prisma;
+    const now = input.now ?? new Date();
+    const q = typeof input.query === "string" ? input.query.trim() : "";
+
+    const urgent: Prisma.LeadWhereInput = {
+      businessId: input.businessId,
+      status: { in: [...OPEN_LEAD_STATUSES] },
+      OR: [
+        // 1. lead attention — the same two clauses `needsAction` uses.
+        { nextFollowUpAt: { lte: endOfLeadDayUtc(now) } },
+        { status: "NEW", nextFollowUpAt: null, createdAt: { lt: startOfLeadDayUtc(now) } },
+        // 2. a customer is waiting on one of its conversations.
+        { conversations: { some: { businessId: input.businessId, unansweredInboundCount: { gt: 0 } } } },
+        // 3. one of its conversations is hot.
+        {
+          conversations: {
+            some: { businessId: input.businessId, temperatureScore: { gte: HOT_TEMPERATURE_THRESHOLD } },
+          },
+        },
+      ],
+    };
+
+    const and: Prisma.LeadWhereInput[] = [];
+    if (q.length > 0) {
+      and.push({
+        OR: [
+          { customerName: { contains: q, mode: "insensitive" } },
+          { phone: { contains: q, mode: "insensitive" } },
+          { email: { contains: q, mode: "insensitive" } },
+        ],
+      });
+    }
+    if (input.sourceChannel) and.push({ sourceChannel: input.sourceChannel });
+    if (and.length > 0) urgent.AND = and;
+
+    const rows = await db.lead.findMany({
+      where: urgent,
+      // One over the cap, purely so overflow is detectable rather than assumed.
+      take: URGENT_CANDIDATE_CAP + 1,
+      orderBy: [{ lastActivityAt: "desc" }, { id: "desc" }],
+      include: { customer: { select: { id: true, name: true, phone: true, email: true } } },
+    });
+
+    const overflow = rows.length > URGENT_CANDIDATE_CAP;
+    return { rows: overflow ? rows.slice(0, URGENT_CANDIDATE_CAP) : rows, overflow };
+  },
+
+  /**
+   * W3 — attach live conversation readings to a page of leads.
+   *
+   * ONE query for the whole page, never one per lead. The Leads list is the
+   * screen an owner opens fifty times a day; turning it into 50 conversation
+   * lookups plus 50 signal evaluations would be the classic N+1, so the
+   * conversations for every lead on the page are fetched together and grouped
+   * in memory.
+   *
+   * Both halves of the query are bounded by `businessId` — the lead ids come
+   * from a list that was already tenant-scoped, and the conversation query
+   * re-asserts the tenant rather than trusting them.
+   *
+   * Returns a Map so the caller can attach without another pass; leads with no
+   * conversation are simply absent from it.
+   */
+  async attachLeadIntelligence(
+    input: { businessId: number; leadIds: readonly number[]; now?: Date },
+    options?: TxOptions
+  ): Promise<Map<number, LeadIntelligenceForLead>> {
+    assertBusinessId(input.businessId);
+    const result = new Map<number, LeadIntelligenceForLead>();
+    if (input.leadIds.length === 0) return result;
+
+    const db = options?.tx ?? prisma;
+    const now = input.now ?? new Date();
+
+    const conversations = await db.conversation.findMany({
+      where: {
+        businessId: input.businessId,
+        leadId: { in: [...input.leadIds] },
+      },
+      orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }],
+      include: {
+        customer: true,
+        lead: true,
+        messages: {
+          take: 1,
+          orderBy: { createdAt: "desc" },
+          select: {
+            contentText: true,
+            senderType: true,
+            direction: true,
+            createdAt: true,
+            analysis: { select: { intent: true } },
+          },
+        },
+        replySuggestions: {
+          where: { status: { in: [...PENDING_SUGGESTION_STATUSES] } },
+          take: 1,
+          select: { id: true, status: true, createdAt: true, suggestionType: true },
+        },
+      },
+    });
+
+    const byLead = new Map<number, typeof conversations>();
+    for (const conversation of conversations) {
+      if (conversation.leadId == null) continue;
+      const bucket = byLead.get(conversation.leadId);
+      if (bucket) bucket.push(conversation);
+      else byLead.set(conversation.leadId, [conversation]);
+    }
+
+    for (const [leadId, rows] of byLead) {
+      const intelligence = deriveLeadConversationIntelligence({
+        conversations: rows,
+        now,
+      });
+      if (intelligence) result.set(leadId, { intelligence });
+    }
+
+    return result;
   },
 
   /**

@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
+
+/** Mirrors the service's own default page size. */
+const DEFAULT_PAGE_SIZE = 50;
+import { evaluateLeadAttention } from "@/lib/services/crm/lead-attention";
+import {
+  evaluateLeadPriority,
+  type LeadConversationIntelligence,
+} from "@/lib/services/crm/lead-intelligence";
 import { ValidationError } from "@/lib/errors";
 import { leadService, type LeadStatusFilter } from "@/lib/services/crm/lead.service";
 import {
@@ -56,8 +64,16 @@ type LeadRowSource = {
  * follow-up state and `needsAttention` are DERIVED here at read time; neither is
  * stored, so the list can never show a stale "overdue" badge.
  */
-function toListRow(lead: LeadRowSource, now: Date) {
+function toListRow(
+  lead: LeadRowSource,
+  now: Date,
+  intelligence: LeadConversationIntelligence | null
+) {
   const status = lead.status as LeadStatusValue;
+  const attention = evaluateLeadAttention(
+    { status, nextFollowUpAt: lead.nextFollowUpAt, createdAt: lead.createdAt },
+    now
+  );
   return {
     id: lead.id,
     name: lead.customerName,
@@ -76,6 +92,9 @@ function toListRow(lead: LeadRowSource, now: Date) {
     customer: lead.customer
       ? { id: lead.customer.id, name: lead.customer.name }
       : null,
+    // W3 — what the conversation says, and why the lead sits where it does.
+    intelligence,
+    priority: evaluateLeadPriority({ status, attention, intelligence }),
   };
 }
 
@@ -93,15 +112,18 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const now = new Date();
 
-    const leads = await runWithTenantContext(
+    // ONE tenant transaction for the page and its intelligence, so the rows and
+    // the conversation readings describe the same instant.
+    const { leads, intelligence, overflow } = await runWithTenantContext(
       { businessId: user.businessId },
       () =>
-        withTenantTransaction((tx) =>
-          leadService.listLeads(
+        withTenantTransaction(async (tx) => {
+          const statusFilter = parseStatusFilter(searchParams.get("status"));
+          const rows = await leadService.listLeads(
             {
               businessId: user.businessId,
               query: searchParams.get("q"),
-              status: parseStatusFilter(searchParams.get("status")),
+              status: statusFilter,
               sourceChannel: searchParams.get("source"),
               needsAction: searchParams.get("needsAction") === "true",
               limit: parseIntParam(searchParams.get("limit"), "limit"),
@@ -109,12 +131,75 @@ export async function GET(req: NextRequest) {
               now,
             },
             { tx }
-          )
-        )
+          );
+
+          // GLOBAL ORDERING (W3 closure).
+          //
+          // Ranking only the rows `take` happened to return cannot answer "who
+          // needs me now": a waiting customer sitting 51st by `lastActivityAt`
+          // is cut before anything ranks them, and since no client sends a
+          // cursor there is no page 2 to find them on. So the ranked list is
+          // built from the page PLUS every lead that could possibly outrank it
+          // — a set defined by a single database predicate, with the proof in
+          // `listUrgentCandidates`. Anything outside it scores exactly zero.
+          const urgent = statusFilter === "closed"
+            ? { rows: [], overflow: false }
+            : await leadService.listUrgentCandidates(
+                {
+                  businessId: user.businessId,
+                  query: searchParams.get("q"),
+                  sourceChannel: searchParams.get("source"),
+                  now,
+                },
+                { tx }
+              );
+
+          // Union by id, page first so its rows win on identity.
+          const byId = new Map<number, (typeof rows)[number]>();
+          for (const row of rows) byId.set(row.id, row);
+          for (const row of urgent.rows) if (!byId.has(row.id)) byId.set(row.id, row);
+          const merged = [...byId.values()];
+
+          // ONE extra query for the whole set — never one per lead.
+          const attached = await leadService.attachLeadIntelligence(
+            {
+              businessId: user.businessId,
+              leadIds: merged.map((r) => r.id),
+              now,
+            },
+            { tx }
+          );
+
+          return { leads: merged, intelligence: attached, overflow: urgent.overflow };
+        })
     );
 
+    const items = leads.map((l) =>
+      toListRow(l, now, intelligence.get(l.id)?.intelligence ?? null)
+    );
+
+    // The one ordering contract, applied to the whole candidate set:
+    //   priority DESC → last activity DESC → id DESC.
+    // Total and deterministic: `id` is unique, so no two rows can tie all the
+    // way down, and the same input always produces the same sequence.
+    items.sort(
+      (a, b) =>
+        b.priority.score - a.priority.score ||
+        new Date(b.lastActivityAt ?? b.createdAt).getTime() -
+          new Date(a.lastActivityAt ?? a.createdAt).getTime() ||
+        b.id - a.id
+    );
+
+    const limit = parseIntParam(searchParams.get("limit"), "limit") ?? DEFAULT_PAGE_SIZE;
+    const page = items.slice(0, limit);
+
     return NextResponse.json(
-      { leads: leads.map((l) => toListRow(l, now)) },
+      {
+        leads: page,
+        // Never a silent cap: above the candidate ceiling the ordering is a best
+        // effort over the newest urgent leads, and the client is told so.
+        ...(overflow ? { rankingTruncated: true } : {}),
+      },
       { status: 200 }
     );
   } catch (error) {
@@ -163,7 +248,9 @@ export async function POST(req: NextRequest) {
     );
 
     return NextResponse.json(
-      { lead: toListRow({ ...lead, customer: null }, now) },
+      // A lead created this instant has no conversation yet, so there is
+      // nothing to read from one.
+      { lead: toListRow({ ...lead, customer: null }, now, null) },
       { status: 201 }
     );
   } catch (error) {

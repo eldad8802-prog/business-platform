@@ -22,6 +22,14 @@ import {
   type LeadFollowUpState,
   type LeadStatusValue,
 } from "@/lib/services/crm/lead-core";
+import { evaluateLeadAttention } from "@/lib/services/crm/lead-attention";
+import { PENDING_SUGGESTION_STATUSES } from "@/lib/inbox-view/inbox-item.serializer";
+import {
+  deriveLeadConversationIntelligence,
+  evaluateLeadPriority,
+  type LeadConversationIntelligence,
+  type LeadPriority,
+} from "@/lib/services/crm/lead-intelligence";
 
 type CardTx = Prisma.TransactionClient;
 
@@ -80,6 +88,10 @@ export type LeadCard = {
    * linking conversations from a lead is W3.
    */
   conversations: LeadCardSection<LeadCardConversation>;
+  /** W3 — live conversation readings. Null when the lead has no conversation. */
+  intelligence: LeadConversationIntelligence | null;
+  /** W3 — why this lead sits where it does in the queue. */
+  priority: LeadPriority;
 };
 
 export type GetLeadCardInput = {
@@ -149,18 +161,54 @@ export async function getLeadCard(
       where: conversationWhere,
       orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }],
       take: RELATION_TAKE,
-      select: {
-        id: true,
-        channel: true,
-        status: true,
-        startedAt: true,
-        lastMessageAt: true,
+      // The SAME query the bare list used, widened to what
+      // `serializeInboxItem` needs. No extra round trip: the card already
+      // fetched these rows, it just used to throw the intelligence away.
+      include: {
+        customer: true,
+        lead: true,
+        messages: {
+          take: 1,
+          orderBy: { createdAt: "desc" },
+          select: {
+            contentText: true,
+            senderType: true,
+            createdAt: true,
+            direction: true,
+            analysis: { select: { intent: true } },
+          },
+        },
+        replySuggestions: {
+          where: { status: { in: [...PENDING_SUGGESTION_STATUSES] } },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+            suggestionType: true,
+          },
+        },
       },
     }),
     db.conversation.count({ where: conversationWhere }),
   ]);
 
   const status = lead.status as LeadStatusValue;
+
+  // W3: the conversation readings the owner needs in order to decide. Derived
+  // read-time from rows already in hand, through the SAME serializer the Inbox
+  // uses. Nothing here writes, and nothing here touches `lead.status` — the
+  // stage a conversation reports is evidence, the status is the owner's call.
+  const intelligence = deriveLeadConversationIntelligence({ conversations, now });
+  const attention = evaluateLeadAttention(
+    {
+      status,
+      nextFollowUpAt: lead.nextFollowUpAt,
+      createdAt: lead.createdAt,
+    },
+    now
+  );
+  const priority = evaluateLeadPriority({ status, attention, intelligence });
 
   return {
     lead: {
@@ -204,5 +252,7 @@ export async function getLeadCard(
       })),
       total: conversationsTotal,
     },
+    intelligence,
+    priority,
   };
 }

@@ -205,7 +205,7 @@ function LeadCardBody({
   onFollowUp: (iso: string, note: string | null) => void;
   onFollowUpDone: () => void;
 }) {
-  const { lead, customer, followUp, conversations, needsAttention } = card;
+  const { lead, customer, followUp, conversations, needsAttention, intelligence } = card;
   const closed = isClosed(lead.status);
   const tone = leadStatusTone(lead.status);
 
@@ -317,6 +317,8 @@ function LeadCardBody({
         </div>
       ) : null}
 
+      <NowSection intelligence={intelligence} status={lead.status} />
+
       <FollowUpSection
         lead={lead}
         followUp={followUp}
@@ -357,6 +359,93 @@ function LeadCardBody({
       <AttachmentList subjectType="LEAD" subjectId={lead.id} />
     </>
   );
+}
+
+
+/**
+ * "מה קורה עכשיו" — what Dubiz observed in the conversation.
+ *
+ * OWNER AUTHORITY IS THE POINT OF THIS SECTION. Everything it renders is a
+ * READING: the thread looks like a negotiation, the customer has been waiting
+ * eighteen minutes, three messages went unanswered. None of it is the lead's
+ * status, none of it changes the lead's status, and the section says so out
+ * loud by printing the owner's status right underneath the evidence. A
+ * conversation that reads as "משא ומתן" beside a lead the owner still calls
+ * "בטיפול" is the system reporting and the owner deciding — not a conflict.
+ *
+ * Nothing here prints an internal enum. `NEGOTIATION` is a database value;
+ * "נראה כמו משא ומתן" is what a person reads.
+ */
+function NowSection({
+  intelligence,
+  status,
+}: {
+  intelligence: LeadCardDTO["intelligence"];
+  status: LeadStatusValue;
+}) {
+  if (!intelligence) return null;
+
+  const lines: string[] = [];
+
+  if (intelligence.waitingMinutes != null && intelligence.unansweredInboundCount > 0) {
+    lines.push(
+      intelligence.unansweredInboundCount > 1
+        ? `${intelligence.unansweredInboundCount} הודעות ללא מענה · ממתין ${formatWaitLabel(intelligence.waitingMinutes)}`
+        : `ממתין לתשובה ${formatWaitLabel(intelligence.waitingMinutes)}`
+    );
+  } else if (intelligence.signalLabel) {
+    lines.push(intelligence.signalLabel);
+  }
+
+  if (intelligence.businessSituation?.label) {
+    lines.push(`השיחה נראית: ${intelligence.businessSituation.label}`);
+  }
+
+  if (intelligence.conversationCount > 1) {
+    lines.push(`מתוך ${intelligence.conversationCount} שיחות עם הליד הזה`);
+  }
+
+  if (lines.length === 0 && !intelligence.nextBestAction) return null;
+
+  return (
+    <div className="crm-section">
+      <div className="crm-section__head">
+        <h2 className="crm-section__title">מה קורה עכשיו</h2>
+        {intelligence.temperatureBucket === "hot" ? (
+          <span className="crm-section__count" aria-label="שיחה חמה">
+            🔥 חם
+          </span>
+        ) : null}
+      </div>
+
+      {lines.map((line) => (
+        <p key={line} className="crm-note__body" style={{ margin: "2px 0" }}>
+          {line}
+        </p>
+      ))}
+
+      {intelligence.nextBestAction?.label ? (
+        <p
+          className="crm-note__body"
+          style={{ marginTop: 8, fontWeight: 600, color: "var(--crm-ink)" }}
+        >
+          {`מומלץ: ${intelligence.nextBestAction.label}`}
+        </p>
+      ) : null}
+
+      {/* The line that keeps the boundary visible to the owner. */}
+      <p className="crm-note-empty" style={{ marginTop: 8 }}>
+        {`סטטוס הליד נשאר שלך: ${leadStatusLabel(status)}`}
+      </p>
+    </div>
+  );
+}
+
+function formatWaitLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} דק׳`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} שע׳`;
+  return `${Math.floor(hours / 24)} ימים`;
 }
 
 function FollowUpSection({
