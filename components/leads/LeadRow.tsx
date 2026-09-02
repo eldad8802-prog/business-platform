@@ -5,6 +5,10 @@ import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { leadFollowUpLabel } from "@/lib/services/crm/lead-core";
 import type { LeadListRow } from "@/lib/api/leads";
 import {
+  leadIntelligenceDetail,
+  leadIntelligenceHeadline,
+} from "@/lib/services/crm/lead-intelligence";
+import {
   followUpTone,
   formatLastActivity,
   leadSourceLabel,
@@ -59,6 +63,13 @@ export function LeadRow({
     .filter((v): v is string => Boolean(v && v.trim()))
     .join(" · ");
 
+  // W3 — at most TWO lines of conversation reading, never more. The row has to
+  // stay readable on a 390px screen held in one hand, so the intelligence gets a
+  // headline ("🔥 חם · ממתין 18 דק׳") and at most one supporting line; anything
+  // further belongs on the card.
+  const headline = leadIntelligenceHeadline(lead.intelligence ?? null);
+  const detail = leadIntelligenceDetail(lead.intelligence ?? null);
+
   const statusTone = leadStatusTone(lead.status);
   const fuTone = followUpTone(lead.followUp);
   const fuLabel = leadFollowUpLabel(lead.followUp);
@@ -69,7 +80,7 @@ export function LeadRow({
       href={`/leads/${lead.id}`}
       aria-current={selected ? "true" : undefined}
       style={
-        lead.needsAttention
+        lead.needsAttention || (lead.priority?.score ?? 0) >= 70
           ? { borderInlineStart: "3px solid var(--crm-error)" }
           : undefined
       }
@@ -90,6 +101,15 @@ export function LeadRow({
           <Badge tone={statusTone}>{leadStatusLabel(lead.status)}</Badge>
           {fuTone && fuLabel ? <Badge tone={fuTone}>{fuLabel}</Badge> : null}
         </span>
+        {headline ? (
+          <span
+            className="crm-row__meta"
+            style={{ color: "var(--crm-ink)", fontWeight: 600 }}
+          >
+            {headline}
+          </span>
+        ) : null}
+        {detail ? <span className="crm-row__meta">{detail}</span> : null}
         {meta ? <span className="crm-row__meta">{meta}</span> : null}
       </span>
       <span className="crm-row__chevron" aria-hidden>

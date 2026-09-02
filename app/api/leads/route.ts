@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
+import { evaluateLeadAttention } from "@/lib/services/crm/lead-attention";
+import {
+  evaluateLeadPriority,
+  type LeadConversationIntelligence,
+} from "@/lib/services/crm/lead-intelligence";
 import { ValidationError } from "@/lib/errors";
 import { leadService, type LeadStatusFilter } from "@/lib/services/crm/lead.service";
 import {
@@ -56,8 +61,16 @@ type LeadRowSource = {
  * follow-up state and `needsAttention` are DERIVED here at read time; neither is
  * stored, so the list can never show a stale "overdue" badge.
  */
-function toListRow(lead: LeadRowSource, now: Date) {
+function toListRow(
+  lead: LeadRowSource,
+  now: Date,
+  intelligence: LeadConversationIntelligence | null
+) {
   const status = lead.status as LeadStatusValue;
+  const attention = evaluateLeadAttention(
+    { status, nextFollowUpAt: lead.nextFollowUpAt, createdAt: lead.createdAt },
+    now
+  );
   return {
     id: lead.id,
     name: lead.customerName,
@@ -76,6 +89,9 @@ function toListRow(lead: LeadRowSource, now: Date) {
     customer: lead.customer
       ? { id: lead.customer.id, name: lead.customer.name }
       : null,
+    // W3 — what the conversation says, and why the lead sits where it does.
+    intelligence,
+    priority: evaluateLeadPriority({ status, attention, intelligence }),
   };
 }
 
@@ -93,11 +109,13 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const now = new Date();
 
-    const leads = await runWithTenantContext(
+    // ONE tenant transaction for the page and its intelligence, so the rows and
+    // the conversation readings describe the same instant.
+    const { leads, intelligence } = await runWithTenantContext(
       { businessId: user.businessId },
       () =>
-        withTenantTransaction((tx) =>
-          leadService.listLeads(
+        withTenantTransaction(async (tx) => {
+          const rows = await leadService.listLeads(
             {
               businessId: user.businessId,
               query: searchParams.get("q"),
@@ -109,14 +127,39 @@ export async function GET(req: NextRequest) {
               now,
             },
             { tx }
-          )
-        )
+          );
+
+          // ONE extra query for the whole page — never one per lead.
+          const attached = await leadService.attachLeadIntelligence(
+            {
+              businessId: user.businessId,
+              leadIds: rows.map((r) => r.id),
+              now,
+            },
+            { tx }
+          );
+
+          return { leads: rows, intelligence: attached };
+        })
     );
 
-    return NextResponse.json(
-      { leads: leads.map((l) => toListRow(l, now)) },
-      { status: 200 }
+    const items = leads.map((l) =>
+      toListRow(l, now, intelligence.get(l.id)?.intelligence ?? null)
     );
+
+    // W3 ordering: the queue answers "who needs me next", so priority leads and
+    // `lastActivityAt` only breaks ties. Sorting the PAGE (not the query) keeps
+    // keyset pagination intact — the cursor still walks activity order, and the
+    // page the owner is looking at is ordered by urgency.
+    items.sort(
+      (a, b) =>
+        b.priority.score - a.priority.score ||
+        new Date(b.lastActivityAt ?? b.createdAt).getTime() -
+          new Date(a.lastActivityAt ?? a.createdAt).getTime() ||
+        b.id - a.id
+    );
+
+    return NextResponse.json({ leads: items }, { status: 200 });
   } catch (error) {
     return handleError(error);
   }
@@ -163,7 +206,9 @@ export async function POST(req: NextRequest) {
     );
 
     return NextResponse.json(
-      { lead: toListRow({ ...lead, customer: null }, now) },
+      // A lead created this instant has no conversation yet, so there is
+      // nothing to read from one.
+      { lead: toListRow({ ...lead, customer: null }, now, null) },
       { status: 201 }
     );
   } catch (error) {

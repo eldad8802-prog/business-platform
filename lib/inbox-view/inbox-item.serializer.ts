@@ -177,6 +177,15 @@ function deriveConversationHealth(input: {
   return "good";
 }
 
+/**
+ * Which reply-suggestion statuses count as "still pending" for the view model.
+ *
+ * Lived as a private const inside the Inbox route until W3 needed the identical
+ * filter to build the same view model for a lead. One definition, so the two
+ * surfaces cannot drift into disagreeing about what a pending draft is.
+ */
+export const PENDING_SUGGESTION_STATUSES = ["GENERATED", "SHOWN", "SELECTED"] as const;
+
 export type SerializeInboxItemInput = {
   conversation: Conversation & {
     customer: Customer | null;

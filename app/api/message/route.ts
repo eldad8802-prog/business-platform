@@ -7,6 +7,8 @@ import { generateReplySuggestions } from "@/lib/reply-suggestions/generate-reply
 import { getContextMessages } from "@/lib/conversation-context/get-context-messages";
 import { getSuggestionMode } from "@/lib/decision/get-suggestion-mode";
 import { applyMessageEvent } from "@/lib/conversation-state/conversation-state.service";
+import { recordConversationEvidence } from "@/lib/services/conversation/conversation-evidence.service";
+import { maybeCaptureLeadFromMessage } from "@/lib/services/crm/lead-auto-capture.service";
 import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
@@ -271,6 +273,71 @@ export async function POST(req: Request) {
   }
 }
 
+/**
+ * W3 side effects for a message that was just persisted: record the
+ * conversation transitions the writer reported (they are snapshots on the row
+ * and would otherwise be overwritten unrecorded), then let a genuine inbound
+ * inquiry become a lead if auto-capture is enabled.
+ *
+ * Both are BEST EFFORT: neither may break the message it describes, and neither
+ * may change what the writer decided.
+ */
+async function recordW3SideEffects(input: {
+  businessId: number;
+  conversation: { id: number; leadId: number | null; channel: string; businessId: number };
+  message: {
+    id: number;
+    businessId: number;
+    conversationId: number;
+    direction: string;
+    senderType: string;
+    contentText: string | null;
+    createdAt: Date;
+  };
+  state: {
+    stageBefore: string | null;
+    stageAfter: string;
+    temperatureBefore: number | null;
+    temperatureAfter: number;
+  } | null;
+}) {
+  try {
+    await withTenantTransaction((tx) =>
+      recordConversationEvidence(
+        {
+          businessId: input.businessId,
+          conversationId: input.conversation.id,
+          messageId: input.message.id,
+          leadId: input.conversation.leadId ?? null,
+          channel: input.conversation.channel,
+          direction: input.message.direction,
+          senderType: input.message.senderType,
+          occurredAt: input.message.createdAt ?? new Date(),
+          state: input.state,
+        },
+        { tx }
+      )
+    );
+  } catch (error) {
+    console.warn("[api/message] evidence failed:", error);
+  }
+
+  try {
+    await withTenantTransaction((tx) =>
+      maybeCaptureLeadFromMessage(
+        {
+          businessId: input.businessId,
+          conversation: input.conversation as never,
+          message: input.message as never,
+        },
+        { tx }
+      )
+    );
+  } catch (error) {
+    console.warn("[api/message] lead auto-capture failed:", error);
+  }
+}
+
 async function handleAuthedPost(
   user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>,
   body: any,
@@ -423,8 +490,9 @@ async function handleAuthedPost(
         }
       }
 
+      let w3State = null;
       try {
-        await withTenantTransaction((tx) =>
+        const applied = await withTenantTransaction((tx) =>
           applyMessageEvent(
             {
               message: messageForResponse,
@@ -434,12 +502,22 @@ async function handleAuthedPost(
             { tx }
           )
         );
+        if (applied.applied) w3State = applied.state;
       } catch (error) {
         console.warn(
           "conversation-state writer (non-customer-inbound) failed:",
           error
         );
       }
+
+      // W3 — record what the writer just did before it is overwritten, and let
+      // a genuine inquiry become a lead on its own (flagged, OFF by default).
+      await recordW3SideEffects({
+        businessId: user.businessId,
+        conversation,
+        message: messageForResponse,
+        state: w3State,
+      });
 
       return NextResponse.json(
         {
@@ -486,8 +564,9 @@ async function handleAuthedPost(
       });
     });
 
+    let w3StateInbound = null;
     try {
-      await withTenantTransaction((tx) =>
+      const applied = await withTenantTransaction((tx) =>
         applyMessageEvent(
           {
             message,
@@ -497,12 +576,22 @@ async function handleAuthedPost(
           { tx }
         )
       );
+      if (applied.applied) w3StateInbound = applied.state;
     } catch (error) {
       console.warn(
         "conversation-state writer (customer-inbound) failed:",
         error
       );
     }
+
+    // W3 — durable evidence + optional auto-capture. Same helper as the other
+    // call site, so the two paths cannot drift.
+    await recordW3SideEffects({
+      businessId: user.businessId,
+      conversation,
+      message,
+      state: w3StateInbound,
+    });
 
     type BotSettingsObserveRow = {
       enabled: boolean;

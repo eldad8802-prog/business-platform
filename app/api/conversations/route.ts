@@ -3,11 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
-import { serializeInboxItem } from "@/lib/inbox-view/inbox-item.serializer";
+import { serializeInboxItem,
+  PENDING_SUGGESTION_STATUSES,
+} from "@/lib/inbox-view/inbox-item.serializer";
 import { computeProductCatalogEnabled } from "@/lib/inbox-view/product-link-capability";
 import { findStarterBotTerminalConversationFlags } from "@/lib/features/conversation/starter-bot";
 
-const PENDING_SUGGESTION_STATUSES = ["GENERATED", "SHOWN", "SELECTED"] as const;
+
 
 export async function GET(req: Request) {
   try {

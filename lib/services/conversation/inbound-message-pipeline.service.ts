@@ -39,6 +39,8 @@ import { generateReplySuggestions } from "@/lib/reply-suggestions/generate-reply
 import { getContextMessages } from "@/lib/conversation-context/get-context-messages";
 import { getSuggestionMode } from "@/lib/decision/get-suggestion-mode";
 import { applyMessageEvent } from "@/lib/conversation-state/conversation-state.service";
+import { recordConversationEvidence } from "@/lib/services/conversation/conversation-evidence.service";
+import { maybeCaptureLeadFromMessage } from "@/lib/services/crm/lead-auto-capture.service";
 import {
   type BotPolicyAnalysisSnapshot,
   type BotPolicyConversationSnapshot,
@@ -267,8 +269,12 @@ export async function runInboundMessagePipeline(
   });
 
   // 4. Conversation state machine.
+  let writerState: Extract<
+    Awaited<ReturnType<typeof applyMessageEvent>>,
+    { applied: true }
+  >["state"] | null = null;
   try {
-    await withTenantTransaction((tx) =>
+    const applied = await withTenantTransaction((tx) =>
       applyMessageEvent(
         {
           message: labelledMessage,
@@ -278,11 +284,55 @@ export async function runInboundMessagePipeline(
         { tx }
       )
     );
+    if (applied.applied) writerState = applied.state;
   } catch (error) {
     console.warn(
       "[inbound-pipeline] conversation-state writer failed:",
       error
     );
+  }
+
+  // 4b. W3 — durable evidence. The writer keeps only the CURRENT state, so the
+  // transitions it just made are recorded here or lost forever. Best-effort:
+  // never breaks the message it describes.
+  await withTenantTransaction((tx) =>
+    recordConversationEvidence(
+      {
+        businessId,
+        conversationId: conversation.id,
+        messageId: labelledMessage.id,
+        leadId: conversation.leadId ?? null,
+        channel: conversation.channel,
+        direction: labelledMessage.direction,
+        senderType: labelledMessage.senderType,
+        occurredAt: labelledMessage.createdAt ?? new Date(),
+        state: writerState,
+      },
+      { tx }
+    )
+  ).catch((error) => {
+    console.warn("[inbound-pipeline] evidence failed:", error);
+  });
+
+  // 4c. W3 — auto-capture, behind LEADS_AUTO_CAPTURE_ENABLED (OFF by default).
+  // A real inquiry should not depend on the owner noticing a button.
+  try {
+    const captured = await withTenantTransaction((tx) =>
+      maybeCaptureLeadFromMessage(
+        { businessId, conversation, message: labelledMessage },
+        { tx }
+      )
+    );
+    if (captured.captured) {
+      emit(source, "LEAD_AUTO_CAPTURED", {
+        conversationId: conversation.id,
+        businessId,
+        leadId: captured.leadId,
+        outcome: captured.outcome,
+      });
+    }
+  } catch (error) {
+    console.warn("[inbound-pipeline] lead auto-capture failed:", error);
   }
 
   // 5. Bot policy + 6. starter bot.

@@ -40,6 +40,8 @@ export type WhatsAppPipelineEvent =
   | "BOT_POLICY_DECISION"
   /** Starter bot planner wrote a ReplySuggestion for owner review. */
   | "STARTER_BOT_DRAFT_CREATED"
+  /** W3: an inbound message became a Lead without the owner pressing anything. */
+  | "LEAD_AUTO_CAPTURED"
   /** Outbound send service was asked to deliver an owner message. */
   | "OUTBOUND_SEND_REQUESTED"
   /** Graph API accepted the outbound; provider wamid recorded. */

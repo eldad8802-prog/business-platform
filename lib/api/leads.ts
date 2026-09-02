@@ -1,5 +1,9 @@
 import { buildClientAuthHeaders } from "@/lib/client-session";
 import type {
+  LeadConversationIntelligence,
+  LeadPriority,
+} from "@/lib/services/crm/lead-intelligence";
+import type {
   LeadFollowUpState,
   LeadStatusValue,
 } from "@/lib/services/crm/lead-core";
@@ -19,6 +23,10 @@ export type LeadListRow = {
   followUp: LeadFollowUpState;
   needsAttention: boolean;
   customer: { id: number; name: string } | null;
+  /** W3 — live conversation readings. Null when the lead has no conversation. */
+  intelligence: LeadConversationIntelligence | null;
+  /** W3 — why this lead sits where it does in the queue. */
+  priority: LeadPriority;
 };
 
 export type LeadCardDTO = {
@@ -58,6 +66,10 @@ export type LeadCardDTO = {
     }>;
     total: number;
   };
+  /** W3 — live conversation readings. Null when the lead has no conversation. */
+  intelligence: LeadConversationIntelligence | null;
+  /** W3 — why this lead sits where it does in the queue. */
+  priority: LeadPriority;
 };
 
 /**
