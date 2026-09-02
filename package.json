@@ -89,6 +89,10 @@
     "verify:documents-previous-net": "npx tsx lib/documents/previous-net.test.ts",
     "verify:documents-previous-year-month": "npx tsx lib/documents/previous-year-month.test.ts",
     "verify:documents-pulse-delta": "npx tsx components/documents/home/PulseCard.test.ts",
+    "verify:signup-gate": "npx tsx lib/auth/signup-gate.test.ts",
+    "verify:signup-gate-route": "npx tsx app/api/auth/register/route.test.ts",
+    "verify:signup-gate-coverage": "npx tsx lib/auth/signup-gate-coverage.test.ts",
+    "verify:signup-closed-e2e": "npx tsx lib/auth/signup-closed.e2e.test.ts",
     "postinstall": "prisma generate",
     "verify:mist-tokens": "npx tsx lib/design/mist.verify.test.ts",
     "verify:conversation-coherence": "bash scripts/ci/conversation-coherence-guard.sh . && bash scripts/ci/conversation-coherence-guard.sh --self-test ."
