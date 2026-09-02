@@ -23,6 +23,7 @@ on:
         options:
           - 'ops/evidence/cardcom-e2e-evidence.sql'
           - 'ops/evidence/migration-state-evidence.sql'
+          - 'ops/evidence/auth-token-version-evidence.sql'
 
 permissions:
   contents: read
