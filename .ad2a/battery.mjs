@@ -380,6 +380,15 @@ async function main() {
   const F = await mkBiz("F");
   const G = await mkBiz("G");
   const fConv = await owner.conversation.findFirst({ where: { businessId: F.biz.id } });
+  // AD-2A.3 shipped a composite FK — Message(conversationId, businessId) references
+  // Conversation(id, businessId) — which makes this exact corruption IMPOSSIBLE to
+  // create. That constraint is the whole point of AD-2A.3, and its existence is a
+  // stronger guarantee than the scanner: the scanner finds historical damage, the FK
+  // prevents new damage. To keep exercising the scanner against the shape of damage
+  // that predates the constraint, drop it for the injection and put it straight back.
+  await owner.$executeRawUnsafe(
+    `ALTER TABLE "Message" DROP CONSTRAINT IF EXISTS "Message_conversationId_businessId_fkey"`
+  );
   await owner.$executeRawUnsafe(
     `UPDATE "Message" SET "businessId" = ${G.biz.id} WHERE "conversationId" = ${fConv.id}`
   );
@@ -395,6 +404,21 @@ async function main() {
   const dirty2 = await scanConversationIntegrity(owner);
   const custEdge = dirty2.find((f) => f.edge.startsWith("Conversation.businessId"));
   ok("scanner DETECTS a Conversation pointing at another business's Customer", custEdge.count >= 1);
+
+  // Undo the planted corruption, then restore the constraint so the rest of the
+  // battery runs against the real, protected schema.
+  await owner.$executeRawUnsafe(
+    `UPDATE "Message" SET "businessId" = ${F.biz.id} WHERE "conversationId" = ${fConv.id}`
+  );
+  await owner.$executeRawUnsafe(
+    `ALTER TABLE "Message" ADD CONSTRAINT "Message_conversationId_businessId_fkey"
+       FOREIGN KEY ("conversationId", "businessId") REFERENCES "Conversation"("id", "businessId")
+       ON DELETE CASCADE ON UPDATE CASCADE`
+  );
+  const fkBack = await owner.$queryRawUnsafe(
+    `SELECT count(*)::int AS n FROM pg_constraint WHERE conname='Message_conversationId_businessId_fkey'`
+  );
+  ok("the AD-2A.3 composite FK is restored after the scanner fixture", fkBack[0].n === 1);
 
   const rowsBefore = await owner.message.count();
   await scanConversationIntegrity(owner);
