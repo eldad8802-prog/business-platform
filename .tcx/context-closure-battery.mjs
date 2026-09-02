@@ -175,9 +175,20 @@ async function main() {
   const sigB = await signals.getBusinessSignals({ businessId: B.id });
   ok("getBusinessSignals for tenant B sees B's own conversation", sigB.hasConversations === true);
 
-  const waiting = await loaders.loadAttentionWaiting(A.id);
+  // The real route wraps the snapshot in runWithTenantContext; mirror that exactly.
+  const ctx = await import("../lib/tenant/context.ts");
+  const waiting = await ctx.runWithTenantContext({ businessId: A.id }, () =>
+    loaders.loadAttentionWaiting(A.id)
+  );
   ok("loadAttentionWaiting returns tenant A's open conversation", Array.isArray(waiting) && waiting.length >= 1,
     `len=${Array.isArray(waiting) ? waiting.length : "n/a"}`);
+
+  // ...and the same call with NO context must now RAISE rather than hand back an
+  // empty world. The first run of this battery caught the old silent fallback.
+  const loudFail = await err(() => loaders.loadAttentionWaiting(A.id));
+  ok("loadAttentionWaiting without tenant context FAILS LOUD (no silent empty result)",
+    loudFail !== null && /tenant context/i.test(String(loudFail?.message)),
+    String(loudFail?.message).slice(0, 120));
 
   const st = await pending.getOpenPendingState(convA.id, A.id);
   ok("getOpenPendingState resolves tenant A's conversation (not 'not found')", st !== null);

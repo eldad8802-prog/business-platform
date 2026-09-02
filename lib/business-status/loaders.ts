@@ -12,16 +12,27 @@ import { prisma } from "@/lib/prisma";
 import { getTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 
-// D2/P7-W4B: reads of FORCE-RLS'd tables run on a short tenant transaction
-// when a tenant context is established (the business-status route always
-// sets one); outside a context they read directly (legacy/tests).
+// D2/P7-W4B, hardened in CUTOVER-2A: every read here goes through a tenant
+// transaction so it carries `app.current_business_id`.
+//
+// This used to fall back to the global client when no tenant context was
+// established. That fallback was the silent-zero vector in person: under the
+// restricted runtime a context-less SELECT does not raise, it matches zero rows —
+// so the attention list, the counts and the derived business status would all come
+// back empty behind a green 200. The CUTOVER-2A battery caught exactly that.
+//
+// It now fails loud instead. The only caller is /api/business-status, which
+// establishes the session tenant context; anything else must do the same rather
+// than quietly receive an empty world.
 async function dbStep<T>(
   fn: (db: Prisma.TransactionClient | typeof prisma) => Promise<T>
 ): Promise<T> {
-  if (getTenantContext() !== undefined) {
-    return withTenantTransaction((tx) => fn(tx));
+  if (getTenantContext() === undefined) {
+    throw new Error(
+      "business-status loaders require a tenant context — wrap the call in runWithTenantContext({ businessId })"
+    );
   }
-  return fn(prisma);
+  return withTenantTransaction((tx) => fn(tx));
 }
 
 import {

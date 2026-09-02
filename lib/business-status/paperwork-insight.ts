@@ -2,14 +2,19 @@ import { prisma } from "@/lib/prisma";
 import { getTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 
-// D2/P7-W4D: FinancialRecord is FORCE-RLS'd — this read must run on a short
-// tenant transaction when a tenant context is established (a bare global-client
-// read would silently count 0). Outside a context it reads directly (unit tests).
+// D2/P7-W4D, hardened in CUTOVER-2A: FinancialRecord is FORCE-RLS'd, so this read
+// must carry `app.current_business_id`. The previous fallback said it out loud —
+// "a bare global-client read would silently count 0" — and then did exactly that
+// whenever no context was established. Silently counting 0 is the failure mode; it
+// now raises instead, so a missing context is a bug report rather than a wrong
+// number presented as a right one.
 async function dbStep<T>(fn: (db: typeof prisma) => Promise<T>): Promise<T> {
-  if (getTenantContext() !== undefined) {
-    return withTenantTransaction((tx) => fn(tx as unknown as typeof prisma));
+  if (getTenantContext() === undefined) {
+    throw new Error(
+      "paperwork insight requires a tenant context — wrap the call in runWithTenantContext({ businessId })"
+    );
   }
-  return fn(prisma);
+  return withTenantTransaction((tx) => fn(tx as unknown as typeof prisma));
 }
 
 import {
