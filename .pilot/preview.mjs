@@ -116,9 +116,16 @@ async function main() {
     ok("app_runtime_preview_p4b is still NOSUPERUSER", role[0].rolsuper === false);
     ok("app_runtime_preview_p4b is still NOBYPASSRLS", role[0].rolbypassrls === false);
   }
-  const both = readFileSync(MIG, "utf8");
-  ok("the applied migration contains zero GRANT", !/\bGRANT\b/i.test(both));
-  ok("the applied migration contains zero role change", !/\b(CREATE|ALTER|DROP)\s+ROLE\b/i.test(both));
+  // Strip comments before scanning: the migration's prose explains why the historical
+  // DELETE *grant* is deliberately not matched by a policy, so a naive read of the raw
+  // file finds the word and reports a privilege change that does not exist. Only the
+  // executable SQL is evidence.
+  const code = readFileSync(MIG, "utf8")
+    .split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
+  ok("the applied SQL contains zero GRANT", !/\bGRANT\b/i.test(code));
+  ok("the applied SQL contains zero role change", !/\b(CREATE|ALTER|DROP)\s+ROLE\b/i.test(code));
+  ok("the applied SQL contains zero data DML",
+    !/(^|;)\s*(INSERT\s+INTO|UPDATE\s+"|DELETE\s+FROM)/im.test(code));
 
   console.log(`\n[pilot-preview] PASS=${pass} FAIL=${fail}`);
   if (failures.length) console.log("FAILURES:\n  " + failures.join("\n  "));
