@@ -1,15 +1,26 @@
 /**
  * D2 / ACCOUNT-DELETION-2A.3 — structural tenant-coherence proof on canonical Preview.
  *
- * Preview already sits at the PRE-migration state (single-column Conversation FKs),
- * so unlike the PG17 battery this script does not have to roll back first — it
- * migrates forward for real and proves the invariant against the real Preview schema.
+ * TWO THINGS TO KNOW ABOUT THIS SCRIPT:
  *
- * The attacks run as the OWNER role. That is deliberate and is the STRONGER claim:
- * a foreign key is not a privilege check, so if the most privileged role in the
- * database cannot persist a cross-tenant child, no application role can either.
- * The restricted runtime role is separately proven to still be NOSUPERUSER /
- * NOBYPASSRLS / non-owner, read-only, so this wave demonstrably did not relax it.
+ * 1. It uses RAW SQL for every fixture, never the Prisma model client. The Preview
+ *    branch is schema-drifted behind main (it was seeded from a parent schema and its
+ *    _prisma_migrations table is empty — `Message.clientRequestId` from the W2.5
+ *    migration does not exist there). A generated Prisma client built from main's
+ *    schema therefore cannot INSERT into Message on Preview at all. Raw SQL is also
+ *    the stronger test: it bypasses every application-layer safeguard, so what is
+ *    demonstrated is the database refusing the write, not an ORM declining to emit it.
+ *    The Prisma-level paths (nested writes, model updates) are proven separately on
+ *    PG17, which carries the full current schema.
+ *
+ * 2. The attacks run as the OWNER role. That is deliberate and is the STRONGER claim:
+ *    a foreign key is not a privilege check, so if the most privileged role in the
+ *    database cannot persist a cross-tenant child, no application role can either.
+ *    The restricted runtime role is separately verified to still be NOSUPERUSER /
+ *    NOBYPASSRLS / non-owner, read-only, so this wave demonstrably did not relax it.
+ *
+ * Idempotent: if the migration is already applied it rolls back to the baseline first,
+ * so the script can be re-run on the same branch.
  *
  * Synthetic ad2a3-prev- fixtures only, removed at the end with an always-on backstop.
  * NO PRODUCTION — the deny-list aborts on the Production endpoints.
@@ -26,6 +37,7 @@ const MIGRATION =
   "prisma/migrations/20260902090000_d2_ad2a3_conversation_tenant_coherence/migration.sql";
 const ROLLBACK = "scripts/security/d2-ad2a3-rollback.sql";
 const RUNTIME_ROLE = "app_runtime_preview_p4b";
+const MARK = "ad2a3-prev-";
 
 let pass = 0;
 let fail = 0;
@@ -49,14 +61,17 @@ async function err(fn) {
   }
 }
 
-async function runSqlFile(db, file) {
-  const stmts = readFileSync(file, "utf8")
+function statementsOf(file) {
+  return readFileSync(file, "utf8")
     .split("\n")
     .filter((l) => !l.trim().startsWith("--"))
     .join("\n")
     .split(";")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+async function runSqlFile(db, file) {
+  const stmts = statementsOf(file);
   for (const s of stmts) await db.$executeRawUnsafe(s);
   return stmts.length;
 }
@@ -78,40 +93,55 @@ async function indexDef(db, name) {
   return r[0]?.indexdef ?? null;
 }
 
-const msg = (businessId, conversationId, extra = {}) => ({
-  businessId,
-  conversationId,
-  channel: "WHATSAPP",
-  direction: "INBOUND",
-  senderType: "CUSTOMER",
-  contentText: "ad2a3-prev",
-  ...extra,
-});
-const sug = (businessId, conversationId, extra = {}) => ({
-  businessId,
-  conversationId,
-  suggestionType: "AUTO",
-  strategyType: "x",
-  variantType: "default",
-  text: "ad2a3-prev",
-  status: "GENERATED",
-  ...extra,
-});
+// ---- raw-SQL fixture helpers ----------------------------------------------
+const newBusiness = async (db, suffix) =>
+  (
+    await db.$queryRawUnsafe(
+      `INSERT INTO "Business" ("name","updatedAt") VALUES ($1, now()) RETURNING id`,
+      MARK + suffix
+    )
+  )[0].id;
+
+const newConversation = async (db, businessId) =>
+  (
+    await db.$queryRawUnsafe(
+      `INSERT INTO "Conversation" ("businessId","channel","updatedAt")
+       VALUES ($1, 'WHATSAPP', now()) RETURNING id`,
+      businessId
+    )
+  )[0].id;
+
+const insertMessage = (db, businessId, conversationId) =>
+  db.$executeRawUnsafe(
+    `INSERT INTO "Message" ("conversationId","businessId","channel","direction","senderType","contentText","sentAt","createdAt")
+     VALUES ($1, $2, 'WHATSAPP','INBOUND','CUSTOMER', $3, now(), now())`,
+    conversationId,
+    businessId,
+    MARK
+  );
+
+const insertSuggestion = (db, businessId, conversationId) =>
+  db.$executeRawUnsafe(
+    `INSERT INTO "ReplySuggestion" ("businessId","conversationId","suggestionType","strategyType","variantType","text","status","createdAt")
+     VALUES ($1, $2, 'AUTO','x','default', $3, 'GENERATED', now())`,
+    businessId,
+    conversationId,
+    MARK
+  );
+
+const countRaw = async (db, sql, ...args) =>
+  Number((await db.$queryRawUnsafe(sql, ...args))[0].n);
 
 async function cleanup(db) {
-  const ids = await db.business.findMany({
-    where: { name: { startsWith: "ad2a3-prev-" } },
-    select: { id: true },
-  });
-  const list = ids.map((b) => b.id);
-  if (list.length) {
-    await db.messageAnalysis.deleteMany({ where: { message: { businessId: { in: list } } } });
-    await db.replySuggestion.deleteMany({ where: { businessId: { in: list } } });
-    await db.message.deleteMany({ where: { businessId: { in: list } } });
-    await db.conversation.deleteMany({ where: { businessId: { in: list } } });
-    await db.business.deleteMany({ where: { id: { in: list } } });
-  }
-  return (await db.business.count({ where: { name: { startsWith: "ad2a3-prev-" } } }));
+  const bids = `SELECT id FROM "Business" WHERE name LIKE '${MARK}%'`;
+  await db.$executeRawUnsafe(
+    `DELETE FROM "MessageAnalysis" WHERE "messageId" IN (SELECT id FROM "Message" WHERE "businessId" IN (${bids}))`
+  );
+  await db.$executeRawUnsafe(`DELETE FROM "ReplySuggestion" WHERE "businessId" IN (${bids})`);
+  await db.$executeRawUnsafe(`DELETE FROM "Message" WHERE "businessId" IN (${bids})`);
+  await db.$executeRawUnsafe(`DELETE FROM "Conversation" WHERE "businessId" IN (${bids})`);
+  await db.$executeRawUnsafe(`DELETE FROM "Business" WHERE name LIKE '${MARK}%'`);
+  return countRaw(db, `SELECT count(*)::int AS n FROM "Business" WHERE name LIKE '${MARK}%'`);
 }
 
 async function main() {
@@ -131,27 +161,43 @@ async function main() {
   // ---- identity ------------------------------------------------------------
   console.log("\n== identity ==");
   const who = await db.$queryRawUnsafe(
-    `SELECT current_database() AS db, current_user::text AS role, inet_server_addr()::text AS addr`
+    `SELECT current_database() AS db, current_user::text AS role`
   );
   console.log(`  database=${who[0].db} role=${who[0].role}`);
   ok("connected to the neondb database", who[0].db === "neondb");
 
+  const mig = await db.$queryRawUnsafe(
+    `SELECT count(*)::int AS n FROM "_prisma_migrations" WHERE finished_at IS NOT NULL`
+  );
+  console.log(`  _prisma_migrations rows = ${mig[0].n} (Preview is schema-seeded, not migration-driven)`);
+
   // ---- the restricted runtime role must be untouched by this wave ----------
   const role = await db.$queryRawUnsafe(
-    `SELECT rolname, rolsuper, rolbypassrls, rolcanlogin FROM pg_roles WHERE rolname = $1`,
+    `SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = $1`,
     RUNTIME_ROLE
   );
   if (role.length === 0) {
     ok(`runtime role ${RUNTIME_ROLE} present`, false, "role not found on this branch");
   } else {
-    ok(`${RUNTIME_ROLE} is NOSUPERUSER`, role[0].rolsuper === false);
-    ok(`${RUNTIME_ROLE} is NOBYPASSRLS`, role[0].rolbypassrls === false);
-    ok(`${RUNTIME_ROLE} is not the table owner (owner is a separate role)`, role[0].rolname !== who[0].role);
+    ok(`${RUNTIME_ROLE} is still NOSUPERUSER`, role[0].rolsuper === false);
+    ok(`${RUNTIME_ROLE} is still NOBYPASSRLS`, role[0].rolbypassrls === false);
+    ok(`${RUNTIME_ROLE} is not the connecting owner role`, role[0].rolname !== who[0].role);
   }
+
+  // ---- idempotency: return to the pre-migration baseline if needed ---------
+  await cleanup(db);
+  if (await fkDef(db, "Message", "Message_conversationId_businessId_fkey")) {
+    console.log("\n== migration already present — rolling back to the baseline first ==");
+    await runSqlFile(db, ROLLBACK);
+  }
+  ok(
+    "starting from the pre-migration baseline (single-column Conversation FK)",
+    !!(await fkDef(db, "Message", "Message_conversationId_fkey")) &&
+      (await fkDef(db, "Message", "Message_conversationId_businessId_fkey")) === null
+  );
 
   // ---- preflight before any DDL -------------------------------------------
   console.log("\n== preflight (SELECT only) ==");
-  await cleanup(db);
   const pre = await preflightConversationCoherence(db);
   reportPreflight(pre);
   ok("Preview preflight is clean, so the migration may be applied", pre.ok === true);
@@ -159,19 +205,12 @@ async function main() {
 
   // ---- apply, and MEASURE the locks it actually takes ----------------------
   //
-  // "no locks" is never a true statement about DDL. Rather than assert a lock
-  // profile from the documentation, apply the migration inside one explicit
-  // transaction and read pg_locks from inside that same transaction, so the
-  // reported modes are the ones PostgreSQL actually acquired.
+  // "No locks" is never a true statement about DDL. Rather than assert a lock profile
+  // from documentation, apply the migration inside one explicit transaction and read
+  // pg_locks from inside that same transaction, so the reported modes are the ones
+  // PostgreSQL actually acquired.
   console.log("\n== apply the real migration (with measured lock profile) ==");
-  const stmts = readFileSync(MIGRATION, "utf8")
-    .split("\n")
-    .filter((l) => !l.trim().startsWith("--"))
-    .join("\n")
-    .split(";")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
+  const stmts = statementsOf(MIGRATION);
   const locks = await db.$transaction(async (tx) => {
     for (const s of stmts) await tx.$executeRawUnsafe(s);
     return tx.$queryRawUnsafe(
@@ -186,17 +225,23 @@ async function main() {
     );
   });
   ok(`migration applied to Preview (${stmts.length} statements, one transaction)`, stmts.length > 0);
-  console.log("  MEASURED LOCK PROFILE (locks held by the migrating transaction):");
-  for (const l of locks) console.log(`    ${l.rel.padEnd(46)} ${l.mode}`);
-  ok("the migration did take locks (a zero-lock claim would be false)", locks.length > 0);
-  const modes = new Set(locks.map((l) => l.mode));
-  ok(
-    "no lock stronger than ShareRowExclusiveLock/AccessExclusiveLock-on-new-index was taken on Conversation",
-    !locks.some((l) => l.rel === "Conversation" && l.mode === "AccessExclusiveLock"),
-    JSON.stringify(locks.filter((l) => l.rel === "Conversation"))
-  );
-  console.log(`  distinct modes: ${[...modes].join(", ")}`);
 
+  console.log("  MEASURED LOCK PROFILE (held by the migrating transaction):");
+  for (const l of locks) console.log(`    ${l.rel.padEnd(46)} ${l.mode}`);
+  ok("the migration does take locks (a zero-lock claim would be false)", locks.length > 0);
+
+  // The measured truth: DROP CONSTRAINT on a foreign key takes AccessExclusiveLock on
+  // BOTH the referencing child AND the referenced parent. So all three tables are
+  // exclusively locked for the duration of the transaction — reads included. That is
+  // acceptable here only because the transaction is trivially short at current volume;
+  // it is NOT acceptable to describe this migration as read-safe.
+  const strongest = (rel) =>
+    locks.filter((l) => l.rel === rel).some((l) => l.mode === "AccessExclusiveLock");
+  ok("Conversation is AccessExclusiveLock'd (measured, and correctly predicted)", strongest("Conversation"));
+  ok("Message is AccessExclusiveLock'd (measured)", strongest("Message"));
+  ok("ReplySuggestion is AccessExclusiveLock'd (measured)", strongest("ReplySuggestion"));
+
+  // ---- catalog verification -----------------------------------------------
   const mFk = await fkDef(db, "Message", "Message_conversationId_businessId_fkey");
   const rFk = await fkDef(db, "ReplySuggestion", "ReplySuggestion_conversationId_businessId_fkey");
   ok("Message composite FK present on Preview", !!mFk && /"conversationId", "businessId"/.test(mFk), String(mFk));
@@ -211,69 +256,83 @@ async function main() {
   ok("composite parent unique index present", !!(await indexDef(db, "Conversation_id_businessId_key")));
   ok("cascade-support index present", !!(await indexDef(db, "ReplySuggestion_conversationId_businessId_idx")));
 
-  // ---- attacks on the real Preview schema ---------------------------------
-  console.log("\n== cross-tenant attacks (as OWNER — the strongest form of the claim) ==");
-  const A = await db.business.create({ data: { name: "ad2a3-prev-A" } });
-  const B = await db.business.create({ data: { name: "ad2a3-prev-B" } });
-  const CA = await db.conversation.create({ data: { businessId: A.id, channel: "WHATSAPP" } });
-  const CB = await db.conversation.create({ data: { businessId: B.id, channel: "WHATSAPP" } });
+  // ---- attacks against the real Preview schema, in raw SQL ----------------
+  console.log("\n== cross-tenant attacks (raw SQL, as OWNER — the strongest form) ==");
+  const A = await newBusiness(db, "A");
+  const B = await newBusiness(db, "B");
+  const CA = await newConversation(db, A);
+  const CB = await newConversation(db, B);
 
-  const mA = await db.message.create({ data: msg(A.id, CA.id) });
-  ok("valid same-tenant Message accepted", !!mA?.id);
-  ok("cross-tenant Message DENIED", (await err(() => db.message.create({ data: msg(B.id, CA.id) }))) !== null);
+  ok("valid same-tenant Message accepted", (await err(() => insertMessage(db, A, CA))) === null);
+  ok("cross-tenant Message INSERT DENIED", (await err(() => insertMessage(db, B, CA))) !== null);
+  ok("valid same-tenant ReplySuggestion accepted", (await err(() => insertSuggestion(db, A, CA))) === null);
+  ok("cross-tenant ReplySuggestion INSERT DENIED", (await err(() => insertSuggestion(db, B, CA))) !== null);
 
-  const rA = await db.replySuggestion.create({ data: sug(A.id, CA.id, { messageId: mA.id }) });
-  ok("valid same-tenant ReplySuggestion accepted", !!rA?.id);
   ok(
-    "cross-tenant ReplySuggestion DENIED",
-    (await err(() => db.replySuggestion.create({ data: sug(B.id, CA.id) }))) !== null
-  );
-  ok(
-    "raw-SQL cross-tenant Message INSERT DENIED",
+    "UPDATE Message.businessId across tenants DENIED",
     (await err(() =>
-      db.$executeRawUnsafe(
-        `INSERT INTO "Message" ("conversationId","businessId","channel","direction","senderType","sentAt","createdAt")
-         VALUES (${CA.id}, ${B.id}, 'WHATSAPP','INBOUND','CUSTOMER', now(), now())`
-      )
+      db.$executeRawUnsafe(`UPDATE "Message" SET "businessId" = $1 WHERE "businessId" = $2`, B, A)
     )) !== null
   );
   ok(
-    "UPDATE Message.businessId across tenants DENIED",
-    (await err(() => db.message.update({ where: { id: mA.id }, data: { businessId: B.id } }))) !== null
-  );
-  ok(
-    "UPDATE Message.conversationId onto another tenant DENIED",
-    (await err(() => db.message.update({ where: { id: mA.id }, data: { conversationId: CB.id } }))) !== null
-  );
-  ok(
-    "Prisma nested write with a mismatched tenant DENIED",
+    "UPDATE Message.conversationId onto another tenant's conversation DENIED",
     (await err(() =>
-      db.conversation.update({ where: { id: CA.id }, data: { messages: { create: [msg(B.id, CA.id)] } } })
+      db.$executeRawUnsafe(`UPDATE "Message" SET "conversationId" = $1 WHERE "businessId" = $2`, CB, A)
+    )) !== null
+  );
+  ok(
+    "UPDATE ReplySuggestion.businessId across tenants DENIED",
+    (await err(() =>
+      db.$executeRawUnsafe(`UPDATE "ReplySuggestion" SET "businessId" = $1 WHERE "businessId" = $2`, B, A)
+    )) !== null
+  );
+  ok(
+    "a NULL businessId partial key is rejected by NOT NULL (MATCH SIMPLE bypass unreachable)",
+    (await err(() =>
+      db.$executeRawUnsafe(
+        `INSERT INTO "Message" ("conversationId","businessId","channel","direction","senderType","sentAt","createdAt")
+         VALUES ($1, NULL, 'WHATSAPP','INBOUND','CUSTOMER', now(), now())`,
+        CA
+      )
     )) !== null
   );
 
   // ---- cascade stays tenant-bounded ---------------------------------------
   console.log("\n== cascade ==");
-  const mB = await db.message.create({ data: msg(B.id, CB.id) });
-  await db.conversation.delete({ where: { id: CA.id } });
-  ok("A's messages removed by cascade", (await db.message.count({ where: { businessId: A.id } })) === 0);
-  ok("A's suggestions removed by cascade", (await db.replySuggestion.count({ where: { businessId: A.id } })) === 0);
-  ok("B's message untouched", (await db.message.count({ where: { id: mB.id } })) === 1);
-  ok("B's conversation untouched", (await db.conversation.count({ where: { id: CB.id } })) === 1);
+  await insertMessage(db, B, CB);
+  await insertSuggestion(db, B, CB);
+  const bBefore = await countRaw(db, `SELECT count(*)::int AS n FROM "Message" WHERE "businessId" = $1`, B);
+
+  await db.$executeRawUnsafe(`DELETE FROM "Conversation" WHERE id = $1`, CA);
+
+  ok(
+    "A's messages removed by cascade",
+    (await countRaw(db, `SELECT count(*)::int AS n FROM "Message" WHERE "businessId" = $1`, A)) === 0
+  );
+  ok(
+    "A's reply suggestions removed by cascade",
+    (await countRaw(db, `SELECT count(*)::int AS n FROM "ReplySuggestion" WHERE "businessId" = $1`, A)) === 0
+  );
+  ok(
+    "B's messages untouched",
+    (await countRaw(db, `SELECT count(*)::int AS n FROM "Message" WHERE "businessId" = $1`, B)) === bBefore &&
+      bBefore === 1
+  );
+  ok(
+    "B's conversation untouched",
+    (await countRaw(db, `SELECT count(*)::int AS n FROM "Conversation" WHERE id = $1`, CB)) === 1
+  );
 
   // ---- rollback / reapply on the real branch ------------------------------
   console.log("\n== rollback / reapply ==");
-  const before = await db.message.count();
+  const before = await countRaw(db, `SELECT count(*)::int AS n FROM "Message"`);
   await runSqlFile(db, ROLLBACK);
-  ok(
-    "rollback restored the single-column Message FK",
-    !!(await fkDef(db, "Message", "Message_conversationId_fkey"))
-  );
+  ok("rollback restored the single-column Message FK", !!(await fkDef(db, "Message", "Message_conversationId_fkey")));
   ok(
     "rollback removed the composite Message FK",
     (await fkDef(db, "Message", "Message_conversationId_businessId_fkey")) === null
   );
-  ok("rollback preserved every data row", (await db.message.count()) === before);
+  ok("rollback preserved every data row", (await countRaw(db, `SELECT count(*)::int AS n FROM "Message"`)) === before);
 
   await runSqlFile(db, MIGRATION);
   ok(
@@ -282,7 +341,7 @@ async function main() {
   );
   ok(
     "after reapply the cross-tenant write is denied again",
-    (await err(() => db.message.create({ data: msg(A.id, CB.id) }))) !== null
+    (await err(() => insertMessage(db, A, CB))) !== null
   );
 
   // ---- no tenant-isolation regression -------------------------------------
@@ -291,7 +350,7 @@ async function main() {
     `SELECT count(*)::int AS n FROM pg_policies
       WHERE schemaname='public' AND tablename IN ('Conversation','Message','ReplySuggestion','MessageAnalysis')`
   );
-  console.log(`  policies on the Conversation subgraph = ${pol[0].n} (unchanged by this wave)`);
+  console.log(`  policies on the Conversation subgraph = ${pol[0].n} (this wave changes none of them)`);
   const both = (readFileSync(MIGRATION, "utf8") + readFileSync(ROLLBACK, "utf8"))
     .split("\n")
     .filter((l) => !l.trim().startsWith("--"))
@@ -301,8 +360,7 @@ async function main() {
   ok("applied artifacts contain zero role change", !/\b(CREATE|ALTER|DROP)\s+ROLE\b/i.test(both));
 
   // ---- residue -------------------------------------------------------------
-  const residue = await cleanup(db);
-  ok("zero fixture residue on Preview", residue === 0);
+  ok("zero fixture residue on Preview", (await cleanup(db)) === 0);
 
   console.log(`\n[ad2a3-preview] PASS=${pass} FAIL=${fail}`);
   if (failures.length) console.log("FAILURES:\n  " + failures.join("\n  "));
@@ -310,7 +368,7 @@ async function main() {
   process.exit(fail > 0 ? 1 : 0);
 }
 
-main().catch(async (e) => {
+main().catch((e) => {
   console.error("FATAL:", e);
   process.exit(1);
 });

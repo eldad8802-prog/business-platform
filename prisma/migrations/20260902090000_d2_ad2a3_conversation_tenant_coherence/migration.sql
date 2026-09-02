@@ -40,8 +40,20 @@
 -- window where the constraint is present but unenforced. For a migration whose
 -- entire purpose is enforcement, that window is the defect.
 --
--- LOCKS: this is low, bounded lock risk — NOT "no locks". Every statement below
--- takes a lock; see the closure report for the operation-by-operation profile.
+-- LOCKS: low, bounded risk — but NOT "no locks", and NOT read-safe. Measured on the
+-- Preview branch by reading pg_locks from inside the migrating transaction:
+--
+--   Conversation      AccessExclusiveLock (+ Share, ShareRowExclusive, RowShare, AccessShare)
+--   Message           AccessExclusiveLock (+ ShareRowExclusive, AccessShare)
+--   ReplySuggestion   AccessExclusiveLock (+ Share, ShareRowExclusive, AccessShare)
+--
+-- AccessExclusiveLock reaches the PARENT as well as the children because DROP
+-- CONSTRAINT on a foreign key locks both ends of the reference. So for the duration of
+-- this transaction all three tables block reads AND writes. That is acceptable here
+-- only because the transaction is trivially short at current volume (the Production
+-- Conversation subgraph was measured empty on 2026-09-02). If these tables ever carry
+-- real volume, re-run the preflight and apply this behind an explicit lock_timeout in
+-- a maintenance window — do not assume it stays cheap.
 
 -- The composite parent key. `Conversation.id` is already unique on its own; this
 -- constraint exists because PostgreSQL requires the REFERENCED column list of a
