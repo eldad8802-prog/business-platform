@@ -13,9 +13,7 @@
 name: d2/cutover-2a — tenant context closure (ephemeral PG17)
 
 on:
-  # TEMPORARY push trigger so the PG17 proof runs before the PR exists; disarmed after.
-  push:
-    branches: [feat/tenant-context-closure]
+  # push trigger DISARMED after the PG17 proof ran (run 33591870349, PASS=35 FAIL=0).
   pull_request:
     branches: [main]
     paths:
