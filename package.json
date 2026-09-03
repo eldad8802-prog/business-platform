@@ -51,6 +51,7 @@
     "verify:authority-signed-state": "npx tsx lib/services/billing/authority/billing-authority-signed-state.verify.test.ts",
     "verify:platform-admin-auth": "npx tsx lib/auth/platform-admin.test.ts",
     "verify:tenant-context": "npx tsx lib/tenant/context.test.ts",
+    "verify:whatsapp-event-class": "npx tsx lib/services/integrations/whatsapp/webhook-event-class-boundary.test.ts",
     "verify:whatsapp-webhook-pr1": "npx tsx lib/services/integrations/whatsapp/webhook-pr1.verify.test.ts",
     "verify:whatsapp-webhook-pr2": "npx tsx lib/services/integrations/whatsapp/webhook-pr2.routing.test.ts",
     "verify:whatsapp-webhook-pr3": "npx tsx lib/services/integrations/whatsapp/webhook-pr3.media.test.ts",
