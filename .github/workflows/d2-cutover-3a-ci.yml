@@ -12,7 +12,7 @@
 name: d2/cutover-3a — restricted runtime matrix (ephemeral PG17)
 
 on:
-  # TEMPORARY push trigger so the PG17 proof runs before the PR exists; disarmed after.
+  # TEMPORARY push trigger to validate the newly-wired integration suites.
   push:
     branches: [feat/tenant-tx-closure]
   pull_request:
@@ -93,6 +93,22 @@ jobs:
           DATABASE_URL: ${{ env.OWNER_URL }}
           DIRECT_URL: ${{ env.OWNER_URL }}
         run: npx prisma db push --skip-generate
+
+      # The inventory integration tests already existed and exercise the exact services
+      # this wave repaired — purchase orders, receiving, supplier approval — end to end
+      # against a real database. NO workflow ran them, so the repair would otherwise
+      # have shipped with its own regression suite sitting unused. They run as the
+      # owner (that is how they were written), which makes them a clean "did the
+      # tenantTx rewrite break normal operation" check, complementary to the
+      # restricted-role matrix below.
+      - name: Inventory integration suites (the repaired services, end to end)
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          npx tsx lib/services/inventory/purchase-order.service.test.ts
+          npx tsx lib/services/inventory/receiving.service.test.ts
+          npx tsx lib/services/inventory/supplier-purchase-approval.service.test.ts
 
       - name: Restricted runtime matrix
         run: npx tsx .tx3a/restricted-runtime-battery.mjs
