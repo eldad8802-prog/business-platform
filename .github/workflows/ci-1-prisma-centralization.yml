@@ -306,7 +306,7 @@ jobs:
           cp "$F" "$F.bak"
           # Exactly the defect the ledger exists to prevent: the business record
           # commits, the marker does not, and a retry creates it a second time.
-          perl -0pi -e 's/        await markRow\(tx, \{\n          importRunId,\n          sourceRowNumber: row\.rowNumber,\n          action: row\.action,\n          status: row\.action === "CREATE" \? "CREATED" : "SKIPPED",\n        \}\);\n//' "$F"
+          perl -pi -e 's/await markRow\(tx,/await skipTheMarker(tx,/' "$F"
           if bash scripts/ci/import-ledger-guard.sh . >/dev/null 2>&1; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: an unmarked write passed the ledger guard"; exit 1

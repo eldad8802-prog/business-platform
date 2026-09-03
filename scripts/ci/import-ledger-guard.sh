@@ -217,8 +217,11 @@ selftest() {
     perl -0pi -e 's/export async function markRow\(tx: TenantTx/export async function markRow(tx2: TenantTx/' "$1/$STORE_REL"
   }
   # A write path that marks nothing.
+  # Line-ending agnostic on purpose: this repo checks out CRLF on Windows and LF
+  # in CI, and a multi-line pattern that silently stopped matching would leave
+  # the guard looking proven while proving nothing.
   m_unmarked_write() {
-    perl -0pi -e 's/        await markRow\(tx, \{\n          importRunId,\n          sourceRowNumber: row.rowNumber,\n          action: row.action,\n          status: row.action === "CREATE" \? "CREATED" : "SKIPPED",\n        \}\);\n//' "$1/$EXEC_REL"
+    perl -pi -e 's/await markRow\(tx,/await skipTheMarker(tx,/' "$1/$EXEC_REL";
   }
   # The tenant filter dropped from the duplicate lookup: rows would be matched
   # against another business's records.
