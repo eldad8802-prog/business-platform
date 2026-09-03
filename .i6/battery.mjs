@@ -381,6 +381,36 @@ async function main() {
   await owner.$executeRawUnsafe(`GRANT INSERT ON "Supplier" TO ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`GRANT INSERT ON "Supplier" TO app_runtime`);
 
+  // Wait for the restored privilege to be VISIBLE to the app pool before
+  // exercising the retry.
+  //
+  // Revoking a privilege mid-flight is an artificial device for forcing a
+  // transient write failure; a backend already open in the pool can still be
+  // serving the pre-grant ACL from its relcache, so the retry would fail on a
+  // privilege that has in fact been restored. That is a defect in the DEVICE,
+  // not in the product, and the honest fix is to assert the fixture is ready
+  // rather than to retry the assertion until it passes.
+  //
+  // Each probe is a real transaction, which is what makes the backend process
+  // the catalog invalidation. Disconnecting the pool instead was tried and was
+  // worse: it invalidated in-flight transactions (P2028).
+  let visible = false;
+  for (let attempt = 0; attempt < 20 && !visible; attempt++) {
+    visible = await runWithTenantContext({ businessId: bizA.id }, () =>
+      withTenantTransaction(async (tx) => {
+        const probe = await tx.$queryRawUnsafe(
+          `SELECT has_table_privilege('${RT_ROLE}', 'public."Supplier"', 'INSERT') AS g`
+        );
+        return probe[0].g === true;
+      })
+    );
+  }
+  ok(
+    "the restored INSERT privilege is visible to the app pool before the retry",
+    visible,
+    "the test device never became ready; the retry proof below would be meaningless"
+  );
+
   const retried = await runImport("suppliers", supHeaders, [
     [`${MARK}ספק ב`, "587654321", "0502222222"],
   ]);
