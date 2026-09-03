@@ -254,17 +254,43 @@ async function main() {
   // under RLS, but the restricted role still needs the table and sequence privileges,
   // and this has only ever run under the owner.
   console.log("\n== 9. bootstrap: tenant creation under the restricted role ==");
+  // The REAL lib/auth/signup.ts writes exactly Business + User, and neither is under
+  // RLS — that is what makes BOOTSTRAP a sound classification for it.
   const signup = await err(() => rt.$transaction(async (tx) => {
     const biz = await tx.business.create({ data: { name: "tx3a1-signup" } });
     const user = await tx.user.create({
       data: { businessId: biz.id, email: "tx3a1-signup@tx3a1.test", password: "x" } });
-    await tx.businessProfile.create({ data: { businessId: biz.id } }).catch(() => null);
     return { biz, user };
   }));
-  ok("signup (Business + User + profile) succeeds under the restricted role", signup === null,
+  ok("signup (Business + User) succeeds under the restricted role", signup === null,
     String(signup?.message ?? "").slice(0, 200));
   const created = await owner.business.count({ where: { name: "tx3a1-signup" } });
-  ok("...and the tenant row really exists (not a false success)", created === 1);
+  ok("...and the tenant row really COMMITTED (not a false success)", created === 1, `count=${created}`);
+
+  // A HAZARD WORTH PINNING, found by getting this wrong first.
+  //
+  // BusinessProfile IS FORCE-RLS'd (wave 1). Signup's transaction is bootstrap and
+  // deliberately carries no tenant GUC, so adding a BusinessProfile write to it would
+  // be refused — and if that refusal were swallowed, PostgreSQL turns the COMMIT of an
+  // already-aborted transaction into a silent ROLLBACK. The call returns success and
+  // the whole signup disappears: a false-success write of the worst kind, because the
+  // user is told their account was created.
+  //
+  // This asserts the hazard is real so that anyone who later adds an RLS-protected
+  // write to the bootstrap transaction is stopped here rather than in production.
+  const hazard = await err(() => rt.$transaction(async (tx) => {
+    const biz = await tx.business.create({ data: { name: "tx3a1-hazard" } });
+    // swallowed on purpose — this is the anti-pattern being demonstrated
+    await tx.businessProfile.create({ data: { businessId: biz.id } }).catch(() => null);
+    return biz;
+  }));
+  const hazardRows = await owner.business.count({ where: { name: "tx3a1-hazard" } });
+  ok("HAZARD: an RLS-refused write inside the bootstrap transaction rolls the whole thing back",
+    hazardRows === 0, `rows=${hazardRows}`);
+  ok("...and it does so SILENTLY — the call reported success", hazard === null,
+    String(hazard?.message ?? "").slice(0, 120));
+  ok("the real signup does NOT write BusinessProfile, so it is unaffected",
+    !readFileSync("lib/auth/signup.ts", "utf8").includes("businessProfile"));
 
   // ---- 10. bootstrap lookups stay context-free ------------------------------
   console.log("\n== 10. pre-tenant bootstrap lookups ==");
