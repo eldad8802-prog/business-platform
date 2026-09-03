@@ -1,0 +1,116 @@
+# D2 / PRODUCTION-RUNTIME-CUTOVER-2B — canonical five-pilot RLS battery (PG17).
+#
+# The lab schema comes from `prisma db push` (Prisma models no RLS, so it starts with
+# none). The battery then applies every RLS statement the repository already ships,
+# EXCLUDING this wave, to reproduce the gap from main alone — and only then applies the
+# new migration. `prisma migrate deploy` is deliberately NOT used: this repository's
+# history is not replayable from empty (a back-dated migration precedes the init that
+# creates its table), which is separate pre-existing baseline debt.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO Production.
+
+name: d2/cutover-3a.1 — exact-grant restricted runtime (ephemeral PG17)
+
+on:
+  # push trigger DISARMED after the proof ran (run 33710093672, PASS=63 FAIL=0,
+  # zero permission denials under the exact app_runtime grant set).
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/ci/tenant-context-guard.sh"
+      - ".tx3a1/**"
+      - "lib/**"
+      - "app/**"
+      - ".github/workflows/d2-cutover-3a1-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d2-cutover-3a1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pilot-rls:
+    name: exact-grant restricted runtime (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: tx3a1_owner
+          POSTGRES_PASSWORD: tx3a1_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_tx3a1
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tx3a1_owner -d dubiz_tx3a1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://tx3a1_owner:tx3a1_ci_synthetic_owner_pw@localhost:5432/dubiz_tx3a1
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .tx3a1/exact-grant-battery.mjs
+
+      - name: CI-TC tenant-context guard + negative self-proofs (blocking)
+        run: |
+          bash scripts/ci/tenant-context-guard.sh .
+          bash scripts/ci/tenant-context-guard.sh --self-test .
+
+      - name: Existing guard families (no regression)
+        run: |
+          bash scripts/ci/prisma-centralization-guard.sh .
+          bash scripts/ci/admin-boundary-guard.sh .
+          bash scripts/ci/w4-context-guard.sh .
+          bash scripts/ci/privwrite-guard.sh .
+          bash scripts/ci/account-deletion-guard.sh .
+          bash scripts/ci/conversation-coherence-guard.sh .
+          bash scripts/ci/pilot-rls-guard.sh .
+
+      - name: Prisma validate + generate
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          npx prisma validate
+          npx prisma generate
+
+      - name: Build the lab schema (RLS-free by construction)
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      # The inventory integration tests already existed and exercise the exact services
+      # this wave repaired — purchase orders, receiving, supplier approval — end to end
+      # against a real database. NO workflow ran them, so the repair would otherwise
+      # have shipped with its own regression suite sitting unused. They run as the
+      # owner (that is how they were written), which makes them a clean "did the
+      # tenantTx rewrite break normal operation" check, complementary to the
+      # restricted-role matrix below.
+      - name: Inventory integration suites (the repaired services, end to end)
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          npx tsx lib/services/inventory/purchase-order.service.test.ts
+          npx tsx lib/services/inventory/receiving.service.test.ts
+          npx tsx lib/services/inventory/supplier-purchase-approval.service.test.ts
+
+      - name: Exact-grant restricted runtime proof
+        run: npx tsx .tx3a1/exact-grant-battery.mjs
+
+      - name: Typecheck
+        run: npx tsc --noEmit
