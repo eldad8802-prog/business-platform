@@ -56,6 +56,7 @@ import {
   type RowErrorCode,
 } from "@/lib/data-transfer/import/execute/execution-semantics";
 import { writerFor } from "@/lib/data-transfer/import/execute/domain-writers";
+import { IMPORT_EXECUTE_BATCH_TIMEOUT_MS } from "@/lib/data-transfer/import/import-config";
 import {
   countRunRowsByStatus,
   findExistingRun,
@@ -375,7 +376,7 @@ async function tryBatch(
           );
         }
       }
-    });
+    }, { timeoutMs: IMPORT_EXECUTE_BATCH_TIMEOUT_MS });
     return true;
   } catch {
     return false;

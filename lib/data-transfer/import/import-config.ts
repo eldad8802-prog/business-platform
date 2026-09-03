@@ -62,3 +62,21 @@ export const IMPORT_ACCEPTED_MIME_TYPES = [
  * at a time rather than continuing past the error.
  */
 export const IMPORT_EXECUTE_BATCH_SIZE = 200;
+
+/**
+ * Interactive-transaction budget for ONE execution batch, in milliseconds.
+ *
+ * Prisma's default is 5 seconds, and a batch is 200 rows each doing a marker
+ * insert plus a full domain-service create — an inventory row also writes a
+ * stock movement. Against a serverless database that is comfortably more than
+ * five seconds of round trips, and the default was observed being exceeded on a
+ * real remote database.
+ *
+ * Exceeding it is not a correctness problem: the batch rolls back whole and
+ * every row is retried individually, so the outcome stays right. It is a
+ * performance cliff — the expensive path taken for no reason — and it makes a
+ * normal import look like a failing one.
+ *
+ * Sized to sit well inside the route's own 300s ceiling.
+ */
+export const IMPORT_EXECUTE_BATCH_TIMEOUT_MS = 60_000;

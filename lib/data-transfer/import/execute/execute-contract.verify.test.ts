@@ -619,4 +619,27 @@ check("REGRESSION: terminalization counts markers in the DB, never in memory", (
   );
 });
 
+check("the batch transaction carries an explicit budget, not Prisma's 5s default", () => {
+  // 200 rows, each a marker insert plus a domain-service create — and an
+  // inventory row also writes a stock movement. Against a serverless database
+  // that is more than five seconds of round trips, and the default was seen
+  // being exceeded on a real one. Correctness never depended on it (the batch
+  // rolls back whole and every row is retried alone) but a normal import would
+  // take the expensive path for no reason and look like a failing one.
+  const exec = stripComments(executorSrc);
+  assert.equal(exec.includes("IMPORT_EXECUTE_BATCH_TIMEOUT_MS"), true);
+  const batchStart = exec.indexOf("async function tryBatch");
+  const batchEnd = exec.indexOf("async function runSingleRow");
+  assert.equal(batchStart !== -1 && batchEnd > batchStart, true);
+  const batchBody = exec.slice(batchStart, batchEnd);
+  assert.equal(
+    batchBody.includes("timeoutMs: IMPORT_EXECUTE_BATCH_TIMEOUT_MS"),
+    true,
+    "the budget must be applied to the BATCH transaction"
+  );
+  // The single-row retries keep the default: they do one row of work, and a
+  // long budget there would hold a connection open for no reason.
+  assert.equal(exec.split("timeoutMs").length - 1, 1);
+});
+
 console.log(`\nIMPORT EXECUTE CONTRACT VERIFY PASS — ${passed} checks green.`);
