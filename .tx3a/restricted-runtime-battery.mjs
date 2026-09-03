@@ -133,8 +133,8 @@ async function main() {
   ok("...and it actually WROTE a row (not a zero-row false success)", movedRows === 1, `rows=${movedRows}`);
 
   const itemAfter = await owner.inventoryItem.findUnique({ where: { id: itemA.id } });
-  ok("...and the item quantity really changed", Number(itemAfter?.quantity ?? 0) !== 0,
-    `qty=${itemAfter?.quantity}`);
+  ok("...and the item quantity really changed", Number(itemAfter?.currentQuantity ?? 0) !== 0,
+    `qty=${itemAfter?.currentQuantity}`);
 
   // cross-tenant: tenant A moving stock on tenant B's item must not succeed
   const crossMv = await err(() => inventoryService.createMovement({
@@ -145,7 +145,7 @@ async function main() {
   ok("cross-tenant movement is refused (A cannot move B's stock)", crossMv !== null || bMoves === 0,
     `err=${crossMv ? "yes" : "no"} bMoves=${bMoves}`);
   ok("tenant B's item is untouched",
-    Number((await owner.inventoryItem.findUnique({ where: { id: itemB.id } }))?.quantity ?? 0) === 0);
+    Number((await owner.inventoryItem.findUnique({ where: { id: itemB.id } }))?.currentQuantity ?? 0) === 0);
 
   // ---- 4. the silent-zero / refusal counterfactual --------------------------
   //
@@ -192,9 +192,14 @@ async function main() {
   }));
   // The service swallows its own errors by design, so assert the OUTCOME in the DB.
   const runs = await owner.contentRun.count({ where: { businessId: A.id } });
-  ok("content-plan persistence runs under the restricted role without throwing", cp === null,
-    String(cp?.message).slice(0, 140));
-  console.log(`  ContentRun rows for tenant A = ${runs}`);
+  // SMOKE ONLY, and labelled as such: this service catches its own errors, so "it
+  // did not throw" is weak evidence. What it does establish is that the repaired
+  // tenantTx path is reachable and does not blow up under the restricted role. The
+  // real isolation proof for ContentRun/ContentVariant is the catalog + the generic
+  // A/B matrix above, not this call.
+  ok("content-plan persistence path is reachable under the restricted role (SMOKE ONLY)",
+    cp === null, String(cp?.message).slice(0, 140));
+  console.log(`  ContentRun rows for tenant A = ${runs} (empty plan fixture — not an isolation claim)`);
 
   // ---- 7. no DELETE reaches a pilot/repaired table despite the grant --------
   console.log("\n== 7. DELETE grant is not a DELETE capability ==");
