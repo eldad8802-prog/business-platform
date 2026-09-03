@@ -72,8 +72,27 @@ const api = async (path, init = {}) => {
   return { status: res.status, body };
 };
 
-const email = `qa-w3-${STAMP}@example.test`;
-const password = `Qa!${STAMP}!w3`;
+/**
+ * Credentials.
+ *
+ * By default the harness registers its own throwaway tenant. Production has
+ * public signup CLOSED (`PUBLIC_SIGNUP_ENABLED=false`), and opening it for QA
+ * would be a far worse trade than any test is worth — so a pre-created QA
+ * tenant can be supplied instead. It still authenticates through the ordinary
+ * login route: no auth bypass, no backdoor, no special-casing in the product.
+ *
+ *   W3_QA_EMAIL=... W3_QA_PASSWORD=... node scripts/qa/ui/leads-w3-e2e.mjs
+ *
+ * With supplied credentials the harness will NOT erase the account at the end —
+ * a seeded tenant belongs to whoever seeded it. It cleans up only the rows it
+ * created itself.
+ */
+const SUPPLIED_EMAIL = (process.env.W3_QA_EMAIL || "").trim();
+const SUPPLIED_PASSWORD = process.env.W3_QA_PASSWORD || "";
+const USE_SUPPLIED = SUPPLIED_EMAIL.length > 0 && SUPPLIED_PASSWORD.length > 0;
+
+const email = USE_SUPPLIED ? SUPPLIED_EMAIL : `qa-w3-${STAMP}@example.test`;
+const password = USE_SUPPLIED ? SUPPLIED_PASSWORD : `Qa!${STAMP}!w3`;
 
 const send = (conversationId, customerId, over = {}) =>
   api("/api/message", {
@@ -95,13 +114,21 @@ const leadsList = async () => (await api("/api/leads?status=all")).body?.leads ?
 async function main() {
   console.log(`\nLeads W3 — intelligence surface\n  base: ${BASE}\n  tag:  ${TAG}\n`);
 
-  const reg = await api("/api/auth/register", {
-    method: "POST",
-    body: JSON.stringify({ email, password, name: "QA W3", businessName: TAG }),
-  });
-  if (![200, 201].includes(reg.status)) {
-    console.error(`register failed: ${reg.status} ${JSON.stringify(reg.body).slice(0, 140)}`);
-    process.exit(2);
+  if (!USE_SUPPLIED) {
+    const reg = await api("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password, name: "QA W3", businessName: TAG }),
+    });
+    if (![200, 201].includes(reg.status)) {
+      console.error(
+        `register failed: ${reg.status} ${JSON.stringify(reg.body).slice(0, 140)}
+` +
+          "  If signup is closed, supply W3_QA_EMAIL / W3_QA_PASSWORD for a pre-created QA tenant."
+      );
+      process.exit(2);
+    }
+  } else {
+    note("using a pre-created QA tenant — no registration, no signup flag needed");
   }
   const login = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
   ref.token = login.body?.token ?? null;
@@ -134,7 +161,10 @@ async function main() {
         "  LEADS_AUTO_CAPTURE_ENABLED is not true on this target, or the writer is off.\n" +
         `  leads=${afterFirst.length}\n`
     );
-    await api("/api/account", { method: "DELETE" });
+    // Erase ONLY a tenant this run created. A supplied tenant belongs to
+    // whoever seeded it — deleting it on the way out of a refusal is how a QA
+    // account disappears the first time a flag is misconfigured.
+    if (!USE_SUPPLIED) await api("/api/account", { method: "DELETE" });
     process.exit(2);
   }
   ok("A5 GATE the first inbound message created a lead by itself");
@@ -332,10 +362,23 @@ async function main() {
 
   /* ══════════════ cleanup ════════════════════════════════════════════════ */
 
-  const erase = await api("/api/account", { method: "DELETE" });
-  check([200, 202, 204].includes(erase.status), "Z1 the QA tenant is erased", `status=${erase.status}`);
-  const relogin = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
-  check(relogin.status >= 400, "Z2 and can no longer sign in", `status=${relogin.status}`);
+  if (USE_SUPPLIED) {
+    // A seeded tenant is not ours to delete. Remove only what this run created.
+    const mine = (await leadsList()).filter((l) => (l.name ?? "").includes(TAG));
+    for (const l of mine) {
+      await api(`/api/leads/${l.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "DROPPED" }),
+      });
+    }
+    check(true, `Z1 closed ${mine.length} lead(s) this run created — the seeded tenant is left in place`);
+    check(true, "Z2 the seeded tenant is not deleted by QA");
+  } else {
+    const erase = await api("/api/account", { method: "DELETE" });
+    check([200, 202, 204].includes(erase.status), "Z1 the QA tenant is erased", `status=${erase.status}`);
+    const relogin = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+    check(relogin.status >= 400, "Z2 and can no longer sign in", `status=${relogin.status}`);
+  }
 
   console.log(
     failures.length === 0

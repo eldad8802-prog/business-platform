@@ -139,6 +139,11 @@ export async function maybeCaptureLeadFromMessage(
         { tx }
       )
     );
+    signal(result.outcome === "created" ? "created" : "adopted", {
+      conversationId: conversation.id,
+      messageId: message.id,
+      leadId: result.lead.id,
+    });
     return { captured: true, leadId: result.lead.id, outcome: result.outcome };
   } catch (error) {
     // A lead with no derivable name is the common, legitimate refusal: an
@@ -175,6 +180,11 @@ export async function maybeCaptureLeadFromMessage(
           { tx }
         )
       );
+      signal("collision_recovered", {
+        conversationId: conversation.id,
+        messageId: message.id,
+        leadId: adopted.lead.id,
+      });
       return { captured: true, leadId: adopted.lead.id, outcome: adopted.outcome };
     } catch (retryError) {
       // Fail CLOSED and loudly. Creating a lead blindly here is precisely how a
@@ -186,6 +196,31 @@ export async function maybeCaptureLeadFromMessage(
       return { captured: false, reason: "collision_unresolved" };
     }
   }
+}
+
+/**
+ * One structured line per auto-capture outcome that MATTERS.
+ *
+ * Failures were already visible; success was silent — so "did adoption work?"
+ * and "is the collision path being exercised at all?" were unanswerable from
+ * the logs, which is exactly what you need to know in the first hours after
+ * enabling this. Three outcomes are worth a line:
+ *
+ *   created            a new opportunity exists that nobody asked for by hand
+ *   adopted            an existing open lead absorbed the conversation
+ *   collision_recovered  two inquiries raced and the loser converged
+ *
+ * IDS ONLY. No phone, no name, no message text — everything here is already a
+ * primary key somewhere, and the moment a log line carries customer content it
+ * acquires its own retention problem.
+ */
+function signal(
+  outcome: "created" | "adopted" | "collision_recovered",
+  ids: { conversationId: number; messageId: number; leadId: number }
+): void {
+  console.info(
+    `[lead-auto-capture] ${outcome} conversationId=${ids.conversationId} messageId=${ids.messageId} leadId=${ids.leadId}`
+  );
 }
 
 /**
