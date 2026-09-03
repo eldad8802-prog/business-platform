@@ -207,6 +207,8 @@ model Business {
   contentEvents             ContentEvent[]
   productUsageEvents        ProductUsageEvent[]
   businessFeatureAccess     BusinessFeatureAccess[]
+  notifications             Notification[]
+  notificationDeliveries    NotificationDelivery[]
   whatsappConnection        WhatsAppConnection?
   purchaseOrders            PurchaseOrder[]
   receivingSessions         ReceivingSession[]
@@ -3236,4 +3238,134 @@ model DerivedClaimEvidenceLink {
   @@unique([candidateId, evidenceKind, evidenceRecordId])
   @@index([candidateId])
   @@index([businessId, evidenceKind, evidenceRecordId])
+}
+
+/// A notification the owner may see. One row per FACT, not per observation.
+///
+/// `lib/business-status` recomputes a fresh snapshot on every read, so it can
+/// say what needs attention but never whether we already said it. This table is
+/// that memory, and `lib/notifications/notification-policy.ts` decides what
+/// belongs in it — this model stores the decision, it does not re-make it.
+///
+/// A resolved condition that returns REOPENS this row rather than creating a
+/// second one: `dedupeKey` identifies a standing condition, and the owner
+/// experiences a recurrence as the same problem. A second row would let one
+/// condition notify twice inside a single cooldown window, which is exactly the
+/// noise the policy exists to prevent. The cost is that per-occurrence history
+/// is not kept; if that is ever needed it belongs in an append-only occurrence
+/// table, not in a weaker uniqueness rule here.
+model Notification {
+  id         Int @id @default(autoincrement())
+  businessId Int
+
+  /// Stable identity of the underlying fact, from the policy:
+  /// `b<businessId>:<domain>:<category>:<entityType>:<entityId>`.
+  /// Deliberately free of priorityScore / itemId / createdAt — all three change
+  /// between reads of an unchanged situation and would make every snapshot look
+  /// like news.
+  dedupeKey String
+
+  /// Vocabulary mirrored from lib/business-status/types.ts, which remains its
+  /// owner. Kept as String rather than Prisma enums on purpose: an enum here
+  /// would be a SECOND source of truth for the same vocabulary, needing manual
+  /// sync forever.
+  domain           String
+  semanticCategory String
+  severity         String
+
+  entityType String
+  entityId   Int
+
+  /// Render payload, snapshotted at decision time so the list does not depend on
+  /// re-deriving a domain object that may since have changed or been deleted.
+  title   String
+  summary String?
+  href    String
+
+  /// What the POLICY decided. Distinct from NotificationDelivery, which records
+  /// what was actually attempted — the two diverge whenever quiet hours
+  /// downgrade a push, a provider fails, or a channel is switched off.
+  intendedChannels NotificationChannel[]
+
+  /// Why the policy granted a channel. Kept so a surprising notification can be
+  /// explained without re-running the decision.
+  reason        String
+  cooldownHours Int
+
+  firstSurfacedAt DateTime  @default(now())
+  lastSurfacedAt  DateTime  @default(now())
+  /// Cooldown anchor. Survives a reopen on purpose: a condition that flickers
+  /// must not re-notify each time it returns.
+  lastNotifiedAt  DateTime?
+
+  readAt      DateTime?
+  dismissedAt DateTime?
+  resolvedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business   Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+
+  /// The memory. The database is the arbiter of "have we already told them" —
+  /// not application discipline, which cannot survive a race.
+  @@unique([businessId, dedupeKey])
+  /// The composite parent key. `id` is already unique alone; this exists because
+  /// PostgreSQL requires a foreign key's REFERENCED column list to be unique, so
+  /// this constraint IS the mechanism that makes a delivery physically unable to
+  /// attach across tenants.
+  @@unique([id, businessId])
+  @@index([businessId, readAt])
+  @@index([businessId, lastSurfacedAt])
+}
+
+/// One row per delivery ATTEMPT. Append-only history.
+///
+/// Separate from Notification because a notification is a fact and a delivery is
+/// an attempt: one fact can be attempted on several channels, retried, or
+/// suppressed. Folding them together would let a failed push destroy the record
+/// that the owner still needs to see the item in-app.
+model NotificationDelivery {
+  id             Int @id @default(autoincrement())
+  businessId     Int
+  notificationId Int
+
+  channel NotificationChannel
+  status  NotificationDeliveryStatus
+
+  attemptedAt DateTime @default(now())
+  /// Provider-side failure text. Never a secret, never a token.
+  error       String?
+
+  createdAt DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  /// COMPOSITE, not a plain notificationId FK. A single-column FK plus a
+  /// separate RLS policy would still permit a row in tenant A that points at a
+  /// notification in tenant B: RLS constrains visibility, never referential
+  /// targets. A foreign key cascade is executed by an internal system trigger
+  /// and is subject to neither RLS nor the invoking role's privileges, so this
+  /// is the only layer where cross-tenant attachment becomes impossible rather
+  /// than merely unlikely. Same reasoning, same shape as Message -> Conversation.
+  ///
+  /// MATCH SIMPLE is not a bypass here: both referencing columns are NOT NULL,
+  /// so no row can present a partial key.
+  notification Notification @relation(fields: [notificationId, businessId], references: [id, businessId], onDelete: Cascade)
+
+  @@index([businessId, notificationId, attemptedAt])
+}
+
+enum NotificationChannel {
+  IN_APP
+  PUSH
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  /// Decided against at delivery time — e.g. push suppressed by quiet hours.
+  /// Distinct from FAILED: nothing went wrong.
+  SUPPRESSED
 }
