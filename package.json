@@ -105,7 +105,8 @@
     "verify:signup-identity": "npx tsx lib/auth/signup.verify.test.ts",
     "verify:token-revocation": "npx tsx lib/auth/token-revocation.verify.test.ts",
     "verify:jerusalem-day": "npx tsx lib/utils/jerusalem-day.verify.test.ts",
-    "verify:prelaunch": "npm run verify:signup-identity && npm run verify:token-revocation && npm run verify:jerusalem-day && npm run verify:collection-terms && npm run verify:signup-gate && npm run verify:signup-gate-route && npm run verify:signup-gate-coverage"
+    "verify:prelaunch": "npm run verify:signup-identity && npm run verify:token-revocation && npm run verify:jerusalem-day && npm run verify:collection-terms && npm run verify:signup-gate && npm run verify:signup-gate-route && npm run verify:signup-gate-coverage",
+    "verify:release-guard": "node scripts/ci/release-guard.self-test.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",
@@ -121,7 +122,7 @@
     "@capacitor/status-bar": "^8.0.3",
     "@google-cloud/vision": "^5.3.5",
     "@napi-rs/canvas": "^0.1.100",
-    "@prisma/client": "^6.16.0",
+    "@prisma/client": "6.19.3",
     "@signpdf/placeholder-pdf-lib": "^3.3.0",
     "@signpdf/signer-p12": "^3.3.0",
     "@signpdf/signpdf": "^3.3.0",
@@ -158,7 +159,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
-    "prisma": "^6.16.0",
+    "prisma": "6.19.3",
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"

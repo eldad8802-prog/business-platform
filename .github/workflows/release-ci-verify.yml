@@ -1,11 +1,26 @@
 name: release-ci-verify
 
-# Phase 4 · Step 4 — Non-blocking CI Verification, REPORT-ONLY.
+# Phase 4 · Step 4 — CI Verification.
 #
-# Runs read-only checks (prisma validate, lint, build) and publishes a
-# NON-REQUIRED commit status + Job Summary. It does NOT block merges (no
-# required checks / no branch protection are configured here). It performs NO
-# database writes, NO migrations, NO deploys, and NO provider changes.
+# Runs read-only checks (prisma validate, lint, build) and publishes the
+# `release/verify` commit status + Job Summary. It performs NO database writes,
+# NO migrations, NO deploys, and NO provider changes.
+#
+# ⚠️ THIS STATUS IS REQUIRED. Branch protection on `main` lists `release/verify`
+# in required_status_checks, so a failure here BLOCKS the merge.
+#
+# This header previously said the opposite — "non-blocking, REPORT-ONLY, no
+# required checks are configured here". That was true when it was written and
+# silently stopped being true when branch protection was added; nobody
+# reconciled the two. The file claimed to be advice while GitHub treated it as a
+# gate, which is dangerous in both directions: someone editing it as
+# "report-only" can break every merge, and someone relying on branch protection
+# is trusting a check its own author did not intend to be one.
+#
+# Two-tier reporting still applies WITHIN the job: `validate` and `build` decide
+# pass/fail, while `lint` and `migrate status` are observations that never fail
+# it. That tiering is about which STEPS block — not about whether the overall
+# status blocks. It does.
 on:
   pull_request: {}
   workflow_dispatch: {}

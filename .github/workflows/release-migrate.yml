@@ -80,6 +80,28 @@ jobs:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
         run: npx prisma migrate status
 
+      # ── Attestation ────────────────────────────────────────────────────────
+      # PUBLICATION ORDER IS LOAD-BEARING. This runs only after migrate deploy
+      # succeeded AND migrate status reported up to date — both above, both
+      # without continue-on-error. There is deliberately no `if: always()`:
+      # if anything above failed, NO new attestation is published, the previous
+      # one stays, and because it will not contain the new migration the release
+      # guard blocks the deployment anyway. Staleness is safe by construction.
+      - name: Build production migration attestation (read-only)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          RELEASE_ATTESTATION_WORKFLOW_PATH: .github/workflows/release-migrate.yml
+        run: node scripts/ci/build-migration-attestation.mjs attestation.json
+
+      - name: Upload attestation (immutable, bound to this run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-migration-attestation
+          path: attestation.json
+          retention-days: 90
+          if-no-files-found: error
+
       - name: Job Summary
         if: always()
         env:
