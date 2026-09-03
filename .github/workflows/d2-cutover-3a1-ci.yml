@@ -12,8 +12,8 @@
 name: d2/cutover-3a.1 — exact-grant restricted runtime (ephemeral PG17)
 
 on:
-  push:
-    branches: [feat/exact-grant-evidence]
+  # push trigger DISARMED after the proof ran (run 33710093672, PASS=63 FAIL=0,
+  # zero permission denials under the exact app_runtime grant set).
   pull_request:
     branches: [main]
     paths:
