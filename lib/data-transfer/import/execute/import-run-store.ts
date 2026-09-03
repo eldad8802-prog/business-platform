@@ -232,28 +232,62 @@ export async function terminalizeRun(
   );
 }
 
-/** The per-row outcomes of a finished run, for the owner's report. */
-export async function loadRunRows(
+/**
+ * Count the run's markers by status, WITHOUT loading them.
+ *
+ * The obvious version reads every marker and counts in JavaScript. At the 10,000
+ * row ceiling that is 10,000 rows pulled into one interactive transaction just to
+ * produce three integers — and Prisma's default interactive-transaction timeout is
+ * 5 seconds. Measured against a real remote database it blew that budget and
+ * aborted terminalization at the last step, after every record had already been
+ * written. The run would have been left EXECUTING with all its work done.
+ *
+ * An aggregate moves three numbers instead of the whole table.
+ */
+export async function countRunRowsByStatus(
   businessId: number,
   importRunId: number
-): Promise<
-  { sourceRowNumber: number; action: string; status: string; errorCode: string | null }[]
-> {
+): Promise<{ createdCount: number; skippedCount: number; failedCount: number }> {
+  const grouped = await runWithTenantContext({ businessId }, () =>
+    withTenantTransaction((tx) =>
+      tx.importRunRow.groupBy({
+        by: ["status"],
+        where: { importRunId },
+        _count: { _all: true },
+      })
+    )
+  );
+  const of = (status: string) =>
+    grouped.find((g) => g.status === status)?._count._all ?? 0;
+  return {
+    createdCount: of("CREATED"),
+    skippedCount: of("SKIPPED"),
+    failedCount: of("FAILED"),
+  };
+}
+
+/**
+ * The FAILED markers only — which is all the owner's report shows.
+ *
+ * Loading every marker to filter for failures had the same shape of problem as
+ * counting them: a successful 10,000-row import would move 10,000 rows to render
+ * a list of none.
+ */
+export async function loadFailedRunRows(
+  businessId: number,
+  importRunId: number
+): Promise<{ sourceRowNumber: number; errorCode: string | null }[]> {
   return runWithTenantContext({ businessId }, () =>
     withTenantTransaction((tx) =>
       tx.importRunRow.findMany({
-        where: { importRunId },
-        select: {
-          sourceRowNumber: true,
-          action: true,
-          status: true,
-          errorCode: true,
-        },
+        where: { importRunId, status: "FAILED" },
+        select: { sourceRowNumber: true, errorCode: true },
         orderBy: { sourceRowNumber: "asc" },
       })
     )
   );
 }
+
 
 /**
  * Look up the run for this exact identity WITHOUT creating one.

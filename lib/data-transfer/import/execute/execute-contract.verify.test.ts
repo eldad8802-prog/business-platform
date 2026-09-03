@@ -579,4 +579,44 @@ check("the read-only lookup never creates", () => {
   assert.equal(body.includes("findUnique"), true);
 });
 
+check("REGRESSION: terminalization counts markers in the DB, never in memory", () => {
+  // Found against a real database: counting by loading every marker blew
+  // Prisma's 5s interactive-transaction budget and aborted terminalization at
+  // the very last step — after every record had already been written. The run
+  // would have been left EXECUTING with all of its work done, and the owner
+  // told the import had not finished.
+  //
+  // At the 10,000-row ceiling that read moves 10,000 rows to produce three
+  // integers. The aggregate moves three.
+  const store = stripComments(
+    fs.readFileSync(
+      "lib/data-transfer/import/execute/import-run-store.ts",
+      "utf8"
+    )
+  );
+  assert.equal(store.includes("groupBy"), true, "the tally must aggregate");
+  assert.equal(
+    /findMany\(\{\s*where:\s*\{\s*importRunId\s*\}\s*,\s*select:\s*\{\s*sourceRowNumber:\s*true,\s*action/.test(
+      store
+    ),
+    false,
+    "no reader may pull every marker just to count or filter them"
+  );
+
+  // The failure list is fetched as failures, not filtered from everything.
+  assert.equal(store.includes('status: "FAILED"'), true);
+
+  const exec = stripComments(executorSrc);
+  assert.equal(
+    exec.includes("countRunRowsByStatus"),
+    true,
+    "the executor must use the aggregate"
+  );
+  assert.equal(
+    exec.includes("loadRunRows"),
+    false,
+    "the load-everything reader must be gone, not merely unused"
+  );
+});
+
 console.log(`\nIMPORT EXECUTE CONTRACT VERIFY PASS — ${passed} checks green.`);

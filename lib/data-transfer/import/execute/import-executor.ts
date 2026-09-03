@@ -57,9 +57,10 @@ import {
 } from "@/lib/data-transfer/import/execute/execution-semantics";
 import { writerFor } from "@/lib/data-transfer/import/execute/domain-writers";
 import {
+  countRunRowsByStatus,
   findExistingRun,
   loadExecutedRowNumbers,
-  loadRunRows,
+  loadFailedRunRows,
   markFailedRow,
   markRow,
   openOrResumeRun,
@@ -331,18 +332,16 @@ export async function executeImport(
  * The markers are the only authority while a run is EXECUTING; the columns on
  * ImportRun are an audit snapshot written once, at terminalization, so that a
  * finished run can still report itself after its markers are cleaned up.
+ *
+ * Aggregated in the database rather than counted here: see countRunRowsByStatus.
  */
 async function tallyFromMarkers(
   businessId: number,
   importRunId: number
 ): Promise<{ createdCount: number; skippedCount: number; failedCount: number }> {
-  const rows = await loadRunRows(businessId, importRunId);
-  return {
-    createdCount: rows.filter((r) => r.status === "CREATED").length,
-    skippedCount: rows.filter((r) => r.status === "SKIPPED").length,
-    failedCount: rows.filter((r) => r.status === "FAILED").length,
-  };
+  return countRunRowsByStatus(businessId, importRunId);
 }
+
 
 /**
  * Tier 1 — one transaction for the whole batch.
@@ -466,7 +465,7 @@ async function replayResult(
     failedCount: number;
   }
 ): Promise<ExecuteResult> {
-  const rows = await loadRunRows(businessId, importRunId);
+  const failed = await loadFailedRunRows(businessId, importRunId);
   return {
     ok: true,
     importRunId,
@@ -474,12 +473,10 @@ async function replayResult(
     alreadyExecuted: true,
     unexecutedRows: 0,
     counts,
-    failures: rows
-      .filter((r) => r.status === "FAILED")
-      .map((r) => ({
-        rowNumber: r.sourceRowNumber,
-        code: (r.errorCode ?? "SERVICE_ERROR") as RowErrorCode,
-        message: "השורה נכשלה בהרצה הקודמת",
-      })),
+    failures: failed.map((r) => ({
+      rowNumber: r.sourceRowNumber,
+      code: (r.errorCode ?? "SERVICE_ERROR") as RowErrorCode,
+      message: "השורה נכשלה בהרצה הקודמת",
+    })),
   };
 }
