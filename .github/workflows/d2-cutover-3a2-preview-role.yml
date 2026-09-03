@@ -1,0 +1,81 @@
+# D2 / PRODUCTION-RUNTIME-CUTOVER-3A.2 — provision the Preview rehearsal runtime role.
+#
+# The existing `app_runtime_preview_p4b` is NOT usable for this rehearsal: it holds
+# table grants on only 79 of Preview's 105 tables, USAGE on 67 sequences (Production
+# grants 98), and it is NOINHERIT. Running the application through it would produce
+# permission failures that are artifacts of stale pilot grants rather than real
+# defects — which would both waste the rehearsal and risk a false finding.
+#
+# So this creates a Preview-only role modelled on the FUTURE `app_runtime_prod`:
+#
+#   group  app_runtime            (Preview does not have one; Production does)
+#          -> DML on every application table EXCEPT `_prisma_migrations`
+#          -> USAGE + SELECT on every sequence, and UPDATE on NONE
+#          -> USAGE on schema public, no CREATE
+#   login  app_runtime_prev_rehearsal
+#          -> LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION INHERIT
+#          -> member of app_runtime and NOTHING else
+#
+# PREVIEW ONLY. The deny-list aborts on the Production endpoints, and the workflow
+# never touches Production roles, grants or credentials.
+#
+# The password arrives as a transient repository secret and is masked; it is never
+# printed, never committed, and never written to the step summary.
+
+name: d2/cutover-3a.2 — provision Preview rehearsal runtime role
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [chore/d2-3a2-preview-role]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d2-3a2-preview-role
+  cancel-in-progress: false
+
+env:
+  NEON_BASE: https://console.neon.tech/api/v2
+  P4_PROJECT_ID: orange-shape-16620903
+  P4_BRANCH_ID: br-red-scene-amth33qx
+  P4_EXPECT_ENDPOINT: ep-wispy-dawn-amr74bwz
+  P4_EXPECT_DB: neondb
+  P4_DENY_ENDPOINTS: ep-flat-brook-am4bhq1y ep-winter-bread-ami5o8p5
+  RUNTIME_ROLE: app_runtime_prev_rehearsal
+
+jobs:
+  provision:
+    name: provision + verify the Preview rehearsal role
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Provision and verify (Preview only)
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          PREVIEW_RUNTIME_PW: ${{ secrets.PREVIEW_RUNTIME_PW }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${NEON_API_KEY:-}" ] || { echo "::error::NEON_API_KEY missing"; exit 1; }
+          [ -n "${PREVIEW_RUNTIME_PW:-}" ] || { echo "::error::PREVIEW_RUNTIME_PW missing"; exit 1; }
+          echo "::add-mask::${PREVIEW_RUNTIME_PW}"
+
+          uri() { curl --fail-with-body -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" \
+            "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri'; }
+          DBD="$(uri)"
+          echo "::add-mask::${DBD}"
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || { echo "::error::empty URI"; exit 1; }
+          case "${DBD}" in *"${P4_EXPECT_ENDPOINT}"*) : ;; *) echo "::error::URI endpoint mismatch"; exit 1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "${DBD}" in *"$d"*) echo "::error::PRODUCTION DENY-LIST HIT"; exit 1 ;; esac; done
+
+          DIRECT_URL="${DBD}" RUNTIME_ROLE="${RUNTIME_ROLE}" RTPW="${PREVIEW_RUNTIME_PW}" \
+            npx tsx .tx3a2/provision-preview-role.mjs
