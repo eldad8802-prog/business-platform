@@ -7,6 +7,7 @@ import {
   ReceivingSessionStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import {
   InventoryNotFoundError,
   InventoryUnauthorizedError,
@@ -409,7 +410,7 @@ export const purchaseOrderService = {
     };
 
     if (options?.tx) return run(options.tx);
-    return prisma.$transaction(run, TRANSACTION_OPTIONS);
+    return tenantTx(businessId, run, { timeoutMs: TRANSACTION_OPTIONS.timeout });
   },
 
   async listPurchaseOrders(input: ListPurchaseOrdersInput, options?: TxOptions) {
@@ -591,6 +592,6 @@ export const purchaseOrderService = {
     };
 
     if (options?.tx) return run(options.tx);
-    return prisma.$transaction(run, TRANSACTION_OPTIONS);
+    return tenantTx(businessId, run, { timeoutMs: TRANSACTION_OPTIONS.timeout });
   },
 };

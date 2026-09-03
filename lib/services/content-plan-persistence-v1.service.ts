@@ -12,6 +12,7 @@ import type { GrowthSemantics } from "@/lib/features/content/growth-semantics/ty
 import type { RenderBlueprint } from "@/lib/features/content/render-blueprint/types";
 import type { ContentInsightAnswer } from "@/lib/features/content/question-engine/types";
 import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import type { TenantTx } from "@/lib/tenant/transaction";
 import { ContentRunStatus, ContentVariantStatus, Prisma } from "@prisma/client";
 
@@ -207,7 +208,7 @@ export async function persistContentPlanV1(params: {
     if (options?.tx) {
       await runInTx(options.tx);
     } else {
-      await prisma.$transaction(runInTx);
+      await tenantTx(user.businessId, runInTx);
     }
   } catch (err) {
     console.error("content plan persistence failed:", err);

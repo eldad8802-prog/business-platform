@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import {
   InventoryAlertType,
   InventoryMovementReason,
@@ -100,7 +101,7 @@ class InventoryService {
       return run(options.tx);
     }
 
-    return prisma.$transaction(run);
+    return tenantTx(businessId, run);
   }
 
   async createMovement(input: CreateInventoryMovementInput, options?: TxOptions) {
@@ -243,7 +244,7 @@ class InventoryService {
       return run(options.tx);
     }
 
-    return prisma.$transaction(run);
+    return tenantTx(businessId, run);
   }
 
   async addStock(input: AddInventoryStockInput, options?: TxOptions) {
