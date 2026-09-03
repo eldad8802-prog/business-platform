@@ -102,14 +102,26 @@ async function main() {
        (SELECT count(*) FILTER (WHERE has_sequence_privilege('app_runtime', c.oid, 'UPDATE'))::int
           FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='S') AS seq_update`);
   const c0 = contract[0];
-  ok(`app_runtime holds table grants on ${c0.sel} of ${c0.total_tables} tables (ledger excluded)`,
-    c0.sel === c0.total_tables - 1, JSON.stringify(c0));
+  // `prisma db push` does not create `_prisma_migrations` (only `migrate` does), so the
+  // lab has one table fewer than Production. The contract being reproduced is "every
+  // APPLICATION table, and never the migration ledger" — assert that directly rather
+  // than a fixed count, so the check means the same thing in both places.
+  const ledgerExists = (await owner.$queryRawUnsafe(
+    `SELECT count(*)::int AS n FROM pg_class
+       WHERE relnamespace='public'::regnamespace AND relname='_prisma_migrations'`))[0].n === 1;
+  const expectedGranted = c0.total_tables - (ledgerExists ? 1 : 0);
+  ok(`app_runtime holds table grants on every application table (${c0.sel} of ${c0.total_tables}; ledger present=${ledgerExists})`,
+    c0.sel === expectedGranted, JSON.stringify(c0));
   ok("schema USAGE yes, CREATE no", c0.schema_usage === true && c0.schema_create === false);
   ok("sequences: USAGE granted, UPDATE granted on ZERO (matches Production exactly)",
     c0.seq_usage > 0 && c0.seq_update === 0, JSON.stringify(c0));
-  const ledger = await owner.$queryRawUnsafe(
-    `SELECT has_table_privilege('app_runtime','public."_prisma_migrations"','SELECT') AS can_read`);
-  ok("app_runtime cannot even read the migration ledger", ledger[0].can_read === false);
+  if (ledgerExists) {
+    const ledger = await owner.$queryRawUnsafe(
+      `SELECT has_table_privilege('app_runtime','public."_prisma_migrations"','SELECT') AS can_read`);
+    ok("app_runtime cannot read the migration ledger", ledger[0].can_read === false);
+  } else {
+    ok("migration ledger absent in this lab (db push) — exclusion asserted by construction", true);
+  }
 
   // ---- 3. the login role: member of app_runtime and NOTHING else -----------
   console.log("\n== 3. restricted login role ==");
@@ -217,7 +229,8 @@ async function main() {
   ok("DDL (ALTER TABLE) is refused", (await err(() => rt.$executeRawUnsafe(`ALTER TABLE "Customer" ADD COLUMN zz int`))) !== null);
   ok("CREATE TABLE in public is refused", (await err(() => rt.$executeRawUnsafe(`CREATE TABLE zz_tmp(id int)`))) !== null);
   ok("SET ROLE to the owner is refused", (await err(() => rt.$executeRawUnsafe(`SET ROLE neondb_owner`))) !== null);
-  ok("the migration ledger is unreadable", (await err(() => rt.$queryRawUnsafe(`SELECT 1 FROM "_prisma_migrations" LIMIT 1`))) !== null);
+  ok("the migration ledger is unreadable (or absent in this lab)",
+    (await err(() => rt.$queryRawUnsafe(`SELECT 1 FROM "_prisma_migrations" LIMIT 1`))) !== null);
   ok("ALTER POLICY is refused", (await err(() => rt.$executeRawUnsafe(`ALTER TABLE "Customer" DISABLE ROW LEVEL SECURITY`))) !== null);
 
   // ---- 8. DELETE reality ----------------------------------------------------
