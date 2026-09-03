@@ -12,9 +12,8 @@
 name: d2/cutover-3a — restricted runtime matrix (ephemeral PG17)
 
 on:
-  # TEMPORARY push trigger to validate the newly-wired integration suites.
-  push:
-    branches: [feat/tenant-tx-closure]
+  # push trigger DISARMED after the PG17 proof ran (run 33704862573: tx3a 21/21 plus
+  # the three inventory integration suites, all green).
   pull_request:
     branches: [main]
     paths:
