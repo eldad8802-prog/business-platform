@@ -591,6 +591,18 @@ check("an expired token is refused", () => {
   if (!result.ok) assert.equal(result.reason, "EXPIRED");
 });
 
+/** base64url <-> bytes, local to the verifier so it tests the real encoding. */
+function fromB64urlLocal(value: string): Buffer {
+  return Buffer.from(value.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+}
+function toB64urlLocal(value: Buffer): string {
+  return value
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
 check("a tampered payload or signature is refused", () => {
   const token = issuePreviewToken(FACTS, AT);
   const [body, mac] = token.split(".");
@@ -610,9 +622,54 @@ check("a tampered payload or signature is refused", () => {
   assert.equal(forged.ok, false);
   if (!forged.ok) assert.equal(forged.reason, "BAD_SIGNATURE");
 
-  // A flipped signature byte.
-  const flipped = mac.slice(0, -1) + (mac.endsWith("A") ? "B" : "A");
+  // A flipped signature bit, mutated in the DECODED bytes and re-encoded.
+  //
+  // The obvious version of this — substitute the last base64url character —
+  // is WRONG, and was intermittently green for exactly that reason. A 32-byte
+  // HMAC encodes to 43 base64url characters: 43 x 6 = 258 bits carrying 256
+  // bits of signature, so the final character holds only 4 significant bits and
+  // its low 2 bits are padding that decoding discards. Substituting it changes
+  // nothing 16 times in 256, the "tampered" token is genuinely valid, and the
+  // assertion fails — on a random nonce, so roughly 1 run in 16.
+  const macBytes = fromB64urlLocal(mac);
+  macBytes[0] ^= 0x01;
+  const flipped = toB64urlLocal(macBytes);
+  assert.notEqual(
+    flipped,
+    mac,
+    "the mutation must actually change the signature"
+  );
   assert.equal(verifyPreviewToken(`${body}.${flipped}`, AT).ok, false);
+});
+
+check("REGRESSION: a last-character substitution is NOT a signature mutation", () => {
+  // Pins the defect above so it cannot be reintroduced as a "simpler" tamper.
+  // A canonical 32-byte signature ending in 'A' still ends in the same four
+  // decoded bytes when that 'A' becomes 'B' — only padding bits moved.
+  const canonical = Buffer.alloc(32); // last byte 0x00 -> encoding ends in 'A'
+  const encoded = toB64urlLocal(canonical);
+  assert.equal(encoded.endsWith("A"), true);
+
+  const substituted = encoded.slice(0, -1) + "B";
+  assert.notEqual(substituted, encoded, "the TEXT differs");
+  assert.equal(
+    fromB64urlLocal(substituted).equals(fromB64urlLocal(encoded)),
+    true,
+    "but the decoded signature is identical — which is why the old check was flaky"
+  );
+
+  // And the real mutation this file now uses is never a no-op, for any byte.
+  for (let b = 0; b < 256; b++) {
+    const buf = Buffer.alloc(32);
+    buf[31] = b;
+    const mutated = Buffer.from(buf);
+    mutated[0] ^= 0x01;
+    assert.equal(
+      toB64urlLocal(mutated) === toB64urlLocal(buf),
+      false,
+      `flipping a bit in byte 0 must change the encoding (last byte 0x${b.toString(16)})`
+    );
+  }
 });
 
 check("malformed shapes are refused, never parsed optimistically", () => {
