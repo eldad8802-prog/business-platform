@@ -254,3 +254,40 @@ export async function loadRunRows(
     )
   );
 }
+
+/**
+ * Look up the run for this exact identity WITHOUT creating one.
+ *
+ * Execute needs this before it re-validates the owner's decisions. Re-validating
+ * on a retry is not just redundant, it is actively wrong: the run's own writes
+ * changed the world the decisions are judged against, so a second attempt at an
+ * inventory import would be told "you may not create a row whose SKU already
+ * exists" — about the very row it created itself.
+ *
+ * Creating the run here instead would open a hole: an unvalidated decision set
+ * would leave a run behind, and the next attempt would find it and skip
+ * validation altogether. So this reads, and only a validated decision set is
+ * allowed to create.
+ */
+export async function findExistingRun(
+  identity: Pick<
+    RunIdentity,
+    "businessId" | "contentHash" | "mappingHash" | "decisionsHash"
+  >
+): Promise<OpenedRun | null> {
+  return runWithTenantContext({ businessId: identity.businessId }, async () => {
+    const run = await withTenantTransaction((tx) =>
+      tx.importRun.findUnique({
+        where: {
+          businessId_contentHash_mappingHash_decisionsHash: {
+            businessId: identity.businessId,
+            contentHash: identity.contentHash,
+            mappingHash: identity.mappingHash,
+            decisionsHash: identity.decisionsHash,
+          },
+        },
+      })
+    );
+    return run ? { ...toOpened(run), created: false } : null;
+  });
+}

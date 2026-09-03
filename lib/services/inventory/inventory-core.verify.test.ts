@@ -212,7 +212,24 @@ check("STRUCTURAL: the route and the service now use the shared rules", () => {
   assert.equal(service.includes("assertNonNegativeQuantity"), true);
   // The stock path itself must be untouched by the extraction.
   assert.equal(service.includes("InventoryMovementReason.INITIAL_STOCK"), true);
-  assert.equal(service.includes("prisma.$transaction"), true);
+  // How the transaction is OPENED is the tenant substrate's business, not this
+  // extraction's. It was `prisma.$transaction` when the core was extracted and
+  // became `tenantTx` when the runtime cutover contextualised it; pinning the
+  // old shape would have made this check fight that hardening. What actually
+  // matters here is that the service still opens its own transaction when no
+  // caller supplied one — which is what keeps an imported row's stock movement
+  // atomic with its item.
+  assert.equal(
+    service.includes("tenantTx(businessId, run)"),
+    true,
+    "the service must still open a tenant transaction of its own"
+  );
+  assert.equal(
+    /return prisma\.\$transaction\(/.test(service),
+    false,
+    "and must not have regressed to a context-less transaction"
+  );
+  assert.equal(service.includes("return run(options.tx)"), true);
 });
 
 console.log(`\nINVENTORY-CORE EQUIVALENCE PASS — ${passed} checks green.`);

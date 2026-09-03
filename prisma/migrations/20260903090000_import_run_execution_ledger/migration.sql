@@ -181,6 +181,17 @@ BEGIN
     GRANT SELECT, INSERT, UPDATE, DELETE ON "ImportRun" TO app_runtime;
     GRANT SELECT, INSERT, DELETE ON "ImportRunRow" TO app_runtime;
     GRANT USAGE, SELECT ON SEQUENCE "ImportRun_id_seq" TO app_runtime;
+
+    -- Not granting UPDATE is not the same as not having it. This project's
+    -- databases carry ALTER DEFAULT PRIVILEGES granting app_runtime a,r,w,d on
+    -- every NEW table, so ImportRunRow arrives holding an UPDATE privilege that
+    -- was never asked for. Measured on a real branch, not assumed:
+    --   relacl -> {neondb_owner=arwdDxtm/...,app_runtime=arwd/...}
+    --
+    -- Row-level security still refuses the update, because the table has no
+    -- UPDATE policy — but a marker's immutability should not rest on a single
+    -- mechanism. The privilege is removed so the grant and the policy agree.
+    REVOKE UPDATE ON "ImportRunRow" FROM app_runtime;
   END IF;
 END
 $$;

@@ -98,8 +98,21 @@ async function main() {
   if (!groupExists) {
     await owner.$executeRawUnsafe(`CREATE ROLE app_runtime NOLOGIN`);
   }
-  await owner.$executeRawUnsafe(`GRANT app_runtime TO ${RT_ROLE}`);
+  // WITH INHERIT TRUE is load-bearing on PostgreSQL 16+. A membership captures
+  // its inherit flag at GRANT time from the member's rolinherit, and a later
+  // ALTER ROLE ... INHERIT does NOT revise it — so a role created NOINHERIT and
+  // fixed up afterwards silently holds none of the group's privileges. Stated
+  // explicitly here, and re-granted so a role left over from an earlier run is
+  // corrected rather than inherited broken.
   await owner.$executeRawUnsafe(`ALTER ROLE ${RT_ROLE} INHERIT`);
+  await owner.$executeRawUnsafe(
+    `GRANT app_runtime TO ${RT_ROLE} WITH INHERIT TRUE`
+  );
+
+  // Without schema USAGE every table privilege below is inert: the role holds
+  // the grant and still gets "permission denied for schema public".
+  await owner.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO app_runtime`);
 
   const TOUCHED = [
     "Business",
@@ -144,6 +157,24 @@ async function main() {
   );
 
   /* ── Phase 2: two tenants ────────────────────────────────────────────── */
+
+  // Remove fixtures from a previous run so the battery is re-runnable. Scoped
+  // STRICTLY to the i6- marker and cascaded through Business, so it can never
+  // reach a row this battery did not create.
+  const stale = await owner.business.findMany({
+    where: { name: { startsWith: MARK } },
+    select: { id: true },
+  });
+  if (stale.length > 0) {
+    const ids = stale.map((b) => b.id);
+    await owner.importRunRow.deleteMany({
+      where: { run: { businessId: { in: ids } } },
+    });
+    await owner.importRun.deleteMany({ where: { businessId: { in: ids } } });
+    await owner.inventoryMovement.deleteMany({ where: { businessId: { in: ids } } });
+    await owner.business.deleteMany({ where: { id: { in: ids } } });
+    console.log(`  (purged ${stale.length} fixture tenants from a previous run)`);
+  }
 
   const bizA = await owner.business.create({ data: { name: `${MARK}A` } });
   const bizB = await owner.business.create({ data: { name: `${MARK}B` } });
@@ -197,6 +228,25 @@ async function main() {
     return { preview, result };
   }
 
+  /**
+   * Resubmit an EXACT earlier request: same bytes, same mapping, same decisions,
+   * same token. This is what a retried POST or a double-click actually sends,
+   * and it is the path the ImportRun identity exists to make safe.
+   */
+  async function replayExact(domainId, headers, rows, previous, businessId = bizA.id) {
+    return executeImport({
+      businessId,
+      userId: userA.id,
+      domainId,
+      filename: `${MARK}${domainId}.csv`,
+      bytes: csv(headers, rows),
+      sheetName: null,
+      mapping: mappingFor(headers),
+      decisions: previous.preview.decisions,
+      previewToken: previous.preview.previewToken,
+    });
+  }
+
   /* --- 1. Supplier replay ------------------------------------------------ */
 
   const supHeaders = ["שם ספק", "מספר עוסק / ח.פ.", "טלפון"];
@@ -209,21 +259,34 @@ async function main() {
     JSON.stringify(first.result)
   );
 
+  // (a) THE replay: the identical request, resubmitted. Same bytes, same
+  // mapping, same decisions, same token — a lost response or a double-click.
+  const exact = await replayExact("suppliers", supHeaders, supRows, first);
+  ok(
+    "PROOF 1a: resubmitting the identical request resolves to the SAME run",
+    exact.ok &&
+      exact.alreadyExecuted === true &&
+      exact.importRunId === first.result.importRunId,
+    JSON.stringify(exact)
+  );
+
+  // (b) The same FILE re-imported after the world changed. The supplier now
+  // exists, so the preview's default flips to SKIP and this is a different run
+  // by identity — which is correct, and must still not duplicate anything.
   const replay = await runImport("suppliers", supHeaders, supRows);
+  ok(
+    "re-importing the same file after the record exists defaults to SKIP",
+    replay.result.ok && replay.result.counts.createdCount === 0,
+    JSON.stringify(replay.result)
+  );
+
   const supCount = await owner.supplier.count({
     where: { businessId: bizA.id, name: `${MARK}ספק א` },
   });
   ok(
-    "PROOF 1: a replay does NOT duplicate the Supplier",
+    "PROOF 1: neither path duplicates the Supplier",
     supCount === 1,
     `suppliers=${supCount}`
-  );
-  ok(
-    "the replay reports the original run rather than a new one",
-    replay.result.ok &&
-      replay.result.alreadyExecuted === true &&
-      replay.result.importRunId === first.result.importRunId,
-    JSON.stringify(replay.result)
   );
 
   /* --- 2. Inventory replay, including the stock movement ---------------- */
@@ -236,6 +299,15 @@ async function main() {
     "inventory import creates the item",
     inv1.result.ok && inv1.result.counts.createdCount === 1,
     JSON.stringify(inv1.result)
+  );
+
+  const invExact = await replayExact("inventory", invHeaders, invRows, inv1);
+  ok(
+    "PROOF 2c: resubmitting the identical inventory request resolves to the SAME run",
+    invExact.ok &&
+      invExact.alreadyExecuted === true &&
+      invExact.importRunId === inv1.result.importRunId,
+    JSON.stringify(invExact)
   );
 
   await runImport("inventory", invHeaders, invRows);
@@ -403,6 +475,31 @@ async function main() {
     "PROOF 7: a committed marker cannot be rewritten",
     updateDenied !== "UPDATED",
     `outcome=${updateDenied}`
+  );
+
+  /* --- 8. the privilege matches the policy ------------------------------ */
+
+  // Asserted against the DATABASE, not against the migration text. The
+  // migration never granted UPDATE on the marker table, and the table still
+  // arrived holding it, because ALTER DEFAULT PRIVILEGES grants app_runtime
+  // a,r,w,d on every new relation. The migration now revokes it explicitly;
+  // this proves the revoke actually took.
+  const markerUpdate = await owner.$queryRawUnsafe(
+    `SELECT has_table_privilege('app_runtime', '"ImportRunRow"', 'UPDATE') AS granted`
+  );
+  ok(
+    "PROOF 8: the runtime role holds NO UPDATE privilege on the row marker",
+    markerUpdate[0].granted === false,
+    `has_table_privilege=${markerUpdate[0].granted}`
+  );
+
+  const runUpdate = await owner.$queryRawUnsafe(
+    `SELECT has_table_privilege('app_runtime', '"ImportRun"', 'UPDATE') AS granted`
+  );
+  ok(
+    "and DOES hold it on the run, which terminalization needs",
+    runUpdate[0].granted === true,
+    `has_table_privilege=${runUpdate[0].granted}`
   );
 
   /* ── cleanup ─────────────────────────────────────────────────────────── */

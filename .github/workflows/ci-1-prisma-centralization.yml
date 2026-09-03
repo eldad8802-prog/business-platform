@@ -330,6 +330,24 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: a blanket duplicate rule fails the verifier"
 
+      - name: I-6 negative proof (re-validating decisions before the run lookup must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i6_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/import/execute/import-executor.ts"
+          cp "$F" "$F.bak"
+          # The ordering defect a real database exposed: validating the owner's
+          # decisions before resolving the run means a RETRY is judged against a
+          # world the run itself changed, and an inventory re-submit is refused
+          # for duplicating the row it just created.
+          perl -pi -e 's/  const existing = await findExistingRun\(\{/  const early = validateDecisions({ domainId: input.domainId, rows: derived.rows, decisions: input.decisions });\n  if (early.length > 0) return { ok: false, code: "DECISIONS_INVALID", message: "x", decisionProblems: early };\n  const existing = await findExistingRun({/' "$F"
+          if npx tsx lib/data-transfer/import/execute/execute-contract.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: validate-before-lookup passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: validate-before-lookup fails the verifier"
+
       - name: I-6 negative proof (skipping BOTH sides of an in-file collision must be caught)
         env:
           AUTH_TOKEN_SECRET: i6_ci_synthetic_secret

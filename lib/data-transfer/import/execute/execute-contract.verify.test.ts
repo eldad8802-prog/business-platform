@@ -512,4 +512,71 @@ check("the run identity index still binds businessId", () => {
   );
 });
 
+/* ============================ 6. retry ordering (regression) ========== */
+
+console.log("\n6. Retry ordering");
+
+const executorSrc = fs.readFileSync(
+  "lib/data-transfer/import/execute/import-executor.ts",
+  "utf8"
+);
+
+check("REGRESSION: an existing run is resolved BEFORE decisions are re-validated", () => {
+  // The defect this pins was found by running against a real database. Execute
+  // validated the owner's decisions first, against freshly derived rows — so a
+  // RETRY was judged against a world the run itself had changed. The second
+  // attempt at an inventory import was refused with "you may not create a row
+  // whose SKU already exists", about the row it had just created. A lost
+  // response therefore became an import the owner could neither confirm nor
+  // repeat: the UI told them to re-run the check, and the check then showed
+  // every row as a duplicate.
+  //
+  // Suppliers hid it, because a supplier tax-id match IS overridable and so
+  // still validated. Only inventory, whose SKU match is not overridable,
+  // exposed it.
+  const code = stripComments(executorSrc);
+  const lookup = code.indexOf("findExistingRun(");
+  const validate = code.indexOf("validateDecisions(");
+  assert.notEqual(lookup, -1, "execute must look the run up");
+  assert.notEqual(validate, -1, "execute must still validate decisions");
+  assert.equal(
+    lookup < validate,
+    true,
+    "the run must be resolved before decisions are re-validated"
+  );
+});
+
+check("a decision set that was never validated cannot create a run", () => {
+  // The other half of the ordering. Looking the run up first is only safe if
+  // creating one still requires passing validation — otherwise an invalid set
+  // would leave a run behind, and the next attempt would find it and skip
+  // validation entirely.
+  const code = stripComments(executorSrc);
+  const validate = code.indexOf("validateDecisions(");
+  const open = code.indexOf("openOrResumeRun(");
+  assert.notEqual(open, -1);
+  assert.equal(
+    validate < open,
+    true,
+    "validation must still precede creating the run"
+  );
+});
+
+check("the read-only lookup never creates", () => {
+  const store = stripComments(
+    fs.readFileSync(
+      "lib/data-transfer/import/execute/import-run-store.ts",
+      "utf8"
+    )
+  );
+  const fn = store.slice(store.indexOf("export async function findExistingRun"));
+  const body = fn.slice(0, fn.indexOf("\n}"));
+  assert.equal(
+    body.includes("importRun.create"),
+    false,
+    "findExistingRun must not create a run"
+  );
+  assert.equal(body.includes("findUnique"), true);
+});
+
 console.log(`\nIMPORT EXECUTE CONTRACT VERIFY PASS — ${passed} checks green.`);

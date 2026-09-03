@@ -57,6 +57,7 @@ import {
 } from "@/lib/data-transfer/import/execute/execution-semantics";
 import { writerFor } from "@/lib/data-transfer/import/execute/domain-writers";
 import {
+  findExistingRun,
   loadExecutedRowNumbers,
   loadRunRows,
   markFailedRow,
@@ -187,18 +188,53 @@ export async function executeImport(
     };
   }
 
-  const decisionProblems = validateDecisions({
-    domainId: input.domainId,
-    rows: derived.rows,
-    decisions: input.decisions,
+  /* ---- 4. resolve the run BEFORE re-validating decisions -------------- */
+  //
+  // Order matters, and getting it wrong is a real bug that a real database
+  // caught: validating first means a RETRY is judged against a world the run
+  // itself changed. The second attempt at an inventory import was refused with
+  // "you may not create a row whose SKU already exists" — about the row it had
+  // just created. A lost response would have left the owner unable to confirm
+  // anything, told to re-run a check that now shows every row as a duplicate.
+  //
+  // An existing run is proof that these exact decisions were already validated:
+  // the run's identity IS (file, mapping, decisions), and only a validated set
+  // is ever allowed to create one.
+
+  const existing = await findExistingRun({
+    businessId: input.businessId,
+    contentHash,
+    mappingHash,
+    decisionsHash,
   });
-  if (decisionProblems.length > 0) {
-    return {
-      ok: false,
-      code: "DECISIONS_INVALID",
-      message: "אחת הבחירות אינה אפשרית עבור השורה שלה. יש להריץ בדיקה מחדש.",
-      decisionProblems,
-    };
+
+  if (existing && existing.status !== "EXECUTING") {
+    // A finished run already answered this exact request. Report what it did.
+    return replayResult(input.businessId, existing.id, existing.status, {
+      totalRows: derived.counts.totalRows,
+      createdCount: existing.counts.createdCount ?? 0,
+      skippedCount: existing.counts.skippedCount ?? 0,
+      failedCount: existing.counts.failedCount ?? 0,
+    });
+  }
+
+  if (!existing) {
+    // First execution of this decision set: it has never been checked against
+    // server truth, so it is checked now. Nothing may create a run without
+    // passing here — which is what lets a resume trust an existing run.
+    const decisionProblems = validateDecisions({
+      domainId: input.domainId,
+      rows: derived.rows,
+      decisions: input.decisions,
+    });
+    if (decisionProblems.length > 0) {
+      return {
+        ok: false,
+        code: "DECISIONS_INVALID",
+        message: "אחת הבחירות אינה אפשרית עבור השורה שלה. יש להריץ בדיקה מחדש.",
+        decisionProblems,
+      };
+    }
   }
 
   const decisions = resolveDecisions(
@@ -207,8 +243,8 @@ export async function executeImport(
     input.decisions
   );
 
-  /* ---- 4. open or resume -------------------------------------------- */
-
+  // Still openOrResume rather than create: two requests can arrive together and
+  // the unique index decides which one creates.
   const run = await openOrResumeRun({
     businessId: input.businessId,
     userId: input.userId,
@@ -221,7 +257,7 @@ export async function executeImport(
   });
 
   if (!run.created && run.status !== "EXECUTING") {
-    // A completed run answered this exact request already. Report what it did.
+    // Lost the create race to a request that has already finished.
     return replayResult(input.businessId, run.id, run.status, {
       totalRows: derived.counts.totalRows,
       createdCount: run.counts.createdCount ?? 0,

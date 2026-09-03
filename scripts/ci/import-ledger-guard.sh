@@ -111,6 +111,15 @@ n=$(printf '%s' "$SQL" | grep -o 'GRANT[^;]*ON "ImportRunRow" TO app_runtime' | 
 ok "CI-IL-7  no UPDATE grant on ImportRunRow" \
    "$([ "$n" -eq 0 ] && echo 1 || echo 0)" "found=$n"
 
+# --- 7b. and the privilege is actively REMOVED -----------------------------
+# Not granting is not the same as not having. These databases carry ALTER
+# DEFAULT PRIVILEGES giving app_runtime a,r,w,d on every NEW table, so the
+# marker table arrives holding an UPDATE nobody asked for. Measured on a real
+# branch; the migration must revoke it.
+n=$(printf '%s' "$SQL" | grep -c 'REVOKE UPDATE ON "ImportRunRow" FROM app_runtime' || true)
+ok "CI-IL-7b the default-privilege UPDATE on ImportRunRow is explicitly revoked" \
+   "$([ "$n" -ge 1 ] && echo 1 || echo 0)" "found=$n"
+
 # --- 8. FOR ALL silently includes UPDATE and DELETE ------------------------
 n=$(printf '%s' "$SQL" | grep -c 'CREATE POLICY [a-z0-9_]* ON "Import[A-Za-z]*" FOR ALL' || true)
 ok "CI-IL-8  zero FOR ALL policy (FOR ALL smuggles in UPDATE and DELETE)" \
@@ -144,8 +153,15 @@ ok "CI-IL-13 the domain writers are reached only from those same paths" \
    "$([ "$n" -eq 2 ] && echo 1 || echo 0)" "writer call sites=$n expected=2"
 
 # --- 14. the ledger is only ever touched through the store ----------------
+# Verifier files are excluded because they QUOTE these names in assertions —
+# "the read-only lookup never creates" checks for the literal "importRun.create"
+# — and a check that reads a name is not a module that reaches a table. The
+# exclusion is narrow: it covers only *.verify.test.ts, which never ship (they
+# are excluded from tsconfig too), and the self-proof below plants a violation
+# in ordinary runtime code to confirm the check still bites.
 n=$(grep -rl 'importRunRow\.\|importRun\.' --include=*.ts --include=*.tsx \
-      "$ROOT/lib" "$ROOT/app" 2>/dev/null | grep -v "$STORE_REL" | wc -l | tr -d ' ')
+      "$ROOT/lib" "$ROOT/app" 2>/dev/null \
+      | grep -v "$STORE_REL" | grep -v '\.verify\.test\.ts$' | wc -l | tr -d ' ')
 ok "CI-IL-14 no module reaches the ledger tables outside the store" \
    "$([ "$n" -eq 0 ] && echo 1 || echo 0)" "other files=$n"
 
@@ -203,6 +219,8 @@ selftest() {
   m_row_update_policy() { printf '\nCREATE POLICY p7imp_row_upd ON "ImportRunRow" FOR UPDATE USING (true);\n' >> "$(M "$1")"; }
   m_row_update_grant() { perl -0pi -e 's/GRANT SELECT, INSERT, DELETE ON "ImportRunRow"/GRANT SELECT, INSERT, UPDATE, DELETE ON "ImportRunRow"/' "$(M "$1")"; }
   m_for_all() { perl -0pi -e 's/CREATE POLICY p7imp_tenant_read ON "ImportRun" FOR SELECT/CREATE POLICY p7imp_tenant_read ON "ImportRun" FOR ALL/' "$(M "$1")"; }
+  # Removing the revoke leaves the marker UPDATE-able by default privileges.
+  m_drop_revoke() { perl -pi -e 's/REVOKE UPDATE ON "ImportRunRow" FROM app_runtime;//' "$(M "$1")"; }
   # The run identity stops being tenant-scoped — the defect the owner named.
   m_unscoped_identity() {
     perl -0pi -e 's/ON "ImportRun"\("businessId", "contentHash", "mappingHash", "decisionsHash"\)/ON "ImportRun"("contentHash", "mappingHash", "decisionsHash")/' "$(M "$1")"
@@ -241,6 +259,7 @@ selftest() {
   probe "a row policy stops joining its parent run"      "CI-IL-5"      m_orphan_row_policy
   probe "the row marker becomes UPDATE-able"             "CI-IL-6"      m_row_update_policy
   probe "an UPDATE grant on the row marker"              "CI-IL-7"      m_row_update_grant
+  probe "the default-privilege UPDATE revoke is dropped" "CI-IL-7b"     m_drop_revoke
   probe "a policy is widened to FOR ALL"                 "CI-IL-8"      m_for_all
   probe "the run identity loses businessId"              "CI-IL-9"      m_unscoped_identity
   probe "the run identity stops being unique"            "CI-IL-10"     m_nonunique_identity
