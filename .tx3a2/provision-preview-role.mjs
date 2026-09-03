@@ -68,9 +68,14 @@ async function main() {
     console.log("  role created");
   } else {
     await db.$executeRawUnsafe(`ALTER ROLE ${ROLE} WITH PASSWORD '${PW}'`);
-    await db.$executeRawUnsafe(
-      `ALTER ROLE ${ROLE} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION INHERIT`);
-    console.log("  role already existed — password rotated, attributes re-asserted");
+    // NOSUPERUSER / NOBYPASSRLS / NOREPLICATION can only be *changed* by a
+    // superuser, and neondb_owner is not one — re-asserting them on an existing
+    // role fails with 42501 even though they are already set. Only the
+    // attributes an owner may actually alter are re-asserted here; the three
+    // security-critical ones are proven by the verification below instead,
+    // which is the stronger check anyway: it measures rather than assumes.
+    await db.$executeRawUnsafe(`ALTER ROLE ${ROLE} LOGIN NOCREATEROLE NOCREATEDB INHERIT`);
+    console.log("  role already existed — password rotated, alterable attributes re-asserted");
   }
   await db.$executeRawUnsafe(`GRANT app_runtime TO ${ROLE}`);
 
