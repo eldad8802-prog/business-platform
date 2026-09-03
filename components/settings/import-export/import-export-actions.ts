@@ -52,11 +52,10 @@ export const IMPORT_EXPORT_ACTIONS: readonly ImportExportAction[] = [
     key: "import",
     href: `${IMPORT_EXPORT_ROUTE}/import`,
     title: "ייבוא",
-    // The wording matches what the screen can actually do TODAY. Promising
-    // "העבר מידע ממערכת אחרת" while only a dry run exists would be the same
-    // dishonesty the "בקרוב" row avoided, wearing a nicer coat. It becomes a
-    // transfer when I-6 makes it one.
-    description: "בדקו קובץ ממערכת אחרת לפני קליטה",
+    // I-6 made it a transfer, so the wording became one. It still leads with
+    // the check, because that is what the owner does first and it is the part
+    // that makes the rest safe.
+    description: "העלו קובץ ממערכת אחרת, בדקו, ואשרו קליטה",
     icon: "📂",
     available: true,
   },

@@ -511,13 +511,14 @@ check("every hub row that is a link points at a screen that exists", () => {
   );
   assert.equal(/key: "templates",[\s\S]*?available: true/.test(src), true);
   assert.equal(/key: "export",[\s\S]*?available: true/.test(src), true);
-  // Import became available in I-5 — as a DRY RUN. Its wording must not claim
-  // more than that until I-6 makes it a transfer.
+  // I-6 made Import a real transfer. The row must say so — and must still
+  // promise the check, because an owner who clicks it is trusting that nothing
+  // lands before they see it.
   assert.equal(/key: "import",[\s\S]*?available: true/.test(src), true);
   assert.equal(
-    /key: "import",[\s\S]*?description: "בדקו קובץ ממערכת אחרת לפני קליטה"/.test(src),
+    /key: "import",[\s\S]*?description: "העלו קובץ ממערכת אחרת, בדקו, ואשרו קליטה"/.test(src),
     true,
-    "the Import row must describe a check, not a transfer"
+    "the Import row must describe the transfer AND the check before it"
   );
 });
 
@@ -527,6 +528,14 @@ check("the templates screen still says preparation, not importing", () => {
     "utf8"
   );
   assert.equal(src.includes("הכינו את המידע"), true);
+  // I-5's "you cannot upload it yet" was true then and is false now. A screen
+  // that still said it would send owners away from a feature that works.
+  assert.equal(
+    src.includes("אפשרות הייבוא עצמה תתווסף בהמשך"),
+    false,
+    "the templates screen must not still say importing is unavailable"
+  );
+  assert.equal(src.includes("במסך הייבוא"), true);
 });
 
 console.log(`\nIMPORT TEMPLATES VERIFY PASS — ${passed} checks green.`);

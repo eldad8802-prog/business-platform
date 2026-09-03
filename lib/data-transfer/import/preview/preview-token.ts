@@ -2,9 +2,10 @@
  * Preview attestation — a signed, stateless envelope.
  *
  * After an owner reviews a mapping and a preview, this token records WHAT was
- * analyzed: which business, which user, which domain, which exact file bytes,
- * which exact mapping, which sheet, how many rows. I-6 will be able to demand
- * it and re-derive every one of those facts from the re-submitted file.
+ * analyzed and WHAT THEY DECIDED: which business, which user, which domain,
+ * which exact file bytes, which exact mapping, which sheet, how many rows, and
+ * a digest of the per-row actions. Execute demands it and re-derives every one
+ * of those facts from the re-submitted file before it writes anything.
  *
  * Modelled directly on `billing-authority-signed-state.service.ts` — the same
  * purpose-separated HMAC over `AUTH_TOKEN_SECRET`, so there is no new secret
@@ -23,14 +24,19 @@
  * NOT confidentiality. Which is why the payload carries no rows, no sample
  * values, no uploaded data and no business records — only hashes and counts.
  *
- * # Known limit, deliberately left for I-6
+ * # Replay, and where it is actually stopped
  *
- * A stateless signed token is REPLAYABLE while it is valid. That is acceptable
- * here because preview is read-only: replaying it re-reads. It is NOT
- * acceptable for execution, where a replay would double-create records. Before
- * I-6 mutates anything, idempotency / consumed-state / retry semantics have to
- * be decided explicitly. This module does not pretend to solve that, and no DB
- * model or Redis key was added on the assumption that it will.
+ * A stateless signed token is REPLAYABLE while it is valid, and this module
+ * does not try to stop that. For preview it does not matter: replaying a
+ * read-only derivation re-reads. For execution it matters completely, and the
+ * defence is not in the token — it is the ImportRun row, unique on
+ * (businessId, contentHash, mappingHash, decisionsHash), plus a per-row marker
+ * written in the same transaction as each business record. A replayed token
+ * therefore lands on an existing run and re-executes nothing.
+ *
+ * Consuming the token instead would have been strictly worse: it would make a
+ * lost response indistinguishable from a completed import, which is precisely
+ * the case the ledger resolves.
  */
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
@@ -56,6 +62,13 @@ export type PreviewTokenFacts = {
   contentHash: string;
   /** SHA-256 of the canonicalized finalized mapping. */
   mappingHash: string;
+  /**
+   * SHA-256 of the canonicalized per-row decisions the owner confirmed.
+   *
+   * Part of the run identity, so changing one row's action is a DIFFERENT run
+   * rather than a replay of the previous one.
+   */
+  decisionsHash: string;
   /** Worksheet the data was read from; null for CSV. */
   sheetName: string | null;
   /** Data rows considered (header excluded). */
@@ -171,6 +184,7 @@ export function verifyPreviewToken(
     payload.userId <= 0 ||
     typeof payload.contentHash !== "string" ||
     typeof payload.mappingHash !== "string" ||
+    typeof payload.decisionsHash !== "string" ||
     !Number.isInteger(payload.rowCount)
   ) {
     return { ok: false, reason: "MALFORMED" };
@@ -184,6 +198,7 @@ export function verifyPreviewToken(
       domain: payload.domain,
       contentHash: payload.contentHash,
       mappingHash: payload.mappingHash,
+      decisionsHash: payload.decisionsHash,
       sheetName: payload.sheetName ?? null,
       rowCount: payload.rowCount,
     },

@@ -278,6 +278,74 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: an unscoped duplicate lookup fails the verifier"
 
+      # Import/Export Center I-6 — the bulk-import EXECUTION contract. Blocking
+      # because the failure modes are duplication and cross-tenant writes, and
+      # both are silent: a second run of the same file that creates a second
+      # copy of every supplier looks exactly like a successful import.
+      # Pure — no DB, no network.
+      # Local equivalent: npm run verify:import-execute-contract
+      - name: Import execute contract (defaults, in-file collisions, retry, batching)
+        env:
+          AUTH_TOKEN_SECRET: i6_ci_synthetic_secret
+        run: npx tsx lib/data-transfer/import/execute/execute-contract.verify.test.ts
+
+      # The ledger ratchet: RLS on both tables, the marker's immutability, the
+      # tenant-scoped run identity, and the marker-inside-the-transaction rule.
+      # Local equivalent: bash scripts/ci/import-ledger-guard.sh .
+      - name: Import execution ledger guard
+        run: bash scripts/ci/import-ledger-guard.sh .
+
+      - name: Import ledger guard self-test (every check must be able to fail)
+        run: bash scripts/ci/import-ledger-guard.sh --self-test .
+
+      - name: I-6 negative proof (a record written without its marker must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i6_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/import/execute/import-executor.ts"
+          cp "$F" "$F.bak"
+          # Exactly the defect the ledger exists to prevent: the business record
+          # commits, the marker does not, and a retry creates it a second time.
+          perl -0pi -e 's/        await markRow\(tx, \{\n          importRunId,\n          sourceRowNumber: row\.rowNumber,\n          action: row\.action,\n          status: row\.action === "CREATE" \? "CREATED" : "SKIPPED",\n        \}\);\n//' "$F"
+          if bash scripts/ci/import-ledger-guard.sh . >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an unmarked write passed the ledger guard"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an unmarked write fails the ledger guard"
+
+      - name: I-6 negative proof (a blanket duplicate rule must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i6_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/import/execute/duplicate-policy.ts"
+          cp "$F" "$F.bak"
+          # The rejected design: ANY duplicate evidence blocks. It would silently
+          # skip legitimate suppliers whose only match is a shared name.
+          perl -0pi -e 's/  if \(domainId === "leads"\) \{/  return true;\n  if (domainId === "leads") {/' "$F"
+          if npx tsx lib/data-transfer/import/execute/execute-contract.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a blanket duplicate rule passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a blanket duplicate rule fails the verifier"
+
+      - name: I-6 negative proof (skipping BOTH sides of an in-file collision must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i6_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/import/execute/duplicate-policy.ts"
+          cp "$F" "$F.bak"
+          # No row wins its group, so two identical rows import NEITHER — the
+          # behaviour the owner explicitly ruled out.
+          perl -0pi -e 's/    if \(winsAll\) eligible\.add\(rowNumber\);/    if (false) eligible.add(rowNumber);/' "$F"
+          if npx tsx lib/data-transfer/import/execute/execute-contract.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: skipping both sides of a collision passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: skipping both sides of a collision fails the verifier"
+
       # CASA Wave B — platform-admin TOTP MFA (CASA 3.3.1). The elevation
       # envelope and the guard decide whether a privileged request is allowed at
       # all, so they belong in the BLOCKING job. Deterministic and offline: no

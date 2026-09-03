@@ -51,3 +51,14 @@ export const IMPORT_ACCEPTED_MIME_TYPES = [
   // Firefox occasionally sends an empty type for a drag-and-dropped file.
   "",
 ] as const;
+
+/**
+ * Rows attempted per execution transaction.
+ *
+ * 200 keeps a batch's lock footprint and duration small enough for a serverless
+ * request while still amortising round trips: at 10,000 rows that is 50 commits,
+ * not 10,000. It is also the unit of ROLLBACK — see `execution-semantics.ts`,
+ * which explains why a failure discards the whole batch and re-runs it one row
+ * at a time rather than continuing past the error.
+ */
+export const IMPORT_EXECUTE_BATCH_SIZE = 200;

@@ -144,102 +144,103 @@ model ContentEvent {
 }
 
 model Business {
-  id                        Int                             @id @default(autoincrement())
-  name                      String
-  archivedAt                DateTime?
-  archivedByUserId          Int?
+  id                            Int                             @id @default(autoincrement())
+  name                          String
+  archivedAt                    DateTime?
+  archivedByUserId              Int?
   /// Account-deletion lifecycle (Wave 1B). deletionRequestedAt = when the sole
   /// user initiated deletion; deletedAt = when the erasure completed. Operational,
   /// nullable, additive. When deletedAt is set the tenant is closed and login fails
   /// closed. Never used to run an active account.
-  deletionRequestedAt       DateTime?
-  deletedAt                 DateTime?
-  createdAt                 DateTime                        @default(now())
-  updatedAt                 DateTime                        @updatedAt
-  billingDocuments          BillingDocument[]
-  billingAuditEvents        BillingAuditEvent[]
-  paymentAuditEvents        PaymentAuditEvent[]
-  billingNumberSequences    BillingDocumentNumberSequence[]
-  billingPaymentAllocations BillingPaymentAllocation[]
-  profile                   BusinessProfile?
-  botSettings               BusinessBotSettings?
-  bot                       BusinessBot?
-  services                  BusinessService[]
-  collaborationDeals        CollaborationDeal[]
-  conversations             Conversation[]
-  issuedCoupons             Coupon[]                        @relation("BusinessIssuedCoupons")
-  customers                 Customer[]
-  deals                     Deal[]
-  documentsV2               Document[]
-  emailAttachmentImports    EmailAttachmentImport[]
-  whatsappAttachmentImports WhatsAppAttachmentImport[]
-  emailConnections          EmailConnection[]
-  documents                 FinancialDocument[]
-  financialRecords          FinancialRecord[]
-  financialEvents           FinancialEvent[]
-  inventoryAlerts           InventoryAlert[]
-  inventoryCategories       InventoryCategory[]
-  inventoryDrafts           InventoryDraft[]
-  inventoryExternalSales    InventoryExternalSale[]
-  inventoryItems            InventoryItem[]
-  inventoryMovements        InventoryMovement[]
-  inventoryPendingMatches   InventoryPendingMatch[]
-  leads                     Lead[]
-  learningEvents            LearningEvent[]
-  learningSignals           LearningSignal[]
-  messages                  Message[]
-  offers                    Offer[]
-  posApiKeys                POSApiKey[]
-  posProductMappings        POSProductMapping[]
-  pricingCalculations       PricingCalculation[]
-  pricingProfiles           PricingProfile[]
-  recommendations           Recommendation[]
-  recommendationOutcomes    RecommendationOutcome[]
-  issuedRedemptions         RedemptionEvent[]               @relation("IssuedCouponRedemptions")
-  redeemedRedemptions       RedemptionEvent[]               @relation("RedeemedCouponRedemptions")
-  replySuggestions          ReplySuggestion[]
-  supplierPurchaseDrafts    SupplierPurchaseDraft[]
-  tasks                     Task[]
-  appointments              Appointment[]
-  users                     User[]
-  vendorLearnings           VendorLearning[]
-  contentRuns               ContentRun[]
-  contentEvents             ContentEvent[]
-  productUsageEvents        ProductUsageEvent[]
-  businessFeatureAccess     BusinessFeatureAccess[]
-  notifications             Notification[]
-  notificationDeliveries    NotificationDelivery[]
-  whatsappConnection        WhatsAppConnection?
-  purchaseOrders            PurchaseOrder[]
-  receivingSessions         ReceivingSession[]
-  suppliers                 Supplier[]
-  archivedByUser              User?                           @relation("BusinessArchivedBy", fields: [archivedByUserId], references: [id], onDelete: SetNull)
-  billingAuthorityConnections BillingAuthorityConnection[]
-  billingAuthoritySubmissions BillingAuthoritySubmission[]
-  parties                     Party[]
-  partyResolutionClaims       PartyResolutionClaim[]
-  riaCanonicalReferents       RiaCanonicalReferent[]
-  riaPolicyLineages           RiaPolicyLineage[]
-  derivedClaimProjections     DerivedClaimProjection[]
-  paymentConnections          BusinessPaymentConnection[]
-  paymentRequests             PaymentRequest[]
-  businessObligations         BusinessObligation[]
+  deletionRequestedAt           DateTime?
+  deletedAt                     DateTime?
+  createdAt                     DateTime                        @default(now())
+  updatedAt                     DateTime                        @updatedAt
+  billingDocuments              BillingDocument[]
+  billingAuditEvents            BillingAuditEvent[]
+  paymentAuditEvents            PaymentAuditEvent[]
+  billingNumberSequences        BillingDocumentNumberSequence[]
+  billingPaymentAllocations     BillingPaymentAllocation[]
+  profile                       BusinessProfile?
+  botSettings                   BusinessBotSettings?
+  bot                           BusinessBot?
+  services                      BusinessService[]
+  collaborationDeals            CollaborationDeal[]
+  conversations                 Conversation[]
+  issuedCoupons                 Coupon[]                        @relation("BusinessIssuedCoupons")
+  customers                     Customer[]
+  deals                         Deal[]
+  documentsV2                   Document[]
+  emailAttachmentImports        EmailAttachmentImport[]
+  whatsappAttachmentImports     WhatsAppAttachmentImport[]
+  emailConnections              EmailConnection[]
+  documents                     FinancialDocument[]
+  financialRecords              FinancialRecord[]
+  financialEvents               FinancialEvent[]
+  inventoryAlerts               InventoryAlert[]
+  inventoryCategories           InventoryCategory[]
+  inventoryDrafts               InventoryDraft[]
+  inventoryExternalSales        InventoryExternalSale[]
+  inventoryItems                InventoryItem[]
+  inventoryMovements            InventoryMovement[]
+  inventoryPendingMatches       InventoryPendingMatch[]
+  leads                         Lead[]
+  learningEvents                LearningEvent[]
+  learningSignals               LearningSignal[]
+  messages                      Message[]
+  offers                        Offer[]
+  posApiKeys                    POSApiKey[]
+  posProductMappings            POSProductMapping[]
+  pricingCalculations           PricingCalculation[]
+  pricingProfiles               PricingProfile[]
+  recommendations               Recommendation[]
+  recommendationOutcomes        RecommendationOutcome[]
+  issuedRedemptions             RedemptionEvent[]               @relation("IssuedCouponRedemptions")
+  redeemedRedemptions           RedemptionEvent[]               @relation("RedeemedCouponRedemptions")
+  replySuggestions              ReplySuggestion[]
+  supplierPurchaseDrafts        SupplierPurchaseDraft[]
+  tasks                         Task[]
+  appointments                  Appointment[]
+  users                         User[]
+  vendorLearnings               VendorLearning[]
+  contentRuns                   ContentRun[]
+  contentEvents                 ContentEvent[]
+  productUsageEvents            ProductUsageEvent[]
+  businessFeatureAccess         BusinessFeatureAccess[]
+  notifications                 Notification[]
+  notificationDeliveries        NotificationDelivery[]
+  whatsappConnection            WhatsAppConnection?
+  purchaseOrders                PurchaseOrder[]
+  receivingSessions             ReceivingSession[]
+  suppliers                     Supplier[]
+  archivedByUser                User?                           @relation("BusinessArchivedBy", fields: [archivedByUserId], references: [id], onDelete: SetNull)
+  billingAuthorityConnections   BillingAuthorityConnection[]
+  billingAuthoritySubmissions   BillingAuthoritySubmission[]
+  parties                       Party[]
+  partyResolutionClaims         PartyResolutionClaim[]
+  riaCanonicalReferents         RiaCanonicalReferent[]
+  riaPolicyLineages             RiaPolicyLineage[]
+  derivedClaimProjections       DerivedClaimProjection[]
+  paymentConnections            BusinessPaymentConnection[]
+  paymentRequests               PaymentRequest[]
+  businessObligations           BusinessObligation[]
   businessObligationOrientation BusinessObligationOrientation?
-  crmNotes                    CrmNote[]
-  crmAttachments              CrmAttachment[]
+  crmNotes                      CrmNote[]
+  crmAttachments                CrmAttachment[]
+  importRuns                    ImportRun[]
 
   @@index([archivedAt])
 }
 
 model User {
-  id                  Int                  @id @default(autoincrement())
-  email               String               @unique
-  password            String
-  name                String?
-  businessId          Int
-  role                UserRole             @default(USER)
-  lastLoginAt         DateTime?
-  loginCount          Int                  @default(0)
+  id                                         Int                          @id @default(autoincrement())
+  email                                      String                       @unique
+  password                                   String
+  name                                       String?
+  businessId                                 Int
+  role                                       UserRole                     @default(USER)
+  lastLoginAt                                DateTime?
+  loginCount                                 Int                          @default(0)
   /// Session generation. Every bearer token carries the value it was minted
   /// under, and `getCurrentUser` refuses a token whose generation does not
   /// match the row. Logging out increments it, invalidating every token issued
@@ -247,22 +248,22 @@ model User {
   /// tokens are both generation 0, so introducing it signs nobody out. The
   /// column is already present in Production (migration
   /// 20260902100000_auth_token_version). Never decremented.
-  tokenVersion        Int                  @default(0)
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  business            Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  contentRunsCreated  ContentRun[]
-  contentEvents       ContentEvent[]
-  billingAuditEvents  BillingAuditEvent[]
-  paymentAuditEvents  PaymentAuditEvent[]
-  platformAuditEvents PlatformAuditEvent[]
-  productUsageEvents  ProductUsageEvent[]
-  appointmentsCreated Appointment[]
-  archivedBusinesses                       Business[]                   @relation("BusinessArchivedBy")
+  tokenVersion                               Int                          @default(0)
+  createdAt                                  DateTime                     @default(now())
+  updatedAt                                  DateTime                     @updatedAt
+  business                                   Business                     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contentRunsCreated                         ContentRun[]
+  contentEvents                              ContentEvent[]
+  billingAuditEvents                         BillingAuditEvent[]
+  paymentAuditEvents                         PaymentAuditEvent[]
+  platformAuditEvents                        PlatformAuditEvent[]
+  productUsageEvents                         ProductUsageEvent[]
+  appointmentsCreated                        Appointment[]
+  archivedBusinesses                         Business[]                   @relation("BusinessArchivedBy")
   billingAuthorityConnectionsOauthAuthorized BillingAuthorityConnection[] @relation("BillingAuthorityOauthAuthorizedBy")
-  crmNotesCreated                          CrmNote[]
-  crmAttachmentsUploaded                   CrmAttachment[]
-  platformAdminMfa                         PlatformAdminMfa?
+  crmNotesCreated                            CrmNote[]
+  crmAttachmentsUploaded                     CrmAttachment[]
+  platformAdminMfa                           PlatformAdminMfa?
 }
 
 /// CASA 3.3.1 — second authentication factor for PLATFORM-LEVEL administrators.
@@ -521,18 +522,18 @@ model BusinessBotSettings {
 /// and is NEVER read by the response-planner or the pipeline. Singleton per
 /// business for now (`businessId @unique`); multi-bot is deliberately deferred.
 model BusinessBot {
-  id          Int                 @id @default(autoincrement())
-  businessId  Int                 @unique
-  displayName String?
-  avatar      String?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-  business       Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  profile        BusinessBotProfile?
-  goalSelections BotGoalSelection[]
-  setupDraft     BusinessBotSetupDraft?
-  knowledge      BusinessBotKnowledge?
-  recommendations BusinessBotRecommendation[]
+  id                  Int                             @id @default(autoincrement())
+  businessId          Int                             @unique
+  displayName         String?
+  avatar              String?
+  createdAt           DateTime                        @default(now())
+  updatedAt           DateTime                        @updatedAt
+  business            Business                        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  profile             BusinessBotProfile?
+  goalSelections      BotGoalSelection[]
+  setupDraft          BusinessBotSetupDraft?
+  knowledge           BusinessBotKnowledge?
+  recommendations     BusinessBotRecommendation[]
   memoryPolicy        BusinessBotMemoryPolicy?
   learningSuggestions BusinessBotLearningSuggestion[]
 }
@@ -763,7 +764,7 @@ model Lead {
 }
 
 model Customer {
-  id               Int               @id @default(autoincrement())
+  id               Int                @id @default(autoincrement())
   businessId       Int
   name             String
   /// Canonical-form phone (digits-only, IL-aware E.164-ish). Always written
@@ -779,12 +780,12 @@ model Customer {
   taxId            String?
   taxIdType        CustomerTaxIdType?
   notes            String?
-  isActive         Boolean           @default(true)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  isActive         Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
   billingDocuments BillingDocument[]
   conversations    Conversation[]
-  business         Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business         Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
   messages         Message[]
   appointments     Appointment[]
   paymentRequests  PaymentRequest[]
@@ -998,6 +999,14 @@ model Message {
   sentSuggestionFor         ReplySuggestion?    @relation("SuggestionSentMessage")
   appointments              Appointment[]
 
+  /// W2.5 send-idempotency. `/api/message` had no guard at either end, so a
+  /// double-tap or a retry created a SECOND message row — which the writer
+  /// cannot undo, because two rows are two real messages. A caller-supplied
+  /// token makes the send exactly-once at the only place that can enforce it.
+  /// NULLs do not collide under Postgres unique semantics, so every existing
+  /// row and every non-idempotent caller is unaffected.
+  @@unique([businessId, clientRequestId])
+  @@unique([businessId, providerMessageId])
   // D2/P7-W4A: DB-level replay idempotency for provider-delivered messages.
   // Tenant-scoped so identical provider ids in different businesses never
   // cross-dedup; NULL providerMessageId rows (app-created messages) are
@@ -1008,14 +1017,6 @@ model Message {
   /// the provider-id unique, so even the FK to Conversation was unsupported and
   /// every per-conversation read was a sequential scan.
   @@index([conversationId, createdAt])
-  /// W2.5 send-idempotency. `/api/message` had no guard at either end, so a
-  /// double-tap or a retry created a SECOND message row — which the writer
-  /// cannot undo, because two rows are two real messages. A caller-supplied
-  /// token makes the send exactly-once at the only place that can enforce it.
-  /// NULLs do not collide under Postgres unique semantics, so every existing
-  /// row and every non-idempotent caller is unaffected.
-  @@unique([businessId, clientRequestId])
-  @@unique([businessId, providerMessageId])
 }
 
 model MessageAnalysis {
@@ -1308,13 +1309,13 @@ model LearningSignal {
 }
 
 model Document {
-  id              Int                       @id @default(autoincrement())
-  businessId      Int
-  fileUrl         String
-  source          String
-  mimeType        String
-  ocrText         String?
-  status          String
+  id                Int                       @id @default(autoincrement())
+  businessId        Int
+  fileUrl           String
+  source            String
+  mimeType          String
+  ocrText           String?
+  status            String
   /// SHA-256 of the original file bytes (hex, lowercase). Duplicate-defense
   /// identity: same business + same hash = the same file ingested again.
   /// Nullable — rows created before the dedup wave carry no hash until the
@@ -1327,12 +1328,12 @@ model Document {
   originalFilename  String?
   /// Original file size in bytes as validated at intake.
   sizeBytes         Int?
-  createdAt       DateTime                  @default(now())
-  business        Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  emailImport     EmailAttachmentImport?
-  whatsappImport  WhatsAppAttachmentImport?
-  extractedData   ExtractedData?
-  financialRecord FinancialRecord?
+  createdAt         DateTime                  @default(now())
+  business          Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  emailImport       EmailAttachmentImport?
+  whatsappImport    WhatsAppAttachmentImport?
+  extractedData     ExtractedData?
+  financialRecord   FinancialRecord?
 
   @@index([businessId, createdAt])
   @@index([businessId, status, createdAt])
@@ -1493,20 +1494,20 @@ model FinancialRecord {
 }
 
 model VendorLearning {
-  id         Int      @id @default(autoincrement())
-  businessId Int
-  vendorName String
+  id                   Int      @id @default(autoincrement())
+  businessId           Int
+  vendorName           String
   // Stable grouping key derived from vendorName (normalizeVendorForLearning),
   // captured ALONGSIDE the raw name. Additive — the unique key stays on the raw
   // vendorName; a rekey/merge onto the normalized key is deferred (Gap 2, see
   // docs/documents-learning-mechanism-architecture-v1.md §5).
   vendorNameNormalized String?
-  category   String
-  usageCount Int      @default(1)
-  lastUsedAt DateTime @default(now())
-  confidence Float    @default(0.8)
-  isGlobal   Boolean  @default(false)
-  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category             String
+  usageCount           Int      @default(1)
+  lastUsedAt           DateTime @default(now())
+  confidence           Float    @default(0.8)
+  isGlobal             Boolean  @default(false)
+  business             Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, vendorName])
   @@index([vendorName])
@@ -1545,18 +1546,18 @@ model ExtractionSnapshot {
   direction    String?
 
   // Engine belief (denormalized first-class for the key fields)
-  amount             Float?
-  date               DateTime?
-  category           String?
-  confidenceScore    Float?
-  amountConfidence   String?
-  vendorConfidence   String?
-  dateConfidence     String?
-  categoryConfidence String?
-  isFinancial        Boolean?
-  amountEligible     Boolean?
+  amount                 Float?
+  date                   DateTime?
+  category               String?
+  confidenceScore        Float?
+  amountConfidence       String?
+  vendorConfidence       String?
+  dateConfidence         String?
+  categoryConfidence     String?
+  isFinancial            Boolean?
+  amountEligible         Boolean?
   financialEvidenceLevel String?
-  guardrailRoute     String?
+  guardrailRoute         String?
 
   // General Decision Ledger — structural (slice) engine provenance. Nullable:
   // legacy-only extractions (no geometry) leave these null. Shadow only — these
@@ -1599,20 +1600,20 @@ model SliceDecision {
   businessId           Int
   occurredAt           DateTime @default(now())
 
-  fieldKey        String
+  fieldKey           String
   // Boundary discriminator (Documents = Fact Extraction / Business = Interpretation).
   // Nullable: Phase 1 rows written before this column existed leave it null.
-  layer           String?
-  stage           String?
-  engineValue     String?
-  legacyValue     String?
-  resolutionState String?
-  basis           String?
-  confidenceLabel String?
-  provenance      Json?
-  strength        Json?
-  reasoningBlob   Json?
-  producedBy      String
+  layer              String?
+  stage              String?
+  engineValue        String?
+  legacyValue        String?
+  resolutionState    String?
+  basis              String?
+  confidenceLabel    String?
+  provenance         Json?
+  strength           Json?
+  reasoningBlob      Json?
+  producedBy         String
   sliceEngineVersion String?
 
   snapshot ExtractionSnapshot @relation(fields: [extractionSnapshotId], references: [id], onDelete: Cascade)
@@ -1911,43 +1912,43 @@ model SupplierPurchaseDraftLine {
 }
 
 model Supplier {
-  id                  Int      @id @default(autoincrement())
-  businessId          Int
-  name                String
-  isActive            Boolean  @default(true)
-  phone               String?
-  email               String?
-  notes               String?
-  defaultLeadTimeDays Int?
+  id                     Int                     @id @default(autoincrement())
+  businessId             Int
+  name                   String
+  isActive               Boolean                 @default(true)
+  phone                  String?
+  email                  String?
+  notes                  String?
+  defaultLeadTimeDays    Int?
   /// Registered legal name when it differs from the display `name`.
-  legalName           String?
+  legalName              String?
   /// Counterparty tax identifier. Strongest duplicate-detection signal.
-  taxId               String?
+  taxId                  String?
   /// Shared party tax-identity vocabulary — the SAME enum the Customer side uses.
   /// Reused deliberately rather than duplicated: the legal entity types of a
   /// counterparty do not depend on whether it sells to us or buys from us.
-  taxIdType           CustomerTaxIdType?
+  taxIdType              CustomerTaxIdType?
   /// Free-text supplier category. Display + grouping only.
-  category            String?
-  website             String?
-  contactName         String?
-  contactRole         String?
-  contactPhone        String?
-  contactEmail        String?
-  addressStreet       String?
-  addressCity         String?
-  addressPostalCode   String?
+  category               String?
+  website                String?
+  contactName            String?
+  contactRole            String?
+  contactPhone           String?
+  contactEmail           String?
+  addressStreet          String?
+  addressCity            String?
+  addressPostalCode      String?
   /// Structured payment terms in DAYS (0 = מיידי, 30 = שוטף+30, ...), interpreted
   /// through lib/services/billing/collection/payment-terms.ts — the canonical
   /// day-based representation already used for receivables. Null = not set.
-  paymentTermsDays    Int?
+  paymentTermsDays       Int?
   /// How this supplier is usually paid. Reuses the canonical PaymentMethod enum.
   preferredPaymentMethod PaymentMethod?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  purchaseOrders      PurchaseOrder[]
-  purchaseDrafts      SupplierPurchaseDraft[]
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  business               Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  purchaseOrders         PurchaseOrder[]
+  purchaseDrafts         SupplierPurchaseDraft[]
 
   @@index([businessId])
   @@index([businessId, isActive])
@@ -2054,60 +2055,60 @@ model ReceivingLine {
 }
 
 model BillingDocument {
-  id                      Int                    @id @default(autoincrement())
-  businessId              Int
-  documentType            BillingDocumentType
-  status                  BillingDocumentStatus  @default(DRAFT)
-  documentNumber          Int?
-  documentNumberFormatted String?
-  customerId              Int?
-  customerNameSnapshot    String?
-  validUntil              DateTime?
-  convertedToInvoiceId    Int?                   @unique
-  subtotalAmount          Decimal                @default(0) @db.Decimal(18, 2)
-  vatAmount               Decimal                @default(0) @db.Decimal(18, 2)
-  totalAmount             Decimal                @default(0) @db.Decimal(18, 2)
-  currency                String                 @default("ILS")
-  issuedAt                DateTime?
-  issuedByUserId          Int?
-  createdByUserId         Int?
-  issuedSnapshot          Json?
-  lockedAt                DateTime?
-  legalSnapshotHash       String?
-  referenceDocumentId     Int?
-  allocationNumber        String?
-  allocationApprovedAt    DateTime?
-  isEmergencyAllocation   Boolean                @default(false)
-  pdfRenderStatus         BillingPdfRenderStatus @default(PENDING)
-  pdfTemplateVersion      String?
-  pdfStorageKey           String?
-  pdfHash                 String?
-  pdfRenderedAt           DateTime?
-  pdfRenderError          String?
+  id                          Int                         @id @default(autoincrement())
+  businessId                  Int
+  documentType                BillingDocumentType
+  status                      BillingDocumentStatus       @default(DRAFT)
+  documentNumber              Int?
+  documentNumberFormatted     String?
+  customerId                  Int?
+  customerNameSnapshot        String?
+  validUntil                  DateTime?
+  convertedToInvoiceId        Int?                        @unique
+  subtotalAmount              Decimal                     @default(0) @db.Decimal(18, 2)
+  vatAmount                   Decimal                     @default(0) @db.Decimal(18, 2)
+  totalAmount                 Decimal                     @default(0) @db.Decimal(18, 2)
+  currency                    String                      @default("ILS")
+  issuedAt                    DateTime?
+  issuedByUserId              Int?
+  createdByUserId             Int?
+  issuedSnapshot              Json?
+  lockedAt                    DateTime?
+  legalSnapshotHash           String?
+  referenceDocumentId         Int?
+  allocationNumber            String?
+  allocationApprovedAt        DateTime?
+  isEmergencyAllocation       Boolean                     @default(false)
+  pdfRenderStatus             BillingPdfRenderStatus      @default(PENDING)
+  pdfTemplateVersion          String?
+  pdfStorageKey               String?
+  pdfHash                     String?
+  pdfRenderedAt               DateTime?
+  pdfRenderError              String?
   /// Canonical CRYPTOGRAPHICALLY-SIGNED PDF artifact (Phase 2B). Operational
   /// (post-issuance) metadata, NOT legal snapshot fields: never part of
   /// issuedSnapshot/legalSnapshotHash. Distinct from pdfStorageKey/pdfHash (the
   /// unsigned generated PDF). All three are set together, once, when a document's
   /// canonical signed PDF is persisted (sign-once); nullable for legacy/unsigned
   /// documents. The X.509 in the artifact is the source of truth for signer identity.
-  signedPdfStorageKey     String?
-  signedPdfHash           String?
-  signedAt                DateTime?
-  createdAt               DateTime               @default(now())
-  updatedAt               DateTime               @updatedAt
-  business                Business               @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  customer                Customer?              @relation(fields: [customerId], references: [id])
-  lines                   BillingDocumentLine[]
-  auditEvents             BillingAuditEvent[]
-  financialEvent          FinancialEvent?
-  convertedToInvoice      BillingDocument?       @relation("QuoteConvertedToInvoice", fields: [convertedToInvoiceId], references: [id])
-  quotesConvertedToHere   BillingDocument[]      @relation("QuoteConvertedToInvoice")
-  referencedDocument      BillingDocument?       @relation("BillingDocumentReversalReference", fields: [referenceDocumentId], references: [id], onDelete: Restrict)
-  creditNotes             BillingDocument[]      @relation("BillingDocumentReversalReference")
-  authoritySubmission     BillingAuthoritySubmission?
+  signedPdfStorageKey         String?
+  signedPdfHash               String?
+  signedAt                    DateTime?
+  createdAt                   DateTime                    @default(now())
+  updatedAt                   DateTime                    @updatedAt
+  business                    Business                    @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  customer                    Customer?                   @relation(fields: [customerId], references: [id])
+  lines                       BillingDocumentLine[]
+  auditEvents                 BillingAuditEvent[]
+  financialEvent              FinancialEvent?
+  convertedToInvoice          BillingDocument?            @relation("QuoteConvertedToInvoice", fields: [convertedToInvoiceId], references: [id])
+  quotesConvertedToHere       BillingDocument[]           @relation("QuoteConvertedToInvoice")
+  referencedDocument          BillingDocument?            @relation("BillingDocumentReversalReference", fields: [referenceDocumentId], references: [id], onDelete: Restrict)
+  creditNotes                 BillingDocument[]           @relation("BillingDocumentReversalReference")
+  authoritySubmission         BillingAuthoritySubmission?
   receiptPayments             BillingReceiptPayment[]
-  paymentAllocationsAsReceipt BillingPaymentAllocation[] @relation("ReceiptAllocations")
-  paymentAllocationsAsInvoice BillingPaymentAllocation[] @relation("InvoiceAllocations")
+  paymentAllocationsAsReceipt BillingPaymentAllocation[]  @relation("ReceiptAllocations")
+  paymentAllocationsAsInvoice BillingPaymentAllocation[]  @relation("InvoiceAllocations")
   paymentRequests             PaymentRequest[]
 
   @@unique([businessId, documentType, documentNumber])
@@ -2330,10 +2331,10 @@ model BillingAuthoritySubmission {
 }
 
 model Party {
-  id        Int      @id @default(autoincrement())
+  id         Int      @id @default(autoincrement())
   businessId Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   business Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
   claims   PartyResolutionClaim[]
@@ -2342,7 +2343,7 @@ model Party {
 }
 
 model PartyResolutionClaim {
-  id               Int                    @id @default(autoincrement())
+  id               Int                   @id @default(autoincrement())
   businessId       Int
   partyId          Int
   subjectType      PartyRoleType
@@ -2350,12 +2351,12 @@ model PartyResolutionClaim {
   signalType       PartySignalType?
   signalValue      String?
   confidence       PartyClaimConfidence
-  method           PartyResolutionMethod  @default(DETERMINISTIC_EXACT)
+  method           PartyResolutionMethod @default(DETERMINISTIC_EXACT)
   source           String
   resolvedByUserId Int?
-  status           PartyClaimStatus       @default(ACTIVE)
-  createdAt        DateTime               @default(now())
-  updatedAt        DateTime               @updatedAt
+  status           PartyClaimStatus      @default(ACTIVE)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 
   party    Party    @relation(fields: [partyId], references: [id], onDelete: Cascade)
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -3340,7 +3341,7 @@ model NotificationDelivery {
 
   createdAt DateTime @default(now())
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business     Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
   /// COMPOSITE, not a plain notificationId FK. A single-column FK plus a
   /// separate RLS policy would still permit a row in tenant A that points at a
   /// notification in tenant B: RLS constrains visibility, never referential
@@ -3368,4 +3369,105 @@ enum NotificationDeliveryStatus {
   /// Decided against at delivery time — e.g. push suppressed by quiet hours.
   /// Distinct from FAILED: nothing went wrong.
   SUPPRESSED
+}
+
+/// Import & Export Center — execution ledger for a bulk import (I-6).
+///
+/// # Why this table exists
+///
+/// Supplier and InventoryItem CREATE are NOT idempotent — neither table has a
+/// uniqueness constraint — and an inventory create additionally writes an
+/// INITIAL_STOCK movement. Without durable per-row evidence, a process that dies
+/// after committing a batch would, on retry, create every one of those records a
+/// second time. `ImportRunRow` is that evidence, and it is written in the SAME
+/// transaction as the business record so the two can never disagree.
+///
+/// # What is deliberately NOT here
+///
+/// No uploaded file, no row values, no names, phones, emails, SKUs, barcodes,
+/// quantities or prices, no normalized payload, and no reference to any existing
+/// record that was matched. Every column below is an id, a foreign key, a digest of
+/// inputs the server already held transiently, an enum, a short error code, or a
+/// timestamp. The verifier asserts that shape so this table cannot quietly become a
+/// second copy of the customer list.
+///
+/// # Counts vs rows — different jobs
+///
+/// While a run is EXECUTING, `ImportRunRow` is the ONLY execution authority: what
+/// ran is what has a marker. The aggregate counters are written ONCE, at
+/// terminalization, as an audit snapshot — so that when the rows are cleaned up
+/// after the retry window the run still says what it did. They are never read to
+/// decide whether a row should execute.
+model ImportRun {
+  id            Int             @id @default(autoincrement())
+  businessId    Int
+  /// Server-derived at execute time; never a client value.
+  userId        Int
+  /// One of the four tabular domains (customers | suppliers | leads | inventory).
+  domain        String
+  /// SHA-256 of the exact uploaded bytes. Pins WHICH file this run belongs to,
+  /// which is what makes `sourceRowNumber` a deterministic row identity.
+  contentHash   String
+  /// SHA-256 of the canonicalized column mapping.
+  mappingHash   String
+  /// SHA-256 of the canonicalized per-row owner decisions.
+  decisionsHash String
+  /// Worksheet the data was read from; null for CSV.
+  sheetName     String?
+  status        ImportRunStatus @default(EXECUTING)
+  totalRows     Int
+  /// Terminal audit snapshot, written once when the run reaches a terminal state.
+  /// NOT execution authority — see the model note.
+  createdCount  Int?
+  skippedCount  Int?
+  failedCount   Int?
+  startedAt     DateTime        @default(now())
+  completedAt   DateTime?
+  business      Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  rows          ImportRunRow[]
+
+  /// THE idempotency key. The same file, mapped the same way, decided the same
+  /// way, is ONE run — a second execute finds this row instead of writing again.
+  /// It survives the 30-day row cleanup, so a completed import can never become
+  /// silently replayable once its retry scaffolding is gone.
+  @@unique([businessId, contentHash, mappingHash, decisionsHash])
+  @@index([businessId, status])
+  @@index([businessId, startedAt])
+}
+
+/// One executed source row. Carries evidence, never data.
+model ImportRunRow {
+  importRunId     Int
+  /// 1-based row number in the source file, header excluded. Deterministic
+  /// identity BECAUSE the parent run pins the exact file bytes.
+  sourceRowNumber Int
+  action          ImportRowAction
+  status          ImportRowStatus
+  /// One of the five taxonomy codes. Never a message, never a value.
+  errorCode       String?
+  executedAt      DateTime        @default(now())
+  run             ImportRun       @relation(fields: [importRunId], references: [id], onDelete: Cascade)
+
+  /// The composite primary key IS the idempotency mechanism: a concurrent or
+  /// repeated attempt to mark the same row fails on insert rather than racing.
+  @@id([importRunId, sourceRowNumber])
+  @@index([importRunId, status])
+}
+
+enum ImportRunStatus {
+  EXECUTING
+  COMPLETED
+  PARTIAL
+  FAILED
+}
+
+enum ImportRowAction {
+  CREATE
+  SKIP
+}
+
+enum ImportRowStatus {
+  CREATED
+  SKIPPED
+  FAILED
 }

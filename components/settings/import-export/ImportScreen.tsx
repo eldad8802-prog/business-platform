@@ -72,6 +72,8 @@ type PreviewRow = {
   duplicates: DuplicateEvidence[];
 };
 
+type RowAction = "CREATE" | "SKIP";
+
 type Preview = {
   summary: {
     totalRows: number;
@@ -82,9 +84,30 @@ type Preview = {
   };
   rows: PreviewRow[];
   rowsTruncated: boolean;
+  /** The server's action for EVERY row, defaults included. */
+  decisions: Record<number, RowAction>;
+  /** Rows the owner may deliberately switch to "import anyway". */
+  overridableRows: number[];
+  /** Leads only: records other than the leads that confirming will create. */
+  sideEffects?: { reusedCustomers: number; newCustomers: number };
+  previewToken: string;
 };
 
-type Busy = null | "analyzing" | "previewing";
+type ExecuteResult = {
+  importRunId: number;
+  status: "COMPLETED" | "PARTIAL" | "FAILED" | "EXECUTING";
+  alreadyExecuted: boolean;
+  unexecutedRows: number;
+  counts: {
+    totalRows: number;
+    createdCount: number;
+    skippedCount: number;
+    failedCount: number;
+  };
+  failures: { rowNumber: number; code: string; message: string }[];
+};
+
+type Busy = null | "analyzing" | "previewing" | "importing";
 
 const DONT_IMPORT = "__skip__";
 
@@ -121,6 +144,10 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const [issuesOnly, setIssuesOnly] = useState(true);
+  // The owner's overrides ONLY. Everything else keeps the server's default, so
+  // a row the owner never touched cannot drift when the file is re-derived.
+  const [overrides, setOverrides] = useState<Record<number, RowAction>>({});
+  const [result, setResult] = useState<ExecuteResult | null>(null);
 
   function resetFrom(step: "domain" | "file") {
     setPreview(null);
@@ -221,8 +248,85 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
         return;
       }
       setPreview(data as Preview);
+      setOverrides({});
+      setResult(null);
     } catch {
       setError("שגיאת רשת — בדקו את החיבור ונסו שוב.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /**
+   * Confirm and import.
+   *
+   * Two calls, deliberately. The preview is run AGAIN with the owner's choices
+   * so the server re-derives every row from the same bytes, re-checks that each
+   * choice is one it would actually offer, and mints a token bound to those
+   * choices. Only then does execute run — so it can never be handed a decision
+   * the owner never saw, nor the owner's decisions against a different file.
+   */
+  async function runImport() {
+    if (!domainId || !file || !preview) return;
+    const auth = authHeader();
+    if (!auth) {
+      setError("חסר אסימון התחברות — התחברו מחדש ונסו שוב.");
+      return;
+    }
+
+    setBusy("importing");
+    setError(null);
+    try {
+      const decisions = { ...preview.decisions, ...overrides };
+
+      const bound = new FormData();
+      bound.append("domain", domainId);
+      bound.append("file", file);
+      if (sheet) bound.append("sheet", sheet);
+      bound.append("mapping", JSON.stringify(mapping));
+      bound.append("decisions", JSON.stringify(decisions));
+
+      const previewResponse = await fetch("/api/data-transfer/import/preview", {
+        method: "POST",
+        headers: auth,
+        body: bound,
+      });
+      const previewData = await previewResponse.json().catch(() => null);
+      if (!previewResponse.ok || !previewData?.ok) {
+        setError(
+          previewData?.message ??
+            previewData?.error ??
+            `הבדיקה נכשלה (${previewResponse.status}).`
+        );
+        return;
+      }
+      setPreview(previewData as Preview);
+
+      const body = new FormData();
+      body.append("domain", domainId);
+      body.append("file", file);
+      if (sheet) body.append("sheet", sheet);
+      body.append("mapping", JSON.stringify(mapping));
+      body.append("decisions", JSON.stringify(previewData.decisions));
+      body.append("previewToken", previewData.previewToken);
+
+      const response = await fetch("/api/data-transfer/import/execute", {
+        method: "POST",
+        headers: auth,
+        body,
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok) {
+        setError(data?.message ?? data?.error ?? `הייבוא נכשל (${response.status}).`);
+        return;
+      }
+      setResult(data as ExecuteResult);
+    } catch {
+      // A network failure here is genuinely ambiguous: the import may have run.
+      // Say so, and say what to do — repeating the same file is safe.
+      setError(
+        "החיבור נקטע. ייתכן שהייבוא הושלם — הריצו את אותו קובץ שוב, ודוביז תשלים רק את מה שחסר."
+      );
     } finally {
       setBusy(null);
     }
@@ -243,16 +347,55 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
       : preview.rows
     : [];
 
+  /** The owner's choice for a row, falling back to the server's default. */
+  function decisionFor(rowNumber: number): RowAction {
+    return overrides[rowNumber] ?? preview?.decisions[rowNumber] ?? "SKIP";
+  }
+
+  /** Why this row is not being imported, in the owner's words. */
+  function reasonFor(row: PreviewRow): string {
+    if (row.status === "ERROR") {
+      return row.errors[0]
+        ? `${row.errors[0].field}: ${row.errors[0].reason}`
+        : "השורה אינה תקינה";
+    }
+    const evidence = row.duplicates[0];
+    if (!evidence) return "לא נבחרה לייבוא";
+    return evidence.scope === "IN_FILE"
+      ? `${evidence.field} חוזר גם בשורות ${(evidence.otherRows ?? []).join(", ")} — תיובא הראשונה בלבד`
+      : (evidence.existingNote ?? `${evidence.field} כבר קיים`);
+  }
+
+  // Counted over the FULL decision set, not the displayed window, so the number
+  // on the button is the number of records that will actually be created.
+  const allDecisions = preview
+    ? { ...preview.decisions, ...overrides }
+    : ({} as Record<number, RowAction>);
+  const createCount = Object.values(allDecisions).filter(
+    (a) => a === "CREATE"
+  ).length;
+  const skipCount = Object.values(allDecisions).filter(
+    (a) => a === "SKIP"
+  ).length;
+
+  // The rows worth showing a control for: the ones being skipped. The preview
+  // window is already bounded server-side, so this is bounded too.
+  const skippedRows = preview
+    ? preview.rows.filter((r) => decisionFor(r.rowNumber) === "SKIP")
+    : [];
+  const skippedRowsTruncated = !!preview && preview.rowsTruncated && skipCount > skippedRows.length;
+
   return (
     <>
       {/* The promise, before anything else on the page. */}
       <SettingsSection>
         <p className="text-sm font-bold text-[var(--dz-text-primary)]">
-          בדיקה בלבד — שום מידע לא יישמר בדוביז.
+          שום מידע לא נשמר עד שתאשרו.
         </p>
         <p className="mt-2 text-xs leading-5 text-[var(--dz-text-muted)]">
           העלו קובץ ונראה לכם בדיוק מה דוביז הבינה ממנו: אילו עמודות זוהו, מה
-          תקין, מה דורש תיקון ומה כבר קיים אצלכם. הקליטה עצמה תתווסף בשלב הבא.
+          תקין, מה דורש תיקון ומה כבר קיים אצלכם. רק אחרי שתראו את הכול ותאשרו,
+          הנתונים ייקלטו.
         </p>
       </SettingsSection>
 
@@ -514,16 +657,172 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
               </p>
             ) : null}
 
-            {/* The end of the road in I-5. No control that could be mistaken
-                for one that saves. */}
-            <div className="mt-4 rounded-2xl bg-[var(--dz-background)] px-4 py-3">
-              <p className="text-sm font-bold text-[var(--dz-text-primary)]">
-                בדיקת הקובץ הושלמה.
+            {result ? null : (
+              <div className="mt-4 rounded-2xl bg-[var(--dz-background)] px-4 py-3">
+                <p className="text-sm font-bold text-[var(--dz-text-primary)]">
+                  בדיקת הקובץ הושלמה.
+                </p>
+                <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
+                  עדיין לא נשמר כלום. בחרו למטה מה לייבא ואשרו.
+                </p>
+              </div>
+            )}
+          </SettingsSection>
+        </div>
+      ) : null}
+
+      {/* 5 — decide and confirm */}
+      {preview && !result ? (
+        <div className="mt-4">
+          <SettingsSection
+            title="מה לייבא"
+            description="דוביז בחרה עבורכם ברירת מחדל לכל שורה. אפשר לשנות."
+          >
+            <dl className="grid grid-cols-2 gap-2">
+              <div className="rounded-2xl bg-[var(--dz-background)] px-3 py-2">
+                <dt className="text-[11px] text-[var(--dz-text-muted)]">ייווצרו</dt>
+                <dd className="text-lg font-bold text-[var(--dz-text-primary)]">
+                  {createCount.toLocaleString("he-IL")}
+                </dd>
+              </div>
+              <div className="rounded-2xl bg-[var(--dz-background)] px-3 py-2">
+                <dt className="text-[11px] text-[var(--dz-text-muted)]">ידולגו</dt>
+                <dd className="text-lg font-bold text-[var(--dz-text-primary)]">
+                  {skipCount.toLocaleString("he-IL")}
+                </dd>
+              </div>
+            </dl>
+
+            {/* Leads create a customer per lead. The owner is approving that
+                too, so it is said before the button, not discovered after. */}
+            {preview.sideEffects && preview.sideEffects.newCustomers > 0 ? (
+              <p className="mt-3 rounded-2xl bg-[var(--dz-background)] px-4 py-3 text-xs leading-5 text-[var(--dz-text-muted)]">
+                לכל ליד נוצר גם כרטיס לקוח.{" "}
+                {preview.sideEffects.newCustomers.toLocaleString("he-IL")} כרטיסי
+                לקוח חדשים ייווצרו
+                {preview.sideEffects.reusedCustomers > 0
+                  ? ", וחלק מהלידים ישויכו ללקוחות שכבר קיימים אצלכם"
+                  : ""}
+                .
               </p>
-              <p className="mt-1 text-xs leading-5 text-[var(--dz-text-muted)]">
-                שום מידע לא נשמר בדוביז. הקליטה בפועל תתווסף בשלב הבא.
+            ) : null}
+
+            {skippedRows.length > 0 ? (
+              <ul className="mt-3 flex flex-col divide-y divide-[var(--dz-border-subtle)]">
+                {skippedRows.map((row) => {
+                  const canImport = preview.overridableRows.includes(row.rowNumber);
+                  const action = decisionFor(row.rowNumber);
+                  return (
+                    <li key={row.rowNumber} className="py-3">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-sm font-bold text-[var(--dz-text-primary)]">
+                          שורה {row.rowNumber}
+                        </span>
+                        <span className="shrink-0 rounded-full bg-[var(--dz-surface-muted)] px-2 py-0.5 text-[11px] font-semibold text-[var(--dz-text-muted)]">
+                          {action === "CREATE" ? "ייווצר" : "ידולג"}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-[var(--dz-text-muted)]">
+                        {reasonFor(row)}
+                      </p>
+                      {canImport ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOverrides((prev) => ({
+                              ...prev,
+                              [row.rowNumber]:
+                                action === "CREATE" ? "SKIP" : "CREATE",
+                            }))
+                          }
+                          className="mt-2 rounded-full border border-[var(--dz-border-subtle)] px-3 py-1.5 text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)]"
+                        >
+                          {action === "CREATE" ? "בכל זאת לדלג" : "לייבא בכל זאת"}
+                        </button>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+
+            {skippedRowsTruncated ? (
+              <p className="mt-3 text-xs text-[var(--dz-text-muted)]">
+                מוצגות השורות הראשונות שידולגו. הסיכום למעלה מתייחס לכל הקובץ.
               </p>
-            </div>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={runImport}
+              disabled={busy !== null || createCount === 0}
+              className="mt-4 w-full rounded-2xl bg-[var(--dz-accent)] px-4 py-3 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busy === "importing"
+                ? "מייבא…"
+                : createCount === 0
+                  ? "אין שורות לייבוא"
+                  : "אשרו וייבאו " + createCount.toLocaleString("he-IL") + " שורות"}
+            </button>
+            <p className="mt-2 text-center text-[11px] text-[var(--dz-text-muted)]">
+              אם הייבוא ייקטע — הריצו את אותו קובץ שוב. דוביז תשלים רק את מה
+              שחסר.
+            </p>
+          </SettingsSection>
+        </div>
+      ) : null}
+
+      {/* 6 — what actually happened */}
+      {result ? (
+        <div className="mt-4">
+          <SettingsSection title="הייבוא הסתיים">
+            <dl className="grid grid-cols-3 gap-2">
+              {[
+                ["נוצרו", result.counts.createdCount],
+                ["דולגו", result.counts.skippedCount],
+                ["נכשלו", result.counts.failedCount],
+              ].map(([label, value]) => (
+                <div
+                  key={String(label)}
+                  className="rounded-2xl bg-[var(--dz-background)] px-3 py-2"
+                >
+                  <dt className="text-[11px] text-[var(--dz-text-muted)]">{label}</dt>
+                  <dd className="text-lg font-bold text-[var(--dz-text-primary)]">
+                    {Number(value).toLocaleString("he-IL")}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+
+            {result.alreadyExecuted ? (
+              <p className="mt-3 text-xs leading-5 text-[var(--dz-text-muted)]">
+                הקובץ הזה כבר יובא קודם עם אותן בחירות, ולכן שום דבר לא נוצר
+                שוב. אלה התוצאות מאותה הרצה.
+              </p>
+            ) : null}
+
+            {result.unexecutedRows > 0 ? (
+              <p className="mt-3 text-xs leading-5 text-[var(--dz-text-primary)]">
+                {result.unexecutedRows.toLocaleString("he-IL")} שורות לא הספיקו
+                לרוץ. הריצו את אותו קובץ שוב כדי להשלים אותן — מה שכבר נוצר לא
+                ייווצר שוב.
+              </p>
+            ) : null}
+
+            {result.failures.length > 0 ? (
+              <ul className="mt-3 flex flex-col divide-y divide-[var(--dz-border-subtle)]">
+                {result.failures.map((f) => (
+                  <li key={f.rowNumber} className="py-2">
+                    <span className="text-xs font-bold text-[var(--dz-text-primary)]">
+                      שורה {f.rowNumber}
+                    </span>
+                    <span className="mr-2 text-xs text-[var(--dz-text-muted)]">
+                      {f.message}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </SettingsSection>
         </div>
       ) : null}

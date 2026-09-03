@@ -561,6 +561,7 @@ const FACTS = {
   domain: "customers" as DataTransferDomainId,
   contentHash: sha256Hex("file-bytes"),
   mappingHash: sha256Hex(canonicalizeMapping({ 0: "שם" })),
+  decisionsHash: sha256Hex("1=CREATE"),
   sheetName: "ייבוא",
   rowCount: 3,
 };
@@ -569,6 +570,17 @@ check("a fresh token verifies and returns exactly what was bound", () => {
   const result = verifyPreviewToken(issuePreviewToken(FACTS, AT), AT);
   assert.equal(result.ok, true);
   if (result.ok) assert.deepEqual(result.facts, FACTS);
+});
+
+check("a token with no decisions bound is refused, not treated as empty", () => {
+  // A pre-decision token must never validate for execute: "no decisions" would
+  // otherwise read as "the owner approved the defaults", which they never saw.
+  const withoutDecisions = { ...FACTS } as Partial<typeof FACTS>;
+  delete withoutDecisions.decisionsHash;
+  const token = issuePreviewToken(withoutDecisions as typeof FACTS, AT);
+  const result = verifyPreviewToken(token, AT);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, "MALFORMED");
 });
 
 check("an expired token is refused", () => {
@@ -656,6 +668,8 @@ check("the token carries NO rows, values or business records", () => {
     [
       "businessId",
       "contentHash",
+      // A digest of actions per row number — no value from the file.
+      "decisionsHash",
       "domain",
       "exp",
       "iat",
@@ -861,7 +875,17 @@ check("ROUTES: the tenant is server-derived and never read from the body", () =>
 
 /* ============================================ 12. ZERO BUSINESS WRITES = */
 
-check("ZERO WRITES: no import module can create or change business data", () => {
+/**
+ * The dry-run surface: the whole import layer EXCEPT the execution modules.
+ *
+ * I-6 added `execute/`, which writes by design. Scoping the scan around it is
+ * only honest if the boundary is itself asserted — so the next check proves
+ * that `execute/` is the sole exception, and that every dry-run entry point
+ * still reaches zero writing code.
+ */
+const DRY_RUN_EXEMPT = { test: (file: string) => file.includes("/execute/") };
+
+check("ZERO WRITES: no DRY-RUN import module can create or change business data", () => {
   // A Prisma write is `<client>.<model>.<op>(`. Matching a bare `.update(`
   // would fire on `createHmac(...).update(...)` in the token signer, which is
   // crypto, not a database call — a check that cries wolf gets disabled.
@@ -899,7 +923,14 @@ check("ZERO WRITES: no import module can create or change business data", () => 
   roots.forEach(walk);
   assert.equal(files.length >= 10, true, "expected the import layer to be scanned");
 
-  for (const file of files) {
+  const dryRunFiles = files.filter((f) => !DRY_RUN_EXEMPT.test(f));
+  assert.equal(
+    dryRunFiles.length >= 10,
+    true,
+    "expected the dry-run layer to still be scanned after excluding execute/"
+  );
+
+  for (const file of dryRunFiles) {
     const src = readCode(file);
     const write = PRISMA_WRITE.exec(src);
     assert.equal(
@@ -917,19 +948,79 @@ check("ZERO WRITES: no import module can create or change business data", () => 
   assert.equal(PRISMA_WRITE.test("await tx.customer.create({ data })"), true);
   assert.equal(PRISMA_WRITE.test("await tx.lead.updateMany({ where })"), true);
   assert.equal(PRISMA_WRITE.test('createHmac("sha256", k).update(body)'), false);
+
+  // The exemption is narrow and real: it names a directory that exists and
+  // that genuinely contains the writers, so it can never become a blanket
+  // escape hatch that silently covers the dry run.
+  assert.equal(DRY_RUN_EXEMPT.test("lib/data-transfer/import/execute/domain-writers.ts"), true);
+  assert.equal(DRY_RUN_EXEMPT.test("lib/data-transfer/import/preview/preview-orchestrator.ts"), false);
+  assert.equal(DRY_RUN_EXEMPT.test("lib/data-transfer/import/derive-rows.ts"), false);
+  assert.equal(files.length > dryRunFiles.length, true, "execute/ must exist to be exempted");
 });
 
-check("ZERO WRITES: the Import UI has no endpoint that could save", () => {
+check("the dry-run flow never reaches the executing modules", () => {
+  // Preview may not import anything that writes. It legitimately shares the
+  // DECISION layer with execute — that is the point, the owner approves what
+  // will run — and the decision layer is pure policy.
+  const previewChain = [
+    "lib/data-transfer/import/preview/preview-orchestrator.ts",
+    "lib/data-transfer/import/derive-rows.ts",
+    "lib/data-transfer/import/execute/row-decisions.ts",
+    "lib/data-transfer/import/execute/duplicate-policy.ts",
+  ];
+  for (const file of previewChain) {
+    const src = readCode(file);
+    assert.equal(
+      src.includes("domain-writers"),
+      false,
+      `${file} reaches the writers from the dry-run path`
+    );
+    assert.equal(src.includes("import-executor"), false, `${file} reaches the executor`);
+  }
+});
+
+check("the Import UI reaches exactly the three import endpoints, and no other", () => {
   const src = readCode("components/settings/import-export/ImportScreen.tsx");
-  const endpoints = [...src.matchAll(/fetch\("([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(
-    endpoints.sort(),
-    ["/api/data-transfer/import/analyze", "/api/data-transfer/import/preview"]
+  const endpoints = [...new Set([...src.matchAll(/fetch\("([^"]+)"/g)].map((m) => m[1]))];
+  assert.deepEqual(endpoints.sort(), [
+    "/api/data-transfer/import/analyze",
+    "/api/data-transfer/import/execute",
+    "/api/data-transfer/import/preview",
+  ]);
+});
+
+check("the Import UI's promise stops at the confirmation, and says so", () => {
+  // I-5 promised "nothing is saved" unconditionally. I-6 makes that FALSE after
+  // the owner confirms, so the copy had to change with the behaviour — a screen
+  // that still promised it would be lying at exactly the moment it matters.
+  const src = readCode("components/settings/import-export/ImportScreen.tsx");
+  assert.equal(
+    src.includes("שום מידע לא יישמר בדוביז"),
+    false,
+    "the unconditional 'nothing will be saved' promise is no longer true"
   );
-  // And it tells the owner the truth, twice.
-  assert.equal(src.includes("שום מידע לא יישמר בדוביז"), true);
-  assert.equal(src.includes("שום מידע לא נשמר בדוביז"), true);
+  assert.equal(
+    src.includes("שום מידע לא נשמר בדוביז"),
+    false,
+    "the unconditional 'nothing was saved' result is no longer true"
+  );
+  assert.equal(src.includes("שום מידע לא נשמר עד שתאשרו"), true);
+  assert.equal(src.includes("עדיין לא נשמר כלום"), true);
   assert.equal(src.includes("בדיקת הקובץ הושלמה"), true);
+});
+
+check("the confirm control names the exact number of rows it will create", () => {
+  // A button that says only "import" hides the size of what it does.
+  const src = readCode("components/settings/import-export/ImportScreen.tsx");
+  assert.equal(src.includes("אשרו וייבאו "), true);
+  assert.equal(src.includes("createCount.toLocaleString"), true);
+});
+
+check("an interrupted import tells the owner the safe thing to do", () => {
+  // The one case where a user could otherwise do real damage by guessing:
+  // re-running the same file is safe, and they have to be told that.
+  const src = readCode("components/settings/import-export/ImportScreen.tsx");
+  assert.equal(src.includes("הריצו את אותו קובץ שוב"), true);
 });
 
 console.log(`\nIMPORT DRY-RUN VERIFY PASS — ${passed} checks green.`);

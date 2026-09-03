@@ -39,22 +39,31 @@ import {
 import {
   canonicalizeMapping,
   proposeMapping,
-  validateMapping,
   type ColumnProposal,
   type MappingProblem,
   type ResolvedMapping,
 } from "@/lib/data-transfer/import/mapping/mapping-proposer";
-import { validateRows, type ValidatedRow } from "@/lib/data-transfer/import/validate/row-validate";
-import {
-  detectExistingMatches,
-  detectInFileDuplicates,
-  mergeDuplicates,
-  type DuplicateEvidence,
-} from "@/lib/data-transfer/import/duplicates/duplicate-detect";
 import {
   issuePreviewToken,
   sha256Hex,
 } from "@/lib/data-transfer/import/preview/preview-token";
+import {
+  deriveImportRows,
+  type DerivedRow,
+} from "@/lib/data-transfer/import/derive-rows";
+import {
+  projectLeadSideEffects,
+  type LeadSideEffects,
+} from "@/lib/data-transfer/import/lead-side-effects";
+import {
+  decisionsHashOf,
+  inFileEligibleRows,
+  mayOverrideToCreate,
+  resolveDecisions,
+  validateDecisions,
+  type DecisionProblem,
+  type RowDecisions,
+} from "@/lib/data-transfer/import/execute/row-decisions";
 
 /* ------------------------------------------------------------- analyze -- */
 
@@ -138,16 +147,18 @@ export type PreviewInput = AnalyzeInput & {
   businessId: number;
   userId: number;
   mapping: ResolvedMapping;
+  /**
+   * The owner's per-row choices, or null on the FIRST preview call.
+   *
+   * Null means "you decide": the server computes the domain defaults and returns
+   * them. A non-null set is re-validated against freshly derived rows before it
+   * is bound into the token — a signature proves a decision was not altered, not
+   * that it was ever legitimate.
+   */
+  decisions?: RowDecisions | null;
 };
 
-export type PreviewRow = {
-  rowNumber: number;
-  status: "READY" | "WARNING" | "ERROR";
-  errors: { field: string; reason: string; original: string }[];
-  /** Only values Dubiz would CHANGE — the rest is noise in a preview. */
-  changes: { field: string; original: string; normalized: string }[];
-  duplicates: DuplicateEvidence[];
-};
+export type PreviewRow = DerivedRow;
 
 export type PreviewSummary = {
   totalRows: number;
@@ -165,6 +176,18 @@ export type PreviewResult =
       /** A bounded window; the summary counts are always complete. */
       rows: PreviewRow[];
       rowsTruncated: boolean;
+      /** Server-resolved action for EVERY row, defaults included. */
+      decisions: RowDecisions;
+      /** Rows the owner is allowed to switch to CREATE against the default. */
+      overridableRows: number[];
+      /**
+       * Records OTHER than the imported ones that confirming will create.
+       *
+       * Present for Leads only, where the canonical service resolves-or-creates
+       * a Customer per lead. Disclosed here because the owner is approving that
+       * consequence too, whether or not they were told about it.
+       */
+      sideEffects?: LeadSideEffects;
       previewToken: string;
       expiresAt: string;
     }
@@ -174,103 +197,71 @@ export type PreviewResult =
       message: string;
       availableSheets?: string[];
       mappingProblems?: MappingProblem[];
+      decisionProblems?: DecisionProblem[];
     };
 
 /**
  * Step 2 — the full dry run.
  *
- * Everything trusted is recomputed from the bytes. The mapping is re-validated
- * against the domain even though analyze already proposed one, because the
- * owner edited it in between and the edit arrived from the client.
+ * Everything trusted is recomputed from the bytes, through the same derivation
+ * execute will use. What the owner approves here is exactly what runs there.
  */
 export async function buildImportPreview(
   input: PreviewInput
 ): Promise<PreviewResult> {
-  const source = await readImportSource({
+  const derived = await deriveImportRows({
+    businessId: input.businessId,
+    domainId: input.domainId,
     filename: input.filename,
     bytes: input.bytes,
     sheetName: input.sheetName ?? null,
-  });
-  if (!source.ok) {
-    return {
-      ok: false,
-      code: source.code,
-      message: source.message,
-      availableSheets: source.availableSheets,
-    };
-  }
-
-  const descriptor = getExportDescriptor(input.domainId);
-
-  const mappingProblems = validateMapping({
-    fields: descriptor.columns,
-    headerCount: source.table.headers.length,
     mapping: input.mapping,
   });
-  if (mappingProblems.length > 0) {
-    return {
-      ok: false,
-      code: "MAPPING_INVALID",
-      message: "התאמת העמודות אינה שלמה",
-      mappingProblems,
-    };
+  if (!derived.ok) return derived;
+
+  const submitted = input.decisions ?? null;
+  if (submitted) {
+    const decisionProblems = validateDecisions({
+      domainId: input.domainId,
+      rows: derived.rows,
+      decisions: submitted,
+    });
+    if (decisionProblems.length > 0) {
+      return {
+        ok: false,
+        code: "DECISIONS_INVALID",
+        message: "אחת הבחירות אינה אפשרית עבור השורה שלה",
+        decisionProblems,
+      };
+    }
   }
 
-  const validated: ValidatedRow[] = validateRows({
-    domainId: input.domainId,
-    fields: descriptor.columns,
-    mapping: input.mapping,
-    rows: source.table.rows,
-  });
+  const decisions = resolveDecisions(input.domainId, derived.rows, submitted);
+  const eligible = inFileEligibleRows(derived.rows);
+  const overridableRows = derived.rows
+    .filter(
+      (row) =>
+        decisions[row.rowNumber] === "SKIP" &&
+        mayOverrideToCreate(input.domainId, row, eligible)
+    )
+    .map((row) => row.rowNumber);
 
-  // Duplicates: in-file is pure; existing is a tenant-scoped READ.
-  const inFile = detectInFileDuplicates(input.domainId, validated);
-  const existing = await detectExistingMatches(
-    input.businessId,
-    input.domainId,
-    validated
-  );
-  const duplicates = mergeDuplicates(inFile, existing);
-
-  let ready = 0;
-  let warning = 0;
-  let error = 0;
-  let withDuplicates = 0;
-
-  const rows: PreviewRow[] = validated.map((row) => {
-    const evidence = duplicates.get(row.rowNumber) ?? [];
-    // A duplicate never rescues an ERROR row, and never silently passes as
-    // READY: it is exactly the case that needs the owner's attention.
-    const status =
-      row.status === "ERROR"
-        ? "ERROR"
-        : evidence.length > 0
-          ? "WARNING"
-          : "READY";
-
-    if (status === "ERROR") error += 1;
-    else if (status === "WARNING") warning += 1;
-    else ready += 1;
-    if (evidence.length > 0) withDuplicates += 1;
-
-    return {
-      rowNumber: row.rowNumber,
-      status,
-      errors: row.errors,
-      changes: row.values
-        .filter((v) => v.changed)
-        .map((v) => ({
-          field: v.field,
-          original: v.original,
-          normalized: v.normalized,
-        })),
-      duplicates: evidence,
-    };
-  });
+  // Only the rows that will actually run — a SKIPPED row creates nothing, and
+  // counting it would overstate what confirming does.
+  const sideEffects =
+    input.domainId === "leads"
+      ? await projectLeadSideEffects(
+          input.businessId,
+          derived.rows
+            .filter((row) => decisions[row.rowNumber] === "CREATE")
+            .map((row) => derived.validated.get(row.rowNumber))
+            .filter((row): row is NonNullable<typeof row> => row != null)
+        )
+      : undefined;
 
   // Issues first: an owner opening a preview wants the problems, not row 1.
   const rank = { ERROR: 0, WARNING: 1, READY: 2 } as const;
-  const window = [...rows]
+  const window = [...derived.rows]
     .sort((a, b) => rank[a.status] - rank[b.status] || a.rowNumber - b.rowNumber)
     .slice(0, IMPORT_PREVIEW_ROW_WINDOW);
 
@@ -282,24 +273,22 @@ export async function buildImportPreview(
       domain: input.domainId,
       contentHash: sha256Hex(input.bytes),
       mappingHash: sha256Hex(canonicalizeMapping(input.mapping)),
-      sheetName: source.sheetName,
-      rowCount: validated.length,
+      decisionsHash: decisionsHashOf(decisions),
+      sheetName: derived.sheetName,
+      rowCount: derived.counts.totalRows,
     },
     issuedAt
   );
 
   return {
     ok: true,
-    sheetName: source.sheetName,
-    summary: {
-      totalRows: validated.length,
-      ready,
-      warning,
-      error,
-      withDuplicates,
-    },
+    sheetName: derived.sheetName,
+    summary: derived.counts,
     rows: window,
-    rowsTruncated: rows.length > window.length,
+    rowsTruncated: derived.rows.length > window.length,
+    decisions,
+    overridableRows,
+    ...(sideEffects ? { sideEffects } : {}),
     previewToken,
     expiresAt: new Date(
       issuedAt.getTime() + IMPORT_PREVIEW_TTL_SECONDS * 1000

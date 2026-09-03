@@ -24,7 +24,8 @@ export type BucketName =
   | "DOCUMENT_PROCESSING"
   | "DOCUMENTS_API"
   | "WHATSAPP_INTAKE"
-  | "CRM_ATTACHMENT_UPLOAD";
+  | "CRM_ATTACHMENT_UPLOAD"
+  | "DATA_TRANSFER_IMPORT_EXECUTE";
 
 export type BucketConfig = {
   failMode: FailMode;
