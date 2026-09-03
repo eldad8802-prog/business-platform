@@ -13,6 +13,7 @@ import {
   addCalendarDays,
   dayKeyIsBefore,
   dayKeyToStableInstant,
+  jerusalemHour,
   daysBetweenDayKeys,
   jerusalemDayKey,
 } from "@/lib/utils/jerusalem-day";
@@ -149,6 +150,34 @@ function main() {
     swept += 1;
   }
   eq("swept every day of 2026", swept, 365);
+
+  /* --------------------------------------------------------- hour of day -- */
+
+  // Israel is UTC+2 in winter and UTC+3 in summer, so the same UTC hour is a
+  // different wall-clock hour depending on the season. A quiet-hours rule built
+  // on the server clock would be wrong for half the year.
+  eq("summer: 09:00Z is 12:00 in Israel", jerusalemHour(new Date("2026-06-15T09:00:00Z")), 12);
+  eq("winter: 09:00Z is 11:00 in Israel", jerusalemHour(new Date("2026-01-15T09:00:00Z")), 11);
+
+  // Midnight must be 0, never 24. Some locales render h24 by default, which
+  // would silently break every `hour < 7` comparison.
+  eq("summer midnight is 0", jerusalemHour(new Date("2026-06-14T21:00:00Z")), 0);
+  eq("winter midnight is 0", jerusalemHour(new Date("2026-01-14T22:00:00Z")), 0);
+  eq("23:00 Israel reads as 23", jerusalemHour(new Date("2026-06-15T20:00:00Z")), 23);
+
+  // Across the spring change the offset shifts; the wall-clock hour must follow
+  // the offset rather than the UTC clock.
+  eq("before the spring change: 07:00Z is 09", jerusalemHour(new Date("2026-03-20T07:00:00Z")), 9);
+  eq("after the spring change: 07:00Z is 10", jerusalemHour(new Date("2026-04-19T07:00:00Z")), 10);
+
+  {
+    let allInRange = true;
+    for (let h = 0; h < 24; h += 1) {
+      const v = jerusalemHour(new Date(Date.UTC(2026, 5, 15, h, 30)));
+      if (!Number.isInteger(v) || v < 0 || v > 23) allInRange = false;
+    }
+    ok("every hour of a day maps into 0..23", allInRange);
+  }
 
   console.log(`jerusalem-day.verify.test.ts: ok (${checks} checks)`);
 }

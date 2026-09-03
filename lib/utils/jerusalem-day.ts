@@ -100,6 +100,28 @@ export function dayKeyToStableInstant(key: JerusalemDayKey): Date {
   return new Date(dayKeyOrdinal(key) + 12 * 60 * 60 * 1000);
 }
 
+/**
+ * The hour of day (0–23) as read in Israel.
+ *
+ * Lives here rather than in the module that needs it, for the same reason the
+ * day key does: there must be exactly one place that knows how to convert an
+ * instant into Israeli wall-clock time. A second implementation would be a
+ * second chance to get DST wrong.
+ *
+ * `hourCycle: "h23"` is explicit because the default for some locales is h24,
+ * which renders midnight as "24" and would silently break any comparison
+ * against 0.
+ */
+const HOUR_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  timeZone: ISRAEL_TIME_ZONE,
+  hour: "2-digit",
+  hourCycle: "h23",
+});
+
+export function jerusalemHour(instant: Date): number {
+  return Number(HOUR_FORMATTER.format(instant));
+}
+
 /** Is `a` strictly before `b` on the calendar? */
 export function dayKeyIsBefore(
   a: JerusalemDayKey,
