@@ -1,0 +1,216 @@
+name: release-deploy
+
+# Gated production release for the BTRL pilot.
+#
+# WHY THIS EXISTS
+#
+# Vercel's Ignored Build Step can refuse a build, but only after Vercel has
+# already created the Deployment object — the refusal is a deployment that
+# exists and was cancelled. To make an unsafe release produce NO deployment at
+# all, the decision has to happen before anything asks Vercel to deploy. So
+# business-platform-btrl is deliberately disconnected from Git, and this
+# workflow is the only thing that can deploy it.
+#
+# The migration decision is not reimplemented here: scripts/ci/release-guard.mjs
+# supplies evaluate()/verifyRun()/fetchAttestation(), the same functions the
+# Vercel-side guard uses. This workflow adds the two things that can only be
+# checked at the deployment boundary — that the workspace really is the commit
+# we mean to ship, and that the commit is still the head of main at the moment
+# we ship it.
+#
+# ORDER IS THE CONTRACT (enforced in release-deploy-gate.mjs):
+#   checkout == TARGET_SHA -> required migrations from that tree -> authentic
+#   attestation -> SAFE -> fresh origin/main == TARGET_SHA -> only then deploy.
+# BLOCKED, CANNOT_VERIFY and STALE_RELEASE all end the run with zero deployments.
+#
+# SCOPE: business-platform-btrl ONLY. The primary project is untouched and stays
+# Git-connected; its Preview and Production flows are unaffected by this file.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Existing main commit SHA to release (same-SHA resume). Defaults to current main.'
+        required: false
+        type: string
+
+# Serialise runs so two releases cannot interleave. This reduces races; it is
+# NOT the stale-release protection — that is the fresh origin/main comparison
+# immediately before deploying, which holds even if concurrency is misconfigured.
+concurrency:
+  group: release-deploy-btrl
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # The gate reads the attestation artifact and the metadata of the run that
+  # produced it (/actions/artifacts, /actions/runs). Without actions:read those
+  # calls 403 and the gate correctly refuses with CANNOT_VERIFY — fail-closed,
+  # but for the wrong reason, and every release would stall.
+  actions: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Scopes the Vercel credentials to this job. The environment also gives the
+    # owner a place to require review before a production release.
+    environment: 'Production – business-platform-btrl'
+    steps:
+      - name: Resolve TARGET_SHA
+        id: target
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_SHA:-}" ]; then
+            TARGET="$INPUT_SHA"
+            echo "target from workflow_dispatch input: $TARGET"
+          else
+            TARGET="$EVENT_SHA"
+            echo "target from event: $TARGET"
+          fi
+          if ! printf '%s' "$TARGET" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "TARGET_SHA must be a full 40-character commit sha, got: $TARGET" >&2
+            exit 1
+          fi
+          echo "sha=$TARGET" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the exact TARGET_SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.target.outputs.sha }}
+          # Full history so origin/main can be re-read later in the run.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove the workspace IS TARGET_SHA
+        env:
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          set -euo pipefail
+          HEAD_SHA="$(git rev-parse HEAD)"
+          echo "checkout=$HEAD_SHA target=$TARGET_SHA"
+          [ "$HEAD_SHA" = "$TARGET_SHA" ] || { echo "workspace is not TARGET_SHA" >&2; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The whole decision. Exits non-zero on BLOCKED / CANNOT_VERIFY /
+      # STALE_RELEASE / checkout mismatch, so no later step can run.
+      - name: Release gate (attestation + migrations + freshness)
+        id: gate
+        env:
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+          RELEASE_GUARD_REPO: ${{ github.repository }}
+          RELEASE_GUARD_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/ci/release-deploy-gate.mjs
+
+      # Proves the credentials point at the pilot BEFORE anything is deployed.
+      # Read-only: one GET, no deployment object is created.
+      - name: Prove the deploy target is business-platform-btrl
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          NAME="$(curl -sS --fail \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).name??"")}catch{console.log("")}})')"
+          echo "credentials resolve to project: $NAME"
+          if [ "$NAME" != "business-platform-btrl" ]; then
+            echo "REFUSING TO DEPLOY — credentials resolve to '$NAME', not business-platform-btrl" >&2
+            exit 1
+          fi
+
+      - name: Install Vercel CLI
+        run: npm i -g vercel@54
+
+      # Explicit deployment. --project is passed as well as the env vars so the
+      # target is stated twice and cannot silently fall back to a linked project.
+      # --meta carries provenance: after the Git disconnect Vercel has no commit
+      # metadata of its own, so we supply it.
+      - name: Explicit production deploy to BTRL
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          set -euo pipefail
+          URL="$(vercel deploy --prod --yes \
+            --token "$VERCEL_TOKEN" \
+            --project "$VERCEL_PROJECT_ID" \
+            --meta releaseTargetSha="$TARGET_SHA" \
+            --meta releaseWorkflowRunId="${GITHUB_RUN_ID}" \
+            --meta releaseWorkflowRunAttempt="${GITHUB_RUN_ATTEMPT}" \
+            --meta releaseRepository="${GITHUB_REPOSITORY}" \
+            --meta releaseGateOutcome="${{ steps.gate.outputs.outcome }}" \
+            --meta releaseAttestationRun="${{ steps.gate.outputs.attestation_run }}")"
+          echo "deployment url: $URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      # Provenance: read the deployment back and prove which commit it carries.
+      - name: Prove deployed SHA provenance
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          HOST="${URL#https://}"
+          curl -sS --fail \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/${HOST}?teamId=$VERCEL_ORG_ID" \
+            > deployment.json
+          node -e '
+            const d = require("./deployment.json");
+            const meta = d.meta ?? {};
+            const target = process.env.TARGET_SHA;
+            const out = {
+              deploymentId: d.id ?? d.uid,
+              target: d.target,
+              state: d.readyState ?? d.status,
+              createdAt: new Date(d.createdAt ?? d.created).toISOString(),
+              project: d.name,
+              releaseTargetSha: meta.releaseTargetSha ?? null,
+              releaseWorkflowRunId: meta.releaseWorkflowRunId ?? null,
+              gitCommitSha: meta.githubCommitSha ?? null,
+            };
+            console.log(JSON.stringify(out, null, 2));
+            if (out.releaseTargetSha !== target) {
+              console.error(`PROVENANCE MISMATCH: deployment carries ${out.releaseTargetSha}, expected ${target}`);
+              process.exit(1);
+            }
+            if (out.project !== "business-platform-btrl") {
+              console.error(`WRONG PROJECT: ${out.project}`);
+              process.exit(1);
+            }
+          '
+
+      - name: Job summary
+        if: always()
+        env:
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          {
+            echo "## release-deploy (business-platform-btrl)"
+            echo ""
+            echo "- Target SHA: \`${TARGET_SHA}\`"
+            echo "- Gate outcome: \`${{ steps.gate.outputs.outcome }}\`"
+            echo "- Gate detail: ${{ steps.gate.outputs.detail }}"
+            echo "- Deployment: ${{ steps.deploy.outputs.url || '(none created)' }}"
+            echo ""
+            echo "A non-SAFE gate ends the run before any deployment is created."
+          } >> "$GITHUB_STEP_SUMMARY"
