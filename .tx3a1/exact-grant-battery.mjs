@@ -301,6 +301,40 @@ async function main() {
       String(e?.message ?? "").slice(0, 120));
   }
 
+  // ---- 11. NEGATIVE PROOF: why the membership rule is load-bearing ---------
+  //
+  // The claim "app_runtime_prod must never be a member of app_admin" has so far been
+  // an argument from PostgreSQL semantics. Measure it instead: grant the membership,
+  // watch the cross-tenant admin read appear, then take it away again. If this ever
+  // stops reproducing, the membership rule has stopped mattering and the reasoning
+  // behind the future role design needs revisiting.
+  console.log("== 11. negative proof: app_admin membership grants cross-tenant read ==");
+  const beforeGrant = await withTenant(A.id, (tx) => tx.conversation.findMany({ where: { businessId: B.id } }));
+  ok("baseline: A cannot see B's conversations", beforeGrant.length === 0);
+
+  await owner.$executeRawUnsafe(`GRANT SELECT ON "Conversation" TO app_admin`);
+  await owner.$executeRawUnsafe(`GRANT app_admin TO ${RT_ROLE}`);
+  const leaky = new PrismaClient({ datasourceUrl: roleUrl(ownerUrl, RT_ROLE, RT_PW) });
+  const withLeak = (bid, fn) =>
+    leaky.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(bid)}, true)`;
+      return fn(tx);
+    });
+  const afterGrant = await withLeak(A.id, (tx) => tx.conversation.findMany({ where: { businessId: B.id } }));
+  ok("WITH app_admin membership the runtime CAN read another tenant (p7adm_read applies to members)",
+    afterGrant.length >= 1, `saw ${afterGrant.length}`);
+  await leaky.$disconnect();
+
+  await owner.$executeRawUnsafe(`REVOKE app_admin FROM ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`REVOKE SELECT ON "Conversation" FROM app_admin`);
+  const restored = new PrismaClient({ datasourceUrl: roleUrl(ownerUrl, RT_ROLE, RT_PW) });
+  const afterRevoke = await restored.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT set_config('app.current_business_id', ${String(A.id)}, true)`;
+    return tx.conversation.findMany({ where: { businessId: B.id } });
+  });
+  ok("membership revoked: the cross-tenant read is gone again", afterRevoke.length === 0);
+  await restored.$disconnect();
+
   // ---- cleanup ---------------------------------------------------------------
   await rt.$disconnect();
   await owner.$executeRawUnsafe(`DELETE FROM "User" WHERE email LIKE '%@tx3a1.test'`);
