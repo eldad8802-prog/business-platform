@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
 
 type Tx = Prisma.TransactionClient;
@@ -79,7 +80,7 @@ export async function createPendingMatch(
   if (options?.tx) {
     return run(options.tx);
   }
-  return prisma.$transaction(run);
+  return tenantTx(businessId, run);
 }
 
 export async function getOpenPendingMatches(
@@ -240,7 +241,7 @@ export async function resolvePendingMatchWithExistingItem(
   if (options?.tx) {
     return run(options.tx);
   }
-  return prisma.$transaction(run);
+  return tenantTx(businessId, run);
 }
 
 type ResolveWithNewItemInput = {
@@ -357,5 +358,5 @@ export async function rejectPendingMatch(
   if (options?.tx) {
     return run(options.tx);
   }
-  return prisma.$transaction(run);
+  return tenantTx(businessId, run);
 }

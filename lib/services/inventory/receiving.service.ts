@@ -7,6 +7,7 @@ import {
   ReceivingSessionStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
 import {
   InventoryNotFoundError,
@@ -328,7 +329,7 @@ export const receivingService = {
     };
 
     if (options?.tx) return run(options.tx);
-    return prisma.$transaction(run, TRANSACTION_OPTIONS);
+    return tenantTx(input.businessId, run, { timeoutMs: TRANSACTION_OPTIONS.timeout });
   },
 
   async listReceivingSessions(input: ListReceivingSessionsInput, options?: TxOptions) {
@@ -508,6 +509,6 @@ export const receivingService = {
     };
 
     if (options?.tx) return run(options.tx);
-    return prisma.$transaction(run, TRANSACTION_OPTIONS);
+    return tenantTx(input.businessId, run, { timeoutMs: TRANSACTION_OPTIONS.timeout });
   },
 };

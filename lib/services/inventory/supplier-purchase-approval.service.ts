@@ -5,6 +5,8 @@ import {
   SupplierPurchaseDraftStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
+import type { TenantTx } from "@/lib/tenant/transaction";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
 import { purchaseOrderService } from "@/lib/services/inventory/purchase-order.service";
 import { receivingService } from "@/lib/services/inventory/receiving.service";
@@ -34,7 +36,10 @@ type ApproveSupplierPurchaseInput = {
 
 const APPROVAL_TRANSACTION_OPTIONS = { timeout: 30_000 };
 
-type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+// The canonical tenant transaction client type. Previously derived from
+// `typeof prisma.$transaction`, which made this file textually indistinguishable
+// from a real bare transaction; the canonical alias says what it means.
+type Tx = TenantTx;
 type TxOptions = { tx?: Tx };
 
 export async function approveSupplierPurchase(
@@ -268,5 +273,5 @@ export async function approveSupplierPurchase(
   if (options?.tx) {
     return run(options.tx);
   }
-  return prisma.$transaction(run, APPROVAL_TRANSACTION_OPTIONS);
+  return tenantTx(businessId, run, { timeoutMs: APPROVAL_TRANSACTION_OPTIONS.timeout });
 }

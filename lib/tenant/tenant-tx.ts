@@ -35,12 +35,21 @@ export type TenantTxClient = Prisma.TransactionClient;
  */
 export function tenantTx<T>(
   businessId: number,
-  fn: (tx: TenantTxClient) => Promise<T>
+  fn: (tx: TenantTxClient) => Promise<T>,
+  options?: {
+    /**
+     * Interactive-transaction timeout override (ms). Some tenant work legitimately
+     * runs long — a purchase-order or receiving transaction touches several tables
+     * — and those callers already carried an explicit timeout before they were
+     * contextualised. Passing it through means adding the GUC costs them nothing.
+     */
+    timeoutMs?: number;
+  }
 ): Promise<T> {
   if (!Number.isInteger(businessId) || businessId <= 0) {
     // Fail loud. A tenant transaction with no trusted tenant must never run:
     // falling back to a context-less transaction is the defect this removes.
     throw new Error("tenantTx: a positive, server-derived businessId is required");
   }
-  return runWithTenantContext({ businessId }, () => withTenantTransaction(fn));
+  return runWithTenantContext({ businessId }, () => withTenantTransaction(fn, options));
 }

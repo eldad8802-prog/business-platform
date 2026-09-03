@@ -43,35 +43,57 @@ TENANT_TREES="app lib features components"
 #                         ADMIN_DATABASE_URL exist for).
 ALLOW_GLOBAL_PILOT="lib/services/platform-admin/"
 
-# Files that still open a bare `prisma.$transaction` on tenant-owned tables that
-# EARLIER waves already put under RLS (inventory/W3, coupons, content). They are a
-# pre-existing gap that this wave did not create and does not close — its scope is
-# the five pilot tables. Recorded explicitly so the set cannot GROW.
+# CLASSIFIED bare-transaction register.
 #
-# ONE entry below is NOT that category and must not be read as a gap:
+# CUTOVER-3A repaired every TENANT-SENSITIVE entry, so this list no longer contains a
+# single "legacy exception". Each remaining line must carry one of four
+# classifications, and the guard REFUSES an entry without one — a file cannot be
+# parked here just because it predates a wave.
 #
-#   lib/auth/signup.ts — account creation. It writes Business and User, which NO
-#   migration in this repository has ever put under RLS, and it is the act that
-#   BRINGS A TENANT INTO EXISTENCE. A tenant-scoped transaction is not merely
-#   unused here, it is impossible: there is no businessId to scope to until this
-#   transaction commits one. Wrapping it in tenant context would mean inventing
-#   an id before the row exists. Bare by necessity, not by omission — and
-#   reachable only from the gated registration route, which
-#   lib/auth/signup-gate-coverage.test.ts pins.
-KNOWN_BARE_TX="lib/services/inventory/inventory.service.ts
-lib/services/inventory/pending-match.service.ts
-lib/services/inventory/purchase-order.service.ts
-lib/services/inventory/receiving.service.ts
-lib/services/inventory/supplier-purchase-approval.service.ts
-lib/services/content-plan-persistence-v1.service.ts
-lib/services/redeem.service.ts
-lib/services/revenue/publish-coupon.service.ts
-lib/services/platform-admin/update-business-feature-access.service.ts
-lib/services/account/account-deletion.prisma-store.ts
-lib/services/payments/payments.deps.ts
-lib/tenant/transaction.ts
-lib/services/billing/billing-tenant-tx.ts
-lib/auth/signup.ts"
+#   BOOTSTRAP        runs before a tenant exists, so no tenant GUC is possible
+#   ADMIN            deliberate privileged/erasure boundary, not normal runtime
+#   CONTROL_PLANE    control-plane capability with its own credential and guard
+#   GLOBAL_NON_TENANT touches no table under tenant RLS, or is inherently multi-tenant
+#   CANONICAL        the tenant-transaction substrate itself
+#
+# Format: "<path>|<CLASSIFICATION>". Anything else fails CI-TC-7b.
+KNOWN_BARE_TX_CLASSIFIED="lib/auth/signup.ts|BOOTSTRAP
+lib/services/account/account-deletion.prisma-store.ts|ADMIN
+lib/services/platform-admin/update-business-feature-access.service.ts|CONTROL_PLANE
+lib/services/redeem.service.ts|GLOBAL_NON_TENANT
+lib/services/revenue/publish-coupon.service.ts|GLOBAL_NON_TENANT
+lib/services/payments/payments.deps.ts|CANONICAL
+lib/services/billing/billing-tenant-tx.ts|CANONICAL
+lib/services/inventory/supplier-purchase-approval.service.ts|CANONICAL
+lib/tenant/transaction.ts|CANONICAL"
+
+# Why each non-obvious one is what it claims to be:
+#
+#   lib/auth/signup.ts — BOOTSTRAP. It writes Business and User, neither of which any
+#   migration has ever put under RLS, and it is the act that BRINGS A TENANT INTO
+#   EXISTENCE. A tenant-scoped transaction is not merely unused here, it is
+#   impossible: there is no businessId to scope to until this transaction commits
+#   one. Reachable only from the gated registration route.
+#
+#   account-deletion.prisma-store.ts — ADMIN. The erasure boundary, designed in AD-2A:
+#   quarantine commits BEFORE the destructive purge, and the purge itself already runs
+#   through runTenantJob + withTenantTransaction. The bare outer transactions are the
+#   lifecycle transitions, which act ON a quarantined tenant.
+#
+#   redeem.service.ts / publish-coupon.service.ts — GLOBAL_NON_TENANT. Coupon carries
+#   `issuingBusinessId` and RedemptionEvent carries BOTH `issuingBusinessId` and
+#   `redeemingBusinessId`: a redemption is inherently a TWO-tenant row (A issues, B
+#   redeems). Neither table is under RLS, and a single-tenant `businessId = GUC`
+#   predicate cannot express that ownership without being wrong. Marketplace policy is
+#   its own separate wave — forcing tenant context here would be a bug, not a fix.
+#
+#   payments.deps.ts / billing-tenant-tx.ts / supplier-purchase-approval.service.ts —
+#   CANONICAL. These match only in a COMMENT or a TYPE position, not in a real
+#   transaction; they are listed so the textual guard stays honest about them.
+#
+# Derived plain list, for the membership check.
+KNOWN_BARE_TX="$(printf '%s
+' "$KNOWN_BARE_TX_CLASSIFIED" | sed 's/|.*//')"
 
 run_checks() {
 echo "== CI-TC: tenant context closure =="
@@ -117,6 +139,46 @@ for f in $found; do
   esac
 done
 ok "CI-TC-7  no NEW bare prisma.\$transaction outside the recorded set" "$([ -z "$unknown" ] && echo 1 || echo 0)" "$unknown"
+
+# --- 7b. every register entry must carry a real classification -------------
+# The point of CUTOVER-3A was to end "legacy exception" as a category. An entry
+# without one of the four classifications is exactly the shape that let inventory
+# and content-plan sit unrepaired for two waves, so it fails rather than parks.
+VALID_CLASS="BOOTSTRAP ADMIN CONTROL_PLANE GLOBAL_NON_TENANT CANONICAL"
+unclassified=""
+while IFS= read -r entry; do
+  [ -z "$entry" ] && continue
+  path="${entry%%|*}"
+  class="${entry##*|}"
+  hit=0
+  for c in $VALID_CLASS; do [ "$class" = "$c" ] && hit=1; done
+  [ "$hit" -eq 1 ] || unclassified="$unclassified $path"
+done <<< "$KNOWN_BARE_TX_CLASSIFIED"
+ok "CI-TC-7b every bare-transaction register entry carries a valid classification" \
+   "$([ -z "$unclassified" ] && echo 1 || echo 0)" "$unclassified"
+
+# --- 7c. no tenant-sensitive entry may claim a non-tenant classification ---
+# A file that touches an RLS-protected tenant table cannot be GLOBAL_NON_TENANT.
+# This is the check that would have caught the inventory debt on the day it was
+# parked: those files touch InventoryItem/PurchaseOrder/ContentRun, all FORCE-RLS'd.
+mislabelled=""
+while IFS= read -r entry; do
+  [ -z "$entry" ] && continue
+  path="${entry%%|*}"
+  class="${entry##*|}"
+  [ "$class" = "GLOBAL_NON_TENANT" ] || continue
+  [ -f "$ROOT/$path" ] || continue
+  # models the file writes through a transaction client
+  models="$(grep -oE '\b(tx|db)\.[a-zA-Z]+\.' "$ROOT/$path" 2>/dev/null | sed 's/.*\.\([a-zA-Z]*\)\.$/\1/' | sort -u || true)"
+  for m in $models; do
+    Tbl="$(printf '%s' "$m" | sed 's/^./\U&/')"
+    if grep -rqlE "ALTER TABLE \"$Tbl\" ENABLE ROW LEVEL SECURITY" "$ROOT/prisma/migrations" 2>/dev/null; then
+      mislabelled="$mislabelled $path:$Tbl"
+    fi
+  done
+done <<< "$KNOWN_BARE_TX_CLASSIFIED"
+ok "CI-TC-7c no GLOBAL_NON_TENANT entry actually touches an RLS-protected table" \
+   "$([ -z "$mislabelled" ] && echo 1 || echo 0)" "$mislabelled"
 
 # --- 8. tenant runtime must not reach for the admin or control-plane client -
 adm="$(grep -rn "prisma-admin\|getPrismaAdmin" --include=*.ts "$ROOT/app/api" 2>/dev/null \
@@ -169,6 +231,12 @@ selftest() {
       > "$t/app/api/conversation/route.ts"
     printf 'import { prisma } from "@/lib/prisma";\nexport const t = () => prisma.$transaction(async () => {});\n' \
       > "$t/lib/tenant/transaction.ts"
+    # CI-TC-7c needs a file that genuinely touches an RLS-protected table, plus the
+    # migration that protects it. Without both the check simply skips, and its
+    # negative proof would then pass for the wrong reason.
+    mkdir -p "$t/lib/services/inventory" "$t/prisma/migrations/9999_fixture"
+    printf %s "export const x = (tx: any) => tx.inventoryItem.findMany({});" > "$t/lib/services/inventory/inventory.service.ts"
+    printf %s 'ALTER TABLE "InventoryItem" ENABLE ROW LEVEL SECURITY;' > "$t/prisma/migrations/9999_fixture/migration.sql"
   }
 
   probe() { # probe <label> <expected-failing-check> <mutator>
@@ -221,6 +289,30 @@ selftest() {
     printf 'export const url = "postgres://neondb_owner@host/db";\n' > "$1/lib/ownerfallback.ts"
   }
 
+  # The two register checks read a constant inside THIS script, so their probes must
+  # mutate a COPY of the guard rather than the fixture tree.
+  probe_guard() { # probe_guard <label> <expected-check> <awk-mutator-fn>
+    local label="$1" expect="$2" mut="$3" tmp
+    tmp="$(mktemp -d)"
+    make_fixture "$tmp"
+    mkdir -p "$tmp/scripts/ci"
+    "$mut" "$src/scripts/ci/tenant-context-guard.sh" > "$tmp/scripts/ci/guard.sh"
+    local out; out="$(bash "$tmp/scripts/ci/guard.sh" "$tmp" 2>&1)"
+    local caught=0
+    case "$out" in *"[FAIL] $expect"*) caught=1 ;; esac
+    if [ "$caught" = "1" ]; then sp=$((sp+1)); echo "  [PASS] negative: $label -> $expect fails as designed";
+    else sf=$((sf+1)); echo "  [FAIL] negative: $label -> $expect did NOT fail (guard is decorative)"; fi
+    rm -rf "$tmp"
+  }
+
+  # awk line-EQUALITY, so no path or '|' is ever treated as a regex.
+  g_unclassified() {
+    awk '{ if ($0 == "lib/tenant/transaction.ts|CANONICAL\"") { print "lib/tenant/transaction.ts|CANONICAL"; print "lib/services/some-new-thing.ts\""; } else print }' "$1"
+  }
+  g_mislabelled() {
+    awk '{ if ($0 == "lib/services/redeem.service.ts|GLOBAL_NON_TENANT") print "lib/services/inventory/inventory.service.ts|GLOBAL_NON_TENANT"; else print }' "$1"
+  }
+
   echo ""
   echo "== CI-TC negative self-proofs =="
   probe "a Conversation read reverted to the global client" "CI-TC-1"  m_conv_global
@@ -232,6 +324,11 @@ selftest() {
   probe "a tenant route reaches for the control-plane client" "CI-TC-9" m_ctl_from_tenant
   probe "an ad-hoc PrismaClient is introduced"              "CI-TC-10" m_adhoc_client
   probe "runtime code names the owner role"                 "CI-TC-11" m_owner_role
+
+  # An entry parked in the register with no classification — the exact shape that let
+  # inventory and content-plan sit unrepaired across two waves.
+  probe_guard "a register entry is added with no classification" "CI-TC-7b" g_unclassified
+  probe_guard "a tenant-sensitive file is mislabelled GLOBAL_NON_TENANT" "CI-TC-7c" g_mislabelled
 
   echo ""
   echo "[CI-TC self-test] PASS=$sp FAIL=$sf"
