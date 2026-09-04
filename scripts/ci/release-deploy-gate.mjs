@@ -17,9 +17,9 @@
  * The migration decision itself is NOT reimplemented. `evaluate()`,
  * `verifyRun()`, `fetchAttestation()` and `readRequiredMigrations()` are
  * imported from release-guard.mjs — the same functions the Vercel-side guard
- * uses and the same ones covered by release-guard.self-test.mjs and
- * release-guard.decision-matrix.mjs. This module adds only what the deployment
- * boundary needs and the build-step boundary cannot have:
+ * used, and the same ones covered by release-guard.self-test.mjs. This module
+ * adds only what the deployment boundary needs and the build-step boundary
+ * cannot have:
  *
  *   - the deployed commit is pinned and PROVEN to be what was checked out
  *   - the pinned commit is still the head of main at the moment of deploying
@@ -37,6 +37,29 @@
  * because it is safe, and an unsafe release is not more acceptable because it
  * is current. Both must hold, and neither check is allowed to be skipped by the
  * other failing first.
+ *
+ * TWO PHASES, AND WHY
+ *
+ * Steps 1-4 run as phase `decide`. Step 5 runs as phase `freshness`, inside the
+ * same shell as, and immediately before, the `vercel deploy` command. The split
+ * exists for two reasons that pull in the same direction:
+ *
+ *   - Nothing may sit between the freshness answer and the deployment call.
+ *     Every install, network round-trip or project lookup in that gap is time
+ *     for main to move. So `freshness` is the last thing to run before deploy,
+ *     with no step boundary in between.
+ *   - The migration verdict must not depend on Vercel credentials. `decide`
+ *     runs before anything reads VERCEL_TOKEN, so a BLOCKED release is proven
+ *     with zero Vercel contact — not even a read.
+ *
+ * This narrows the race but does NOT eliminate it: GitHub's ref state and
+ * Vercel's deployment API are two systems with no shared transaction, so there
+ * is no atomic compare-and-swap between "main is still X" and "deploy X". The
+ * residual window is one process boundary. It is not zero, and this file does
+ * not claim it is.
+ *
+ * `decideRelease()` remains the composition of both phases and is the single
+ * canonical statement of the whole decision.
  *
  * Every failure is fail-closed: `proceed` is false unless every gate passed.
  */
@@ -63,6 +86,30 @@ const isSha = (s) => typeof s === "string" && /^[0-9a-f]{40}$/i.test(s);
  * `freshMain`   — origin/main re-read immediately before deploying.
  */
 export function decideRelease({ targetSha, checkoutSha, required, attestation, freshMain }) {
+  const gate = decideMigrationGate({ targetSha, checkoutSha, required, attestation });
+  if (!gate.proceed) return gate;
+
+  const fresh = decideFreshness({ targetSha, freshMain });
+  if (!fresh.proceed) return fresh;
+
+  return {
+    proceed: true,
+    outcome: OUTCOMES.SAFE,
+    detail: `${required.length} required migration(s) applied; ${targetSha.slice(0, 12)} is current origin/main`,
+    ahead: gate.ahead,
+  };
+}
+
+/**
+ * Phase 1 — everything that can be decided without Vercel and without knowing
+ * what main looks like right now: the workspace is the target, and production
+ * has the migrations this commit requires.
+ *
+ * Deliberately credential-free. A BLOCKED verdict here is reached before any
+ * step has read VERCEL_TOKEN, which is what makes "zero Vercel contact on a
+ * block" a property of the ordering rather than a hope.
+ */
+export function decideMigrationGate({ targetSha, checkoutSha, required, attestation }) {
   const stop = (outcome, detail) => ({ proceed: false, outcome, detail });
 
   // A run that cannot even name what it is deploying has nothing to verify.
@@ -92,8 +139,27 @@ export function decideRelease({ targetSha, checkoutSha, required, attestation, f
     return stop(outcome, `${verdict.reason}: ${verdict.detail}`);
   }
 
-  // Safe, but possibly no longer the release anyone wants. A run that started
-  // on X while main has moved to Y must not put X live over Y.
+  return {
+    proceed: true,
+    outcome: OUTCOMES.SAFE,
+    detail: `${required.length} required migration(s) all applied`,
+    ahead: verdict.ahead,
+  };
+}
+
+/**
+ * Phase 2 — the last question, asked as late as possible: is the commit we are
+ * about to put live still the head of main?
+ *
+ * Safe but stale is still refused. A run that started on X while main has moved
+ * to Y must not put X live over Y.
+ */
+export function decideFreshness({ targetSha, freshMain }) {
+  const stop = (outcome, detail) => ({ proceed: false, outcome, detail });
+
+  if (!isSha(targetSha)) {
+    return stop(OUTCOMES.CANNOT_VERIFY, `target SHA is not a full commit sha: ${JSON.stringify(targetSha)}`);
+  }
   if (!isSha(freshMain)) {
     return stop(OUTCOMES.CANNOT_VERIFY, `could not determine origin/main: ${JSON.stringify(freshMain)}`);
   }
@@ -107,8 +173,7 @@ export function decideRelease({ targetSha, checkoutSha, required, attestation, f
   return {
     proceed: true,
     outcome: OUTCOMES.SAFE,
-    detail: `${required.length} required migration(s) applied; ${targetSha.slice(0, 12)} is current origin/main`,
-    ahead: verdict.ahead,
+    detail: `${targetSha.slice(0, 12)} is current origin/main`,
   };
 }
 
@@ -147,6 +212,28 @@ async function main() {
     process.exit(result.proceed ? 0 : 2);
   };
 
+  // `decide` (default) answers the migration question with no Vercel contact.
+  // `freshness` answers only "is the target still main?", and is invoked from
+  // inside the deploy step so nothing can run between the answer and the deploy.
+  const phase = (process.argv[2] ?? "decide").trim();
+  if (phase !== "decide" && phase !== "freshness") {
+    console.error(`release-deploy-gate: unknown phase ${JSON.stringify(phase)} (expected decide|freshness)`);
+    process.exit(2);
+  }
+
+  if (phase === "freshness") {
+    let freshMain = null;
+    try {
+      git("fetch", "origin", "main", "--quiet");
+      freshMain = git("rev-parse", "origin/main");
+    } catch (err) {
+      emit({ proceed: false, outcome: OUTCOMES.CANNOT_VERIFY, detail: `could not fetch origin/main: ${err?.message ?? err}` });
+    }
+    console.log(`release-deploy-gate: fresh origin/main=${freshMain}`);
+    emit(decideFreshness({ targetSha, freshMain }), { fresh_main: String(freshMain) });
+    return;
+  }
+
   const checkoutSha = git("rev-parse", "HEAD");
   const required = readRequiredMigrations(process.cwd());
   console.log(`release-deploy-gate: target=${targetSha} checkout=${checkoutSha} required=${required.length}`);
@@ -166,28 +253,9 @@ async function main() {
     emit({ proceed: false, outcome: OUTCOMES.CANNOT_VERIFY, detail: err?.message ?? String(err) });
   }
 
-  // Re-read main only now, as late as possible before the deployment call.
-  let freshMain = null;
-  try {
-    git("fetch", "origin", "main", "--quiet");
-    freshMain = git("rev-parse", "origin/main");
-  } catch (err) {
-    emit({ proceed: false, outcome: OUTCOMES.CANNOT_VERIFY, detail: `could not fetch origin/main: ${err?.message ?? err}` });
-  }
-  console.log(`release-deploy-gate: fresh origin/main=${freshMain}`);
-
-  const result = decideRelease({
-    targetSha,
-    checkoutSha,
-    required,
-    attestation: fetched.attestation,
-    freshMain,
-  });
-
-  emit(result, {
+  emit(decideMigrationGate({ targetSha, checkoutSha, required, attestation: fetched.attestation }), {
     target_sha: targetSha,
     checkout_sha: checkoutSha,
-    fresh_main: freshMain,
     required_count: String(required.length),
     attestation_run: String(fetched.run.id),
     attestation_generated_at: fetched.attestation.generatedAt,

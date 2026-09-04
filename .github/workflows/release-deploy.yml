@@ -18,10 +18,32 @@ name: release-deploy
 # we mean to ship, and that the commit is still the head of main at the moment
 # we ship it.
 #
-# ORDER IS THE CONTRACT (enforced in release-deploy-gate.mjs):
-#   checkout == TARGET_SHA -> required migrations from that tree -> authentic
-#   attestation -> SAFE -> fresh origin/main == TARGET_SHA -> only then deploy.
-# BLOCKED, CANNOT_VERIFY and STALE_RELEASE all end the run with zero deployments.
+# ORDER IS THE CONTRACT, AND THE ORDER IS DELIBERATE
+#
+#   resolve -> checkout TARGET_SHA -> prove workspace -> node -> npm ci ->
+#   install Vercel CLI -> MIGRATION GATE -> prove project is BTRL ->
+#   [freshness + deploy, same shell] -> prove provenance
+#
+# Two placements in that list carry weight:
+#
+#   1. Everything slow — dependency install, CLI install, the project lookup —
+#      happens BEFORE the freshness check. Every second between "main is still
+#      X" and "deploy X" is time for main to move, so nothing that can be done
+#      earlier is allowed to sit in that gap. The freshness check and the deploy
+#      command are in the SAME step, adjacent, with no step boundary between.
+#
+#   2. The migration gate runs BEFORE the first step that reads VERCEL_TOKEN.
+#      A BLOCKED release therefore makes zero Vercel API calls of any kind, not
+#      even a read. That is a property of the ordering, not an aspiration — and
+#      it is what lets a block be proven before any Vercel credential exists.
+#
+# WHAT THIS DOES NOT CLAIM
+#
+# The race is narrowed to one process boundary, not eliminated. GitHub's ref
+# state and Vercel's deployment API are two systems with no shared transaction,
+# so no atomic compare-and-swap between them is possible. The post-deploy step
+# DETECTS a main that moved during the deploy and fails the run loudly; it
+# cannot prevent it.
 #
 # SCOPE: business-platform-btrl ONLY. The primary project is untouched and stays
 # Git-connected; its Preview and Production flows are unaffected by this file.
@@ -56,7 +78,12 @@ jobs:
     runs-on: ubuntu-latest
     # Scopes the Vercel credentials to this job. The environment also gives the
     # owner a place to require review before a production release.
-    environment: 'Production – business-platform-btrl'
+    #
+    # ASCII only, and deliberately so: an earlier draft used an en-dash in this
+    # name. GitHub creates a referenced environment on demand, so a hyphen typed
+    # where an en-dash was meant produces a DIFFERENT, empty environment, and
+    # every release then fails looking for secrets sitting in the other one.
+    environment: 'production-btrl-release'
     steps:
       - name: Resolve TARGET_SHA
         id: target
@@ -103,15 +130,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # The whole decision. Exits non-zero on BLOCKED / CANNOT_VERIFY /
-      # STALE_RELEASE / checkout mismatch, so no later step can run.
-      - name: Release gate (attestation + migrations + freshness)
+      # Pinned, and installed HERE rather than after the gate: this is the
+      # slowest remaining step, and it must not sit between the freshness check
+      # and the deploy command.
+      - name: Install Vercel CLI (pinned)
+        run: npm i -g vercel@54.9.0
+
+      # The migration decision. Exits non-zero on BLOCKED / CANNOT_VERIFY /
+      # checkout mismatch, so no later step can run. Reads no Vercel credential:
+      # a block here happens with zero Vercel contact.
+      - name: Release gate — migrations and attestation
         id: gate
         env:
           TARGET_SHA: ${{ steps.target.outputs.sha }}
           RELEASE_GUARD_REPO: ${{ github.repository }}
           RELEASE_GUARD_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/ci/release-deploy-gate.mjs
+        run: node scripts/ci/release-deploy-gate.mjs decide
 
       # Proves the credentials point at the pilot BEFORE anything is deployed.
       # Read-only: one GET, no deployment object is created.
@@ -132,14 +166,18 @@ jobs:
             exit 1
           fi
 
-      - name: Install Vercel CLI
-        run: npm i -g vercel@54
-
-      # Explicit deployment. --project is passed as well as the env vars so the
-      # target is stated twice and cannot silently fall back to a linked project.
-      # --meta carries provenance: after the Git disconnect Vercel has no commit
-      # metadata of its own, so we supply it.
-      - name: Explicit production deploy to BTRL
+      # THE LAST TWO ACTIONS OF THE RUN, IN ONE SHELL, IN THIS ORDER.
+      #
+      # Nothing may be inserted between them. The freshness check is the final
+      # automated enforcement that we are not shipping a stale commit, and the
+      # very next command is the deploy. `set -e` means a non-zero freshness
+      # exit ends the step before `vercel deploy` is ever reached.
+      #
+      # --project is passed as well as the env vars so the target is stated
+      # twice and cannot silently fall back to a linked project. --meta carries
+      # provenance: after the Git disconnect Vercel has no commit metadata of
+      # its own, so we supply it.
+      - name: Final freshness check, then immediate production deploy
         id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -148,6 +186,7 @@ jobs:
           TARGET_SHA: ${{ steps.target.outputs.sha }}
         run: |
           set -euo pipefail
+          node scripts/ci/release-deploy-gate.mjs freshness
           URL="$(vercel deploy --prod --yes \
             --token "$VERCEL_TOKEN" \
             --project "$VERCEL_PROJECT_ID" \
@@ -161,7 +200,10 @@ jobs:
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
       # Provenance: read the deployment back and prove which commit it carries.
-      - name: Prove deployed SHA provenance
+      # Also DETECTS the residual race — main moving while the deploy was in
+      # flight. It cannot undo that; it makes it loud and fails the run so that
+      # superseding the release is an explicit act rather than an assumption.
+      - name: Prove deployed SHA provenance and detect main drift
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -186,7 +228,6 @@ jobs:
               project: d.name,
               releaseTargetSha: meta.releaseTargetSha ?? null,
               releaseWorkflowRunId: meta.releaseWorkflowRunId ?? null,
-              gitCommitSha: meta.githubCommitSha ?? null,
             };
             console.log(JSON.stringify(out, null, 2));
             if (out.releaseTargetSha !== target) {
@@ -198,6 +239,15 @@ jobs:
               process.exit(1);
             }
           '
+          git fetch origin main --quiet
+          AFTER="$(git rev-parse origin/main)"
+          if [ "$AFTER" != "$TARGET_SHA" ]; then
+            echo "MAIN DRIFTED DURING DEPLOY: origin/main is now $AFTER, deployed $TARGET_SHA" >&2
+            echo "The deployment is live but is no longer the head of main. Re-run this" >&2
+            echo "workflow against $AFTER to supersede it." >&2
+            exit 1
+          fi
+          echo "origin/main is still $TARGET_SHA — no drift during deploy"
 
       - name: Job summary
         if: always()
@@ -208,8 +258,9 @@ jobs:
             echo "## release-deploy (business-platform-btrl)"
             echo ""
             echo "- Target SHA: \`${TARGET_SHA}\`"
-            echo "- Gate outcome: \`${{ steps.gate.outputs.outcome }}\`"
+            echo "- Migration gate: \`${{ steps.gate.outputs.outcome }}\`"
             echo "- Gate detail: ${{ steps.gate.outputs.detail }}"
+            echo "- Freshness: \`${{ steps.deploy.outputs.outcome || '(not reached)' }}\`"
             echo "- Deployment: ${{ steps.deploy.outputs.url || '(none created)' }}"
             echo ""
             echo "A non-SAFE gate ends the run before any deployment is created."

@@ -9,10 +9,11 @@
  *
  * Run: node scripts/ci/release-deploy-gate.test.mjs
  */
-import { decideRelease, OUTCOMES } from "./release-deploy-gate.mjs";
+import { decideRelease, decideMigrationGate, decideFreshness, OUTCOMES } from "./release-deploy-gate.mjs";
 import { readRequiredMigrations } from "./release-guard.mjs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..");
@@ -159,6 +160,130 @@ console.log("\nTotality — nothing returns proceed by omission");
   ok("T1 every incomplete/hostile input refuses", allRefused);
   ok("T2 an empty required set with a valid attestation is still gated on currency",
      decideRelease({ ...base, required: [], attestation: attestation([]), freshMain: SHA_B }).outcome === OUTCOMES.STALE_RELEASE);
+}
+
+/* ── phase split ────────────────────────────────────────────────────────────
+ *
+ * The workflow runs the decision in two phases so that (a) a block costs zero
+ * Vercel contact and needs no Vercel credential, and (b) nothing sits between
+ * the freshness answer and the deploy command. These prove the split did not
+ * change the decision, and that each phase refuses on its own.
+ */
+console.log("\nPhase split — decide and freshness, composed");
+{
+  // Phase 1 must reach a verdict without ever being told what main looks like.
+  const blockedNoMain = decideMigrationGate({
+    targetSha: SHA_A, checkoutSha: SHA_A,
+    required: REQUIRED, attestation: attestation(REQUIRED.slice(0, -1)),
+  });
+  ok("S1 migration gate blocks without any knowledge of origin/main",
+     blockedNoMain.proceed === false && blockedNoMain.outcome === OUTCOMES.BLOCKED);
+
+  ok("S2 migration gate passes on a fully applied ledger",
+     decideMigrationGate({ targetSha: SHA_A, checkoutSha: SHA_A, required: REQUIRED, attestation: attestation() }).proceed === true);
+
+  ok("S3 migration gate still catches a checkout mismatch",
+     decideMigrationGate({ targetSha: SHA_A, checkoutSha: SHA_B, required: REQUIRED, attestation: attestation() }).outcome === OUTCOMES.SHA_MISMATCH);
+
+  ok("S4 migration gate refuses a malformed attestation",
+     decideMigrationGate({ targetSha: SHA_A, checkoutSha: SHA_A, required: REQUIRED, attestation: {} }).outcome === OUTCOMES.CANNOT_VERIFY);
+
+  ok("S5 migration gate refuses an inflight ledger",
+     decideMigrationGate({ targetSha: SHA_A, checkoutSha: SHA_A, required: REQUIRED, attestation: attestation(APPLIED, { ledger: { applied: APPLIED, inflight: ["x"], rolledBackOnly: [], totalRows: APPLIED.length } }) }).outcome === OUTCOMES.BLOCKED);
+
+  ok("S6 freshness alone accepts the current head", decideFreshness({ targetSha: SHA_A, freshMain: SHA_A }).proceed === true);
+  ok("S7 freshness alone refuses a moved head",
+     decideFreshness({ targetSha: SHA_A, freshMain: SHA_B }).outcome === OUTCOMES.STALE_RELEASE);
+  ok("S8 freshness refuses an unreadable origin/main",
+     decideFreshness({ targetSha: SHA_A, freshMain: null }).outcome === OUTCOMES.CANNOT_VERIFY);
+
+  // Composition equivalence: the two phases together must agree with the
+  // canonical whole-decision function on every combination that matters.
+  const cases = [
+    { name: "safe+current", att: attestation(), fresh: SHA_A },
+    { name: "safe+moved", att: attestation(), fresh: SHA_B },
+    { name: "blocked+current", att: attestation(REQUIRED.slice(0, -1)), fresh: SHA_A },
+    { name: "blocked+moved", att: attestation(REQUIRED.slice(0, -1)), fresh: SHA_B },
+    { name: "malformed+current", att: {}, fresh: SHA_A },
+  ];
+  let agree = true;
+  for (const c of cases) {
+    const whole = decideRelease({ targetSha: SHA_A, checkoutSha: SHA_A, required: REQUIRED, attestation: c.att, freshMain: c.fresh });
+    const g = decideMigrationGate({ targetSha: SHA_A, checkoutSha: SHA_A, required: REQUIRED, attestation: c.att });
+    const composed = !g.proceed ? g : decideFreshness({ targetSha: SHA_A, freshMain: c.fresh });
+    if (whole.outcome !== composed.outcome || whole.proceed !== composed.proceed) agree = false;
+  }
+  ok("S9 phase composition agrees with decideRelease on every combination", agree);
+
+  // The property the whole design rests on: an unsafe migration state is
+  // refused by phase 1, which is the phase that runs before any Vercel step.
+  const unsafeStates = [
+    attestation(REQUIRED.slice(0, -1)),
+    attestation(APPLIED, { ledger: { applied: APPLIED, inflight: ["mid"], rolledBackOnly: [], totalRows: 1 } }),
+    attestation(APPLIED, { attestationVersion: 99 }),
+    attestation(APPLIED, { ledger: null }),
+    null,
+    {},
+  ];
+  ok("S10 every unsafe migration state is refused in the credential-free phase",
+     unsafeStates.every((a) => decideMigrationGate({ targetSha: SHA_A, checkoutSha: SHA_A, required: REQUIRED, attestation: a }).proceed === false));
+}
+
+/* ── workflow ordering ──────────────────────────────────────────────────────
+ *
+ * The pure functions above cannot protect the ordering that gives them their
+ * meaning. These read release-deploy.yml as text and assert the two structural
+ * properties the design depends on. Text, not YAML, so this stays dependency-
+ * free and runnable before `npm ci` if it ever needs to be.
+ */
+console.log("\nWorkflow ordering — the guarantees the pure functions cannot make");
+{
+  const wf = readFileSync(join(REPO_ROOT, ".github", "workflows", "release-deploy.yml"), "utf8");
+  const lines = wf.split("\n");
+  const at = (re) => lines.findIndex((l) => re.test(l));
+
+  const decide = at(/release-deploy-gate\.mjs decide/);
+  const freshness = at(/release-deploy-gate\.mjs freshness/);
+  const deploy = at(/^\s*URL="\$\(vercel deploy/);
+  const firstToken = at(/VERCEL_TOKEN:/);
+
+  ok("W1 the workflow invokes the decide phase", decide > 0);
+  ok("W2 the workflow invokes the freshness phase", freshness > 0);
+  // Comment lines are excluded: prose may discuss the deploy, only one line may
+  // perform it.
+  const executable = lines.filter((l) => !/^\s*#/.test(l));
+  ok("W3 the workflow contains exactly one vercel deploy command",
+     deploy > 0 && executable.filter((l) => /vercel deploy/.test(l)).length === 1);
+
+  // A block must cost zero Vercel contact, so the migration gate has to be
+  // decided before the first step that is even handed a Vercel credential.
+  ok("W4 the migration gate runs before any step reads VERCEL_TOKEN",
+     decide < firstToken, `decide@${decide} firstToken@${firstToken}`);
+
+  // Nothing may sit between the freshness answer and the deploy command.
+  ok("W5 freshness is checked before the deploy command", freshness < deploy);
+
+  const between = lines.slice(freshness + 1, deploy);
+  ok("W6 no step boundary between freshness and deploy",
+     !between.some((l) => /^\s{6}- name:/.test(l) || /^\s{6}- uses:/.test(l)),
+     JSON.stringify(between.filter((l) => l.trim())));
+  ok("W7 nothing at all runs between freshness and deploy",
+     between.every((l) => l.trim() === ""), JSON.stringify(between.filter((l) => l.trim())));
+
+  // Without `set -e` a non-zero freshness exit would be ignored and the very
+  // next line would deploy a stale commit.
+  const stepStart = lines.slice(0, freshness).map((l, i) => (/^\s{6}- name:/.test(l) ? i : -1)).filter((i) => i >= 0).pop();
+  ok("W8 the deploy step aborts on error (set -e) before reaching deploy",
+     lines.slice(stepStart, freshness).some((l) => /set -euo pipefail/.test(l)));
+
+  // A skippable pre-deploy step is a bypass. None of them may carry an `if:`.
+  const deployStepStart = stepStart;
+  ok("W9 no pre-deploy step is conditional",
+     !lines.slice(0, deployStepStart).some((l) => /^\s{8}if:/.test(l)));
+
+  ok("W10 the environment name is pure ASCII",
+     /environment: 'production-btrl-release'/.test(wf) && !/[^\x00-\x7F]/.test(
+       lines[at(/^\s*environment:/)] ?? ""));
 }
 
 console.log(

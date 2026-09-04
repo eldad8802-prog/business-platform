@@ -17,15 +17,15 @@ name: release-ci-verify
 # "report-only" can break every merge, and someone relying on branch protection
 # is trusting a check its own author did not intend to be one.
 #
-# Two-tier reporting still applies WITHIN the job: `validate` and `build` decide
-# pass/fail, while `lint` and `migrate status` are observations that never fail
-# it. That tiering is about which STEPS block — not about whether the overall
-# status blocks. It does.
+# Two-tier reporting still applies WITHIN the job: `validate`, `build` and the
+# release gate tests decide pass/fail, while `lint` and `migrate status` are
+# observations that never fail it. That tiering is about which STEPS block — not
+# about whether the overall status blocks. It does.
 on:
   pull_request: {}
   workflow_dispatch: {}
 
-# Least privilege: read repo contents; write only the non-required commit status.
+# Least privilege: read repo contents; write only the release/verify status.
 permissions:
   contents: read
   statuses: write
@@ -64,6 +64,20 @@ jobs:
           DIRECT_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
         run: npx prisma validate
 
+      # BLOCKING. The release gate decides whether production code ships at all;
+      # if its own tests are broken, nothing downstream of it can be trusted.
+      # These are pure, offline and fast: no database, no network, no Vercel,
+      # no deploy. Both runners exit non-zero on any failure, which is what
+      # makes this a gate rather than a report — and `release/verify` is a
+      # required status on main, so a broken release gate cannot be merged.
+      - name: Release gate tests (self-test + deploy gate)
+        id: gate_tests
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          node scripts/ci/release-guard.self-test.mjs
+          node scripts/ci/release-deploy-gate.test.mjs
+
       - name: Lint (report-only)
         id: lint
         continue-on-error: true
@@ -94,24 +108,26 @@ jobs:
 
       # Two-Tier reporting (uses .outcome — the real result, not the
       # continue-on-error-masked .conclusion):
-      #   Blockers     -> validate, build  (a failure here = failing status)
+      #   Blockers     -> validate, build, gate tests  (a failure = failing status)
       #   Report-only  -> lint, migrate status  (observations; never block)
       - name: Job Summary
         if: always()
         env:
           VALIDATE: ${{ steps.validate.outcome }}
           BUILD: ${{ steps.build.outcome }}
+          GATE_TESTS: ${{ steps.gate_tests.outcome }}
           LINT: ${{ steps.lint.outcome }}
           MIGRATE: ${{ steps.migrate_status.outputs.outcome || 'skipped' }}
         run: |
           {
-            echo "## release/verify (Evidence Producer — non-blocking)"
+            echo "## release/verify (REQUIRED status — blocks merge on main)"
             echo ""
             echo "### Blockers (determine pass/fail)"
             echo "| check | result |"
             echo "| --- | --- |"
             echo "| prisma validate | ${VALIDATE} |"
             echo "| build | ${BUILD} |"
+            echo "| release gate tests | ${GATE_TESTS} |"
             echo ""
             echo "### Report-only observations (never block)"
             echo "| check | result |"
@@ -122,27 +138,32 @@ jobs:
             failed=""
             [ "${VALIDATE}" != "success" ] && failed="${failed} validate"
             [ "${BUILD}" != "success" ] && failed="${failed} build"
+            [ "${GATE_TESTS}" != "success" ] && failed="${failed} gate-tests"
             if [ -n "${failed}" ]; then
               echo "**Failure reason:** blocking checks failed —${failed} (lint is report-only)."
             else
               echo "**Failure reason:** none — all blockers passed (lint is report-only)."
             fi
             echo ""
-            echo "_This check never blocks merge. No DB writes, no migrations, no deploy._"
+            echo "_Required status: a blocker failure blocks merge. No DB writes, no migrations, no deploy._"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Publish non-required commit status (PR only)
+      - name: Publish the release/verify commit status (PR only)
         if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
             // Two-Tier status (.outcome = real result, not continue-on-error-masked
             // .conclusion). Status is determined by BLOCKERS only; lint is report-only.
-            const blockers = { validate: '${{ steps.validate.outcome }}', build: '${{ steps.build.outcome }}' };
+            const blockers = {
+              validate: '${{ steps.validate.outcome }}',
+              build: '${{ steps.build.outcome }}',
+              'gate-tests': '${{ steps.gate_tests.outcome }}',
+            };
             const failed = Object.entries(blockers).filter(([, o]) => o !== 'success').map(([k]) => k);
             const ok = failed.length === 0;
             const description = ok
-              ? 'blockers passed (validate, build); lint report-only (non-blocking)'
+              ? 'blockers passed (validate, build, gate-tests); lint report-only'
               : `blocking checks failed: ${failed.join(', ')} (lint report-only; non-blocking)`;
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
