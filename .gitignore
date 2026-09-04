@@ -135,3 +135,6 @@ id_rsa.*
 # in this repo lives under `docs/` or `public/`, which this rule cannot reach.
 # If a root-level .txt ever needs tracking, add a `!/name.txt` exception below.
 /*.txt
+
+# Import/Export QA scratch (layout + a11y screenshots) — never committed.
+.tmp-import-export/

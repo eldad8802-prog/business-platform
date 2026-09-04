@@ -1,0 +1,72 @@
+name: I-6 import execution ledger (PG17)
+
+# The contract checks in CI-1 are pure and prove POLICY. This job proves
+# BEHAVIOUR against a real PostgreSQL: that a replay creates no second record,
+# that a record and its marker are genuinely atomic, that a failed run stays
+# resumable, and that the ledger is invisible across tenants under FORCE RLS.
+#
+# None of that can be proven without a database, and all of it is exactly what
+# the ledger exists for — so it runs on its own Postgres service container with
+# synthetic fixtures. ZERO Neon, ZERO secrets, ZERO production data.
+
+on:
+  pull_request:
+    paths:
+      - "lib/data-transfer/import/**"
+      - "lib/services/crm/**"
+      - "lib/services/inventory/**"
+      - "app/api/data-transfer/import/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20260903090000_import_run_execution_ledger/**"
+      - "scripts/ci/import-ledger-guard.sh"
+      - ".i6/**"
+      - ".github/workflows/import-ledger-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  battery:
+    name: I-6 battery (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: i6_owner
+          POSTGRES_PASSWORD: i6_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_i6
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U i6_owner -d dubiz_i6"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .i6/battery.mjs
+
+      - name: Ledger guard + negative self-proofs
+        run: |
+          bash scripts/ci/import-ledger-guard.sh .
+          bash scripts/ci/import-ledger-guard.sh --self-test .
+
+      - name: Push schema (lab; migrate-from-zero is a known separate defect)
+        env:
+          DATABASE_URL: postgresql://i6_owner:i6_ci_synthetic_owner_pw@localhost:5432/dubiz_i6
+          DIRECT_URL: postgresql://i6_owner:i6_ci_synthetic_owner_pw@localhost:5432/dubiz_i6
+        run: npx prisma db push --skip-generate
+
+      - name: Run I-6 battery
+        env:
+          DATABASE_URL: postgresql://i6_owner:i6_ci_synthetic_owner_pw@localhost:5432/dubiz_i6
+          DIRECT_URL: postgresql://i6_owner:i6_ci_synthetic_owner_pw@localhost:5432/dubiz_i6
+          AUTH_TOKEN_SECRET: i6_ci_auth_secret_synthetic
+        run: npx tsx .i6/battery.mjs

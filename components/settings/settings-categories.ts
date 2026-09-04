@@ -1,3 +1,5 @@
+import { IMPORT_EXPORT_SETTINGS_CATEGORY } from "./import-export/import-export-release";
+
 export type SettingsCategory = {
   key: string;
   href: string;
@@ -45,4 +47,10 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     description: "מחיקת חשבון והמידע שלך",
     icon: "🔒",
   },
+  // Listed as of I-3, when Export became a real capability. The definition
+  // lives in `import-export/import-export-release.ts` (which imports only the
+  // TYPE from here, so there is no runtime cycle); listing it in THIS array is
+  // the single reviewable act of releasing the feature, and the foundation
+  // verifier fails the build if this row and the release flag ever disagree.
+  IMPORT_EXPORT_SETTINGS_CATEGORY,
 ];

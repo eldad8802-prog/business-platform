@@ -19,7 +19,7 @@
 #   CI-AD-10  the deletion route takes no businessId from the request
 #   CI-AD-11  the integrity scanner is SELECT-only
 #   CI-AD-12  AD-2A adds NO DELETE grant
-#   CI-AD-13  AD-2A adds NO DELETE policy
+#   CI-AD-13  no UNREGISTERED DELETE policy in any migration
 #
 # Not covered mechanically (documented, same limitation as CI-W4): "no external
 # network call inside a tenant interactive transaction". A grep for fetch() inside a
@@ -165,13 +165,40 @@ run_guard() {
     echo "CI-AD-12 FAIL: a DELETE grant on the Conversation graph appeared (AD-2A must add none):"
     echo "$ci12"; fail=1
   fi
+  # CI-AD-13 is a RATCHET, not a ban. A DELETE policy is how a tenant is allowed
+  # to delete its own rows at all, so one appearing unannounced is exactly the
+  # regression AD-2A exists to stop — but a table with a real, named delete
+  # consumer must still be able to have one.
+  #
+  # So the check stays repo-wide and subtracts a REGISTER: every allowed DELETE
+  # policy is named here with its consumer. Anything not on this list still
+  # fails, which is what keeps the ratchet meaningful. Adding a line here is a
+  # deliberate, reviewable act — not an exemption pattern that absorbs whatever
+  # a future migration happens to add.
+  #
+  # Registered:
+  #   p7imp_tenant_delete      ImportRun     retention cleanup + account erasure
+  #   p7imp_row_tenant_delete  ImportRunRow  retention cleanup + account erasure
+  #
+  # Both belong to the Import execution ledger (I-6). Its rows carry no business
+  # data — only ids, digests, enums and timestamps — and it has TWO real delete
+  # consumers: the 30-day cleanup of the retry scaffolding, and erasure, which
+  # must not strand import evidence inside a deleted business. Writing no DELETE
+  # policy would have made the retention policy unimplementable.
+  #
+  # Neither touches the Conversation graph, which CI-AD-12 continues to guard by
+  # name.
+  local AD13_REGISTERED='p7imp_tenant_delete|p7imp_row_tenant_delete'
   local ci13
   ci13="$(
-    grep -rniE 'CREATE POLICY[^;]*FOR DELETE' prisma/migrations 2>/dev/null || true
+    grep -rniE 'CREATE POLICY[^;]*FOR DELETE' prisma/migrations 2>/dev/null \
+      | grep -vE "CREATE POLICY[[:space:]]+($AD13_REGISTERED)[[:space:]]" || true
   )"
   if [ -n "$ci13" ]; then
-    echo "CI-AD-13 FAIL: a DELETE policy appeared in a migration (AD-2A must add none):"
-    echo "$ci13"; fail=1
+    echo "CI-AD-13 FAIL: an UNREGISTERED DELETE policy appeared in a migration:"
+    echo "$ci13"
+    echo "  If it is intended, register it in AD13_REGISTERED with its delete consumer."
+    fail=1
   fi
 
   if [ "$fail" -ne 0 ]; then

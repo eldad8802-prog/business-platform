@@ -59,4 +59,21 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "business", limit: 500, windowSeconds: 24 * 60 * 60 },
     ],
   },
+  // Bulk import execution. The heaviest write path in the product: one accepted
+  // request can create up to 10,000 records. Deliberately the tightest bucket
+  // here, because a real owner imports a file a handful of times, not a hundred
+  // — and fail-CLOSED, since "the limiter is down" must never become "write
+  // without limit".
+  //
+  // A retry after a transient failure resumes the SAME run and re-executes
+  // nothing, so a low limit costs a legitimate owner nothing.
+  DATA_TRANSFER_IMPORT_EXECUTE: {
+    failMode: "closed",
+    rules: [
+      { scope: "user", limit: 5, windowSeconds: 60 },
+      { scope: "user", limit: 40, windowSeconds: 60 * 60 },
+      { scope: "business", limit: 10, windowSeconds: 60 },
+      { scope: "business", limit: 100, windowSeconds: 24 * 60 * 60 },
+    ],
+  },
 };

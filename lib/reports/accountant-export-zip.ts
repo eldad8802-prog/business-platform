@@ -1,4 +1,5 @@
 import archiver from "archiver";
+import { collectArchiveToBuffer } from "@/lib/archive/zip-buffer";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
@@ -19,6 +20,10 @@ import {
 } from "@/lib/services/documents/document-storage.service";
 import { StorageObjectNotFoundError } from "@/lib/storage/storage.errors";
 import { CATEGORY_MAP } from "@/lib/constants/categories";
+import {
+  writeCsvBuffer,
+  writeCsvText,
+} from "@/lib/data-transfer/format/csv-writer";
 
 export type AccountantPackBody = {
   type: "month" | "quarter" | "year";
@@ -89,17 +94,22 @@ const REPORT_COLUMN_HEADERS = [
   "קובץ מקור",
 ] as const;
 
-/** Semicolon — `_meta` CSV for scripts / debug. */
+/**
+ * Semicolon — `_meta` CSV for scripts / debug.
+ *
+ * The BOM / `sep=;` / CRLF / always-quote behaviour first proven here is now
+ * owned by the canonical writer (`lib/data-transfer/format/csv-writer.ts`),
+ * which this file delegates to. The byte layout is unchanged for ordinary data.
+ *
+ * SECURITY (intentional behaviour change): the local `escapeCsvField` that this
+ * replaced quoted every field but did NOT neutralize spreadsheet formulas.
+ * Quoting is a CSV-PARSING rule, not a formula-EVALUATION rule, so an OCR'd
+ * `vendorName` beginning with `=`, `+`, `@`, TAB or CR became executable
+ * content the moment the accountant opened the pack. The canonical writer
+ * prefixes such a value with `'`. Plain numbers are exempt, so every negative
+ * `amount` still exports as a real number.
+ */
 const ACCOUNTANT_CSV_SEP = ";";
-
-const EXCEL_SEPARATOR_DIRECTIVE = "sep=;";
-
-const UTF8_BOM_BYTES = Buffer.from([0xef, 0xbb, 0xbf]);
-
-function escapeCsvField(value: string | number): string {
-  const s = String(value);
-  return `"${s.replace(/"/g, '""')}"`;
-}
 
 export function resolveExportDateRange(body: AccountantPackBody): {
   fromDate: Date | undefined;
@@ -183,44 +193,48 @@ function loadRecordsForExport(
   }));
 }
 
-function buildAccountantCsvText(
-  records: Awaited<ReturnType<typeof loadRecordsForExport>>
-): string {
-  const headerLine = REPORT_COLUMN_HEADERS.map(escapeCsvField).join(
-    ACCOUNTANT_CSV_SEP
+/** Column order matches REPORT_COLUMN_HEADERS exactly. */
+function toAccountantCsvRow(
+  r: Awaited<ReturnType<typeof loadRecordsForExport>>[number]
+): (string | number)[] {
+  const doc = r.document;
+  const ex = doc?.extractedData;
+  const confidence = mapConfidenceHe(
+    ex?.amountConfidence ?? undefined,
+    ex?.confidenceScore ?? undefined
   );
-  const lines: string[] = [EXCEL_SEPARATOR_DIRECTIVE, headerLine];
-
-  for (const r of records) {
-    const doc = r.document;
-    const ex = doc?.extractedData;
-    const confidence = mapConfidenceHe(
-      ex?.amountConfidence ?? undefined,
-      ex?.confidenceScore ?? undefined
-    );
-    const row = [
-      formatDateIl(new Date(r.date)),
-      r.vendorName,
-      categoryLabel(r.category),
-      r.amount,
-      mapDirectionHe(r.direction),
-      mapStatusHe(doc?.status),
-      confidence,
-      sourceFileLabel(doc ?? undefined),
-    ].map(escapeCsvField);
-    lines.push(row.join(ACCOUNTANT_CSV_SEP));
-  }
-
-  return lines.join("\r\n");
+  return [
+    formatDateIl(new Date(r.date)),
+    r.vendorName,
+    categoryLabel(r.category),
+    r.amount,
+    mapDirectionHe(r.direction),
+    mapStatusHe(doc?.status),
+    confidence,
+    sourceFileLabel(doc ?? undefined),
+  ];
 }
 
-function buildAccountantCsvBuffer(
+/** Exported for the deterministic regression proof; not part of the ZIP API. */
+export function buildAccountantCsvText(
+  records: Awaited<ReturnType<typeof loadRecordsForExport>>
+): string {
+  return writeCsvText(REPORT_COLUMN_HEADERS, records.map(toAccountantCsvRow), {
+    delimiter: ACCOUNTANT_CSV_SEP,
+    excelSepDirective: true,
+    eol: "\r\n",
+  });
+}
+
+/** Exported for the deterministic regression proof; not part of the ZIP API. */
+export function buildAccountantCsvBuffer(
   records: Awaited<ReturnType<typeof loadRecordsForExport>>
 ): Buffer {
-  return Buffer.concat([
-    UTF8_BOM_BYTES,
-    Buffer.from(buildAccountantCsvText(records), "utf8"),
-  ]);
+  return writeCsvBuffer(REPORT_COLUMN_HEADERS, records.map(toAccountantCsvRow), {
+    delimiter: ACCOUNTANT_CSV_SEP,
+    excelSepDirective: true,
+    eol: "\r\n",
+  });
 }
 
 const COL_WIDTHS = [14, 28, 16, 12, 12, 14, 22, 36];
@@ -526,41 +540,14 @@ async function mapWithConcurrency<T, R>(
 }
 
 /**
- * Runs `build` against a fresh zip archiver and collects the full output into
- * a Buffer.
- *
- * The output collector is attached BEFORE anything is appended and BEFORE
- * `finalize()` is awaited. `finalize()` only resolves once the underlying
- * zip-stream has flushed to a consumer — awaiting it with no consumer attached
- * deadlocks as soon as the archive outgrows the internal stream buffers
- * (~1MB), which is exactly the historic 504 on real months. Mirrors the proven
- * collect pattern in lib/services/billing/uniform/uniform-export-package.service.ts.
+ * Re-exported from `lib/archive/zip-buffer.ts`, where the implementation now
+ * lives unchanged. It moved because the Import/Export Center needs the same
+ * collector for multi-domain CSV archives, and importing it from THIS module
+ * would have pulled Prisma, object storage and ExcelJS into a path that needs
+ * none of them. Existing callers and tests import it from here and are
+ * unaffected.
  */
-export async function collectArchiveToBuffer(
-  build: (archive: archiver.Archiver) => Promise<void>
-): Promise<Buffer> {
-  const archive = archiver("zip", { zlib: { level: 6 } });
-
-  const chunks: Buffer[] = [];
-  const collected = new Promise<void>((resolve, reject) => {
-    archive.on("data", (chunk: Buffer) => {
-      chunks.push(chunk);
-    });
-    archive.on("warning", (err) => {
-      // ENOENT-style warnings mean a silently incomplete archive — treat as fatal.
-      reject(err);
-    });
-    archive.on("error", reject);
-    archive.on("end", resolve);
-  });
-
-  await build(archive);
-  // Awaited together: if the archive errors while finalize() is in flight, the
-  // rejection must be observed immediately (not after finalize settles).
-  await Promise.all([archive.finalize(), collected]);
-
-  return Buffer.concat(chunks);
-}
+export { collectArchiveToBuffer };
 
 /** Builds the full accountant pack as a single in-memory ZIP Buffer. */
 export async function buildAccountantPackZipBuffer(
