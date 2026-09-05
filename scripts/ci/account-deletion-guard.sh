@@ -19,6 +19,7 @@
 #   CI-AD-10  the deletion route takes no businessId from the request
 #   CI-AD-11  the integrity scanner is SELECT-only
 #   CI-AD-12  AD-2A adds NO DELETE grant
+#   CI-AD-12a auth-boundary floor: no DELETE on "User"/"Business" for app_runtime
 #   CI-AD-13  no UNREGISTERED DELETE policy in any migration
 #
 # Not covered mechanically (documented, same limitation as CI-W4): "no external
@@ -164,6 +165,33 @@ run_guard() {
   if [ -n "$ci12" ]; then
     echo "CI-AD-12 FAIL: a DELETE grant on the Conversation graph appeared (AD-2A must add none):"
     echo "$ci12"; fail=1
+  fi
+
+  # ── 12a: the auth-boundary privilege floor (D2 / AUTH BOUNDARY STEP 1) ─────
+  #
+  # `User` and `Business` carry no RLS and cannot easily carry it: login resolves
+  # a user by email, session validation by id, and signup creates a Business
+  # before a tenant id exists — all before any tenant GUC is set. So on these two
+  # tables the runtime's grants ARE the tenant boundary, and DELETE was the one
+  # privilege with no consumer behind it: nothing in the application deletes a
+  # User or a Business (account deletion quarantines through updateMany). It was
+  # revoked in Production; this stops it coming back.
+  #
+  # Migrations are scanned as well as scripts/security, because a migration is the
+  # path that actually reaches Production — the effective-privilege assertions in
+  # .tx3a1/exact-grant-battery.mjs prove the contract in the lab, but only a
+  # static check can catch a migration that re-grants it before anyone runs one.
+  local ci12a
+  ci12a="$(
+    grep -rniE 'GRANT[^;]*\bDELETE\b[^;]*ON[^;]*"(User|Business)"[^;]*app_runtime' \
+      scripts/security prisma/migrations 2>/dev/null || true
+  )"
+  if [ -n "$ci12a" ]; then
+    echo "CI-AD-12a FAIL: DELETE on an auth-boundary table was granted to app_runtime."
+    echo "  These tables have no RLS, so this hands the runtime the ability to erase"
+    echo "  any tenant's users or businesses. If a real delete consumer now exists,"
+    echo "  that is an architecture decision, not a grant change — raise it first."
+    echo "$ci12a"; fail=1
   fi
   # CI-AD-13 is a RATCHET, not a ban. A DELETE policy is how a tenant is allowed
   # to delete its own rows at all, so one appearing unannounced is exactly the
@@ -428,6 +456,26 @@ JS
   printf 'CREATE POLICY d ON "Conversation" FOR DELETE TO app_runtime USING (true);\n' \
     >> "$T11/prisma/migrations/x/migration.sql"
   check "CI-AD-13 catches a new DELETE policy" FAIL "$T11"
+
+  # CI-AD-12a, proven from both directions. The migration fixture matters most:
+  # a migration is the path that actually reaches Production, so a check that only
+  # scanned scripts/security would pass while the regression shipped.
+  local T12="$BASE/v12"; make_clean_tree "$T12"
+  printf 'GRANT SELECT, INSERT, UPDATE, DELETE ON "User" TO app_runtime;\n' \
+    >> "$T12/prisma/migrations/x/migration.sql"
+  check "CI-AD-12a catches a User DELETE grant in a migration" FAIL "$T12"
+
+  local T13="$BASE/v13"; make_clean_tree "$T13"
+  printf 'GRANT DELETE ON "Business" TO app_runtime;\n' >> "$T13/scripts/security/grants.sql"
+  check "CI-AD-12a catches a Business DELETE grant in scripts/security" FAIL "$T13"
+
+  # The other direction: a SELECT/INSERT/UPDATE grant on the same tables is the
+  # normal, required state and must NOT trip the check. Without this, "fixing" the
+  # guard by revoking everything would look green while breaking login.
+  local T14="$BASE/v14"; make_clean_tree "$T14"
+  printf 'GRANT SELECT, INSERT, UPDATE ON "User" TO app_runtime;\n' \
+    >> "$T14/prisma/migrations/x/migration.sql"
+  check "CI-AD-12a allows the required non-DELETE grants" PASS "$T14"
 
   echo "self-test: ok=$ok bad=$bad"
   [ "$bad" -eq 0 ]
