@@ -1,52 +1,44 @@
 name: release-deploy
 
-# Gated production release for the BTRL pilot.
+# Gated production release for the BTRL pilot: build, then promote.
 #
 # WHY THIS EXISTS
 #
 # Vercel's Ignored Build Step can refuse a build, but only after Vercel has
-# already created the Deployment object — the refusal is a deployment that
-# exists and was cancelled. To make an unsafe release produce NO deployment at
-# all, the decision has to happen before anything asks Vercel to deploy. So
-# business-platform-btrl is deliberately disconnected from Git, and this
-# workflow is the only thing that can deploy it.
+# already created the Deployment object, so a refusal there is a deployment
+# that exists and was cancelled. For an unsafe release to produce NO deployment
+# at all, the decision has to happen before anything asks Vercel to deploy. So
+# business-platform-btrl is disconnected from Git and this workflow is the only
+# thing that may deploy it.
 #
-# The migration decision is not reimplemented here: scripts/ci/release-guard.mjs
-# supplies evaluate()/verifyRun()/fetchAttestation(), the same functions the
-# Vercel-side guard uses. This workflow adds the two things that can only be
-# checked at the deployment boundary — that the workspace really is the commit
-# we mean to ship, and that the commit is still the head of main at the moment
-# we ship it.
+# WHY BUILD AND PROMOTE ARE SEPARATE
 #
-# ORDER IS THE CONTRACT, AND THE ORDER IS DELIBERATE
+# `vercel deploy --prod` goes live the moment it finishes building. The commit
+# is therefore exposed for the WHOLE BUILD, one to three minutes, during which
+# main can move and the now-stale commit still goes live. Splitting the two
+# closes that: `--skip-domain` produces a real production-target deployment
+# that no domain points at, and the release only becomes visible at the
+# `promote` call, which is an alias flip measured in seconds.
 #
-#   resolve -> checkout TARGET_SHA -> prove workspace -> node -> npm ci ->
-#   install Vercel CLI -> MIGRATION GATE -> prove project is BTRL ->
-#   [freshness + deploy, same shell] -> prove provenance
+# `--prod --skip-domain` rather than a preview build, deliberately: a preview
+# deployment is built with PREVIEW environment variables, and promoting it
+# would put a preview-configured artifact into production, because promote does
+# not rebuild. The target is production throughout.
 #
-# Two placements in that list carry weight:
+# WHAT THIS DOES AND DOES NOT CLAIM
 #
-#   1. Everything slow — dependency install, CLI install, the project lookup —
-#      happens BEFORE the freshness check. Every second between "main is still
-#      X" and "deploy X" is time for main to move, so nothing that can be done
-#      earlier is allowed to sit in that gap. The freshness check and the deploy
-#      command are in the SAME step, adjacent, with no step boundary between.
+# There is no shared transaction between GitHub's ref state and Vercel's alias,
+# so no compare-and-swap between "main is still X" and "X is live" exists. The
+# race is not impossible. It is bounded to the promote call, detected right
+# after it, and automatically remediated by restoring the exact deployment that
+# was production before this run touched it. That is the claim, and no more.
 #
-#   2. The migration gate runs BEFORE the first step that reads VERCEL_TOKEN.
-#      A BLOCKED release therefore makes zero Vercel API calls of any kind, not
-#      even a read. That is a property of the ordering, not an aspiration — and
-#      it is what lets a block be proven before any Vercel credential exists.
+#   gate (no Vercel contact) -> build without alias -> verify the artifact ->
+#   capture current production -> freshness -> promote by exact id ->
+#   re-check -> restore on drift
 #
-# WHAT THIS DOES NOT CLAIM
-#
-# The race is narrowed to one process boundary, not eliminated. GitHub's ref
-# state and Vercel's deployment API are two systems with no shared transaction,
-# so no atomic compare-and-swap between them is possible. The post-deploy step
-# DETECTS a main that moved during the deploy and fails the run loudly; it
-# cannot prevent it.
-#
-# SCOPE: business-platform-btrl ONLY. The primary project is untouched and stays
-# Git-connected; its Preview and Production flows are unaffected by this file.
+# SCOPE: business-platform-btrl ONLY. The primary project is untouched and
+# stays Git-connected; its Preview and Production flows are unaffected.
 
 on:
   push:
@@ -58,9 +50,11 @@ on:
         required: false
         type: string
 
-# Serialise runs so two releases cannot interleave. This reduces races; it is
-# NOT the stale-release protection — that is the fresh origin/main comparison
-# immediately before deploying, which holds even if concurrency is misconfigured.
+# SERIALISE. Never cancel-in-progress: a cancellation landing between promote
+# and its verification, or inside remediation, would leave production in a
+# state no run is still watching. Queueing costs latency; cancelling costs
+# knowing what is live. A queued run re-reads main and refuses on its own if it
+# has gone stale, so serialising is safe as well as necessary.
 concurrency:
   group: release-deploy-btrl
   cancel-in-progress: false
@@ -68,21 +62,20 @@ concurrency:
 permissions:
   contents: read
   # The gate reads the attestation artifact and the metadata of the run that
-  # produced it (/actions/artifacts, /actions/runs). Without actions:read those
-  # calls 403 and the gate correctly refuses with CANNOT_VERIFY — fail-closed,
-  # but for the wrong reason, and every release would stall.
+  # produced it. Without actions:read those calls 403 and the gate refuses with
+  # CANNOT_VERIFY: fail-closed, but for the wrong reason.
   actions: read
+
+env:
+  VERCEL_API: https://api.vercel.com
 
 jobs:
   release:
     runs-on: ubuntu-latest
-    # Scopes the Vercel credentials to this job. The environment also gives the
-    # owner a place to require review before a production release.
-    #
-    # ASCII only, and deliberately so: an earlier draft used an en-dash in this
-    # name. GitHub creates a referenced environment on demand, so a hyphen typed
-    # where an en-dash was meant produces a DIFFERENT, empty environment, and
-    # every release then fails looking for secrets sitting in the other one.
+    # ASCII only, deliberately: an earlier draft used an en-dash here. GitHub
+    # creates a referenced environment on demand, so a hyphen typed where an
+    # en-dash was meant yields a DIFFERENT, empty environment and every release
+    # fails looking for secrets sitting in the other one.
     environment: 'production-btrl-release'
     steps:
       - name: Resolve TARGET_SHA
@@ -109,7 +102,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.target.outputs.sha }}
-          # Full history so origin/main can be re-read later in the run.
           fetch-depth: 0
           persist-credentials: false
 
@@ -130,15 +122,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Pinned, and installed HERE rather than after the gate: this is the
-      # slowest remaining step, and it must not sit between the freshness check
-      # and the deploy command.
       - name: Install Vercel CLI (pinned)
         run: npm i -g vercel@54.9.0
 
-      # The migration decision. Exits non-zero on BLOCKED / CANNOT_VERIFY /
-      # checkout mismatch, so no later step can run. Reads no Vercel credential:
-      # a block here happens with zero Vercel contact.
+      # The migration decision, before the first step that reads any Vercel
+      # credential. A block therefore costs zero Vercel API calls, not even a
+      # read, and can be proven before a token exists.
       - name: Release gate — migrations and attestation
         id: gate
         env:
@@ -147,9 +136,7 @@ jobs:
           RELEASE_GUARD_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/ci/release-deploy-gate.mjs decide
 
-      # Proves the credentials point at the pilot BEFORE anything is deployed.
-      # Read-only: one GET, no deployment object is created.
-      - name: Prove the deploy target is business-platform-btrl
+      - name: Prove the credentials resolve to business-platform-btrl
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -158,27 +145,20 @@ jobs:
           set -euo pipefail
           NAME="$(curl -sS --fail \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" \
+            "$VERCEL_API/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" \
             | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).name??"")}catch{console.log("")}})')"
           echo "credentials resolve to project: $NAME"
           if [ "$NAME" != "business-platform-btrl" ]; then
-            echo "REFUSING TO DEPLOY — credentials resolve to '$NAME', not business-platform-btrl" >&2
+            echo "REFUSING — credentials resolve to '$NAME', not business-platform-btrl" >&2
             exit 1
           fi
 
-      # THE LAST TWO ACTIONS OF THE RUN, IN ONE SHELL, IN THIS ORDER.
-      #
-      # Nothing may be inserted between them. The freshness check is the final
-      # automated enforcement that we are not shipping a stale commit, and the
-      # very next command is the deploy. `set -e` means a non-zero freshness
-      # exit ends the step before `vercel deploy` is ever reached.
-      #
-      # --project is passed as well as the env vars so the target is stated
-      # twice and cannot silently fall back to a linked project. --meta carries
-      # provenance: after the Git disconnect Vercel has no commit metadata of
-      # its own, so we supply it.
-      - name: Final freshness check, then immediate production deploy
-        id: deploy
+      # Builds a real production-target deployment that NO domain points at.
+      # Nothing is live when this step finishes. --meta carries the provenance
+      # the artifact is identified by later; after the Git disconnect Vercel has
+      # no commit metadata of its own, so we supply it.
+      - name: Build the production artifact without promoting it
+        id: build
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -186,8 +166,7 @@ jobs:
           TARGET_SHA: ${{ steps.target.outputs.sha }}
         run: |
           set -euo pipefail
-          node scripts/ci/release-deploy-gate.mjs freshness
-          URL="$(vercel deploy --prod --yes \
+          vercel deploy --prod --skip-domain --yes \
             --token "$VERCEL_TOKEN" \
             --project "$VERCEL_PROJECT_ID" \
             --meta releaseTargetSha="$TARGET_SHA" \
@@ -195,59 +174,175 @@ jobs:
             --meta releaseWorkflowRunAttempt="${GITHUB_RUN_ATTEMPT}" \
             --meta releaseRepository="${GITHUB_REPOSITORY}" \
             --meta releaseGateOutcome="${{ steps.gate.outputs.outcome }}" \
-            --meta releaseAttestationRun="${{ steps.gate.outputs.attestation_run }}")"
-          echo "deployment url: $URL"
+            --meta releaseAttestationRun="${{ steps.gate.outputs.attestation_run }}" \
+            > deploy-stdout.txt
+          # stdout is a hint only. The authoritative identity is established in
+          # the next step from the API, keyed on this run's own meta.
+          URL="$(grep -Eo 'https://[a-zA-Z0-9.-]+' deploy-stdout.txt | tail -1)"
+          echo "built (unpromoted): $URL"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
-      # Provenance: read the deployment back and prove which commit it carries.
-      # Also DETECTS the residual race — main moving while the deploy was in
-      # flight. It cannot undo that; it makes it loud and fails the run so that
-      # superseding the release is an explicit act rather than an assumption.
-      - name: Prove deployed SHA provenance and detect main drift
+      # Identity is established by asking Vercel which deployment carries THIS
+      # run's meta, not by trusting the CLI's stdout. The meta query must match
+      # exactly one deployment and it must be the one stdout named; anything
+      # else means we cannot say what we built, so we do not promote it.
+      - name: Resolve and verify the built artifact
+        id: artifact
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           TARGET_SHA: ${{ steps.target.outputs.sha }}
-          URL: ${{ steps.deploy.outputs.url }}
+          URL: ${{ steps.build.outputs.url }}
         run: |
           set -euo pipefail
           HOST="${URL#https://}"
-          curl -sS --fail \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v13/deployments/${HOST}?teamId=$VERCEL_ORG_ID" \
-            > deployment.json
+          curl -sS --fail -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$VERCEL_API/v13/deployments/${HOST}?teamId=$VERCEL_ORG_ID" > by-url.json
+          curl -sS --fail -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$VERCEL_API/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID&limit=100&meta-releaseWorkflowRunId=${GITHUB_RUN_ID}&meta-releaseWorkflowRunAttempt=${GITHUB_RUN_ATTEMPT}" > by-meta.json
           node -e '
-            const d = require("./deployment.json");
-            const meta = d.meta ?? {};
-            const target = process.env.TARGET_SHA;
-            const out = {
-              deploymentId: d.id ?? d.uid,
-              target: d.target,
-              state: d.readyState ?? d.status,
-              createdAt: new Date(d.createdAt ?? d.created).toISOString(),
-              project: d.name,
-              releaseTargetSha: meta.releaseTargetSha ?? null,
-              releaseWorkflowRunId: meta.releaseWorkflowRunId ?? null,
-            };
-            console.log(JSON.stringify(out, null, 2));
-            if (out.releaseTargetSha !== target) {
-              console.error(`PROVENANCE MISMATCH: deployment carries ${out.releaseTargetSha}, expected ${target}`);
+            const fs = require("fs");
+            const byUrl = JSON.parse(fs.readFileSync("by-url.json", "utf8"));
+            const byMeta = JSON.parse(fs.readFileSync("by-meta.json", "utf8")).deployments ?? [];
+            const id = byUrl.id ?? byUrl.uid;
+            if (byMeta.length !== 1) {
+              console.error(`ARTIFACT_UNVERIFIED: meta query matched ${byMeta.length} deployments, expected exactly 1`);
               process.exit(1);
             }
-            if (out.project !== "business-platform-btrl") {
-              console.error(`WRONG PROJECT: ${out.project}`);
+            const metaId = byMeta[0].uid ?? byMeta[0].id;
+            if (metaId !== id) {
+              console.error(`ARTIFACT_UNVERIFIED: meta query names ${metaId}, stdout named ${id}`);
               process.exit(1);
             }
+            import("./scripts/ci/release-deploy-gate.mjs").then((m) => {
+              const r = m.verifyArtifact({
+                deployment: { ...byUrl, projectId: byUrl.projectId ?? byUrl.project?.id },
+                expected: {
+                  deploymentId: id,
+                  projectName: "business-platform-btrl",
+                  projectId: process.env.VERCEL_PROJECT_ID,
+                  targetSha: process.env.TARGET_SHA,
+                  runId: process.env.GITHUB_RUN_ID,
+                },
+              });
+              console.log(`artifact: ${r.outcome} — ${r.detail}`);
+              if (!r.ok) process.exit(1);
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, `deployment_id=${id}\n`);
+            }).catch((e) => { console.error(`ARTIFACT_UNVERIFIED: ${e?.message ?? e}`); process.exit(1); });
           '
+
+      # Captured BEFORE anything is promoted, so remediation can name the exact
+      # deployment that was production, rather than asking Vercel for "the
+      # previous one" after the fact.
+      - name: Capture the current production deployment
+        id: prev
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          PREV="$(curl -sS --fail -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "$VERCEL_API/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).targets?.production?.id??"")}catch{console.log("")}})')"
+          if [ -z "$PREV" ]; then
+            echo "no current production deployment — remediation will be UNAVAILABLE for this release"
+          else
+            echo "current production deployment: $PREV"
+          fi
+          echo "id=$PREV" >> "$GITHUB_OUTPUT"
+
+      # THE LAST TWO ACTIONS, IN ONE SHELL, IN THIS ORDER. Nothing may be
+      # inserted between them: the freshness answer is only as good as the
+      # distance to the alias flip it authorises. `set -e` means a non-zero
+      # freshness exit ends the step before promote is reached.
+      - name: Final freshness check, then promote the exact artifact
+        id: promote
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+          DEPLOYMENT_ID: ${{ steps.artifact.outputs.deployment_id }}
+        run: |
+          set -euo pipefail
+          node scripts/ci/release-deploy-gate.mjs freshness
+          vercel promote "$DEPLOYMENT_ID" --yes --token "$VERCEL_TOKEN"
+
+      # The promote boundary is the only place the race can still cross. This
+      # looks, and if it crossed, puts production back to the exact deployment
+      # captured before the promote. Runs even if promote failed, so a partial
+      # promotion is still inspected rather than left unexamined.
+      - name: Verify after promote, and restore production on drift
+        if: always() && steps.prev.outcome == 'success'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+          DEPLOYMENT_ID: ${{ steps.artifact.outputs.deployment_id }}
+          PREV_PROD_ID: ${{ steps.prev.outputs.id }}
+        run: |
+          set -euo pipefail
+          prod_id() {
+            curl -sS --fail -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "$VERCEL_API/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_ORG_ID" \
+              | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).targets?.production?.id??"")}catch{console.log("")}})'
+          }
           git fetch origin main --quiet
           AFTER="$(git rev-parse origin/main)"
-          if [ "$AFTER" != "$TARGET_SHA" ]; then
-            echo "MAIN DRIFTED DURING DEPLOY: origin/main is now $AFTER, deployed $TARGET_SHA" >&2
-            echo "The deployment is live but is no longer the head of main. Re-run this" >&2
-            echo "workflow against $AFTER to supersede it." >&2
+          PROD_NOW="$(prod_id)"
+          echo "after-promote: main=$AFTER production=$PROD_NOW promoted=${DEPLOYMENT_ID:-<none>}"
+
+          FRESH="$AFTER" PROD_NOW="$PROD_NOW" node -e '
+            const fs = require("fs");
+            const write = (o) => fs.writeFileSync("verdict.json", JSON.stringify(o));
+            import("./scripts/ci/release-deploy-gate.mjs").then((m) => {
+              write(m.decidePostPromote({
+                targetSha: process.env.TARGET_SHA,
+                freshMain: process.env.FRESH,
+                promotedId: process.env.DEPLOYMENT_ID || "",
+                productionId: process.env.PROD_NOW || null,
+                previousProductionId: process.env.PREV_PROD_ID || null,
+              }));
+            }).catch((e) => write({ ok: false, remediate: false, restoreTo: null, outcome: "CANNOT_VERIFY", detail: String(e?.message ?? e) }));
+          '
+          field() { node -pe "JSON.parse(require('fs').readFileSync('verdict.json','utf8'))['$1'] ?? ''"; }
+          OK="$(field ok)"; REMEDIATE="$(field remediate)"; RESTORE="$(field restoreTo)"
+          OUTCOME="$(field outcome)"; DETAIL="$(field detail)"
+          echo "post-promote: $OUTCOME — $DETAIL"
+
+          if [ "$OK" = "true" ]; then
+            echo "release stands: production is the artifact this run built, and it is still main"
+            exit 0
+          fi
+
+          if [ "$REMEDIATE" != "true" ]; then
+            echo "::error::$OUTCOME - $DETAIL"
             exit 1
           fi
-          echo "origin/main is still $TARGET_SHA — no drift during deploy"
+
+          # The race crossed the promote boundary. Restore the EXACT deployment
+          # captured before promoting; never "the latest", never "the previous".
+          echo "::warning::restoring production to $RESTORE"
+          vercel promote "$RESTORE" --yes --token "$VERCEL_TOKEN" || echo "restore command failed; verifying actual state anyway"
+          PROD_AFTER="$(prod_id)"
+          RESTORE="$RESTORE" PROD_AFTER="$PROD_AFTER" node -e '
+            const fs = require("fs");
+            const write = (o) => fs.writeFileSync("remediation.json", JSON.stringify(o));
+            import("./scripts/ci/release-deploy-gate.mjs").then((m) => {
+              write(m.decideRemediationResult({ restoreTo: process.env.RESTORE, productionIdAfter: process.env.PROD_AFTER || null }));
+            }).catch((e) => write({ outcome: "STALE_AFTER_PROMOTE_RECOVERY_FAILED", detail: String(e?.message ?? e) }));
+          '
+          rfield() { node -pe "JSON.parse(require('fs').readFileSync('remediation.json','utf8'))['$1'] ?? ''"; }
+          R_OUTCOME="$(rfield outcome)"; R_DETAIL="$(rfield detail)"
+          echo "::error::$R_OUTCOME - $R_DETAIL"
+          echo "  promoted artifact : ${DEPLOYMENT_ID:-<none>}"
+          echo "  restore target    : $RESTORE"
+          echo "  production now    : ${PROD_AFTER:-<unreadable>}"
+          # Either way this run did not deliver a standing release.
+          exit 1
 
       - name: Job summary
         if: always()
@@ -258,10 +353,12 @@ jobs:
             echo "## release-deploy (business-platform-btrl)"
             echo ""
             echo "- Target SHA: \`${TARGET_SHA}\`"
-            echo "- Migration gate: \`${{ steps.gate.outputs.outcome }}\`"
+            echo "- Migration gate: \`${{ steps.gate.outputs.outcome || '(not reached)' }}\`"
             echo "- Gate detail: ${{ steps.gate.outputs.detail }}"
-            echo "- Freshness: \`${{ steps.deploy.outputs.outcome || '(not reached)' }}\`"
-            echo "- Deployment: ${{ steps.deploy.outputs.url || '(none created)' }}"
+            echo "- Built artifact: \`${{ steps.artifact.outputs.deployment_id || '(none built)' }}\`"
+            echo "- Production before: \`${{ steps.prev.outputs.id || '(none)' }}\`"
+            echo "- Promote step: \`${{ steps.promote.outcome || '(not reached)' }}\`"
             echo ""
             echo "A non-SAFE gate ends the run before any deployment is created."
+            echo "A stale target ends the run with an artifact built but never promoted."
           } >> "$GITHUB_STEP_SUMMARY"

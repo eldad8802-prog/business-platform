@@ -72,6 +72,11 @@ export const OUTCOMES = {
   CANNOT_VERIFY: "CANNOT_VERIFY",
   STALE_RELEASE: "STALE_RELEASE",
   SHA_MISMATCH: "CHECKOUT_SHA_MISMATCH",
+  // build -> promote outcomes
+  ARTIFACT_UNVERIFIED: "ARTIFACT_UNVERIFIED",
+  ALIAS_MISMATCH: "ALIAS_MISMATCH",
+  STALE_AFTER_PROMOTE_REVERTED: "STALE_AFTER_PROMOTE_REVERTED",
+  STALE_AFTER_PROMOTE_RECOVERY_FAILED: "STALE_AFTER_PROMOTE_RECOVERY_FAILED",
 };
 
 const isSha = (s) => typeof s === "string" && /^[0-9a-f]{40}$/i.test(s);
@@ -174,6 +179,132 @@ export function decideFreshness({ targetSha, freshMain }) {
     proceed: true,
     outcome: OUTCOMES.SAFE,
     detail: `${targetSha.slice(0, 12)} is current origin/main`,
+  };
+}
+
+/* --------------------------------------------------- build -> promote -- */
+
+/**
+ * Phase 2a — is the thing we are about to make live actually the thing this
+ * run built?
+ *
+ * `vercel deploy --prod --skip-domain` produces a real production-target
+ * deployment that no domain points at yet. Between building it and promoting
+ * it, every claim about that artifact is re-read from the Vercel API and
+ * checked here. Nothing is inferred from the CLI's stdout.
+ *
+ * Every field is mandatory. An artifact whose provenance cannot be proven is
+ * not promoted — there is no "probably ours" branch.
+ */
+export function verifyArtifact({ deployment, expected }) {
+  const stop = (detail) => ({ ok: false, outcome: OUTCOMES.ARTIFACT_UNVERIFIED, detail });
+
+  if (!deployment || typeof deployment !== "object") return stop("no deployment payload");
+  if (!expected || typeof expected !== "object") return stop("no expectation to check against");
+
+  const id = deployment.id ?? deployment.uid ?? null;
+  const meta = deployment.meta ?? {};
+
+  const checks = [
+    [typeof id === "string" && id.length > 0, `deployment has no id`],
+    [id === expected.deploymentId, `deployment id ${id} is not the artifact this run built (${expected.deploymentId})`],
+    [deployment.name === expected.projectName, `deployment belongs to project ${JSON.stringify(deployment.name)}, expected ${JSON.stringify(expected.projectName)}`],
+    [deployment.projectId === expected.projectId, `deployment projectId ${JSON.stringify(deployment.projectId)} is not the expected project`],
+    [deployment.target === "production", `deployment target is ${JSON.stringify(deployment.target)}, expected production`],
+    [(deployment.readyState ?? deployment.status) === "READY", `deployment state is ${JSON.stringify(deployment.readyState ?? deployment.status)}, not READY`],
+    [meta.releaseTargetSha === expected.targetSha, `deployment carries sha ${JSON.stringify(meta.releaseTargetSha)}, expected ${expected.targetSha}`],
+    [meta.releaseWorkflowRunId === expected.runId, `deployment was built by run ${JSON.stringify(meta.releaseWorkflowRunId)}, not this one (${expected.runId})`],
+  ];
+  for (const [ok, detail] of checks) if (!ok) return stop(detail);
+
+  return { ok: true, outcome: OUTCOMES.SAFE, detail: `artifact ${id} verified: production, READY, ${expected.targetSha.slice(0, 12)}, this run` };
+}
+
+/**
+ * Phase 4 — what the post-promote observation means.
+ *
+ * The promote boundary is the one place a race can still cross: main can move
+ * between the freshness check and the alias flip. This decides, from what was
+ * observed after the flip, whether that happened and what must be done.
+ *
+ * Deliberately NOT symmetric with the pre-promote check. Before promoting, the
+ * safe answer to "I cannot tell" is to stop. After promoting, reverting a
+ * release we cannot prove is stale would itself be an unsafe act, so an
+ * unreadable main fails the run WITHOUT remediation and says so.
+ */
+export function decidePostPromote({ targetSha, freshMain, promotedId, productionId, previousProductionId }) {
+  const out = (outcome, detail, extra = {}) => ({ ok: false, remediate: false, restoreTo: null, outcome, detail, ...extra });
+
+  if (typeof promotedId !== "string" || promotedId.length === 0) {
+    return out(OUTCOMES.CANNOT_VERIFY, "no promoted deployment id to verify");
+  }
+
+  // Did the promotion actually take effect? If production points somewhere
+  // else, the release did not happen and remediation is not the answer.
+  if (productionId !== promotedId) {
+    return out(
+      OUTCOMES.ALIAS_MISMATCH,
+      `production points at ${JSON.stringify(productionId)}, not the promoted artifact ${promotedId}`
+    );
+  }
+
+  if (!isSha(targetSha)) return out(OUTCOMES.CANNOT_VERIFY, `target sha unusable: ${JSON.stringify(targetSha)}`);
+
+  // Unreadable main after a successful promote: report, never auto-revert.
+  if (!isSha(freshMain)) {
+    return out(OUTCOMES.CANNOT_VERIFY, `could not re-read origin/main after promote: ${JSON.stringify(freshMain)}`);
+  }
+
+  if (freshMain.toLowerCase() === targetSha.toLowerCase()) {
+    return { ok: true, remediate: false, restoreTo: null, outcome: OUTCOMES.SAFE, detail: `${targetSha.slice(0, 12)} promoted and still origin/main` };
+  }
+
+  // The race happened. Remediation must name the exact deployment that was
+  // production before this run touched it — never "the latest", never "the
+  // previous one" as Vercel computes it.
+  if (typeof previousProductionId !== "string" || previousProductionId.length === 0) {
+    return out(
+      OUTCOMES.STALE_AFTER_PROMOTE_RECOVERY_FAILED,
+      `main advanced to ${freshMain.slice(0, 12)} across the promote boundary, and no previous production deployment was captured to restore`
+    );
+  }
+  if (previousProductionId === promotedId) {
+    return out(
+      OUTCOMES.STALE_AFTER_PROMOTE_RECOVERY_FAILED,
+      `main advanced to ${freshMain.slice(0, 12)}, but the captured previous production deployment is the one just promoted`
+    );
+  }
+
+  return {
+    ok: false,
+    remediate: true,
+    restoreTo: previousProductionId,
+    outcome: OUTCOMES.STALE_AFTER_PROMOTE_REVERTED,
+    detail: `main advanced to ${freshMain.slice(0, 12)} across the promote boundary; restoring production to ${previousProductionId}`,
+  };
+}
+
+/**
+ * Phase 5 — did the remediation actually put production back?
+ *
+ * Success is not "the command exited zero". It is "production now points at
+ * the exact deployment we captured before promoting".
+ */
+export function decideRemediationResult({ restoreTo, productionIdAfter }) {
+  if (typeof restoreTo !== "string" || restoreTo.length === 0) {
+    return { ok: false, outcome: OUTCOMES.STALE_AFTER_PROMOTE_RECOVERY_FAILED, detail: "no restore target" };
+  }
+  if (productionIdAfter !== restoreTo) {
+    return {
+      ok: false,
+      outcome: OUTCOMES.STALE_AFTER_PROMOTE_RECOVERY_FAILED,
+      detail: `restore did not take: production is ${JSON.stringify(productionIdAfter)}, expected ${restoreTo}`,
+    };
+  }
+  return {
+    ok: false,
+    outcome: OUTCOMES.STALE_AFTER_PROMOTE_REVERTED,
+    detail: `production restored to ${restoreTo}; the release did not stand`,
   };
 }
 

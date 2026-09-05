@@ -9,7 +9,11 @@
  *
  * Run: node scripts/ci/release-deploy-gate.test.mjs
  */
-import { decideRelease, decideMigrationGate, decideFreshness, OUTCOMES } from "./release-deploy-gate.mjs";
+import {
+  decideRelease, decideMigrationGate, decideFreshness,
+  verifyArtifact, decidePostPromote, decideRemediationResult,
+  OUTCOMES,
+} from "./release-deploy-gate.mjs";
 import { readRequiredMigrations } from "./release-guard.mjs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -229,61 +233,182 @@ console.log("\nPhase split — decide and freshness, composed");
      unsafeStates.every((a) => decideMigrationGate({ targetSha: SHA_A, checkoutSha: SHA_A, required: REQUIRED, attestation: a }).proceed === false));
 }
 
+/* ── build then promote, as pure decisions ─────────────────────────────────
+ *
+ * The release now builds a production artifact that no domain points at, then
+ * promotes it. Everything that decides whether that artifact may go live, and
+ * what to do if the race crossed the promote boundary anyway, is decided here.
+ */
+console.log("\nArtifact verification — nothing unproven is ever promoted");
+{
+  const RUN = "1234567890";
+  const ID = "dpl_realArtifact";
+  const good = {
+    id: ID, name: "business-platform-btrl", projectId: "prj_btrl",
+    target: "production", readyState: "READY",
+    meta: { releaseTargetSha: SHA_A, releaseWorkflowRunId: RUN },
+  };
+  const expected = {
+    deploymentId: ID, projectName: "business-platform-btrl", projectId: "prj_btrl",
+    targetSha: SHA_A, runId: RUN,
+  };
+  const v = (over) => verifyArtifact({ deployment: { ...good, ...over }, expected });
+
+  ok("V1 a fully provenanced artifact verifies", v({}).ok === true);
+  ok("V2 a different deployment id is refused", v({ id: "dpl_other" }).ok === false);
+  ok("V3 another project's deployment is refused", v({ name: "business-platform" }).ok === false);
+  ok("V4 another projectId is refused", v({ projectId: "prj_primary" }).ok === false);
+  ok("V5 a preview-target deployment is refused", v({ target: "preview" }).ok === false);
+  ok("V6 a not-yet-READY deployment is refused", v({ readyState: "BUILDING" }).ok === false);
+  ok("V7 an artifact carrying another sha is refused",
+     v({ meta: { releaseTargetSha: SHA_B, releaseWorkflowRunId: RUN } }).ok === false);
+  ok("V8 an artifact built by another run is refused",
+     v({ meta: { releaseTargetSha: SHA_A, releaseWorkflowRunId: "999" } }).ok === false);
+  ok("V9 a missing payload is refused", verifyArtifact({ deployment: null, expected }).ok === false);
+  ok("V10 every refusal reports ARTIFACT_UNVERIFIED",
+     [v({ id: "x" }), v({ target: "preview" }), verifyArtifact({ deployment: null, expected })]
+       .every((r) => r.outcome === OUTCOMES.ARTIFACT_UNVERIFIED));
+}
+
+console.log("\nPost-promote — detect the race, then undo it");
+{
+  const PROMOTED = "dpl_new";
+  const PREV = "dpl_previous";
+  const base = { targetSha: SHA_A, freshMain: SHA_A, promotedId: PROMOTED, productionId: PROMOTED, previousProductionId: PREV };
+  const d = (over) => decidePostPromote({ ...base, ...over });
+
+  ok("Q1 promoted, still main -> the release stands", d({}).ok === true && d({}).remediate === false);
+
+  // The promotion did not take. Remediation is not the answer to that.
+  ok("Q2 production pointing elsewhere is ALIAS_MISMATCH, not a revert",
+     d({ productionId: "dpl_somethingelse" }).outcome === OUTCOMES.ALIAS_MISMATCH &&
+     d({ productionId: "dpl_somethingelse" }).remediate === false);
+
+  // The race we are here for.
+  const raced = d({ freshMain: SHA_B });
+  ok("Q3 main advancing across the promote boundary demands remediation", raced.remediate === true);
+  ok("Q4 remediation restores the EXACT captured previous deployment", raced.restoreTo === PREV);
+  ok("Q5 the raced outcome is STALE_AFTER_PROMOTE_REVERTED", raced.outcome === OUTCOMES.STALE_AFTER_PROMOTE_REVERTED);
+  ok("Q6 a raced release is never reported ok", raced.ok === false);
+
+  // Nothing to restore to: say so, do not improvise a target.
+  const noPrev = d({ freshMain: SHA_B, previousProductionId: null });
+  ok("Q7 drift with no captured predecessor fails as RECOVERY_FAILED",
+     noPrev.outcome === OUTCOMES.STALE_AFTER_PROMOTE_RECOVERY_FAILED && noPrev.remediate === false);
+  ok("Q8 a predecessor equal to the promoted artifact is refused as a restore target",
+     d({ freshMain: SHA_B, previousProductionId: PROMOTED }).outcome === OUTCOMES.STALE_AFTER_PROMOTE_RECOVERY_FAILED);
+
+  // After a good promote, an unreadable main must not trigger a revert.
+  const blind = d({ freshMain: null });
+  ok("Q9 an unreadable main after promote fails WITHOUT reverting",
+     blind.ok === false && blind.remediate === false && blind.outcome === OUTCOMES.CANNOT_VERIFY);
+
+  ok("Q10 a missing promoted id cannot be verified", d({ promotedId: "" }).outcome === OUTCOMES.CANNOT_VERIFY);
+
+  // Remediation is judged by the resulting state, not by an exit code.
+  ok("Q11 remediation succeeds only if production is the exact restore target",
+     decideRemediationResult({ restoreTo: PREV, productionIdAfter: PREV }).outcome === OUTCOMES.STALE_AFTER_PROMOTE_REVERTED);
+  ok("Q12 a restore that did not take is RECOVERY_FAILED",
+     decideRemediationResult({ restoreTo: PREV, productionIdAfter: PROMOTED }).outcome === OUTCOMES.STALE_AFTER_PROMOTE_RECOVERY_FAILED);
+  ok("Q13 a reverted release is never reported ok",
+     decideRemediationResult({ restoreTo: PREV, productionIdAfter: PREV }).ok === false);
+  ok("Q14 an unreadable production after restore is RECOVERY_FAILED",
+     decideRemediationResult({ restoreTo: PREV, productionIdAfter: null }).outcome === OUTCOMES.STALE_AFTER_PROMOTE_RECOVERY_FAILED);
+}
+
 /* ── workflow ordering ──────────────────────────────────────────────────────
  *
- * The pure functions above cannot protect the ordering that gives them their
- * meaning. These read release-deploy.yml as text and assert the two structural
- * properties the design depends on. Text, not YAML, so this stays dependency-
- * free and runnable before `npm ci` if it ever needs to be.
+ * The pure functions cannot protect the ordering that gives them their meaning.
+ * These read release-deploy.yml as text and assert the structural properties
+ * the design depends on. Text, not YAML, so this stays dependency-free.
  */
 console.log("\nWorkflow ordering — the guarantees the pure functions cannot make");
 {
   const wf = readFileSync(join(REPO_ROOT, ".github", "workflows", "release-deploy.yml"), "utf8");
   const lines = wf.split("\n");
-  const at = (re) => lines.findIndex((l) => re.test(l));
+  const code = lines.map((l) => (/^\s*#/.test(l) ? "" : l));
+  const at = (re) => code.findIndex((l) => re.test(l));
 
   const decide = at(/release-deploy-gate\.mjs decide/);
-  const freshness = at(/release-deploy-gate\.mjs freshness/);
-  const deploy = at(/^\s*URL="\$\(vercel deploy/);
   const firstToken = at(/VERCEL_TOKEN:/);
+  const build = at(/vercel deploy /);
+  const verify = at(/verifyArtifact\(/);
+  const capturePrev = at(/targets\?\.production\?\.id/);
+  const freshness = at(/release-deploy-gate\.mjs freshness/);
+  const promote = at(/^\s*vercel promote "\$DEPLOYMENT_ID"/);
+  const postFresh = at(/decidePostPromote\(/);
+  const restore = at(/^\s*vercel promote "\$RESTORE"/);
 
-  ok("W1 the workflow invokes the decide phase", decide > 0);
-  ok("W2 the workflow invokes the freshness phase", freshness > 0);
-  // Comment lines are excluded: prose may discuss the deploy, only one line may
-  // perform it.
-  const executable = lines.filter((l) => !/^\s*#/.test(l));
-  ok("W3 the workflow contains exactly one vercel deploy command",
-     deploy > 0 && executable.filter((l) => /vercel deploy/.test(l)).length === 1);
+  ok("W1 every stage of the release is present",
+     [decide, firstToken, build, verify, capturePrev, freshness, promote, postFresh, restore].every((i) => i > 0),
+     JSON.stringify({ decide, firstToken, build, verify, capturePrev, freshness, promote, postFresh, restore }));
 
-  // A block must cost zero Vercel contact, so the migration gate has to be
-  // decided before the first step that is even handed a Vercel credential.
-  ok("W4 the migration gate runs before any step reads VERCEL_TOKEN",
-     decide < firstToken, `decide@${decide} firstToken@${firstToken}`);
+  // A block must cost zero Vercel contact, so the migration verdict has to be
+  // reached before the first step that is even handed a credential. This is the
+  // single assertion behind "BLOCKED and CANNOT_VERIFY create no deployment".
+  ok("W2 the migration gate runs before any step reads VERCEL_TOKEN", decide < firstToken);
+  ok("W3 nothing builds before the migration gate", decide < build);
 
-  // Nothing may sit between the freshness answer and the deploy command.
-  ok("W5 freshness is checked before the deploy command", freshness < deploy);
+  // Build with the production target but no alias, so finishing the build does
+  // not put anything live.
+  ok("W4 the build uses --prod and --skip-domain",
+     /vercel deploy --prod --skip-domain/.test(code[build] ?? ""), code[build]);
+  ok("W5 there is exactly one build command",
+     code.filter((l) => /vercel deploy /.test(l)).length === 1);
 
-  const between = lines.slice(freshness + 1, deploy);
-  ok("W6 no step boundary between freshness and deploy",
-     !between.some((l) => /^\s{6}- name:/.test(l) || /^\s{6}- uses:/.test(l)),
-     JSON.stringify(between.filter((l) => l.trim())));
-  ok("W7 nothing at all runs between freshness and deploy",
+  ok("W6 the artifact is verified before it is promoted", verify < promote);
+  ok("W7 the previous production deployment is captured before promoting", capturePrev < promote);
+  ok("W8 final freshness precedes the promote", freshness < promote);
+
+  // Nothing may sit between the freshness answer and the alias flip.
+  const between = code.slice(freshness + 1, promote);
+  ok("W9 no step boundary between freshness and promote",
+     !between.some((l) => /^\s{6}- (name|uses):/.test(l)), JSON.stringify(between.filter((l) => l.trim())));
+  ok("W10 nothing at all runs between freshness and promote",
      between.every((l) => l.trim() === ""), JSON.stringify(between.filter((l) => l.trim())));
 
-  // Without `set -e` a non-zero freshness exit would be ignored and the very
-  // next line would deploy a stale commit.
-  const stepStart = lines.slice(0, freshness).map((l, i) => (/^\s{6}- name:/.test(l) ? i : -1)).filter((i) => i >= 0).pop();
-  ok("W8 the deploy step aborts on error (set -e) before reaching deploy",
-     lines.slice(stepStart, freshness).some((l) => /set -euo pipefail/.test(l)));
+  // The promote must name the artifact this run built and verified. A promote
+  // of "latest", of the project, or of the working directory is a different and
+  // unprovable act.
+  ok("W11 promote names the exact verified deployment id",
+     /vercel promote "\$DEPLOYMENT_ID"/.test(code[promote] ?? ""), code[promote]);
+  ok("W12 no promote of a latest/implicit target",
+     !code.some((l) => /vercel (promote|rollback)\s*(--|$)/.test(l)) &&
+     !code.some((l) => /vercel rollback/.test(l)));
+  ok("W13 every promote names an explicit id",
+     code.filter((l) => /vercel promote/.test(l))
+         .every((l) => /vercel promote "\$(DEPLOYMENT_ID|RESTORE)"/.test(l)));
 
-  // A skippable pre-deploy step is a bypass. None of them may carry an `if:`.
-  const deployStepStart = stepStart;
-  ok("W9 no pre-deploy step is conditional",
-     !lines.slice(0, deployStepStart).some((l) => /^\s{8}if:/.test(l)));
+  // Remediation restores the captured predecessor, never a computed one.
+  ok("W14 drift is re-checked after the promote", promote < postFresh);
+  ok("W15 the restore target is read from the post-promote verdict, not improvised",
+     /RESTORE="\$\(field restoreTo\)"/.test(wf) && /vercel promote "\$RESTORE"/.test(code[restore] ?? ""));
+  ok("W16 the restore target comes from the pre-promote capture",
+     /PREV_PROD_ID: \$\{\{ steps\.prev\.outputs\.id \}\}/.test(wf));
 
-  ok("W10 the environment name is pure ASCII",
-     /environment: 'production-btrl-release'/.test(wf) && !/[^\x00-\x7F]/.test(
-       lines[at(/^\s*environment:/)] ?? ""));
+  // A step that can continue past a failed check is a bypass.
+  const stepStarts = code.map((l, i) => (/^\s{6}- name:/.test(l) ? i : -1)).filter((i) => i >= 0);
+  const stepOf = (i) => stepStarts.filter((s) => s <= i).pop();
+  for (const [label, idx] of [["promote", freshness], ["post-promote", postFresh]]) {
+    const s = stepOf(idx);
+    ok(`W17-${label} the step aborts on error (set -e)`,
+       code.slice(s, idx).some((l) => /set -euo pipefail/.test(l)));
+  }
+  ok("W18 the post-promote step fails the run on an unremediated outcome",
+     /exit 1/.test(code.slice(stepOf(postFresh)).join("\n")));
+
+  // No pre-promote step may be skippable.
+  ok("W19 no step before the promote is conditional",
+     !code.slice(0, stepOf(promote)).some((l) => /^\s{8}if:/.test(l)));
+
+  // Credentials stay bound to the pilot, in code, not by configuration alone.
+  ok("W20 the workflow refuses any project that is not business-platform-btrl",
+     /!= "business-platform-btrl"/.test(wf) && /projectName: "business-platform-btrl"/.test(wf));
+  ok("W21 releases serialise and are never cancelled mid-flight",
+     /cancel-in-progress: false/.test(wf));
+  ok("W22 the environment name is pure ASCII",
+     /environment: 'production-btrl-release'/.test(wf) &&
+     !/[^\x00-\x7F]/.test(lines[at(/^\s*environment:/)] ?? ""));
 }
 
 console.log(
