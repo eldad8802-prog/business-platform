@@ -45,3 +45,10 @@
 
 # ── Security governance & strategy documents ────────────────────────────────
 /docs/security-*                    @eldad8802-prog
+
+# ── Release & deployment infrastructure (see docs/RELEASE-OWNERSHIP.md) ─────
+/vercel.json                        @eldad8802-prog
+/.vercelignore                      @eldad8802-prog
+/scripts/ci/release-*               @eldad8802-prog
+/scripts/ci/migration-first-guard.mjs  @eldad8802-prog
+/docs/RELEASE-OWNERSHIP.md          @eldad8802-prog
