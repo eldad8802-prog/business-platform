@@ -43,6 +43,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          # The migration-first guard diffs base..head. Both SHAs must exist locally.
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -52,6 +54,22 @@ jobs:
 
       - name: Install dependencies (npm ci — lockfile present)
         run: npm ci
+
+      # ── migration-first guard (BLOCKING) ───────────────────────────────────
+      # Offline. No network, no database, no Vercel, no GitHub API, no secret.
+      # It reads this PR's own diff and refuses the shape that caused the
+      # 2026-09-02 incident: a migration, prisma/schema.prisma and the runtime
+      # code that depends on it, all in one PR. See docs/RELEASE-OWNERSHIP.md.
+      # NOT continue-on-error: this one is allowed to fail the run.
+      - name: migration-first guard (self-test, then the PR)
+        id: migration_guard
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          node scripts/ci/migration-first-guard.mjs --self-test
+          node scripts/ci/migration-first-guard.mjs
 
       # Non-connecting placeholders ONLY so env("DATABASE_URL")/env("DIRECT_URL")
       # resolve for OFFLINE schema validation. `prisma validate` never opens a
@@ -99,17 +117,19 @@ jobs:
       - name: Job Summary
         if: always()
         env:
+          GUARD: ${{ steps.migration_guard.outcome }}
           VALIDATE: ${{ steps.validate.outcome }}
           BUILD: ${{ steps.build.outcome }}
           LINT: ${{ steps.lint.outcome }}
           MIGRATE: ${{ steps.migrate_status.outputs.outcome || 'skipped' }}
         run: |
           {
-            echo "## release/verify (Evidence Producer — non-blocking)"
+            echo "## release/verify (REQUIRED status — a failure here blocks the merge)"
             echo ""
             echo "### Blockers (determine pass/fail)"
             echo "| check | result |"
             echo "| --- | --- |"
+            echo "| migration-first guard | ${GUARD} |"
             echo "| prisma validate | ${VALIDATE} |"
             echo "| build | ${BUILD} |"
             echo ""
@@ -120,6 +140,7 @@ jobs:
             echo "| migrate status | ${MIGRATE} |"
             echo ""
             failed=""
+            [ "${GUARD}" != "success" ] && failed="${failed} migration-first-guard"
             [ "${VALIDATE}" != "success" ] && failed="${failed} validate"
             [ "${BUILD}" != "success" ] && failed="${failed} build"
             if [ -n "${failed}" ]; then
@@ -128,22 +149,27 @@ jobs:
               echo "**Failure reason:** none — all blockers passed (lint is report-only)."
             fi
             echo ""
-            echo "_This check never blocks merge. No DB writes, no migrations, no deploy._"
+            echo "_This status is REQUIRED by branch protection on \`main\`. No DB writes, no migrations, no deploy._"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Publish non-required commit status (PR only)
+      - name: Publish the release/verify commit status (PR only — REQUIRED by branch protection)
         if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
             // Two-Tier status (.outcome = real result, not continue-on-error-masked
             // .conclusion). Status is determined by BLOCKERS only; lint is report-only.
-            const blockers = { validate: '${{ steps.validate.outcome }}', build: '${{ steps.build.outcome }}' };
+            // This status is REQUIRED by branch protection on `main`.
+            const blockers = {
+              'migration-first-guard': '${{ steps.migration_guard.outcome }}',
+              validate: '${{ steps.validate.outcome }}',
+              build: '${{ steps.build.outcome }}',
+            };
             const failed = Object.entries(blockers).filter(([, o]) => o !== 'success').map(([k]) => k);
             const ok = failed.length === 0;
             const description = ok
-              ? 'blockers passed (validate, build); lint report-only (non-blocking)'
-              : `blocking checks failed: ${failed.join(', ')} (lint report-only; non-blocking)`;
+              ? 'blockers passed (migration-first-guard, validate, build); lint report-only'
+              : `blocking checks failed: ${failed.join(', ')} (lint report-only)`;
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,

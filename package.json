@@ -107,7 +107,6 @@
     "verify:token-revocation": "npx tsx lib/auth/token-revocation.verify.test.ts",
     "verify:jerusalem-day": "npx tsx lib/utils/jerusalem-day.verify.test.ts",
     "verify:prelaunch": "npm run verify:signup-identity && npm run verify:token-revocation && npm run verify:jerusalem-day && npm run verify:collection-terms && npm run verify:signup-gate && npm run verify:signup-gate-route && npm run verify:signup-gate-coverage",
-    "verify:release-guard": "node scripts/ci/release-guard.self-test.mjs",
     "verify:notification-policy": "npx tsx lib/notifications/notification-policy.verify.test.ts",
     "verify:data-transfer-format": "npx tsx lib/data-transfer/format/format.verify.test.ts",
     "verify:financial-records-csv": "npx tsx lib/reports/financial-records-csv.verify.test.ts",
