@@ -51,11 +51,13 @@ import { buildDedupeKey } from "./notification-policy";
  * to exactly this, so a pass here can never close a document, lead or billing
  * notification it never looked at.
  *
- * `entityType` mirrors the `entityRef.type` the inventory translator emits.
+ * `entityTypes` mirrors every `entityRef.type` the inventory translator can
+ * emit: the item for alerts that have one, and the alert row for the item-less
+ * fallback. Listing only one of them would leave the other permanently open.
  */
 export const INVENTORY_ALERT_SCOPE = {
   domain: "inventory",
-  entityType: "inventory_alert",
+  entityTypes: ["inventory_item", "inventory_alert"],
 } as const;
 
 export type InventoryNotificationSync = {

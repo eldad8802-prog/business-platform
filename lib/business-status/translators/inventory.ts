@@ -46,7 +46,28 @@ export function translateInventoryAlerts(
       title: titleForAlert(type, a.itemName),
       summary: a.message ?? null,
       severity,
-      entityRef: { type: "inventory_alert", id: a.id },
+      // IDENTITY: the inventory ITEM, not the alert row.
+      //
+      // An InventoryAlert row is an EPISODE. The domain never reuses a resolved
+      // one: recovery closes alert #1 and a later drop mints alert #2. Keying
+      // identity on the row therefore made every flicker a brand-new fact, so a
+      // stock level oscillating around its threshold re-notified on each dip —
+      // which is precisely what the Notification schema says must not happen
+      // ("a condition that flickers must not re-notify each time it returns").
+      //
+      // The logical condition is what the owner actually experiences: THIS item
+      // is critically low. That identity is businessId + item + alert type, and
+      // it is the same triple the inventory service itself uses to decide
+      // whether an alert is already open. Episodes stay in InventoryAlert;
+      // identity points at the thing the episodes are about.
+      //
+      // Fallback: alerts with no item (UNMATCHED_POS_PRODUCT carries a
+      // pendingMatchId instead) keep the row identity. No collision is possible
+      // — the two live in different entityRef.type namespaces.
+      entityRef:
+        a.itemId != null
+          ? { type: "inventory_item", id: a.itemId }
+          : { type: "inventory_alert", id: a.id },
       state: "open",
       createdAt: a.createdAt.toISOString(),
       primaryAction: {

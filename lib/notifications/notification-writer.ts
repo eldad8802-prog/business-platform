@@ -337,7 +337,7 @@ async function setLifecycleField(
  */
 export async function resolveAbsentNotifications(
   businessId: number,
-  scope: { domain: string; entityType: string },
+  scope: { domain: string; entityTypes: readonly string[] },
   presentDedupeKeys: string[],
   now: Date,
 ): Promise<number> {
@@ -347,7 +347,7 @@ export async function resolveAbsentNotifications(
       where: {
         businessId,
         domain: scope.domain,
-        entityType: scope.entityType,
+        entityType: { in: [...scope.entityTypes] },
         resolvedAt: null,
         // An empty present-set is legitimate and means "nothing in this scope is
         // true any more", so `notIn: []` must close everything in scope rather

@@ -11,6 +11,16 @@
  * then the sync afterwards — because the whole point of the design is that
  * persistence happens after the commit and cannot affect it.
  *
+ * THE IDENTITY THIS PROVES
+ *
+ *   InventoryAlert = one EPISODE.   The domain never reuses a resolved row.
+ *   Notification   = one CONDITION. Keyed on the item, so episodes of the same
+ *                                   problem collapse into one notification that
+ *                                   resolves and reopens.
+ *
+ * That distinction is why a stock level oscillating around its threshold no
+ * longer re-notifies on every dip.
+ *
  * Requires env: DATABASE_URL / DIRECT_URL pointing at a THROWAWAY database at
  * the current migration head. Writes no production data.
  *
@@ -22,6 +32,7 @@ import { prisma } from "../prisma";
 import { runWithTenantContext } from "../tenant/context";
 import { withTenantTransaction } from "../tenant/transaction";
 import { inventoryService } from "../services/inventory/inventory.service";
+import { translateInventoryAlerts } from "../business-status/translators/inventory";
 
 import { syncInventoryAlertNotifications } from "./inventory-alert-notifications";
 
@@ -54,6 +65,14 @@ async function movementThenSync(businessId: number, itemId: number, delta: numbe
 }
 
 const T0 = new Date("2026-09-10T06:00:00.000Z"); // 09:00 Jerusalem, outside quiet hours
+const HOUR = 3_600_000;
+
+const inventoryNotifs = (businessId: number) =>
+  prisma.notification.findMany({
+    where: { businessId, domain: "inventory" },
+    orderBy: { id: "asc" },
+    include: { deliveries: true },
+  });
 
 (async () => {
   const a = await prisma.business.create({ data: { name: "consumer-A" } });
@@ -61,121 +80,123 @@ const T0 = new Date("2026-09-10T06:00:00.000Z"); // 09:00 Jerusalem, outside qui
 
   const mkItem = (businessId: number, name: string) =>
     prisma.inventoryItem.create({
-      data: {
-        businessId,
-        name,
-        unitType: InventoryUnitType.UNIT,
-        currentQuantity: 10,
-        minimumQuantity: 3,
-      },
+      data: { businessId, name, unitType: InventoryUnitType.UNIT, currentQuantity: 10, minimumQuantity: 3 },
     });
 
   const itemA = await mkItem(a.id, "widget-A");
+  const itemA2 = await mkItem(a.id, "widget-A2");
   const itemB = await mkItem(b.id, "widget-B");
 
   try {
-    /* ── 1. a movement that crosses the threshold creates the notification ── */
+    /* ── 1. first critical episode creates the notification ────────────────── */
     const first = await movementThenSync(a.id, itemA.id, -8, T0); // 10 -> 2, below min 3
     check("the movement itself succeeded", first.movement !== null && first.sync.ok);
+    check("the domain raised one CRITICAL_STOCK alert",
+      (await prisma.inventoryAlert.count({ where: { itemId: itemA.id, type: "CRITICAL_STOCK", isResolved: false } })) === 1);
 
-    const alerts = await prisma.inventoryAlert.count({
-      where: { businessId: a.id, itemId: itemA.id, type: "CRITICAL_STOCK", isResolved: false },
-    });
-    check("the domain raised one CRITICAL_STOCK alert", alerts === 1, `alerts=${alerts}`);
-
-    const notifs = await prisma.notification.findMany({
-      where: { businessId: a.id, domain: "inventory" },
-      include: { deliveries: true },
-    });
-    check("exactly one notification was persisted", notifs.length === 1, `count=${notifs.length}`);
+    let rows = await inventoryNotifs(a.id);
+    check("exactly one notification was persisted", rows.length === 1, `count=${rows.length}`);
     check("it is the CRITICAL inventory alert",
-      notifs[0]?.semanticCategory === "ALERT" && notifs[0]?.severity === "CRITICAL",
-      `${notifs[0]?.semanticCategory}/${notifs[0]?.severity}`);
-    check("dedupe identity is the alert row, tenant-scoped",
-      /^b\d+:inventory:ALERT:inventory_alert:\d+$/.test(notifs[0]?.dedupeKey ?? ""), notifs[0]?.dedupeKey);
-    check("it is open (not resolved)", notifs[0]?.resolvedAt === null);
+      rows[0]?.semanticCategory === "ALERT" && rows[0]?.severity === "CRITICAL");
+    check("identity is the ITEM, not the alert row",
+      rows[0]?.entityType === "inventory_item" && rows[0]?.entityId === itemA.id,
+      `${rows[0]?.entityType}:${rows[0]?.entityId} (item=${itemA.id})`);
+    check("dedupe key is the logical condition",
+      rows[0]?.dedupeKey === `b${a.id}:inventory:ALERT:inventory_item:${itemA.id}`, rows[0]?.dedupeKey);
+    check("it is open", rows[0]?.resolvedAt === null);
+    const notificationId = rows[0]!.id;
 
     /* ── 2. delivery state: PUSH persisted, never sent ─────────────────────── */
-    const push = notifs[0]?.deliveries.find((d) => d.channel === "PUSH");
-    const inApp = notifs[0]?.deliveries.find((d) => d.channel === "IN_APP");
     check("policy granted both channels outside quiet hours",
-      JSON.stringify(notifs[0]?.intendedChannels) === '["IN_APP","PUSH"]', JSON.stringify(notifs[0]?.intendedChannels));
-    check("PUSH delivery is PENDING", push?.status === "PENDING", push?.status);
-    check("no PUSH delivery is SENT or FAILED",
-      notifs[0]?.deliveries.every((d) => d.channel !== "PUSH" || d.status === "PENDING") === true);
-    check("IN_APP delivery is SENT", inApp?.status === "SENT", inApp?.status);
-    check("zero external delivery attempts recorded beyond the two channels",
-      notifs[0]?.deliveries.length === 2, `deliveries=${notifs[0]?.deliveries.length}`);
+      JSON.stringify(rows[0]?.intendedChannels) === '["IN_APP","PUSH"]');
+    check("PUSH delivery is PENDING",
+      rows[0]?.deliveries.find((d) => d.channel === "PUSH")?.status === "PENDING");
+    check("IN_APP delivery is SENT",
+      rows[0]?.deliveries.find((d) => d.channel === "IN_APP")?.status === "SENT");
+    check("no PUSH delivery is ever SENT or FAILED",
+      rows[0]?.deliveries.every((d) => d.channel !== "PUSH" || d.status === "PENDING") === true);
+    check("exactly two delivery rows", rows[0]?.deliveries.length === 2, `n=${rows[0]?.deliveries.length}`);
 
-    /* ── 3. repeated movement dedupes ──────────────────────────────────────── */
-    const second = await movementThenSync(a.id, itemA.id, -1, new Date(T0.getTime() + 60_000)); // 2 -> 1, still below
-    const afterSecond = await prisma.notification.findMany({ where: { businessId: a.id, domain: "inventory" } });
-    check("a second movement in the same condition creates no second notification",
-      afterSecond.length === 1, `count=${afterSecond.length}`);
+    /* ── 3. still critical: no duplicate ───────────────────────────────────── */
+    const second = await movementThenSync(a.id, itemA.id, -1, new Date(T0.getTime() + 60_000)); // 2 -> 1
+    rows = await inventoryNotifs(a.id);
+    check("a second movement in the same condition creates no second notification", rows.length === 1);
     check("the repeat did not re-notify (cooldown)", second.sync.written[0]?.notified === false);
-    const deliveriesAfterSecond = await prisma.notificationDelivery.count({ where: { businessId: a.id } });
-    check("the repeat added no delivery rows", deliveriesAfterSecond === 2, `deliveries=${deliveriesAfterSecond}`);
+    check("the repeat added no delivery rows", rows[0]?.deliveries.length === 2);
 
     /* ── 4. recovery resolves the notification ─────────────────────────────── */
-    const third = await movementThenSync(a.id, itemA.id, +20, new Date(T0.getTime() + 120_000)); // 1 -> 21
-    const openAlerts = await prisma.inventoryAlert.count({
-      where: { businessId: a.id, itemId: itemA.id, type: "CRITICAL_STOCK", isResolved: false },
-    });
-    check("the domain resolved its alert", openAlerts === 0, `open=${openAlerts}`);
+    const third = await movementThenSync(a.id, itemA.id, +20, new Date(T0.getTime() + 2 * 60_000)); // 1 -> 21
+    check("the domain resolved its alert",
+      (await prisma.inventoryAlert.count({ where: { itemId: itemA.id, type: "CRITICAL_STOCK", isResolved: false } })) === 0);
     check("the sync closed exactly one notification", third.sync.resolved === 1, `resolved=${third.sync.resolved}`);
-    const resolvedRow = await prisma.notification.findFirst({ where: { businessId: a.id, domain: "inventory" } });
-    check("resolvedAt is set", resolvedRow?.resolvedAt !== null);
-    check("resolution did not delete the notification",
-      (await prisma.notification.count({ where: { businessId: a.id, domain: "inventory" } })) === 1);
+    rows = await inventoryNotifs(a.id);
+    check("resolvedAt is set", rows[0]?.resolvedAt !== null);
+    check("resolution did not delete the notification", rows.length === 1);
 
-    /* ── 5. reappearance is a NEW occurrence, not a reopen ────────────────── */
-    // The inventory domain identifies an alert by its ROW, and it never reuses a
-    // resolved row: recovery closes alert #1 and a later drop mints alert #2.
-    // entityRef.id therefore changes, so the dedupe key changes, so this is a
-    // new notification rather than a reopen of the old one.
-    //
-    // That is the domain's identity model, not the writer's — the writer's
-    // reopen path is real and proven in its own suite, it is simply unreachable
-    // from here. Asserted explicitly so the day inventory starts reusing rows,
-    // this test fails and someone re-reads this comment.
-    const later = new Date(T0.getTime() + 25 * 3_600_000);
-    const fourth = await movementThenSync(a.id, itemA.id, -19, later); // 21 -> 2, below min again
-    const inventoryRows = await prisma.notification.findMany({
-      where: { businessId: a.id, domain: "inventory" },
-      orderBy: { id: "asc" },
-      include: { deliveries: true },
-    });
-    check("a returning condition is recorded as a second, distinct notification",
-      inventoryRows.length === 2, `count=${inventoryRows.length}`);
-    check("the first notification stays resolved", inventoryRows[0]?.resolvedAt !== null);
-    check("the new one is open", inventoryRows[1]?.resolvedAt === null);
-    check("the two carry different alert ids",
-      inventoryRows[0]?.entityId !== inventoryRows[1]?.entityId,
-      `${inventoryRows[0]?.entityId} vs ${inventoryRows[1]?.entityId}`);
-    check("the new occurrence notifies", fourth.sync.written[0]?.notified === true);
-    check("the new occurrence is a creation, not a reopen",
-      fourth.sync.written[0]?.created === true && fourth.sync.written[0]?.reopened === false);
-    check("the new occurrence's PUSH is still only PENDING",
-      inventoryRows[1]?.deliveries.filter((d) => d.channel === "PUSH").every((d) => d.status === "PENDING") === true);
-    check("nothing was deleted along the way",
-      (await prisma.notification.count({ where: { businessId: a.id, domain: "inventory" } })) === 2);
+    /* ── 5. FLICKER: critical again INSIDE the 24h cooldown ────────────────── */
+    // The domain mints a SECOND alert episode here. The notification must not
+    // follow it: same item, same condition, so the same row reopens silently.
+    const flicker = await movementThenSync(a.id, itemA.id, -19, new Date(T0.getTime() + HOUR)); // 21 -> 2
+    const episodes = await prisma.inventoryAlert.count({ where: { itemId: itemA.id, type: "CRITICAL_STOCK" } });
+    rows = await inventoryNotifs(a.id);
+    check("the domain recorded a SECOND alert episode", episodes === 2, `episodes=${episodes}`);
+    check("the notification identity stayed stable — still one row", rows.length === 1, `count=${rows.length}`);
+    check("it is the same notification row", rows[0]?.id === notificationId);
+    check("the flicker reopened it (resolvedAt cleared)", rows[0]?.resolvedAt === null);
+    check("the writer reported a reopen, not a creation",
+      flicker.sync.written[0]?.reopened === true && flicker.sync.written[0]?.created === false);
+    check("FLICKER INSIDE COOLDOWN DID NOT RE-NOTIFY", flicker.sync.written[0]?.notified === false);
+    check("no owner-facing delivery was added during cooldown",
+      rows[0]?.deliveries.length === 2, `deliveries=${rows[0]?.deliveries.length}`);
+    check("the cooldown anchor survived the reopen",
+      rows[0]?.lastNotifiedAt?.getTime() === T0.getTime(), rows[0]?.lastNotifiedAt?.toISOString());
 
-    /* ── 6. tenant isolation ───────────────────────────────────────────────── */
+    /* ── 6. recurrence AFTER the cooldown ──────────────────────────────────── */
+    const after = new Date(T0.getTime() + 25 * HOUR);
+    const renotify = await movementThenSync(a.id, itemA.id, -1, after); // 2 -> 1, still critical
+    rows = await inventoryNotifs(a.id);
+    check("past the cooldown the same condition notifies again", renotify.sync.written[0]?.notified === true);
+    check("still exactly one notification row", rows.length === 1, `count=${rows.length}`);
+    check("a re-notification appends deliveries, never removes",
+      rows[0]?.deliveries.length === 4, `deliveries=${rows[0]?.deliveries.length}`);
+    check("the new PUSH attempt is still only PENDING",
+      rows[0]?.deliveries.filter((d) => d.channel === "PUSH").every((d) => d.status === "PENDING") === true);
+
+    /* ── 7. two items in one business stay independent ─────────────────────── */
+    await movementThenSync(a.id, itemA2.id, -8, after);
+    rows = await inventoryNotifs(a.id);
+    check("a second item produces its own notification", rows.length === 2, `count=${rows.length}`);
+    check("the two carry different item identities",
+      rows[0]?.entityId !== rows[1]?.entityId && rows[1]?.entityId === itemA2.id);
+    check("their dedupe keys differ", rows[0]?.dedupeKey !== rows[1]?.dedupeKey);
+
+    /* ── 8. tenants stay independent ───────────────────────────────────────── */
     await movementThenSync(b.id, itemB.id, -8, T0);
-    const bNotifs = await prisma.notification.findMany({ where: { businessId: b.id, domain: "inventory" } });
-    const aNotifs = await prisma.notification.findMany({
-      where: { businessId: a.id, domain: "inventory" }, orderBy: { id: "asc" },
-    });
-    check("business B gets its own notification", bNotifs.length === 1);
-    check("business A is unchanged by B's sync", aNotifs.length === 2);
-    check("the dedupe keys differ across tenants", bNotifs[0]?.dedupeKey !== aNotifs[0]?.dedupeKey,
-      `${bNotifs[0]?.dedupeKey} vs ${aNotifs[0]?.dedupeKey}`);
-    check("B's sync did not resolve A's open notification", aNotifs[1]?.resolvedAt === null);
-    check("B's row belongs to B", bNotifs[0]?.businessId === b.id);
+    const bRows = await inventoryNotifs(b.id);
+    const aRows = await inventoryNotifs(a.id);
+    check("business B gets its own notification", bRows.length === 1);
+    check("business A is unchanged by B's sync", aRows.length === 2);
+    check("dedupe keys differ across tenants", bRows[0]?.dedupeKey !== aRows[0]?.dedupeKey,
+      `${bRows[0]?.dedupeKey} vs ${aRows[0]?.dedupeKey}`);
+    check("B's row belongs to B", bRows[0]?.businessId === b.id);
 
-    /* ── 7. a failing sync must not affect the committed movement ──────────── */
-    // The tenant guard is the cheapest genuine failure: a mismatched businessId
-    // makes the writer refuse, exercising the same catch a DB error would.
+    /* ── 9. null itemId falls back to the episode identity ─────────────────── */
+    // Asserted on the translator directly: the domain only produces item-less
+    // alerts for UNMATCHED_POS_PRODUCT, which the policy silences, so no DB path
+    // would exercise this branch honestly.
+    const itemless = translateInventoryAlerts([
+      { id: 4242, type: "UNMATCHED_POS_PRODUCT", message: null, createdAt: T0, itemId: null, itemName: null },
+      { id: 4243, type: "UNMATCHED_POS_PRODUCT", message: null, createdAt: T0, itemId: null, itemName: null },
+    ] as Parameters<typeof translateInventoryAlerts>[0]);
+    check("an item-less alert keeps the alert-row identity",
+      itemless[0]?.entityRef.type === "inventory_alert" && itemless[0]?.entityRef.id === 4242,
+      `${itemless[0]?.entityRef.type}:${itemless[0]?.entityRef.id}`);
+    check("two item-less episodes do not collide with each other",
+      itemless[0]?.entityRef.id !== itemless[1]?.entityRef.id);
+    check("the fallback cannot collide with an item identity (different namespace)",
+      itemless.every((i) => i.entityRef.type !== "inventory_item"));
+
+    /* ── 10. a failing sync must not affect the committed movement ─────────── */
     const qtyBefore = (await prisma.inventoryItem.findUnique({ where: { id: itemA.id } }))!.currentQuantity;
     const notifsBefore = await prisma.notification.count({
       where: { businessId: { in: [a.id, b.id] }, domain: "inventory" },
@@ -184,8 +205,7 @@ const T0 = new Date("2026-09-10T06:00:00.000Z"); // 09:00 Jerusalem, outside qui
       withTenantTransaction((tx) =>
         inventoryService.createMovement(
           {
-            businessId: a.id,
-            itemId: itemA.id,
+            businessId: a.id, itemId: itemA.id,
             movementType: InventoryMovementType.OUT,
             reason: InventoryMovementReason.MANUAL_REMOVE,
             quantityDelta: -1,
@@ -196,7 +216,7 @@ const T0 = new Date("2026-09-10T06:00:00.000Z"); // 09:00 Jerusalem, outside qui
     );
     // Wrong tenant on purpose: the writer refuses, the sync absorbs it.
     const badSync = await runWithTenantContext({ businessId: a.id }, () =>
-      syncInventoryAlertNotifications(b.id, later),
+      syncInventoryAlertNotifications(b.id, after),
     );
     const qtyAfter = (await prisma.inventoryItem.findUnique({ where: { id: itemA.id } }))!.currentQuantity;
     check("a cross-tenant sync fails rather than writing", badSync.ok === false);
@@ -206,8 +226,7 @@ const T0 = new Date("2026-09-10T06:00:00.000Z"); // 09:00 Jerusalem, outside qui
     check("the failed sync wrote nothing for either tenant",
       (await prisma.notification.count({ where: { businessId: { in: [a.id, b.id] }, domain: "inventory" } })) === notifsBefore);
 
-    /* ── 8. resolution scope ───────────────────────────────────────────────── */
-    // A notification from another domain must never be closed by this consumer.
+    /* ── 11. resolution scope ──────────────────────────────────────────────── */
     await prisma.notification.create({
       data: {
         businessId: a.id, dedupeKey: `b${a.id}:documents:ACTION_REQUIRED:document:1`,
@@ -216,9 +235,11 @@ const T0 = new Date("2026-09-10T06:00:00.000Z"); // 09:00 Jerusalem, outside qui
         intendedChannels: ["IN_APP"], reason: "fixture", cooldownHours: 48,
       },
     });
-    await movementThenSync(a.id, itemA.id, +50, later); // recovers -> resolves inventory
+    await movementThenSync(a.id, itemA.id, +50, after); // recovers -> resolves inventory
     const foreign = await prisma.notification.findFirst({ where: { businessId: a.id, domain: "documents" } });
     check("a foreign-domain notification is never resolved by this consumer", foreign?.resolvedAt === null);
+    check("nothing was deleted anywhere",
+      (await prisma.notification.count({ where: { businessId: a.id } })) === 3);
   } finally {
     await prisma.business.deleteMany({ where: { id: { in: [a.id, b.id] } } });
     await prisma.$disconnect();
