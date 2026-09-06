@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { authDb } from "@/lib/prisma-auth";
 import { AuthTokenConfigError, signAuthToken } from "@/lib/auth";
 import { normalizeEmail } from "@/lib/auth/signup-identity";
 import bcrypt from "bcrypt";
@@ -73,13 +73,13 @@ export async function POST(req: Request) {
     // same unique index, never a scan.
     const normalizedEmail = normalizeEmail(email);
 
-    let user = await prisma.user.findUnique({
+    let user = await authDb().user.findUnique({
       where: { email: normalizedEmail },
       include: { business: true },
     });
 
     if (!user && email !== normalizedEmail) {
-      user = await prisma.user.findUnique({
+      user = await authDb().user.findUnique({
         where: { email },
         include: { business: true },
       });
@@ -109,7 +109,7 @@ export async function POST(req: Request) {
     const sessionId = randomUUID();
     const now = new Date();
 
-    await prisma.user.update({
+    await authDb().user.update({
       where: { id: user.id },
       data: {
         lastLoginAt: now,

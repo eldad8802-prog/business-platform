@@ -192,8 +192,12 @@ n="$(printf '%s' "$ctl" | grep -c . || true)"
 ok "CI-TC-9  no tenant runtime imports the control-plane client" "$([ "$n" -eq 0 ] && echo 1 || echo 0)" "$(printf '%s' "$ctl" | tr '\n' ' ' | cut -c1-160)"
 
 # --- 10. no ad-hoc PrismaClient (CI-1 also covers this; pinned here too) ----
+# The sanctioned-client register. `lib/prisma-auth.ts` joined it in
+# D2/AUTH-BOUNDARY-STEP-2: auth and bootstrap connect as their own identity so
+# that tenant traffic can lose User/Business access. Its import surface is
+# enforced separately by admin-boundary-guard CI-2a/2b/2c.
 adhoc="$(grep -rn "new PrismaClient" --include=*.ts "$ROOT/app" "$ROOT/lib" "$ROOT/features" "$ROOT/components" 2>/dev/null \
-         | grep -v '\.test\.' | grep -vE 'lib/prisma\.ts|lib/prisma-admin\.ts|lib/prisma-control-plane\.ts' || true)"
+         | grep -v '\.test\.' | grep -vE 'lib/prisma\.ts|lib/prisma-admin\.ts|lib/prisma-control-plane\.ts|lib/prisma-auth\.ts' || true)"
 n="$(printf '%s' "$adhoc" | grep -c . || true)"
 ok "CI-TC-10 no ad-hoc PrismaClient in runtime code" "$([ "$n" -eq 0 ] && echo 1 || echo 0)" "$(printf '%s' "$adhoc" | tr '\n' ' ' | cut -c1-160)"
 

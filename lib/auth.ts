@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "./prisma";
+import { authDb } from "./prisma-auth";
 import { verifyAuthTokenPayload } from "./auth-token";
 import { acceptsNormalWrites } from "./tenant/business-lifecycle";
 
@@ -44,7 +44,7 @@ export async function getCurrentUser(req: Request) {
       return null;
     }
 
-    const user = await prisma.user.findUnique({
+    const user = await authDb().user.findUnique({
       where: { id: verified.userId },
       include: {
         business: true,

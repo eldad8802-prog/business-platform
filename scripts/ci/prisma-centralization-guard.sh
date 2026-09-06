@@ -15,6 +15,13 @@
 #   - lib/prisma-control-plane.ts  the SANCTIONED control-plane client
 #                             (D2/PRIVILEGED-WRITE-2; its import surface is
 #                             enforced by privwrite-guard CI-PRIVWRITE-7/8)
+#   - lib/prisma-auth.ts      the SANCTIONED auth/bootstrap client
+#                             (D2/AUTH-BOUNDARY-STEP-2). Login, session
+#                             validation and signup must reach User/Business
+#                             through an identity that tenant traffic does not
+#                             hold — that separation is what lets app_runtime
+#                             lose the access. Its import surface is enforced
+#                             by admin-boundary-guard CI-2a/2b/2c.
 #   - *.test.ts / *.deps.ts   test / dependency-injection seam files
 #   - **/__mocks__/**         test mocks
 #
@@ -32,6 +39,7 @@ matches="$(
     | grep -vE "(^|/)lib/prisma\.ts:" \
     | grep -vE "(^|/)lib/prisma-admin\.ts:" \
     | grep -vE "(^|/)lib/prisma-control-plane\.ts:" \
+    | grep -vE "(^|/)lib/prisma-auth\.ts:" \
     | grep -vE "\.test\.ts:|\.deps\.ts:|/__mocks__/" \
     || true
 )"
