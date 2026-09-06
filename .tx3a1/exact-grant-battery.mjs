@@ -79,12 +79,33 @@ async function main() {
   // ---- 2. reproduce Production's EXACT app_runtime grant contract -----------
   console.log("\n== 2. exact app_runtime grant contract (as measured in Production) ==");
   await owner.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO app_runtime`);
+  // `User` and `Business` are deliberately excluded from the DELETE grant.
+  //
+  // Neither table carries RLS, and neither easily can: login resolves a user by
+  // email, session validation resolves one by id, and signup creates a Business
+  // before any tenant id exists — all three run before a tenant GUC is set, so a
+  // `businessId = current_setting(...)` predicate would match zero rows and break
+  // authentication outright. That leaves the tenant boundary on these two tables
+  // enforced by application code alone, which makes every privilege the runtime
+  // holds over them load-bearing.
+  //
+  // DELETE is the one that buys nothing: no application path deletes a User or a
+  // Business — account deletion quarantines through updateMany — so the grant was
+  // pure blast radius, a runtime able to erase any tenant's users. It is withheld
+  // here rather than granted-and-then-revoked, so the contract this battery
+  // reproduces IS the intended end state and cannot drift back through a
+  // forgotten revoke.
   await owner.$executeRawUnsafe(
     `DO $do$ DECLARE t record; BEGIN
        FOR t IN SELECT relname FROM pg_class
                  WHERE relnamespace='public'::regnamespace AND relkind='r'
                    AND relname <> '_prisma_migrations'
-       LOOP EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO app_runtime', t.relname);
+       LOOP
+         IF t.relname IN ('User','Business') THEN
+           EXECUTE format('GRANT SELECT, INSERT, UPDATE ON public.%I TO app_runtime', t.relname);
+         ELSE
+           EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO app_runtime', t.relname);
+         END IF;
        END LOOP;
      END $do$`);
   // USAGE + SELECT only. Deliberately NO UPDATE — Production grants none.
@@ -115,6 +136,33 @@ async function main() {
   ok("schema USAGE yes, CREATE no", c0.schema_usage === true && c0.schema_create === false);
   ok("sequences: USAGE granted, UPDATE granted on ZERO (matches Production exactly)",
     c0.seq_usage > 0 && c0.seq_update === 0, JSON.stringify(c0));
+
+  // ---- 2a. the auth-boundary privilege floor (D2 / AUTH BOUNDARY STEP 1) ----
+  //
+  // This is the regression guard for the Production REVOKE. It is deliberately
+  // two-sided: it fails if DELETE ever comes back, AND it fails if this exclusion
+  // is over-applied and takes SELECT/INSERT/UPDATE with it. A one-sided check
+  // would let "fix" the guard by revoking everything, which would break login
+  // just as surely as the original grant endangered tenants.
+  const auth = await owner.$queryRawUnsafe(
+    `SELECT c.relname AS tbl,
+            has_table_privilege('app_runtime', c.oid, 'SELECT') AS sel,
+            has_table_privilege('app_runtime', c.oid, 'INSERT') AS ins,
+            has_table_privilege('app_runtime', c.oid, 'UPDATE') AS upd,
+            has_table_privilege('app_runtime', c.oid, 'DELETE') AS del,
+            has_table_privilege('app_runtime', c.oid, 'TRUNCATE') AS trunc
+       FROM pg_class c
+      WHERE c.relnamespace='public'::regnamespace AND c.relname IN ('User','Business')
+      ORDER BY c.relname`);
+  ok("the auth-boundary tables both exist in the lab", auth.length === 2,
+    `found ${auth.length}: ${auth.map((r) => r.tbl).join(",")}`);
+  for (const r of auth) {
+    ok(`${r.tbl}: app_runtime has NO DELETE`, r.del === false,
+      "a DELETE grant on an auth-boundary table reappeared — the runtime could erase any tenant's rows");
+    ok(`${r.tbl}: app_runtime has NO TRUNCATE`, r.trunc === false);
+    ok(`${r.tbl}: SELECT/INSERT/UPDATE are still intact (auth must keep working)`,
+      r.sel === true && r.ins === true && r.upd === true, JSON.stringify(r));
+  }
   if (ledgerExists) {
     const ledger = await owner.$queryRawUnsafe(
       `SELECT has_table_privilege('app_runtime','public."_prisma_migrations"','SELECT') AS can_read`);
@@ -129,6 +177,22 @@ async function main() {
   await owner.$executeRawUnsafe(
     `CREATE ROLE ${RT_ROLE} LOGIN PASSWORD '${RT_PW}' NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION INHERIT`);
   await owner.$executeRawUnsafe(`GRANT app_runtime TO ${RT_ROLE}`);
+
+  // Inheritance is what actually reaches Production: the runtime LOGIN role holds
+  // no direct grant on the auth-boundary tables, only membership of app_runtime.
+  // Asserting the floor on the group alone would miss a direct grant handed to the
+  // LOGIN role later, so it is re-proven here through the role that serves traffic.
+  const inherited = await owner.$queryRawUnsafe(
+    `SELECT c.relname AS tbl,
+            has_table_privilege($1, c.oid, 'DELETE') AS del,
+            has_table_privilege($1, c.oid, 'SELECT') AS sel
+       FROM pg_class c
+      WHERE c.relnamespace='public'::regnamespace AND c.relname IN ('User','Business')
+      ORDER BY c.relname`, RT_ROLE);
+  for (const r of inherited) {
+    ok(`${r.tbl}: the runtime LOGIN role inherits NO DELETE`, r.del === false, JSON.stringify(r));
+    ok(`${r.tbl}: the runtime LOGIN role still inherits SELECT`, r.sel === true, JSON.stringify(r));
+  }
 
   const attrs = await owner.$queryRawUnsafe(
     `SELECT rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication
