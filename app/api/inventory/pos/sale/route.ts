@@ -4,6 +4,7 @@ import { InventoryMovementReason } from "@prisma/client";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
+import { syncInventoryAlertNotifications } from "@/lib/notifications/inventory-alert-notifications";
 import { createPendingMatch } from "@/lib/services/inventory/pending-match.service";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
@@ -278,6 +279,25 @@ export async function POST(request: NextRequest) {
         },
         { timeoutMs: 20_000 }
       )
+    );
+
+    // AFTER the whole POS ingest transaction has committed. One sync per
+    // request, not per line: the reconciliation covers the entire inventory
+    // domain for this business, so a multi-item sale needs exactly one call.
+    //
+    // Run for every outcome, including `skipped`. A duplicate delivery changes
+    // nothing in the domain, so the reconciliation is a no-op write-wise — but
+    // it is also the moment to recover a notification that a previously
+    // swallowed failure never wrote. One indexed read is a fair price for that.
+    //
+    // The tenant is the server-resolved businessId from the POS key, the same
+    // identity the transaction ran under; the request body never influences it.
+    // Context is re-entered because the one above closed with the transaction.
+    //
+    // It cannot change the response: the sale is durable by now, and the sync
+    // absorbs its own errors and returns them as data rather than throwing.
+    await runWithTenantContext({ businessId }, () =>
+      syncInventoryAlertNotifications(businessId, new Date())
     );
 
     if (outcome.kind === "skipped") {

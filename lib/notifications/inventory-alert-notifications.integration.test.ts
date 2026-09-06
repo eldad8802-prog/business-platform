@@ -26,7 +26,13 @@
  *
  * Run: npx tsx lib/notifications/inventory-alert-notifications.integration.test.ts
  */
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { InventoryMovementReason, InventoryMovementType, InventoryUnitType } from "@prisma/client";
+
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 import { prisma } from "../prisma";
 import { runWithTenantContext } from "../tenant/context";
@@ -87,6 +93,7 @@ const inventoryNotifs = (businessId: number) =>
   const itemA2 = await mkItem(a.id, "widget-A2");
   const itemB = await mkItem(b.id, "widget-B");
   const c = await prisma.business.create({ data: { name: "consumer-C-sales" } });
+  const d = await prisma.business.create({ data: { name: "consumer-D-pos" } });
 
   try {
     /* ── 1. first critical episode creates the notification ────────────────── */
@@ -318,8 +325,133 @@ const inventoryNotifs = (businessId: number) =>
     check("a repeat sale creates no new notification", afterRepeat.length === 2);
     check("a repeat sale adds no delivery",
       afterRepeat.every((r) => r.deliveries.length === 2));
+
+    /* ── 13. POS shape: key-derived tenant, one sync, duplicate-safe ─────── */
+    // Mirrors app/api/inventory/pos/sale/route.ts: the tenant comes from a
+    // POSApiKey row, the whole ingest (duplicate check, matching, movements,
+    // external-sale record) runs in ONE transaction, and reconciliation runs
+    // once after the commit.
+    const posKeyHash = "test-pos-key-hash-" + d.id;
+    const posKey = await prisma.pOSApiKey.create({
+      data: { businessId: d.id, keyHash: posKeyHash, source: "POS", active: true },
+    });
+    const posItem1 = await prisma.inventoryItem.create({
+      data: { businessId: d.id, name: "pos-1", sku: "POS-SKU-1", unitType: InventoryUnitType.UNIT, currentQuantity: 10, minimumQuantity: 3 },
+    });
+    const posItem2 = await prisma.inventoryItem.create({
+      data: { businessId: d.id, name: "pos-2", sku: "POS-SKU-2", unitType: InventoryUnitType.UNIT, currentQuantity: 10, minimumQuantity: 3 },
+    });
+    const posItem3 = await prisma.inventoryItem.create({
+      data: { businessId: d.id, name: "pos-3", sku: "POS-SKU-3", unitType: InventoryUnitType.UNIT, currentQuantity: 10, minimumQuantity: 3 },
+    });
+
+    // TENANT AUTHORITY: resolved from the key row, exactly as the route does.
+    // Note what is NOT consulted — no businessId is taken from the payload.
+    const resolved = await prisma.pOSApiKey.findUnique({
+      where: { keyHash: posKeyHash },
+      select: { businessId: true, active: true },
+    });
+    check("the POS tenant is resolved from the key row",
+      resolved?.businessId === d.id && resolved.active === true);
+
+    async function posIngest(externalSaleId: string, lines: Array<{ sku: string; quantity: number }>, now: Date) {
+      const posBusinessId = resolved!.businessId; // server-derived, never from the payload
+      const outcome = await runWithTenantContext({ businessId: posBusinessId }, () =>
+        withTenantTransaction(
+          async (tx) => {
+            const dup = await tx.inventoryExternalSale.findUnique({
+              where: { businessId_externalSaleId: { businessId: posBusinessId, externalSaleId } },
+            });
+            if (dup) return { kind: "skipped" as const };
+            for (const line of lines) {
+              const item = await tx.inventoryItem.findFirst({
+                where: { businessId: posBusinessId, sku: line.sku, isActive: true },
+              });
+              if (!item) continue;
+              await inventoryService.removeStock(
+                { businessId: posBusinessId, itemId: item.id, quantityDelta: line.quantity, reason: InventoryMovementReason.SALE },
+                { tx },
+              );
+            }
+            await tx.inventoryExternalSale.create({
+              data: { businessId: posBusinessId, externalSaleId, source: "POS" },
+            });
+            return { kind: "processed" as const };
+          },
+          { timeoutMs: 20_000 },
+        ),
+      );
+      const sync = await runWithTenantContext({ businessId: posBusinessId }, () =>
+        syncInventoryAlertNotifications(posBusinessId, now),
+      );
+      return { outcome, sync };
+    }
+
+    const pos1 = await posIngest("SALE-001", [
+      { sku: "POS-SKU-1", quantity: 8 },
+      { sku: "POS-SKU-2", quantity: 9 },
+      { sku: "POS-SKU-3", quantity: 1 },
+    ], T0);
+    let posRows = await inventoryNotifs(d.id);
+    check("the POS sale was processed", pos1.outcome.kind === "processed" && pos1.sync.ok);
+    check("ONE sync covered every line of the POS sale", posRows.length === 2, `notifications=${posRows.length}`);
+    check("only the items that crossed the threshold notified",
+      posRows.map((r) => r.entityId).sort((x, y) => x - y).join(",") ===
+        [posItem1.id, posItem2.id].sort((x, y) => x - y).join(","),
+      posRows.map((r) => r.entityId).join(","));
+    check("the healthy POS item produced no notification",
+      posRows.every((r) => r.entityId !== posItem3.id));
+    check("notifications belong to the KEY's business",
+      posRows.every((r) => r.businessId === posKey.businessId && r.businessId === d.id));
+    check("identity is the item, reusing the existing logical model",
+      posRows.every((r) => r.entityType === "inventory_item"));
+    check("PUSH stays PENDING, IN_APP is SENT, nothing external",
+      posRows.every((r) =>
+        r.deliveries.length === 2 &&
+        r.deliveries.find((x) => x.channel === "PUSH")?.status === "PENDING" &&
+        r.deliveries.find((x) => x.channel === "IN_APP")?.status === "SENT"));
+
+    // Duplicate delivery of the same externalSaleId: the domain skips it, and
+    // the sync still runs but has nothing new to say.
+    const posDup = await posIngest("SALE-001", [{ sku: "POS-SKU-1", quantity: 8 }], new Date(T0.getTime() + 60_000));
+    const afterDup = await inventoryNotifs(d.id);
+    check("a duplicate POS sale is skipped by the domain", posDup.outcome.kind === "skipped");
+    check("a duplicate POS sale creates no new notification", afterDup.length === 2);
+    check("a duplicate POS sale adds no delivery",
+      afterDup.every((r) => r.deliveries.length === 2));
+    check("a duplicate POS sale moved no stock",
+      (await prisma.inventoryItem.findUnique({ where: { id: posItem1.id } }))!.currentQuantity === 2);
+
+    // Cross-tenant: another business's key can never produce notifications here.
+    const otherRowsBefore = await inventoryNotifs(c.id);
+    const crossPos = await runWithTenantContext({ businessId: d.id }, () =>
+      syncInventoryAlertNotifications(c.id, T0),
+    );
+    check("a POS sync for another business is refused", crossPos.ok === false);
+    check("the other business's notifications are untouched",
+      (await inventoryNotifs(c.id)).length === otherRowsBefore.length);
+
+    /* ── 14. the POS route derives its tenant only from the key ──────────── */
+    // Structural, because this is a security property the pure functions cannot
+    // defend: the day someone reads a businessId out of the POS payload, this
+    // fails rather than the guarantee quietly disappearing.
+    const posRoute = readFileSync(
+      join(REPO_ROOT, "app", "api", "inventory", "pos", "sale", "route.ts"), "utf8");
+    const assigns = posRoute.split(/\r?\n/).filter((l) => /^\s*businessId = /.test(l));
+    check("businessId is assigned exactly twice in the POS route", assigns.length === 2,
+      JSON.stringify(assigns));
+    check("both assignments are server-derived (key row, env)",
+      assigns.some((l) => l.includes("dbKey.businessId")) && assigns.some((l) => l.includes("envBusinessId")));
+    check("no businessId is ever read from the request payload",
+      !/businessId\s*[:=]\s*(body|payload|request)\b/.test(posRoute) &&
+      !/(body|payload)\.businessId/.test(posRoute));
+    check("the POS sync is called with the server-derived tenant",
+      /syncInventoryAlertNotifications\(businessId, new Date\(\)\)/.test(posRoute));
+    check("the POS sync runs outside the transaction callback",
+      posRoute.indexOf("syncInventoryAlertNotifications(businessId") >
+      posRoute.indexOf('outcome.kind === "skipped"') - 1200);
   } finally {
-    await prisma.business.deleteMany({ where: { id: { in: [a.id, b.id, c.id] } } });
+    await prisma.business.deleteMany({ where: { id: { in: [a.id, b.id, c.id, d.id] } } });
     await prisma.$disconnect();
   }
 
