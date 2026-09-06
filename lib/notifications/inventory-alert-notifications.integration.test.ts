@@ -30,7 +30,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { InventoryMovementReason, InventoryMovementType, InventoryUnitType } from "@prisma/client";
+import { InventoryMovementReason, InventoryMovementType, InventoryUnitType, PurchaseOrderStatus } from "@prisma/client";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -38,6 +38,8 @@ import { prisma } from "../prisma";
 import { runWithTenantContext } from "../tenant/context";
 import { withTenantTransaction } from "../tenant/transaction";
 import { inventoryService } from "../services/inventory/inventory.service";
+import { purchaseOrderService } from "../services/inventory/purchase-order.service";
+import { receivingService } from "../services/inventory/receiving.service";
 import { translateInventoryAlerts } from "../business-status/translators/inventory";
 
 import { syncInventoryAlertNotifications } from "./inventory-alert-notifications";
@@ -94,6 +96,7 @@ const inventoryNotifs = (businessId: number) =>
   const itemB = await mkItem(b.id, "widget-B");
   const c = await prisma.business.create({ data: { name: "consumer-C-sales" } });
   const d = await prisma.business.create({ data: { name: "consumer-D-pos" } });
+  const e = await prisma.business.create({ data: { name: "consumer-E-receiving" } });
 
   try {
     /* ── 1. first critical episode creates the notification ────────────────── */
@@ -450,8 +453,118 @@ const inventoryNotifs = (businessId: number) =>
     check("the POS sync runs outside the transaction callback",
       posRoute.indexOf("syncInventoryAlertNotifications(businessId") >
       posRoute.indexOf('outcome.kind === "skipped"') - 1200);
+
+    /* ── 15. receiving: the interesting outcome is RESOLUTION ────────────── */
+    // Receiving adds stock, so the natural proof here is recovery, not a new
+    // alert: an item that was critically low is replenished, the domain
+    // resolves its alert, and the sync closes the matching notification.
+    const recvItem = await mkItem(e.id, "recv-widget");
+
+    // Drive it critical first, so there is something for receiving to resolve.
+    const recvCritical = await movementThenSync(e.id, recvItem.id, -8, T0); // 10 -> 2
+    let recvRows = await inventoryNotifs(e.id);
+    check("a critical condition exists before receiving",
+      recvRows.length === 1 && recvRows[0].resolvedAt === null && recvCritical.sync.ok);
+    const recvNotificationId = recvRows[0]!.id;
+
+    const supplier = await prisma.supplier.create({
+      data: { businessId: e.id, name: "recv-supplier" },
+    });
+    const po = await purchaseOrderService.createPurchaseOrder({
+      businessId: e.id,
+      supplierId: supplier.id,
+      status: PurchaseOrderStatus.CONFIRMED,
+      lines: [{ itemId: recvItem.id, orderedQty: 20, unitCost: 5 }],
+    });
+    const session = await receivingService.createReceivingSession({
+      businessId: e.id,
+      purchaseOrderId: po.id,
+      lines: [{ purchaseOrderLineId: po.lines[0].id, receivedQty: 20 }],
+    });
+    check("creating a DRAFT session moves no stock and notifies nothing",
+      (await prisma.inventoryItem.findUnique({ where: { id: recvItem.id } }))!.currentQuantity === 2 &&
+      (await inventoryNotifs(e.id)).length === 1);
+
+    // Exactly what the post route does: commit, then reconcile.
+    const posted = await runWithTenantContext({ businessId: e.id }, () =>
+      withTenantTransaction(
+        (tx) => receivingService.postReceivingSession(
+          { businessId: e.id, receivingSessionId: session.id },
+          { tx },
+        ),
+        { timeoutMs: 15_000 },
+      ),
+    );
+    const recvSync = await runWithTenantContext({ businessId: e.id }, () =>
+      syncInventoryAlertNotifications(e.id, new Date(T0.getTime() + 60_000)),
+    );
+
+    const qtyAfterReceiving = (await prisma.inventoryItem.findUnique({ where: { id: recvItem.id } }))!.currentQuantity;
+    recvRows = await inventoryNotifs(e.id);
+    check("the receipt committed and added stock", posted !== null && qtyAfterReceiving === 22, `qty=${qtyAfterReceiving}`);
+    check("the domain resolved its alert after replenishment",
+      (await prisma.inventoryAlert.count({ where: { itemId: recvItem.id, type: "CRITICAL_STOCK", isResolved: false } })) === 0);
+    check("ONE sync closed the notification", recvSync.resolved === 1, `resolved=${recvSync.resolved}`);
+    check("it is the same notification row, now resolved",
+      recvRows.length === 1 && recvRows[0].id === recvNotificationId && recvRows[0].resolvedAt !== null);
+    check("resolution deleted nothing", recvRows.length === 1);
+    check("receiving added no delivery rows", recvRows[0]?.deliveries.length === 2);
+
+    // A second post of the same session is refused by the DRAFT state guard.
+    let secondPostThrew = false;
+    try {
+      await runWithTenantContext({ businessId: e.id }, () =>
+        withTenantTransaction(
+          (tx) => receivingService.postReceivingSession(
+            { businessId: e.id, receivingSessionId: session.id },
+            { tx },
+          ),
+          { timeoutMs: 15_000 },
+        ),
+      );
+    } catch {
+      secondPostThrew = true;
+    }
+    check("a second post of the same session is refused", secondPostThrew);
+    check("the refused post moved no further stock",
+      (await prisma.inventoryItem.findUnique({ where: { id: recvItem.id } }))!.currentQuantity === 22);
+    check("the refused post changed no notification",
+      (await inventoryNotifs(e.id)).length === 1);
+
+    // Cross-tenant containment for this route's identity too.
+    const recvCross = await runWithTenantContext({ businessId: e.id }, () =>
+      syncInventoryAlertNotifications(d.id, T0),
+    );
+    check("a receiving sync for another business is refused", recvCross.ok === false);
+
+    /* ── 16. the receiving route syncs only after a committed post ───────── */
+    // Structural: a throw anywhere in the transaction must skip the sync, which
+    // is true only while the call sits AFTER the awaited transaction and INSIDE
+    // the try. If someone moves it, this fails rather than the guarantee
+    // quietly becoming untrue.
+    const recvRoute = readFileSync(
+      join(REPO_ROOT, "app", "api", "inventory", "receiving-sessions", "[id]", "post", "route.ts"), "utf8");
+    const txIdx = recvRoute.indexOf("withTenantTransaction");
+    const syncIdx = recvRoute.indexOf("syncInventoryAlertNotifications(user.businessId");
+    // The SUCCESS response, not the error handler — handleInventoryError also
+    // returns NextResponse.json({...}) and sits earlier in the file.
+    const respIdx = recvRoute.indexOf("success: true");
+    const catchIdx = recvRoute.indexOf("} catch (error) {", txIdx);
+    check("the receiving route calls the shared sync", syncIdx > 0);
+    check("the sync runs after the transaction", syncIdx > txIdx);
+    check("the sync runs before the success response", syncIdx < respIdx);
+    check("the sync sits inside the try, so a throw skips it", syncIdx < catchIdx);
+    check("the sync uses the server-derived tenant",
+      /runWithTenantContext\(\{ businessId: user\.businessId \}/.test(recvRoute));
+    check("exactly one sync call in the receiving route",
+      (recvRoute.match(/syncInventoryAlertNotifications\(/g) || []).length === 1);
   } finally {
-    await prisma.business.deleteMany({ where: { id: { in: [a.id, b.id, c.id, d.id] } } });
+    const ids = [a.id, b.id, c.id, d.id, e.id];
+    // ReceivingLine.itemId is RESTRICT, so it blocks the Business cascade from
+    // reaching InventoryItem. Clear the receiving chain first; everything else
+    // cascades from Business as usual.
+    await prisma.receivingSession.deleteMany({ where: { businessId: { in: ids } } });
+    await prisma.business.deleteMany({ where: { id: { in: ids } } });
     await prisma.$disconnect();
   }
 
