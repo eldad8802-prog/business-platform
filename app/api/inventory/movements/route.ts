@@ -6,6 +6,7 @@ import {
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
+import { syncInventoryAlertNotifications } from "@/lib/notifications/inventory-alert-notifications";
 import { getInventoryAuthenticatedUserBasic as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
   InventoryError,
@@ -106,6 +107,15 @@ export async function POST(request: NextRequest) {
             { tx }
           )
         )
+    );
+
+    // AFTER the transaction above has committed. The movement is a fact now,
+    // so reconciling notifications must not be able to undo it or fail the
+    // request: the sync swallows its own errors and reports them as data. The
+    // tenant context is re-entered because the one above closed with the
+    // transaction, and the writer refuses to run without a server-derived tenant.
+    await runWithTenantContext({ businessId: user.businessId }, () =>
+      syncInventoryAlertNotifications(user.businessId, new Date())
     );
 
     return NextResponse.json(

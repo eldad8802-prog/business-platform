@@ -314,3 +314,48 @@ async function setLifecycleField(
     return res.count === 1;
   });
 }
+
+/**
+ * Resolve every still-open notification in one slice of the world whose fact is
+ * no longer present.
+ *
+ * This is the other half of a snapshot write. `persistSnapshotNotifications`
+ * records what IS true; without this, a condition that has gone away would stay
+ * open forever, because nothing ever tells the notification layer that a fact
+ * stopped being a fact.
+ *
+ * It carries NO business meaning and makes no judgement about whether the
+ * condition really ended. The caller has already computed the authoritative set
+ * of currently-true facts from the existing business-status loaders, and this
+ * only writes down the complement of that set. Absence from the caller's list
+ * IS the resolution — that decision belongs to the domain, not to here.
+ *
+ * `scope` deliberately requires a domain and an entity type. A resolve pass that
+ * knew only the business would close notifications belonging to domains its
+ * caller never inspected, which is how "resolve what is absent" turns into data
+ * loss. Absence is only meaningful within a set someone actually enumerated.
+ */
+export async function resolveAbsentNotifications(
+  businessId: number,
+  scope: { domain: string; entityTypes: readonly string[] },
+  presentDedupeKeys: string[],
+  now: Date,
+): Promise<number> {
+  return withTenantTransaction(async (tx) => {
+    assertTenantMatches(businessId);
+    const res = await tx.notification.updateMany({
+      where: {
+        businessId,
+        domain: scope.domain,
+        entityType: { in: [...scope.entityTypes] },
+        resolvedAt: null,
+        // An empty present-set is legitimate and means "nothing in this scope is
+        // true any more", so `notIn: []` must close everything in scope rather
+        // than be special-cased into a no-op.
+        dedupeKey: { notIn: presentDedupeKeys },
+      },
+      data: { resolvedAt: now, updatedAt: now },
+    });
+    return res.count;
+  });
+}
