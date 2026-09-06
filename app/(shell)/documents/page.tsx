@@ -189,14 +189,14 @@ export default function DocumentsHome() {
         <input
           ref={uploadInputRef}
           type="file"
-          accept="image/*,application/pdf"
+          accept="application/pdf,image/jpeg,image/png"
           style={{ display: "none" }}
           onChange={(e) => void uploadDocument(e.target.files?.[0])}
         />
         <input
           ref={cameraInputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png"
           capture="environment"
           style={{ display: "none" }}
           onChange={(e) => void uploadDocument(e.target.files?.[0])}

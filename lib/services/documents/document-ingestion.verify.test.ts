@@ -25,6 +25,12 @@ import {
   isAllowedDocumentMime,
   isHeicMimeType,
 } from "@/lib/services/documents/document-ingestion.service";
+import {
+  containerForDeclaredMime,
+  signatureRejectionMessage,
+  SUPPORTED_DOCUMENT_MIME_TYPES,
+  verifyFileSignature,
+} from "@/lib/services/documents/file-signature";
 
 let passed = 0;
 function check(label: string, fn: () => void): void {
@@ -53,7 +59,7 @@ check("the 15MB ceiling is unchanged", () => {
   assert.equal(DOCUMENT_MAX_UPLOAD_BYTES, 15 * 1024 * 1024);
 });
 
-check("PDF and images are accepted, exactly as before", () => {
+check("PDF, JPEG and PNG are accepted", () => {
   assert.equal(isAllowedDocumentMime("application/pdf"), true);
   assert.equal(isAllowedDocumentMime("image/jpeg"), true);
   assert.equal(isAllowedDocumentMime("image/png"), true);
@@ -61,11 +67,12 @@ check("PDF and images are accepted, exactly as before", () => {
   assert.equal(isAllowedDocumentMime("  application/pdf  "), true, "trimmed");
 });
 
-check("HEIC and HEIF are still refused", () => {
+check("HEIC and HEIF keep their own, more specific refusal", () => {
   assert.equal(isHeicMimeType("image/heic"), true);
   assert.equal(isHeicMimeType("image/heif"), true);
   assert.equal(isHeicMimeType("IMAGE/HEIC"), true);
-  // The order matters: HEIC is an image/*, so the HEIC test must win.
+  // The order matters: the route checks HEIC first so its message wins, and
+  // the closed allowlist excludes it independently.
   assert.equal(isAllowedDocumentMime("image/heic"), false);
   assert.equal(isAllowedDocumentMime("image/heif"), false);
 });
@@ -282,4 +289,226 @@ check("a duplicate is returned as a decision, never thrown", () => {
   assert.equal(/throw new Error\("duplicate/i.test(serviceCode), false);
 });
 
-console.log(`\nI-7A DOCUMENT INGESTION VERIFY PASS — ${passed} checks green.`);
+/* ========================= 5. content-signature acceptance (I-7C.1) ===== */
+
+console.log("\n5. A file must BE what it claims to be");
+
+const SIGNATURE = "lib/services/documents/file-signature.ts";
+const signatureSrc = fs.readFileSync(SIGNATURE, "utf8");
+const batchSrc = fs.readFileSync(
+  "lib/data-transfer/documents/batch-analyze.ts",
+  "utf8"
+);
+
+const realPdf = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.from("body")]);
+const realJpeg = Buffer.concat([
+  Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+  Buffer.from("body"),
+]);
+const realPng = Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  Buffer.from("body"),
+]);
+const arbitrary = Buffer.from("MZ\x90\x00 this is not a document at all");
+
+check("a real file under its own type is accepted", () => {
+  assert.deepEqual(verifyFileSignature(realPdf, "application/pdf"), {
+    ok: true,
+    detected: "pdf",
+  });
+  assert.deepEqual(verifyFileSignature(realJpeg, "image/jpeg"), {
+    ok: true,
+    detected: "jpeg",
+  });
+  assert.deepEqual(verifyFileSignature(realPng, "image/png"), {
+    ok: true,
+    detected: "png",
+  });
+});
+
+check("arbitrary bytes are refused under EVERY supported type", () => {
+  for (const declared of ["application/pdf", "image/jpeg", "image/png"]) {
+    const verdict = verifyFileSignature(arbitrary, declared);
+    assert.equal(verdict.ok, false, declared);
+    assert.equal(
+      verdict.ok === false && verdict.reason,
+      "UNRECOGNISED",
+      declared
+    );
+  }
+});
+
+check("a real file under the WRONG supported type is refused", () => {
+  // Each of these is a genuine document, just not the one it claims to be —
+  // the renamed-file case, which is the common one in practice.
+  const cases: [Buffer, string][] = [
+    [realJpeg, "application/pdf"],
+    [realPng, "image/jpeg"],
+    [realPdf, "image/png"],
+    [realPdf, "image/jpeg"],
+    [realPng, "application/pdf"],
+    [realJpeg, "image/png"],
+  ];
+  for (const [bytes, declared] of cases) {
+    const verdict = verifyFileSignature(bytes, declared);
+    assert.equal(verdict.ok, false, declared);
+    assert.equal(verdict.ok === false && verdict.reason, "MISMATCH", declared);
+  }
+});
+
+check("an empty file is refused as empty, not as a mismatch", () => {
+  const verdict = verifyFileSignature(Buffer.alloc(0), "application/pdf");
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.ok === false && verdict.reason, "EMPTY");
+});
+
+check("a type outside the supported set can never verify", () => {
+  // Belt and braces: even if a declared type somehow passed the allowlist, the
+  // validator has no container to check it against and refuses.
+  for (const declared of ["image/webp", "image/gif", "image/heic", "", "text/html"]) {
+    assert.equal(verifyFileSignature(realPng, declared).ok, false, declared);
+  }
+});
+
+check("the non-standard image/jpg spelling names the same container", () => {
+  assert.equal(verifyFileSignature(realJpeg, "image/jpg").ok, true);
+  assert.equal(verifyFileSignature(realPng, "image/jpg").ok, false);
+  assert.equal(isAllowedDocumentMime("image/jpg"), true);
+});
+
+check("declared type and detection are case- and whitespace-insensitive", () => {
+  assert.equal(verifyFileSignature(realPdf, "  APPLICATION/PDF  ").ok, true);
+  assert.equal(containerForDeclaredMime("IMAGE/PNG"), "png");
+  assert.equal(containerForDeclaredMime("image/webp"), null);
+});
+
+/* -------- the supported set is now CLOSED (deliberate narrowing) -------- */
+
+check("the supported set is exactly PDF, JPEG and PNG", () => {
+  assert.deepEqual([...SUPPORTED_DOCUMENT_MIME_TYPES].sort(), [
+    "application/pdf",
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+  ]);
+});
+
+check("the image/* wildcard is gone, and with it the bypass", () => {
+  // It used to be enough to declare ANY image subtype to get arbitrary bytes
+  // accepted, because no validator can ever cover an unbounded set.
+  for (const m of ["image/webp", "image/gif", "image/tiff", "image/bmp", "image/svg+xml"]) {
+    assert.equal(isAllowedDocumentMime(m), false, m);
+  }
+  assert.equal(/startsWith\("image\//.test(serviceCode), false);
+});
+
+check("the allowlist is DERIVED from the signature table, not a second list", () => {
+  // Two independent lists is how the old divergence happened. The service must
+  // ask the signature module rather than restate the answer.
+  assert.equal(serviceCode.includes("containerForDeclaredMime("), true);
+  assert.equal(serviceCode.includes('=== "application/pdf"'), false);
+});
+
+check("there is exactly ONE content validator in the codebase", () => {
+  assert.equal(signatureSrc.includes("export function detectFileSignature"), true);
+  assert.equal(
+    batchSrc.includes('from "@/lib/services/documents/file-signature"'),
+    true
+  );
+  assert.equal(
+    routeSrc.includes('from "@/lib/services/documents/file-signature"'),
+    true
+  );
+  for (const src of [batchSrc, routeSrc, serviceSrc]) {
+    assert.equal(src.includes("0x89, 0x50, 0x4e, 0x47"), false, "PNG bytes duplicated");
+    assert.equal(src.includes('Buffer.from("%PDF-")'), false, "PDF magic duplicated");
+  }
+});
+
+/* ---------------- the route enforces it, before anything else ---------- */
+
+check("the upload route validates the bytes before the canonical lifecycle", () => {
+  const readBytes = routeCode.indexOf("file.arrayBuffer()");
+  const verify = routeCode.indexOf("verifyFileSignature(");
+  const ingest = routeCode.indexOf("ingestDocument(");
+  assert.equal(readBytes > 0 && verify > readBytes, true, "bytes are read first");
+  assert.equal(verify < ingest, true, "and checked BEFORE ingestion is called");
+});
+
+check("a signature refusal returns before any mutation is possible", () => {
+  // The route performs no storage, no Document write and no scheduling itself
+  // (asserted in section 2), so returning before `ingestDocument` is the whole
+  // proof: nothing downstream of the gate can run.
+  const verify = routeCode.indexOf("const signature = verifyFileSignature(");
+  const guard = routeCode.indexOf("if (!signature.ok)", verify);
+  const ingest = routeCode.indexOf("ingestDocument(");
+  assert.equal(guard > verify && guard < ingest, true);
+  const between = routeCode.slice(verify, ingest);
+  assert.equal(between.includes("status: 415"), true, "it refuses with 415");
+  for (const mutation of ["putDocumentObject", "document.create", "after("]) {
+    assert.equal(between.includes(mutation), false, mutation);
+  }
+});
+
+check("the refusal reuses the shared wording, not a route-local copy", () => {
+  assert.equal(routeCode.includes("signatureRejectionMessage("), true);
+  assert.equal(signatureSrc.includes("export function signatureRejectionMessage"), true);
+  // No parser vocabulary leaks to the owner.
+  for (const jargon of ["signature", "magic", "mime", "sniff", "header"]) {
+    assert.equal(
+      signatureRejectionMessage("MISMATCH").toLowerCase().includes(jargon),
+      false,
+      jargon
+    );
+  }
+});
+
+check("the refusal names no filename and no bytes", () => {
+  const verify = routeCode.indexOf("const signature = verifyFileSignature(");
+  const ingest = routeCode.indexOf("ingestDocument(");
+  const between = routeCode.slice(verify, ingest);
+  assert.equal(between.includes("file.name"), false);
+  assert.equal(between.includes("originalFilename"), false);
+});
+
+check("the existing refusals keep their own statuses and wording", () => {
+  // The only intended change to the response contract is the NEW 415 case.
+  assert.equal(routeCode.includes("status: 415"), true);
+  assert.equal(routeCode.includes("status: 413"), true, "still too-large");
+  assert.equal(routeCode.includes("status: 409"), true, "still duplicate");
+  assert.equal(routeCode.includes("status: 401"), true, "still unauthenticated");
+  assert.equal(routeSrc.includes("פורמט HEIC לא נתמך"), true, "HEIC wording kept");
+  assert.equal(routeSrc.includes("הקובץ גדול מדי (עד 15MB)"), true);
+  assert.equal(routeSrc.includes("נראה שהמסמך הזה כבר הועלה"), true);
+});
+
+check("the import centre's behaviour is unchanged by the move", () => {
+  // Same validator, same call, same place in its own pipeline.
+  assert.equal(batchSrc.includes("verifyFileSignature(file.buffer, mimeType)"), true);
+  assert.equal(batchSrc.includes("isAllowedDocumentMime("), true);
+});
+
+check("the picker offers exactly what the server accepts", () => {
+  for (const page of [
+    "app/(shell)/documents/upload/page.tsx",
+    "app/(shell)/documents/page.tsx",
+  ]) {
+    const src = fs.readFileSync(page, "utf8");
+    assert.equal(src.includes('accept="image/*"'), false, page);
+    assert.equal(src.includes('accept="image/*,application/pdf"'), false, page);
+    assert.equal(src.includes('accept="application/pdf,image/*"'), false, page);
+  }
+});
+
+check("a rejection is observable, without recording anything identifying", () => {
+  const verify = routeCode.indexOf("const signature = verifyFileSignature(");
+  const ingest = routeCode.indexOf("ingestDocument(");
+  const between = routeCode.slice(verify, ingest);
+  assert.equal(between.includes("recordProductUsageEvent("), true);
+  assert.equal(between.includes("content-signature:"), true);
+  // Observability must never decide the response.
+  assert.equal(between.includes("}).catch(() => {})"), true);
+});
+
+
+console.log(`\nDOCUMENT INGESTION + CONTENT SIGNATURE VERIFY PASS — ${passed} checks green.`);

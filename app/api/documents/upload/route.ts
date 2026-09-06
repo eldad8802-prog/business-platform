@@ -10,6 +10,10 @@ import {
   isHeicMimeType,
 } from "@/lib/services/documents/document-ingestion.service";
 import {
+  signatureRejectionMessage,
+  verifyFileSignature,
+} from "@/lib/services/documents/file-signature";
+import {
   PRODUCT_USAGE_ACTIONS,
   PRODUCT_USAGE_FEATURES,
   PRODUCT_USAGE_OUTCOMES,
@@ -123,7 +127,7 @@ export async function POST(req: Request) {
 
     if (typeof file.type !== "string" || !isAllowedDocumentMime(file.type)) {
       return NextResponse.json(
-        { error: "סוג קובץ לא נתמך (נדרש PDF או תמונה)" },
+        { error: "סוג קובץ לא נתמך (נדרש PDF, JPG או PNG)" },
         { status: 400 }
       );
     }
@@ -172,6 +176,39 @@ export async function POST(req: Request) {
         ? file.name.trim().slice(0, 255)
         : null;
     const allowDuplicate = formData.get("allowDuplicate") === "true";
+
+    // The declared type got the file this far; the bytes decide whether it goes
+    // any further. Until now this route trusted `file.type` alone, which is a
+    // claim by the client, so a renamed file reached storage and the OCR
+    // pipeline under a type it did not have.
+    //
+    // This is the LAST gate before the canonical lifecycle, and deliberately so:
+    // nothing below it can run without a file whose container matches its claim
+    // — no stored object, no Document row, no processing job. The same validator
+    // the import centre uses, so the two paths accept exactly the same files.
+    const signature = verifyFileSignature(buffer, file.type);
+    if (!signature.ok) {
+      // Recorded because this gate can refuse a file the product accepted
+      // yesterday, and the only way to learn that a real owner is affected is to
+      // see it. Best-effort: observability must never decide the response.
+      await recordProductUsageEvent({
+        businessId: user.businessId,
+        userId: user.id,
+        sessionId,
+        featureKey: PRODUCT_USAGE_FEATURES.DOCUMENTS_UPLOAD,
+        action: PRODUCT_USAGE_ACTIONS.FAILED,
+        outcome: PRODUCT_USAGE_OUTCOMES.FAILURE,
+        // The reason only, never the filename or any bytes.
+        metadata: { reason: `content-signature:${signature.reason}` },
+      }).catch(() => {});
+      // 415, matching the HEIC refusal above: both say "the format you actually
+      // sent is not one we can process". A 400 would file it with "you declared
+      // an unsupported type", which is not what happened.
+      return NextResponse.json(
+        { error: signatureRejectionMessage(signature.reason) },
+        { status: 415 }
+      );
+    }
 
     // Everything below the acceptance gates is the canonical Documents
     // lifecycle, and it is identical for every caller. It lives in

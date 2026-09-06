@@ -27,7 +27,7 @@ import {
 import {
   detectFileSignature,
   verifyFileSignature,
-} from "@/lib/data-transfer/documents/file-signature";
+} from "@/lib/services/documents/file-signature";
 import {
   defaultDocumentDecisions,
   documentDecisionsHash,
@@ -361,7 +361,7 @@ function stripComments(src: string): string {
 
 const SCANNED = [
   "lib/data-transfer/documents/batch-analyze.ts",
-  "lib/data-transfer/documents/file-signature.ts",
+  "lib/services/documents/file-signature.ts",
   "lib/data-transfer/documents/documents-import-config.ts",
   "app/api/data-transfer/documents/analyze/route.ts",
 ];

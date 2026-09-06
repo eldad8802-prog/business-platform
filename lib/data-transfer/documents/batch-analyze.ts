@@ -29,7 +29,7 @@ import {
   isAllowedDocumentMime,
   isHeicMimeType,
 } from "@/lib/services/documents/document-ingestion.service";
-import { verifyFileSignature } from "@/lib/data-transfer/documents/file-signature";
+import { verifyFileSignature } from "@/lib/services/documents/file-signature";
 
 /**
  * What the owner will be asked to confirm for one file.

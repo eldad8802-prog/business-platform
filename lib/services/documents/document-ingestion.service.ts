@@ -34,6 +34,13 @@
  * exported from this module rather than from the route, so a second caller
  * cannot quietly accept a file the first one would have refused. The HTTP
  * mapping of a refusal stays with the caller; the rule itself is shared.
+ *
+ * The declared-type rule is now DERIVED from the signature table in
+ * `file-signature.ts` rather than written out again here. Two independent lists
+ * is exactly how the old bug happened: this module accepted any `image/*` while
+ * the validator knew three containers, so the import centre and the upload
+ * screen disagreed about the same file. There is one table now, and a type
+ * cannot be accepted without a signature to check it against.
  */
 
 import { after } from "next/server";
@@ -46,6 +53,7 @@ import {
   deleteDocumentObjectQuiet,
   putDocumentObject,
 } from "@/lib/services/documents/document-storage.service";
+import { containerForDeclaredMime } from "@/lib/services/documents/file-signature";
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
 
 /** Largest single document accepted, in bytes. */
@@ -66,10 +74,16 @@ export function isHeicMimeType(mimeType: string): boolean {
   return m === "image/heic" || m === "image/heif";
 }
 
+/**
+ * Is this declared type one Documents accepts?
+ *
+ * HEIC is checked first only so the caller's more specific message wins; the
+ * closed table below excludes it anyway.
+ */
 export function isAllowedDocumentMime(mimeType: string): boolean {
   const m = normalizeMime(mimeType);
   if (isHeicMimeType(m)) return false;
-  return m === "application/pdf" || m.startsWith("image/");
+  return containerForDeclaredMime(m) !== null;
 }
 
 /** Where a document came from. Provenance metadata; nothing branches on it. */

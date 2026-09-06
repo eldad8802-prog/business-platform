@@ -373,6 +373,49 @@ jobs:
       - name: Canonical document ingestion (one ingestion path, storage before row)
         run: npx tsx lib/services/documents/document-ingestion.verify.test.ts
 
+      - name: I-7C.1 negative proof (upload accepting a file on its declared type alone must be caught)
+        run: |
+          F="app/api/documents/upload/route.ts"
+          cp "$F" "$F.bak"
+          # The gap this increment closed. The route goes back to believing
+          # `file.type`, so a renamed file reaches storage and the OCR pipeline
+          # under a type it does not have.
+          perl -0pi -e 's/    if \(!signature\.ok\) \{/    if (false) {/' "$F"
+          if npx tsx lib/services/documents/document-ingestion.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an unvalidated upload passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an unvalidated upload fails the verifier"
+
+      - name: I-7C.1 negative proof (an unbounded image/* allowlist must be caught)
+        run: |
+          F="lib/services/documents/document-ingestion.service.ts"
+          cp "$F" "$F.bak"
+          # An open-ended accepted set cannot be signature-checked: declaring
+          # image/webp was enough to get arbitrary bytes accepted.
+          perl -0pi -e 's/  return containerForDeclaredMime\(m\) !== null;/  return m === "application\/pdf" || m.startsWith("image\/");/' "$F"
+          if npx tsx lib/services/documents/document-ingestion.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: the image/* wildcard passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: the image/* wildcard fails the verifier"
+
+      - name: I-7C.1 negative proof (accepting bytes that disagree with the declared type must be caught)
+        run: |
+          F="lib/services/documents/file-signature.ts"
+          cp "$F" "$F.bak"
+          # Detection still runs, but its answer is no longer compared to what
+          # the client claimed — so a real JPEG passes as a PDF.
+          perl -0pi -e 's/  if \(expected === null \|\| expected !== detected\) \{/  if (false) {/' "$F"
+          if npx tsx lib/services/documents/document-ingestion.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a mismatched container passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a mismatched container fails the verifier"
+
       # Local equivalent: npm run verify:documents-analyze
       - name: Documents batch analyze (zero writes, duplicate triage, signatures)
         env:
