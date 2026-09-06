@@ -47,6 +47,12 @@ import { inventoryService } from "../services/inventory/inventory.service";
 import { purchaseOrderService } from "../services/inventory/purchase-order.service";
 import { receivingService } from "../services/inventory/receiving.service";
 import { approveSupplierPurchase } from "../services/inventory/supplier-purchase-approval.service";
+import {
+  createPendingMatch,
+  rejectPendingMatch,
+  resolvePendingMatchWithExistingItem,
+  resolvePendingMatchWithNewItem,
+} from "../services/inventory/pending-match.service";
 import { translateInventoryAlerts } from "../business-status/translators/inventory";
 
 import { syncInventoryAlertNotifications } from "./inventory-alert-notifications";
@@ -104,6 +110,13 @@ const inventoryNotifs = (businessId: number) =>
   const c = await prisma.business.create({ data: { name: "consumer-C-sales" } });
   const d = await prisma.business.create({ data: { name: "consumer-D-pos" } });
   const e = await prisma.business.create({ data: { name: "consumer-E-receiving" } });
+  const g = await prisma.business.create({
+    data: {
+      name: "consumer-G-unmatched",
+      users: { create: { email: `unmatched-${Date.now()}@example.test`, password: "x", name: "Owner" } },
+    },
+    include: { users: true },
+  });
   const f = await prisma.business.create({
     data: {
       name: "consumer-F-approval",
@@ -697,8 +710,184 @@ const inventoryNotifs = (businessId: number) =>
     check("receiving.service still contains no notification logic",
       !readFileSync(join(REPO_ROOT, "lib", "services", "inventory", "receiving.service.ts"), "utf8")
         .includes("syncInventoryAlertNotifications"));
+
+    /* ── 19. unmatched resolution: the path that DECREASES stock ─────────── */
+    // Every other wired flow either adds stock (receiving, approval) or sells
+    // matched goods. This one applies a POS line that could not be matched at
+    // ingest time, so it is the path that can CREATE a critical-stock
+    // notification at resolution time.
+    const unmUserId = g.users[0]!.id;
+    const unmItem = await mkItem(g.id, "unmatched-widget"); // qty 10, min 3
+
+    const pending = await runWithTenantContext({ businessId: g.id }, () =>
+      withTenantTransaction((tx) =>
+        createPendingMatch(
+          {
+            businessId: g.id,
+            externalSaleId: "UNMATCHED-001",
+            metadata: { externalSaleId: "UNMATCHED-001", sku: null, barcode: null, name: "mystery", quantity: 8, source: "POS" },
+          },
+          { tx },
+        ),
+      ),
+    );
+    check("a pending match exists and moved no stock",
+      pending !== null &&
+      (await prisma.inventoryItem.findUnique({ where: { id: unmItem.id } }))!.currentQuantity === 10 &&
+      (await inventoryNotifs(g.id)).length === 0);
+
+    // LINK_EXISTING, exactly as the route runs it: commit, then reconcile.
+    const linked = await runWithTenantContext({ businessId: g.id }, () =>
+      withTenantTransaction(
+        (tx) => resolvePendingMatchWithExistingItem(
+          { pendingMatchId: pending.id, businessId: g.id, userId: unmUserId, itemId: unmItem.id },
+          { tx },
+        ),
+        { timeoutMs: 15_000 },
+      ),
+    );
+    const linkSync = await runWithTenantContext({ businessId: g.id }, () =>
+      syncInventoryAlertNotifications(g.id, T0),
+    );
+
+    const unmQty = (await prisma.inventoryItem.findUnique({ where: { id: unmItem.id } }))!.currentQuantity;
+    let unmRows = await inventoryNotifs(g.id);
+    check("the resolution committed and decreased stock exactly once",
+      linked !== null && unmQty === 2, `qty=${unmQty}`);
+    check("the pending match is RESOLVED",
+      (await prisma.inventoryPendingMatch.findUnique({ where: { id: pending.id } }))!.status === "RESOLVED");
+    check("crossing the threshold CREATED a critical notification",
+      unmRows.length === 1 && unmRows[0].severity === "CRITICAL" && unmRows[0].resolvedAt === null,
+      `count=${unmRows.length}`);
+    check("it is keyed on the item, reusing the existing identity",
+      unmRows[0]?.entityType === "inventory_item" && unmRows[0]?.entityId === unmItem.id);
+    check("the sync reported it", linkSync.ok && linkSync.written.length === 1);
+    check("PUSH pending, IN_APP sent, nothing external",
+      unmRows[0]?.deliveries.length === 2 &&
+      unmRows[0]?.deliveries.find((x) => x.channel === "PUSH")?.status === "PENDING" &&
+      unmRows[0]?.deliveries.find((x) => x.channel === "IN_APP")?.status === "SENT");
+
+    // A second resolution of the same pending match cannot apply stock twice.
+    let secondResolveThrew = false;
+    try {
+      await runWithTenantContext({ businessId: g.id }, () =>
+        withTenantTransaction(
+          (tx) => resolvePendingMatchWithExistingItem(
+            { pendingMatchId: pending.id, businessId: g.id, userId: unmUserId, itemId: unmItem.id },
+            { tx },
+          ),
+          { timeoutMs: 15_000 },
+        ),
+      );
+    } catch {
+      secondResolveThrew = true;
+    }
+    check("a second resolution is refused", secondResolveThrew);
+    check("the refused resolution applied no stock twice",
+      (await prisma.inventoryItem.findUnique({ where: { id: unmItem.id } }))!.currentQuantity === 2);
+    check("the refused resolution changed no notification",
+      (await inventoryNotifs(g.id)).length === 1);
+
+    // REJECT moves no stock, so the route deliberately does not sync there.
+    const pending2 = await runWithTenantContext({ businessId: g.id }, () =>
+      withTenantTransaction((tx) =>
+        createPendingMatch(
+          {
+            businessId: g.id,
+            externalSaleId: "UNMATCHED-002",
+            metadata: { externalSaleId: "UNMATCHED-002", sku: null, barcode: null, name: "mystery-2", quantity: 1, source: "POS" },
+          },
+          { tx },
+        ),
+      ),
+    );
+    const qtyBeforeReject = (await prisma.inventoryItem.findUnique({ where: { id: unmItem.id } }))!.currentQuantity;
+    await runWithTenantContext({ businessId: g.id }, () =>
+      withTenantTransaction((tx) =>
+        rejectPendingMatch({ pendingMatchId: pending2.id, businessId: g.id, userId: unmUserId }, { tx }),
+      ),
+    );
+    check("REJECT moves no stock",
+      (await prisma.inventoryItem.findUnique({ where: { id: unmItem.id } }))!.currentQuantity === qtyBeforeReject);
+    check("REJECT changed no notification", (await inventoryNotifs(g.id)).length === 1);
+
+    /* ── 20. CREATE_NEW cannot commit — a pre-existing domain defect ─────── */
+    // resolvePendingMatchWithNewItem creates the item at currentQuantity 0 and
+    // immediately delegates to the existing-item resolver, which removes the
+    // sale quantity. 0 - quantity is negative, so createMovement throws
+    // NegativeInventoryError and the whole transaction rolls back.
+    //
+    // Asserted rather than assumed, and asserted as it ACTUALLY behaves. The
+    // branch is wired at the correct post-commit position so it works the day
+    // the domain defect is fixed, but nothing here pretends it commits today.
+    const pending3 = await runWithTenantContext({ businessId: g.id }, () =>
+      withTenantTransaction((tx) =>
+        createPendingMatch(
+          {
+            businessId: g.id,
+            externalSaleId: "UNMATCHED-003",
+            metadata: { externalSaleId: "UNMATCHED-003", sku: null, barcode: null, name: "mystery-3", quantity: 5, source: "POS" },
+          },
+          { tx },
+        ),
+      ),
+    );
+    const itemsBefore = await prisma.inventoryItem.count({ where: { businessId: g.id } });
+    const notifsBeforeNew = (await inventoryNotifs(g.id)).length;
+    let newItemThrew = false;
+    try {
+      await runWithTenantContext({ businessId: g.id }, () =>
+        withTenantTransaction(
+          (tx) => resolvePendingMatchWithNewItem(
+            {
+              pendingMatchId: pending3.id,
+              businessId: g.id,
+              userId: unmUserId,
+              itemData: { name: "brand-new", unitType: "UNIT" },
+            },
+            { tx },
+          ),
+          { timeoutMs: 15_000 },
+        ),
+      );
+    } catch {
+      newItemThrew = true;
+    }
+    check("CREATE_NEW rolls back: a new item starts at 0 and the sale goes negative", newItemThrew);
+    check("the rolled-back branch left no orphan inventory item",
+      (await prisma.inventoryItem.count({ where: { businessId: g.id } })) === itemsBefore);
+    check("the rolled-back branch left the pending match PENDING",
+      (await prisma.inventoryPendingMatch.findUnique({ where: { id: pending3.id } }))!.status === "PENDING");
+    check("a rolled-back branch runs no sync and writes no notification",
+      (await inventoryNotifs(g.id)).length === notifsBeforeNew);
+
+    const unmCross = await runWithTenantContext({ businessId: g.id }, () =>
+      syncInventoryAlertNotifications(f.id, T0),
+    );
+    check("an unmatched sync for another business is refused", unmCross.ok === false);
+
+    /* ── 21. the resolve route: two syncs, and never on REJECT ───────────── */
+    const unmRoute = readFileSync(
+      join(REPO_ROOT, "app", "api", "inventory", "unmatched", "[id]", "resolve", "route.ts"), "utf8");
+    const uLink = unmRoute.indexOf('body.action === "LINK_EXISTING"');
+    const uNew = unmRoute.indexOf('body.action === "CREATE_NEW"');
+    const uReject = unmRoute.indexOf('body.action === "REJECT"');
+    const syncPositions = [...unmRoute.matchAll(/syncInventoryAlertNotifications\(user\.businessId/g)].map((m) => m.index);
+    check("exactly two syncs in the resolve route", syncPositions.length === 2, `n=${syncPositions.length}`);
+    check("one sync inside the LINK_EXISTING branch",
+      syncPositions.some((i) => i > uLink && i < uNew));
+    check("one sync inside the CREATE_NEW branch",
+      syncPositions.some((i) => i > uNew && i < uReject));
+    check("NO sync in the REJECT branch", !syncPositions.some((i) => i > uReject));
+    check("both syncs use the server-derived tenant",
+      (unmRoute.match(/runWithTenantContext\(\{ businessId: user\.businessId \}/g) || []).length >= 2);
+    check("the route still supplies { tx } to the resolver",
+      (unmRoute.match(/\{ tx \}/g) || []).length === 3);
+    check("pending-match.service still contains no notification logic",
+      !readFileSync(join(REPO_ROOT, "lib", "services", "inventory", "pending-match.service.ts"), "utf8")
+        .includes("syncInventoryAlertNotifications"));
   } finally {
-    const ids = [a.id, b.id, c.id, d.id, e.id, f.id];
+    const ids = [a.id, b.id, c.id, d.id, e.id, f.id, g.id];
     // ReceivingLine.itemId is RESTRICT, so it blocks the Business cascade from
     // reaching InventoryItem. Clear the receiving chain first; everything else
     // cascades from Business as usual.

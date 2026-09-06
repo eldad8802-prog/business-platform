@@ -7,6 +7,7 @@ import {
   resolvePendingMatchWithExistingItem,
   resolvePendingMatchWithNewItem,
 } from "@/lib/services/inventory/pending-match.service";
+import { syncInventoryAlertNotifications } from "@/lib/notifications/inventory-alert-notifications";
 
 export async function POST(
   request: NextRequest,
@@ -59,6 +60,21 @@ export async function POST(
           )
       );
 
+      // AFTER this branch's transaction has committed. Reached only on a committed resolution.
+      // Resolving an unmatched POS line finally applies the sale, so stock goes
+      // DOWN here — unlike receiving and approval, this path can CREATE or
+      // reopen a critical-stock notification rather than resolve one.
+      //
+      // One sync per resolution, not per unit. The REJECT branch below moves no
+      // stock and deliberately has none.
+      //
+      // Cannot affect the response: the resolution is durable by now, and the
+      // sync absorbs its own errors and returns them as data. Tenant context is
+      // re-entered because the one above closed with the transaction.
+      await runWithTenantContext({ businessId: user.businessId }, () =>
+        syncInventoryAlertNotifications(user.businessId, new Date())
+      );
+
       return NextResponse.json(result);
     }
 
@@ -92,6 +108,21 @@ export async function POST(
               }, { tx }),
             { timeoutMs: 15_000 }
           )
+      );
+
+      // AFTER this branch's transaction has committed. Reached only when the new item and its sale both committed.
+      // Resolving an unmatched POS line finally applies the sale, so stock goes
+      // DOWN here — unlike receiving and approval, this path can CREATE or
+      // reopen a critical-stock notification rather than resolve one.
+      //
+      // One sync per resolution, not per unit. The REJECT branch below moves no
+      // stock and deliberately has none.
+      //
+      // Cannot affect the response: the resolution is durable by now, and the
+      // sync absorbs its own errors and returns them as data. Tenant context is
+      // re-entered because the one above closed with the transaction.
+      await runWithTenantContext({ businessId: user.businessId }, () =>
+        syncInventoryAlertNotifications(user.businessId, new Date())
       );
 
       return NextResponse.json(result);
