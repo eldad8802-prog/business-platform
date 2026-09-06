@@ -23,7 +23,7 @@
 import { Prisma } from "@prisma/client";
 import bcrypt from "bcrypt";
 
-import { prisma } from "@/lib/prisma";
+import { authDb } from "@/lib/prisma-auth";
 
 import {
   EmailAlreadyRegisteredError,
@@ -85,7 +85,7 @@ export async function createAccount(
   input: CreateAccountInput
 ): Promise<CreatedAccount> {
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await authDb().$transaction(async (tx) => {
       const business = await tx.business.create({
         data: { name: input.businessName },
       });

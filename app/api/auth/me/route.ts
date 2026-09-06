@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { authDb } from "@/lib/prisma-auth";
 import { getCurrentUser } from "@/lib/auth";
 
 export async function GET(req: Request) {
@@ -13,7 +13,7 @@ export async function GET(req: Request) {
       );
     }
 
-    const user = await prisma.user.findUnique({
+    const user = await authDb().user.findUnique({
       where: { id: currentUser.id },
       include: {
         business: true,

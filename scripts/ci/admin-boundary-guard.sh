@@ -46,6 +46,66 @@ if [ -n "$ci2" ]; then
   fail=1
 fi
 
+# ---------- CI-2a: auth-client import isolation ----------
+#
+# `lib/prisma-auth.ts` exists so login, session validation and signup can hold
+# privileges on `User`/`Business` that ordinary tenant traffic does not. That
+# split only means anything while the auth client stays confined to those paths:
+# one feature module importing it would hand tenant request handling the very
+# access Step 3 is meant to remove, and the revoke would then look correct in
+# review while silently achieving nothing.
+#
+# The allowlist enumerates the complete auth/bootstrap surface rather than
+# matching a directory, so adding a caller is a deliberate, reviewable act.
+ci2a="$(
+  grep -rnE "from ['\"](@/lib/prisma-auth|[./]+lib/prisma-auth|[./]+prisma-auth)['\"]" \
+    "$ROOT/app" "$ROOT/lib" \
+    --include="*.ts" --include="*.tsx" 2>/dev/null \
+    | grep -vE "(^|/)app/api/auth/(login|logout|me)/route\.ts:" \
+    | grep -vE "(^|/)lib/auth\.ts:" \
+    | grep -vE "(^|/)lib/auth/signup\.ts:" \
+    | grep -vE "(^|/)lib/prisma-auth\.ts:" \
+    | grep -vE "\.test\.ts:|/__mocks__/" \
+    || true
+)"
+if [ -n "$ci2a" ]; then
+  echo "CI-2a VIOLATION — prisma-auth imported outside the auth/bootstrap surface:"
+  echo "$ci2a"
+  fail=1
+fi
+
+# ---------- CI-2b: the auth client never substitutes another identity --------
+#
+# The boundary rests on this client refusing to fall back. A fallback to
+# DATABASE_URL, DIRECT_URL or the owner connection would restore broad `User`
+# access with no symptom at all — the most dangerous shape a regression can
+# take, because everything keeps working.
+if [ -f "$ROOT/lib/prisma-auth.ts" ]; then
+  if grep -nE "process\.env\.(DATABASE_URL|DIRECT_URL|ADMIN_DATABASE_URL)" \
+       "$ROOT/lib/prisma-auth.ts" >/dev/null 2>&1; then
+    echo "CI-2b VIOLATION — lib/prisma-auth.ts reads another connection URL; it must hold no fallback identity."
+    fail=1
+  fi
+  if ! grep -E "AUTH_DATABASE_URL is not configured" "$ROOT/lib/prisma-auth.ts" >/dev/null 2>&1; then
+    echo "CI-2b VIOLATION — lib/prisma-auth.ts lost its fail-loud error for a missing AUTH_DATABASE_URL."
+    fail=1
+  fi
+fi
+
+# ---------- CI-2c: the auth surface does not use the tenant client -----------
+#
+# Routing is only half the property. If login later reintroduces `prisma.user`,
+# the auth plane silently stops being used for the query that matters most, and
+# Step 3's revoke would break login instead of being a no-op.
+for f in "app/api/auth/login/route.ts" "app/api/auth/logout/route.ts" \
+         "app/api/auth/me/route.ts" "lib/auth.ts" "lib/auth/signup.ts"; do
+  [ -f "$ROOT/$f" ] || continue
+  if grep -nE "\bprisma\.(user|business)\b|\bprisma\.\\\$transaction\b" "$ROOT/$f" >/dev/null 2>&1; then
+    echo "CI-2c VIOLATION — $f reaches User/Business through the tenant client; it must use authDb()."
+    fail=1
+  fi
+done
+
 # ---------- CI-3: canonical guard on every admin route ----------
 #
 # CASA Wave B added an identity-only variant, requirePlatformAdminIdentity

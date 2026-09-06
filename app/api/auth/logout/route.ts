@@ -22,7 +22,7 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { authDb } from "@/lib/prisma-auth";
 import {
   PRODUCT_USAGE_ACTIONS,
   PRODUCT_USAGE_FEATURES,
@@ -44,7 +44,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, alreadySignedOut: true });
     }
 
-    await prisma.user.update({
+    await authDb().user.update({
       where: { id: user.id },
       data: { tokenVersion: { increment: 1 } },
     });
