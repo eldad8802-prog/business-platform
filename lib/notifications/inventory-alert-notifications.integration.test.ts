@@ -30,7 +30,13 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { InventoryMovementReason, InventoryMovementType, InventoryUnitType, PurchaseOrderStatus } from "@prisma/client";
+import {
+  InventoryMovementReason,
+  InventoryMovementType,
+  InventoryUnitType,
+  PurchaseOrderStatus,
+  SupplierPurchaseDraftStatus,
+} from "@prisma/client";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -40,6 +46,7 @@ import { withTenantTransaction } from "../tenant/transaction";
 import { inventoryService } from "../services/inventory/inventory.service";
 import { purchaseOrderService } from "../services/inventory/purchase-order.service";
 import { receivingService } from "../services/inventory/receiving.service";
+import { approveSupplierPurchase } from "../services/inventory/supplier-purchase-approval.service";
 import { translateInventoryAlerts } from "../business-status/translators/inventory";
 
 import { syncInventoryAlertNotifications } from "./inventory-alert-notifications";
@@ -97,6 +104,13 @@ const inventoryNotifs = (businessId: number) =>
   const c = await prisma.business.create({ data: { name: "consumer-C-sales" } });
   const d = await prisma.business.create({ data: { name: "consumer-D-pos" } });
   const e = await prisma.business.create({ data: { name: "consumer-E-receiving" } });
+  const f = await prisma.business.create({
+    data: {
+      name: "consumer-F-approval",
+      users: { create: { email: `approval-${Date.now()}@example.test`, password: "x", name: "Owner" } },
+    },
+    include: { users: true },
+  });
 
   try {
     /* ── 1. first critical episode creates the notification ────────────────── */
@@ -558,8 +572,133 @@ const inventoryNotifs = (businessId: number) =>
       /runWithTenantContext\(\{ businessId: user\.businessId \}/.test(recvRoute));
     check("exactly one sync call in the receiving route",
       (recvRoute.match(/syncInventoryAlertNotifications\(/g) || []).length === 1);
+
+    /* ── 17. supplier-purchase approval: one compound committed fact ─────── */
+    // This flow is not a simple receipt. ONE transaction creates the purchase
+    // order, creates the receiving session, POSTS it into inventory, and marks
+    // the draft approved. The sync therefore belongs after the whole thing, and
+    // the proof is again resolution: goods arrive, the critical item recovers.
+    const apprItem = await mkItem(f.id, "approval-widget");
+    const apprUserId = f.users[0]!.id;
+
+    const apprCritical = await movementThenSync(f.id, apprItem.id, -8, T0); // 10 -> 2
+    let apprRows = await inventoryNotifs(f.id);
+    check("a critical condition exists before approval",
+      apprRows.length === 1 && apprRows[0].resolvedAt === null && apprCritical.sync.ok);
+    const apprNotificationId = apprRows[0]!.id;
+
+    const draft = await prisma.supplierPurchaseDraft.create({
+      data: {
+        businessId: f.id,
+        supplierName: "approval-supplier",
+        source: "MANUAL",
+        status: SupplierPurchaseDraftStatus.PENDING_REVIEW,
+        lines: { create: [{ rawName: "approval-widget", quantity: 20 }] },
+      },
+      include: { lines: true },
+    });
+
+    // Exactly what the approve route does: commit, then reconcile.
+    const approved = await runWithTenantContext({ businessId: f.id }, () =>
+      withTenantTransaction(
+        (tx) => approveSupplierPurchase(
+          {
+            draftId: draft.id,
+            businessId: f.id,
+            userId: apprUserId,
+            lines: [{ lineId: draft.lines[0]!.id, action: "MERGE", itemId: apprItem.id }],
+          },
+          { tx },
+        ),
+        { timeoutMs: 20_000 },
+      ),
+    );
+    const apprSync = await runWithTenantContext({ businessId: f.id }, () =>
+      syncInventoryAlertNotifications(f.id, new Date(T0.getTime() + 60_000)),
+    );
+
+    const apprQty = (await prisma.inventoryItem.findUnique({ where: { id: apprItem.id } }))!.currentQuantity;
+    apprRows = await inventoryNotifs(f.id);
+    check("the approval committed", approved !== null && apprSync.ok);
+    check("the compound transaction received the goods once", apprQty === 22, `qty=${apprQty}`);
+    check("a purchase order and a posted receiving session were created together",
+      (await prisma.purchaseOrder.count({ where: { businessId: f.id } })) === 1 &&
+      (await prisma.receivingSession.count({ where: { businessId: f.id, status: "POSTED" } })) === 1);
+    check("the draft is APPROVED",
+      (await prisma.supplierPurchaseDraft.findUnique({ where: { id: draft.id } }))!.status ===
+        SupplierPurchaseDraftStatus.APPROVED);
+    check("the domain resolved its alert after replenishment",
+      (await prisma.inventoryAlert.count({ where: { itemId: apprItem.id, type: "CRITICAL_STOCK", isResolved: false } })) === 0);
+    check("ONE sync closed the notification", apprSync.resolved === 1, `resolved=${apprSync.resolved}`);
+    check("it is the same notification row, now resolved",
+      apprRows.length === 1 && apprRows[0].id === apprNotificationId && apprRows[0].resolvedAt !== null);
+    check("approval added no delivery rows", apprRows[0]?.deliveries.length === 2);
+    check("nothing was deleted", apprRows.length === 1);
+
+    // Repeat approval: the atomic PENDING_REVIEW -> APPROVED transition means
+    // only one caller can ever win. A second attempt rolls the whole thing back.
+    let secondApprovalThrew = false;
+    try {
+      await runWithTenantContext({ businessId: f.id }, () =>
+        withTenantTransaction(
+          (tx) => approveSupplierPurchase(
+            {
+              draftId: draft.id,
+              businessId: f.id,
+              userId: apprUserId,
+              lines: [{ lineId: draft.lines[0]!.id, action: "MERGE", itemId: apprItem.id }],
+            },
+            { tx },
+          ),
+          { timeoutMs: 20_000 },
+        ),
+      );
+    } catch {
+      secondApprovalThrew = true;
+    }
+    check("a second approval of the same draft is refused", secondApprovalThrew);
+    check("the refused approval applied no stock twice",
+      (await prisma.inventoryItem.findUnique({ where: { id: apprItem.id } }))!.currentQuantity === 22);
+    check("the refused approval created no second purchase order",
+      (await prisma.purchaseOrder.count({ where: { businessId: f.id } })) === 1);
+    check("the refused approval created no second receiving session",
+      (await prisma.receivingSession.count({ where: { businessId: f.id } })) === 1);
+    check("the refused approval changed no notification",
+      (await inventoryNotifs(f.id)).length === 1);
+
+    // Repeated synchronisation on unchanged truth changes nothing.
+    const apprResync = await runWithTenantContext({ businessId: f.id }, () =>
+      syncInventoryAlertNotifications(f.id, new Date(T0.getTime() + 120_000)),
+    );
+    const afterResync = await inventoryNotifs(f.id);
+    check("a repeated sync writes nothing new",
+      apprResync.ok && afterResync.length === 1 && afterResync[0].deliveries.length === 2);
+
+    const apprCross = await runWithTenantContext({ businessId: f.id }, () =>
+      syncInventoryAlertNotifications(e.id, T0),
+    );
+    check("an approval sync for another business is refused", apprCross.ok === false);
+
+    /* ── 18. the approve route syncs only after the committed approval ───── */
+    const apprRoute = readFileSync(
+      join(REPO_ROOT, "app", "api", "inventory", "supplier-purchases", "[id]", "approve", "route.ts"), "utf8");
+    const aTx = apprRoute.indexOf("withTenantTransaction");
+    const aSync = apprRoute.indexOf("syncInventoryAlertNotifications(user.businessId");
+    const aResp = apprRoute.indexOf("return NextResponse.json(result)");
+    const aCatch = apprRoute.indexOf("} catch (error) {", aTx);
+    check("the approve route calls the shared sync", aSync > 0);
+    check("the sync runs after the approval transaction", aSync > aTx);
+    check("the sync runs before the success response", aSync < aResp);
+    check("the sync sits inside the try, so a rollback skips it", aSync < aCatch);
+    check("the sync uses the server-derived tenant",
+      /runWithTenantContext\(\{ businessId: user\.businessId \}/.test(apprRoute));
+    check("exactly one sync call in the approve route",
+      (apprRoute.match(/syncInventoryAlertNotifications\(/g) || []).length === 1);
+    check("receiving.service still contains no notification logic",
+      !readFileSync(join(REPO_ROOT, "lib", "services", "inventory", "receiving.service.ts"), "utf8")
+        .includes("syncInventoryAlertNotifications"));
   } finally {
-    const ids = [a.id, b.id, c.id, d.id, e.id];
+    const ids = [a.id, b.id, c.id, d.id, e.id, f.id];
     // ReceivingLine.itemId is RESTRICT, so it blocks the Business cascade from
     // reaching InventoryItem. Clear the receiving chain first; everything else
     // cascades from Business as usual.
