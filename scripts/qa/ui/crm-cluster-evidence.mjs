@@ -127,12 +127,16 @@ async function main() {
         check(entry[0] + "@" + w + ": single region (no desktop pane on mobile)",
           r.wsl.sv !== r.wsl.ev, "start=" + r.wsl.sv + " end=" + r.wsl.ev);
       }
-      // Tap-target size is measured, not asserted: the two offenders
-      // (.crm-chip 28px, .crm-hd__back 20px) are byte-identical on
-      // origin/main and untouched by this wave, so they are reported as
-      // pre-existing findings for the owner rather than gating it.
-      if (r.minTap != null && r.minTap < 32) {
-        findings.push(entry[0] + "@" + w + ": smallest tap target " + r.minTap + "px (< 32)");
+      // Thresholds come from the Accessibility Constitution's A-7, not from a
+      // number invented here: 24x24 is the gating MUST (WCAG 2.2 2.5.8) and
+      // 44x44 is the separate non-gating target for primary touch controls.
+      // The offenders are pre-existing (byte-identical on main, see
+      // docs/ui-accessibility-cleanup-backlog-v1.md), so they are reported
+      // rather than gating this cluster.
+      if (r.minTap != null && r.minTap < 24) {
+        findings.push(entry[0] + "@" + w + ": tap target " + r.minTap + "px — A-7 GATING FAIL (<24)");
+      } else if (r.minTap != null && r.minTap < 44) {
+        findings.push(entry[0] + "@" + w + ": tap target " + r.minTap + "px — below the 44 non-gating target");
       }
     }
   }
