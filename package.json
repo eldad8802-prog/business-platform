@@ -123,7 +123,11 @@
     "verify:notification-consumer-inventory": "npx tsx lib/notifications/inventory-alert-notifications.integration.test.ts",
     "verify:notification-read-api": "npx tsx lib/notifications/notification-read.integration.test.ts",
     "verify:notification-center": "npx tsx components/notifications/notification-center.test.tsx",
-    "verify:document-ingestion": "npx tsx lib/services/documents/document-ingestion.verify.test.ts"
+    "verify:document-ingestion": "npx tsx lib/services/documents/document-ingestion.verify.test.ts",
+    "verify:document-ingestion": "npx tsx lib/services/documents/document-ingestion.verify.test.ts",
+    "verify:document-ingestion": "npx tsx lib/services/documents/document-ingestion.verify.test.ts",
+    "verify:document-ingestion": "npx tsx lib/services/documents/document-ingestion.verify.test.ts",
+    "verify:documents-analyze": "npx tsx lib/data-transfer/documents/documents-analyze.verify.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",

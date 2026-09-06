@@ -38,7 +38,7 @@
 import { IMPORT_EXPORT_ROUTE } from "./import-export-release";
 
 export type ImportExportAction = {
-  key: "import" | "templates" | "export";
+  key: "import" | "documents-import" | "templates" | "export";
   href: string;
   title: string;
   description: string;
@@ -69,6 +69,18 @@ export const IMPORT_EXPORT_ACTIONS: readonly ImportExportAction[] = [
     title: "תבניות לייבוא",
     description: "הורידו קובץ לדוגמה והכינו את המידע מראש",
     icon: "📋",
+    available: true,
+  },
+  {
+    // Documents are a different KIND of transfer — files, not rows — so they
+    // get their own row rather than a domain inside the tabular import. The
+    // wording matches what the screen can do today: a check, not yet a
+    // transfer. It becomes one when I-7C makes it one.
+    key: "documents-import",
+    href: `${IMPORT_EXPORT_ROUTE}/documents`,
+    title: "ייבוא מסמכים",
+    description: "בדקו קבצים ממערכת אחרת לפני קליטה",
+    icon: "🧾",
     available: true,
   },
   {
