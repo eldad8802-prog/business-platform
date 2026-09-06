@@ -364,6 +364,134 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: skipping both sides of a collision fails the verifier"
 
+      # Import/Export Center I-7 — Documents. Blocking because this is the only
+      # import path that writes to TWO durability systems (object storage and
+      # PostgreSQL), and its failure mode is silent duplication: a retried batch
+      # that ingests every document a second time looks exactly like a slow one.
+      # Pure — no DB, no network, no object storage.
+      # Local equivalent: npm run verify:document-ingestion
+      - name: Canonical document ingestion (one ingestion path, storage before row)
+        run: npx tsx lib/services/documents/document-ingestion.verify.test.ts
+
+      # Local equivalent: npm run verify:documents-analyze
+      - name: Documents batch analyze (zero writes, duplicate triage, signatures)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: npx tsx lib/data-transfer/documents/documents-analyze.verify.test.ts
+
+      # Local equivalent: npm run verify:documents-execute
+      - name: Documents execute (binding, idempotency, drift, failure injection)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts
+
+      - name: I-7 negative proof (a marker outside the ingestion transaction must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/documents/documents-execute.ts"
+          cp "$F" "$F.bak"
+          # THE defect this increment exists to prevent. The marker moves out of
+          # the transaction that creates the Document row, so a crash between
+          # them leaves a document nothing has recorded — and the retry, which
+          # for an override cannot rely on duplicate detection, creates a second
+          # copy.
+          perl -0pi -e 's/      withinTransaction: async \(tx\) => \{\r?\n        await markRow\(tx, \{/      withinTransaction: undefined,\n      unusedMarker: async (tx: never) => {\n        await markRow(tx, {/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a marker outside the transaction passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a marker outside the transaction fails the verifier"
+
+      - name: I-7 negative proof (the ingestion hook running after the row write must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: |
+          F="lib/services/documents/document-ingestion.service.ts"
+          cp "$F" "$F.bak"
+          # Same transaction, wrong order. It still commits atomically, but a
+          # unique violation from the marker can no longer be told apart from
+          # one raised by the Document write, because the first failed statement
+          # aborts the transaction and the second never runs.
+          perl -0pi -e 's/          if \(input\.withinTransaction\) await input\.withinTransaction\(tx\);\r?\n          return tx\.document\.create\(\{/          const created = await tx.document.create({/' "$F"
+          perl -0pi -e 's/          \}\);\r?\n        \}\)\r?\n    \);\r?\n    documentId = document\.id;/          });\n          if (input.withinTransaction) await input.withinTransaction(tx);\n          return created;\n        })\n    );\n    documentId = document.id;/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: hook-after-create passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: hook-after-create fails the verifier"
+
+      - name: I-7 negative proof (deriving the duplicate override from live truth must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/documents/documents-execute.ts"
+          cp "$F" "$F.bak"
+          # The silent re-decision: instead of reading the override from the
+          # SIGNED decision, execute asks "is it a duplicate now?" — and so
+          # reads a plain CREATE on a file that became a duplicate after the
+          # preview as an override the owner never gave.
+          perl -pi -e 's/      allowDuplicate: action === "CREATE_ANYWAY",/      allowDuplicate: true,/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an unconditional override passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an unconditional override fails the verifier"
+
+      - name: I-7 negative proof (re-validating decisions before the run lookup must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/documents/documents-execute.ts"
+          cp "$F" "$F.bak"
+          # I-6's ordering defect in the Documents domain: a resumed run judges
+          # its own CREATE decisions against a world it changed, so every file
+          # it already ingested is refused as "you already hold this".
+          perl -0pi -e 's/  if \(!existing\) \{/  if (true) {/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: validate-before-lookup passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: validate-before-lookup fails the verifier"
+
+      - name: I-7 negative proof (resuming a finished run instead of replaying it must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/documents/documents-execute.ts"
+          cp "$F" "$F.bak"
+          # BOTH replay branches removed, because either one alone still catches
+          # it — replay safety is layered, and a proof that only disables the
+          # first would pass while proving nothing.
+          perl -0pi -e 's/  if \(existing && existing\.status !== "EXECUTING"\) \{/  if (false) {/' "$F"
+          perl -0pi -e 's/  if \(!run\.created && run\.status !== "EXECUTING"\) \{/  if (false) {/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: resuming a finished run passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: resuming a finished run fails the verifier"
+
+      - name: I-7 negative proof (trusting the declared file type must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/documents/batch-analyze.ts"
+          cp "$F" "$F.bak"
+          # The batch stops checking that a file's bytes match the type it
+          # claims, so a renamed file passes the preview and reaches storage.
+          perl -0pi -e 's/    if \(!signature\.ok\) \{/    if (false) {/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a relabelled file passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a relabelled file fails the verifier"
+
       # CASA Wave B — platform-admin TOTP MFA (CASA 3.3.1). The elevation
       # envelope and the guard decide whether a privileged request is allowed at
       # all, so they belong in the BLOCKING job. Deterministic and offline: no

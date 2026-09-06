@@ -39,7 +39,7 @@
 import { after } from "next/server";
 import { runTenantJob } from "@/lib/tenant/job";
 import { runWithTenantContext } from "@/lib/tenant/context";
-import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
 import { processDocumentPipeline } from "@/lib/services/documents/process-document-pipeline.service";
 import {
   buildStoredDocumentFileName,
@@ -91,6 +91,39 @@ export type IngestDocumentInput = {
   sessionId?: string | null;
   /** Passed through to the pipeline for its own telemetry. */
   sourceChannel?: "upload" | "reprocess";
+  /**
+   * Run the caller's own statement inside the SAME transaction as the Document
+   * row, as its FIRST statement.
+   *
+   * # Why this exists, stated precisely
+   *
+   * The bulk import needs a durable per-file execution marker, and the only
+   * dangerous state it can be in is "the Document was created but the marker
+   * was not" — because then a retry has no evidence the file was ingested and
+   * creates it a second time. For a deliberate duplicate override that is not
+   * caught by duplicate detection either, since detection is exactly what the
+   * owner switched off.
+   *
+   * Two separate transactions cannot rule that state out. One transaction can,
+   * and this hook is what puts the caller's marker in it. Document row and
+   * marker now commit together or not at all, so "created but unmarked" is not
+   * a state the database can hold.
+   *
+   * # Why FIRST, and not after the create
+   *
+   * So that a unique violation from the hook is distinguishable from one raised
+   * by the Document write. A failed statement aborts the whole transaction and
+   * nothing after it can run, so the two cannot be told apart by catching them
+   * separately — only by knowing which one was in flight.
+   *
+   * # What it must not be used for
+   *
+   * DB statements only, and short ones. The storage write has already happened
+   * by the time this runs, deliberately, so that no non-database I/O is held
+   * inside the transaction. A hook that threw would roll the Document back and
+   * take the orphan cleanup path, which is correct but wasteful.
+   */
+  withinTransaction?: (tx: TenantTx) => Promise<void>;
 };
 
 export type DuplicateDocument = {
@@ -201,8 +234,10 @@ export async function ingestDocument(
     const document = await runWithTenantContext(
       { businessId: input.businessId },
       () =>
-        withTenantTransaction((tx) =>
-          tx.document.create({
+        withTenantTransaction(async (tx) => {
+          // FIRST statement in the transaction — see `withinTransaction`.
+          if (input.withinTransaction) await input.withinTransaction(tx);
+          return tx.document.create({
             data: {
               businessId: input.businessId,
               // `fileUrl` stores ONLY the stored basename — no slashes, no
@@ -218,8 +253,8 @@ export async function ingestDocument(
               originalFilename: input.originalFilename,
               sizeBytes: input.sizeBytes,
             },
-          })
-        )
+          });
+        })
     );
     documentId = document.id;
   } catch (error) {

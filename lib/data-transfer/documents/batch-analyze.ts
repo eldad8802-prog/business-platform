@@ -31,8 +31,33 @@ import {
 } from "@/lib/services/documents/document-ingestion.service";
 import { verifyFileSignature } from "@/lib/data-transfer/documents/file-signature";
 
-/** What the owner will be asked to confirm for one file. */
-export type DocumentFileAction = "CREATE" | "SKIP";
+/**
+ * What the owner will be asked to confirm for one file.
+ *
+ * # Why "create anyway" is its own word rather than a CREATE on a duplicate
+ *
+ * I-7B had two words, and CREATE meant either "take this new file" or "take it
+ * even though you already have it", depending on what the analysis had said at
+ * the time. Execution cannot rely on that, because the analysis is re-derived
+ * at execute time and can legitimately have changed: a file that was new when
+ * the owner looked may exist by the time they confirm.
+ *
+ * With two words, execute would have to ask "is this a duplicate NOW?" to
+ * decide what the owner meant — and would then read a CREATE on a
+ * newly-appeared duplicate as an override the owner never gave. That is exactly
+ * the silent re-decision the drift rule forbids.
+ *
+ * With three, the owner's intent is carried in the decision itself, is covered
+ * by the signed decisions digest, and execute never has to infer it:
+ *
+ *   CREATE         take this file, which was NOT already held
+ *   CREATE_ANYWAY  take it even though Dubiz already holds these exact bytes
+ *   SKIP           do not take it
+ *
+ * The execution ledger still records CREATE_ANYWAY as a CREATE — what the
+ * ledger stores is the action performed, and the action performed is a create.
+ */
+export type DocumentFileAction = "CREATE" | "CREATE_ANYWAY" | "SKIP";
 
 export type DocumentFileStatus =
   /** Accepted and not already held. Defaults to CREATE. */
@@ -56,7 +81,7 @@ export type AnalyzedFile = {
   action: DocumentFileAction;
   /** Owner-facing explanation in Hebrew. Empty when there is nothing to say. */
   reason: string;
-  /** True when the owner may deliberately override SKIP into CREATE. */
+  /** True when the owner may deliberately override SKIP into CREATE_ANYWAY. */
   overridable: boolean;
 };
 
@@ -97,7 +122,7 @@ function sha256Hex(buffer: Buffer): string {
  * server: the owner is told "Dubiz already has this file", which is the useful
  * fact, without handing an internal identifier to the client.
  */
-async function findExistingHashes(
+export async function findExistingHashes(
   businessId: number,
   hashes: readonly string[]
 ): Promise<Set<string>> {
@@ -189,20 +214,29 @@ function reject(reason: string): { status: "UNSUPPORTED"; reason: string } {
 }
 
 /**
- * Decide each file's fate, without writing anything.
+ * The per-file acceptance pass: type, size, contents, hash. PURE.
  *
- * Order of checks matters and mirrors the upload screen: type before size
- * before contents, so the owner gets the most actionable message rather than
- * the first one that happens to fail.
+ * Nothing here touches the database or the tenant, which is what lets Execute
+ * re-run the identical checks on the re-uploaded bytes before it writes
+ * anything — and lets a test prove Analyze and Execute cannot drift apart,
+ * because there is one function and not two.
+ *
+ * The declared MIME is checked here rather than assumed to be pinned by the
+ * batch hash. It is NOT part of the content hash: the same bytes can be
+ * re-submitted under a different declared type, so the type must be re-verified
+ * against the signature at execute time and not merely at preview.
+ *
+ * Order of checks mirrors the upload screen: type before size before contents,
+ * so the owner gets the most actionable message rather than the first failure.
  */
-export async function analyzeDocumentBatch(input: {
-  businessId: number;
-  files: readonly IncomingFile[];
-}): Promise<AnalyzedBatch> {
+export function stageDocumentFiles(files: readonly IncomingFile[]): {
+  staged: StagedFile[];
+  contentHashes: string[];
+} {
   const contentHashes: string[] = [];
   const staged: StagedFile[] = [];
 
-  for (const [index, file] of input.files.entries()) {
+  for (const [index, file] of files.entries()) {
     const hash = sha256Hex(file.buffer);
     contentHashes.push(hash);
     const mimeType = String(file.mimeType || "").toLowerCase().trim();
@@ -254,6 +288,20 @@ export async function analyzeDocumentBatch(input: {
     staged.push({ ...base, status: "NEW", reason: "" });
   }
 
+  return { staged, contentHashes };
+}
+
+/**
+ * Decide each file's fate, without writing anything.
+ *
+ * Staging (pure) then one tenant-scoped duplicate query then classification.
+ */
+export async function analyzeDocumentBatch(input: {
+  businessId: number;
+  files: readonly IncomingFile[];
+}): Promise<AnalyzedBatch> {
+  const { staged, contentHashes } = stageDocumentFiles(input.files);
+
   // One tenant-scoped query for every accepted file's hash.
   const acceptedHashes = staged
     .filter((f) => f.status === "NEW")
@@ -267,7 +315,7 @@ export async function analyzeDocumentBatch(input: {
     contentHashes,
     summary: {
       total: files.length,
-      willCreate: files.filter((f) => f.action === "CREATE").length,
+      willCreate: files.filter((f) => isCreateAction(f.action)).length,
       willSkip: files.filter((f) => f.action === "SKIP").length,
       unsupported: files.filter((f) => f.status === "UNSUPPORTED").length,
       duplicates: files.filter((f) => f.status === "DUPLICATE").length,
@@ -275,6 +323,11 @@ export async function analyzeDocumentBatch(input: {
       totalBytes: files.reduce((sum, f) => sum + f.sizeBytes, 0),
     },
   };
+}
+
+/** Both create words. The one predicate anything asking "does this write?" uses. */
+export function isCreateAction(action: DocumentFileAction): boolean {
+  return action === "CREATE" || action === "CREATE_ANYWAY";
 }
 
 /** sourceRowNumber-equivalent keyed decisions: batch index -> action. */
@@ -291,8 +344,12 @@ export function isDecisionPermitted(
   file: AnalyzedFile,
   action: DocumentFileAction
 ): boolean {
+  // Declining to import is never invalid, whatever the file turned out to be.
   if (action === "SKIP") return true;
-  if (file.status === "NEW") return true;
+  // A plain CREATE asserts the file was not already held. Only a NEW file
+  // supports that assertion — a duplicate needs the explicit override word.
+  if (action === "CREATE") return file.status === "NEW";
+  // CREATE_ANYWAY is the override, and only where an override was offered.
   return file.overridable;
 }
 

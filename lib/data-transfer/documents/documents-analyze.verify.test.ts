@@ -209,19 +209,40 @@ check("SKIP is always permitted", () => {
   }
 });
 
-check("an unsupported file can never be CREATEd", () => {
+check("an unsupported file can never be created, by either word", () => {
   const f = file({ index: 0, status: "UNSUPPORTED", action: "SKIP", overridable: false });
   assert.equal(isDecisionPermitted(f, "CREATE"), false);
+  assert.equal(isDecisionPermitted(f, "CREATE_ANYWAY"), false);
 });
 
-check("an in-file duplicate can never be CREATEd", () => {
+check("an in-file duplicate can never be created, by either word", () => {
   const f = file({ index: 1, status: "IN_FILE_DUPLICATE", action: "SKIP", overridable: false });
+  assert.equal(isDecisionPermitted(f, "CREATE"), false);
+  assert.equal(isDecisionPermitted(f, "CREATE_ANYWAY"), false);
+});
+
+check("an existing duplicate is overridden by CREATE_ANYWAY, never by CREATE", () => {
+  // The two words are not interchangeable. A plain CREATE asserts the file was
+  // NOT already held, and execution relies on that: it re-derives duplicate
+  // truth at execute time, and a CREATE arriving on a file that has since become
+  // a duplicate must fail as drift rather than be read as an override the owner
+  // never gave.
+  const f = file({ index: 0, status: "DUPLICATE", action: "SKIP", overridable: true });
+  assert.equal(isDecisionPermitted(f, "CREATE_ANYWAY"), true);
   assert.equal(isDecisionPermitted(f, "CREATE"), false);
 });
 
-check("an existing duplicate MAY be overridden, matching the upload screen", () => {
-  const f = file({ index: 0, status: "DUPLICATE", action: "SKIP", overridable: true });
+check("a NEW file takes the plain CREATE, not the override word", () => {
+  const f = file({ index: 0, status: "NEW", action: "CREATE", overridable: false });
   assert.equal(isDecisionPermitted(f, "CREATE"), true);
+  assert.equal(isDecisionPermitted(f, "CREATE_ANYWAY"), false);
+});
+
+check("the digest distinguishes an override from a plain create", () => {
+  assert.notEqual(
+    documentDecisionsHash({ 0: "CREATE" }),
+    documentDecisionsHash({ 0: "CREATE_ANYWAY" })
+  );
 });
 
 check("a duplicate override is never the DEFAULT", () => {
@@ -294,6 +315,7 @@ check("an in-file duplicate is NEVER overridable", () => {
     "the owner's own selection contradicts itself; the fix is in the picker"
   );
   assert.equal(isDecisionPermitted(out[1], "CREATE"), false);
+  assert.equal(isDecisionPermitted(out[1], "CREATE_ANYWAY"), false);
 });
 
 check("an existing duplicate IS overridable, and still defaults to SKIP", () => {
@@ -301,7 +323,8 @@ check("an existing duplicate IS overridable, and still defaults to SKIP", () => 
   assert.equal(out[0].status, "DUPLICATE");
   assert.equal(out[0].action, "SKIP");
   assert.equal(out[0].overridable, true);
-  assert.equal(isDecisionPermitted(out[0], "CREATE"), true);
+  assert.equal(isDecisionPermitted(out[0], "CREATE_ANYWAY"), true);
+  assert.equal(isDecisionPermitted(out[0], "CREATE"), false);
 });
 
 check("an unsupported file stays unsupported and un-overridable", () => {
@@ -412,6 +435,11 @@ check("the tenant is server-derived and never read from the request", () => {
   assert.equal(/form\.get\(\s*["']businessId["']\s*\)/.test(routeCode), false);
 });
 
+const formCode = fs.readFileSync(
+  "lib/data-transfer/documents/documents-request.ts",
+  "utf8"
+);
+
 check("auth precedes everything, including reading the body", () => {
   const auth = routeCode.indexOf("getCurrentUser");
   const body = routeCode.indexOf("req.formData()");
@@ -421,13 +449,27 @@ check("auth precedes everything, including reading the body", () => {
 });
 
 check("the batch ceilings are enforced before and after reading bytes", () => {
-  assert.equal(routeCode.includes("TOO_MANY_FILES"), true);
+  // The limits moved into the shared parser when Execute appeared, so that the
+  // two endpoints cannot drift apart on what they accept. Assert them where
+  // they now live, and assert the route actually delegates there.
+  assert.equal(routeCode.includes("readDocumentBatchForm("), true);
+  assert.equal(formCode.includes("TOO_MANY_FILES"), true);
   // declared-size pre-check AND real byte accounting
-  assert.equal((routeCode.match(/BATCH_TOO_LARGE/g) || []).length >= 2, true);
+  assert.equal((formCode.match(/tooLarge\(\)/g) || []).length >= 2, true);
+  assert.equal(formCode.includes("DOCUMENTS_IMPORT_MAX_FILES"), true);
+  assert.equal(formCode.includes("DOCUMENTS_IMPORT_MAX_BATCH_BYTES"), true);
 });
 
 check("an empty batch is refused", () => {
-  assert.equal(routeCode.includes("NO_FILES"), true);
+  assert.equal(formCode.includes("NO_FILES"), true);
+});
+
+check("the parser accepts exactly the three decision words", () => {
+  assert.equal(
+    formCode.includes('const ACTIONS: readonly string[] = ["CREATE", "CREATE_ANYWAY", "SKIP"];'),
+    true
+  );
+  assert.equal(formCode.includes("DECISIONS_MALFORMED"), true);
 });
 
 check("responses are private and never cached", () => {

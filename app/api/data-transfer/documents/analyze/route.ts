@@ -14,9 +14,8 @@ import {
   defaultDocumentDecisions,
   documentDecisionsHash,
   isDecisionPermitted,
-  type DocumentDecisions,
-  type IncomingFile,
 } from "@/lib/data-transfer/documents/batch-analyze";
+import { readDocumentBatchForm } from "@/lib/data-transfer/documents/documents-request";
 import { issuePreviewToken } from "@/lib/data-transfer/import/preview/preview-token";
 import { IMPORT_PREVIEW_TTL_SECONDS } from "@/lib/data-transfer/import/import-config";
 
@@ -42,7 +41,7 @@ const NO_STORE = { "Cache-Control": "private, no-store" } as const;
  * returns the server's defaults and a token; then again with the owner's
  * choices, which re-derives everything from the same bytes, re-checks that each
  * choice is one it would actually offer, and issues a token bound to those
- * choices. Execute will later demand that token.
+ * choices. Execute demands that token.
  *
  * # Zero writes
  *
@@ -56,9 +55,12 @@ export async function POST(req: Request) {
   if (!user) return authRequiredResponse(req);
 
   // Reading and hashing a batch is real work. Gate it before the body is read,
-  // and fail closed — the tabular execute path uses the same discipline.
+  // and fail closed. Analyze and Execute share this bucket on purpose: the
+  // ceiling is meant to bound documents ingested per day, and a caller who
+  // could analyze without limit could still not execute, but would be free to
+  // spend the server's time hashing.
   const decision = await checkRateLimit({
-    bucket: "DATA_TRANSFER_IMPORT_EXECUTE",
+    bucket: "DATA_TRANSFER_DOCUMENTS_IMPORT",
     user: user.id,
     business: user.businessId,
     ip: getClientIp(req),
@@ -75,95 +77,25 @@ export async function POST(req: Request) {
     );
   }
 
-  const entries = form.getAll("files").filter((f): f is File => f instanceof File);
-  if (entries.length === 0) {
+  const batch = await readDocumentBatchForm(form);
+  if (!batch.ok) {
     return NextResponse.json(
-      { error: "לא נבחרו קבצים", code: "NO_FILES" },
-      { status: 400, headers: NO_STORE }
+      { error: batch.error, code: batch.code },
+      { status: batch.status, headers: NO_STORE }
     );
-  }
-  if (entries.length > DOCUMENTS_IMPORT_MAX_FILES) {
-    return NextResponse.json(
-      {
-        error: `אפשר לבחור עד ${DOCUMENTS_IMPORT_MAX_FILES} קבצים בבת אחת`,
-        code: "TOO_MANY_FILES",
-      },
-      { status: 413, headers: NO_STORE }
-    );
-  }
-
-  // Declared sizes first, so an oversized batch is refused before its bytes are
-  // pulled into memory. The real byte length is re-checked below.
-  const declaredTotal = entries.reduce(
-    (sum, f) => sum + (typeof f.size === "number" ? f.size : 0),
-    0
-  );
-  if (declaredTotal > DOCUMENTS_IMPORT_MAX_BATCH_BYTES) {
-    const mb = Math.round(DOCUMENTS_IMPORT_MAX_BATCH_BYTES / 1024 / 1024);
-    return NextResponse.json(
-      { error: `סך הקבצים גדול מדי (עד ${mb}MB)`, code: "BATCH_TOO_LARGE" },
-      { status: 413, headers: NO_STORE }
-    );
-  }
-
-  const files: IncomingFile[] = [];
-  let actualTotal = 0;
-  for (const entry of entries) {
-    const buffer = Buffer.from(await entry.arrayBuffer());
-    actualTotal += buffer.length;
-    if (actualTotal > DOCUMENTS_IMPORT_MAX_BATCH_BYTES) {
-      const mb = Math.round(DOCUMENTS_IMPORT_MAX_BATCH_BYTES / 1024 / 1024);
-      return NextResponse.json(
-        { error: `סך הקבצים גדול מדי (עד ${mb}MB)`, code: "BATCH_TOO_LARGE" },
-        { status: 413, headers: NO_STORE }
-      );
-    }
-    files.push({
-      filename:
-        typeof entry.name === "string" && entry.name.trim()
-          ? entry.name.trim().slice(0, 255)
-          : "(ללא שם)",
-      mimeType: typeof entry.type === "string" ? entry.type : "",
-      buffer,
-    });
-  }
-
-  // Shape only. Whether a decision is LEGITIMATE is re-decided below against
-  // freshly derived analysis — a client cannot grant itself a CREATE.
-  let submitted: DocumentDecisions | null = null;
-  const rawDecisions = form.get("decisions");
-  if (typeof rawDecisions === "string" && rawDecisions.length > 0) {
-    try {
-      const parsed = JSON.parse(rawDecisions);
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        throw new Error("decisions must be an object");
-      }
-      submitted = {};
-      for (const [key, value] of Object.entries(parsed)) {
-        const index = Number(key);
-        if (!Number.isInteger(index) || index < 0) throw new Error("index");
-        if (value !== "CREATE" && value !== "SKIP") throw new Error("action");
-        submitted[index] = value;
-      }
-    } catch {
-      return NextResponse.json(
-        { error: "הבחירות אינן תקינות", code: "DECISIONS_MALFORMED" },
-        { status: 400, headers: NO_STORE }
-      );
-    }
   }
 
   try {
     const analyzed = await analyzeDocumentBatch({
       // Server-derived. There is no businessId field in this request.
       businessId: user.businessId,
-      files,
+      files: batch.files,
     });
 
     const decisions = defaultDocumentDecisions(analyzed.files);
-    if (submitted) {
+    if (batch.decisions) {
       const byIndex = new Map(analyzed.files.map((f) => [f.index, f]));
-      for (const [rawIndex, action] of Object.entries(submitted)) {
+      for (const [rawIndex, action] of Object.entries(batch.decisions)) {
         const index = Number(rawIndex);
         const file = byIndex.get(index);
         if (!file) {
