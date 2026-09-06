@@ -90,6 +90,26 @@ if [ -f "$ROOT/lib/prisma-auth.ts" ]; then
     echo "CI-2b VIOLATION — lib/prisma-auth.ts lost its fail-loud error for a missing AUTH_DATABASE_URL."
     fail=1
   fi
+  # The specific regression this is here to stop: coalescing one URL into the
+  # other. `AUTH_DATABASE_URL || DATABASE_URL` reads like a sensible default and
+  # is the exact silent fallback that would return login to app_runtime with no
+  # error anywhere.
+  if grep -nE "AUTH_DATABASE_URL[^;]*(\|\||\?\?)|(\|\||\?\?)[^;]*AUTH_DATABASE_URL" \
+       "$ROOT/lib/prisma-auth.ts" >/dev/null 2>&1; then
+    echo "CI-2b VIOLATION — lib/prisma-auth.ts coalesces AUTH_DATABASE_URL with another value."
+    fail=1
+  fi
+  # The mode must be an explicit state, not inferred from whether a credential
+  # happens to be present. Presence-based selection silently downgrades the
+  # boundary the moment the variable goes missing.
+  # Matched as CODE (`process.env.AUTH_PLANE_ENABLED`), not as the bare name:
+  # the file mentions the variable in its comments and in its own error message,
+  # so a name-only grep stays satisfied by the prose long after the code that
+  # reads it is gone.
+  if ! grep -E "process\.env\.AUTH_PLANE_ENABLED" "$ROOT/lib/prisma-auth.ts" >/dev/null 2>&1; then
+    echo "CI-2b VIOLATION — lib/prisma-auth.ts no longer gates on the explicit AUTH_PLANE_ENABLED state."
+    fail=1
+  fi
 fi
 
 # ---------- CI-2c: the auth surface does not use the tenant client -----------

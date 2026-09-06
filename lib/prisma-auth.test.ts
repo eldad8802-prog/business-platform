@@ -55,17 +55,99 @@ const read = (p: string) => code(readFileSync(new URL(`../${p}`, import.meta.url
 console.log("== auth-plane client contract ==");
 
 // ---- fail-loud, and no substitute identity --------------------------------
-test("a missing AUTH_DATABASE_URL throws instead of falling back", async () => {
+/** Runs `fn` with an exact environment, then restores whatever was there. */
+async function withEnv(
+  env: Record<string, string | undefined>,
+  fn: (mod: typeof import("./prisma-auth")) => void | Promise<void>
+) {
   const mod = await import("./prisma-auth");
-  const saved = process.env.AUTH_DATABASE_URL;
-  delete process.env.AUTH_DATABASE_URL;
-  try {
-    assert.equal(mod.isAuthPlaneConfigured(), false);
-    assert.throws(() => mod.getPrismaAuth(), /AUTH_DATABASE_URL is not configured/);
-  } finally {
-    if (saved !== undefined) process.env.AUTH_DATABASE_URL = saved;
+  // Each scenario describes a FRESH process with that environment. The client is
+  // a globalThis singleton, so without clearing it a scenario would be handed the
+  // client an earlier scenario built — and "missing credential" would appear to
+  // succeed because a valid one was cached a moment ago. That is the test lying,
+  // not the module: in production the environment does not change mid-process,
+  // and a process that starts unconfigured caches nothing and throws every time.
+  delete (globalThis as { prismaAuth?: unknown }).prismaAuth;
+  const saved: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(env)) {
+    saved[k] = process.env[k];
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
   }
-});
+  try {
+    await fn(mod);
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+const AUTH_URL = "postgresql://app_auth_test:pw@example.invalid:5432/neondb?sslmode=require";
+
+// ---- the two deliberate modes ---------------------------------------------
+test("legacy: flag false and no AUTH_DATABASE_URL uses the canonical client on purpose", () =>
+  withEnv({ AUTH_PLANE_ENABLED: "false", AUTH_DATABASE_URL: undefined }, async (m) => {
+    assert.equal(m.authPlaneMode(), "legacy");
+    assert.equal(m.isAuthPlaneActive(), false);
+    const { prisma } = await import("./prisma");
+    assert.equal(m.authDb(), prisma, "legacy mode did not return the canonical client");
+  }));
+
+test("legacy: an unset flag is legacy (pre-cutover default)", () =>
+  withEnv({ AUTH_PLANE_ENABLED: undefined, AUTH_DATABASE_URL: undefined }, (m) => {
+    assert.equal(m.authPlaneMode(), "legacy");
+  }));
+
+test("active: flag true with a valid credential uses the auth client, never the tenant one", () =>
+  withEnv({ AUTH_PLANE_ENABLED: "true", AUTH_DATABASE_URL: AUTH_URL }, async (m) => {
+    assert.equal(m.authPlaneMode(), "active");
+    const { prisma } = await import("./prisma");
+    const client = m.authDb();
+    assert.notEqual(client, prisma, "active mode returned the tenant client");
+  }));
+
+// ---- fail-closed, with no way back to the tenant identity ------------------
+test("active + missing AUTH_DATABASE_URL is a hard failure, not a fallback", () =>
+  withEnv({ AUTH_PLANE_ENABLED: "true", AUTH_DATABASE_URL: undefined }, (m) => {
+    assert.throws(() => m.authDb(), /AUTH_DATABASE_URL is not configured/);
+  }));
+
+test("active + empty AUTH_DATABASE_URL is a hard failure", () =>
+  withEnv({ AUTH_PLANE_ENABLED: "true", AUTH_DATABASE_URL: "   " }, (m) => {
+    assert.throws(() => m.authDb(), /AUTH_DATABASE_URL is not configured/);
+  }));
+
+test("active + malformed AUTH_DATABASE_URL fails at initialization, naming the cause", () =>
+  withEnv({ AUTH_PLANE_ENABLED: "true", AUTH_DATABASE_URL: "not-a-connection-string" }, (m) => {
+    assert.throws(() => m.authDb(), /not a valid PostgreSQL connection string/);
+  }));
+
+test("an auth-plane failure never reaches the tenant client", () =>
+  withEnv({ AUTH_PLANE_ENABLED: "true", AUTH_DATABASE_URL: undefined }, async (m) => {
+    const { prisma } = await import("./prisma");
+    let returned: unknown = null;
+    try {
+      returned = m.authDb();
+    } catch {
+      returned = "threw";
+    }
+    assert.equal(returned, "threw", "authDb() returned a client while the auth plane was unusable");
+    assert.notEqual(returned, prisma);
+  }));
+
+test("an unrecognised flag value throws rather than silently meaning legacy", () =>
+  withEnv({ AUTH_PLANE_ENABLED: "1", AUTH_DATABASE_URL: undefined }, (m) => {
+    // "1", "yes", "TRUE " read as legacy would turn a typo into a quiet
+    // downgrade: the boundary would be off and nothing would say so.
+    assert.throws(() => m.authPlaneMode(), /must be exactly "true" or "false"/);
+  }));
+
+test("routing is deterministic after initialization (same mode, same client)", () =>
+  withEnv({ AUTH_PLANE_ENABLED: "true", AUTH_DATABASE_URL: AUTH_URL }, (m) => {
+    assert.equal(m.authDb(), m.authDb(), "authDb() returned different clients for the same mode");
+  }));
 
 test("the client reads no other connection URL (no owner/tenant/admin fallback)", () => {
   const forbidden = SRC.match(/process\.env\.(DATABASE_URL|DIRECT_URL|ADMIN_DATABASE_URL)/g);

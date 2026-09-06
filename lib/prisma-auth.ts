@@ -59,6 +59,16 @@ export function getPrismaAuth(): PrismaClient {
         "Refusing to fall back to the tenant, admin or owner connection."
     );
   }
+  // A malformed URL must fail here, at initialization, with a message that names
+  // the cause. Left to the driver it surfaces later as an opaque connection
+  // error on a login request, which reads like an outage rather than a
+  // misconfiguration and invites someone to "fix" it by unsetting the variable.
+  if (!/^postgres(ql)?:\/\/[^\s]+$/i.test(url)) {
+    throw new Error(
+      "AUTH_DATABASE_URL is not a valid PostgreSQL connection string. " +
+        "Refusing to start the auth plane on an unusable credential."
+    );
+  }
 
   const client = new PrismaClient({
     datasourceUrl: url,
@@ -70,30 +80,52 @@ export function getPrismaAuth(): PrismaClient {
 }
 
 /**
- * Whether the auth plane is configured.
+ * Which plane serves auth, as a DELIBERATE state rather than a side effect of
+ * whether a variable happens to be set.
  *
- * This exists for ONE purpose: letting the codebase land before the credential
- * does, so Step 2 is a reviewable code change and Step 3 is a separate,
- * explicitly-approved privilege change. While it returns false, the auth paths
- * keep using the canonical client and behaviour is unchanged.
+ * An earlier revision selected the client by the presence of
+ * `AUTH_DATABASE_URL`. That is fine while rolling out and wrong forever after:
+ * once the auth plane is live, losing the variable — a bad deploy, a dropped
+ * environment, a typo in a rename — would silently route login, session
+ * validation and signup back through `app_runtime`, restoring exactly the broad
+ * `User` access this split exists to remove, with no error anywhere. The
+ * boundary would be gone and every request would still succeed.
  *
- * It is NOT a fallback in the dangerous sense. The decision is made once, from
- * an environment variable, before any query runs — never in a catch block. A
- * client that fell back on ERROR could mask a revoked grant or a rejected
- * credential as normal operation; that is precisely how a security boundary
- * quietly stops existing. Once Step 3 revokes `app_runtime`'s access, an
- * unconfigured auth plane fails loudly at the first login instead.
+ * So the mode is stated, and the credential is then mandatory within it.
  */
-export function isAuthPlaneConfigured(): boolean {
-  return Boolean(process.env.AUTH_DATABASE_URL?.trim());
+export type AuthPlaneMode = "legacy" | "active";
+
+export function authPlaneMode(): AuthPlaneMode {
+  const raw = process.env.AUTH_PLANE_ENABLED?.trim().toLowerCase();
+  if (raw === undefined || raw === "" || raw === "false") return "legacy";
+  if (raw === "true") return "active";
+  // Neither silently. An unrecognised value ("1", "yes", "True ") must not be
+  // read as "legacy", because that turns a typo into a quiet downgrade of the
+  // security posture — the failure mode this whole function exists to prevent.
+  throw new Error(
+    `AUTH_PLANE_ENABLED must be exactly "true" or "false" (received ${JSON.stringify(raw)}). ` +
+      "Refusing to guess which auth plane to use."
+  );
+}
+
+/** True only in the fully-separated state. */
+export function isAuthPlaneActive(): boolean {
+  return authPlaneMode() === "active";
 }
 
 /**
- * The client the auth/bootstrap paths should use.
+ * The client the auth/bootstrap paths use.
  *
- * Returns the dedicated auth client when it is configured, and the canonical
- * tenant client otherwise. The selection is by configuration only — see above.
+ * `legacy`  — the canonical tenant client, exactly as Production behaves today.
+ *             This exists only so the code can ship before the DB identity does.
+ * `active`  — the dedicated auth client, and nothing else. If its credential is
+ *             missing, blank or unusable this THROWS. There is deliberately no
+ *             path from an auth-plane failure back to `prisma`: a fallback would
+ *             convert a broken boundary into a working login, which is the one
+ *             outcome that guarantees nobody finds out.
+ *
+ * The mode is resolved before any query runs and never inside a catch block.
  */
 export function authDb(): PrismaClient {
-  return isAuthPlaneConfigured() ? getPrismaAuth() : prisma;
+  return authPlaneMode() === "active" ? getPrismaAuth() : prisma;
 }
