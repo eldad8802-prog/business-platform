@@ -17,7 +17,7 @@
 import { PrismaClient } from "@prisma/client";
 import { readFileSync } from "node:fs";
 
-const ROLE = "app_auth_prev_rehearsal";
+const ROLE = process.env.AUTH_ROLE_NAME ?? "app_auth_prev_rehearsal";
 const TAG = `stageb-${process.env.STAGEB_STAMP ?? Date.now()}`;
 const db = new PrismaClient({ datasourceUrl: readFileSync(process.env.AUTH_URL_FILE, "utf8").trim() });
 
