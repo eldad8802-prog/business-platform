@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { InventoryMovementReason } from "@prisma/client";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
+import { syncInventoryAlertNotifications } from "@/lib/notifications/inventory-alert-notifications";
 import { getInventoryAuthenticatedUser as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
   InventoryError,
@@ -96,6 +97,19 @@ export async function POST(request: NextRequest) {
           },
           { timeoutMs: 15_000 }
         )
+    );
+
+    // AFTER the sale transaction above has committed. A sale can move several
+    // items at once, and the sync reconciles the whole inventory domain for
+    // this business in one pass, so one call covers every item the sale
+    // touched — no per-item loop.
+    //
+    // It cannot affect the response: the sale is already durable, and the sync
+    // swallows its own errors and returns them as data rather than throwing.
+    // The tenant context is re-entered because the one above closed with the
+    // transaction, and the writer refuses to run without a server-derived tenant.
+    await runWithTenantContext({ businessId: user.businessId }, () =>
+      syncInventoryAlertNotifications(user.businessId, new Date())
     );
 
     return NextResponse.json(

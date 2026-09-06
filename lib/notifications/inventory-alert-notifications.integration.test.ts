@@ -86,6 +86,7 @@ const inventoryNotifs = (businessId: number) =>
   const itemA = await mkItem(a.id, "widget-A");
   const itemA2 = await mkItem(a.id, "widget-A2");
   const itemB = await mkItem(b.id, "widget-B");
+  const c = await prisma.business.create({ data: { name: "consumer-C-sales" } });
 
   try {
     /* ── 1. first critical episode creates the notification ────────────────── */
@@ -240,8 +241,85 @@ const inventoryNotifs = (businessId: number) =>
     check("a foreign-domain notification is never resolved by this consumer", foreign?.resolvedAt === null);
     check("nothing was deleted anywhere",
       (await prisma.notification.count({ where: { businessId: a.id } })) === 3);
+
+    /* ── 12. sales shape: several items, ONE transaction, ONE sync ───────── */
+    // Mirrors app/api/inventory/sales/route.ts: a sale moves many items inside
+    // a single tenant transaction, and the reconciliation runs once after the
+    // commit. The sync reconciles the whole inventory domain for the business,
+    // so one call covers every item the sale touched — there is no per-item
+    // loop to get wrong.
+    const saleItem1 = await mkItem(c.id, "sale-widget-1");
+    const saleItem2 = await mkItem(c.id, "sale-widget-2");
+    const saleItem3 = await mkItem(c.id, "sale-widget-3"); // stays healthy
+
+    const saleMovements = await runWithTenantContext({ businessId: c.id }, () =>
+      withTenantTransaction(
+        async (tx) => {
+          const out = [];
+          for (const line of [
+            { itemId: saleItem1.id, quantity: 8 },
+            { itemId: saleItem2.id, quantity: 9 },
+            { itemId: saleItem3.id, quantity: 1 },
+          ]) {
+            out.push(
+              await inventoryService.removeStock(
+                {
+                  businessId: c.id,
+                  itemId: line.itemId,
+                  quantityDelta: line.quantity,
+                  reason: InventoryMovementReason.SALE,
+                },
+                { tx },
+              ),
+            );
+          }
+          return out;
+        },
+        { timeoutMs: 15_000 },
+      ),
+    );
+    const saleSync = await runWithTenantContext({ businessId: c.id }, () =>
+      syncInventoryAlertNotifications(c.id, T0),
+    );
+
+    const saleRows = await inventoryNotifs(c.id);
+    check("the whole sale committed", saleMovements.length === 3 && saleSync.ok);
+    check("ONE sync covered every item the sale touched",
+      saleRows.length === 2, `notifications=${saleRows.length}`);
+    check("only the items that crossed the threshold notified",
+      saleRows.map((r) => r.entityId).sort((x, y) => x - y).join(",") ===
+        [saleItem1.id, saleItem2.id].sort((x, y) => x - y).join(","),
+      saleRows.map((r) => r.entityId).join(","));
+    check("the healthy item produced no notification",
+      saleRows.every((r) => r.entityId !== saleItem3.id));
+    check("each is keyed on its own item",
+      saleRows.every((r) => r.entityType === "inventory_item") &&
+      new Set(saleRows.map((r) => r.dedupeKey)).size === 2);
+    check("each notified once, PUSH pending only",
+      saleRows.every((r) => r.deliveries.length === 2 &&
+        r.deliveries.filter((d) => d.channel === "PUSH").every((d) => d.status === "PENDING")));
+    check("the sale's notifications belong to the selling business",
+      saleRows.every((r) => r.businessId === c.id));
+
+    // A repeat sale on the same still-critical items must stay quiet.
+    const repeatSale = await runWithTenantContext({ businessId: c.id }, () =>
+      withTenantTransaction((tx) =>
+        inventoryService.removeStock(
+          { businessId: c.id, itemId: saleItem1.id, quantityDelta: 1, reason: InventoryMovementReason.SALE },
+          { tx },
+        ),
+      ),
+    );
+    const repeatSync = await runWithTenantContext({ businessId: c.id }, () =>
+      syncInventoryAlertNotifications(c.id, new Date(T0.getTime() + 60_000)),
+    );
+    const afterRepeat = await inventoryNotifs(c.id);
+    check("a repeat sale committed", repeatSale !== null && repeatSync.ok);
+    check("a repeat sale creates no new notification", afterRepeat.length === 2);
+    check("a repeat sale adds no delivery",
+      afterRepeat.every((r) => r.deliveries.length === 2));
   } finally {
-    await prisma.business.deleteMany({ where: { id: { in: [a.id, b.id] } } });
+    await prisma.business.deleteMany({ where: { id: { in: [a.id, b.id, c.id] } } });
     await prisma.$disconnect();
   }
 
