@@ -1,0 +1,323 @@
+# I-8A — historical fiscal persistence, on real PostgreSQL 17.
+#
+# Everything this increment claims lives in the DATABASE, not in the datamodel:
+# row-level security, privileges, composite foreign keys, referential actions,
+# a check constraint, and the deliberate ABSENCE of a uniqueness rule. Prisma
+# knows none of it, so the migration file itself is applied here and then
+# interrogated through a role that is NOT superuser and NOT bypassrls.
+#
+# The lab reproduces this project's ALTER DEFAULT PRIVILEGES hazard before the
+# migration runs, so the migration's REVOKEs are load-bearing here exactly as
+# they are in production.
+#
+# Synthetic CI-only data. ZERO secrets, ZERO Neon, ZERO production.
+
+name: i8a — historical fiscal persistence battery (ephemeral PG17)
+
+on:
+  push:
+    branches: [feat/i8a-historical-fiscal-persistence]
+  pull_request:
+    branches: [main]
+    paths:
+      - ".i8a/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20260907120000_i8a_historical_fiscal_documents/**"
+      - "lib/data-transfer/historical/**"
+      - "lib/services/account/account-erasure-manifest.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OWNER_URL: postgresql://i8a_owner:i8a_ci_synthetic_owner_pw@localhost:5432/dubiz_i8a
+  RUNTIME_URL: postgresql://app_runtime:i8a_ci_synthetic_runtime_pw@localhost:5432/dubiz_i8a
+
+jobs:
+  i8a-battery:
+    name: I-8A historical fiscal battery (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: i8a_owner
+          POSTGRES_PASSWORD: i8a_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_i8a
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U i8a_owner -d dubiz_i8a"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .i8a/battery.mjs
+
+      # The restricted role, created BEFORE anything exists, together with the
+      # default-privilege grant this project's databases really carry. Without
+      # this the migration's REVOKEs would look like decoration.
+      - name: Create the restricted runtime role (and the default-privilege hazard)
+        env:
+          PGPASSWORD: i8a_ci_synthetic_owner_pw
+        run: |
+          psql -h localhost -U i8a_owner -d dubiz_i8a -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE app_runtime LOGIN PASSWORD 'i8a_ci_synthetic_runtime_pw'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          GRANT USAGE ON SCHEMA public TO app_runtime;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO app_runtime;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO app_runtime;
+          SQL
+
+      - name: Push schema (lab)
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Confirm the hazard is real before trusting any REVOKE
+        env:
+          PGPASSWORD: i8a_ci_synthetic_owner_pw
+        run: |
+          # If the new table did NOT arrive holding UPDATE and DELETE, then the
+          # migration's REVOKEs prove nothing and this battery is theatre.
+          psql -h localhost -U i8a_owner -d dubiz_i8a -v ON_ERROR_STOP=1 -tAc \
+            "SELECT has_table_privilege('app_runtime','\"HistoricalFiscalDocument\"','UPDATE')" \
+            | grep -qx t || { echo "the default-privilege hazard did not reproduce"; exit 1; }
+          echo "hazard reproduced: app_runtime arrives with UPDATE on a new table"
+
+      - name: Run I-8A battery
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+        run: npx tsx .i8a/battery.mjs
+
+      - name: Run I-8A structural firewall (no database)
+        run: npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts
+
+      # ── Negative proofs ──────────────────────────────────────────────────────
+      # A battery that cannot fail proves nothing. Every mutation below removes
+      # or weakens one real part of THE MIGRATION — the artifact under test —
+      # and each is confirmed to have applied before its result is believed.
+      # The database is reset between proofs because the battery replays the
+      # migration into it.
+      - name: Reset helper
+        run: |
+          cat > .i8a/reset.sh <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export PGPASSWORD=i8a_ci_synthetic_owner_pw
+          psql -h localhost -U i8a_owner -d dubiz_i8a -v ON_ERROR_STOP=1 -q <<'SQL'
+          TRUNCATE "Business" CASCADE;
+          SQL
+          SH
+          chmod +x .i8a/reset.sh
+
+      - name: negative proof 1 — row-level security not forced
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+        run: |
+          F="prisma/migrations/20260907120000_i8a_historical_fiscal_documents/migration.sql"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/ALTER TABLE "HistoricalFiscalDocument" FORCE ROW LEVEL SECURITY;//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          ./.i8a/reset.sh
+          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: unforced RLS passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; ./.i8a/reset.sh
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof 2 — row-level security not enabled at all
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+        run: |
+          F="prisma/migrations/20260907120000_i8a_historical_fiscal_documents/migration.sql"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/ALTER TABLE "HistoricalFiscalDocument" (ENABLE|FORCE) ROW LEVEL SECURITY;//g' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          ./.i8a/reset.sh
+          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a table with no RLS passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; ./.i8a/reset.sh
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof 3 — a read policy that sees every tenant
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+        run: |
+          F="prisma/migrations/20260907120000_i8a_historical_fiscal_documents/migration.sql"
+          cp "$F" "$F.bak"
+          # The classic silent failure: isolation code present, predicate open.
+          perl -0pi -e 's/CREATE POLICY i8a_hist_tenant_read ON "HistoricalFiscalDocument" FOR SELECT\n  USING \([^;]*\);/CREATE POLICY i8a_hist_tenant_read ON "HistoricalFiscalDocument" FOR SELECT\n  USING (true);/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          ./.i8a/reset.sh
+          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a cross-tenant read passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; ./.i8a/reset.sh
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof 4 — an insert policy that accepts any tenant
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+        run: |
+          F="prisma/migrations/20260907120000_i8a_historical_fiscal_documents/migration.sql"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/CREATE POLICY i8a_hist_tenant_insert ON "HistoricalFiscalDocument" FOR INSERT\n  WITH CHECK \([^;]*\);/CREATE POLICY i8a_hist_tenant_insert ON "HistoricalFiscalDocument" FOR INSERT\n  WITH CHECK (true);/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          ./.i8a/reset.sh
+          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: writing into another tenant passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; ./.i8a/reset.sh
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof 5 — the inherited UPDATE and DELETE left in place
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+        run: |
+          F="prisma/migrations/20260907120000_i8a_historical_fiscal_documents/migration.sql"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    REVOKE (UPDATE|DELETE) ON "HistoricalFiscalDocument" FROM app_runtime;//g' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          ./.i8a/reset.sh
+          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a mutable fiscal record passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; ./.i8a/reset.sh
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof 6 — fiscal identity turned into a uniqueness rule
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+        run: |
+          F="prisma/migrations/20260907120000_i8a_historical_fiscal_documents/migration.sql"
+          cp "$F" "$F.bak"
+          # The owner's real histories would start failing to import. That is a
+          # product decision, so the battery must refuse to let it pass quietly.
+          perl -0pi -e 's/CREATE INDEX "HistoricalFiscalDocument_businessId_sourceSystemCode_docume_idx"/CREATE UNIQUE INDEX "HistoricalFiscalDocument_businessId_sourceSystemCode_docume_idx"/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          ./.i8a/reset.sh
+          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a hidden uniqueness rule passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; ./.i8a/reset.sh
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof 7 — the Document reference stops carrying the tenant
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+        run: |
+          F="prisma/migrations/20260907120000_i8a_historical_fiscal_documents/migration.sql"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/FOREIGN KEY \("businessId", "documentId"\) REFERENCES "Document"\("businessId", "id"\)/FOREIGN KEY ("documentId") REFERENCES "Document"("id")/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          ./.i8a/reset.sh
+          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a cross-tenant artifact link passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; ./.i8a/reset.sh
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof 8 — the artifact allowed to vanish under the record
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+        run: |
+          F="prisma/migrations/20260907120000_i8a_historical_fiscal_documents/migration.sql"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/REFERENCES "Document"\("businessId", "id"\) ON DELETE RESTRICT/REFERENCES "Document"("businessId", "id") ON DELETE CASCADE/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          ./.i8a/reset.sh
+          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a cascading delete passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; ./.i8a/reset.sh
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof 9 — the self-reversal guard removed
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+        run: |
+          F="prisma/migrations/20260907120000_i8a_historical_fiscal_documents/migration.sql"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/ALTER TABLE "HistoricalFiscalDocument" ADD CONSTRAINT "HistoricalFiscalDocument_no_self_reversal"\n  CHECK \([^;]*\);//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          ./.i8a/reset.sh
+          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a self-reversing record passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; ./.i8a/reset.sh
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof 10 — a reference reaching into billing
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+        run: |
+          F="prisma/migrations/20260907120000_i8a_historical_fiscal_documents/migration.sql"
+          cp "$F" "$F.bak"
+          # The exact contamination the whole increment exists to prevent.
+          cat >> "$F" <<'SQL'
+          ALTER TABLE "HistoricalFiscalDocument" ADD COLUMN "billingDocumentId" INTEGER;
+          ALTER TABLE "HistoricalFiscalDocument" ADD CONSTRAINT "hist_billing_fkey"
+            FOREIGN KEY ("billingDocumentId") REFERENCES "BillingDocument"("id") ON DELETE SET NULL;
+          SQL
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          ./.i8a/reset.sh
+          if npx tsx .i8a/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a billing foreign key passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; ./.i8a/reset.sh
+          echo "NEGATIVE-PROOF PASS: billing remains unreachable"
+
+      - name: negative proof 11 — the structural firewall is not vacuous
+        run: |
+          F="prisma/schema.prisma"
+          cp "$F" "$F.bak"
+          # A status field is how a historical record starts being treated as an
+          # issued one. The firewall must notice a single added line.
+          perl -0pi -e 's/  sourceSystemCode    String\n/  sourceSystemCode    String\n  status              String?\n/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an issuance status passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an added status field fails the firewall"
+
+      - name: Confirm the migration is byte-identical after every mutation
+        run: |
+          git diff --exit-code -- prisma/ lib/ || {
+            echo "a negative proof left the tree modified"; exit 1;
+          }

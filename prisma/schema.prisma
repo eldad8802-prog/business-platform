@@ -228,6 +228,7 @@ model Business {
   crmNotes                      CrmNote[]
   crmAttachments                CrmAttachment[]
   importRuns                    ImportRun[]
+  historicalFiscalDocuments     HistoricalFiscalDocument[]
 
   @@index([archivedAt])
 }
@@ -1309,32 +1310,37 @@ model LearningSignal {
 }
 
 model Document {
-  id                Int                       @id @default(autoincrement())
-  businessId        Int
-  fileUrl           String
-  source            String
-  mimeType          String
-  ocrText           String?
-  status            String
+  id                        Int                        @id @default(autoincrement())
+  businessId                Int
+  fileUrl                   String
+  source                    String
+  mimeType                  String
+  ocrText                   String?
+  status                    String
   /// SHA-256 of the original file bytes (hex, lowercase). Duplicate-defense
   /// identity: same business + same hash = the same file ingested again.
   /// Nullable — rows created before the dedup wave carry no hash until the
   /// backfill script runs. Deliberately NOT unique: a duplicate upload is a
   /// user decision to surface, not a DB constraint violation.
-  contentHashSha256 String?
+  contentHashSha256         String?
   /// Uploader's original filename (or attachment filename on email/WhatsApp).
   /// Display + duplicate triage only — stored object names remain MIME-derived
   /// and never trust this value.
-  originalFilename  String?
+  originalFilename          String?
   /// Original file size in bytes as validated at intake.
-  sizeBytes         Int?
-  createdAt         DateTime                  @default(now())
-  business          Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  emailImport       EmailAttachmentImport?
-  whatsappImport    WhatsAppAttachmentImport?
-  extractedData     ExtractedData?
-  financialRecord   FinancialRecord?
+  sizeBytes                 Int?
+  createdAt                 DateTime                   @default(now())
+  business                  Business                   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  emailImport               EmailAttachmentImport?
+  whatsappImport            WhatsAppAttachmentImport?
+  extractedData             ExtractedData?
+  financialRecord           FinancialRecord?
+  historicalFiscalDocuments HistoricalFiscalDocument[]
 
+  /// Composite key so a tenant-scoped relation can point at a Document and be
+  /// unable to cross a tenant boundary. Additive index; nothing about Documents
+  /// behaves differently because of it.
+  @@unique([businessId, id])
   @@index([businessId, createdAt])
   @@index([businessId, status, createdAt])
   @@index([businessId, contentHashSha256])
@@ -3399,32 +3405,33 @@ enum NotificationDeliveryStatus {
 /// after the retry window the run still says what it did. They are never read to
 /// decide whether a row should execute.
 model ImportRun {
-  id            Int             @id @default(autoincrement())
-  businessId    Int
+  id                        Int                        @id @default(autoincrement())
+  businessId                Int
   /// Server-derived at execute time; never a client value.
-  userId        Int
+  userId                    Int
   /// One of the four tabular domains (customers | suppliers | leads | inventory).
-  domain        String
+  domain                    String
   /// SHA-256 of the exact uploaded bytes. Pins WHICH file this run belongs to,
   /// which is what makes `sourceRowNumber` a deterministic row identity.
-  contentHash   String
+  contentHash               String
   /// SHA-256 of the canonicalized column mapping.
-  mappingHash   String
+  mappingHash               String
   /// SHA-256 of the canonicalized per-row owner decisions.
-  decisionsHash String
+  decisionsHash             String
   /// Worksheet the data was read from; null for CSV.
-  sheetName     String?
-  status        ImportRunStatus @default(EXECUTING)
-  totalRows     Int
+  sheetName                 String?
+  status                    ImportRunStatus            @default(EXECUTING)
+  totalRows                 Int
   /// Terminal audit snapshot, written once when the run reaches a terminal state.
   /// NOT execution authority — see the model note.
-  createdCount  Int?
-  skippedCount  Int?
-  failedCount   Int?
-  startedAt     DateTime        @default(now())
-  completedAt   DateTime?
-  business      Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  rows          ImportRunRow[]
+  createdCount              Int?
+  skippedCount              Int?
+  failedCount               Int?
+  startedAt                 DateTime                   @default(now())
+  completedAt               DateTime?
+  business                  Business                   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  rows                      ImportRunRow[]
+  historicalFiscalDocuments HistoricalFiscalDocument[]
 
   /// THE idempotency key. The same file, mapped the same way, decided the same
   /// way, is ONE run — a second execute finds this row instead of writing again.
@@ -3470,4 +3477,148 @@ enum ImportRowStatus {
   CREATED
   SKIPPED
   FAILED
+}
+
+/// ===========================================================================
+/// HISTORICAL FISCAL DOCUMENTS — documents issued by ANOTHER system.
+///
+/// This is deliberately NOT `BillingDocument` and must never become it.
+/// `BillingDocument` means "Dubiz issued this": it owns a number drawn from
+/// Dubiz's own sequence, an issuance snapshot, a legal hash, a Dubiz-rendered
+/// and sometimes cryptographically signed PDF, and it is what Dubiz files with
+/// the Tax Authority in the uniform (מבנה אחיד) export.
+///
+/// A record here asserts none of that. It says only: the business tells us that
+/// another system issued this document, and here is what that system recorded.
+/// Nothing in this model may imply Dubiz generated, numbered, signed, issued,
+/// transmitted, reported or collected anything.
+///
+/// The original file, when there is one, stays in `Document` — the artifact
+/// layer that already stores original bytes faithfully. This model carries the
+/// structured facts about that document, and the two are separate truths.
+/// ===========================================================================
+model HistoricalFiscalDocument {
+  id         Int @id @default(autoincrement())
+  businessId Int
+
+  /// Normalized type, as a CODE rather than an enum.
+  ///
+  /// Deliberately not `BillingDocumentType`: reusing it would put historical
+  /// records into the same vocabulary as Dubiz issuance, and the point of this
+  /// model is that they are not the same thing. A dedicated enum was rejected
+  /// too — the whole premise is accepting histories from systems we have not
+  /// seen, and an enum would need a migration the first time one of them uses a
+  /// document type we did not anticipate. The canonical vocabulary is enforced
+  /// in application code, which is the same choice `Document.source` and
+  /// `ImportRun.domain` already make.
+  documentTypeCode String
+
+  /// The source system's own words for the type, kept verbatim.
+  /// Never interpreted; it exists so a normalization can be re-examined later.
+  sourceDocumentTypeRaw String?
+
+  /// The number the ORIGINAL system printed, as TEXT.
+  ///
+  /// Text because real histories carry `INV-1001`, `2024/1001` and worse, and
+  /// because an integer here would invite exactly the mistake this whole model
+  /// exists to prevent: treating a foreign number as one of Dubiz's own.
+  /// It is never allocated from, compared against, or written back to
+  /// `BillingDocumentNumberSequence`.
+  originalDocumentNumber String?
+
+  /// The date the ORIGINAL document was issued, by the original system.
+  originalIssueDate DateTime?
+
+  /// Money exactly as the source recorded it.
+  ///
+  /// Nullable, and NOT recomputed. A historical export may carry legacy
+  /// rounding, a VAT rate that no longer exists, or a missing field; storing
+  /// what we were given is truthful, and inventing the rest is not. Whether a
+  /// row is complete enough to accept is a question for the import contract,
+  /// not for the table.
+  subtotalAmount Decimal? @db.Decimal(18, 2)
+  vatAmount      Decimal? @db.Decimal(18, 2)
+  totalAmount    Decimal? @db.Decimal(18, 2)
+  /// No default. Assuming ILS for someone else's history would be a guess.
+  currency       String?
+
+  /// Customer identity as it stood WHEN THE ORIGINAL WAS ISSUED.
+  ///
+  /// A snapshot, with no relation to `Customer`. Historical fiscal truth must
+  /// not change because someone edited or deleted a customer years later, and
+  /// the absence of a foreign key is also what makes cross-tenant customer
+  /// navigation impossible rather than merely discouraged.
+  customerNameSnapshot    String?
+  customerTaxIdSnapshot   String?
+  customerAddressSnapshot String?
+  customerEmailSnapshot   String?
+  customerPhoneSnapshot   String?
+
+  /// Which previous system this came from.
+  ///
+  /// Part of fiscal identity: two systems can both have an invoice numbered
+  /// 1001, and without this they would look like the same document. The code is
+  /// normalized for matching; the raw label is what the owner typed or the
+  /// export declared, kept so a normalization can be revisited.
+  sourceSystemCode    String
+  sourceSystemNameRaw String?
+
+  /// An allocation number the ORIGINAL system obtained, if the source recorded
+  /// one.
+  ///
+  /// Named `original...` on purpose. It is NOT `BillingDocument.allocationNumber`
+  /// and must never be copied there: that field means Dubiz requested and
+  /// received the allocation. This one means somebody else did, once, and told
+  /// us the number. Dubiz makes no claim about it and never submits it.
+  originalAllocationNumber String?
+
+  /// The preserved original artifact, when the owner supplied one.
+  ///
+  /// Optional in both directions. A structured row may exist with no file (a
+  /// spreadsheet-only migration), and one file may legitimately carry several
+  /// documents (a batch scan), so this is many-to-one and NOT unique. The
+  /// composite key includes `businessId`, so a record can only ever point at a
+  /// Document of its own tenant — enforced by the database, not by a check
+  /// somebody has to remember to write.
+  documentId Int?
+
+  /// A historical credit/reversal pointing at the document it reverses.
+  ///
+  /// Two truths have to fit here: the original was imported too (resolve the
+  /// reference), or it never was (keep what the source said, as text). Neither
+  /// is an error. The reference is tenant-scoped by the same composite key.
+  reversesHistoricalDocumentId Int?
+  reversesOriginalNumberRaw    String?
+
+  /// Which import brought this in. Points at the RUN, never at a row marker:
+  /// markers are cleaned up after their retry window, and provenance has to
+  /// outlive them.
+  importRunId Int?
+
+  /// Ingestion metadata. NOT fiscal dates — `originalIssueDate` is the only
+  /// date that says anything about the document itself.
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business  Business   @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  document  Document?  @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+  importRun ImportRun? @relation(fields: [importRunId], references: [id], onDelete: SetNull)
+
+  reverses         HistoricalFiscalDocument?  @relation("HistoricalFiscalReversal", fields: [businessId, reversesHistoricalDocumentId], references: [businessId, id], onDelete: Restrict)
+  reversedByOthers HistoricalFiscalDocument[] @relation("HistoricalFiscalReversal")
+
+  /// The composite key every tenant-scoped relation above points at. Its only
+  /// job is to make a cross-tenant reference unrepresentable.
+  @@unique([businessId, id])
+  @@index([businessId, originalIssueDate])
+  @@index([businessId, sourceSystemCode])
+  /// The fiscal-identity lookup. An INDEX and deliberately not a unique
+  /// constraint — see the model note in the I-8A report: corrected re-exports,
+  /// numberless rows and owner-edited source labels are all legitimate, and a
+  /// database uniqueness rule would turn each of them into an import failure.
+  /// Duplicate policy belongs to the import contract, which can ask the owner.
+  @@index([businessId, sourceSystemCode, documentTypeCode, originalDocumentNumber])
+  @@index([businessId, documentId])
+  @@index([businessId, reversesHistoricalDocumentId])
+  @@index([importRunId])
 }
