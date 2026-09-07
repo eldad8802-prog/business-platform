@@ -53,6 +53,7 @@ import {
   resolvePendingMatchWithExistingItem,
   resolvePendingMatchWithNewItem,
 } from "../services/inventory/pending-match.service";
+import { inventoryInsightActionService } from "../services/inventory/inventory-insight-action.service";
 import { translateInventoryAlerts } from "../business-status/translators/inventory";
 
 import { syncInventoryAlertNotifications } from "./inventory-alert-notifications";
@@ -110,6 +111,13 @@ const inventoryNotifs = (businessId: number) =>
   const c = await prisma.business.create({ data: { name: "consumer-C-sales" } });
   const d = await prisma.business.create({ data: { name: "consumer-D-pos" } });
   const e = await prisma.business.create({ data: { name: "consumer-E-receiving" } });
+  const h = await prisma.business.create({
+    data: {
+      name: "consumer-H-insights",
+      users: { create: { email: `insights-${Date.now()}@example.test`, password: "x", name: "Owner" } },
+    },
+    include: { users: true },
+  });
   const g = await prisma.business.create({
     data: {
       name: "consumer-G-unmatched",
@@ -886,8 +894,159 @@ const inventoryNotifs = (businessId: number) =>
     check("pending-match.service still contains no notification logic",
       !readFileSync(join(REPO_ROOT, "lib", "services", "inventory", "pending-match.service.ts"), "utf8")
         .includes("syncInventoryAlertNotifications"));
+
+    /* ── 22. insights actions: BOTH mutate inventory ─────────────────────── */
+    // The route has two action branches and no read-only one. Both resolve
+    // pending POS lines, so both move stock and both are wired.
+    const insUserId = h.users[0]!.id;
+
+    const pendingFor = (externalSaleId: string, sku: string, quantity: number) =>
+      runWithTenantContext({ businessId: h.id }, () =>
+        withTenantTransaction((tx) =>
+          createPendingMatch(
+            {
+              businessId: h.id,
+              externalSaleId,
+              metadata: { externalSaleId, sku, barcode: null, name: sku, quantity, source: "POS" },
+            },
+            { tx },
+          ),
+        ),
+      );
+
+    /* LINK_EXISTING_FROM_INSIGHT — decreases an existing item */
+    const insLinkItem = await prisma.inventoryItem.create({
+      data: { businessId: h.id, name: "link-item", sku: "LINK-SKU", unitType: InventoryUnitType.UNIT, currentQuantity: 10, minimumQuantity: 3 },
+    });
+    await pendingFor("INS-LINK-1", "LINK-SKU", 8);
+
+    const insLinkResult = await runWithTenantContext({ businessId: h.id }, () =>
+      withTenantTransaction(
+        (tx) => inventoryInsightActionService.linkExistingFromInsight(
+          { businessId: h.id, userId: insUserId, key: "LINK-SKU", itemId: insLinkItem.id },
+          { tx },
+        ),
+        { timeoutMs: 15_000 },
+      ),
+    );
+    const insLinkSync = await runWithTenantContext({ businessId: h.id }, () =>
+      syncInventoryAlertNotifications(h.id, T0),
+    );
+
+    const insLinkQty = (await prisma.inventoryItem.findUnique({ where: { id: insLinkItem.id } }))!.currentQuantity;
+    let insRows = await inventoryNotifs(h.id);
+    check("LINK_EXISTING_FROM_INSIGHT committed and decreased stock once",
+      insLinkResult !== null && insLinkQty === 2, `qty=${insLinkQty}`);
+    check("it created a CRITICAL notification keyed on the item",
+      insRows.length === 1 && insRows[0].severity === "CRITICAL" &&
+      insRows[0].entityType === "inventory_item" && insRows[0].entityId === insLinkItem.id,
+      `count=${insRows.length}`);
+    check("the sync reported it and nothing external was delivered",
+      insLinkSync.ok && insRows[0]?.deliveries.length === 2 &&
+      insRows[0]?.deliveries.find((x) => x.channel === "PUSH")?.status === "PENDING");
+
+    /* CREATE_ITEM_FROM_INSIGHT — creates at the pending quantity, then sells it */
+    // Unlike the pending-match CREATE_NEW branch, this one creates the item at
+    // the TOTAL pending quantity before resolving, so the sale nets to zero
+    // instead of going negative. It works, and with minimumQuantity 0 the
+    // resulting zero stock is itself a critical condition.
+    await pendingFor("INS-NEW-1", "NEW-SKU", 3);
+    await pendingFor("INS-NEW-2", "NEW-SKU", 2);
+
+    const insCreateResult = await runWithTenantContext({ businessId: h.id }, () =>
+      withTenantTransaction(
+        (tx) => inventoryInsightActionService.createItemFromInsight(
+          { businessId: h.id, userId: insUserId, key: "NEW-SKU" },
+          { tx },
+        ),
+        { timeoutMs: 15_000 },
+      ),
+    );
+    const insCreateSync = await runWithTenantContext({ businessId: h.id }, () =>
+      syncInventoryAlertNotifications(h.id, T0),
+    );
+
+    const insNewItem = await prisma.inventoryItem.findFirst({ where: { businessId: h.id, sku: "NEW-SKU" } });
+    insRows = await inventoryNotifs(h.id);
+    check("CREATE_ITEM_FROM_INSIGHT committed", insCreateResult !== null && insCreateSync.ok);
+    check("it created the item at the pending total and sold it down to zero",
+      insNewItem !== null && insNewItem.currentQuantity === 0, `qty=${insNewItem?.currentQuantity}`);
+    check("both pending matches behind the insight were resolved",
+      (await prisma.inventoryPendingMatch.count({ where: { businessId: h.id, status: "PENDING" } })) === 0);
+    check("ONE sync covered both resolutions",
+      insRows.length === 2, `notifications=${insRows.length}`);
+    check("the new item at zero stock is itself critical",
+      insRows.some((r) => r.entityId === insNewItem!.id && r.severity === "CRITICAL"));
+    check("each notification is keyed on its own item",
+      new Set(insRows.map((r) => r.dedupeKey)).size === 2);
+
+    // Repeated resolution cannot apply stock twice.
+    let insRepeatThrew = false;
+    try {
+      await runWithTenantContext({ businessId: h.id }, () =>
+        withTenantTransaction(
+          (tx) => inventoryInsightActionService.linkExistingFromInsight(
+            { businessId: h.id, userId: insUserId, key: "LINK-SKU", itemId: insLinkItem.id },
+            { tx },
+          ),
+          { timeoutMs: 15_000 },
+        ),
+      );
+    } catch {
+      insRepeatThrew = true;
+    }
+    check("a repeated insight resolution finds nothing left to resolve or refuses",
+      insRepeatThrew ||
+      (await prisma.inventoryItem.findUnique({ where: { id: insLinkItem.id } }))!.currentQuantity === 2);
+    check("stock was not applied twice",
+      (await prisma.inventoryItem.findUnique({ where: { id: insLinkItem.id } }))!.currentQuantity === 2);
+    check("no duplicate notification appeared", (await inventoryNotifs(h.id)).length === 2);
+
+    const insCross = await runWithTenantContext({ businessId: h.id }, () =>
+      syncInventoryAlertNotifications(g.id, T0),
+    );
+    check("an insights sync for another business is refused", insCross.ok === false);
+
+    /* ── 23. the insights route: a sync in each committing branch ────────── */
+    const insRoute = readFileSync(
+      join(REPO_ROOT, "app", "api", "inventory", "insights", "action", "route.ts"), "utf8");
+    const iCreate = insRoute.indexOf('body.action === "CREATE_ITEM_FROM_INSIGHT"');
+    const iLink = insRoute.indexOf('body.action === "LINK_EXISTING_FROM_INSIGHT"');
+    const iInvalid = insRoute.indexOf('{ error: "Invalid action" }');
+    const insSyncs = [...insRoute.matchAll(/syncInventoryAlertNotifications\(user\.businessId/g)].map((m) => m.index);
+    check("exactly two syncs in the insights route", insSyncs.length === 2, `n=${insSyncs.length}`);
+    check("one sync inside the CREATE branch", insSyncs.some((i) => i > iCreate && i < iLink));
+    check("one sync inside the LINK branch", insSyncs.some((i) => i > iLink && i < iInvalid));
+    check("no sync after the invalid-action fallthrough", !insSyncs.some((i) => i > iInvalid));
+    check("both syncs use the server-derived tenant",
+      (insRoute.match(/runWithTenantContext\(\{ businessId: user\.businessId \}/g) || []).length >= 2);
+    check("the insights route still supplies { tx } to the service",
+      (insRoute.match(/\{ tx \}/g) || []).length === 2);
+    check("the insight service contains no notification logic",
+      !readFileSync(join(REPO_ROOT, "lib", "services", "inventory", "inventory-insight-action.service.ts"), "utf8")
+        .includes("syncInventoryAlertNotifications"));
+
+    /* ── 24. no inventory-mutating production route is left unwired ──────── */
+    // The closing invariant of Phase 1C: every route that can commit a stock
+    // movement reconciles notifications afterwards.
+    const wired = [
+      ["movements", "movements/route.ts"],
+      ["sales", "sales/route.ts"],
+      ["pos sale", "pos/sale/route.ts"],
+      ["receiving post", "receiving-sessions/[id]/post/route.ts"],
+      ["supplier approve", "supplier-purchases/[id]/approve/route.ts"],
+      ["unmatched resolve", "unmatched/[id]/resolve/route.ts"],
+      ["insights action", "insights/action/route.ts"],
+    ];
+    let allWired = true;
+    for (const [, rel] of wired) {
+      const parts = rel.split("/");
+      const body = readFileSync(join(REPO_ROOT, "app", "api", "inventory", ...parts), "utf8");
+      if (!body.includes("syncInventoryAlertNotifications")) allWired = false;
+    }
+    check("all seven inventory-committing routes reconcile notifications", allWired);
   } finally {
-    const ids = [a.id, b.id, c.id, d.id, e.id, f.id, g.id];
+    const ids = [a.id, b.id, c.id, d.id, e.id, f.id, g.id, h.id];
     // ReceivingLine.itemId is RESTRICT, so it blocks the Business cascade from
     // reaching InventoryItem. Clear the receiving chain first; everything else
     // cascades from Business as usual.
