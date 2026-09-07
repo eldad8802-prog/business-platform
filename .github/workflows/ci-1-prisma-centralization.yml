@@ -614,6 +614,84 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: a relabelled file fails the verifier"
 
+      # I-7D — Documents export. Blocking because every failure here is silent:
+      # an archive that is short a file, an entry name that escapes its
+      # directory, an index carrying storage keys, or one tenant's originals in
+      # another tenant's download. The verifier builds a real ZIP and reads it
+      # back rather than trusting the builder.
+      # Pure — no DB, no network, no object storage.
+      # Local equivalent: npm run verify:documents-export
+      - name: Documents export (fidelity, entry safety, index, tenant, limits)
+        run: npx tsx lib/data-transfer/documents/documents-export.verify.test.ts
+
+      - name: I-7D negative proof (an unscoped document read must be caught)
+        run: |
+          F="lib/data-transfer/documents/documents-export.ts"
+          cp "$F" "$F.bak"
+          # The cross-tenant leak, planted where it would actually happen: the
+          # read keeps working and starts returning other businesses' documents.
+          perl -0pi -e 's/          where: \{\r?\n            businessId,/          where: {/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-export.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an unscoped read passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an unscoped read fails the verifier"
+
+      - name: I-7D negative proof (a traversal-bearing entry name must be caught)
+        run: |
+          F="lib/data-transfer/documents/documents-export.ts"
+          cp "$F" "$F.bak"
+          # The uploader's filename is trusted verbatim, so `../evil.pdf` becomes
+          # an archive entry that escapes the documents directory on extraction.
+          perl -0pi -e 's/export function sanitizeArchiveBaseName\(raw: string \| null\): string \{/export function sanitizeArchiveBaseName(raw: string | null): string {\n  return String(raw ?? "");/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-export.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a traversal filename passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a traversal filename fails the verifier"
+
+      - name: I-7D negative proof (a silently omitted file must be caught)
+        run: |
+          F="lib/data-transfer/documents/documents-export.ts"
+          cp "$F" "$F.bak"
+          # An archive that quietly drops a document the owner believes is backed
+          # up. It only surfaces the day they need the file.
+          perl -0pi -e 's/        if \(!\(error instanceof StorageObjectNotFoundError\)\) \{/        if (false) {/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-export.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a silent omission passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a silent omission fails the verifier"
+
+      - name: I-7D negative proof (an internal identifier in the index must be caught)
+        run: |
+          F="lib/data-transfer/documents/documents-export.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    row\.originalFilename \?\? "",/    row.fileUrl,/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-export.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a storage key in the index passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a storage key in the index fails the verifier"
+
+      - name: I-7D negative proof (a dropped export ceiling must be caught)
+        run: |
+          F="lib/data-transfer/documents/documents-export.ts"
+          cp "$F" "$F.bak"
+          # The byte ceiling is the real safety limit: the archive is assembled
+          # in memory, and a function that exceeds it is killed, not errored.
+          perl -0pi -e 's/      if \(totalBytes > DOCUMENTS_EXPORT_MAX_TOTAL_BYTES\) \{/      if (false) {/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-export.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an unbounded archive passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an unbounded archive fails the verifier"
+
       # CASA Wave B — platform-admin TOTP MFA (CASA 3.3.1). The elevation
       # envelope and the guard decide whether a privileged request is allowed at
       # all, so they belong in the BLOCKING job. Deterministic and offline: no

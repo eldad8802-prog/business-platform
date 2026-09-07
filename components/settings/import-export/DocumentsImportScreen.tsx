@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { SettingsSection } from "@/components/settings/SettingsSection";
+import { DocumentsExportPanel } from "@/components/settings/import-export/DocumentsExportPanel";
 
 /**
  * הגדרות → ייבוא וייצוא → ייבוא מסמכים.
@@ -507,6 +508,12 @@ export function DocumentsImportScreen() {
           </p>
         ) : null}
       </div>
+
+      {/* Export is a separate concern with its own outcome, so it gets its own
+          panel rather than another control inside the import flow. It stays
+          hidden while a confirmation is on screen: two things asking to be
+          confirmed at once is how the wrong one gets pressed. */}
+      {stage === "check" ? <DocumentsExportPanel /> : null}
     </>
   );
 }
