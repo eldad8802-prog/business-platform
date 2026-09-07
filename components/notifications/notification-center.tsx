@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 /**
@@ -111,7 +112,45 @@ class MissingSessionError extends Error {
     this.name = "MissingSessionError";
   }
 }
+/**
+ * Opening a notification: mark it read, THEN go.
+ *
+ * Extracted from the component because the bug it fixes is an ordering bug,
+ * and ordering is the one thing a source-scanning test cannot check. This runs
+ * in the test suite for real.
+ *
+ * The original code hung `void markRead(...)` off a Next <Link>. The link
+ * navigated immediately, the page tore down, and the POST was never dispatched
+ * — proven in the browser: navigation happened, the request never appeared, the
+ * item stayed unread.
+ *
+ * ON A FAILED WRITE WE STILL NAVIGATE. The owner clicked to go somewhere;
+ * refusing to move them because a bookkeeping write failed punishes them for
+ * something unrelated and strands them on a page they were leaving. Nothing is
+ * swallowed either way: markRead rolls the optimistic mark back, so the item is
+ * still honestly unread when they come back.
+ */
+export async function activateNotification(deps: {
+  isUnread: boolean;
+  markRead: () => Promise<boolean>;
+  navigate: () => void;
+}): Promise<{ marked: boolean | null; navigated: boolean; order: string[] }> {
+  const order: string[] = [];
+  let marked: boolean | null = null;
+
+  // An already-read notification needs no write, so it navigates immediately.
+  if (deps.isUnread) {
+    order.push("read:start");
+    marked = await deps.markRead();
+    order.push(marked ? "read:ok" : "read:failed");
+  }
+
+  order.push("navigate");
+  deps.navigate();
+  return { marked, navigated: true, order };
+}
 export function NotificationCenter() {
+  const router = useRouter();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [cursor, setCursor] = useState<number | null>(null);
@@ -175,16 +214,26 @@ export function NotificationCenter() {
    * itself is never removed from the list. On failure the mark is rolled back
    * rather than silently kept.
    */
-  const markRead = useCallback(async (id: number) => {
-    let wasUnread = false;
+  /**
+   * `wasUnread` is passed in, not inferred.
+   *
+   * It used to be captured inside the setItems updater and read on the very
+   * next line — but React does not run that updater synchronously, so the flag
+   * was always still false and the function returned before ever calling the
+   * API. The request was never dispatched at all, which is why the runtime run
+   * showed navigation happening with no POST in the network log.
+   *
+   * The caller already knows: `unread` is computed in the render that drew the
+   * card. Asking React for something the caller can simply state was the bug.
+   */
+  const markRead = useCallback(async (id: number, wasUnread: boolean): Promise<boolean> => {
+    if (!wasUnread) return true;
+
     setItems((prev) =>
-      prev.map((n) => {
-        if (n.id !== id || n.readAt !== null) return n;
-        wasUnread = true;
-        return { ...n, readAt: new Date().toISOString() };
-      }),
+      prev.map((n) =>
+        n.id === id && n.readAt === null ? { ...n, readAt: new Date().toISOString() } : n,
+      ),
     );
-    if (!wasUnread) return;
     setUnreadCount((c) => Math.max(0, c - 1));
 
     try {
@@ -196,9 +245,11 @@ export function NotificationCenter() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return true;
     } catch {
       setItems((prev) => prev.map((n) => (n.id === id ? { ...n, readAt: null } : n)));
       setUnreadCount((c) => c + 1);
+      return false;
     }
   }, []);
 
@@ -458,7 +509,20 @@ export function NotificationCenter() {
                 {linkable ? (
                   <Link
                     href={n.href}
-                    onClick={() => void markRead(n.id)}
+                    onClick={(e) => {
+                      // A modified click means the owner asked for a new tab or
+                      // window. Leave the browser to it and mark nothing: they
+                      // have not opened the notification here.
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                      // Enter on an anchor arrives here too, so the keyboard path
+                      // gets the same ordering as the pointer path.
+                      e.preventDefault();
+                      void activateNotification({
+                        isUnread: unread,
+                        markRead: () => markRead(n.id, unread),
+                        navigate: () => router.push(n.href),
+                      });
+                    }}
                     style={{ display: "block", textDecoration: "none", color: "inherit", borderRadius: 14 }}
                   >
                     {card}
@@ -467,13 +531,13 @@ export function NotificationCenter() {
                   <div
                     role={unread ? "button" : undefined}
                     tabIndex={unread ? 0 : undefined}
-                    onClick={unread ? () => void markRead(n.id) : undefined}
+                    onClick={unread ? () => void markRead(n.id, true) : undefined}
                     onKeyDown={
                       unread
                         ? (e) => {
                             if (e.key === "Enter" || e.key === " ") {
                               e.preventDefault();
-                              void markRead(n.id);
+                              void markRead(n.id, true);
                             }
                           }
                         : undefined
