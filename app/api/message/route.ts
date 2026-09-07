@@ -12,6 +12,7 @@ import { maybeCaptureLeadFromMessage } from "@/lib/services/crm/lead-auto-captur
 import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { syncInboxWaitingNotifications } from "@/lib/notifications/inbox-waiting-notifications";
 import { sendWhatsAppTextForBusiness } from "@/lib/services/integrations/whatsapp/outbound-send.service";
 import { evaluateBotGuardrails } from "@/lib/features/conversation/guardrails";
 import {
@@ -516,6 +517,21 @@ async function handleAuthedPost(
         state: w3State,
       });
 
+      // AFTER the message transaction has committed. This branch is every
+      // message that is NOT an inbound customer message — an owner reply, a
+      // bot reply, a system note — and each of them ends the wait, because
+      // "waiting" is defined as the last message being inbound from a customer.
+      //
+      // The sync reconciles rather than reacting to this particular message, so
+      // one call resolves the conversation just answered without needing to
+      // know which kind of answer it was. The tenant context is the session one
+      // established for the whole handler; the businessId is never read from
+      // the request body.
+      //
+      // It cannot affect the response: the message is durable and the sync
+      // swallows its own errors and returns them as data.
+      await syncInboxWaitingNotifications(user.businessId, new Date());
+
       return NextResponse.json(
         {
           message: messageForResponse,
@@ -1003,6 +1019,17 @@ async function handleAuthedPost(
         ...llmDraftOutcome,
       });
     }
+
+    // AFTER the message transaction has committed, and after the draft work
+    // above, for the same reason the webhook waits for its pipeline: a reply
+    // the bot produces would change whether anyone is still waiting.
+    //
+    // This branch is an inbound customer message, so it OPENS the wait. The
+    // route takes `direction` and `senderType` from the body, which makes it a
+    // second production path that can create inbound customer messages — the
+    // webhook is not the only one, and a producer wired only there would miss
+    // these. The sync reconciles, so the same call serves both directions.
+    await syncInboxWaitingNotifications(user.businessId, new Date());
 
     return NextResponse.json(
       {
