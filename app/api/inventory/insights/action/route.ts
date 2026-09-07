@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { inventoryInsightActionService } from "@/lib/services/inventory/inventory-insight-action.service";
+import { syncInventoryAlertNotifications } from "@/lib/notifications/inventory-alert-notifications";
 
 export async function POST(req: NextRequest) {
   try {
@@ -36,6 +37,20 @@ export async function POST(req: NextRequest) {
           )
       );
 
+      // AFTER this branch's transaction has committed. The new item is created at the pending quantity, then the sale removes it.
+      //
+      // Both insight actions resolve pending POS lines, so both move stock and
+      // both are wired. Each loops over every pending match behind the insight
+      // inside ONE transaction, and the reconciliation covers the whole
+      // inventory domain, so one call per request serves all of them.
+      //
+      // Cannot affect the response: the action is durable by now, and the sync
+      // absorbs its own errors and returns them as data. Tenant context is
+      // re-entered because the one above closed with the transaction.
+      await runWithTenantContext({ businessId: user.businessId }, () =>
+        syncInventoryAlertNotifications(user.businessId, new Date())
+      );
+
       return NextResponse.json(result);
     }
 
@@ -65,6 +80,20 @@ export async function POST(req: NextRequest) {
               ),
             { timeoutMs: 15_000 }
           )
+      );
+
+      // AFTER this branch's transaction has committed. Resolving against an existing item removes the sale quantity.
+      //
+      // Both insight actions resolve pending POS lines, so both move stock and
+      // both are wired. Each loops over every pending match behind the insight
+      // inside ONE transaction, and the reconciliation covers the whole
+      // inventory domain, so one call per request serves all of them.
+      //
+      // Cannot affect the response: the action is durable by now, and the sync
+      // absorbs its own errors and returns them as data. Tenant context is
+      // re-entered because the one above closed with the transaction.
+      await runWithTenantContext({ businessId: user.businessId }, () =>
+        syncInventoryAlertNotifications(user.businessId, new Date())
       );
 
       return NextResponse.json(result);
