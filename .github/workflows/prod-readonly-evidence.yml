@@ -26,6 +26,7 @@ on:
           - 'ops/evidence/auth-token-version-evidence.sql'
           - 'ops/evidence/conversation-coherence-evidence.sql'
           - 'ops/evidence/i8a-historical-fiscal-evidence.sql'
+          - 'ops/evidence/i8a-runtime-role-evidence.sql'
 
 permissions:
   contents: read
