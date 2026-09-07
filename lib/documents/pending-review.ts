@@ -54,6 +54,27 @@ export function distinctMonthsDescending(createdAts: Date[]): string[] {
 }
 
 /**
+ * Where to send an owner who has a review backlog.
+ *
+ * The inbox is month-scoped, so a bare link lands on the current month — which
+ * can be empty while the backlog sits in earlier ones, leaving the owner
+ * looking at nothing right after being told there is something. The
+ * destination is therefore the most recent month that actually holds pending
+ * work.
+ *
+ * Pure, and shared, because two surfaces point at this same place: the
+ * Attention paperwork insight and the review-queue notification. A second copy
+ * of this expression is how the two would eventually disagree about where the
+ * work is.
+ */
+export function pendingReviewInboxHref(
+  pendingMonthsDescending: readonly string[]
+): string {
+  const target = pendingMonthsDescending[0] ?? null;
+  return target ? `/documents/inbox?month=${target}` : "/documents/inbox";
+}
+
+/**
  * Distinct Jerusalem year-months that contain at least one needs_review
  * document, newest first. Used for backlog navigation (month selector + the
  * insight CTA target). Selects only createdAt; the (businessId,status,createdAt)

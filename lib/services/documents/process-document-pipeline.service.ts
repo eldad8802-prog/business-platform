@@ -39,6 +39,7 @@ import {
   PRODUCT_USAGE_OUTCOMES,
 } from "@/lib/services/product-usage/product-usage-catalog";
 import { recordProductUsageEvent } from "@/lib/services/product-usage/record-product-usage-event";
+import { syncDocumentsReviewQueueNotification } from "@/lib/notifications/documents-review-queue-notifications";
 
 export type ProcessDocumentInput = {
   documentId: number;
@@ -253,5 +254,19 @@ export async function processDocumentPipeline(
         // ignore cleanup errors
       }
     }
+
+    // The review queue, reconciled once this document has settled. In the
+    // `finally` on purpose, because BOTH outcomes move the count: the success
+    // path adds a document to `needs_review`, and the fatal path takes one back
+    // out when a retry fails. A recount serves either, so nothing here has to
+    // know which branch ran.
+    //
+    // This service owns its transactions — it takes no external tx handle — and
+    // both callers schedule it inside `after()` under runTenantJob, so the
+    // tenant context is ambient and every write above has already committed.
+    //
+    // It cannot affect anything: the document state is durable, this function
+    // never throws by contract, and the sync swallows its own errors.
+    await syncDocumentsReviewQueueNotification(businessId, new Date());
   }
 }
