@@ -138,7 +138,14 @@ async function main() {
   ok("runtime role is NOT superuser (a superuser would bypass every policy)", role?.rolsuper === false);
   ok("runtime role is NOBYPASSRLS", role?.rolbypassrls === false);
 
-  // ── 1. Snapshot Document BEFORE the migration, so 'index only' is measured ──
+  // ── 1. Undo what `prisma db push` built, so the migration has work to do ───
+  // db push builds the table from the datamodel, which knows nothing about RLS,
+  // grants or the check constraint — and it also creates the very index the
+  // migration adds to Document. Removing both first is what makes the snapshot
+  // below a genuine "before".
+  await owner.$executeRawUnsafe(`DROP TABLE IF EXISTS "HistoricalFiscalDocument" CASCADE`);
+  await owner.$executeRawUnsafe(`DROP INDEX IF EXISTS "Document_businessId_id_key"`);
+
   const docColsBefore = await owner.$queryRawUnsafe(
     `SELECT column_name, data_type, is_nullable FROM information_schema.columns
      WHERE table_name = 'Document' ORDER BY column_name`
@@ -151,13 +158,7 @@ async function main() {
      WHERE table_name LIKE 'Billing%' ORDER BY table_name, column_name`
   );
 
-  // ── 2. Apply the MIGRATION itself, not `prisma db push` ────────────────────
-  // db push builds the table from the datamodel, which knows nothing about RLS,
-  // grants or the check constraint. Removing what push made and replaying the
-  // migration is what puts the real artifact under test.
-  await owner.$executeRawUnsafe(`DROP TABLE IF EXISTS "HistoricalFiscalDocument" CASCADE`);
-  await owner.$executeRawUnsafe(`DROP INDEX IF EXISTS "Document_businessId_id_key"`);
-
+  // ── 2. Apply the MIGRATION itself, statement by statement ──────────────────
   const statements = splitSql(fs.readFileSync(MIGRATION, "utf8"));
   for (const statement of statements) {
     await owner.$executeRawUnsafe(statement);
@@ -421,13 +422,18 @@ async function main() {
     "a second record with the SAME fiscal identity is ACCEPTED — the index is not a constraint",
     dupe?.id > 0
   );
+  // The primary key is a unique index too, and it is not the kind under
+  // discussion, so it is excluded by what it IS rather than by its name.
   const uniques = await owner.$queryRawUnsafe(
-    `SELECT indexname FROM pg_indexes
-     WHERE tablename = 'HistoricalFiscalDocument' AND indexdef LIKE 'CREATE UNIQUE%'
-     ORDER BY indexname`
+    `SELECT c.relname AS indexname
+     FROM pg_index i
+     JOIN pg_class c ON c.oid = i.indexrelid
+     WHERE i.indrelid = '"HistoricalFiscalDocument"'::regclass
+       AND i.indisunique AND NOT i.indisprimary
+     ORDER BY c.relname`
   );
   ok(
-    "the only unique index on the table is the tenant composite key",
+    "apart from the primary key, the only unique index is the tenant composite key",
     uniques.length === 1 && uniques[0].indexname === "HistoricalFiscalDocument_businessId_id_key",
     JSON.stringify(uniques)
   );
