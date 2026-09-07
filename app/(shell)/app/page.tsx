@@ -34,7 +34,7 @@ function greetingForHour(hour: number): string {
  * the engine-backed sections (day-state, insights) are passed as null so the
  * HomeScreen renders its honest empty states rather than fabricated numbers.
  */
-function buildHomeView(data: HomeResponse): HomeView {
+function buildHomeView(data: HomeResponse, unreadCount: number): HomeView {
   const ownerName =
     data.businessSnapshot.ownerName?.trim().split(/\s+/)[0] ||
     data.businessSnapshot.businessName?.trim().split(/\s+/)[0] ||
@@ -54,10 +54,13 @@ function buildHomeView(data: HomeResponse): HomeView {
     dayState: null,
     insights: null,
     leadsAttention: data.leadsAttention,
-    // The bell reflects real pending work rather than being permanently off.
+    // The bell now reflects the persisted notification layer rather than a
+    // stand-in derived from the leads count. `/attention` is still the live
+    // business-status view; this points at the notification centre, which is
+    // the history of what the owner was actually told.
     notifications: {
-      href: "/attention",
-      hasUnread: (data.leadsAttention?.count ?? 0) > 0,
+      href: "/notifications",
+      hasUnread: unreadCount > 0,
     },
     settingsHref: "/settings",
   };
@@ -158,6 +161,10 @@ const HOME_FETCH_TIMEOUT_MS = 28_000;
 
 function HomePage() {
   const [data, setData] = useState<HomeResponse | null>(null);
+  // Its own tiny request rather than a field on /api/home: the count changes
+  // when the owner reads something, which has nothing to do with the home
+  // payload, and a failure here must not cost them the whole screen.
+  const [unreadCount, setUnreadCount] = useState(0);
   /** Start true so we never flash HomeErrorState before the first /api/home attempt (token path). */
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -165,6 +172,26 @@ function HomePage() {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
 
+  // Read once the session exists. No polling: the badge is refreshed by the
+  // centre itself after the owner reads something, and anything they have not
+  // opened the app to see is what push is for, later.
+  useEffect(() => {
+    if (!sessionReady || !sessionToken) return;
+    let cancelled = false;
+    fetch("/api/notifications/unread-count", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (!cancelled && json && typeof json.unreadCount === "number") {
+          setUnreadCount(json.unreadCount);
+        }
+      })
+      .catch(() => {
+        /* The bell simply stays quiet. A failed count is not worth an error. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionReady, sessionToken]);
   useEffect(() => {
     let t: string | null = null;
     let err: string | null = null;
@@ -329,7 +356,7 @@ function HomePage() {
       <HomeErrorState onRetry={loadHome} onReLogin={goReLogin} />
     );
   } else {
-    body = <HomeScreen view={buildHomeView(data)} />;
+    body = <HomeScreen view={buildHomeView(data, unreadCount)} />;
   }
 
   // The brand intro overlay REPLACES the old skeleton on first authenticated
