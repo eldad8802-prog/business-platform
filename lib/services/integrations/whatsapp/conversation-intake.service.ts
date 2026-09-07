@@ -347,7 +347,7 @@ export async function processWhatsAppConversationIntake(
     // The ambient tenant context is the one `runTenantJob` established in the
     // webhook from the server-resolved connection lookup — never a payload
     // field.
-    await syncInboxWaitingNotifications(input.businessId, new Date());
+    await syncInboxWaitingNotifications(input.businessId, conversation.id, new Date());
 
     return {
       status: "intaken",

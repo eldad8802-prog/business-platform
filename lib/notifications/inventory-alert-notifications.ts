@@ -40,6 +40,10 @@ import { finalizeBusinessStatusItem } from "@/lib/business-status/priority";
 import { translateInventoryAlerts } from "@/lib/business-status/translators/inventory";
 
 import {
+  declareExhaustive,
+  loadAllUnresolvedInventoryAlertIdentities,
+} from "./exhaustive-facts";
+import {
   persistSnapshotNotifications,
   resolveAbsentNotifications,
   type WriteOutcome,
@@ -91,18 +95,44 @@ export async function syncInventoryAlertNotifications(
     const written = await persistSnapshotNotifications(businessId, items, now);
 
     // The complement: every inventory-alert notification still open whose alert
-    // is no longer in the unresolved set. Built from the same items, so the two
-    // halves cannot disagree about what is currently true.
+    // is no longer unresolved.
+    //
+    // This deliberately does NOT reuse `items` above. That list comes from the
+    // presentation loader, which stops at BS_INVENTORY_CAP because Attention is
+    // a shortlist — and a business with more open alerts than the cap would
+    // have had the overflow closed here as though someone had restocked them.
+    // Absence from a shortlist is not evidence that a problem went away.
+    //
+    // So resolution reads its own uncapped selector: three integers per open
+    // alert, on the existing (businessId, isResolved) index. The rows are
+    // translated by the SAME translator, so the two halves cannot drift into
+    // different opinions about what an alert's identity is.
     //
     // Note this is the set of ALL currently-true inventory facts, not just the
     // ones the policy chose to notify about. A fact the policy silences must
     // still count as present, or the next pass would "resolve" a notification
     // whose condition is very much still there.
-    const presentKeys = items.map((item) => buildDedupeKey(businessId, item));
+    const allOpen = await loadAllUnresolvedInventoryAlertIdentities(businessId);
+    const presentKeys = translateInventoryAlerts(
+      // Only the identity fields are read downstream — the translator derives
+      // the entity ref from `itemId`/`id` and the category from `type`. The
+      // render fields are placeholders precisely because nothing here renders.
+      allOpen.map((a) => ({
+        id: a.id,
+        type: a.type,
+        itemId: a.itemId,
+        message: null,
+        createdAt: now,
+        itemName: null,
+      })),
+    )
+      .map(finalizeBusinessStatusItem)
+      .map((item) => buildDedupeKey(businessId, item));
+
     const resolved = await resolveAbsentNotifications(
       businessId,
       INVENTORY_ALERT_SCOPE,
-      presentKeys,
+      declareExhaustive(presentKeys),
       now,
     );
 

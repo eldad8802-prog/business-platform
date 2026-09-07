@@ -530,7 +530,7 @@ async function handleAuthedPost(
       //
       // It cannot affect the response: the message is durable and the sync
       // swallows its own errors and returns them as data.
-      await syncInboxWaitingNotifications(user.businessId, new Date());
+      await syncInboxWaitingNotifications(user.businessId, conversationId, new Date());
 
       return NextResponse.json(
         {
@@ -1029,7 +1029,7 @@ async function handleAuthedPost(
     // second production path that can create inbound customer messages — the
     // webhook is not the only one, and a producer wired only there would miss
     // these. The sync reconciles, so the same call serves both directions.
-    await syncInboxWaitingNotifications(user.businessId, new Date());
+    await syncInboxWaitingNotifications(user.businessId, conversationId, new Date());
 
     return NextResponse.json(
       {

@@ -57,7 +57,7 @@ export async function POST(req: Request, context: RouteContext) {
     // notification left open would point at something nobody can answer.
     // `tenantTx` closed its context with its transaction, so it is re-entered.
     await runWithTenantContext({ businessId: user.businessId }, () =>
-      syncInboxWaitingNotifications(user.businessId, new Date())
+      syncInboxWaitingNotifications(user.businessId, conversationId, new Date())
     );
 
     return NextResponse.json({
