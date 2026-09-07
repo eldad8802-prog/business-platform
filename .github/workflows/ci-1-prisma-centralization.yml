@@ -528,24 +528,25 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: a marker outside the transaction fails the verifier"
 
-      - name: I-7 negative proof (the ingestion hook running after the row write must be caught)
+      - name: I-7 negative proof (a caller statement outside the ingestion transaction must be caught)
         env:
           AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
         run: |
           F="lib/services/documents/document-ingestion.service.ts"
           cp "$F" "$F.bak"
-          # Same transaction, wrong order. It still commits atomically, but a
-          # unique violation from the marker can no longer be told apart from
-          # one raised by the Document write, because the first failed statement
-          # aborts the transaction and the second never runs.
-          perl -0pi -e 's/          if \(input\.withinTransaction\) await input\.withinTransaction\(tx\);\r?\n          return tx\.document\.create\(\{/          const created = await tx.document.create({/' "$F"
-          perl -0pi -e 's/          \}\);\r?\n        \}\)\r?\n    \);\r?\n    documentId = document\.id;/          });\n          if (input.withinTransaction) await input.withinTransaction(tx);\n          return created;\n        })\n    );\n    documentId = document.id;/' "$F"
+          # The caller's statement leaves the transaction that creates the
+          # Document, so the marker and the row it describes stop being atomic.
+          # Expressed as a deletion, which cannot drift when the lines around
+          # it change — the previous two-step reorder silently stopped matching
+          # once the content lock was added between them.
+          perl -0pi -e 's/          if \(input\.withinTransaction\) await input\.withinTransaction\(tx\);//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts >/dev/null 2>&1; then
             mv "$F.bak" "$F"
-            echo "NEGATIVE-PROOF FAIL: hook-after-create passed"; exit 1
+            echo "NEGATIVE-PROOF FAIL: an uncoupled caller statement passed"; exit 1
           fi
           mv "$F.bak" "$F"
-          echo "NEGATIVE-PROOF PASS: hook-after-create fails the verifier"
+          echo "NEGATIVE-PROOF PASS: an uncoupled caller statement fails the verifier"
 
       - name: I-7 negative proof (deriving the duplicate override from live truth must be caught)
         env:
