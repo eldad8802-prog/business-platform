@@ -393,8 +393,10 @@ jobs:
           F="app/api/integrations/gmail/import/route.ts"
           cp "$F" "$F.bak"
           # The wildcard that let an emailed file into Documents when a direct
-          # upload of the same file would have been refused.
-          perl -0pi -e 's/    if \(!body\.mimeType \|\| !isAllowedDocumentMime\(body\.mimeType\)\) \{/    if (!body.mimeType || !(body.mimeType === "application\/pdf" || body.mimeType.startsWith("image\/"))) {/' "$F"
+          # upload of the same file would have been refused. It now targets the
+          # type GMAIL resolved: the client's field is no longer read at all.
+          perl -0pi -e 's/    if \(!isAllowedDocumentMime\(gmailMimeType\)\) \{/    if (!(gmailMimeType === "application\/pdf" || gmailMimeType.startsWith("image\/"))) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npx tsx lib/services/documents/integration-intake.verify.test.ts >/dev/null 2>&1; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: a private allowlist passed"; exit 1

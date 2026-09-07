@@ -292,6 +292,37 @@ async function main() {
     if (s.includes("oauth2.googleapis.com/revoke")) {
       return new Response("{}", { status: 200 });
     }
+    if (s.includes("gmail/v1/users/me/messages/") && !s.includes("/attachments/")) {
+      // The message itself, which is where the attachment's declared type now
+      // comes from. Two parts, nested, so the resolver's walk is exercised.
+      return new Response(
+        JSON.stringify({
+          id: "m1",
+          payload: {
+            mimeType: "multipart/mixed",
+            parts: [
+              { mimeType: "text/plain", body: { size: 4 } },
+              {
+                mimeType: "multipart/alternative",
+                parts: [
+                  {
+                    mimeType: "application/pdf",
+                    filename: "f.pdf",
+                    body: { attachmentId: "a1", size: 20 },
+                  },
+                ],
+              },
+              {
+                mimeType: "application/pdf",
+                filename: "g.pdf",
+                body: { attachmentId: "a2", size: 20 },
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
     if (s.includes("gmail/v1/users/me/messages/") && s.includes("/attachments/")) {
       // A REAL pdf: the attachment is declared application/pdf, and the import
       // route now checks the bytes against that claim. Arbitrary filler used to
