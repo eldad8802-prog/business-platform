@@ -178,7 +178,13 @@ function HomePage() {
   useEffect(() => {
     if (!sessionReady || !sessionToken) return;
     let cancelled = false;
-    fetch("/api/notifications/unread-count", { cache: "no-store" })
+    // Same token the rest of this screen already sends. Without one the bell
+    // simply stays quiet rather than issuing a credential-less request.
+    if (!sessionToken) return;
+    fetch("/api/notifications/unread-count", {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    })
       .then((res) => (res.ok ? res.json() : null))
       .then((json) => {
         if (!cancelled && json && typeof json.unreadCount === "number") {

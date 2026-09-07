@@ -169,6 +169,62 @@ console.log("\nMobile ergonomics");
     /onKeyDown/.test(CENTER) && /e\.key === "Enter"/.test(CENTER));
 }
 
+/* ── the regression this suite failed to catch the first time ─────────────
+ *
+ * Every authenticated client fetch in this app sends the session token as a
+ * Bearer header. The centre shipped without one, so all four of its calls
+ * returned 401 and the page rendered nothing — and these tests passed anyway,
+ * because they checked the URLs and never the headers.
+ *
+ * Runtime QA caught it. These checks make sure it stays caught.
+ */
+console.log("\nEvery notification request is authenticated");
+{
+  // Each fetch, from its opening paren to the closing brace of its options.
+  const calls = [...CENTER.matchAll(/fetch\([\s\S]*?\}\s*\)/g)].map((m) => m[0]);
+  check("the centre makes exactly three requests", calls.length === 3, `n=${calls.length}`);
+  check("every one of them sends a Bearer header",
+    calls.length === 3 && calls.every((c) => /Authorization: `Bearer \$\{token\}`/.test(c)),
+    calls.map((c) => (/Authorization/.test(c) ? "auth" : "NO-AUTH")).join(","));
+
+  for (const [label, re] of [
+    ["GET /api/notifications", /\/api\/notifications\?/],
+    ["POST /api/notifications/[id]/read", /\/api\/notifications\/\$\{id\}\/read/],
+    ["POST /api/notifications/read-all", /\/api\/notifications\/read-all/],
+  ] as const) {
+
+    const call = calls.find((c) => re.test(c));
+    check(`${label} carries Authorization`,
+      call !== undefined && /Authorization: `Bearer/.test(call));
+  }
+
+  check("the home unread-count request carries Authorization",
+    /unread-count[\s\S]{0,200}Authorization: `Bearer \$\{sessionToken\}`/.test(HOME));
+
+  // A credential-less request must be abandoned, never sent malformed: the
+  // server would read "Bearer null" as a bad token rather than no token.
+  check("the centre refuses to call without a token",
+    (CENTER.match(/if \(!token\) throw new MissingSessionError\(\)/g) || []).length === 3);
+  check("the home badge stays quiet without a token", /if \(!sessionToken\) return;/.test(HOME));
+  // Comments legitimately discuss "Bearer null"; only executable code counts.
+  const stripComments = (src: string) =>
+    src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const centerCode = stripComments(CENTER);
+  const homeCode = stripComments(HOME);
+  check("no request can be built as Bearer null or undefined",
+    !/Bearer (null|undefined)/.test(centerCode) && !/Bearer (null|undefined)/.test(homeCode));
+  check("every Bearer in code interpolates a guarded variable",
+    [...centerCode.matchAll(/Bearer \$\{(\w+)\}/g)].every((m) => m[1] === "token") &&
+    [...homeCode.matchAll(/Bearer \$\{(\w+)\}/g)].every((m) => ["sessionToken", "currentToken"].includes(m[1])));
+
+  check("the token is read the way the rest of the app reads it",
+    /window\.localStorage\.getItem\("token"\)/.test(CENTER));
+  check("no token value is ever logged", !/console\.(log|warn|error)[^;]*token/i.test(CENTER));
+  check("no token is hardcoded",
+    !/Bearer [A-Za-z0-9._-]{8,}/.test(CENTER) && !/Bearer [A-Za-z0-9._-]{8,}/.test(HOME));
+  check("still no businessId is sent from the client",
+    !/businessId/.test(CENTER));
+}
 console.log(
   failures === 0
     ? `\nNOTIFICATION-CENTER: all checks passed\n`

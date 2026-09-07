@@ -87,6 +87,30 @@ export function isSafeInternalHref(href: string): boolean {
   return typeof href === "string" && href.startsWith("/") && !href.startsWith("//");
 }
 
+/**
+ * The session token, exactly as every other authenticated client fetch in this
+ * app reads it (see app/(shell)/attention/page.tsx). Returning null rather than
+ * an empty string matters: a request must be abandoned when there is no token,
+ * never sent as "Bearer null", which the server would reject as a malformed
+ * credential instead of an absent one.
+ */
+function readToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem("token");
+  } catch {
+    // Storage can throw in a locked-down browser. No token is the honest answer.
+    return null;
+  }
+}
+
+/** Thrown when there is no session to authenticate with. */
+class MissingSessionError extends Error {
+  constructor() {
+    super("no session token");
+    this.name = "MissingSessionError";
+  }
+}
 export function NotificationCenter() {
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -106,8 +130,14 @@ export function NotificationCenter() {
       if (opts.cursor !== null) params.set("cursor", String(opts.cursor));
       if (opts.filter === "unread") params.set("unreadOnly", "true");
 
+      const token = readToken();
+      if (!token) throw new MissingSessionError();
+
       const res = await fetch(`/api/notifications?${params.toString()}`, {
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         cache: "no-store",
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -158,7 +188,13 @@ export function NotificationCenter() {
     setUnreadCount((c) => Math.max(0, c - 1));
 
     try {
-      const res = await fetch(`/api/notifications/${id}/read`, { method: "POST" });
+      const token = readToken();
+      if (!token) throw new MissingSessionError();
+
+      const res = await fetch(`/api/notifications/${id}/read`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     } catch {
       setItems((prev) => prev.map((n) => (n.id === id ? { ...n, readAt: null } : n)));
@@ -172,7 +208,13 @@ export function NotificationCenter() {
    */
   const markAllRead = useCallback(async () => {
     try {
-      const res = await fetch("/api/notifications/read-all", { method: "POST" });
+      const token = readToken();
+      if (!token) throw new MissingSessionError();
+
+      const res = await fetch("/api/notifications/read-all", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await load({ append: false, cursor: null, filter });
     } catch {
