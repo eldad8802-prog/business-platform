@@ -256,9 +256,18 @@ async function main() {
     A
   );
 
-  const INSERT_HIST = `INSERT INTO "HistoricalFiscalDocument"
+  const HIST_COLUMNS = `INSERT INTO "HistoricalFiscalDocument"
       ("businessId","documentTypeCode","sourceSystemCode","originalDocumentNumber","updatedAt")
-      VALUES ($1,$2,$3,$4, now()) RETURNING id`;
+      VALUES ($1,$2,$3,$4, now())`;
+  const INSERT_HIST = `${HIST_COLUMNS} RETURNING id`;
+  /**
+   * The same insert WITHOUT `RETURNING`, and the distinction matters. Returning
+   * a row also asks the SELECT policy about it, so a refusal could come from
+   * either policy — and a battery that cannot tell them apart would call an
+   * open INSERT policy safe. The rejection cases below use this form, so only
+   * the INSERT policy can be the one refusing.
+   */
+  const INSERT_HIST_BLIND = HIST_COLUMNS;
 
   // ── 7. Tenant isolation, through the restricted role ───────────────────────
   const inserted = await asTenant(runtime, A, (tx) =>
@@ -268,15 +277,21 @@ async function main() {
   const histA = inserted[0].id;
 
   await rejects(
-    "an insert naming ANOTHER tenant is refused by the INSERT policy",
+    "an insert naming ANOTHER tenant is refused by the INSERT policy alone",
     /row-level security|new row violates/i,
-    () => asTenant(runtime, A, (tx) => tx.$queryRawUnsafe(INSERT_HIST, B, "INVOICE", "legacy-erp", "9001"))
+    () =>
+      asTenant(runtime, A, (tx) =>
+        tx.$executeRawUnsafe(INSERT_HIST_BLIND, B, "INVOICE", "legacy-erp", "9001")
+      )
   );
 
   await rejects(
     "an insert with NO tenant context is refused — there is no ambient default",
     /row-level security|new row violates|invalid input syntax/i,
-    () => asTenant(runtime, null, (tx) => tx.$queryRawUnsafe(INSERT_HIST, A, "INVOICE", "legacy-erp", "9002"))
+    () =>
+      asTenant(runtime, null, (tx) =>
+        tx.$executeRawUnsafe(INSERT_HIST_BLIND, A, "INVOICE", "legacy-erp", "9002")
+      )
   );
 
   // tenant B's row, planted by the owner so that A has something to NOT see
