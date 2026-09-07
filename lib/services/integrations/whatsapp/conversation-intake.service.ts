@@ -64,6 +64,7 @@ import {
   wamidPrefixForLog,
 } from "./webhook-events";
 import { runInboundMessagePipeline } from "@/lib/services/conversation/inbound-message-pipeline.service";
+import { syncInboxWaitingNotifications } from "@/lib/notifications/inbox-waiting-notifications";
 
 export type WhatsAppConversationIntakeInput = {
   businessId: number;
@@ -326,6 +327,27 @@ export async function processWhatsAppConversationIntake(
       businessId: input.businessId,
       source: "webhook",
     });
+
+    // ── Step 7: notification reconciliation ────────────────────────────────
+    //
+    // AFTER the message transaction above has committed and after the pipeline
+    // has finished. The pipeline is not one transaction — it is a sequence of
+    // them — so this cannot live inside it, and putting it in one of its inner
+    // transactions would persist a notification for a message that might still
+    // roll back.
+    //
+    // The bot is why this sits after the pipeline rather than after the write:
+    // the pipeline may produce a draft reply, and only once it has run is the
+    // conversation's waiting state settled.
+    //
+    // It cannot affect the outcome. The message is durable, the sync swallows
+    // its own errors and returns them as data, and the webhook must answer 200
+    // regardless or Meta will redeliver a message we already stored.
+    //
+    // The ambient tenant context is the one `runTenantJob` established in the
+    // webhook from the server-resolved connection lookup — never a payload
+    // field.
+    await syncInboxWaitingNotifications(input.businessId, new Date());
 
     return {
       status: "intaken",
