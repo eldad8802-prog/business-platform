@@ -364,6 +364,334 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: skipping both sides of a collision fails the verifier"
 
+      # I-7C.3 — inbound integration intake. Blocking for two reasons: which
+      # files Dubiz accepts must not depend on which door they arrive through,
+      # and a Gmail import must not be able to leave a Document that a retry
+      # cannot recognise — that state used to be reachable, and the retry then
+      # imported the same attachment a second time.
+      # Pure — no DB, no network, no Meta, no Gmail.
+      # Local equivalent: npm run verify:integration-intake
+      - name: Integration intake (canonical acceptance, Gmail idempotency)
+        run: npx tsx lib/services/documents/integration-intake.verify.test.ts
+
+      - name: I-7C.3 negative proof (a Gmail signature refusal that does not stop the import must be caught)
+        run: |
+          F="app/api/integrations/gmail/import/route.ts"
+          cp "$F" "$F.bak"
+          # The call stays exactly where it is; only its verdict is ignored.
+          # Ordering assertions alone would not notice.
+          perl -0pi -e 's/    if \(!signature\.ok\) \{/    if (false) {/' "$F"
+          if npx tsx lib/services/documents/integration-intake.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an ignored signature verdict passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an ignored signature verdict fails the verifier"
+
+      - name: I-7C.3 negative proof (a private integration allowlist must be caught)
+        run: |
+          F="app/api/integrations/gmail/import/route.ts"
+          cp "$F" "$F.bak"
+          # The wildcard that let an emailed file into Documents when a direct
+          # upload of the same file would have been refused.
+          perl -0pi -e 's/    if \(!body\.mimeType \|\| !isAllowedDocumentMime\(body\.mimeType\)\) \{/    if (!body.mimeType || !(body.mimeType === "application\/pdf" || body.mimeType.startsWith("image\/"))) {/' "$F"
+          if npx tsx lib/services/documents/integration-intake.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a private allowlist passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a private allowlist fails the verifier"
+
+      - name: I-7C.3 negative proof (a fabricated WhatsApp media type must be caught)
+        run: |
+          F="lib/services/integrations/whatsapp/media-validation.service.ts"
+          cp "$F" "$F.bak"
+          # Missing metadata becomes "probably a PDF" again, so an unidentified
+          # file is stored, OCR'd and recorded under a type nobody established.
+          perl -0pi -e 's/    const detected = detectFileSignature\(params\.buffer\);\r?\n    if \(detected === null\) return \{ ok: false, reason: "unsupported_mime" \};/    const detected = detectFileSignature(params.buffer) ?? "pdf";/' "$F"
+          if npx tsx lib/services/documents/integration-intake.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a fabricated media type passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a fabricated media type fails the verifier"
+
+      - name: I-7C.3 negative proof (a Gmail identity row outside the transaction must be caught)
+        run: |
+          F="app/api/integrations/gmail/import/route.ts"
+          cp "$F" "$F.bak"
+          # THE defect this increment closed: the import identity leaves the
+          # transaction that creates the Document, so a crash between them
+          # leaves a Document no retry can see.
+          perl -0pi -e 's/        withinTransaction: async \(tx, documentId\) => \{/        unusedHook: async (tx: never, documentId: number) => {/' "$F"
+          if npx tsx lib/services/documents/integration-intake.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an uncoupled identity row passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an uncoupled identity row fails the verifier"
+
+      - name: I-7C.3 negative proof (a hook running outside the tenant transaction must be caught)
+        run: |
+          F="lib/services/documents/create-document-from-ocr.service.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    return withTenantTransaction\(\(tx\) => fn\(tx\)\);/    return fn(prisma as unknown as TenantTx);/' "$F"
+          if npx tsx lib/services/documents/integration-intake.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an untenanted transaction passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an untenanted transaction fails the verifier"
+
+      # Import/Export Center I-7 — Documents. Blocking because this is the only
+      # import path that writes to TWO durability systems (object storage and
+      # PostgreSQL), and its failure mode is silent duplication: a retried batch
+      # that ingests every document a second time looks exactly like a slow one.
+      # Pure — no DB, no network, no object storage.
+      # Local equivalent: npm run verify:document-ingestion
+      - name: Canonical document ingestion (one ingestion path, storage before row)
+        run: npx tsx lib/services/documents/document-ingestion.verify.test.ts
+
+      - name: I-7C.1 negative proof (upload accepting a file on its declared type alone must be caught)
+        run: |
+          F="app/api/documents/upload/route.ts"
+          cp "$F" "$F.bak"
+          # The gap this increment closed. The route goes back to believing
+          # `file.type`, so a renamed file reaches storage and the OCR pipeline
+          # under a type it does not have.
+          perl -0pi -e 's/    if \(!signature\.ok\) \{/    if (false) {/' "$F"
+          if npx tsx lib/services/documents/document-ingestion.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an unvalidated upload passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an unvalidated upload fails the verifier"
+
+      - name: I-7C.1 negative proof (an unbounded image/* allowlist must be caught)
+        run: |
+          F="lib/services/documents/document-ingestion.service.ts"
+          cp "$F" "$F.bak"
+          # An open-ended accepted set cannot be signature-checked: declaring
+          # image/webp was enough to get arbitrary bytes accepted.
+          perl -0pi -e 's/  return containerForDeclaredMime\(m\) !== null;/  return m === "application\/pdf" || m.startsWith("image\/");/' "$F"
+          if npx tsx lib/services/documents/document-ingestion.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: the image/* wildcard passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: the image/* wildcard fails the verifier"
+
+      - name: I-7C.1 negative proof (accepting bytes that disagree with the declared type must be caught)
+        run: |
+          F="lib/services/documents/file-signature.ts"
+          cp "$F" "$F.bak"
+          # Detection still runs, but its answer is no longer compared to what
+          # the client claimed — so a real JPEG passes as a PDF.
+          perl -0pi -e 's/  if \(expected === null \|\| expected !== detected\) \{/  if (false) {/' "$F"
+          if npx tsx lib/services/documents/document-ingestion.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a mismatched container passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a mismatched container fails the verifier"
+
+      # Local equivalent: npm run verify:documents-analyze
+      - name: Documents batch analyze (zero writes, duplicate triage, signatures)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: npx tsx lib/data-transfer/documents/documents-analyze.verify.test.ts
+
+      # Local equivalent: npm run verify:documents-execute
+      - name: Documents execute (binding, idempotency, drift, failure injection)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts
+
+      - name: I-7 negative proof (a marker outside the ingestion transaction must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/documents/documents-execute.ts"
+          cp "$F" "$F.bak"
+          # THE defect this increment exists to prevent. The marker moves out of
+          # the transaction that creates the Document row, so a crash between
+          # them leaves a document nothing has recorded — and the retry, which
+          # for an override cannot rely on duplicate detection, creates a second
+          # copy.
+          perl -0pi -e 's/      withinTransaction: async \(tx\) => \{\r?\n        await markRow\(tx, \{/      withinTransaction: undefined,\n      unusedMarker: async (tx: never) => {\n        await markRow(tx, {/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a marker outside the transaction passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a marker outside the transaction fails the verifier"
+
+      - name: I-7 negative proof (the ingestion hook running after the row write must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: |
+          F="lib/services/documents/document-ingestion.service.ts"
+          cp "$F" "$F.bak"
+          # Same transaction, wrong order. It still commits atomically, but a
+          # unique violation from the marker can no longer be told apart from
+          # one raised by the Document write, because the first failed statement
+          # aborts the transaction and the second never runs.
+          perl -0pi -e 's/          if \(input\.withinTransaction\) await input\.withinTransaction\(tx\);\r?\n          return tx\.document\.create\(\{/          const created = await tx.document.create({/' "$F"
+          perl -0pi -e 's/          \}\);\r?\n        \}\)\r?\n    \);\r?\n    documentId = document\.id;/          });\n          if (input.withinTransaction) await input.withinTransaction(tx);\n          return created;\n        })\n    );\n    documentId = document.id;/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: hook-after-create passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: hook-after-create fails the verifier"
+
+      - name: I-7 negative proof (deriving the duplicate override from live truth must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/documents/documents-execute.ts"
+          cp "$F" "$F.bak"
+          # The silent re-decision: instead of reading the override from the
+          # SIGNED decision, execute asks "is it a duplicate now?" — and so
+          # reads a plain CREATE on a file that became a duplicate after the
+          # preview as an override the owner never gave.
+          perl -pi -e 's/      allowDuplicate: action === "CREATE_ANYWAY",/      allowDuplicate: true,/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an unconditional override passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an unconditional override fails the verifier"
+
+      - name: I-7 negative proof (re-validating decisions before the run lookup must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/documents/documents-execute.ts"
+          cp "$F" "$F.bak"
+          # I-6's ordering defect in the Documents domain: a resumed run judges
+          # its own CREATE decisions against a world it changed, so every file
+          # it already ingested is refused as "you already hold this".
+          perl -0pi -e 's/  if \(!existing\) \{/  if (true) {/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: validate-before-lookup passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: validate-before-lookup fails the verifier"
+
+      - name: I-7 negative proof (resuming a finished run instead of replaying it must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/documents/documents-execute.ts"
+          cp "$F" "$F.bak"
+          # BOTH replay branches removed, because either one alone still catches
+          # it — replay safety is layered, and a proof that only disables the
+          # first would pass while proving nothing.
+          perl -0pi -e 's/  if \(existing && existing\.status !== "EXECUTING"\) \{/  if (false) {/' "$F"
+          perl -0pi -e 's/  if \(!run\.created && run\.status !== "EXECUTING"\) \{/  if (false) {/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: resuming a finished run passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: resuming a finished run fails the verifier"
+
+      - name: I-7 negative proof (trusting the declared file type must be caught)
+        env:
+          AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
+        run: |
+          F="lib/data-transfer/documents/batch-analyze.ts"
+          cp "$F" "$F.bak"
+          # The batch stops checking that a file's bytes match the type it
+          # claims, so a renamed file passes the preview and reaches storage.
+          perl -0pi -e 's/    if \(!signature\.ok\) \{/    if (false) {/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a relabelled file passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a relabelled file fails the verifier"
+
+      # I-7D — Documents export. Blocking because every failure here is silent:
+      # an archive that is short a file, an entry name that escapes its
+      # directory, an index carrying storage keys, or one tenant's originals in
+      # another tenant's download. The verifier builds a real ZIP and reads it
+      # back rather than trusting the builder.
+      # Pure — no DB, no network, no object storage.
+      # Local equivalent: npm run verify:documents-export
+      - name: Documents export (fidelity, entry safety, index, tenant, limits)
+        run: npx tsx lib/data-transfer/documents/documents-export.verify.test.ts
+
+      - name: I-7D negative proof (an unscoped document read must be caught)
+        run: |
+          F="lib/data-transfer/documents/documents-export.ts"
+          cp "$F" "$F.bak"
+          # The cross-tenant leak, planted where it would actually happen: the
+          # read keeps working and starts returning other businesses' documents.
+          perl -0pi -e 's/          where: \{\r?\n            businessId,/          where: {/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-export.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an unscoped read passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an unscoped read fails the verifier"
+
+      - name: I-7D negative proof (a traversal-bearing entry name must be caught)
+        run: |
+          F="lib/data-transfer/documents/documents-export.ts"
+          cp "$F" "$F.bak"
+          # The uploader's filename is trusted verbatim, so `../evil.pdf` becomes
+          # an archive entry that escapes the documents directory on extraction.
+          perl -0pi -e 's/export function sanitizeArchiveBaseName\(raw: string \| null\): string \{/export function sanitizeArchiveBaseName(raw: string | null): string {\n  return String(raw ?? "");/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-export.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a traversal filename passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a traversal filename fails the verifier"
+
+      - name: I-7D negative proof (a silently omitted file must be caught)
+        run: |
+          F="lib/data-transfer/documents/documents-export.ts"
+          cp "$F" "$F.bak"
+          # An archive that quietly drops a document the owner believes is backed
+          # up. It only surfaces the day they need the file.
+          perl -0pi -e 's/        if \(!\(error instanceof StorageObjectNotFoundError\)\) \{/        if (false) {/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-export.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a silent omission passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a silent omission fails the verifier"
+
+      - name: I-7D negative proof (an internal identifier in the index must be caught)
+        run: |
+          F="lib/data-transfer/documents/documents-export.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    row\.originalFilename \?\? "",/    row.fileUrl,/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-export.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a storage key in the index passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a storage key in the index fails the verifier"
+
+      - name: I-7D negative proof (a dropped export ceiling must be caught)
+        run: |
+          F="lib/data-transfer/documents/documents-export.ts"
+          cp "$F" "$F.bak"
+          # The byte ceiling is the real safety limit: the archive is assembled
+          # in memory, and a function that exceeds it is killed, not errored.
+          perl -0pi -e 's/      if \(totalBytes > DOCUMENTS_EXPORT_MAX_TOTAL_BYTES\) \{/      if (false) {/' "$F"
+          if npx tsx lib/data-transfer/documents/documents-export.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an unbounded archive passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an unbounded archive fails the verifier"
+
       # CASA Wave B — platform-admin TOTP MFA (CASA 3.3.1). The elevation
       # envelope and the guard decide whether a privileged request is allowed at
       # all, so they belong in the BLOCKING job. Deterministic and offline: no

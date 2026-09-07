@@ -293,7 +293,11 @@ async function main() {
       return new Response("{}", { status: 200 });
     }
     if (s.includes("gmail/v1/users/me/messages/") && s.includes("/attachments/")) {
-      return new Response(JSON.stringify({ size: 8, data: Buffer.from("w4cbytes").toString("base64url") }), { status: 200, headers: { "content-type": "application/json" } });
+      // A REAL pdf: the attachment is declared application/pdf, and the import
+      // route now checks the bytes against that claim. Arbitrary filler used to
+      // pass here only because nothing looked at it.
+      const w4cPdf = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.from("w4cbytes")]);
+      return new Response(JSON.stringify({ size: w4cPdf.length, data: w4cPdf.toString("base64url") }), { status: 200, headers: { "content-type": "application/json" } });
     }
     return realFetch(url, init);
   };

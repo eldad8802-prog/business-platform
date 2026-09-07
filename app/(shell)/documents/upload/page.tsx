@@ -112,14 +112,14 @@ export default function DocumentsUploadPage() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="application/pdf,image/*"
+          accept="application/pdf,image/jpeg,image/png"
           hidden
           onChange={(event) => void upload(event.target.files?.item(0))}
         />
         <input
           ref={cameraInputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png"
           capture="environment"
           hidden
           onChange={(event) => void upload(event.target.files?.item(0))}

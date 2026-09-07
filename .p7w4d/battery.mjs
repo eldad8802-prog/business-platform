@@ -464,7 +464,10 @@ async function main() {
     const uploadRoute = await import("@/app/api/documents/upload/route");
     const mkUpload = (extra = {}) => {
       const fd = new FormData();
-      fd.set("file", new File([Buffer.from("p7w4d-upload-bytes")], "t.png", { type: "image/png" }));
+      // A REAL png header, matching the declared type. The upload route verifies
+      // the bytes now, and the direct ingest calls above already use these.
+      const w4dPng = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.from("p7w4d-upload-bytes")]);
+      fd.set("file", new File([w4dPng], "t.png", { type: "image/png" }));
       for (const [k, v] of Object.entries(extra)) fd.set(k, v);
       return new NextRequest("http://p7w4d.local/api/documents/upload", {
         method: "POST", headers: { authorization: `Bearer ${tokA}` }, body: fd });

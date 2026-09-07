@@ -1,19 +1,18 @@
-import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
-import { after } from "next/server";
-import { runTenantJob } from "@/lib/tenant/job";
-import { runWithTenantContext } from "@/lib/tenant/context";
-import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { getCurrentUser } from "@/lib/auth";
-import { processDocumentPipeline } from "@/lib/services/documents/process-document-pipeline.service";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
 import type { RateLimitDecision } from "@/lib/security/rate-limiter";
 import {
-  buildStoredDocumentFileName,
-  deleteDocumentObjectQuiet,
-  putDocumentObject,
-} from "@/lib/services/documents/document-storage.service";
+  DOCUMENT_MAX_UPLOAD_BYTES,
+  ingestDocument,
+  isAllowedDocumentMime,
+  isHeicMimeType,
+} from "@/lib/services/documents/document-ingestion.service";
+import {
+  signatureRejectionMessage,
+  verifyFileSignature,
+} from "@/lib/services/documents/file-signature";
 import {
   PRODUCT_USAGE_ACTIONS,
   PRODUCT_USAGE_FEATURES,
@@ -23,7 +22,6 @@ import {
   readSessionIdFromRequest,
   recordProductUsageEvent,
 } from "@/lib/services/product-usage/record-product-usage-event";
-import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
 
 export const runtime = "nodejs";
 // Phase 2 (OCR + extraction) runs in `after()`, which keeps the serverless
@@ -31,26 +29,6 @@ export const runtime = "nodejs";
 // OCR timeout (OCR_TIMEOUT_MS, default 60s) — otherwise a slow OCR would be
 // killed mid-processing, leaving the document stuck in "processing".
 export const maxDuration = 60;
-
-const MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 15MB
-
-function normalizeMime(mimeType: string): string {
-  return String(mimeType || "").toLowerCase().trim();
-}
-
-// HEIC/HEIF (default iPhone photo format) passes a naive image/* check but
-// Google Vision cannot OCR it — it would silently produce no text. Reject it
-// explicitly with a clear Hebrew message so the user converts/retakes as JPEG.
-function isHeic(mimeType: string): boolean {
-  const m = normalizeMime(mimeType);
-  return m === "image/heic" || m === "image/heif";
-}
-
-function isAllowedMime(mimeType: string): boolean {
-  const m = normalizeMime(mimeType);
-  if (isHeic(m)) return false;
-  return m === "application/pdf" || m.startsWith("image/");
-}
 
 /**
  * Explicit observability for every blocked upload — closes the P0 gap where the
@@ -105,10 +83,6 @@ async function recordUploadThrottle(input: {
  * See processDocumentPipeline.
  */
 export async function POST(req: Request) {
-  let storedFileName: string | null = null;
-  let businessId: number | null = null;
-  let documentPersisted = false;
-
   try {
     const user = await getCurrentUser(req);
     if (!user) {
@@ -141,7 +115,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "לא נבחר קובץ" }, { status: 400 });
     }
 
-    if (typeof file.type === "string" && isHeic(file.type)) {
+    if (typeof file.type === "string" && isHeicMimeType(file.type)) {
       return NextResponse.json(
         {
           error:
@@ -151,14 +125,14 @@ export async function POST(req: Request) {
       );
     }
 
-    if (typeof file.type !== "string" || !isAllowedMime(file.type)) {
+    if (typeof file.type !== "string" || !isAllowedDocumentMime(file.type)) {
       return NextResponse.json(
-        { error: "סוג קובץ לא נתמך (נדרש PDF או תמונה)" },
+        { error: "סוג קובץ לא נתמך (נדרש PDF, JPG או PNG)" },
         { status: 400 }
       );
     }
 
-    if (typeof file.size !== "number" || file.size > MAX_UPLOAD_BYTES) {
+    if (typeof file.size !== "number" || file.size > DOCUMENT_MAX_UPLOAD_BYTES) {
       return NextResponse.json(
         { error: "הקובץ גדול מדי (עד 15MB)" },
         { status: 413 }
@@ -176,8 +150,6 @@ export async function POST(req: Request) {
       outcome: PRODUCT_USAGE_OUTCOMES.SUCCESS,
     });
 
-    businessId = user.businessId;
-    const mimeType = String(file.type ?? "");
 
     // Processing admission control — a SEPARATE bucket from accept. Protects the
     // OCR/Vision quota and function concurrency. Checked synchronously (before
@@ -199,128 +171,76 @@ export async function POST(req: Request) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const contentHashSha256 = sha256Hex(buffer);
     const originalFilename =
       typeof file.name === "string" && file.name.trim()
         ? file.name.trim().slice(0, 255)
         : null;
-
-    // Duplicate defense (Wave 1B): the exact same bytes already ingested for
-    // this business is a HARD duplicate. Surfaced as a decision, not silently
-    // accepted — approving both would double the expense. The owner can still
-    // force the upload with allowDuplicate ("העלה בכל זאת"), which is recorded.
     const allowDuplicate = formData.get("allowDuplicate") === "true";
-    if (!allowDuplicate) {
-      const existing = await runWithTenantContext(
-        { businessId: user.businessId },
-        () =>
-          withTenantTransaction((tx) => tx.document.findFirst({
-        where: {
-          businessId: user.businessId,
-          contentHashSha256,
-          status: { not: "failed" },
-        },
-        orderBy: { id: "desc" },
-        select: {
-          id: true,
-          status: true,
-          createdAt: true,
-          extractedData: {
-            select: { vendorName: true, amount: true, date: true },
-          },
-          financialRecord: {
-            select: { vendorName: true, amount: true, date: true },
-          },
-        },
-          }))
-      );
-      if (existing) {
-        const known = existing.financialRecord ?? existing.extractedData;
-        return NextResponse.json(
-          {
-            error: "נראה שהמסמך הזה כבר הועלה",
-            duplicate: {
-              documentId: existing.id,
-              status: existing.status,
-              uploadedAt: existing.createdAt.toISOString(),
-              vendorName: known?.vendorName ?? null,
-              amount: known?.amount ?? null,
-              date: known?.date ? known.date.toISOString() : null,
-            },
-          },
-          { status: 409 }
-        );
-      }
-    } else {
-      console.warn("[upload] duplicate override accepted", {
+
+    // The declared type got the file this far; the bytes decide whether it goes
+    // any further. Until now this route trusted `file.type` alone, which is a
+    // claim by the client, so a renamed file reached storage and the OCR
+    // pipeline under a type it did not have.
+    //
+    // This is the LAST gate before the canonical lifecycle, and deliberately so:
+    // nothing below it can run without a file whose container matches its claim
+    // — no stored object, no Document row, no processing job. The same validator
+    // the import centre uses, so the two paths accept exactly the same files.
+    const signature = verifyFileSignature(buffer, file.type);
+    if (!signature.ok) {
+      // Recorded because this gate can refuse a file the product accepted
+      // yesterday, and the only way to learn that a real owner is affected is to
+      // see it. Best-effort: observability must never decide the response.
+      await recordProductUsageEvent({
         businessId: user.businessId,
         userId: user.id,
-        contentHashSha256,
-      });
+        sessionId,
+        featureKey: PRODUCT_USAGE_FEATURES.DOCUMENTS_UPLOAD,
+        action: PRODUCT_USAGE_ACTIONS.FAILED,
+        outcome: PRODUCT_USAGE_OUTCOMES.FAILURE,
+        // The reason only, never the filename or any bytes.
+        metadata: { reason: `content-signature:${signature.reason}` },
+      }).catch(() => {});
+      // 415, matching the HEIC refusal above: both say "the format you actually
+      // sent is not one we can process". A 400 would file it with "you declared
+      // an unsupported type", which is not what happened.
+      return NextResponse.json(
+        { error: signatureRejectionMessage(signature.reason) },
+        { status: 415 }
+      );
     }
 
-    // Persist the original source file FIRST, unconditionally. A real storage
-    // failure stays fatal (no stored file = no valid Document) and is handled by
-    // the catch below.
-    storedFileName = buildStoredDocumentFileName(mimeType);
-    await putDocumentObject({
-      businessId,
-      basename: storedFileName,
-      body: buffer,
-      contentType: file.type || "image/jpeg",
+    // Everything below the acceptance gates is the canonical Documents
+    // lifecycle, and it is identical for every caller. It lives in
+    // `document-ingestion.service.ts` so a second caller — the Import Center —
+    // cannot reproduce it slightly differently. What stays here is HTTP: the
+    // status codes, the Hebrew wording, and the response shape.
+    const result = await ingestDocument({
+      businessId: user.businessId,
+      userId: user.id,
+      buffer,
+      mimeType: file.type || "image/jpeg",
+      originalFilename,
+      sizeBytes: file.size,
       source: "file",
+      allowDuplicate,
+      sessionId,
+      sourceChannel: "upload",
     });
 
-    // Create the Document row NOW, in "processing" — this is what makes it
-    // appear in the inbox/review immediately, before OCR/extraction run.
-    const document = await runWithTenantContext(
-      { businessId: user.businessId },
-      () =>
-        withTenantTransaction((tx) => tx.document.create({
-      data: {
-        businessId: user.businessId,
-        // `fileUrl` stores ONLY the stored basename (no slashes, no business
-        // id). The file route resolves the full path using the authenticated
-        // user's businessId, which prevents cross-tenant access even if the
-        // stored name leaks.
-        // assigned above (storage put succeeded) — safe non-null.
-        fileUrl: storedFileName!,
-        source: "file",
-        mimeType: file.type || "image/jpeg",
-        status: "processing",
-        ocrText: null,
-        contentHashSha256,
-        originalFilename,
-        sizeBytes: file.size,
-      },
-    }))
-    );
-    documentPersisted = true;
-
-    // Phase 2 — runs AFTER this response is sent. `after()` extends the
-    // serverless invocation until it settles, so it survives client navigation
-    // (unlike a client-triggered follow-up request). The pipeline never throws;
-    // it flips the document to needs_review/failed on its own.
-    // D2/P7-W4A: the continuation runs under an EXPLICIT tenant context —
-    // the server-derived businessId travels in the closure and is
-    // re-established via runTenantJob (never inherited from request ALS).
-    after(() =>
-      runTenantJob({ businessId: user.businessId }, () =>
-        processDocumentPipeline({
-          documentId: document.id,
-          businessId: user.businessId,
-          userId: user.id,
-          sessionId,
-          buffer,
-          mimeType,
-          sourceChannel: "upload",
-        })
-      )
-    );
+    if (!result.ok) {
+      return NextResponse.json(
+        {
+          error: "נראה שהמסמך הזה כבר הועלה",
+          duplicate: result.duplicate,
+        },
+        { status: 409 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
-      documentId: document.id,
+      documentId: result.documentId,
       status: "processing",
     });
   } catch (e) {
@@ -337,15 +257,10 @@ export async function POST(req: Request) {
         metadata: { reason: "server_error" },
       });
     }
-    // If we wrote a permanent copy but failed before persisting the Document
-    // row, remove the orphan from storage so it does not accumulate.
-    if (storedFileName && businessId && !documentPersisted) {
-      try {
-        await deleteDocumentObjectQuiet(businessId, storedFileName);
-      } catch {
-        // ignore cleanup errors
-      }
-    }
+    // Orphan-storage cleanup is NOT here any more: the only window in which a
+    // stored file can exist without its row is inside ingestDocument, and it
+    // cleans up there. Keeping a second copy of that logic in the route would
+    // mean two places to get it right.
     return NextResponse.json(
       { error: "שגיאה בהעלאת המסמך. נסה שוב מאוחר יותר." },
       { status: 500 }

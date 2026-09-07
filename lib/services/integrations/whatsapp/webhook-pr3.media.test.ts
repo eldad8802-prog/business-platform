@@ -19,8 +19,22 @@ import type { MediaFetchDeps } from "./media-fetch.types";
 import type { WhatsAppWebhookMessageSummary } from "./types";
 
 const TOKEN = "test-access-token";
-const SMALL_JPEG = Buffer.alloc(1024, 1);
-const LARGE_BUFFER = Buffer.alloc(WHATSAPP_MEDIA_MAX_BYTES + 1, 1);
+/**
+ * A real JPEG, not merely a buffer called one.
+ *
+ * It used to be 1024 filler bytes declared as image/jpeg, which passed while
+ * acceptance looked only at the declared type. Now that the bytes are checked,
+ * the fixture has to actually be the thing it claims — which is the point of
+ * the change, and makes this test mean what its name says.
+ */
+const SMALL_JPEG = Buffer.concat([
+  Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+  Buffer.alloc(1020, 1),
+]);
+const LARGE_BUFFER = Buffer.concat([
+  Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+  Buffer.alloc(WHATSAPP_MEDIA_MAX_BYTES, 1),
+]);
 
 function mockDeps(
   overrides: Partial<MediaFetchDeps> = {}
@@ -60,6 +74,29 @@ const badMime = validateWhatsAppMediaContent({
 });
 assert.equal(badMime.ok, false);
 if (!badMime.ok) assert.equal(badMime.reason, "unsupported_mime");
+
+// Bytes that contradict the provider's declared type.
+const mismatched = validateWhatsAppMediaContent({
+  buffer: Buffer.from("%PDF-1.7 really a pdf"),
+  mimeType: "image/jpeg",
+});
+assert.equal(mismatched.ok, false);
+if (!mismatched.ok) assert.equal(mismatched.reason, "content_mismatch");
+
+// No declared type: read it off the file, never assume a document is a PDF.
+const detected = validateWhatsAppMediaContent({
+  buffer: SMALL_JPEG,
+  mimeType: null,
+});
+assert.equal(detected.ok, true);
+if (detected.ok) assert.equal(detected.mimeType, "image/jpeg");
+
+const unknown = validateWhatsAppMediaContent({
+  buffer: Buffer.alloc(64, 7),
+  mimeType: null,
+});
+assert.equal(unknown.ok, false);
+if (!unknown.ok) assert.equal(unknown.reason, "unsupported_mime");
 
 async function run(): Promise<void> {
 // --- Fetch: success ---

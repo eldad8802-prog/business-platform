@@ -180,15 +180,13 @@ export async function fetchAndValidateWhatsAppMedia(
     return fail(mediaId, download.reason);
   }
 
-  const mimeType =
-    metadata.mimeType ||
-    (params.routingMediaType === "document"
-      ? "application/pdf"
-      : "image/jpeg");
-
+  // The provider's declared type, or nothing. It is deliberately NOT defaulted
+  // from the routing media type: "document" is a statement about how the
+  // message was shaped, not about what the file is, and turning it into
+  // "application/pdf" made an unknown into a confident and unchecked claim.
   const validated = validateWhatsAppMediaContent({
     buffer: download.buffer,
-    mimeType,
+    mimeType: metadata.mimeType,
   });
 
   if (!validated.ok) {

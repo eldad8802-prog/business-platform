@@ -204,6 +204,27 @@ export async function markFailedRow(
 }
 
 /**
+ * Record a row the owner chose NOT to import, in its own transaction.
+ *
+ * Safe for exactly the same reason `markFailedRow` is safe: a SKIP has no
+ * business write to be atomic with, so there is nothing for the marker to
+ * commit alongside. It is introduced for the Documents domain, where a skipped
+ * file never reaches the ingestion service at all.
+ *
+ * There is deliberately NO standalone writer for a CREATED marker. A created
+ * record and its marker must commit together, and a function that could write
+ * that marker on its own would be a way to break the invariant unnoticed.
+ */
+export async function markSkippedRow(
+  businessId: number,
+  marker: Omit<MarkerInput, "status">
+): Promise<void> {
+  await runWithTenantContext({ businessId }, () =>
+    withTenantTransaction((tx) => markRow(tx, { ...marker, status: "SKIPPED" }))
+  );
+}
+
+/**
  * Write the terminal status and the aggregate counts, once.
  *
  * After this the run can still report what it did even when its markers are

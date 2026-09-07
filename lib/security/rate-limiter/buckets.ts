@@ -76,4 +76,29 @@ export const BUCKETS: Record<BucketName, BucketConfig> = {
       { scope: "business", limit: 100, windowSeconds: 24 * 60 * 60 },
     ],
   },
+  // Documents batch import — analyze AND execute. It gets its own bucket rather
+  // than sharing DATA_TRANSFER_IMPORT_EXECUTE because the two are not the same
+  // unit of work: a tabular request costs one file parse and a run of database
+  // writes, while one accepted request here costs up to 20 object-storage
+  // writes and up to 20 OCR + extraction jobs.
+  //
+  // Sizing is therefore expressed in DOCUMENTS, not in requests. The daily
+  // business ceiling of 25 accepted requests is 500 documents at the 20-file
+  // maximum — the same daily document ceiling the single-upload path already
+  // enforces through UPLOAD_ACCEPT, so the import centre cannot become a way
+  // around it.
+  //
+  // Fail-CLOSED: a limiter outage must never become "ingest without limit" on
+  // the most expensive write path in the product. A retry after a transient
+  // failure resumes the SAME run and re-ingests nothing, so a tight limit costs
+  // a legitimate owner nothing.
+  DATA_TRANSFER_DOCUMENTS_IMPORT: {
+    failMode: "closed",
+    rules: [
+      { scope: "user", limit: 6, windowSeconds: 60 },
+      { scope: "user", limit: 30, windowSeconds: 60 * 60 },
+      { scope: "business", limit: 10, windowSeconds: 60 },
+      { scope: "business", limit: 25, windowSeconds: 24 * 60 * 60 },
+    ],
+  },
 };

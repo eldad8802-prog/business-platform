@@ -203,13 +203,24 @@ check("the hub asks direction first, and never shows the six domains", () => {
   // about importing today: prepare their data. Domain selection belongs to the
   // next step of each flow, where the direction is already known — a six-item
   // grid here would ask the second question first.
+  // I-7B added a second way IN. Documents are a different KIND of transfer —
+  // files rather than rows — so they are their own row rather than a sixth
+  // domain inside the tabular import, which would have asked the owner to pick
+  // a "domain" and then handed them a completely different screen.
   assert.deepEqual(
     IMPORT_EXPORT_ACTIONS.map((a) => a.key),
-    ["import", "templates", "export"]
+    ["import", "templates", "documents-import", "export"]
   );
-  // Templates sits with Import, not after Export: it belongs to that journey.
+  // Templates sits with Import, not after Export: it belongs to that journey,
+  // and it serves the TABULAR import specifically — which is why the documents
+  // row follows it rather than splitting it from the flow it prepares for.
   assert.equal(IMPORT_EXPORT_ACTIONS[0].key, "import");
   assert.equal(IMPORT_EXPORT_ACTIONS[1].key, "templates");
+  // Export stays last: the way out is never in the middle of the ways in.
+  assert.equal(
+    IMPORT_EXPORT_ACTIONS[IMPORT_EXPORT_ACTIONS.length - 1].key,
+    "export"
+  );
 
   // Structural, not a word scan: no hub action IS a domain. (The Export copy
   // legitimately says "והמסמכים שלך" as ordinary Hebrew, so matching domain
