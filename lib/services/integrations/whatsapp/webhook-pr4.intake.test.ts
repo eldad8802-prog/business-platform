@@ -70,6 +70,10 @@ function createMockDeps(options: {
   ocrThrow?: boolean;
   storageFail?: boolean;
   createDocumentThrow?: boolean;
+  /** The business already holds these bytes, discovered under the lock. */
+  createDocumentDuplicate?: boolean;
+  /** An existing Document with the same hash, seen by the early check. */
+  existingDocument?: boolean;
   sha256Hex?: (buf: Buffer) => string;
 }): { deps: WhatsAppIntakeDeps; rows: ImportRow[]; documents: Array<{ source: string; status: string }> } {
   const rows: ImportRow[] = [...(options.initialRows ?? [])];
@@ -180,10 +184,28 @@ function createMockDeps(options: {
       if (options.storageFail) throw new Error("disk full");
     },
     deleteDocument: async () => {},
+    markSkippedDuplicate: async (p) => {
+      rows.push({ kind: "skipped_duplicate", importId: p.importId, documentId: p.documentId });
+    },
     createDocument: async (p) => {
       if (options.createDocumentThrow) throw new Error("db down");
+      if (options.createDocumentDuplicate) {
+        return {
+          ok: false as const,
+          reason: "DUPLICATE" as const,
+          duplicate: {
+            documentId: 4242,
+            status: "needs_review",
+            uploadedAt: new Date(0).toISOString(),
+            vendorName: null,
+            amount: null,
+            date: null,
+          },
+        };
+      }
       documents.push({ source: p.source, status: "needs_review" });
       return {
+        ok: true as const,
         documentId: 9000 + documents.length,
         extractedDataId: 1,
         analysis: {

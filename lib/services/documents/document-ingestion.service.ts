@@ -54,6 +54,11 @@ import {
   putDocumentObject,
 } from "@/lib/services/documents/document-storage.service";
 import { containerForDeclaredMime } from "@/lib/services/documents/file-signature";
+import {
+  findDuplicateDocumentTx,
+  lockDocumentContent,
+  type DuplicateDocument,
+} from "@/lib/services/documents/document-duplicate";
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
 
 /** Largest single document accepted, in bytes. */
@@ -140,66 +145,11 @@ export type IngestDocumentInput = {
   withinTransaction?: (tx: TenantTx) => Promise<void>;
 };
 
-export type DuplicateDocument = {
-  documentId: number;
-  status: string;
-  uploadedAt: string;
-  vendorName: string | null;
-  amount: number | null;
-  date: string | null;
-};
+export type { DuplicateDocument };
 
 export type IngestDocumentResult =
   | { ok: true; documentId: number; status: "processing" }
   | { ok: false; reason: "DUPLICATE"; duplicate: DuplicateDocument };
-
-/**
- * Find an already-ingested document with identical bytes for THIS business.
- *
- * Tenant-scoped in the predicate and served by the
- * `(businessId, contentHashSha256)` index. `failed` rows are excluded on
- * purpose: a document whose processing failed is not evidence that the owner
- * already has this expense, and blocking a retry on it would be wrong.
- */
-async function findDuplicate(
-  businessId: number,
-  contentHashSha256: string
-): Promise<DuplicateDocument | null> {
-  const existing = await runWithTenantContext({ businessId }, () =>
-    withTenantTransaction((tx) =>
-      tx.document.findFirst({
-        where: {
-          businessId,
-          contentHashSha256,
-          status: { not: "failed" },
-        },
-        orderBy: { id: "desc" },
-        select: {
-          id: true,
-          status: true,
-          createdAt: true,
-          extractedData: {
-            select: { vendorName: true, amount: true, date: true },
-          },
-          financialRecord: {
-            select: { vendorName: true, amount: true, date: true },
-          },
-        },
-      })
-    )
-  );
-  if (!existing) return null;
-
-  const known = existing.financialRecord ?? existing.extractedData;
-  return {
-    documentId: existing.id,
-    status: existing.status,
-    uploadedAt: existing.createdAt.toISOString(),
-    vendorName: known?.vendorName ?? null,
-    amount: known?.amount ?? null,
-    date: known?.date ? known.date.toISOString() : null,
-  };
-}
 
 /**
  * Ingest one already-accepted document into the canonical Documents lifecycle.
@@ -213,22 +163,42 @@ async function findDuplicate(
  * for the owner, not an error. Every other failure throws, and the caller maps
  * it — but the storage orphan is already cleaned up before it does.
  */
+/**
+ * Raised inside the create transaction when another caller committed the same
+ * file first. Not an error condition — it carries the answer the owner needs,
+ * and exists only because a transaction callback has to abort by throwing.
+ */
+class RaceLostToDuplicate extends Error {
+  constructor(readonly duplicate: DuplicateDocument) {
+    super("duplicate document committed concurrently");
+    this.name = "RaceLostToDuplicate";
+  }
+}
+
 export async function ingestDocument(
   input: IngestDocumentInput
 ): Promise<IngestDocumentResult> {
   const contentHashSha256 = sha256Hex(input.buffer);
 
-  if (!input.allowDuplicate) {
-    const duplicate = await findDuplicate(input.businessId, contentHashSha256);
-    if (duplicate) {
-      return { ok: false, reason: "DUPLICATE", duplicate };
-    }
-  } else {
+  if (input.allowDuplicate) {
     console.warn("[documents] duplicate override accepted", {
       businessId: input.businessId,
       userId: input.userId,
       contentHashSha256,
     });
+  }
+
+  // The duplicate DECISION is taken inside the create transaction, under the
+  // content lock — see below. A cheap unlocked look happens first only to avoid
+  // storing an object and running a pipeline for a file we already hold; its
+  // answer is advisory and the locked one decides.
+  if (!input.allowDuplicate) {
+    const early = await runWithTenantContext({ businessId: input.businessId }, () =>
+      withTenantTransaction((tx) =>
+        findDuplicateDocumentTx(tx, input.businessId, contentHashSha256)
+      )
+    );
+    if (early) return { ok: false, reason: "DUPLICATE", duplicate: early };
   }
 
   // Storage FIRST, unconditionally. A real storage failure stays fatal: no
@@ -251,6 +221,23 @@ export async function ingestDocument(
         withTenantTransaction(async (tx) => {
           // FIRST statement in the transaction — see `withinTransaction`.
           if (input.withinTransaction) await input.withinTransaction(tx);
+
+          // Serialise every create for this tenant+file. An override takes the
+          // lock too: it means "create a second copy deliberately", not "skip
+          // the mutual exclusion that makes the count reliable".
+          await lockDocumentContent(tx, input.businessId, contentHashSha256);
+          if (!input.allowDuplicate) {
+            const duplicate = await findDuplicateDocumentTx(
+              tx,
+              input.businessId,
+              contentHashSha256
+            );
+            // Another caller won the race between the early look and this lock.
+            // Signalled by a throw because the surrounding transaction must not
+            // commit, and unwound into a DUPLICATE result by the catch below.
+            if (duplicate) throw new RaceLostToDuplicate(duplicate);
+          }
+
           return tx.document.create({
             data: {
               businessId: input.businessId,
@@ -278,6 +265,11 @@ export async function ingestDocument(
     await deleteDocumentObjectQuiet(input.businessId, storedFileName).catch(
       () => {}
     );
+    // Losing the race is a duplicate, not a failure. The transaction rolled
+    // back and the object above is gone, so nothing of this attempt survives.
+    if (error instanceof RaceLostToDuplicate) {
+      return { ok: false, reason: "DUPLICATE", duplicate: error.duplicate };
+    }
     throw error;
   }
 

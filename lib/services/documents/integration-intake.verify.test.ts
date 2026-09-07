@@ -120,6 +120,14 @@ class Uniqueness extends Error {
  * against committed AND buffered rows, exactly as the database would.
  */
 class World {
+  /**
+   * Content locks currently held, keyed as the database would key them.
+   *
+   * The materializer now takes a transaction-scoped advisory lock before
+   * deciding whether a duplicate exists, so the harness has to model it or it
+   * would be exercising a code path production no longer has.
+   */
+  heldLocks = new Set<string>();
   documents: DocRow[] = [];
   extracted: { id: number; documentId: number }[] = [];
   imports: ImportRow[] = [];
@@ -142,7 +150,38 @@ class World {
     const held: string[] = [];
 
     const db = {
+      // The lock. Modelled as a plain record of what was taken: the assertions
+      // care that it IS taken, before the duplicate lookup and the insert.
+      $executeRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        const sql = strings.join("?");
+        if (sql.includes("pg_advisory_xact_lock")) {
+          this.heldLocks.add(values.join(":"));
+          return 1;
+        }
+        return 0;
+      },
       document: {
+        findFirst: async ({ where }: { where: Record<string, unknown> }) => {
+          const hash = where.contentHashSha256 as string;
+          const businessId = where.businessId as number;
+          const found = this.documents
+            .filter(
+              (d) =>
+                d.businessId === businessId &&
+                d.hash === hash &&
+                d.status !== "failed"
+            )
+            .sort((a, b) => b.id - a.id)[0];
+          return found
+            ? {
+                id: found.id,
+                status: found.status,
+                createdAt: new Date(0),
+                extractedData: null,
+                financialRecord: null,
+              }
+            : null;
+        },
         create: async ({ data }: { data: Record<string, unknown> }) => {
           const row: DocRow = {
             id: this.seq++,
@@ -226,6 +265,7 @@ async function gmailImport(
     attachmentId: string;
     hash: string;
     ocrText: string | null;
+    duplicatePolicy?: "SKIP_IF_EXISTS" | "ALLOW";
     /** Simulates a crash inside the transaction after the identity row. */
     failAfterIdentity?: boolean;
   }
@@ -243,6 +283,7 @@ async function gmailImport(
     source: "email",
     mimeType: "application/pdf",
     ocrText: opts.ocrText,
+    duplicatePolicy: opts.duplicatePolicy ?? "ALLOW",
     fileUrl: "doc-1.pdf",
     contentHashSha256: opts.hash,
     withinTransaction: async (tx, documentId) => {
@@ -282,6 +323,9 @@ async function gmailImport(
     const written = await world.transaction((db) =>
       writeDocumentRecords(db, params, extracted, opts.ocrText)
     );
+    if (!written.created) {
+      return { outcome: "duplicate", documentId: written.duplicate.documentId };
+    }
     return { outcome: "imported", documentId: written.documentId };
   } catch (error) {
     if ((error as { code?: string }).code === "P2002" && !importRowWritten) {
@@ -603,8 +647,28 @@ async function main() {
     const hookStart = gmailCode.indexOf("withinTransaction:");
     const hookCreate = gmailCode.indexOf("emailAttachmentImport.create(", hookStart);
     assert.equal(hookCreate > hookStart, true, "the create lives in the hook");
-    // and nowhere else
-    assert.equal((gmailCode.match(/emailAttachmentImport\.create\(/g) ?? []).length, 1);
+    // Exactly two call sites, and each is justified:
+    //   - inside the hook, atomic with the Document it describes
+    //   - the standalone skipped-duplicate record, which creates NO Document
+    //     and therefore has nothing to be atomic with
+    const sites = [...gmailCode.matchAll(/emailAttachmentImport\.create\(/g)].map(
+      (m) => m.index ?? -1
+    );
+    assert.equal(sites.length, 2, "no third writer appeared");
+    const inHook = sites.filter((i) => i > hookStart);
+    assert.equal(inHook.length, 1, "exactly one write inside the hook");
+    const standalone = sites.find((i) => i < hookStart)!;
+    const standaloneBlock = gmailCode.slice(standalone, standalone + 700);
+    assert.equal(
+      standaloneBlock.includes('status: "skipped_duplicate"'),
+      true,
+      "the standalone write records a skip, never an import"
+    );
+    assert.equal(
+      standaloneBlock.includes("documentId: existingDocument.documentId"),
+      true,
+      "and links to the Document it deferred to"
+    );
   });
 
   await check("the materializer runs the hook last, inside its one transaction", () => {

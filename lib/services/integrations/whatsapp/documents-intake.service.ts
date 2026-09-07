@@ -1,4 +1,5 @@
 import { createDocumentFromOcrText } from "@/lib/services/documents/create-document-from-ocr.service";
+import { findDuplicateDocumentTx } from "@/lib/services/documents/document-duplicate";
 import {
   buildStoredDocumentFileName,
   deleteDocumentObjectQuiet,
@@ -38,6 +39,7 @@ import {
   createWhatsAppFailedImport,
   markWhatsAppImportFailed,
   markWhatsAppImportImported,
+  markWhatsAppImportSkippedDuplicate,
 } from "./whatsapp-import-row.service";
 
 export type WhatsAppDocumentsIntakeInput = {
@@ -50,7 +52,16 @@ export type WhatsAppDocumentsIntakeInput = {
 };
 
 export type WhatsAppIntakeOutcome =
-  | { status: "skipped_duplicate"; reason: "wamid" | "content_hash" }
+  | {
+      status: "skipped_duplicate";
+      /**
+       * `existing_document` is the CROSS-CHANNEL case: this business already
+       * holds these bytes as a Document, however it arrived. The other two are
+       * channel-event replays.
+       */
+      reason: "wamid" | "content_hash" | "existing_document";
+      documentId?: number;
+    }
   | { status: "failed"; reason: string; importId?: number }
   | { status: "imported"; documentId: number; importId: number };
 
@@ -61,6 +72,7 @@ export type WhatsAppIntakeDeps = {
   claimProcessing: typeof claimWhatsAppProcessingImport;
   markImported: typeof markWhatsAppImportImported;
   markFailed: typeof markWhatsAppImportFailed;
+  markSkippedDuplicate: typeof markWhatsAppImportSkippedDuplicate;
   fetchMedia: (
     params: { mediaId: string; routingMediaType: DocumentsIntakeMediaType },
     deps?: Partial<MediaFetchDeps>
@@ -89,6 +101,7 @@ export const defaultWhatsAppIntakeDeps: WhatsAppIntakeDeps = {
   claimProcessing: claimWhatsAppProcessingImport,
   markImported: markWhatsAppImportImported,
   markFailed: markWhatsAppImportFailed,
+  markSkippedDuplicate: markWhatsAppImportSkippedDuplicate,
   fetchMedia: fetchAndValidateWhatsAppMedia,
   sha256Hex,
   writeTempOcrFile,
@@ -218,6 +231,27 @@ export async function processWhatsAppDocumentsIntake(
     return { status: "skipped_duplicate", reason: "content_hash" };
   }
 
+  // Cross-channel: the business may already hold these exact bytes from the
+  // upload screen, the import centre or Gmail. Asked before the claim, storage
+  // and OCR, so a file already held costs none of them. The authoritative
+  // race-safe check runs again inside the create transaction.
+  const existingDocument = await dbStep((tx) =>
+    // `dbStep` hands over the tenant transaction whenever a tenant context is
+    // established, which the webhook path always has. Without one there is no
+    // tenant-scoped read to make, so this returns nothing rather than querying
+    // through some other client.
+    tx
+      ? findDuplicateDocumentTx(tx, input.businessId, contentHashSha256)
+      : Promise.resolve(null)
+  );
+  if (existingDocument) {
+    return {
+      status: "skipped_duplicate",
+      reason: "existing_document",
+      documentId: existingDocument.documentId,
+    };
+  }
+
   // The claim INSERT gets its own transaction: a P2002 race aborts only this
   // tx; the wamid-vs-hash disambiguation then runs on a fresh transaction.
   let claim: Awaited<ReturnType<typeof deps.claimProcessing>>;
@@ -319,6 +353,9 @@ export async function processWhatsAppDocumentsIntake(
         source: "whatsapp",
         mimeType: mediaResult.mimeType,
         ocrText: rawText,
+        // The channel's policy: an inbound copy of a file the business already
+        // holds defers to it instead of creating a second Document.
+        duplicatePolicy: "SKIP_IF_EXISTS",
         fileUrl: storedFileName,
         contentHashSha256,
         originalFilename: mediaResult.filename ?? null,
@@ -326,6 +363,32 @@ export async function processWhatsAppDocumentsIntake(
       });
     } catch {
       return fail("create_document_failed");
+    }
+
+    if (!created.ok) {
+      // Lost the race to another channel between the early check and the lock.
+      // Nothing was written, so release the object this attempt stored and
+      // record the event as a duplicate skip rather than a failure.
+      await dbStep((tx) =>
+        deps.markSkippedDuplicate(
+          {
+            importId,
+            businessId: input.businessId,
+            documentId: created.duplicate.documentId,
+          },
+          { tx }
+        )
+      );
+      try {
+        await deps.deleteDocument(input.businessId, storedFileName);
+      } catch {
+        // ignore cleanup errors
+      }
+      return {
+        status: "skipped_duplicate",
+        reason: "existing_document",
+        documentId: created.duplicate.documentId,
+      };
     }
 
     documentCreated = true;

@@ -201,11 +201,36 @@ check("storage is written BEFORE the Document row", () => {
   );
 });
 
-check("the duplicate check happens BEFORE anything is written", () => {
-  const dup = serviceCode.indexOf("findDuplicate(");
+check("a cheap duplicate look happens BEFORE anything is written", () => {
+  // Advisory only: it exists so a file the business already holds costs no
+  // storage write and no pipeline. The decision that binds is the locked one.
+  const early = serviceCode.indexOf("findDuplicateDocumentTx(");
   const put = serviceCode.indexOf("putDocumentObject(");
-  assert.notEqual(dup, -1);
-  assert.equal(dup < put, true);
+  assert.notEqual(early, -1);
+  assert.equal(early < put, true);
+});
+
+check("the BINDING duplicate decision is taken under the content lock", () => {
+  // A check in its own transaction is a snapshot, not a guarantee: two callers
+  // could both read "no duplicate" and both insert. The authoritative check
+  // runs inside the create transaction, after taking the lock.
+  const lock = serviceCode.indexOf("lockDocumentContent(tx");
+  const create = serviceCode.indexOf("tx.document.create(");
+  assert.notEqual(lock, -1, "the create transaction takes the content lock");
+  assert.equal(lock < create, true, "and takes it before creating");
+  const between = serviceCode.slice(lock, create);
+  assert.equal(between.includes("findDuplicateDocumentTx("), true);
+});
+
+check("an explicit override still takes the lock, and only skips the check", () => {
+  const lock = serviceCode.indexOf("lockDocumentContent(tx");
+  const create = serviceCode.indexOf("tx.document.create(");
+  const between = serviceCode.slice(lock, create);
+  // The guard sits around the LOOKUP, never around the lock itself: an override
+  // means "create a second copy deliberately", not "skip the serialisation".
+  assert.equal(between.includes("if (!input.allowDuplicate)"), true);
+  const guard = between.indexOf("if (!input.allowDuplicate)");
+  assert.equal(guard > 0, true, "the lock is taken before the override guard");
 });
 
 check("phase 2 is scheduled by the SERVICE, so a caller cannot forget it", () => {
@@ -242,12 +267,21 @@ check("every DB access runs inside the tenant substrate", () => {
   assert.equal(/\bprisma\./.test(serviceCode), false);
 });
 
-check("the duplicate lookup is tenant-scoped", () => {
-  const fn = serviceCode.slice(serviceCode.indexOf("async function findDuplicate"));
+check("the duplicate lookup is tenant-scoped, and lives in ONE place", () => {
+  // It moved out of this service when a second and third intake path needed
+  // the same answer. Two copies of "does this business already hold it" is two
+  // chances to disagree.
+  const shared = fs.readFileSync(
+    "lib/services/documents/document-duplicate.ts",
+    "utf8"
+  );
+  const fn = shared.slice(shared.indexOf("export async function findDuplicateDocumentTx"));
   const body = fn.slice(0, fn.indexOf("\n}"));
   assert.equal(body.includes("businessId,"), true);
   assert.equal(body.includes("contentHashSha256,"), true);
   assert.equal(body.includes('status: { not: "failed" }'), true);
+  // and this service no longer carries its own copy
+  assert.equal(/async function findDuplicate\b/.test(serviceCode), false);
 });
 
 check("the stored name is derived, never taken from the uploader", () => {
