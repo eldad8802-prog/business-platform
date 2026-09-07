@@ -25,6 +25,7 @@ on:
           - 'ops/evidence/migration-state-evidence.sql'
           - 'ops/evidence/auth-token-version-evidence.sql'
           - 'ops/evidence/conversation-coherence-evidence.sql'
+          - 'ops/evidence/i8a-historical-fiscal-evidence.sql'
 
 permissions:
   contents: read
