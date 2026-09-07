@@ -263,6 +263,40 @@ async function main() {
       );
     }
 
+    console.log("\n--- D2: two tenants, SEQUENTIALLY (the leak detector) ---");
+    {
+      const bizA = await biz("D2a");
+      const bizB = await biz("D2b");
+      const hash = "2".repeat(64);
+
+      const first = await A.$transaction(
+        async (tx) => writeDocumentRecords(tx, params(bizA, hash, "SKIP_IF_EXISTS"), null, null),
+        TX
+      );
+      ok("D2: tenant A creates its Document", first.created === true);
+
+      // A's document is COMMITTED and visible before B begins, so a duplicate
+      // query that forgot the tenant would find it and wrongly decline.
+      const second = await B.$transaction(
+        async (tx) => writeDocumentRecords(tx, params(bizB, hash, "SKIP_IF_EXISTS"), null, null),
+        TX
+      );
+      ok(
+        "D2: tenant B still creates, seeing another tenant's copy as none of its business",
+        second.created === true
+      );
+      ok("D2: tenant A has exactly one", (await countFor(bizA, hash)) === 1);
+      ok("D2: tenant B has exactly one", (await countFor(bizB, hash)) === 1);
+
+      // And within ONE tenant, sequential really does decline.
+      const again = await A.$transaction(
+        async (tx) => writeDocumentRecords(tx, params(bizA, hash, "SKIP_IF_EXISTS"), null, null),
+        TX
+      );
+      ok("D2: the same tenant declines a second copy", again.created === false);
+      ok("D2: tenant A still has exactly one", (await countFor(bizA, hash)) === 1);
+    }
+
     console.log("\n--- E: a failed Document does not block re-ingestion ---");
     {
       const businessId = await biz("E");
