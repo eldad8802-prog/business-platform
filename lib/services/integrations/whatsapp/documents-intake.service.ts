@@ -1,4 +1,5 @@
 import { createDocumentFromOcrText } from "@/lib/services/documents/create-document-from-ocr.service";
+import { syncDocumentsReviewQueueNotification } from "@/lib/notifications/documents-review-queue-notifications";
 import { findDuplicateDocumentTx } from "@/lib/services/documents/document-duplicate";
 import {
   buildStoredDocumentFileName,
@@ -402,6 +403,16 @@ export async function processWhatsAppDocumentsIntake(
         { tx }
       )
     );
+
+    // The one path in this domain where the owner is not present. A supplier
+    // sends an invoice over WhatsApp, it lands in `needs_review`, and until now
+    // nothing told them. AFTER both transactions above committed; the tenant
+    // context is the one runTenantJob established in the webhook from the
+    // server-resolved connection lookup, never a payload field.
+    //
+    // It cannot affect the outcome: the document is durable, and the webhook
+    // must answer 200 regardless or Meta will redeliver a file we already have.
+    await syncDocumentsReviewQueueNotification(input.businessId, new Date());
 
     return {
       status: "imported",

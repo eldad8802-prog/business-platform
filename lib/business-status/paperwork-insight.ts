@@ -20,6 +20,7 @@ async function dbStep<T>(fn: (db: typeof prisma) => Promise<T>): Promise<T> {
 import {
   countPendingReviewAllTime,
   listPendingReviewMonths,
+  pendingReviewInboxHref,
 } from "@/lib/documents/pending-review";
 import type { PaperworkInsightPayload } from "./types";
 
@@ -71,11 +72,12 @@ export async function evaluatePaperworkInsight(
   // on an empty view while the backlog sits in earlier months. Point the CTA at
   // the most recent month that actually has pending documents, so it never
   // contradicts this insight.
+  //
+  // The expression moved into `pendingReviewInboxHref` unchanged, because the
+  // review-queue notification now has to reach the same place. Two copies would
+  // be two answers to "where is the backlog".
   const pendingMonths = await listPendingReviewMonths(businessId);
-  const targetMonth = pendingMonths[0] ?? null;
-  const ctaHref = targetMonth
-    ? `/documents/inbox?month=${targetMonth}`
-    : "/documents/inbox";
+  const ctaHref = pendingReviewInboxHref(pendingMonths);
 
   return {
     title: "הניירת הפיננסית נשארת מאחור",

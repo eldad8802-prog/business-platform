@@ -7,6 +7,7 @@ import { resolveDocumentOutputProfile } from "@/lib/services/documents/output-pr
 import { buildReviewEventCreateData } from "@/lib/services/documents/ledger/correction-ledger.service";
 import { normalizeVendorForLearning } from "@/lib/services/documents/vendor-normalization.service";
 import { runShadowMaterialization } from "@/lib/business-memory/shadow";
+import { syncDocumentsReviewQueueNotification } from "@/lib/notifications/documents-review-queue-notifications";
 
 export async function POST(
   req: Request,
@@ -366,6 +367,19 @@ export async function POST(
       vendorInput: body.extracted?.vendorName ?? null,
       evidencePersisted: true,
     });
+
+    // The review queue just shrank by one. AFTER the approval transaction
+    // committed, and a recount rather than a decrement: the notification states
+    // how many are waiting, and that number is only ever read from the
+    // canonical uncapped selector. This call is also what closes the
+    // notification once the backlog drops below the threshold.
+    //
+    // The context is re-entered because the ones above closed with their
+    // transactions. It cannot affect the response: the approval is durable and
+    // the sync swallows its own errors and returns them as data.
+    await runWithTenantContext({ businessId: user.businessId }, () =>
+      syncDocumentsReviewQueueNotification(user.businessId, new Date())
+    );
 
     return Response.json({
       success: true,
