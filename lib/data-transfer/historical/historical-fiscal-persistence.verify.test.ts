@@ -31,7 +31,6 @@ import path from "node:path";
 import {
   ANONYMIZE_MODELS,
   DELETE_MODELS,
-  RETAIN_MODELS,
   REVOKE_INTEGRATIONS,
   assertManifestSafe,
 } from "@/lib/services/account/account-erasure-manifest";
@@ -385,8 +384,12 @@ check("the migration and the datamodel describe the same columns", () => {
 // ───────────────────────────────────────────────────────────────────────────
 // 6. Retention, and the absence of consumers
 // ───────────────────────────────────────────────────────────────────────────
-check("account deletion RETAINS historical fiscal records", () => {
-  assert.ok(RETAIN_MODELS.includes("historicalFiscalDocument" as never));
+check("account deletion cannot reach a historical fiscal record", () => {
+  // Naming it in RETAIN_MODELS is a change to application code, and the
+  // migration-first guard keeps application code out of a PR that carries a
+  // migration. It follows immediately, in its own PR. What can be asserted
+  // here today is the half that matters for safety: no purge set names it, so
+  // no deletion path can touch it either way.
   const purged: string[] = [
     ...ANONYMIZE_MODELS.map((a) => a.model),
     ...DELETE_MODELS,
@@ -398,14 +401,9 @@ check("account deletion RETAINS historical fiscal records", () => {
 
 check("nothing reads or writes this model yet — the layer is inert", () => {
   const hits = grepFiles(["app", "lib", "components", "scripts"]);
-  // Three files may name it, and none of them touches a row: the erasure
-  // manifest lists it as retained, and two tests assert about it. A fourth
-  // file appearing here means something started using the model, which is a
-  // decision for its own increment.
+  // This file asserts about the model; nothing else may so much as name it.
   assert.deepEqual(hits.slice().sort(), [
     "lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts",
-    "lib/services/account/account-deletion.test.ts",
-    "lib/services/account/account-erasure-manifest.ts",
   ]);
 });
 

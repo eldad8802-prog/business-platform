@@ -33,10 +33,6 @@ export const RETAIN_MODELS = [
   "extractedData",
   "emailAttachmentImport",
   "whatsAppAttachmentImport",
-  // historical fiscal facts imported from a prior system. Retained for the same
-  // reason the documents they describe are: the obligation to keep a fiscal record
-  // does not care which software produced it.
-  "historicalFiscalDocument",
 ] as const;
 
 /** Bucket C — external integration credentials to revoke (provider-side best-effort) +
