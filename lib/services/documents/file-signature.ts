@@ -76,6 +76,20 @@ export function containerForDeclaredMime(
   return DECLARED_TO_CONTAINER.get(normalizeDeclaredMime(mimeType)) ?? null;
 }
 
+/**
+ * The media type Dubiz records for a container.
+ *
+ * Needed where no declared type exists at all — an inbound channel whose
+ * provider omitted it. Reading the container from the bytes is the only
+ * authority available there, and it is a better one than a declaration: it
+ * cannot be asserted by whoever sent the file.
+ */
+export function canonicalMimeForContainer(container: DocumentContainer): string {
+  if (container === "pdf") return "application/pdf";
+  if (container === "jpeg") return "image/jpeg";
+  return "image/png";
+}
+
 /** Signature check result, kept separate from the declared type. */
 export type SignatureVerdict =
   | { ok: true; detected: DocumentContainer }

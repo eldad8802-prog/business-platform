@@ -14,6 +14,15 @@ import { writeTempOcrFile } from "@/lib/services/integrations/gmail/temp-ocr-fil
 import { runGoogleVisionOCR } from "@/lib/services/documents/google-vision-ocr.service";
 import { createDocumentFromOcrText } from "@/lib/services/documents/create-document-from-ocr.service";
 import {
+  DOCUMENT_MAX_UPLOAD_BYTES,
+  isAllowedDocumentMime,
+  isHeicMimeType,
+} from "@/lib/services/documents/document-ingestion.service";
+import {
+  signatureRejectionMessage,
+  verifyFileSignature,
+} from "@/lib/services/documents/file-signature";
+import {
   buildStoredDocumentFileName,
   deleteDocumentObjectQuiet,
   putDocumentObject,
@@ -21,7 +30,14 @@ import {
 
 export const runtime = "nodejs";
 
-const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024; // 15MB (MVP)
+/**
+ * The Documents ceiling, not a second copy of the number.
+ *
+ * It was an independent constant that happened to hold the same value; two
+ * numbers obliged to agree with nothing making them agree is a drift waiting to
+ * happen.
+ */
+const MAX_ATTACHMENT_BYTES = DOCUMENT_MAX_UPLOAD_BYTES;
 
 type ImportRequestBody = {
   messageId: string;
@@ -33,11 +49,6 @@ type ImportRequestBody = {
   subject: string | null;
   sentAt: string | null;
 };
-
-function isAllowedMime(mimeType: string): boolean {
-  const m = mimeType.toLowerCase();
-  return m === "application/pdf" || m.startsWith("image/");
-}
 
 function safeString(v: unknown): string {
   return typeof v === "string" ? v : "";
@@ -120,9 +131,29 @@ async function handleAuthedImport(
       );
     }
 
-    if (!body.mimeType || !isAllowedMime(body.mimeType)) {
+    // The canonical Documents allowlist — the same closed PDF/JPEG/PNG set the
+    // upload screen and the import centre enforce. It used to be a private
+    // wildcard here, so an emailed file could enter Documents that a direct
+    // upload of the very same file would have refused.
+    //
+    // Provenance limitation, stated rather than papered over: this type is
+    // still supplied by the CLIENT in the request body. Passing this gate means
+    // the claim is one we support, and the byte check below means the file
+    // really is that container — but the claim itself is not yet read from the
+    // Gmail message payload.
+    if (body.mimeType && isHeicMimeType(body.mimeType)) {
       return NextResponse.json(
-        { error: "סוג קובץ לא נתמך (נדרש PDF או תמונה)" },
+        {
+          error:
+            "פורמט HEIC לא נתמך. צלם מחדש או המר את התמונה ל-JPG (בהגדרות המצלמה: 'תאימות מרבית').",
+        },
+        { status: 415 }
+      );
+    }
+
+    if (!body.mimeType || !isAllowedDocumentMime(body.mimeType)) {
+      return NextResponse.json(
+        { error: "סוג קובץ לא נתמך (נדרש PDF, JPG או PNG)" },
         { status: 400 }
       );
     }
@@ -186,6 +217,17 @@ async function handleAuthedImport(
       return NextResponse.json({ error: "הקובץ המצורף ריק" }, { status: 400 });
     }
 
+    // Now the bytes decide. Nothing below this line runs for a file whose
+    // container contradicts its declared type: no storage write, no OCR call,
+    // no Document. Same validator as the upload screen and the import centre.
+    const signature = verifyFileSignature(Buffer.from(bytes), body.mimeType);
+    if (!signature.ok) {
+      return NextResponse.json(
+        { error: signatureRejectionMessage(signature.reason) },
+        { status: 415 }
+      );
+    }
+
     const contentHashSha256 = sha256Hex(bytes);
 
     // Dedup by hash AFTER hashing bytes.
@@ -242,85 +284,80 @@ async function handleAuthedImport(
       source: "email",
     });
 
-    let documentId: number;
-    let extractedDataId: number | null = null;
-    let analysis:
-      | {
-          documentType: string;
-          isFinancial: boolean;
-          guardrailRoute: string;
-          needsReview: boolean;
-          direction: string;
-          confidence: number;
-        }
-      | null = null;
+    // ---- Document + import identity, in ONE transaction --------------------
+    //
+    // These used to commit separately, and the gap between them was reachable:
+    // a crash after the Document left a document that no retry could recognise,
+    // because a retry looks for the EmailAttachmentImport row and there wasn't
+    // one — so it imported the same attachment again. The concurrent version was
+    // worse: both requests created a Document, one lost the unique constraint on
+    // the import row, and its Document survived unlinked while the caller was
+    // told "duplicate, skipped".
+    //
+    // The import row is now written INSIDE the transaction that creates the
+    // Document, through the materializer's hook. Committed together or not at
+    // all, so "Document exists, import identity absent" is not a state the
+    // database can hold — which is the same principle the import ledger uses.
+    //
+    // The OCR-empty case goes through the SAME materializer with `ocrText: null`
+    // rather than a hand-rolled `document.create` beside it. One creator, one
+    // set of guarantees; a bare Document keeps exactly its previous meaning of
+    // "the file is real, nothing could be read from it".
+    let importRowWritten = false;
+    let created: Awaited<ReturnType<typeof createDocumentFromOcrText>>;
+    // Assigned by the hook below, which the materializer awaits inside the
+    // transaction it commits — so by the time that resolves, this is set.
+    let emailImportId = 0;
 
-    if (ocrSucceeded) {
-      const created = await createDocumentFromOcrText({
+    try {
+      created = await createDocumentFromOcrText({
         businessId: user.businessId,
         source: "email",
         mimeType: body.mimeType,
-        ocrText: rawText,
+        ocrText: ocrSucceeded ? rawText : null,
         fileUrl: storedFileName,
         contentHashSha256,
         originalFilename: body.filename,
         sizeBytes: effectiveSize || null,
-      });
-      documentId = created.documentId;
-      extractedDataId = created.extractedDataId;
-      analysis = created.analysis;
-    } else {
-      // No OCR text → create a bare Document (no ExtractedData). It surfaces in
-      // the Review Station as needs_review with empty fields for manual entry.
-      // storedFileName assigned above (storage put succeeded) — closure loses
-      // the outer narrowing, hence the non-null assertion.
-      const bareDocument = await withTenantTransaction((tx) => tx.document.create({
-        data: {
-          businessId: user.businessId,
-          fileUrl: storedFileName!,
-          source: "email",
-          mimeType: body.mimeType,
-          status: "needs_review",
-          ocrText: null,
-          contentHashSha256,
-          originalFilename: body.filename?.trim().slice(0, 255) || null,
-          sizeBytes: effectiveSize || null,
+        withinTransaction: async (tx, documentId) => {
+          const row = await tx.emailAttachmentImport.create({
+            data: {
+              businessId: user.businessId,
+              connectionId,
+              provider: "gmail",
+              messageId: body.messageId,
+              attachmentId: body.attachmentId,
+              filename: body.filename,
+              mimeType: body.mimeType,
+              sizeBytes: body.sizeBytes,
+              fromEmail: body.fromEmail,
+              subject: body.subject,
+              sentAt: body.sentAt ? new Date(body.sentAt) : null,
+              contentHashSha256,
+              status: "imported",
+              documentId,
+            },
+          });
+          emailImportId = row.id;
+          importRowWritten = true;
         },
-      }));
-      documentId = bareDocument.id;
-    }
-    permanentFilePersisted = true;
-
-    // Final import record on a tenant transaction; a concurrent duplicate
-    // (dedup pre-checks are advisory — the DB uniques are the guarantee)
-    // resolves as a duplicate-skip instead of a 500.
-    let emailImport;
-    try {
-      emailImport = await withTenantTransaction((tx) =>
-        tx.emailAttachmentImport.create({
-          data: {
-            businessId: user.businessId,
-            connectionId,
-            provider: "gmail",
-            messageId: body.messageId,
-            attachmentId: body.attachmentId,
-            filename: body.filename,
-            mimeType: body.mimeType,
-            sizeBytes: body.sizeBytes,
-            fromEmail: body.fromEmail,
-            subject: body.subject,
-            sentAt: body.sentAt ? new Date(body.sentAt) : null,
-            contentHashSha256,
-            status: "imported",
-            documentId,
-          },
-        })
-      );
+      });
     } catch (raceErr) {
+      // The dedup pre-checks are advisory; the DB uniques are the guarantee.
+      // A violation here means another request already owns this attachment
+      // identity — and because the write was inside the transaction, the
+      // Document it would have belonged to has already rolled back.
       if (
         raceErr instanceof Prisma.PrismaClientKnownRequestError &&
-        raceErr.code === "P2002"
+        raceErr.code === "P2002" &&
+        !importRowWritten
       ) {
+        // Nothing points at the object this request stored, so remove it here
+        // rather than leaving the loser's upload behind.
+        await deleteDocumentObjectQuiet(user.businessId, storedFileName).catch(
+          () => {}
+        );
+        storedFileName = null;
         return NextResponse.json({
           success: true,
           imported: false,
@@ -330,6 +367,12 @@ async function handleAuthedImport(
       }
       throw raceErr;
     }
+
+    const documentId = created.documentId;
+    const extractedDataId = created.extractedDataId;
+    const analysis = created.analysis;
+    // Set only now: before this point a failure must still delete the object.
+    permanentFilePersisted = true;
 
     return NextResponse.json({
       success: true,
@@ -341,7 +384,7 @@ async function handleAuthedImport(
       contentHashSha256,
       documentId,
       extractedDataId,
-      emailAttachmentImportId: emailImport.id,
+      emailAttachmentImportId: emailImportId,
       analysis,
     });
   } catch (error) {

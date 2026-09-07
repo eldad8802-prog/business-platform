@@ -364,6 +364,85 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: skipping both sides of a collision fails the verifier"
 
+      # I-7C.3 — inbound integration intake. Blocking for two reasons: which
+      # files Dubiz accepts must not depend on which door they arrive through,
+      # and a Gmail import must not be able to leave a Document that a retry
+      # cannot recognise — that state used to be reachable, and the retry then
+      # imported the same attachment a second time.
+      # Pure — no DB, no network, no Meta, no Gmail.
+      # Local equivalent: npm run verify:integration-intake
+      - name: Integration intake (canonical acceptance, Gmail idempotency)
+        run: npx tsx lib/services/documents/integration-intake.verify.test.ts
+
+      - name: I-7C.3 negative proof (a Gmail signature refusal that does not stop the import must be caught)
+        run: |
+          F="app/api/integrations/gmail/import/route.ts"
+          cp "$F" "$F.bak"
+          # The call stays exactly where it is; only its verdict is ignored.
+          # Ordering assertions alone would not notice.
+          perl -0pi -e 's/    if \(!signature\.ok\) \{/    if (false) {/' "$F"
+          if npx tsx lib/services/documents/integration-intake.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an ignored signature verdict passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an ignored signature verdict fails the verifier"
+
+      - name: I-7C.3 negative proof (a private integration allowlist must be caught)
+        run: |
+          F="app/api/integrations/gmail/import/route.ts"
+          cp "$F" "$F.bak"
+          # The wildcard that let an emailed file into Documents when a direct
+          # upload of the same file would have been refused.
+          perl -0pi -e 's/    if \(!body\.mimeType \|\| !isAllowedDocumentMime\(body\.mimeType\)\) \{/    if (!body.mimeType || !(body.mimeType === "application\/pdf" || body.mimeType.startsWith("image\/"))) {/' "$F"
+          if npx tsx lib/services/documents/integration-intake.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a private allowlist passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a private allowlist fails the verifier"
+
+      - name: I-7C.3 negative proof (a fabricated WhatsApp media type must be caught)
+        run: |
+          F="lib/services/integrations/whatsapp/media-validation.service.ts"
+          cp "$F" "$F.bak"
+          # Missing metadata becomes "probably a PDF" again, so an unidentified
+          # file is stored, OCR'd and recorded under a type nobody established.
+          perl -0pi -e 's/    const detected = detectFileSignature\(params\.buffer\);\r?\n    if \(detected === null\) return \{ ok: false, reason: "unsupported_mime" \};/    const detected = detectFileSignature(params.buffer) ?? "pdf";/' "$F"
+          if npx tsx lib/services/documents/integration-intake.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a fabricated media type passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a fabricated media type fails the verifier"
+
+      - name: I-7C.3 negative proof (a Gmail identity row outside the transaction must be caught)
+        run: |
+          F="app/api/integrations/gmail/import/route.ts"
+          cp "$F" "$F.bak"
+          # THE defect this increment closed: the import identity leaves the
+          # transaction that creates the Document, so a crash between them
+          # leaves a Document no retry can see.
+          perl -0pi -e 's/        withinTransaction: async \(tx, documentId\) => \{/        unusedHook: async (tx: never, documentId: number) => {/' "$F"
+          if npx tsx lib/services/documents/integration-intake.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an uncoupled identity row passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an uncoupled identity row fails the verifier"
+
+      - name: I-7C.3 negative proof (a hook running outside the tenant transaction must be caught)
+        run: |
+          F="lib/services/documents/create-document-from-ocr.service.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    return withTenantTransaction\(\(tx\) => fn\(tx\)\);/    return fn(prisma as unknown as TenantTx);/' "$F"
+          if npx tsx lib/services/documents/integration-intake.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an untenanted transaction passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an untenanted transaction fails the verifier"
+
       # Import/Export Center I-7 — Documents. Blocking because this is the only
       # import path that writes to TWO durability systems (object storage and
       # PostgreSQL), and its failure mode is silent duplication: a retried batch

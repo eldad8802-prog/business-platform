@@ -126,9 +126,9 @@
     "verify:document-ingestion": "npx tsx lib/services/documents/document-ingestion.verify.test.ts",
     "verify:document-ingestion": "npx tsx lib/services/documents/document-ingestion.verify.test.ts",
     "verify:document-ingestion": "npx tsx lib/services/documents/document-ingestion.verify.test.ts",
-    "verify:document-ingestion": "npx tsx lib/services/documents/document-ingestion.verify.test.ts",
     "verify:documents-analyze": "npx tsx lib/data-transfer/documents/documents-analyze.verify.test.ts",
-    "verify:documents-execute": "npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts"
+    "verify:documents-execute": "npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts",
+    "verify:integration-intake": "npx tsx lib/services/documents/integration-intake.verify.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",

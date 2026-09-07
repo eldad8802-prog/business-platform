@@ -6,7 +6,9 @@ export type MediaFetchFailureReason =
   | "missing_media_url"
   | "download_failed"
   | "unsupported_mime"
-  | "file_too_large";
+  | "file_too_large"
+  /** Recognised bytes that contradict the provider's declared type. */
+  | "content_mismatch";
 
 export type MediaFetchSuccess = {
   ok: true;
