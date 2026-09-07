@@ -21,7 +21,13 @@ import {
   legacyRefreshTokenUpgrade,
 } from "./token-crypto.placeholder";
 import { refreshGoogleAccessToken } from "./oauth-refresh.service";
+import { isAllowedDocumentMime } from "@/lib/services/documents/document-ingestion.service";
 import { GmailReauthRequiredError } from "./gmail-errors";
+import {
+  collectAttachmentParts,
+  type GmailMessagePart,
+  type GmailMessageResponse,
+} from "./gmail-message-parts";
 
 export type GmailAttachmentMetadata = {
   messageId: string;
@@ -38,22 +44,6 @@ type GmailMessageListResponse = {
   messages?: Array<{ id: string; threadId?: string }>;
   nextPageToken?: string;
   resultSizeEstimate?: number;
-};
-
-type GmailMessageResponse = {
-  id: string;
-  threadId?: string;
-  internalDate?: string; // ms since epoch (string)
-  payload?: GmailMessagePart;
-};
-
-type GmailMessagePart = {
-  partId?: string;
-  mimeType?: string;
-  filename?: string;
-  headers?: Array<{ name: string; value: string }>;
-  body?: { attachmentId?: string; size?: number };
-  parts?: GmailMessagePart[];
 };
 
 function requireEnv(name: string): string {
@@ -88,24 +78,6 @@ function parseSentAtIso(input: { dateHeader: string | null; internalDate: string
     if (Number.isFinite(ms)) return new Date(ms).toISOString();
   }
   return null;
-}
-
-function collectAttachments(part: GmailMessagePart | undefined, acc: GmailMessagePart[] = []): GmailMessagePart[] {
-  if (!part) return acc;
-
-  const filename = String(part.filename || "");
-  const attachmentId = part.body?.attachmentId;
-  const mimeType = String(part.mimeType || "");
-
-  if (attachmentId && (filename.length > 0 || mimeType)) {
-    acc.push(part);
-  }
-
-  for (const p of part.parts || []) {
-    collectAttachments(p, acc);
-  }
-
-  return acc;
 }
 
 async function gmailFetchJson<T>(url: string, accessToken: string): Promise<T> {
@@ -221,7 +193,7 @@ export async function discoverGmailAttachments(params: {
     const dateHeader = headerValue(topHeaders, "Date");
     const sentAt = parseSentAtIso({ dateHeader, internalDate: msg.internalDate });
 
-    const parts = collectAttachments(msg.payload);
+    const parts = collectAttachmentParts(msg.payload);
 
     for (const p of parts) {
       const attachmentId = p.body?.attachmentId;
@@ -231,10 +203,10 @@ export async function discoverGmailAttachments(params: {
       const filename = p.filename ? String(p.filename) : null;
       const sizeBytes = typeof p.body?.size === "number" ? p.body.size : null;
 
-      // Only PDF/images in discovery results (same MVP definition).
-      const isPdf = mimeType === "application/pdf";
-      const isImage = mimeType.startsWith("image/");
-      if (!isPdf && !isImage) continue;
+      // The canonical Documents allowlist, so discovery never advertises a
+      // file the import endpoint would refuse. It used to be "PDF or any
+      // image", which is wider than what Dubiz accepts.
+      if (!isAllowedDocumentMime(mimeType)) continue;
 
       attachments.push({
         messageId,

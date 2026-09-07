@@ -393,8 +393,10 @@ jobs:
           F="app/api/integrations/gmail/import/route.ts"
           cp "$F" "$F.bak"
           # The wildcard that let an emailed file into Documents when a direct
-          # upload of the same file would have been refused.
-          perl -0pi -e 's/    if \(!body\.mimeType \|\| !isAllowedDocumentMime\(body\.mimeType\)\) \{/    if (!body.mimeType || !(body.mimeType === "application\/pdf" || body.mimeType.startsWith("image\/"))) {/' "$F"
+          # upload of the same file would have been refused. It now targets the
+          # type GMAIL resolved: the client's field is no longer read at all.
+          perl -0pi -e 's/    if \(!isAllowedDocumentMime\(gmailMimeType\)\) \{/    if (!(gmailMimeType === "application\/pdf" || gmailMimeType.startsWith("image\/"))) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npx tsx lib/services/documents/integration-intake.verify.test.ts >/dev/null 2>&1; then
             mv "$F.bak" "$F"
             echo "NEGATIVE-PROOF FAIL: a private allowlist passed"; exit 1
@@ -526,24 +528,25 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: a marker outside the transaction fails the verifier"
 
-      - name: I-7 negative proof (the ingestion hook running after the row write must be caught)
+      - name: I-7 negative proof (a caller statement outside the ingestion transaction must be caught)
         env:
           AUTH_TOKEN_SECRET: i7_ci_synthetic_secret
         run: |
           F="lib/services/documents/document-ingestion.service.ts"
           cp "$F" "$F.bak"
-          # Same transaction, wrong order. It still commits atomically, but a
-          # unique violation from the marker can no longer be told apart from
-          # one raised by the Document write, because the first failed statement
-          # aborts the transaction and the second never runs.
-          perl -0pi -e 's/          if \(input\.withinTransaction\) await input\.withinTransaction\(tx\);\r?\n          return tx\.document\.create\(\{/          const created = await tx.document.create({/' "$F"
-          perl -0pi -e 's/          \}\);\r?\n        \}\)\r?\n    \);\r?\n    documentId = document\.id;/          });\n          if (input.withinTransaction) await input.withinTransaction(tx);\n          return created;\n        })\n    );\n    documentId = document.id;/' "$F"
+          # The caller's statement leaves the transaction that creates the
+          # Document, so the marker and the row it describes stop being atomic.
+          # Expressed as a deletion, which cannot drift when the lines around
+          # it change — the previous two-step reorder silently stopped matching
+          # once the content lock was added between them.
+          perl -0pi -e 's/          if \(input\.withinTransaction\) await input\.withinTransaction\(tx\);//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npx tsx lib/data-transfer/documents/documents-execute.verify.test.ts >/dev/null 2>&1; then
             mv "$F.bak" "$F"
-            echo "NEGATIVE-PROOF FAIL: hook-after-create passed"; exit 1
+            echo "NEGATIVE-PROOF FAIL: an uncoupled caller statement passed"; exit 1
           fi
           mv "$F.bak" "$F"
-          echo "NEGATIVE-PROOF PASS: hook-after-create fails the verifier"
+          echo "NEGATIVE-PROOF PASS: an uncoupled caller statement fails the verifier"
 
       - name: I-7 negative proof (deriving the duplicate override from live truth must be caught)
         env:
@@ -613,6 +616,84 @@ jobs:
           fi
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: a relabelled file fails the verifier"
+
+      # I-7E — Gmail MIME provenance and cross-channel duplicate awareness.
+      # Blocking because both failures are silent: a browser-supplied media type
+      # deciding how a stored document is typed, and the same invoice becoming
+      # two Documents because it arrived by two doors. The concurrency claim is
+      # driven, not asserted — a pre-check alone cannot give it.
+      # Pure — no DB, no network, no Gmail, no Meta.
+      # Local equivalent: npm run verify:documents-hardening
+      - name: Documents hardening (Gmail MIME authority, cross-channel duplicates)
+        run: npx tsx lib/services/documents/documents-hardening.verify.test.ts
+
+      - name: I-7E negative proof (trusting the browser's Gmail MIME must be caught)
+        run: |
+          F="app/api/integrations/gmail/import/route.ts"
+          cp "$F" "$F.bak"
+          # The gap this closed: a field in the request body deciding what the
+          # server accepts and how the stored Document is typed.
+          perl -0pi -e 's/    const gmailMimeType = lookup\.descriptor\.mimeType;/    const gmailMimeType = body.mimeType;/' "$F"
+          if npx tsx lib/services/documents/documents-hardening.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a client-supplied media type passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a client-supplied media type fails the verifier"
+
+      - name: I-7E negative proof (a dropped content lock must be caught)
+        run: |
+          F="lib/services/documents/create-document-from-ocr.service.ts"
+          cp "$F" "$F.bak"
+          # Without the lock the duplicate check is a snapshot, not a guarantee:
+          # two channels can both read "no duplicate" and both insert.
+          perl -0pi -e 's/    await lockDocumentContent\(db, params\.businessId, params\.contentHashSha256\);//' "$F"
+          if npx tsx lib/services/documents/documents-hardening.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a race-prone pre-check passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a race-prone pre-check fails the verifier"
+
+      - name: I-7E negative proof (breaking CREATE_ANYWAY must be caught)
+        run: |
+          F="lib/services/documents/create-document-from-ocr.service.ts"
+          cp "$F" "$F.bak"
+          # Making the skip unconditional would quietly remove the owner's
+          # explicit, confirmed override in the Import Center.
+          perl -0pi -e 's/    if \(params\.duplicatePolicy === "SKIP_IF_EXISTS"\) \{/    if (true) {/' "$F"
+          if npx tsx lib/services/documents/documents-hardening.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a hard-coded duplicate policy passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a hard-coded duplicate policy fails the verifier"
+
+      - name: I-7E negative proof (an unscoped duplicate query must be caught)
+        run: |
+          F="lib/services/documents/document-duplicate.ts"
+          cp "$F" "$F.bak"
+          # Dropping the tenant from the predicate would make one business's
+          # file suppress another's — a cross-tenant leak wearing a skip.
+          perl -0pi -e 's/    where: \{\r?\n      businessId,\r?\n      contentHashSha256,/    where: {\n      contentHashSha256,/' "$F"
+          if npx tsx lib/services/documents/documents-hardening.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an unscoped duplicate query passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an unscoped duplicate query fails the verifier"
+
+      - name: I-7E negative proof (a fabricated media type must be caught)
+        run: |
+          F="app/api/integrations/gmail/import/route.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    const gmailMimeType = lookup\.descriptor\.mimeType;/    const gmailMimeType = lookup.descriptor.mimeType || "application\/pdf";/' "$F"
+          if npx tsx lib/services/documents/documents-hardening.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an invented media type passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: an invented media type fails the verifier"
 
       # I-7D — Documents export. Blocking because every failure here is silent:
       # an archive that is short a file, an entry name that escapes its

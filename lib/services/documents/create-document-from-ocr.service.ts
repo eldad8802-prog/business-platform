@@ -45,6 +45,11 @@ import { getTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
 import { runUnifiedDocumentIntelligence } from "@/lib/services/documents/unified-extraction-engine.service";
 import { recordExtractionSnapshot } from "@/lib/services/documents/ledger/correction-ledger.service";
+import {
+  findDuplicateDocumentTx,
+  lockDocumentContent,
+  type DuplicateDocument,
+} from "@/lib/services/documents/document-duplicate";
 
 /**
  * Run everything in ONE tenant transaction.
@@ -88,6 +93,16 @@ export type CreateDocumentFromOcrParams = {
   originalFilename?: string | null;
   sizeBytes?: number | null;
   /**
+   * What to do when the business already holds a non-failed Document with these
+   * exact bytes.
+   *
+   * Required, and supplied by the CHANNEL. This module owns the mechanism and
+   * deliberately not the policy: whether an inbound email should quietly defer
+   * to a file the owner already uploaded is a product decision belonging to the
+   * channel, not to the thing that writes rows.
+   */
+  duplicatePolicy: "SKIP_IF_EXISTS" | "ALLOW";
+  /**
    * The caller's own statement, run inside the SAME transaction as the
    * Document, as its LAST statement.
    *
@@ -102,13 +117,20 @@ export type CreateDocumentFromOcrParams = {
   withinTransaction?: (tx: TenantTx, documentId: number) => Promise<void>;
 };
 
-export type CreateDocumentFromOcrResult = {
-  documentId: number;
-  /** Null when there was no OCR text to extract from. */
-  extractedDataId: number | null;
-  /** Null for the same reason. */
-  analysis: DocumentAnalysis | null;
-};
+export type CreateDocumentFromOcrResult =
+  | {
+      ok: true;
+      documentId: number;
+      /** Null when there was no OCR text to extract from. */
+      extractedDataId: number | null;
+      /** Null for the same reason. */
+      analysis: DocumentAnalysis | null;
+    }
+  /**
+   * The business already holds these bytes, and the channel asked to defer.
+   * Not an error: the file is present, it simply arrived twice.
+   */
+  | { ok: false; reason: "DUPLICATE"; duplicate: DuplicateDocument };
 
 /** The extraction result shape this module persists. Structural on purpose. */
 type ExtractionResult = Awaited<ReturnType<typeof runUnifiedDocumentIntelligence>>;
@@ -126,7 +148,25 @@ export async function writeDocumentRecords(
   params: CreateDocumentFromOcrParams,
   extracted: ExtractionResult | null,
   ocrText: string | null
-): Promise<{ documentId: number; extractedDataId: number | null }> {
+): Promise<
+  | { created: true; documentId: number; extractedDataId: number | null }
+  | { created: false; duplicate: DuplicateDocument }
+> {
+  // Serialise every create for this tenant+file, so two channels cannot both
+  // read "no duplicate" and both insert. An ALLOW policy still takes the lock:
+  // it means "create deliberately", not "skip the mutual exclusion".
+  if (params.contentHashSha256) {
+    await lockDocumentContent(db, params.businessId, params.contentHashSha256);
+    if (params.duplicatePolicy === "SKIP_IF_EXISTS") {
+      const duplicate = await findDuplicateDocumentTx(
+        db,
+        params.businessId,
+        params.contentHashSha256
+      );
+      if (duplicate) return { created: false, duplicate };
+    }
+  }
+
   const document = await db.document.create({
     data: {
       businessId: params.businessId,
@@ -166,7 +206,7 @@ export async function writeDocumentRecords(
     await params.withinTransaction(db, document.id);
   }
 
-  return { documentId: document.id, extractedDataId };
+  return { created: true, documentId: document.id, extractedDataId };
 }
 
 export async function createDocumentFromOcrText(
@@ -184,9 +224,17 @@ export async function createDocumentFromOcrText(
       })
     : null;
 
-  const { documentId, extractedDataId } = await dbTx((db) =>
+  const written = await dbTx((db) =>
     writeDocumentRecords(db, params, extracted, ocrText)
   );
+
+  if (!written.created) {
+    // Nothing was written. The caller keeps the object it stored, because only
+    // the caller knows whether that object is still wanted — and cleaning up
+    // storage is not this module's business.
+    return { ok: false, reason: "DUPLICATE", duplicate: written.duplicate };
+  }
+  const { documentId, extractedDataId } = written;
 
   // Phase 1A Correction Ledger — additive, write-only, never throws. Outside
   // the transaction on purpose: observability must never roll back a real
@@ -203,6 +251,7 @@ export async function createDocumentFromOcrText(
   }
 
   return {
+    ok: true,
     documentId,
     extractedDataId,
     analysis: extracted

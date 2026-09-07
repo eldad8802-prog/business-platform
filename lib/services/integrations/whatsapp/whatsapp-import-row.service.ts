@@ -161,6 +161,48 @@ export async function markWhatsAppImportImported(
   });
 }
 
+/**
+ * The business already holds these bytes, so this event created nothing.
+ *
+ * A distinct terminal state from `failed`, because nothing went wrong: the
+ * file is present, it simply arrived a second time through another door.
+ * Calling it a failure would put a red mark on a correct outcome and make the
+ * import history unreadable.
+ *
+ * The existing Document is linked where the row can hold it, so the record says
+ * which file it deferred to.
+ */
+export async function markWhatsAppImportSkippedDuplicate(
+  params: {
+    importId: number;
+    businessId: number;
+    documentId: number;
+  },
+  options?: TxOptions
+): Promise<void> {
+  const db = options?.tx ?? prisma;
+  await db.whatsAppAttachmentImport.updateMany({
+    where: { id: params.importId, businessId: params.businessId },
+    data: {
+      status: "skipped_duplicate",
+      // `documentId` is unique on this table, so it can only be claimed once.
+      // A second event deferring to the same Document keeps the status and
+      // leaves the link to whoever took it first — the status is the truth that
+      // matters, the link is a convenience.
+      error: null,
+    },
+  });
+  try {
+    await db.whatsAppAttachmentImport.update({
+      where: { id: params.importId },
+      data: { documentId: params.documentId },
+    });
+  } catch {
+    // Another row already references that Document. Not a problem: the skip is
+    // already recorded, and the link is decoration on top of it.
+  }
+}
+
 export async function markWhatsAppImportFailed(
   params: {
     importId: number;

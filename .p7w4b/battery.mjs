@@ -375,7 +375,7 @@ async function main() {
     runOcr: async () => "synthetic ocr text",
     putDocument: async () => {},
     deleteDocument: async () => {},
-    createDocument: async () => ({ documentId: docA.id }),
+    createDocument: async () => ({ ok: true, documentId: docA.id, extractedDataId: null, analysis: null }),
     getBusinessAccessToken: async () => "synthetic-token",
   };
   const mediaOut = await runTenantJob({ businessId: bizA.id }, () =>

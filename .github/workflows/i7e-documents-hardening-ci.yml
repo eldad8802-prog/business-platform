@@ -1,0 +1,205 @@
+# I-7E — cross-channel document duplicate concurrency, on real PostgreSQL 17.
+#
+# The guarantee under test is a database property, not an application one: a
+# second transaction asking for a held `pg_advisory_xact_lock` must WAIT, and
+# must then see what the first one committed. A JavaScript model cannot show
+# that, so this battery runs two independent connections against a real server
+# and reads `pg_locks` from a third to watch the contention happen.
+#
+# Synthetic CI-only data. ZERO secrets, ZERO Neon, ZERO production.
+
+name: i7e — documents hardening battery (ephemeral PG17)
+
+on:
+  push:
+    branches: [feat/i7e-documents-hardening]
+  pull_request:
+    branches: [main]
+    paths:
+      - ".i7e-pg/**"
+      - "lib/services/documents/document-duplicate.ts"
+      - "lib/services/documents/create-document-from-ocr.service.ts"
+      - "lib/services/documents/document-ingestion.service.ts"
+      - "lib/services/integrations/gmail/**"
+      - "lib/services/integrations/whatsapp/**"
+      - "app/api/integrations/gmail/**"
+      - "app/api/documents/**"
+      - "prisma/schema.prisma"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  i7e-battery:
+    name: I-7E duplicate concurrency battery (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: i7e_owner
+          POSTGRES_PASSWORD: i7e_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_i7e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U i7e_owner -d dubiz_i7e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .i7e-pg/battery.mjs
+
+      - name: Push schema (lab)
+        env:
+          DATABASE_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          DIRECT_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+        run: npx prisma db push --skip-generate
+
+      - name: Run I-7E battery
+        env:
+          BATTERY_TARGET: pg
+          DATABASE_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          DIRECT_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          AUTH_TOKEN_SECRET: i7e_ci_auth_secret_synthetic
+        run: npx tsx .i7e-pg/battery.mjs
+
+      # A battery that cannot fail proves nothing. Each mutation below removes a
+      # real part of the mechanism; the battery must notice every one, and the
+      # mutation is confirmed to have applied before its result is believed.
+      - name: I-7E PG negative proof (no advisory lock)
+        env:
+          BATTERY_TARGET: pg
+          DATABASE_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          DIRECT_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          AUTH_TOKEN_SECRET: i7e_ci_auth_secret_synthetic
+        run: |
+          F="lib/services/documents/document-duplicate.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  await tx\.\$executeRaw`SELECT pg_advisory_xact_lock\(\$\{DOCUMENT_CONTENT_ADVISORY_NAMESPACE\}::int, \$\{key\}::int\)`;/  void key;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i7e-pg/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the battery passed without any lock"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: removing the lock fails the battery"
+
+      - name: I-7E PG negative proof (a constant lock key)
+        env:
+          BATTERY_TARGET: pg
+          DATABASE_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          DIRECT_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          AUTH_TOKEN_SECRET: i7e_ci_auth_secret_synthetic
+        run: |
+          F="lib/services/documents/document-duplicate.ts"
+          cp "$F" "$F.bak"
+          # One key for everything would serialise unrelated tenants — correct
+          # counts, wrong isolation. The tenant-key assertion must notice.
+          perl -0pi -e 's/  return digest\.readInt32BE\(0\);/  return 1;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i7e-pg/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a global lock key passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a global lock key fails the battery"
+
+      - name: I-7E PG negative proof (duplicate query ignores the tenant)
+        env:
+          BATTERY_TARGET: pg
+          DATABASE_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          DIRECT_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          AUTH_TOKEN_SECRET: i7e_ci_auth_secret_synthetic
+        run: |
+          F="lib/services/documents/document-duplicate.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    where: \{\n      businessId,\n      contentHashSha256,/    where: {\n      contentHashSha256,/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i7e-pg/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a cross-tenant duplicate query passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a cross-tenant duplicate query fails the battery"
+
+      - name: I-7E PG negative proof (failed documents treated as blocking)
+        env:
+          BATTERY_TARGET: pg
+          DATABASE_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          DIRECT_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          AUTH_TOKEN_SECRET: i7e_ci_auth_secret_synthetic
+        run: |
+          F="lib/services/documents/document-duplicate.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/      status: \{ not: "failed" \},//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i7e-pg/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a blocking failed row passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a blocking failed row fails the battery"
+
+      - name: I-7E PG negative proof (CREATE_ANYWAY forced to skip)
+        env:
+          BATTERY_TARGET: pg
+          DATABASE_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          DIRECT_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          AUTH_TOKEN_SECRET: i7e_ci_auth_secret_synthetic
+        run: |
+          F="lib/services/documents/create-document-from-ocr.service.ts"
+          cp "$F" "$F.bak"
+          # Turning the content hash into an implicit uniqueness constraint,
+          # which is exactly what the owner's explicit override must survive.
+          perl -0pi -e 's/    if \(params\.duplicatePolicy === "SKIP_IF_EXISTS"\) \{/    if (true) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i7e-pg/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a broken override passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a broken override fails the battery"
+
+      - name: I-7E PG negative proof (lookup before the lock)
+        env:
+          BATTERY_TARGET: pg
+          DATABASE_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          DIRECT_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          AUTH_TOKEN_SECRET: i7e_ci_auth_secret_synthetic
+        run: |
+          F="lib/services/documents/create-document-from-ocr.service.ts"
+          cp "$F" "$F.bak"
+          # Looking first and locking afterwards is the classic mistake: both
+          # callers read absence, then both insert.
+          perl -0pi -e 's/    await lockDocumentContent\(db, params\.businessId, params\.contentHashSha256\);\n    if \(params\.duplicatePolicy === "SKIP_IF_EXISTS"\) \{\n      const duplicate = await findDuplicateDocumentTx\(\n        db,\n        params\.businessId,\n        params\.contentHashSha256\n      \);\n      if \(duplicate\) return \{ created: false, duplicate \};\n    \}/    let duplicate = null;\n    if (params.duplicatePolicy === "SKIP_IF_EXISTS") {\n      duplicate = await findDuplicateDocumentTx(db, params.businessId, params.contentHashSha256);\n    }\n    await lockDocumentContent(db, params.businessId, params.contentHashSha256);\n    if (duplicate) return { created: false, duplicate };/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i7e-pg/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: look-then-lock passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: look-then-lock fails the battery"
+
+      - name: I-7E PG negative proof (session lock instead of transaction lock)
+        env:
+          BATTERY_TARGET: pg
+          DATABASE_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          DIRECT_URL: postgresql://i7e_owner:i7e_ci_synthetic_owner_pw@localhost:5432/dubiz_i7e
+          AUTH_TOKEN_SECRET: i7e_ci_auth_secret_synthetic
+        run: |
+          F="lib/services/documents/document-duplicate.ts"
+          cp "$F" "$F.bak"
+          # A session lock is never released by commit or rollback, so it leaks
+          # and eventually deadlocks the pool.
+          perl -pi -e 's/pg_advisory_xact_lock/pg_advisory_lock/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if timeout 300 npx tsx .i7e-pg/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a leaked session lock passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS: a leaked session lock fails the battery"

@@ -8,6 +8,10 @@ import { getGmailAccessTokenForBusiness } from "@/lib/services/integrations/gmai
 import { isGmailConnectionOwnedByBusiness } from "@/lib/services/integrations/gmail/gmail-connection.service";
 import { GmailReauthRequiredError } from "@/lib/services/integrations/gmail/gmail-errors";
 import { fetchGmailAttachmentBytes } from "@/lib/services/integrations/gmail/gmail-attachment-fetch.service";
+import { fetchGmailAttachmentDescriptor } from "@/lib/services/integrations/gmail/gmail-attachment-metadata.service";
+import {
+  findDuplicateDocumentTx,
+} from "@/lib/services/documents/document-duplicate";
 import { checkEmailImportDedup } from "@/lib/services/integrations/gmail/email-import-dedup.service";
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
 import { writeTempOcrFile } from "@/lib/services/integrations/gmail/temp-ocr-file.service";
@@ -131,32 +135,12 @@ async function handleAuthedImport(
       );
     }
 
-    // The canonical Documents allowlist — the same closed PDF/JPEG/PNG set the
-    // upload screen and the import centre enforce. It used to be a private
-    // wildcard here, so an emailed file could enter Documents that a direct
-    // upload of the very same file would have refused.
-    //
-    // Provenance limitation, stated rather than papered over: this type is
-    // still supplied by the CLIENT in the request body. Passing this gate means
-    // the claim is one we support, and the byte check below means the file
-    // really is that container — but the claim itself is not yet read from the
-    // Gmail message payload.
-    if (body.mimeType && isHeicMimeType(body.mimeType)) {
-      return NextResponse.json(
-        {
-          error:
-            "פורמט HEIC לא נתמך. צלם מחדש או המר את התמונה ל-JPG (בהגדרות המצלמה: 'תאימות מרבית').",
-        },
-        { status: 415 }
-      );
-    }
+    // `body.mimeType` has NO authority and is read nowhere below. The media type
+    // comes from Gmail's own message part, resolved server-side further down,
+    // so changing this field in the request cannot alter what is accepted or
+    // how the stored Document is typed. It stays in the request shape only so
+    // existing clients keep working.
 
-    if (!body.mimeType || !isAllowedDocumentMime(body.mimeType)) {
-      return NextResponse.json(
-        { error: "סוג קובץ לא נתמך (נדרש PDF, JPG או PNG)" },
-        { status: 400 }
-      );
-    }
 
     if (body.sizeBytes != null && body.sizeBytes > MAX_ATTACHMENT_BYTES) {
       return NextResponse.json(
@@ -195,6 +179,43 @@ async function handleAuthedImport(
       connectionId: requestedConnectionId,
     });
 
+    // Ask GMAIL what this attachment is. Same authorised token, same message
+    // structure that produced the attachment id, so the type and the id come
+    // from one server-side source instead of arriving separately via a browser.
+    const lookup = await fetchGmailAttachmentDescriptor({
+      accessToken,
+      messageId: body.messageId,
+      attachmentId: body.attachmentId,
+    });
+    if (!lookup.ok) {
+      // The id is not in this message — it never existed, or it belongs to a
+      // different one. Either way it cannot be resolved to a type.
+      return NextResponse.json(
+        { error: "הקובץ המצורף לא נמצא בהודעה", code: "ATTACHMENT_NOT_IN_MESSAGE" },
+        { status: 404 }
+      );
+    }
+
+    const gmailMimeType = lookup.descriptor.mimeType;
+    if (isHeicMimeType(gmailMimeType)) {
+      return NextResponse.json(
+        {
+          error:
+            "פורמט HEIC לא נתמך. צלם מחדש או המר את התמונה ל-JPG (בהגדרות המצלמה: 'תאימות מרבית').",
+        },
+        { status: 415 }
+      );
+    }
+    if (!isAllowedDocumentMime(gmailMimeType)) {
+      return NextResponse.json(
+        { error: "סוג קובץ לא נתמך (נדרש PDF, JPG או PNG)" },
+        { status: 400 }
+      );
+    }
+
+    // Gmail's filename too — the client's is display text with no authority.
+    const attachmentFilename = lookup.descriptor.filename ?? body.filename;
+
     const { bytes, sizeBytes } = await fetchGmailAttachmentBytes({
       accessToken,
       messageId: body.messageId,
@@ -220,7 +241,10 @@ async function handleAuthedImport(
     // Now the bytes decide. Nothing below this line runs for a file whose
     // container contradicts its declared type: no storage write, no OCR call,
     // no Document. Same validator as the upload screen and the import centre.
-    const signature = verifyFileSignature(Buffer.from(bytes), body.mimeType);
+    // Gmail's declared type is far better sourced than the browser's, but it
+    // is still a claim about bytes, so the bytes still decide. A disagreement
+    // is refused rather than silently re-typed.
+    const signature = verifyFileSignature(Buffer.from(bytes), gmailMimeType);
     if (!signature.ok) {
       return NextResponse.json(
         { error: signatureRejectionMessage(signature.reason) },
@@ -252,9 +276,59 @@ async function handleAuthedImport(
       });
     }
 
+    // Does this business already hold these exact bytes, whatever door they
+    // came through? Asked BEFORE storage and OCR so a file the owner already
+    // uploaded costs neither. The authoritative, race-safe check happens again
+    // inside the create transaction under the content lock.
+    const existingDocument = await withTenantTransaction((tx) =>
+      findDuplicateDocumentTx(tx, user.businessId, contentHashSha256)
+    );
+    if (existingDocument) {
+      // Durable terminal truth for the CHANNEL event, so a retry of this same
+      // attachment does no work at all — and linked to the Document the owner
+      // already has, so the record says which file it deferred to.
+      try {
+        await withTenantTransaction((tx) =>
+          tx.emailAttachmentImport.create({
+            data: {
+              businessId: user.businessId,
+              connectionId,
+              provider: "gmail",
+              messageId: body.messageId,
+              attachmentId: body.attachmentId,
+              filename: attachmentFilename,
+              mimeType: gmailMimeType,
+              sizeBytes: body.sizeBytes,
+              fromEmail: body.fromEmail,
+              subject: body.subject,
+              sentAt: body.sentAt ? new Date(body.sentAt) : null,
+              contentHashSha256,
+              status: "skipped_duplicate",
+              documentId: existingDocument.documentId,
+            },
+          })
+        );
+      } catch (raceErr) {
+        // Another request recorded this identity first. Nothing to add.
+        if (
+          !(raceErr instanceof Prisma.PrismaClientKnownRequestError) ||
+          raceErr.code !== "P2002"
+        ) {
+          throw raceErr;
+        }
+      }
+      return NextResponse.json({
+        success: true,
+        imported: false,
+        skipped: "duplicate",
+        reason: "existing_document",
+        documentId: existingDocument.documentId,
+      });
+    }
+
     const tmp = await writeTempOcrFile({
       bytes,
-      mimeType: body.mimeType,
+      mimeType: gmailMimeType,
       filenameHint: body.filename,
     });
     cleanup = tmp.cleanup;
@@ -264,7 +338,7 @@ async function handleAuthedImport(
     // create a needs_review Document (without ExtractedData) for manual handling.
     let rawText = "";
     try {
-      rawText = (await runGoogleVisionOCR(tmp.tempPath, body.mimeType)).trim();
+      rawText = (await runGoogleVisionOCR(tmp.tempPath, gmailMimeType)).trim();
     } catch (ocrError) {
       console.error("GMAIL_IMPORT_OCR_FAILED:", ocrError);
       rawText = "";
@@ -275,12 +349,12 @@ async function handleAuthedImport(
     // Document.fileUrl, bytes via StorageService (legacy FS read fallback).
     // Stored unconditionally — OCR outcome does not gate it. A real storage
     // failure is still fatal (no stored file = no valid Document).
-    storedFileName = buildStoredDocumentFileName(body.mimeType);
+    storedFileName = buildStoredDocumentFileName(gmailMimeType);
     await putDocumentObject({
       businessId: user.businessId,
       basename: storedFileName,
       body: Buffer.from(bytes),
-      contentType: body.mimeType,
+      contentType: gmailMimeType,
       source: "email",
     });
 
@@ -313,11 +387,14 @@ async function handleAuthedImport(
       created = await createDocumentFromOcrText({
         businessId: user.businessId,
         source: "email",
-        mimeType: body.mimeType,
+        mimeType: gmailMimeType,
         ocrText: ocrSucceeded ? rawText : null,
+        // The channel's policy, not the materializer's: an emailed copy of a
+        // file the owner already has should defer to it rather than duplicate.
+        duplicatePolicy: "SKIP_IF_EXISTS",
         fileUrl: storedFileName,
         contentHashSha256,
-        originalFilename: body.filename,
+        originalFilename: attachmentFilename,
         sizeBytes: effectiveSize || null,
         withinTransaction: async (tx, documentId) => {
           const row = await tx.emailAttachmentImport.create({
@@ -327,8 +404,8 @@ async function handleAuthedImport(
               provider: "gmail",
               messageId: body.messageId,
               attachmentId: body.attachmentId,
-              filename: body.filename,
-              mimeType: body.mimeType,
+              filename: attachmentFilename,
+              mimeType: gmailMimeType,
               sizeBytes: body.sizeBytes,
               fromEmail: body.fromEmail,
               subject: body.subject,
@@ -366,6 +443,20 @@ async function handleAuthedImport(
         });
       }
       throw raceErr;
+    }
+
+    if (!created.ok) {
+      // Lost the race between the early check and the content lock. The
+      // transaction rolled back, so remove the object this attempt stored.
+      await deleteDocumentObjectQuiet(user.businessId, storedFileName).catch(() => {});
+      storedFileName = null;
+      return NextResponse.json({
+        success: true,
+        imported: false,
+        skipped: "duplicate",
+        reason: "existing_document",
+        documentId: created.duplicate.documentId,
+      });
     }
 
     const documentId = created.documentId;
