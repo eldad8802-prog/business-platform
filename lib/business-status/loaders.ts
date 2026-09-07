@@ -235,6 +235,83 @@ export async function loadAttentionWaiting(
   return out;
 }
 
+/**
+ * The waiting predicate applied to ONE known conversation.
+ *
+ * `loadAttentionWaiting` above answers "which conversations should Attention
+ * show", and it is capped for that reason. This answers "is THIS conversation
+ * waiting", which is a different question with a different correct answer: it
+ * has no cap and no ranking, because there is nothing to rank.
+ *
+ * It exists because the notification layer must not infer that a conversation
+ * was answered merely from its absence off the top of a shortlist. Given the
+ * conversation that just changed, it can ask directly.
+ *
+ * The predicate is deliberately identical to the one above — OPEN, and the most
+ * recent message inbound from the customer — and a test pins the two against
+ * each other so they cannot drift apart.
+ *
+ * Returns null when the conversation is not waiting, does not exist, or belongs
+ * to another business.
+ */
+export async function loadAttentionWaitingForConversation(
+  businessId: number,
+  conversationId: number
+): Promise<AttentionWaitingRaw | null> {
+  const conv = await dbStep((db) => db.conversation.findFirst({
+    where: { id: conversationId, businessId, status: "OPEN" },
+    select: {
+      id: true,
+      channel: true,
+      createdAt: true,
+      customer: { select: { name: true } },
+    },
+  }));
+  if (!conv) return null;
+
+  // One row, not the conversation's history: the predicate only ever looked at
+  // the most recent message.
+  const [last] = await dbStep((db) => db.message.findMany({
+    where: { businessId, conversationId },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: 1,
+    select: {
+      direction: true,
+      senderType: true,
+      contentText: true,
+      createdAt: true,
+    },
+  }));
+
+  if (
+    !last ||
+    last.direction !== MessageDirection.INBOUND ||
+    last.senderType !== MessageSenderType.CUSTOMER
+  ) {
+    return null;
+  }
+
+  const pending = await dbStep((db) => db.replySuggestion.findFirst({
+    where: {
+      businessId,
+      conversationId,
+      status: { in: PENDING_SUGGESTION_STATUSES },
+    },
+    select: { id: true },
+  }));
+
+  const name = conv.customer?.name?.trim() || null;
+  return {
+    conversationId: conv.id,
+    customerName: name && name !== "" ? name : null,
+    channel: conv.channel,
+    snippet: truncateSnippet(last.contentText),
+    relevantAt: last.createdAt,
+    conversationCreatedAt: conv.createdAt,
+    hasPendingSuggestion: pending !== null,
+  };
+}
+
 export async function loadAttentionPendingSuggestions(
   businessId: number,
   excludeConversationIds: Set<number>

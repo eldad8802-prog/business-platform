@@ -25,6 +25,25 @@
  * bot answered, the customer is not waiting on a human, and inventing a second
  * definition here would put this module in disagreement with the inbox itself.
  *
+ * ONE CONVERSATION AT A TIME, AND WHY
+ *
+ * This used to reconcile the whole domain: load the waiting list, write what is
+ * on it, close every open notification that is not. That was wrong, and the way
+ * it was wrong is worth keeping written down.
+ *
+ * `loadAttentionWaiting` is a PRESENTATION query. It stops at twelve, because
+ * Attention is a shortlist rather than a register. Absence from it therefore
+ * means "not in the top twelve", not "answered" — so a business with thirteen
+ * people waiting had the thirteenth notification closed as though someone had
+ * replied. The list is ranked newest-first, so the one silently dropped was the
+ * person who had been waiting longest.
+ *
+ * Every caller already knows which conversation changed. So instead of
+ * inferring from a list, this asks the direct question about that one
+ * conversation — is it still waiting? — and acts on the answer. Positive
+ * evidence about one entity, rather than an inference from an incomplete set.
+ * A conversation nobody touched is left exactly as it was.
+ *
  * SCOPE, AND A KEY THAT IS SHARED BY TWO FACTS
  *
  * The inbox domain has a second translator — pending reply suggestions — which
@@ -35,11 +54,6 @@
  * fact is MEDIUM, which no policy rule grants a channel. This consumer syncs
  * ONLY the waiting fact.
  *
- * That matters for resolution. `presentDedupeKeys` must contain waiting
- * conversations and nothing else: adding suggestion items would keep a
- * notification open for a conversation the business has already replied to,
- * which is precisely the state this is supposed to close.
- *
  * WHY IT NEVER THROWS
  *
  * The message is committed before this runs. Failing the webhook or the reply
@@ -48,23 +62,21 @@
  * stored. Every failure is swallowed and returned as data. Nothing here sends
  * anything: the inbox rule grants IN_APP only.
  */
-import { loadAttentionWaiting } from "@/lib/business-status/loaders";
+import { loadAttentionWaitingForConversation } from "@/lib/business-status/loaders";
 import { finalizeBusinessStatusItem } from "@/lib/business-status/priority";
 import { translateAttentionWaiting } from "@/lib/business-status/translators/attention";
 
 import { buildDedupeKey } from "./notification-policy";
 import {
   persistSnapshotNotifications,
-  resolveAbsentNotifications,
+  resolveNotificationByDedupeKey,
   type WriteOutcome,
 } from "./notification-writer";
 
 /**
- * The slice of the notification space this consumer owns. Resolution is scoped
- * to exactly this, so a pass here can never close an inventory, document or
- * billing notification it never looked at.
- *
- * One entity type, because both inbox translators key on the conversation.
+ * The slice of the notification space this consumer owns. Kept as documentation
+ * of what this module may touch: one domain, one entity type. Nothing here ever
+ * writes outside it.
  */
 export const INBOX_WAITING_SCOPE = {
   domain: "inbox",
@@ -82,48 +94,52 @@ export type InboxNotificationSync = {
 };
 
 /**
- * Reconcile inbox-waiting notifications with the current truth.
+ * Reconcile the notification for ONE conversation with the current truth.
  *
  * Call AFTER the message or conversation transaction has committed, inside a
- * tenant context. It is a reconciliation, not an event handler: it opens what
- * is now waiting and closes what is not, so the same call serves an inbound
- * message, an outbound reply and a conversation being closed. Callers do not
- * have to know which of those just happened.
+ * tenant context, passing the conversation that changed. It is still a
+ * reconciliation rather than an event handler — it asks what is true now, not
+ * what happened — so the same call serves an inbound message, an outbound reply
+ * and a conversation being closed. Callers do not have to know which.
+ *
+ * What it will NOT do is touch any other conversation. Every other notification
+ * in the domain is left exactly as it was, because this pass has no evidence
+ * about them and absence of evidence was the bug.
  *
  * Safe to call when nothing changed. The writer dedupes on the fact's identity
  * and the cooldown decides whether anything is surfaced again, so a redundant
- * call costs a query and changes nothing the owner sees.
+ * call costs two small queries and changes nothing the owner sees.
  */
 export async function syncInboxWaitingNotifications(
   businessId: number,
+  conversationId: number,
   now: Date,
 ): Promise<InboxNotificationSync> {
   try {
-    // The same two calls, in the same order, that the business-status service
-    // makes for this fact. Truth is loaded, never recomputed here.
-    const rows = await loadAttentionWaiting(businessId);
-    const items = translateAttentionWaiting(rows).map(finalizeBusinessStatusItem);
+    // The direct question, about this conversation only. Null means it is not
+    // waiting — answered, closed, or never waiting to begin with.
+    const row = await loadAttentionWaitingForConversation(businessId, conversationId);
 
+    if (row === null) {
+      // Positive evidence that the condition is over, for this one fact. The
+      // key is rebuilt from the same policy function that wrote it, so it can
+      // only ever address the notification this conversation owns.
+      const closed = await resolveNotificationByDedupeKey(
+        businessId,
+        buildDedupeKey(businessId, {
+          domain: INBOX_WAITING_SCOPE.domain as "inbox",
+          semanticCategory: "ACTION_REQUIRED",
+          entityRef: { type: "conversation", id: conversationId },
+        }),
+        now,
+      );
+      return { ok: true, written: [], resolved: closed ? 1 : 0 };
+    }
+
+    const items = translateAttentionWaiting([row]).map(finalizeBusinessStatusItem);
     const written = await persistSnapshotNotifications(businessId, items, now);
 
-    // The complement: every inbox notification still open whose conversation is
-    // no longer waiting — because the business replied, or because the
-    // conversation was closed. Built from the same items, so the two halves
-    // cannot disagree about what is currently true.
-    //
-    // Note this is the set of ALL currently-waiting conversations, not only the
-    // ones the policy chose to notify about. A fact the policy silences must
-    // still count as present, or the next pass would "resolve" a notification
-    // whose condition is very much still there.
-    const presentKeys = items.map((item) => buildDedupeKey(businessId, item));
-    const resolved = await resolveAbsentNotifications(
-      businessId,
-      INBOX_WAITING_SCOPE,
-      presentKeys,
-      now,
-    );
-
-    return { ok: true, written, resolved };
+    return { ok: true, written, resolved: 0 };
   } catch (error) {
     // Deliberately terminal. The message is committed and correct; the owner's
     // notification is not, and that is the lesser failure to absorb.

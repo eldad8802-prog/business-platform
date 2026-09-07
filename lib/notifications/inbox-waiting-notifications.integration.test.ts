@@ -25,11 +25,24 @@
  *
  * Run: npx tsx lib/notifications/inbox-waiting-notifications.integration.test.ts
  */
+import { BS_ATTENTION_WAITING_CAP } from "../business-status/limits";
+import {
+  loadAttentionWaiting,
+  loadAttentionWaitingForConversation,
+} from "../business-status/loaders";
 import { prisma } from "../prisma";
 import { runWithTenantContext } from "../tenant/context";
 import { withTenantTransaction } from "../tenant/transaction";
 
-import { syncInboxWaitingNotifications } from "./inbox-waiting-notifications";
+import { finalizeBusinessStatusItem } from "../business-status/priority";
+import { translateAttentionWaiting } from "../business-status/translators/attention";
+import { declareExhaustive } from "./exhaustive-facts";
+import { buildDedupeKey } from "./notification-policy";
+import { resolveAbsentNotifications } from "./notification-writer";
+import {
+  INBOX_WAITING_SCOPE,
+  syncInboxWaitingNotifications,
+} from "./inbox-waiting-notifications";
 
 let failures = 0;
 function check(name: string, cond: boolean, extra = ""): void {
@@ -86,7 +99,7 @@ async function inboundThenSync(
     }),
   );
   const sync = await runWithTenantContext({ businessId }, () =>
-    syncInboxWaitingNotifications(businessId, now),
+    syncInboxWaitingNotifications(businessId, conversationId, now),
   );
   return { message, sync };
 }
@@ -116,7 +129,7 @@ async function outboundThenSync(
     ),
   );
   const sync = await runWithTenantContext({ businessId }, () =>
-    syncInboxWaitingNotifications(businessId, now),
+    syncInboxWaitingNotifications(businessId, conversationId, now),
   );
   return { message, sync };
 }
@@ -132,7 +145,7 @@ async function closeThenSync(businessId: number, conversationId: number, now: Da
     ),
   );
   return runWithTenantContext({ businessId }, () =>
-    syncInboxWaitingNotifications(businessId, now),
+    syncInboxWaitingNotifications(businessId, conversationId, now),
   );
 }
 
@@ -288,7 +301,7 @@ async function closeThenSync(businessId: number, conversationId: number, now: Da
     const beforeReplay = await inboxNotifs(a.id);
     for (let i = 0; i < 3; i++) {
       await runWithTenantContext({ businessId: a.id }, () =>
-        syncInboxWaitingNotifications(a.id, new Date(later.getTime() + 3 * HOUR)),
+        syncInboxWaitingNotifications(a.id, a1.conversation.id, new Date(later.getTime() + 3 * HOUR)),
       );
     }
     const afterReplay = await inboxNotifs(a.id);
@@ -313,7 +326,7 @@ async function closeThenSync(businessId: number, conversationId: number, now: Da
     // Real failure, not a stub: the loaders refuse to run without a tenant
     // context, which is exactly what a mis-wired producer would hit.
     const before = await prisma.message.count({ where: { businessId: c.id } });
-    const failed = await syncInboxWaitingNotifications(c.id, dupTime);
+    const failed = await syncInboxWaitingNotifications(c.id, c1.conversation.id, dupTime);
     check("the sync failed", failed.ok === false && typeof failed.error === "string");
     check("it reported the failure as data rather than throwing", failed.written.length === 0 && failed.resolved === 0);
     check("the messages are all still committed",
@@ -339,12 +352,175 @@ async function closeThenSync(businessId: number, conversationId: number, now: Da
         }),
       ),
     );
-    const failedResolve = await syncInboxWaitingNotifications(c.id, dupTime);
+    const failedResolve = await syncInboxWaitingNotifications(c.id, c1.conversation.id, dupTime);
     check("the resolution sync failed", failedResolve.ok === false);
     check("the reply is still committed",
       (await prisma.message.count({ where: { id: outbound.id } })) === 1);
     check("the notification simply stayed open — no silent corruption",
       (await inboxNotifs(c.id))[0]?.resolvedAt === null);
+
+    /* ── 16. MORE WAITING CONVERSATIONS THAN THE PRESENTATION CAP ──────────
+     *
+     * The defect this suite was extended for. `loadAttentionWaiting` stops at
+     * BS_ATTENTION_WAITING_CAP (12) because Attention is a shortlist, and the
+     * old consumer resolved every notification whose key was absent from that
+     * list. With 13 people waiting, the 13th was closed as though answered —
+     * and since the list is ranked newest-first, the one dropped was whoever
+     * had been waiting longest.
+     *
+     * Here the oldest conversation is notified FIRST, while it is still inside
+     * the cap, and only then are enough newer ones added to push it out.
+     */
+    const d = await prisma.business.create({ data: { name: "inbox-consumer-D-cap" } });
+    extraBusinessIds.push(d.id);
+
+    const OVER_CAP = BS_ATTENTION_WAITING_CAP + 1;
+    const capBase = new Date(T0.getTime() + 10 * HOUR);
+
+    // The oldest waiting conversation, notified while it is still visible.
+    const oldest = await mkConversation(d.id, "הכי ותיק");
+    await inboundThenSync(d.id, oldest.conversation.id, oldest.customer.id, "אני מחכה", capBase);
+
+    const oldestKey = `b${d.id}:inbox:ACTION_REQUIRED:conversation:${oldest.conversation.id}`;
+    const oldestRow = async () =>
+      prisma.notification.findFirstOrThrow({ where: { businessId: d.id, dedupeKey: oldestKey } });
+
+    check("the oldest waiting conversation was notified", (await oldestRow()).resolvedAt === null);
+
+    // Now bury it: every one of these is NEWER, so the cap keeps them and drops it.
+    const buried: number[] = [];
+    for (let i = 0; i < OVER_CAP; i++) {
+      const c = await mkConversation(d.id, `ממתין ${i}`);
+      buried.push(c.conversation.id);
+      await inboundThenSync(
+        d.id, c.conversation.id, c.customer.id, "גם אני מחכה",
+        new Date(capBase.getTime() + (i + 1) * 60_000),
+      );
+    }
+
+    // Truth first: nobody was answered. Every one of them is still waiting.
+    const stillWaiting = await runWithTenantContext({ businessId: d.id }, () =>
+      loadAttentionWaitingForConversation(d.id, oldest.conversation.id),
+    );
+    check("the oldest conversation IS still waiting, authoritatively",
+      stillWaiting !== null && stillWaiting.conversationId === oldest.conversation.id);
+
+    // And the presentation loader genuinely drops it — the cap is real, not hypothetical.
+    const shortlist = await runWithTenantContext({ businessId: d.id }, () =>
+      loadAttentionWaiting(d.id),
+    );
+    check("the presentation loader is capped", shortlist.length === BS_ATTENTION_WAITING_CAP,
+      `${shortlist.length} of ${OVER_CAP + 1} waiting`);
+    check("and the oldest genuinely fell off it",
+      !shortlist.some((r) => r.conversationId === oldest.conversation.id));
+
+    // THE INVARIANT.
+    check("a conversation outside the cap is NOT falsely resolved",
+      (await oldestRow()).resolvedAt === null);
+
+    // One more pass, in case a single sync was not enough to expose it.
+    await runWithTenantContext({ businessId: d.id }, () =>
+      syncInboxWaitingNotifications(d.id, buried[0]!, new Date(capBase.getTime() + 2 * HOUR)),
+    );
+    check("still not falsely resolved after another pass",
+      (await oldestRow()).resolvedAt === null);
+
+    check("no waiting conversation in this business is resolved",
+      (await prisma.notification.count({
+        where: { businessId: d.id, domain: "inbox", resolvedAt: { not: null } },
+      })) === 0);
+
+    /* Genuine resolution must still work for the buried one specifically. */
+    await outboundThenSync(d.id, buried[0]!, "BUSINESS_USER", "עניתי", new Date(capBase.getTime() + 3 * HOUR));
+    check("answering ONE conversation resolves exactly that one",
+      (await prisma.notification.count({
+        where: { businessId: d.id, domain: "inbox", resolvedAt: { not: null } },
+      })) === 1);
+    check("and it is the one that was answered",
+      (await prisma.notification.findFirstOrThrow({
+        where: { businessId: d.id, entityId: buried[0]!, domain: "inbox" },
+      })).resolvedAt !== null);
+    check("the long-waiting one is still open", (await oldestRow()).resolvedAt === null);
+
+    /* And answering the oldest resolves it too — the fix did not disable resolution. */
+    await outboundThenSync(d.id, oldest.conversation.id, "BUSINESS_USER", "סליחה על העיכוב",
+      new Date(capBase.getTime() + 4 * HOUR));
+    check("answering the long-waiting one finally resolves it",
+      (await oldestRow()).resolvedAt !== null);
+
+    /* ── 17. THE OLD ALGORITHM, REPRODUCED, SO THE FIX MEANS SOMETHING ──────
+     *
+     * A passing suite proves the current code is right; it does not prove the
+     * previous code was wrong. This runs the exact algorithm that shipped —
+     * take the presentation loader's keys, hand them to the absence resolver —
+     * against the same shape of data, and shows it closing a notification for a
+     * customer who is still waiting.
+     *
+     * `declareExhaustive` is used here to LIE on purpose. That is the point of
+     * the brand: it cannot verify a claim, it can only make the claim visible.
+     * This is the one place in the repo where the claim is false, and it is
+     * false so a test can watch what that costs.
+     */
+    const e = await prisma.business.create({ data: { name: "inbox-consumer-E-oldalgo" } });
+    extraBusinessIds.push(e.id);
+
+    const oldBase = new Date(T0.getTime() + 20 * HOUR);
+    const victim = await mkConversation(e.id, "הקורבן");
+    await inboundThenSync(e.id, victim.conversation.id, victim.customer.id, "מחכה מזמן", oldBase);
+
+    const victimKey = `b${e.id}:inbox:ACTION_REQUIRED:conversation:${victim.conversation.id}`;
+    const victimRow = () =>
+      prisma.notification.findFirstOrThrow({ where: { businessId: e.id, dedupeKey: victimKey } });
+
+    for (let i = 0; i < BS_ATTENTION_WAITING_CAP + 1; i++) {
+      const c = await mkConversation(e.id, `מאוחר ${i}`);
+      await inboundThenSync(
+        e.id, c.conversation.id, c.customer.id, "גם אני",
+        new Date(oldBase.getTime() + (i + 1) * 60_000),
+      );
+    }
+
+    check("BEFORE: the victim is genuinely still waiting",
+      (await runWithTenantContext({ businessId: e.id }, () =>
+        loadAttentionWaitingForConversation(e.id, victim.conversation.id),
+      )) !== null);
+    check("BEFORE: its notification is open", (await victimRow()).resolvedAt === null);
+
+    const falselyResolved = await runWithTenantContext({ businessId: e.id }, async () => {
+      const capped = await loadAttentionWaiting(e.id);
+      const cappedKeys = translateAttentionWaiting(capped)
+        .map(finalizeBusinessStatusItem)
+        .map((item) => buildDedupeKey(e.id, item));
+      check("BEFORE: the capped list omits the victim",
+        !cappedKeys.includes(victimKey), `${cappedKeys.length} keys`);
+      return resolveAbsentNotifications(
+        e.id,
+        INBOX_WAITING_SCOPE,
+        declareExhaustive(cappedKeys), // the false claim the old code made implicitly
+        new Date(oldBase.getTime() + 2 * HOUR),
+      );
+    });
+
+    check("BEFORE: the old algorithm resolves notifications it has no evidence about",
+      falselyResolved > 0, `closed ${falselyResolved}`);
+    check("BEFORE: and the still-waiting customer is one of them — THE DEFECT",
+      (await victimRow()).resolvedAt !== null);
+
+    /* AFTER: the shipped path, on the same data, does not do that. */
+    await prisma.notification.updateMany({
+      where: { businessId: e.id, dedupeKey: victimKey },
+      data: { resolvedAt: null },
+    });
+    await runWithTenantContext({ businessId: e.id }, () =>
+      syncInboxWaitingNotifications(e.id, victim.conversation.id, new Date(oldBase.getTime() + 3 * HOUR)),
+    );
+    check("AFTER: the shipped path leaves the still-waiting notification open",
+      (await victimRow()).resolvedAt === null);
+
+    // And it is not merely refusing to resolve anything ever.
+    await outboundThenSync(e.id, victim.conversation.id, "BUSINESS_USER", "עניתי סוף סוף",
+      new Date(oldBase.getTime() + 4 * HOUR));
+    check("AFTER: a real answer still resolves it", (await victimRow()).resolvedAt !== null);
 
     /* ── 16. the consumer stays inside its own domain ──────────────────────── */
     check("no non-inbox notification was ever written by these syncs",

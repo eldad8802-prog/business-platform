@@ -56,6 +56,9 @@ import {
 import { inventoryInsightActionService } from "../services/inventory/inventory-insight-action.service";
 import { translateInventoryAlerts } from "../business-status/translators/inventory";
 
+import { BS_INVENTORY_CAP } from "../business-status/limits";
+import { loadInventoryAlertsUnresolved } from "../business-status/loaders";
+import { loadAllUnresolvedInventoryAlertIdentities } from "./exhaustive-facts";
 import { syncInventoryAlertNotifications } from "./inventory-alert-notifications";
 
 let failures = 0;
@@ -132,6 +135,9 @@ const inventoryNotifs = (businessId: number) =>
     },
     include: { users: true },
   });
+
+  /** Created inside the try; the cleanup below still has to find it. */
+  let capBusinessId: number | null = null;
 
   try {
     /* ── 1. first critical episode creates the notification ────────────────── */
@@ -1026,6 +1032,80 @@ const inventoryNotifs = (businessId: number) =>
       !readFileSync(join(REPO_ROOT, "lib", "services", "inventory", "inventory-insight-action.service.ts"), "utf8")
         .includes("syncInventoryAlertNotifications"));
 
+    /* ── 25. MORE OPEN ALERTS THAN THE PRESENTATION CAP ─────────────────────
+     *
+     * `loadInventoryAlertsUnresolved` stops at BS_INVENTORY_CAP (15) because
+     * Attention is a shortlist. Resolution used to be inferred from absence off
+     * that list, so a business with more open alerts than the cap had the
+     * overflow closed as though someone had restocked those items.
+     *
+     * Resolution now reads its own uncapped selector, so the cap can stay
+     * exactly where it is: presentation and persistence stop being the same
+     * question.
+     */
+    const capBiz = await prisma.business.create({ data: { name: "consumer-I-cap" } });
+    capBusinessId = capBiz.id;
+
+    const OVER_CAP = BS_INVENTORY_CAP + 1;
+    const capItems: number[] = [];
+    for (let i = 0; i < OVER_CAP; i++) {
+      const item = await mkItem(capBiz.id, `cap-item-${i}`);
+      capItems.push(item.id);
+      // 10 -> 1, below the minimum of 3: one CRITICAL_STOCK alert per item.
+      await movementThenSync(capBiz.id, item.id, -9, T0);
+    }
+
+    check("every item raised its own alert",
+      (await prisma.inventoryAlert.count({
+        where: { businessId: capBiz.id, isResolved: false },
+      })) === OVER_CAP,
+      `${OVER_CAP} expected`);
+
+    const capped = await runWithTenantContext({ businessId: capBiz.id }, () =>
+      loadInventoryAlertsUnresolved(capBiz.id),
+    );
+    check("the presentation loader is capped", capped.length === BS_INVENTORY_CAP,
+      `${capped.length} of ${OVER_CAP}`);
+
+    const uncapped = await runWithTenantContext({ businessId: capBiz.id }, () =>
+      loadAllUnresolvedInventoryAlertIdentities(capBiz.id),
+    );
+    check("the resolution selector is NOT capped", uncapped.length === OVER_CAP,
+      `${uncapped.length} of ${OVER_CAP}`);
+
+    // THE INVARIANT: every alert is still open, so every notification must be.
+    const capRows = await prisma.notification.findMany({
+      where: { businessId: capBiz.id, domain: "inventory" },
+    });
+    check("one notification per item", capRows.length === OVER_CAP, `count=${capRows.length}`);
+    check("NOT ONE of them was falsely resolved",
+      capRows.every((r) => r.resolvedAt === null),
+      `${capRows.filter((r) => r.resolvedAt !== null).length} wrongly closed`);
+
+    // A second pass must not creep either.
+    await runWithTenantContext({ businessId: capBiz.id }, () =>
+      syncInventoryAlertNotifications(capBiz.id, new Date(T0.getTime() + HOUR)),
+    );
+    check("a repeat pass still resolves nothing",
+      (await prisma.notification.count({
+        where: { businessId: capBiz.id, domain: "inventory", resolvedAt: { not: null } },
+      })) === 0);
+
+    // And genuine resolution still works — for exactly one item.
+    await movementThenSync(capBiz.id, capItems[0]!, 20, new Date(T0.getTime() + 2 * HOUR));
+    check("restocking one item resolves exactly one notification",
+      (await prisma.notification.count({
+        where: { businessId: capBiz.id, domain: "inventory", resolvedAt: { not: null } },
+      })) === 1);
+    check("and it is that item's notification",
+      (await prisma.notification.findFirstOrThrow({
+        where: { businessId: capBiz.id, entityType: "inventory_item", entityId: capItems[0]! },
+      })).resolvedAt !== null);
+    check("every other item's notification is untouched",
+      (await prisma.notification.count({
+        where: { businessId: capBiz.id, domain: "inventory", resolvedAt: null },
+      })) === OVER_CAP - 1);
+
     /* ── 24. no inventory-mutating production route is left unwired ──────── */
     // The closing invariant of Phase 1C: every route that can commit a stock
     // movement reconciles notifications afterwards.
@@ -1047,6 +1127,7 @@ const inventoryNotifs = (businessId: number) =>
     check("all seven inventory-committing routes reconcile notifications", allWired);
   } finally {
     const ids = [a.id, b.id, c.id, d.id, e.id, f.id, g.id, h.id];
+    if (capBusinessId !== null) ids.push(capBusinessId);
     // ReceivingLine.itemId is RESTRICT, so it blocks the Business cascade from
     // reaching InventoryItem. Clear the receiving chain first; everything else
     // cascades from Business as usual.

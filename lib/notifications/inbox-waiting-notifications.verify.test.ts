@@ -30,6 +30,9 @@ const MESSAGE_ROUTE = read("app", "api", "message", "route.ts");
 const CLOSE_A = read("app", "api", "conversation", "[id]", "route.ts");
 const CLOSE_B = read("app", "api", "conversation", "[id]", "close", "route.ts");
 const POLICY = read("lib", "notifications", "notification-policy.ts");
+const WRITER = read("lib", "notifications", "notification-writer.ts");
+const FACTS = read("lib", "notifications", "exhaustive-facts.ts");
+const INVENTORY = read("lib", "notifications", "inventory-alert-notifications.ts");
 
 let failures = 0;
 function check(name: string, cond: boolean, extra = ""): void {
@@ -45,7 +48,7 @@ console.log("\nThe consumer owns no business rules");
 {
   const code = stripComments(CONSUMER);
   check("truth comes from the business-status loader, not a local query",
-    code.includes("loadAttentionWaiting") && !code.includes("prisma."));
+    code.includes("loadAttentionWaitingForConversation") && !code.includes("prisma."));
   check("the item is built by the shared translator",
     code.includes("translateAttentionWaiting") && code.includes("finalizeBusinessStatusItem"));
   check("the decision is left to the policy — no severity is chosen here",
@@ -53,23 +56,37 @@ console.log("\nThe consumer owns no business rules");
   check("no channel is chosen here", !/IN_APP|PUSH|EMAIL/.test(code));
   check("no cooldown is invented here", !/cooldown/i.test(code));
   check("persistence goes through the shared writer",
-    code.includes("persistSnapshotNotifications") && code.includes("resolveAbsentNotifications"));
+    code.includes("persistSnapshotNotifications") && code.includes("resolveNotificationByDedupeKey"));
   check("the dedupe key comes from the policy, not a local string",
     code.includes("buildDedupeKey"));
 }
 
-console.log("\nResolution scope");
+console.log("\nResolution is entity-scoped, not absence-based");
 {
-  check("the scope is the inbox domain", INBOX_WAITING_SCOPE.domain === "inbox");
+  const code = stripComments(CONSUMER);
+  check("the scope is still declared as the inbox domain", INBOX_WAITING_SCOPE.domain === "inbox");
   check("it owns exactly the conversation entity type",
     INBOX_WAITING_SCOPE.entityTypes.length === 1 && INBOX_WAITING_SCOPE.entityTypes[0] === "conversation",
     INBOX_WAITING_SCOPE.entityTypes.join(","));
-  // Resolving against a scope it does not fill would close other domains'
-  // notifications on every pass.
-  check("it never claims another domain's entity types",
-    !INBOX_WAITING_SCOPE.entityTypes.some((t: string) => t.startsWith("inventory") || t === "document"));
-  check("present keys are built from the SAME items that were persisted",
-    stripComments(CONSUMER).includes("items.map((item) => buildDedupeKey(businessId, item))"));
+
+  // The defect. A capped presentation loader must never decide what to close.
+  check("it does NOT resolve from absence",
+    !code.includes("resolveAbsentNotifications"));
+  check("it does NOT read the capped presentation loader",
+    !/loadAttentionWaiting\(/.test(code));
+  check("it never claims a set is exhaustive",
+    !code.includes("declareExhaustive"));
+
+  check("the sync names the conversation it is reconciling",
+    /export async function syncInboxWaitingNotifications\(\s*businessId: number,\s*conversationId: number,/.test(code));
+  check("resolution asks about that conversation and no other",
+    code.includes("loadAttentionWaitingForConversation(businessId, conversationId)"));
+  check("a null answer is what closes it — positive evidence, not a missing row",
+    /row === null/.test(code) && code.includes("resolveNotificationByDedupeKey"));
+  check("the closing key is rebuilt by the policy, never hand-written",
+    /resolveNotificationByDedupeKey\(\s*businessId,\s*buildDedupeKey\(/.test(code));
+  check("the key it closes is the conversation it was given",
+    /entityRef: \{ type: "conversation", id: conversationId \}/.test(code));
 }
 
 console.log("\nFailure isolation");
@@ -102,6 +119,8 @@ console.log("\nOpening producer sits after the commit");
     syncAt < code.indexOf("} catch (err)"), `sync@${syncAt} catch@${code.indexOf("} catch (err)")}`);
   check("the businessId is the server-resolved input, never a payload field",
     code.includes("syncInboxWaitingNotifications(input.businessId"));
+  check("and it names the conversation it just wrote to",
+    code.includes("syncInboxWaitingNotifications(input.businessId, conversation.id"));
 }
 
 console.log("\nMessage route syncs on both directions");
@@ -113,6 +132,8 @@ console.log("\nMessage route syncs on both directions");
   check("both success paths sync", calls.length === 2, `n=${calls.length}`);
   check("the tenant is the session user, never the request body",
     !/syncInboxWaitingNotifications\((?!user\.businessId)/.test(code));
+  check("both calls name the conversation",
+    (code.match(/syncInboxWaitingNotifications\(user\.businessId, conversationId,/g) ?? []).length === 2);
   check("the route never trusts a body businessId",
     !/body\.businessId/.test(code));
   check("the handler still runs under the session tenant context",
@@ -135,6 +156,8 @@ console.log("\nEvery conversation-close path resolves");
       code.indexOf("tenantTx(") < code.indexOf("syncInboxWaitingNotifications("));
     check(`${label} derives the tenant from the session`,
       code.includes("getCurrentUser") && !/params.*businessId/.test(code));
+    check(`${label} names the conversation it closed`,
+      code.includes("syncInboxWaitingNotifications(user.businessId, conversationId,"));
   }
 }
 
@@ -174,6 +197,37 @@ console.log("\nPolicy is unchanged and produces the expected decision");
   check("quiet hours change nothing for an in-app-only rule",
     JSON.stringify(quiet.channels) === '["IN_APP"]' && quiet.reason === decision.reason,
     quiet.reason);
+}
+
+console.log("\nAbsence-based resolution requires an exhaustive set");
+{
+  const writer = stripComments(WRITER);
+  const facts = stripComments(FACTS);
+  const inventory = stripComments(INVENTORY);
+
+  check("the resolver's parameter type carries the requirement",
+    /present: ExhaustiveFactKeys/.test(writer));
+  check("a plain string array can no longer reach it",
+    !/presentDedupeKeys: string\[\]/.test(writer));
+  check("there is a single-entity resolver for callers that know the entity",
+    /export async function resolveNotificationByDedupeKey/.test(writer));
+
+  check("the brand is compile-time only — it is never written into the object",
+    facts.includes("as unknown as ExhaustiveFactKeys") && !/\[EXHAUSTIVE\]: true,/.test(facts));
+  check("the exhaustive inventory selector has no take/limit",
+    /findMany\(\{[\s\S]*?where: \{ businessId, isResolved: false \}[\s\S]*?\}\)/.test(facts) &&
+      !/take:/.test(facts));
+  check("it selects identity columns only, not a render payload",
+    /select: \{ id: true, type: true, itemId: true \}/.test(facts));
+
+  check("the inventory consumer resolves from the uncapped selector",
+    inventory.includes("loadAllUnresolvedInventoryAlertIdentities"));
+  check("it does NOT resolve from the capped loader's items",
+    !/resolveAbsentNotifications\([\s\S]{0,200}items\.map/.test(inventory));
+  check("it still PRESENTS from the capped loader — the cap is not the bug",
+    inventory.includes("loadInventoryAlertsUnresolved"));
+  check("both halves use the same translator, so identity cannot drift",
+    (inventory.match(/translateInventoryAlerts\(/g) ?? []).length === 2);
 }
 
 console.log("\nThis task changed no policy");

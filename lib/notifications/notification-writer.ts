@@ -55,6 +55,8 @@
 import { Prisma } from "@prisma/client";
 
 import type { BusinessStatusItem } from "@/lib/business-status/types";
+
+import type { ExhaustiveFactKeys } from "./exhaustive-facts";
 import { getTenantContextOrThrow } from "@/lib/tenant/context";
 import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
 
@@ -325,10 +327,19 @@ async function setLifecycleField(
  * stopped being a fact.
  *
  * It carries NO business meaning and makes no judgement about whether the
- * condition really ended. The caller has already computed the authoritative set
- * of currently-true facts from the existing business-status loaders, and this
- * only writes down the complement of that set. Absence from the caller's list
- * IS the resolution — that decision belongs to the domain, not to here.
+ * condition really ended. It writes down the complement of the set it is given.
+ *
+ * WHICH IS WHY THE SET MUST BE EXHAUSTIVE.
+ *
+ * It used to take a plain `string[]`, and every caller handed it the output of a
+ * business-status loader — which is capped, because Attention is a shortlist.
+ * With thirteen conversations waiting and a cap of twelve, the thirteenth was
+ * absent, and this closed it as though the customer had been answered. Absence
+ * from a partial list is not evidence of anything.
+ *
+ * The parameter type now says so. `ExhaustiveFactKeys` can only be built by
+ * `declareExhaustive`, so passing a capped list is no longer something that can
+ * happen quietly.
  *
  * `scope` deliberately requires a domain and an entity type. A resolve pass that
  * knew only the business would close notifications belonging to domains its
@@ -338,7 +349,7 @@ async function setLifecycleField(
 export async function resolveAbsentNotifications(
   businessId: number,
   scope: { domain: string; entityTypes: readonly string[] },
-  presentDedupeKeys: string[],
+  present: ExhaustiveFactKeys,
   now: Date,
 ): Promise<number> {
   return withTenantTransaction(async (tx) => {
@@ -352,10 +363,41 @@ export async function resolveAbsentNotifications(
         // An empty present-set is legitimate and means "nothing in this scope is
         // true any more", so `notIn: []` must close everything in scope rather
         // than be special-cased into a no-op.
-        dedupeKey: { notIn: presentDedupeKeys },
+        dedupeKey: { notIn: [...present.keys] },
       },
       data: { resolvedAt: now, updatedAt: now },
     });
     return res.count;
+  });
+}
+
+/**
+ * Resolve ONE notification by the identity of the fact it stands for.
+ *
+ * The counterpart to the function above, for a caller that knows exactly which
+ * entity changed. Such a caller does not need absence at all: it can ask whether
+ * THAT entity still satisfies the condition and act on the answer. That is
+ * positive evidence about one thing, rather than an inference drawn from a list
+ * that may not be complete.
+ *
+ * Prefer this wherever the caller has the entity in hand. Absence reasoning is
+ * for the case where one operation can change several facts at once and the
+ * caller genuinely cannot name them — an inventory movement touching six items.
+ *
+ * Returns whether a row moved, so "closed it" is distinguishable from "there was
+ * nothing open".
+ */
+export async function resolveNotificationByDedupeKey(
+  businessId: number,
+  dedupeKey: string,
+  now: Date,
+): Promise<boolean> {
+  return withTenantTransaction(async (tx) => {
+    assertTenantMatches(businessId);
+    const res = await tx.notification.updateMany({
+      where: { businessId, dedupeKey, resolvedAt: null },
+      data: { resolvedAt: now, updatedAt: now },
+    });
+    return res.count > 0;
   });
 }

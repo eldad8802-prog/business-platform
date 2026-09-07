@@ -69,7 +69,7 @@ export async function POST(req: Request, context: RouteContext) {
     // It cannot affect the response: the close is already durable and the sync
     // swallows its own errors and returns them as data.
     await runWithTenantContext({ businessId: user.businessId }, () =>
-      syncInboxWaitingNotifications(user.businessId, new Date())
+      syncInboxWaitingNotifications(user.businessId, conversationId, new Date())
     );
 
     return NextResponse.json({
