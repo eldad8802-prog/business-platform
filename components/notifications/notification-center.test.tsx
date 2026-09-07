@@ -16,7 +16,12 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { isSafeInternalHref, relativeTime, severityStyle } from "./notification-center";
+import {
+  activateNotification,
+  isSafeInternalHref,
+  relativeTime,
+  severityStyle,
+} from "./notification-center";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..");
@@ -225,9 +230,121 @@ console.log("\nEvery notification request is authenticated");
   check("still no businessId is sent from the client",
     !/businessId/.test(CENTER));
 }
-console.log(
-  failures === 0
-    ? `\nNOTIFICATION-CENTER: all checks passed\n`
-    : `\nNOTIFICATION-CENTER: ${failures} FAILED\n`,
-);
-process.exit(failures === 0 ? 0 : 1);
+/**
+ * The ordering checks below actually execute, so they need an async entry
+ * point. Everything after them lives here too, so the summary cannot print
+ * before they have run.
+ */
+async function main(): Promise<void> {
+  /* ── ordering: the bug the browser found, executed for real ───────────────
+   *
+   * The centre used to hang the read request off a Next <Link>, which navigated
+   * first and tore the page down before the POST left. Runtime QA saw navigation
+   * happen with no request in the network log and the item still unread.
+   *
+   * Unlike the rest of this file these are not source scans: the sequencing
+   * function actually runs, so the ordering is proven rather than described.
+   */
+  console.log("\nRead happens before navigation");
+  {
+    const seq: string[] = [];
+    const spy = (name: string, fn: () => Promise<boolean>) => async (): Promise<boolean> => {
+      seq.push(name);
+      return fn();
+    };
+
+    // 1 + 2: unread and linked — read is initiated, awaited, and only then navigation.
+    seq.length = 0;
+    const okRun = await activateNotification({
+      isUnread: true,
+      markRead: spy("markRead", async () => true),
+      navigate: () => { seq.push("navigate"); },
+    });
+    check("an unread linked notification marks read before navigating",
+      seq.join(">") === "markRead>navigate", seq.join(">"));
+    check("the reported order matches what actually ran",
+      okRun.order.join(">") === "read:start>read:ok>navigate", okRun.order.join(">"));
+    check("it navigates", okRun.navigated === true);
+    check("it reports the write landed", okRun.marked === true);
+
+    // 3: already read — no redundant write.
+    seq.length = 0;
+    const readRun = await activateNotification({
+      isUnread: false,
+      markRead: spy("markRead", async () => true),
+      navigate: () => { seq.push("navigate"); },
+    });
+    check("an already-read notification writes nothing", !seq.includes("markRead"), seq.join(">"));
+    check("it still navigates", readRun.navigated === true && seq.join(">") === "navigate");
+    check("no write is reported", readRun.marked === null);
+
+    // 5: a failed write still navigates, and says so rather than claiming success.
+    seq.length = 0;
+    const failRun = await activateNotification({
+      isUnread: true,
+      markRead: spy("markRead", async () => false),
+      navigate: () => { seq.push("navigate"); },
+    });
+    check("a failed write does not strand the owner", failRun.navigated === true);
+    check("the failure is reported, not swallowed", failRun.marked === false);
+    check("the order records the failure", failRun.order.join(">") === "read:start>read:failed>navigate",
+      failRun.order.join(">"));
+
+    // The await is real: a slow write must not let navigation overtake it.
+    seq.length = 0;
+    await activateNotification({
+      isUnread: true,
+      markRead: async () => { await new Promise((r) => setTimeout(r, 30)); seq.push("markRead"); return true; },
+      navigate: () => { seq.push("navigate"); },
+    });
+    check("navigation waits for a slow write", seq.join(">") === "markRead>navigate", seq.join(">"));
+  }
+
+  console.log("\nActivation wiring");
+  {
+    check("the link no longer fires the write and forgets it",
+      !/onClick=\{\(\) => void markRead/.test(CENTER));
+    check("the link prevents default and routes itself",
+      /e\.preventDefault\(\)/.test(CENTER) && /router\.push\(n\.href\)/.test(CENTER));
+    check("activation goes through the sequencing function",
+      /void activateNotification\(\{/.test(CENTER));
+    check("a modified click is left to the browser",
+      /metaKey \|\| e\.ctrlKey \|\| e\.shiftKey \|\| e\.altKey/.test(CENTER));
+    check("linked cards are still real anchors",
+      /<Link/.test(CENTER) && /href=\{n\.href\}/.test(CENTER));
+    check("the non-linked card keeps its Enter and Space handling",
+      /e\.key === "Enter" \|\| e\.key === " "/.test(CENTER));
+    /* Plain string checks, not regexes: the signature is being asserted
+     * character for character, and escaping it twice buys nothing. */
+    check("markRead reports success or failure to its caller",
+      CENTER.includes(
+        "const markRead = useCallback(async (id: number, wasUnread: boolean): Promise<boolean>",
+      ));
+
+    /* The second runtime run found this one. The read request was never sent
+     * at all — not raced, never dispatched — because markRead decided whether
+     * to send by reading a flag assigned inside a setItems updater. React does
+     * not run that updater synchronously, so the flag was still false one line
+     * later and the function returned before the fetch. The caller already
+     * knows the answer; it now simply says so. */
+    check("markRead does not ask a state updater whether the item was unread",
+      !CENTER.includes("let wasUnread = false"));
+    check("the unread state is supplied by the caller instead",
+      CENTER.includes("markRead(n.id, unread)") &&
+        CENTER.includes("markRead(n.id, true)"));
+
+    check("javascript: is still refused", !isSafeInternalHref("javascript:alert(1)"));
+    check("an external URL is still refused", !isSafeInternalHref("https://evil.example"));
+    check("a protocol-relative URL is still refused", !isSafeInternalHref("//evil.example"));
+    check("an internal path still navigates", isSafeInternalHref("/inventory"));
+  }
+  console.log(
+    failures === 0
+      ? `\nNOTIFICATION-CENTER: all checks passed\n`
+      : `\nNOTIFICATION-CENTER: ${failures} FAILED\n`,
+  );
+  process.exit(failures === 0 ? 0 : 1);
+
+}
+
+void main();
