@@ -20,8 +20,20 @@ if (uploadKeystorePropsPath != null && uploadKeystorePropsPath.trim()) {
         throw new GradleException(
             "DUBIZ_UPLOAD_KEYSTORE_PROPERTIES points at a file that does not exist: " + propsFile)
     }
-    propsFile.withInputStream { uploadKeystoreProps.load(it) }
+    // Read as UTF-8 explicitly. Properties.load(InputStream) decodes
+    // ISO-8859-1, which silently mangles any non-ASCII character in the
+    // keystore path — on a machine whose user folder is not ASCII that turns
+    // into a "Keystore file not found" failure five minutes into the build,
+    // pointing at a path that looks almost right.
+    propsFile.withReader("UTF-8") { uploadKeystoreProps.load(it) }
     hasUploadKeystore = true
+
+    def storePath = uploadKeystoreProps['storeFile']
+    if (!storePath || !file(storePath).exists()) {
+        throw new GradleException(
+            "Upload keystore not found at storeFile=" + storePath +
+            " (from " + propsFile + "). Prefer an ASCII-only path.")
+    }
 }
 
 android {
