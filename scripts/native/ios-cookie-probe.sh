@@ -33,7 +33,8 @@ LONG_DELAY="${PROBE_LONG_DELAY:-75}"
 # over TLS with an ephemeral certificate the simulator trusts. -k is for that
 # certificate on the RUNNER side only; the WebView validates it properly.
 SCHEME="${PROBE_SCHEME:-http}"
-BASE="$SCHEME://127.0.0.1:$PORT"
+HOSTNAME_="${PROBE_HOST:-localhost}"
+BASE="$SCHEME://$HOSTNAME_:$PORT"
 
 mkdir -p "$OUT"
 : > "$CHECKS"
