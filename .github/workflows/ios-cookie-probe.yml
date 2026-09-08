@@ -108,12 +108,44 @@ jobs:
           fi
           echo "tunnel origin assigned"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
-          # No -k and no custom CA: if this verifies against the public trust
-          # store, WKWebView has nothing to object to either.
-          for _ in $(seq 1 30); do
-            curl -fsS "$URL/plan" > /dev/null 2>&1 && break
+          HOST="${URL#https://}"
+
+          # cloudflared prints the hostname before the tunnel is registered and
+          # before DNS carries it. The previous run raced both: the name was
+          # assigned and "could not resolve host" a moment later. Wait for the
+          # connection first, then for DNS, then for the probe to answer.
+          for _ in $(seq 1 60); do
+            grep -q "Registered tunnel connection" native-evidence/cloudflared.log && break
             sleep 2
           done
+          echo "tunnel connections registered: $(grep -c "Registered tunnel connection" native-evidence/cloudflared.log || echo 0)"
+
+          RESOLVED=""
+          for _ in $(seq 1 90); do
+            if host "$HOST" > /dev/null 2>&1 || dig +short "$HOST" | grep -q .; then RESOLVED=yes; break; fi
+            sleep 2
+          done
+          if [ -z "$RESOLVED" ]; then
+            echo "the tunnel hostname never resolved from this runner"
+            dig +short "$HOST" || true
+            tail -40 native-evidence/cloudflared.log
+            exit 1
+          fi
+          echo "hostname resolves"
+
+          # No -k and no custom CA: verifying against the public trust store is
+          # the whole point, and it is what WKWebView will do too.
+          OK=""
+          for _ in $(seq 1 45); do
+            if curl -fsS --max-time 10 "$URL/plan" > /dev/null 2>&1; then OK=yes; break; fi
+            sleep 2
+          done
+          if [ -z "$OK" ]; then
+            echo "the public origin never served the probe"
+            curl -v --max-time 10 "$URL/plan" 2>&1 | tail -20 || true
+            tail -40 native-evidence/cloudflared.log
+            exit 1
+          fi
           curl -fsS "$URL/plan"
           echo
 
