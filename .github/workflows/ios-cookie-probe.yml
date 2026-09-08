@@ -107,6 +107,14 @@ jobs:
         run: |
           xcrun simctl keychain "${{ steps.sim.outputs.udid }}" add-root-cert probe-tls/ca.pem
           echo "root certificate installed on ${{ steps.sim.outputs.udid }}"
+          # The network process caches trust at launch, so a root added to a
+          # already-booted device is not picked up until it restarts. Every https
+          # run so far never connected at all, while the earlier http run loaded
+          # the page fine — the difference is trust, and this is what applies it.
+          xcrun simctl shutdown "${{ steps.sim.outputs.udid }}"
+          xcrun simctl boot "${{ steps.sim.outputs.udid }}"
+          xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}" -b
+          echo "simulator restarted so the new trust anchor takes effect"
 
       - name: Build the app for the simulator
         run: |
