@@ -85,11 +85,47 @@ const INVENTORY: DomainAliasMap = {
   "מחיר מכירה": ["מחיר", "מחיר לצרכן", "price", "sale price", "selling price", "retail price"],
 };
 
+/**
+ * Historical fiscal documents (I-8B.2).
+ *
+ * These files come from OTHER invoicing systems, so the header vocabulary is
+ * whatever that vendor chose. Each alias below is a term such an export
+ * plausibly uses AND that cannot mean a different field in this domain — the
+ * same rule the four tabular domains follow.
+ *
+ * # What is deliberately absent, and why
+ *
+ *  - bare "number" / "מספר" — in a fiscal file this is as likely to be the
+ *    customer number, the line number or the allocation number as the document
+ *    number, and getting it wrong puts somebody's customer id in the field that
+ *    identifies the document.
+ *  - bare "amount" / "סכום" — could be the total, the subtotal or the VAT, and
+ *    all three are columns here.
+ *  - bare "date" / "תאריך" — the file may also carry a due date or a payment
+ *    date. Only the qualified forms are accepted.
+ *  - "מספר עוסק" alone is NOT the customer's tax id: on an export of documents
+ *    the business ISSUED, that is at least as likely to be the issuer's own.
+ */
+const HISTORICAL: DomainAliasMap = {
+  "סוג מסמך": ["סוג", "סוג המסמך", "document type", "doc type", "type"],
+  "מספר מסמך מקורי": ["מספר מסמך", "מספר חשבונית", "מס' מסמך", "document number", "doc number", "invoice number", "document no"],
+  "תאריך המסמך": ["תאריך מסמך", "תאריך הפקה", "תאריך החשבונית", "document date", "issue date", "invoice date"],
+  "סכום כולל": ['סה"כ', 'סה"כ לתשלום', "סכום סופי", "total", "total amount", "grand total"],
+  "סכום לפני מע״מ": ['לפני מע"מ', "סכום לפני מעמ", "subtotal", "net amount", "amount before vat"],
+  "מע״מ": ["מעמ", 'מע"מ', 'סכום מע"מ', "vat", "vat amount", "tax amount"],
+  מטבע: ["currency"],
+  "שם לקוח": ["לקוח", "שם הלקוח", "customer", "customer name", "client name"],
+  "מספר עוסק / ח.פ. לקוח": ["ח.פ. לקוח", "חפ לקוח", "מספר עוסק לקוח", "customer tax id", "customer vat id"],
+  "מערכת מקור": ["מקור", "מערכת", "source", "source system"],
+  "מספר מסמך שמזוכה": ["מסמך מקושר", "מספר מסמך מקורי לזיכוי", "credited document", "reference document", "original document number"],
+};
+
 const BY_DOMAIN: Partial<Record<DataTransferDomainId, DomainAliasMap>> = {
   customers: CUSTOMERS,
   suppliers: SUPPLIERS,
   leads: LEADS,
   inventory: INVENTORY,
+  "historical-documents": HISTORICAL,
 };
 
 /** Synonyms for one canonical header in one domain. Empty when none. */
