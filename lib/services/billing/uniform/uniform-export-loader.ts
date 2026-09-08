@@ -143,9 +143,25 @@ export async function loadUniformExportInput(args: {
 }): Promise<UniformExportAssemblerInput> {
   const client = (args.client ?? prisma) as UniformExportReadClient;
 
+  // `name` off Business, and only the seven billing fields the export writes off
+  // the profile. `include` pulled every scalar of both, which is part of what
+  // keeps the runtime needing table-level SELECT on Business.
   const business = (await client.business.findUnique({
     where: { id: args.businessId },
-    include: { profile: true },
+    select: {
+      name: true,
+      profile: {
+        select: {
+          billingLegalName: true,
+          billingTaxId: true,
+          billingVatNumber: true,
+          billingPhone: true,
+          billingEmail: true,
+          billingAddress: true,
+          billingBusinessKind: true,
+        },
+      },
+    },
   })) as Record<string, unknown> | null;
 
   const profile = (business?.profile ?? {}) as Record<string, unknown>;

@@ -13,10 +13,16 @@ export async function GET(req: Request) {
       );
     }
 
+    // Exactly the five fields the response below returns. This route previously
+    // loaded every scalar, `password` among them, to build a five-field payload.
     const user = await authDb().user.findUnique({
       where: { id: currentUser.id },
-      include: {
-        business: true,
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        businessId: true,
+        business: { select: { name: true } },
       },
     });
 

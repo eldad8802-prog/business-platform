@@ -29,6 +29,21 @@ async function recordLoginFailure(input: {
   });
 }
 
+/**
+ * Exactly what login consumes: the hash for the comparison, the id and version
+ * the token is minted from, the tenant it resolves to, and the fields the
+ * response echoes back.
+ */
+const LOGIN_USER_SELECT = {
+  id: true,
+  email: true,
+  name: true,
+  password: true,
+  businessId: true,
+  tokenVersion: true,
+  business: { select: { name: true } },
+} as const;
+
 export async function POST(req: Request) {
   try {
     const ip = getClientIp(req);
@@ -65,6 +80,15 @@ export async function POST(req: Request) {
       );
     }
 
+    // Named once and used by both lookups, so the fallback can never drift into
+    // selecting a different set from the primary path.
+    //
+    // `password` is here deliberately: this is the one route that must compare
+    // it. Every other read of `User` selects around it, which is what allows the
+    // runtime's table-level SELECT to be narrowed to columns later without
+    // breaking authentication. Listing the columns explicitly also means adding
+    // a field to the model no longer silently widens what login reads.
+
     // Signup stores the folded address, so that is what we look for first.
     // Accounts created before folding existed may still hold a mixed-case
     // address, and those owners must not be locked out of their own business —
@@ -75,13 +99,13 @@ export async function POST(req: Request) {
 
     let user = await authDb().user.findUnique({
       where: { email: normalizedEmail },
-      include: { business: true },
+      select: LOGIN_USER_SELECT,
     });
 
     if (!user && email !== normalizedEmail) {
       user = await authDb().user.findUnique({
         where: { email },
-        include: { business: true },
+        select: LOGIN_USER_SELECT,
       });
     }
 
