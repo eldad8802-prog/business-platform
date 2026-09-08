@@ -298,7 +298,14 @@ async function main() {
       },
     ]);
 
-  /** One spreadsheet row, in contract order. */
+  /**
+   * One spreadsheet row, in contract order.
+   *
+   * The source system must be the one the fixtures were inserted under —
+   * fiscal identity includes it, so a file saying "ידני" would normalize to
+   * `manual` and match nothing, and every duplicate assertion below would pass
+   * for the wrong reason.
+   */
   const fileRow = (number, total, type = "חשבונית מס", reverses = "") => [
     type,
     number,
@@ -309,7 +316,7 @@ async function main() {
     "ILS",
     "",
     "",
-    "ידני",
+    "legacy-erp",
     reverses,
   ];
 
