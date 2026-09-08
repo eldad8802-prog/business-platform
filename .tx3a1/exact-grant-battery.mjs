@@ -731,6 +731,96 @@ async function stageERehearsal(owner, ownerUrl) {
   await deny("runtime: SELECT * on Business",
     () => rt.$queryRawUnsafe(`SELECT * FROM "Business" WHERE id > 0`));
 
+  // ---- the TRANSITION, not just the end state -------------------------------
+  //
+  // Everything above proves the narrowed contract works once it exists. It does
+  // not prove the migration that gets there is correct, and that is where the
+  // real hazard is: PostgreSQL privileges are additive and a table-level grant
+  // cannot be partially revoked, so granting columns to a role that still holds
+  // table-level SELECT changes nothing at all. The revoke would be reviewed,
+  // applied, and silently accomplish nothing.
+  //
+  // So this rehearses the sequence in .e4/proposed-production-narrowing.sql
+  // against a role that starts where Production is today, and it proves the
+  // wrong order fails — because a check that only demonstrated the right order
+  // could not tell the two apart.
+  console.log("\n  -- the narrowing sequence itself --");
+  const SEQ = "e3_sequence_probe";
+  const readsPassword = async () => {
+    const r = await owner.$queryRawUnsafe(
+      `SELECT has_column_privilege($1,'public."User"','password','SELECT') AS c`, SEQ);
+    return r[0].c;
+  };
+  await owner.$executeRawUnsafe(`DROP OWNED BY ${SEQ}`).catch(() => {});
+  await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${SEQ}`);
+  await owner.$executeRawUnsafe(`CREATE ROLE ${SEQ} NOLOGIN NOSUPERUSER NOBYPASSRLS`);
+
+  // Where Production stands today.
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON public."User" TO ${SEQ}`);
+  ok("sequence: the starting state can read User.password", (await readsPassword()) === true);
+
+  // The wrong order: grant the columns and stop.
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT (${cols(RUNTIME_USER_SELECT_COLS)}) ON public."User" TO ${SEQ}`);
+  ok("sequence: adding column grants alone does NOT remove password (additive privileges)",
+    (await readsPassword()) === true,
+    "the column grant appeared to narrow the role, which would make a review of the revoke misleading");
+
+  // The right order: table-level away first, then the columns back.
+  await owner.$executeRawUnsafe(
+    `REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public."User" FROM ${SEQ}`);
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT (${cols(RUNTIME_USER_SELECT_COLS)}) ON public."User" TO ${SEQ}`);
+  await owner.$executeRawUnsafe(
+    `GRANT UPDATE (${cols(RUNTIME_USER_UPDATE_COLS)}) ON public."User" TO ${SEQ}`);
+  ok("sequence: revoking table-level first DOES remove password", (await readsPassword()) === false);
+  const residue = await owner.$queryRawUnsafe(
+    `SELECT count(*)::int n FROM information_schema.role_table_grants
+      WHERE table_schema='public' AND table_name='User' AND grantee=$1`, SEQ);
+  ok("sequence: no table-level privilege survives the transition", residue[0].n === 0,
+    `${residue[0].n} table-level grants remain`);
+  const kept = await owner.$queryRawUnsafe(
+    `SELECT string_agg(column_name, ',' ORDER BY column_name) AS c
+       FROM information_schema.column_privileges
+      WHERE table_schema='public' AND table_name='User' AND grantee=$1 AND privilege_type='SELECT'`, SEQ);
+  ok("sequence: the intended SELECT columns are exactly what remains",
+    kept[0].c === [...RUNTIME_USER_SELECT_COLS].sort().join(","), kept[0].c ?? "(none)");
+
+  // The sequence half. The runtime holds USAGE and SELECT on both id sequences
+  // today, from the blanket grant over every sequence. Under this contract it
+  // cannot INSERT into either table, so nothing it does will call nextval()
+  // there — the privilege has no consumer left, and the narrowing removes it.
+  const seqHeld = async (role, seq, priv) =>
+    (await owner.$queryRawUnsafe(
+      `SELECT has_sequence_privilege($1, ('public."' || $2 || '"')::regclass, $3) AS h`,
+      role, seq, priv))[0].h;
+  await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON SEQUENCE public."User_id_seq" TO ${SEQ}`);
+  ok("sequence: the starting state holds USAGE and SELECT on User_id_seq",
+    (await seqHeld(SEQ, "User_id_seq", "USAGE")) === true &&
+    (await seqHeld(SEQ, "User_id_seq", "SELECT")) === true);
+  await owner.$executeRawUnsafe(`REVOKE ALL ON SEQUENCE public."User_id_seq" FROM ${SEQ}`);
+  ok("sequence: the narrowing removes the runtime's sequence privileges entirely",
+    (await seqHeld(SEQ, "User_id_seq", "USAGE")) === false &&
+    (await seqHeld(SEQ, "User_id_seq", "SELECT")) === false &&
+    (await seqHeld(SEQ, "User_id_seq", "UPDATE")) === false);
+
+  // The rollback direction, from the same file.
+  await owner.$executeRawUnsafe(`REVOKE ALL ON public."User" FROM ${SEQ}`);
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON public."User" TO ${SEQ}`);
+  await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON SEQUENCE public."User_id_seq" TO ${SEQ}`);
+  ok("sequence: the rollback restores the pre-narrowing state", (await readsPassword()) === true);
+  ok("sequence: the rollback restores the sequence privileges too",
+    (await seqHeld(SEQ, "User_id_seq", "USAGE")) === true &&
+    (await seqHeld(SEQ, "User_id_seq", "SELECT")) === true);
+  ok("sequence: the rollback does NOT grant sequence UPDATE (setval stays impossible)",
+    (await seqHeld(SEQ, "User_id_seq", "UPDATE")) === false);
+  const rbDelete = await owner.$queryRawUnsafe(
+    `SELECT has_table_privilege($1,'public."User"','DELETE') AS d`, SEQ);
+  ok("sequence: the rollback does NOT reopen DELETE (Step 1 stays closed)", rbDelete[0].d === false);
+
+  await owner.$executeRawUnsafe(`DROP OWNED BY ${SEQ}`).catch(() => {});
+  await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${SEQ}`);
+
   await rt.$disconnect();
   await au.$disconnect();
   for (const r of [E3_RUNTIME, E3_AUTH]) {
