@@ -57,17 +57,11 @@ fi
 #
 # The allowlist enumerates the complete auth/bootstrap surface rather than
 # matching a directory, so adding a caller is a deliberate, reviewable act.
-#
-# `app/api/dev/d2-auth-identity/route.ts` is the ONE temporary entry: the Stage D
-# probe, which must reach the auth plane in order to report which identity it
-# holds. It is an exact path rather than a directory allowance, and PR-B removes
-# both the route and this line once the Production identity proof is done.
 ci2a="$(
   grep -rnE "from ['\"](@/lib/prisma-auth|[./]+lib/prisma-auth|[./]+prisma-auth)['\"]" \
     "$ROOT/app" "$ROOT/lib" \
     --include="*.ts" --include="*.tsx" 2>/dev/null \
     | grep -vE "(^|/)app/api/auth/(login|logout|me)/route\.ts:" \
-    | grep -vE "(^|/)app/api/dev/d2-auth-identity/route\.ts:" \
     | grep -vE "(^|/)lib/auth\.ts:" \
     | grep -vE "(^|/)lib/auth/signup\.ts:" \
     | grep -vE "(^|/)lib/prisma-auth\.ts:" \
@@ -143,39 +137,9 @@ done
 # which enforces MFA once PLATFORM_ADMIN_MFA_REQUIRED is on.
 CI3_IDENTITY_ONLY_ALLOWLIST="app/api/platform-admin/mfa/(enroll|confirm|verify)/route\.ts|app/api/platform-admin/session/route\.ts"
 
-# TEMPORARY D2 STAGE D PROBE — MUST BE REMOVED IN PR-B AFTER PRODUCTION IDENTITY PROOF
-#
-# One exact path, not a directory allowance. The Stage D probe cannot use the
-# platform-admin guard: that guard authenticates through `getCurrentUser`, which
-# runs on the very auth plane the probe exists to inspect, so a broken auth plane
-# would make the probe unreachable exactly when its answer is needed. It is gated
-# on a dedicated token instead and refuses with 404 in every other case, which is
-# a strictly narrower surface than an admin route — it exposes one role name and
-# takes no input at all.
-#
-# PR-B removes the route and this exemption together.
-CI3_TOKEN_GATED_ALLOWLIST="app/api/dev/d2-auth-identity/route\.ts"
-
 while IFS= read -r route; do
   rel="${route#"$ROOT"/}"
   rel="${rel#./}"
-  if printf '%s' "$rel" | grep -qE "^($CI3_TOKEN_GATED_ALLOWLIST)$"; then
-    # Still policed, just against its own contract: the token gate must be
-    # present, and it must never answer anything but 404 without one.
-    if ! grep -q "D2_AUTH_PROBE_TOKEN" "$route"; then
-      echo "CI-3 VIOLATION — the token-gated probe lost its token gate: $rel"
-      fail=1
-    fi
-    # Comments stripped first. The route documents that it answers 404 *rather
-    # than* 401, so a raw scan matches the sentence explaining the guarantee and
-    # fails on the prose instead of on any code.
-    if sed -e 's://.*::' -e 's:^[[:space:]]*\*.*::' -e 's:^[[:space:]]*/\*.*::' "$route" \
-         | grep -qE "\b401\b"; then
-      echo "CI-3 VIOLATION — the token-gated probe can answer 401, disclosing that it exists: $rel"
-      fail=1
-    fi
-    continue
-  fi
   if ! grep -qE "requirePlatformAdmin(Identity)?(OrResponse)?" "$route"; then
     echo "CI-3 VIOLATION — admin route without canonical requirePlatformAdmin guard: $route"
     fail=1
