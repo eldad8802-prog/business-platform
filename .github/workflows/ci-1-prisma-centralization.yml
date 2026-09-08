@@ -469,6 +469,146 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
 
+      # Import/Export Center I-8B.3 — duplicate and reversal ANALYSIS. Blocking,
+      # because every guarantee here is about restraint: the identity is exactly
+      # four columns and no more, ambiguity is never resolved by picking, source
+      # order is never rearranged, and the whole path reads without writing.
+      # Local equivalent: npm run verify:historical-duplicates
+      - name: Historical duplicate and reversal analysis
+        run: npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts
+
+      - name: I-8B.3 negative proof (the issue date must not enter the identity)
+        run: |
+          F="lib/data-transfer/historical/historical-duplicates.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    const key = identityKey\(record\);/    const key = identityKey(record) + (record.originalIssueDate ?? "");/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a corrected re-export would have become a second document"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.3 negative proof (the source system must not leave the identity)
+        run: |
+          F="lib/data-transfer/historical/historical-duplicates.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  return \[\n    identity\.sourceSystemCode,\n    identity\.documentTypeCode,/  return [\n    identity.documentTypeCode,/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: two source systems numbering an invoice 1001 became one document"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.3 negative proof (one query per row is not bounded)
+        run: |
+          F="lib/data-transfer/historical/historical-duplicates.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/export const DUPLICATE_LOOKUP_CHUNK = 500;/export const DUPLICATE_LOOKUP_CHUNK = 1;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the lookup degraded to a query per identity"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.3 negative proof (an ambiguous reversal must never be resolved by picking)
+        run: |
+          F="lib/data-transfer/historical/historical-duplicates.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  if \(total > 1\) \{/  if (false) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a heuristic chose between reversal candidates"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.3 negative proof (a later in-file target must not be treated as earlier)
+        run: |
+          F="lib/data-transfer/historical/historical-duplicates.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  const earlier = inFileCandidates\.filter\(\(c\) => c\.sourceRowNumber < row\.sourceRowNumber\);/  const earlier = inFileCandidates;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a target appearing after the credit was reported as executable"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.3 negative proof (the analysis must not write a historical record)
+        run: |
+          F="lib/data-transfer/historical/historical-duplicates.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  const identities: FiscalIdentity\[\] = \[\];/  void historicalFiscalDocument.create({});\n  const identities: FiscalIdentity[] = [];/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the duplicate analysis gained a write"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.3 negative proof (the analysis must not create an import run)
+        run: |
+          F="lib/data-transfer/historical/historical-duplicates.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  const identities: FiscalIdentity\[\] = \[\];/  void importRun.create({});\n  const identities: FiscalIdentity[] = [];/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the duplicate analysis gained an import-run write"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.3 negative proof (the reversal relation must never be written)
+        run: |
+          F="lib/data-transfer/historical/historical-duplicates.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  const identities: FiscalIdentity\[\] = \[\];/  void historicalFiscalDocument.update({ reversesHistoricalDocumentId: 1 });\n  const identities: FiscalIdentity[] = [];/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the reversal relation was written despite having no UPDATE path"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.3 negative proof (a reversal must not fall back to billing)
+        run: |
+          F="lib/data-transfer/historical/historical-duplicates.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  const identities: FiscalIdentity\[\] = \[\];/  void billingDocument.findFirst({});\n  const identities: FiscalIdentity[] = [];/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the reversal search reached Dubiz-issued documents"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.3 negative proof (database-dependent analysis must carry evidence)
+        run: |
+          F="lib/data-transfer/historical/historical-duplicates.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  return sha256Hex\(`historical-duplicate-evidence:v1\\n\$\{lines\.join\("\\n"\)\}`\);/  return "constant";/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the evidence fingerprint stopped reflecting what the database said"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.3 negative proof (fiscal identity must not become a unique constraint)
+        run: |
+          F="prisma/migrations/20260907120000_i8a_historical_fiscal_documents/migration.sql"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/CREATE INDEX "HistoricalFiscalDocument_businessId_sourceSystemCode_docume_idx"/CREATE UNIQUE INDEX "HistoricalFiscalDocument_businessId_sourceSystemCode_docume_idx"/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a database uniqueness rule appeared on fiscal identity"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
       # The two validator extractions (I-5). Both moved rules OUT of live
       # services so the Import dry run can evaluate a row without a database.
       # These verifiers run the pre-extraction implementations side by side with

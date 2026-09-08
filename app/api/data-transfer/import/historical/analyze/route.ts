@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
-import { analyzeHistoricalSource } from "@/lib/data-transfer/historical/historical-analyze";
+import { analyzeHistoricalSourceWithDuplicates } from "@/lib/data-transfer/historical/historical-analyze-duplicates";
+import { runWithTenantContext } from "@/lib/tenant/context";
 import { IMPORT_MAX_FILE_BYTES } from "@/lib/data-transfer/import/import-config";
 import type { DateFormatContract } from "@/lib/data-transfer/historical/historical-date";
 
@@ -26,19 +27,22 @@ const NO_STORE = { "Cache-Control": "private, no-store" } as const;
  *
  * # What it does not do
  *
- * ZERO WRITES, and zero reads of business data. It answers a question about the
- * upload, not about the business: no record, no import run, no marker, no
- * document, no customer, no billing. Duplicate lookup and reversal resolution
- * are I-8B.3 and both need the database; this does not open a transaction at
- * all beyond the session lookup that authenticates the caller.
+ * ZERO WRITES. No record, no import run, no marker, no document, no customer,
+ * no billing. It reads historical records to answer "does this business already
+ * hold this document" and nothing else — no create, update, upsert or delete
+ * anywhere on the path.
  *
  * # Tenancy
  *
- * The route is authenticated and therefore tenant-bound, but it derives the
- * business from the SESSION and then does not use it for anything except the
- * failure log. There is no field, header or query parameter by which a caller
- * could name a business, because there is nothing here for a business id to
- * select.
+ * I-8B.3 gave this route its first database read, so the tenant boundary now
+ * carries weight. The business comes from the SESSION and is established as
+ * tenant context before the read; the read itself runs inside
+ * `withTenantTransaction`, which sets the `app.current_business_id` GUC that
+ * row-level security evaluates. Application `where` clauses are defence in
+ * depth, not the boundary.
+ *
+ * There is no field, header or query parameter by which a caller could name a
+ * business.
  */
 export async function POST(req: Request) {
   const user = await getCurrentUser(req);
@@ -90,12 +94,16 @@ export async function POST(req: Request) {
     dateRaw === "DMY" || dateRaw === "MDY" ? dateRaw : null;
 
   try {
-    const result = await analyzeHistoricalSource({
-      filename: typeof file.name === "string" ? file.name : "",
-      bytes,
-      sheetName,
-      dateFormat,
-    });
+    // The tenant is established from the session and never from the request.
+    // Everything the read touches happens inside this scope.
+    const result = await runWithTenantContext({ businessId: user.businessId }, () =>
+      analyzeHistoricalSourceWithDuplicates(user.businessId, {
+        filename: typeof file.name === "string" ? file.name : "",
+        bytes,
+        sheetName,
+        dateFormat,
+      })
+    );
 
     if (!result.ok) {
       const status = result.code === "TOO_MANY_ROWS" ? 413 : 400;

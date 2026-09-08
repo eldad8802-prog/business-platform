@@ -429,6 +429,12 @@ const ALLOWED_TO_NAME_IT = [
   // its zero-write check reads the analyzer's source and requires the model to
   // be absent from it. The analyzer itself does not name it at all.
   "lib/data-transfer/historical/historical-analyze.verify.test.ts",
+  // I-8B.3: the duplicate lookup. This is the FIRST file that reads a row, and
+  // it is a different kind of entry from the ones above — see the read-only
+  // check below, which is what makes it safe to list here.
+  "lib/data-transfer/historical/historical-duplicates.ts",
+  // and the test that holds it to reading only
+  "lib/data-transfer/historical/historical-duplicates.verify.test.ts",
 ];
 
 check("only the erasure contract and the import contract name this model", () => {
@@ -518,6 +524,40 @@ check("naming the transfer domain did not connect it to issuance", () => {
   for (const forbidden of ["BillingDocument", "issuedAt", "allocationNumber", "ISSUED"]) {
     assert.ok(!entry.includes(forbidden), `the registry entry must not mention ${forbidden}`);
   }
+});
+
+check("the one file that reads a row can ONLY read, and only inside the tenant", () => {
+  // I-8B.3 introduced the first read of a historical record. The allowlist was
+  // "declaration allowed, execution forbidden"; a read is neither, so it gets
+  // its own rule rather than being folded into either. What makes it safe is
+  // measurable: one verb, no mutation, and the tenant GUC around it.
+  const reader = "lib/data-transfer/historical/historical-duplicates.ts";
+  const code = read(reader)
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .split("\n")
+    .map((line) => line.replace(/\/\/.*$/, ""))
+    .join("\n");
+
+  const verbs = [...code.matchAll(/historicalFiscalDocument\.(\w+)\(/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(verbs)], ["findMany"], "the only verb may be a read");
+  for (const forbidden of [
+    ".create(",
+    ".createMany(",
+    ".update(",
+    ".updateMany(",
+    ".upsert(",
+    ".delete(",
+    ".deleteMany(",
+    ".executeRaw",
+  ]) {
+    assert.ok(!code.includes(forbidden), `${reader} must not contain ${forbidden}`);
+  }
+  assert.ok(
+    code.includes("withTenantTransaction"),
+    "the read must carry the tenant GUC that row-level security evaluates"
+  );
+  // And it must never write the relation the model has no UPDATE path for.
+  assert.ok(!code.includes("reversesHistoricalDocumentId:"));
 });
 
 check("Analyze knows the field contract and nothing about issuance", () => {

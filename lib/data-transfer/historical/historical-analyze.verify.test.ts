@@ -678,45 +678,71 @@ async function main(): Promise<void> {
 
   /* ================================================== 12. zero writes ==== */
 
-  await check("Analyze cannot write, and cannot read business data either", () => {
-    const files = [
+  await check("the FILE analyzer still touches no database at all", () => {
+    // I-8B.3 gave the route a tenant-scoped read for duplicate detection. This
+    // module is deliberately not where that lives: it answers "what is in this
+    // file", and keeping it database-free is what lets the whole parsing and
+    // normalization contract be tested without one.
+    const src = fs.readFileSync(
       "lib/data-transfer/historical/historical-analyze.ts",
-      "app/api/data-transfer/import/historical/analyze/route.ts",
-    ];
-    const forbidden = [
+      "utf8"
+    );
+    for (const needle of [
       "@/lib/prisma",
       "PrismaClient",
       "withTenantTransaction",
       "runWithTenantContext",
       "runTenantJob",
-      ".create(",
-      ".createMany(",
-      ".update(",
-      ".updateMany(",
-      ".delete(",
-      ".deleteMany(",
-      ".upsert(",
       ".findMany(",
       ".findUnique(",
       ".findFirst(",
       "importRun",
       "historicalFiscalDocument",
       "billingDocument",
-    ];
-    for (const file of files) {
-      const src = fs.readFileSync(file, "utf8");
-      for (const needle of forbidden) {
-        assert.ok(!src.includes(needle), `${file} must not contain ${needle}`);
+    ]) {
+      assert.ok(!src.includes(needle), `the file analyzer must not contain ${needle}`);
+    }
+    // `Prisma.Decimal` is the only Prisma surface it uses, and it is
+    // arithmetic, not a client.
+    assert.ok(src.includes("Prisma.Decimal"));
+    assert.ok(!src.includes("new PrismaClient"));
+  });
+
+  await check("nothing on the route's path can WRITE, whatever it may read", () => {
+    // The read is deliberate and scoped; a write would not be. Checked on the
+    // route and on both modules behind it, with comments stripped because they
+    // name the operations they refuse to perform.
+    const codeOf = (file: string) =>
+      fs
+        .readFileSync(file, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, " ")
+        .split("\n")
+        .map((line) => line.replace(/\/\/.*$/, ""))
+        .join("\n");
+
+    for (const file of [
+      "lib/data-transfer/historical/historical-analyze.ts",
+      "lib/data-transfer/historical/historical-analyze-duplicates.ts",
+      "lib/data-transfer/historical/historical-duplicates.ts",
+      "app/api/data-transfer/import/historical/analyze/route.ts",
+    ]) {
+      const code = codeOf(file);
+      for (const needle of [
+        ".create(",
+        ".createMany(",
+        ".update(",
+        ".updateMany(",
+        ".delete(",
+        ".deleteMany(",
+        ".upsert(",
+        ".executeRaw",
+        "billingDocument",
+        "financialEvent",
+        "importRunRow",
+      ]) {
+        assert.ok(!code.includes(needle), `${file} must not contain ${needle}`);
       }
     }
-    // `Prisma.Decimal` is the only Prisma surface Analyze uses, and it is
-    // arithmetic, not a client.
-    const analyzeSrc = fs.readFileSync(
-      "lib/data-transfer/historical/historical-analyze.ts",
-      "utf8"
-    );
-    assert.ok(analyzeSrc.includes("Prisma.Decimal"));
-    assert.ok(!analyzeSrc.includes("new PrismaClient"));
   });
 
   /* ============================================= 13. capability gate ===== */
