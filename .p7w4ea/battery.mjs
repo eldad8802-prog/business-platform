@@ -203,7 +203,12 @@ async function main() {
     // policy and a SELECT grant. Without this the lab would prove nothing about
     // the reference guard: the reads would fail on privilege rather than be
     // filtered by tenancy, which looks like a pass for the wrong reason.
-    for (const table of ["Customer", "BillingDocument"]) {
+    // BillingPaymentAllocation is included because the payable-document read
+    // joins it: the authoritative balance is total less ALLOCATIONS less issued
+    // credit notes, so the allocation rows are part of the same tenant read and
+    // need the same posture. Credit notes are a self-relation on BillingDocument
+    // and are covered by that table's entry.
+    for (const table of ["Customer", "BillingDocument", "BillingPaymentAllocation"]) {
       await owner.$executeRawUnsafe(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY`);
       await owner.$executeRawUnsafe(`ALTER TABLE "${table}" FORCE ROW LEVEL SECURITY`);
       await owner.$executeRawUnsafe(`DROP POLICY IF EXISTS p4b_tenant ON "${table}"`);
@@ -272,7 +277,7 @@ async function main() {
     await owner.$executeRawUnsafe(`DELETE FROM "PaymentProviderRouting" WHERE "businessId" IN (${bids})`);
     // PaymentRequest first: it references BillingDocument and Customer, which
     // the SEC-02 phase creates and which must go with the synthetic tenants.
-    for (const t of ["PaymentAuditEvent", "FinancialEvent", "PaymentRequest", "BusinessPaymentConnection", "BillingDocument", "Customer"]) {
+    for (const t of ["PaymentAuditEvent", "FinancialEvent", "PaymentRequest", "BusinessPaymentConnection", "BillingPaymentAllocation", "BillingDocument", "Customer"]) {
       await owner.$executeRawUnsafe(`DELETE FROM "${t}" WHERE "businessId" IN (${bids})`);
     }
     await owner.$executeRawUnsafe(`DELETE FROM "PaymentWebhookEvent" WHERE "providerEventId" LIKE '${MARK}%'`);
