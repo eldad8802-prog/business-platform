@@ -138,3 +138,6 @@ id_rsa.*
 
 # Import/Export QA scratch (layout + a11y screenshots) — never committed.
 .tmp-import-export/
+
+# Historical fiscal (I-8B.6) QA scratch — screenshots and probes, never committed.
+.tmp-i8b6/

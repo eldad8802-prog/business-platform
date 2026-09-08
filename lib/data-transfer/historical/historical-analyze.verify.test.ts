@@ -747,22 +747,39 @@ async function main(): Promise<void> {
 
   /* ============================================= 13. capability gate ===== */
 
-  await check("the historical capability is exactly three named routes", () => {
+  await check("the historical capability is exactly four named routes", () => {
     // I-8B.5 granted Execute, so the ratchet is no longer "Execute must not
-    // exist". It is the enumeration itself: these three, and no fourth. A new
-    // historical route cannot appear without this line being edited on purpose.
+    // exist". It is the enumeration itself: these, and no more. A new historical
+    // route cannot appear without this line being edited on purpose.
+    //
+    // I-8B.6 added the fourth, and this is where it is announced: the owner has
+    // to be able to obtain the template the analyzer reads against. It is its
+    // own route rather than a domain on the shared template endpoint, because
+    // that endpoint gates on the SAME predicate analyze, preview and execute
+    // gate on — widening it for a template would have handed the domain to
+    // three routes that must keep refusing it.
     for (const granted of [
       "app/api/data-transfer/import/historical/analyze/route.ts",
       "app/api/data-transfer/import/historical/preview/route.ts",
       "app/api/data-transfer/import/historical/execute/route.ts",
+      "app/api/data-transfer/import/historical/template/route.ts",
     ]) {
       assert.ok(fs.existsSync(granted), `${granted} must exist`);
     }
     assert.deepEqual(
       fs.readdirSync("app/api/data-transfer/import/historical").sort(),
-      ["analyze", "execute", "preview"],
-      "no fourth historical route may appear unannounced"
+      ["analyze", "execute", "preview", "template"],
+      "no fifth historical route may appear unannounced"
     );
+    // The fourth is harmless only while it stays a tenant-independent GET. If it
+    // ever grew a write or a tenant read it would stop being that.
+    const template = fs.readFileSync(
+      "app/api/data-transfer/import/historical/template/route.ts",
+      "utf8"
+    );
+    assert.ok(!/export\s+async\s+function\s+POST/.test(template));
+    assert.ok(!template.includes("withTenantTransaction"));
+    assert.ok(!template.includes("runWithTenantContext"));
     // And the generic routes still refuse the domain, because the historical
     // domain is still absent from the list they gate on.
     const registry = fs.readFileSync(

@@ -139,13 +139,17 @@
     "verify:historical-duplicates": "npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts",
     "verify:historical-preview": "npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts",
     "verify:historical-execute": "npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts",
+
     "verify:payments-currency-authority": "npx tsx lib/services/payments/payment-currency-authority.test.ts",
     "verify:payments-document-authority": "npx tsx lib/services/payments/payment-document-authority.test.ts",
     "verify:payments-tenant-ownership": "npx tsx lib/services/payments/payment-tenant-ownership.test.ts",
     "verify:payments-provider-seam": "npx tsx lib/services/payments/payment-provider-seam.test.ts",
     "verify:payments-async-webhook": "npx tsx lib/services/payments/payment-webhook-async-verification.test.ts",
     "verify:payments-provider-authority": "npx tsx lib/services/payments/provider-authority.test.ts",
-    "verify:payments-foundation": "npm run verify:payments-currency-authority && npm run verify:payments-document-authority && npm run verify:payments-tenant-ownership && npm run verify:payments-provider-seam && npm run verify:payments-async-webhook && npm run verify:payments-provider-authority && npm run verify:cardcom-webhook-hardening && npm run verify:payment-webhook && npm run verify:payment-webhook-quarantine && npm run verify:dormant-providers"
+    "verify:payments-foundation": "npm run verify:payments-currency-authority && npm run verify:payments-document-authority && npm run verify:payments-tenant-ownership && npm run verify:payments-provider-seam && npm run verify:payments-async-webhook && npm run verify:payments-provider-authority && npm run verify:cardcom-webhook-hardening && npm run verify:payment-webhook && npm run verify:payment-webhook-quarantine && npm run verify:dormant-providers",
+
+    "verify:historical-records": "npx tsx lib/data-transfer/historical/historical-records.verify.test.ts",
+    "verify:historical-ux": "npx tsx lib/data-transfer/historical/historical-ux.verify.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",
