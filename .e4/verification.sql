@@ -104,6 +104,49 @@ SELECT x.what, x.held, CASE WHEN x.held THEN 'ok' ELSE 'MISMATCH' END AS verdict
  ORDER BY 1;
 
 -- ---------------------------------------------------------------------------
+-- 4a. The prod LOGIN roles hold NOTHING directly.
+--
+-- This is the check that decides whether any of the above matters. The narrowing
+-- operates on the group roles, and the LOGIN roles reach these tables only by
+-- membership. A direct grant to app_runtime_prod would survive every REVOKE in
+-- the narrowing and quietly restore what it removed, while every group-level
+-- assertion above still reported ok.
+-- ---------------------------------------------------------------------------
+SELECT 'direct grants on prod LOGIN roles' AS check,
+       COALESCE(string_agg(grantee || '/' || table_name || '/' || privilege_type, ', '), 'none') AS found,
+       CASE WHEN count(*) = 0 THEN 'ok' ELSE 'MISMATCH' END AS verdict
+  FROM information_schema.role_table_grants
+ WHERE table_schema = 'public'
+   AND grantee IN ('app_runtime_prod', 'app_auth_prod');
+
+SELECT 'direct column grants on prod LOGIN roles' AS check,
+       COALESCE(string_agg(DISTINCT grantee || '/' || table_name, ', '), 'none') AS found,
+       CASE WHEN count(*) = 0 THEN 'ok' ELSE 'MISMATCH' END AS verdict
+  FROM information_schema.column_privileges
+ WHERE table_schema = 'public'
+   AND grantee IN ('app_runtime_prod', 'app_auth_prod');
+
+-- ---------------------------------------------------------------------------
+-- 4b. Sequences, both directions.
+--
+-- The auth plane keeps USAGE and must not gain UPDATE, which would permit
+-- setval(). The runtime should hold nothing on these two: under this contract it
+-- cannot INSERT into either table, so it will never call nextval() there.
+-- ---------------------------------------------------------------------------
+SELECT x.role, x.seq, x.priv, x.held, x.want,
+       CASE WHEN x.held = x.want THEN 'ok' ELSE 'MISMATCH' END AS verdict
+  FROM (
+    SELECT r.rolname AS role, s.seq, p.priv,
+           has_sequence_privilege(r.rolname, ('public."' || s.seq || '"')::regclass, p.priv) AS held,
+           CASE WHEN r.rolname IN ('app_auth', 'app_auth_prod') AND p.priv = 'USAGE'
+                THEN true ELSE false END AS want
+      FROM (VALUES ('app_runtime'), ('app_runtime_prod'), ('app_auth'), ('app_auth_prod')) AS r(rolname),
+           (VALUES ('User_id_seq'), ('Business_id_seq')) AS s(seq),
+           (VALUES ('USAGE'), ('SELECT'), ('UPDATE')) AS p(priv)
+  ) AS x
+ ORDER BY 1, 2, 3;
+
+-- ---------------------------------------------------------------------------
 -- 5. Nothing else moved.
 -- ---------------------------------------------------------------------------
 SELECT 'RLS unchanged on the auth-boundary tables' AS check,
@@ -113,11 +156,30 @@ SELECT 'RLS unchanged on the auth-boundary tables' AS check,
  WHERE relnamespace = 'public'::regnamespace
    AND relname IN ('User', 'Business');
 
-SELECT 'runtime memberships unchanged' AS check,
+-- Both LOGIN roles, not just the runtime: a membership added to either would
+-- widen it through a group this narrowing never touched.
+SELECT m.rolname AS login_role,
        COALESCE(string_agg(g.rolname, ',' ORDER BY g.rolname), '(none)') AS memberships,
-       CASE WHEN COALESCE(string_agg(g.rolname, ',' ORDER BY g.rolname), '') = 'app_runtime'
-            THEN 'ok' ELSE 'MISMATCH' END AS verdict
-  FROM pg_auth_members am
-  JOIN pg_roles g ON g.oid = am.roleid
-  JOIN pg_roles m ON m.oid = am.member
- WHERE m.rolname = 'app_runtime_prod';
+       CASE
+         WHEN m.rolname = 'app_runtime_prod'
+              AND COALESCE(string_agg(g.rolname, ',' ORDER BY g.rolname), '') = 'app_runtime' THEN 'ok'
+         WHEN m.rolname = 'app_auth_prod'
+              AND COALESCE(string_agg(g.rolname, ',' ORDER BY g.rolname), '') = 'app_auth' THEN 'ok'
+         ELSE 'MISMATCH'
+       END AS verdict
+  FROM pg_roles m
+  LEFT JOIN pg_auth_members am ON am.member = m.oid
+  LEFT JOIN pg_roles g ON g.oid = am.roleid
+ WHERE m.rolname IN ('app_runtime_prod', 'app_auth_prod')
+ GROUP BY m.rolname
+ ORDER BY 1;
+
+-- Neither LOGIN role may have acquired a role attribute that bypasses all of
+-- this. BYPASSRLS in particular would make every policy in the schema moot.
+SELECT rolname,
+       rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication,
+       CASE WHEN rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole OR rolreplication
+            THEN 'MISMATCH' ELSE 'ok' END AS verdict
+  FROM pg_roles
+ WHERE rolname IN ('app_runtime_prod', 'app_auth_prod')
+ ORDER BY 1;

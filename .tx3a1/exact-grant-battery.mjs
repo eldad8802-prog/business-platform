@@ -786,10 +786,34 @@ async function stageERehearsal(owner, ownerUrl) {
   ok("sequence: the intended SELECT columns are exactly what remains",
     kept[0].c === [...RUNTIME_USER_SELECT_COLS].sort().join(","), kept[0].c ?? "(none)");
 
+  // The sequence half. The runtime holds USAGE and SELECT on both id sequences
+  // today, from the blanket grant over every sequence. Under this contract it
+  // cannot INSERT into either table, so nothing it does will call nextval()
+  // there — the privilege has no consumer left, and the narrowing removes it.
+  const seqHeld = async (role, seq, priv) =>
+    (await owner.$queryRawUnsafe(
+      `SELECT has_sequence_privilege($1, ('public."' || $2 || '"')::regclass, $3) AS h`,
+      role, seq, priv))[0].h;
+  await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON SEQUENCE public."User_id_seq" TO ${SEQ}`);
+  ok("sequence: the starting state holds USAGE and SELECT on User_id_seq",
+    (await seqHeld(SEQ, "User_id_seq", "USAGE")) === true &&
+    (await seqHeld(SEQ, "User_id_seq", "SELECT")) === true);
+  await owner.$executeRawUnsafe(`REVOKE ALL ON SEQUENCE public."User_id_seq" FROM ${SEQ}`);
+  ok("sequence: the narrowing removes the runtime's sequence privileges entirely",
+    (await seqHeld(SEQ, "User_id_seq", "USAGE")) === false &&
+    (await seqHeld(SEQ, "User_id_seq", "SELECT")) === false &&
+    (await seqHeld(SEQ, "User_id_seq", "UPDATE")) === false);
+
   // The rollback direction, from the same file.
   await owner.$executeRawUnsafe(`REVOKE ALL ON public."User" FROM ${SEQ}`);
   await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON public."User" TO ${SEQ}`);
+  await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON SEQUENCE public."User_id_seq" TO ${SEQ}`);
   ok("sequence: the rollback restores the pre-narrowing state", (await readsPassword()) === true);
+  ok("sequence: the rollback restores the sequence privileges too",
+    (await seqHeld(SEQ, "User_id_seq", "USAGE")) === true &&
+    (await seqHeld(SEQ, "User_id_seq", "SELECT")) === true);
+  ok("sequence: the rollback does NOT grant sequence UPDATE (setval stays impossible)",
+    (await seqHeld(SEQ, "User_id_seq", "UPDATE")) === false);
   const rbDelete = await owner.$queryRawUnsafe(
     `SELECT has_table_privilege($1,'public."User"','DELETE') AS d`, SEQ);
   ok("sequence: the rollback does NOT reopen DELETE (Step 1 stays closed)", rbDelete[0].d === false);

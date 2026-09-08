@@ -44,10 +44,16 @@ GRANT UPDATE ("lastLoginAt", "loginCount", "tokenVersion", "updatedAt")
   ON public."User" TO app_auth;
 
 -- ---------------------------------------------------------------------------
--- 3. Sequences, unchanged in either direction but restated for completeness.
+-- 3. Sequences.
 -- ---------------------------------------------------------------------------
 GRANT USAGE ON SEQUENCE public."User_id_seq"     TO app_auth;
 GRANT USAGE ON SEQUENCE public."Business_id_seq" TO app_auth;
+
+-- The runtime's USAGE and SELECT on these two, which the narrowing removed.
+-- SELECT as well as USAGE, because that is what the blanket sequence grant gave
+-- it and a rollback restores the prior state rather than an improved one.
+GRANT USAGE, SELECT ON SEQUENCE public."User_id_seq"     TO app_runtime;
+GRANT USAGE, SELECT ON SEQUENCE public."Business_id_seq" TO app_runtime;
 
 COMMIT;
 

@@ -93,11 +93,24 @@ GRANT UPDATE ("lastLoginAt", "loginCount", "tokenVersion", "updatedAt")
 -- No UPDATE on Business at all, and no DELETE on either.
 
 -- ============================================================================
--- 3. Sequences — unchanged, restated so the end state is complete
+-- 3. Sequences
 -- ============================================================================
--- nextval() needs USAGE. It does NOT need UPDATE, and UPDATE would additionally
--- permit setval(), which nothing requires.
+-- The auth plane keeps USAGE, because signup inserts both rows and nextval()
+-- needs it. It does NOT get UPDATE: that would additionally permit setval(),
+-- which nothing requires.
 GRANT USAGE ON SEQUENCE public."User_id_seq" TO app_auth;
 GRANT USAGE ON SEQUENCE public."Business_id_seq" TO app_auth;
+
+-- The runtime loses both. It holds USAGE and SELECT on them today, from the
+-- blanket grant over every sequence, but under this contract it can no longer
+-- INSERT into either table — so nothing it does will ever call nextval() there.
+-- Left in place they would be privilege with no consumer, which is the same
+-- category of residue as the DELETE grant removed in Step 1.
+--
+-- Scoped to these two only. `app_runtime` still needs USAGE and SELECT on every
+-- other sequence in the schema, and a blanket revoke would break every insert
+-- the product makes.
+REVOKE ALL ON SEQUENCE public."User_id_seq" FROM app_runtime;
+REVOKE ALL ON SEQUENCE public."Business_id_seq" FROM app_runtime;
 
 COMMIT;
