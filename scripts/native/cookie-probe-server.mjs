@@ -35,6 +35,23 @@ const NAME = "dz_probe_marker";
 /** Synthetic, per-run, meaningless outside this process. */
 const MARKER = randomBytes(16).toString("hex");
 const ATTRS = "HttpOnly; Secure; SameSite=Strict; Path=/api/auth/refresh";
+/**
+ * DIAGNOSTIC TWIN — not a proposal, not a fallback.
+ *
+ * The probe reaches the emulator over loopback http, because that is the only
+ * trustworthy origin available without a certificate authority. Chromium
+ * ACCEPTS a Secure cookie there, but it may decline to write one from a
+ * non-cryptographic origin to disk. If so, a failure to survive process death
+ * would be an artefact of the transport shortcut rather than anything true
+ * about the Android WebView.
+ *
+ * This twin is identical except that it omits Secure. If the twin survives a
+ * kill and the real cookie does not, the harness is at fault and the
+ * architecture is unaffected. The production cookie stays Secure regardless of
+ * what this shows.
+ */
+const TWIN = "dz_probe_twin_nonsecure";
+const TWIN_ATTRS = "HttpOnly; SameSite=Strict; Path=/api/auth/refresh";
 
 /** The runner advances this; the page asks what to do. */
 let phase = "SET";
@@ -115,18 +132,29 @@ const server = createServer((req, res) => {
   }
 
   if (url.pathname === "/set") {
-    res.setHeader("Set-Cookie", `${NAME}=${MARKER}; ${ATTRS}; Max-Age=7776000`);
-    return json(res, { set: true, attributes: ATTRS });
+    res.setHeader("Set-Cookie", [
+      `${NAME}=${MARKER}; ${ATTRS}; Max-Age=7776000`,
+      `${TWIN}=${MARKER}; ${TWIN_ATTRS}; Max-Age=7776000`,
+    ]);
+    return json(res, { set: true, attributes: ATTRS, twinAttributes: TWIN_ATTRS });
   }
 
   if (url.pathname === "/clear") {
-    res.setHeader("Set-Cookie", `${NAME}=; ${ATTRS}; Max-Age=0`);
+    res.setHeader("Set-Cookie", [
+      `${NAME}=; ${ATTRS}; Max-Age=0`,
+      `${TWIN}=; ${TWIN_ATTRS}; Max-Age=0`,
+    ]);
     return json(res, { cleared: true });
   }
 
   // The scoped endpoint: the cookie's Path points exactly here.
   if (url.pathname === "/api/auth/refresh") {
-    return json(res, { cookiePresent: hasCookie(req), matchesMarker: (req.headers.cookie ?? "").includes(MARKER) });
+    const jar = req.headers.cookie ?? "";
+    return json(res, {
+      cookiePresent: jar.includes(`${NAME}=`),
+      matchesMarker: jar.includes(MARKER),
+      twinPresent: jar.includes(`${TWIN}=`),
+    });
   }
 
   // Any other API path: the cookie must NOT arrive.

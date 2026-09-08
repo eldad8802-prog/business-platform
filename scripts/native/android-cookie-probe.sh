@@ -120,6 +120,13 @@ check "F. and it is still the same marker" \
 check "F. still invisible to script after the restart" \
   "$([ "$(observed AFTER_KILL documentCookieContainsMarker)" = "false" ] && echo 0 || echo 1)"
 
+# DIAGNOSIS, not a fallback: the twin is identical except that it omits Secure.
+# If the twin survives the kill and the real cookie does not, the cause is this
+# harness serving over loopback http, not the Android WebView. The production
+# cookie stays Secure either way.
+TWIN_AFTER_KILL="$(observed AFTER_KILL refreshEndpoint.twinPresent)"
+echo "DIAG: non-Secure twin after process kill = ${TWIN_AFTER_KILL}" | tee -a "$CHECKS"
+
 adb shell screencap -p /sdcard/probe-kill.png && adb pull /sdcard/probe-kill.png "$OUT/" > /dev/null 2>&1 || true
 
 # ── G: app update over the same install, data preserved ────────────────────
