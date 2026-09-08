@@ -29,7 +29,8 @@
  * Synthetic tx3a1- fixtures only. ZERO network, ZERO Neon, ZERO Production.
  */
 import { PrismaClient } from "@prisma/client";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 
 const RT_ROLE = "tx3a1_runtime";
 const RT_PW = "tx3a1_ci_synthetic_pw";
@@ -519,6 +520,7 @@ async function main() {
   ok("lab role and fixtures removed", true);
 
   await stageERehearsal(owner, ownerUrl);
+  await proveMigrationAtomicity(ownerUrl)(owner);
 
   if (denials.length) {
     console.log("\n  PERMISSION DENIALS HARVESTED:");
@@ -830,6 +832,67 @@ async function stageERehearsal(owner, ownerUrl) {
   await owner.$executeRawUnsafe(`DELETE FROM "User" WHERE email LIKE 'e3%@example.invalid' OR email = 'deleted@deleted.invalid'`);
   await owner.$executeRawUnsafe(`DELETE FROM "Business" WHERE name IN ('e3-fixture','e3-signup')`);
   ok("Stage E rehearsal roles and fixtures removed", true);
+}
+
+/**
+ * D2 / STAGE E4.1 — does `prisma migrate deploy` roll a failed migration back?
+ *
+ * The narrowing's safety rests on it being all-or-nothing. Between the REVOKE of
+ * the table-level grants and the GRANT of the columns there is a state where the
+ * runtime can do less than the code needs; if a migration could stop there, a
+ * failure would leave Production half-narrowed and serving errors.
+ *
+ * The reviewed artifact wrapped itself in BEGIN/COMMIT. The migration cannot,
+ * because Prisma opens its own transaction and a nested COMMIT would close it
+ * early. That makes the atomicity Prisma's to provide — which is a claim about a
+ * tool's behaviour, so it is measured here rather than believed.
+ *
+ * The probe is a throwaway migration that grants something and then fails. If the
+ * grant survives, migrations are not atomic in this project's configuration and
+ * the narrowing must not ship as one.
+ */
+function proveMigrationAtomicity(ownerUrl) {
+  return async (owner) => {
+    console.log("\n  -- is a failed migration rolled back? --");
+    const dir = ".tx3a1-atomicity-probe";
+    const ROLE = "e41_atomicity_probe";
+    try {
+      await owner.$executeRawUnsafe(`DROP OWNED BY ${ROLE}`).catch(() => {});
+      await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${ROLE}`);
+      await owner.$executeRawUnsafe(`CREATE ROLE ${ROLE} NOLOGIN NOSUPERUSER NOBYPASSRLS`);
+
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(`${dir}/migrations/20990101000000_atomicity_probe`, { recursive: true });
+      writeFileSync(`${dir}/schema.prisma`,
+        `datasource db {\n  provider = "postgresql"\n  url      = env("PROBE_URL")\n}\n`);
+      // A grant that succeeds, then a statement that cannot. If the file is
+      // atomic the grant is gone when the failure lands.
+      writeFileSync(`${dir}/migrations/20990101000000_atomicity_probe/migration.sql`,
+        `GRANT SELECT ON public."User" TO ${ROLE};\n` +
+        `SELECT this_function_does_not_exist();\n`);
+
+      const held = async () => (await owner.$queryRawUnsafe(
+        `SELECT has_table_privilege($1,'public."User"','SELECT') AS h`, ROLE))[0].h;
+      ok("atomicity probe: the role starts with no privilege", (await held()) === false);
+
+      const run = spawnSync(
+        process.platform === "win32" ? "npx.cmd" : "npx",
+        ["prisma", "migrate", "deploy", "--schema", `${dir}/schema.prisma`],
+        { env: { ...process.env, PROBE_URL: ownerUrl }, encoding: "utf8", timeout: 120000 });
+      ok("atomicity probe: the failing migration was rejected", run.status !== 0,
+        `exit=${run.status}`);
+
+      const survived = await held();
+      ok("a failed migration leaves NO privilege behind (Prisma's transaction holds)",
+        survived === false,
+        "the grant persisted after the migration failed — migrations are not atomic here, " +
+        "so the narrowing must not ship as a single migration");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      await owner.$executeRawUnsafe(`DROP OWNED BY ${ROLE}`).catch(() => {});
+      await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${ROLE}`).catch(() => {});
+    }
+  };
 }
 
 main().catch((e) => { console.error("FATAL:", e); process.exit(1); });
