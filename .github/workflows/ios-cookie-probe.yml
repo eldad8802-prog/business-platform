@@ -120,18 +120,11 @@ jobs:
           done
           echo "tunnel connections registered: $(grep -c "Registered tunnel connection" native-evidence/cloudflared.log || echo 0)"
 
-          RESOLVED=""
-          for _ in $(seq 1 90); do
-            if host "$HOST" > /dev/null 2>&1 || dig +short "$HOST" | grep -q .; then RESOLVED=yes; break; fi
-            sleep 2
-          done
-          if [ -z "$RESOLVED" ]; then
-            echo "the tunnel hostname never resolved from this runner"
-            dig +short "$HOST" || true
-            tail -40 native-evidence/cloudflared.log
-            exit 1
-          fi
-          echo "hostname resolves"
+          # The previous run gated on `host`/`dig`, which these runners may not
+          # ship — so the gate failed rather than DNS, and the run was stopped by
+          # my own check. curl is the only test that matters here: it resolves,
+          # connects and verifies TLS in one go, which is what the WebView does.
+          echo "which host: $(command -v host || echo ABSENT)  which dig: $(command -v dig || echo ABSENT)"
 
           # No -k and no custom CA: verifying against the public trust store is
           # the whole point, and it is what WKWebView will do too.
