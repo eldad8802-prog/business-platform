@@ -57,13 +57,6 @@ fi
 #
 # The allowlist enumerates the complete auth/bootstrap surface rather than
 # matching a directory, so adding a caller is a deliberate, reviewable act.
-#
-# TEMPORARY ENTRY: app/api/platform-admin/diagnostics/auth-plane-identity.
-# That probe exists to answer which role authDb() connects as, so it has to
-# import authDb() itself — a client it built for itself would prove something
-# about the probe rather than about the auth plane. Read-only, one constant
-# statement, behind the canonical admin guard. Remove this entry together
-# with the route in the follow-up PR.
 ci2a="$(
   grep -rnE "from ['\"](@/lib/prisma-auth|[./]+lib/prisma-auth|[./]+prisma-auth)['\"]" \
     "$ROOT/app" "$ROOT/lib" \
@@ -72,7 +65,6 @@ ci2a="$(
     | grep -vE "(^|/)lib/auth\.ts:" \
     | grep -vE "(^|/)lib/auth/signup\.ts:" \
     | grep -vE "(^|/)lib/prisma-auth\.ts:" \
-    | grep -vE "(^|/)app/api/platform-admin/diagnostics/auth-plane-identity/route\.ts:" \
     | grep -vE "\.test\.ts:|/__mocks__/" \
     || true
 )"
