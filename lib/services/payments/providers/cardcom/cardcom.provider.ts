@@ -43,8 +43,41 @@ const DEFAULT_BASE_URL = "https://secure.cardcom.solutions";
 const CREATE_PATH = "/api/v11/LowProfile/Create";
 const GET_RESULT_PATH = "/api/v11/LowProfile/GetLpResult";
 
-/** CardCom ISO coin ids. DOCS-CONFIRM. */
+/**
+ * CardCom ISO coin ids. DOCS-CONFIRM.
+ *
+ * This table is the only thing that lets this adapter express a currency to
+ * CardCom, so its keys are exactly the currencies the adapter supports.
+ */
 const ISO_COIN_ID: Record<string, number> = { ILS: 1, USD: 2, EUR: 978 };
+
+/**
+ * Declared currency support — derived from `ISO_COIN_ID`, never written twice.
+ *
+ * SEC-05. This adapter previously resolved `ISO_COIN_ID[currency] ?? ISO_COIN_ID.ILS`.
+ * A currency with no coin id was therefore charged in SHEKELS while the
+ * PaymentRequest, the audit trail, the verification result and the resulting
+ * FinancialEvent all recorded the currency the caller asked for. Nothing
+ * downstream could catch it: the webhook's coherence gate compares the payload
+ * against the stored request, and both were consistently wrong. The fallback is
+ * gone — an unsupported currency is refused before any provider call.
+ */
+export const CARDCOM_SUPPORTED_CURRENCIES: readonly string[] = Object.freeze(
+  Object.keys(ISO_COIN_ID)
+);
+
+/** Resolve a coin id, or fail closed. Never substitutes another currency. */
+function resolveIsoCoinId(currency: string): number {
+  const coinId = ISO_COIN_ID[currency];
+  if (typeof coinId !== "number") {
+    throw new PaymentProviderError(
+      CARDCOM_PROVIDER,
+      "UNSUPPORTED_CURRENCY",
+      `CardCom cannot be charged in ${currency}. Supported: ${CARDCOM_SUPPORTED_CURRENCIES.join(", ")}.`
+    );
+  }
+  return coinId;
+}
 
 /**
  * CardCom LowProfileId shape — a canonical GUID.
@@ -254,6 +287,7 @@ export function createCardComProvider(
 
   return {
     provider: CARDCOM_PROVIDER,
+    supportedCurrencies: CARDCOM_SUPPORTED_CURRENCIES,
 
     async createPaymentLink(
       input: CreatePaymentLinkInput
@@ -275,6 +309,10 @@ export function createCardComProvider(
         );
       }
 
+      // SEC-05 — fail closed on a currency this adapter cannot encode. Placed
+      // before the request body is built so nothing reaches CardCom.
+      const isoCoinId = resolveIsoCoinId(input.currency);
+
       const body: Record<string, unknown> = {
         TerminalNumber: Number(input.merchantId),
         ApiName: credential.apiName,
@@ -282,7 +320,7 @@ export function createCardComProvider(
         // resilient to a future default change and for auditability.
         Operation: "ChargeOnly",
         Amount: Number(input.amount),
-        ISOCoinId: ISO_COIN_ID[input.currency] ?? ISO_COIN_ID.ILS,
+        ISOCoinId: isoCoinId,
         // Canonical correlation: our PaymentRequest id round-trips via ReturnValue.
         ReturnValue: String(input.paymentRequestId),
         // ProductName has a provider length limit (I3.1 verified) — cap safely.
@@ -336,7 +374,7 @@ export function createCardComProvider(
       return interpretGetLpResult(result);
     },
 
-    verifyWebhook(input: VerifyWebhookInput): VerifyWebhookResult {
+    async verifyWebhook(input: VerifyWebhookInput): Promise<VerifyWebhookResult> {
       // CardCom publishes NO webhook signing mechanism. Its documented callback
       // model is an IndicatorUrl/WebHookUrl notification carrying LowProfileId
       // and ReturnValue, with authenticity obtained out-of-band by the merchant
@@ -418,4 +456,5 @@ export const cardComDescriptor: ProviderDescriptor = {
     webhooks: true,
     tokens: false,
   },
+  supportedCurrencies: CARDCOM_SUPPORTED_CURRENCIES,
 };

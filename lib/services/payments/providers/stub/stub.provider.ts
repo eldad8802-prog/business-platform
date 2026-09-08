@@ -20,9 +20,16 @@ import type {
   VerifyWebhookResult,
 } from "../payment-provider.types";
 
-// The stub presents itself as TRANZILA so it can stand in for the only
-// registered provider in P1 without widening the PaymentProvider union.
-const STUB_PROVIDER: PaymentProvider = "TRANZILA";
+/**
+ * The provider this stub presents itself as.
+ *
+ * It used to be TRANZILA — the only registered provider in P1. Tranzila is now
+ * a DISABLED capability, and `createPaymentRequest` refuses disabled providers,
+ * so a stub wearing that label would make every test that stands it in for "a
+ * working provider" exercise a refusal path instead. It presents as CardCom,
+ * the live provider, and callers that genuinely need another label pass one.
+ */
+const DEFAULT_STUB_PROVIDER: PaymentProvider = "CARDCOM";
 
 export interface StubProviderOptions {
   /** When set, verifyWebhook requires this exact secret. */
@@ -34,6 +41,22 @@ export interface StubProviderOptions {
    * signal-only — a webhook can never settle it to PAID (Authority Principle).
    */
   verifiedStatus?: ProviderPaymentStatus;
+  /**
+   * Currencies the stub claims it can encode. Defaults to ILS + USD, mirroring
+   * a real adapter that TRANSLATES, so tests can drive the unsupported-currency
+   * refusal without a real provider. `null` models a pass-through adapter.
+   */
+  supportedCurrencies?: readonly string[] | null;
+  /**
+   * When set, verifyWebhook resolves only after this promise settles. Models a
+   * provider whose callback authentication needs an API round-trip — the case
+   * the async contract exists for.
+   */
+  verifyGate?: Promise<unknown>;
+  /** When set, verifyWebhook REJECTS with this error instead of returning. */
+  verifyThrows?: Error;
+  /** The provider label the stub presents as. Defaults to CardCom. */
+  provider?: PaymentProvider;
 }
 
 const KNOWN_OUTCOMES: ReadonlySet<string> = new Set([
@@ -54,7 +77,11 @@ export function createStubProvider(
   options: StubProviderOptions = {}
 ): PaymentProviderAdapter {
   const adapter: PaymentProviderAdapter = {
-    provider: STUB_PROVIDER,
+    provider: options.provider ?? DEFAULT_STUB_PROVIDER,
+    supportedCurrencies:
+      options.supportedCurrencies === undefined
+        ? ["ILS", "USD"]
+        : options.supportedCurrencies,
 
     async createPaymentLink(
       input: CreatePaymentLinkInput
@@ -67,7 +94,11 @@ export function createStubProvider(
       };
     },
 
-    verifyWebhook(input: VerifyWebhookInput): VerifyWebhookResult {
+    async verifyWebhook(
+      input: VerifyWebhookInput
+    ): Promise<VerifyWebhookResult> {
+      if (options.verifyGate) await options.verifyGate;
+      if (options.verifyThrows) throw options.verifyThrows;
       if (options.requiredSecret) {
         const provided =
           input.headers["x-webhook-secret"] ?? input.secret ?? null;

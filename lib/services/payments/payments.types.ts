@@ -13,6 +13,10 @@
  * these unions and Prisma enums — the values are identical by construction.
  */
 
+import type { PayableDocumentRef } from "./payment-document-authority";
+
+export type { PayableDocumentRef };
+
 export type PaymentProvider = "TRANZILA" | "CARDCOM" | "PAYPAL";
 
 export type PaymentRequestStatus =
@@ -260,6 +264,33 @@ export interface PaymentStore {
   ): Promise<PaymentRequestRecord>;
 
   findPaymentRequestById(id: number): Promise<PaymentRequestRecord | null>;
+
+  /**
+   * SEC-01 + SEC-02 — resolve a billing document the caller wants to collect
+   * against, scoped to the business doing the collecting.
+   *
+   * Returns null when the document does not exist OR belongs to another
+   * business. The two are deliberately indistinguishable, so a caller can never
+   * learn that another tenant's document id exists.
+   *
+   * `outstandingAmount` is computed by BILLING's own rule, not by payments —
+   * `payment-document-authority.ts` explains why the split falls here.
+   */
+  findPayableDocument(
+    businessId: number,
+    billingDocumentId: number
+  ): Promise<PayableDocumentRef | null>;
+
+  /**
+   * SEC-02 — confirm a customer belongs to this business before a payment
+   * request may reference them. Null means "not this tenant's customer", with
+   * missing and foreign again indistinguishable.
+   */
+  findCustomerRef(
+    businessId: number,
+    customerId: number
+  ): Promise<{ id: number } | null>;
+
   /**
    * D2/AD-2A account-deletion gate. The webhook resolves its tenant from the
    * STORED PaymentRequest and must then refuse to enter a business that is being

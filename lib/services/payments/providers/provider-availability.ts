@@ -30,9 +30,25 @@
 import type { PaymentProvider } from "../payments.types";
 
 /**
+ * THE CAPABILITY INVARIANT (locked by `provider-authority.test.ts`).
+ *
+ * A provider may be an ENABLED capability only if its adapter implements
+ * `getPaymentStatus`. The Authority Principle lets a request reach PAID only
+ * from an outcome that call establishes, so an adapter without it takes the
+ * `signal_only_no_verification` branch and settles nothing, for ever — a
+ * business connected to such a provider could take a real payment that could
+ * never be confirmed. That is the same hazard Wave E closed by disabling the
+ * webhook and the connect path together.
+ *
+ * The rule lives HERE rather than as a required method on
+ * `PaymentProviderAdapter` because TRANZILA genuinely has no verification path,
+ * and forcing it to declare one would state something untrue about the provider
+ * in order to make a type look uniform. Enablement is the boundary at which the
+ * invariant is actually true, and it covers every provider a business can reach.
+ *
  * Providers retained in code and schema but NOT offered as live capabilities.
- * Adding a provider here disables: inbound webhooks, new connections, and its
- * appearance in the provider catalogue.
+ * Adding a provider here disables: inbound webhooks, new connections, payment
+ * request creation, and its appearance in the provider catalogue.
  */
 export const DISABLED_PAYMENT_PROVIDERS: readonly PaymentProvider[] = [
   "PAYPAL",

@@ -54,8 +54,18 @@ async function main() {
   // --- connect then create request works against the same store ---
   {
     const store = createInMemoryPaymentStore();
+    // The provider is named explicitly. Omitting it falls back to
+    // `connectPaymentProvider`'s ungated DEFAULT_PROVIDER, which is still
+    // TRANZILA — a disabled capability that request creation now refuses. Every
+    // production connect path passes `descriptor.key`, so naming it here makes
+    // the fixture match production instead of the fallback.
     await connectPaymentProvider(
-      { businessId: 1, merchantId: "term-123", credential: "secret" },
+      {
+        businessId: 1,
+        provider: "CARDCOM",
+        merchantId: "term-123",
+        credential: "secret",
+      },
       { store, encryptCredential: fakeEncrypt }
     );
     const result = await createPaymentRequest(
@@ -78,7 +88,12 @@ async function main() {
   {
     const store = createInMemoryPaymentStore();
     await connectPaymentProvider(
-      { businessId: 1, merchantId: "term-standalone", credential: "secret" },
+      {
+        businessId: 1,
+        provider: "CARDCOM",
+        merchantId: "term-standalone",
+        credential: "secret",
+      },
       { store, encryptCredential: fakeEncrypt }
     );
     const result = await createPaymentRequest(

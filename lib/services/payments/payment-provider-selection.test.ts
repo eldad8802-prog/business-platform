@@ -25,7 +25,8 @@ const fakeEncrypt = (plaintext: string): EncryptedCredentialMaterial => ({
 });
 
 const fakeProvider: PaymentProviderAdapter = {
-  provider: "TRANZILA",
+  provider: "CARDCOM",
+  supportedCurrencies: ["ILS", "USD"],
   async createPaymentLink(input) {
     return {
       paymentUrl: `https://fake/${input.businessId}-${input.paymentRequestId}`,
@@ -33,7 +34,7 @@ const fakeProvider: PaymentProviderAdapter = {
       expiresAt: null,
     };
   },
-  verifyWebhook: () => ({ ok: true }),
+  verifyWebhook: async () => ({ ok: true }),
   parseWebhook: () => ({
     providerEventId: null,
     eventType: null,
@@ -88,12 +89,40 @@ async function main() {
     assert.equal(res.paymentRequest.status, "PENDING");
   }
 
-  // --- 3. single active Tranzila => resolves to TRANZILA (backward compat) ---
+  // --- 3. a surviving connection to a DISABLED provider is refused ---
+  //
+  // This case previously asserted the opposite — "single active Tranzila =>
+  // resolves to TRANZILA (backward compat)" — and that expectation is now a
+  // known defect rather than a contract. CASA Wave E disabled Tranzila
+  // everywhere it could create or process state (connect route, webhook,
+  // catalogue) but left request creation ungated, and it left existing
+  // connection rows in place on purpose. A business holding a pre-Wave-E active
+  // Tranzila connection could therefore still mint a Tranzila payment link,
+  // send a customer to a real checkout and take a real payment — whose callback
+  // the webhook handler answers with 404. Money taken, never confirmed, which
+  // is exactly the outcome the Wave E memo says the closure existed to prevent.
   {
     const store = createInMemoryPaymentStore();
     store.seedConnection({ businessId: 1, provider: "TRANZILA", isActive: true });
-    const res = await createPaymentRequest({ businessId: 1, amount: 100 }, requestDeps(store));
-    assert.equal(res.paymentRequest.provider, "TRANZILA");
+    await assert.rejects(
+      () => createPaymentRequest({ businessId: 1, amount: 100 }, requestDeps(store)),
+      /not available: TRANZILA/
+    );
+    assert.equal(store.requests.length, 0, "no PaymentRequest row is created");
+  }
+
+  // --- 3b. naming the disabled provider explicitly is refused identically ---
+  {
+    const store = createInMemoryPaymentStore();
+    store.seedConnection({ businessId: 1, provider: "TRANZILA", isActive: true });
+    await assert.rejects(
+      () =>
+        createPaymentRequest(
+          { businessId: 1, amount: 100, provider: "TRANZILA" },
+          requestDeps(store)
+        ),
+      /not available: TRANZILA/
+    );
   }
 
   // --- 4. multiple active providers => must specify explicitly ---
@@ -103,7 +132,7 @@ async function main() {
     store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
     await assert.rejects(
       () => createPaymentRequest({ businessId: 1, amount: 100 }, requestDeps(store)),
-      /Multiple active payment providers/
+      /more than one active payment provider/
     );
   }
 

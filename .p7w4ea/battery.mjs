@@ -197,7 +197,30 @@ async function main() {
          USING ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)
          WITH CHECK ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)`);
     await owner.$executeRawUnsafe(`GRANT SELECT ON "PaymentRequest" TO ${RT_ROLE}`);
-    console.log("[lab] pilot-equivalent p4b_tenant installed on PaymentRequest");
+
+    // SEC-02 needs the two tables a payment request may REFERENCE to be under
+    // the same posture they have in the real runtime — FORCE RLS with a tenant
+    // policy and a SELECT grant. Without this the lab would prove nothing about
+    // the reference guard: the reads would fail on privilege rather than be
+    // filtered by tenancy, which looks like a pass for the wrong reason.
+    for (const table of ["Customer", "BillingDocument"]) {
+      await owner.$executeRawUnsafe(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY`);
+      await owner.$executeRawUnsafe(`ALTER TABLE "${table}" FORCE ROW LEVEL SECURITY`);
+      await owner.$executeRawUnsafe(`DROP POLICY IF EXISTS p4b_tenant ON "${table}"`);
+      await owner.$executeRawUnsafe(
+        `CREATE POLICY p4b_tenant ON "${table}"
+           USING ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)
+           WITH CHECK ("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)`);
+      await owner.$executeRawUnsafe(`GRANT SELECT ON "${table}" TO ${RT_ROLE}`);
+    }
+    // No extra PaymentRequest grants are added here: the W4E-A grant file
+    // applied in Phase 3 already gives the runtime role SELECT/INSERT/UPDATE on
+    // it plus its sequence, which is what the SEC-02 phase needs to create a
+    // request through the real service. Re-granting would also blur the
+    // rollback assertion that only W4E-A's INSERT is revoked.
+    console.log(
+      "[lab] pilot-equivalent p4b_tenant installed on PaymentRequest, Customer, BillingDocument"
+    );
   }
 
   // ── Phase 3: apply W4E-A migration + grants ─────────────────────────────
@@ -247,7 +270,9 @@ async function main() {
     const bids = `SELECT id FROM "Business" WHERE name LIKE '${MARK}%'`;
     await owner.$executeRawUnsafe(`DELETE FROM "PaymentTransaction" WHERE "paymentRequestId" IN (SELECT id FROM "PaymentRequest" WHERE "businessId" IN (${bids}))`);
     await owner.$executeRawUnsafe(`DELETE FROM "PaymentProviderRouting" WHERE "businessId" IN (${bids})`);
-    for (const t of ["PaymentAuditEvent", "FinancialEvent", "PaymentRequest", "BusinessPaymentConnection"]) {
+    // PaymentRequest first: it references BillingDocument and Customer, which
+    // the SEC-02 phase creates and which must go with the synthetic tenants.
+    for (const t of ["PaymentAuditEvent", "FinancialEvent", "PaymentRequest", "BusinessPaymentConnection", "BillingDocument", "Customer"]) {
       await owner.$executeRawUnsafe(`DELETE FROM "${t}" WHERE "businessId" IN (${bids})`);
     }
     await owner.$executeRawUnsafe(`DELETE FROM "PaymentWebhookEvent" WHERE "providerEventId" LIKE '${MARK}%'`);
@@ -439,6 +464,188 @@ async function main() {
   } catch { unrelatedSurfaced = true; }
   ok("P2002 on an UNRELATED constraint is not swallowed as a duplicate", unrelatedSurfaced);
 
+  // ── Phase 9b: SEC-02 / SEC-01 / SEC-05 on the CREATE path ───────────────
+  //
+  // The audit's open question was whether `createPaymentRequest` could be made
+  // to reference another tenant's rows. It validated `customerId` and
+  // `billingDocumentId` as bare integers and resolved neither, so nothing
+  // established ownership. The foreign keys are NOT the control: PostgreSQL
+  // evaluates referential integrity with row security bypassed, and (a) below
+  // states that as measured evidence so no future reader mistakes the schema
+  // for a tenant guard.
+  //
+  // Real service, real Prisma store, real RLS. Only the adapter is stubbed.
+  //
+  // PG-LAB ONLY. The phase creates Customer and BillingDocument fixtures and
+  // needs both under a tenant policy with a runtime SELECT grant, which the lab
+  // provisions in Phase 2. The neon target runs against a shared Preview
+  // database whose posture for those tables is not this workflow's to set, and
+  // seeding customer/document rows there would be an intrusion rather than a
+  // proof.
+  if (TARGET === "pg") {
+  console.log("--- SEC-02 cross-tenant references on create ---");
+  {
+    const { createPaymentRequest } = await import(
+      "@/lib/services/payments/payment-request.service"
+    );
+
+    const mkCustomer = (biz, tag) =>
+      owner.customer.create({ data: { businessId: biz, name: `${MARK}${tag}` } });
+    const mkInvoice = (biz, tag) =>
+      owner.billingDocument.create({
+        data: {
+          businessId: biz,
+          documentType: "TAX_INVOICE",
+          status: "ISSUED",
+          issuedAt: new Date(),
+          totalAmount: "500.00",
+          subtotalAmount: "500.00",
+          vatAmount: "0.00",
+          currency: "ILS",
+          customerNameSnapshot: `${MARK}${tag}`,
+        },
+      });
+
+    const custA = await mkCustomer(bizA.id, "cust-a");
+    const custB = await mkCustomer(bizB.id, "cust-b");
+    const invA = await mkInvoice(bizA.id, "inv-a");
+    const invB = await mkInvoice(bizB.id, "inv-b");
+
+    const createDeps = {
+      store,
+      resolveProvider: () => ({
+        ...adapters.CARDCOM,
+        provider: "CARDCOM",
+        supportedCurrencies: ["ILS"],
+      }),
+      decryptConnectionCredential: () => "stub-credential",
+    };
+    const create = (businessId, input) =>
+      runWithTenantContext({ businessId }, () =>
+        createPaymentRequest({ businessId, ...input }, createDeps)
+      );
+    const reqCount = (biz) =>
+      owner.paymentRequest.count({ where: { businessId: biz } });
+
+    // (a) EVIDENCE, not a pass: the substrate does not stop a cross-tenant FK.
+    let fkAcceptedForeign = false;
+    let planted = null;
+    try {
+      planted = await owner.paymentRequest.create({
+        data: {
+          businessId: bizA.id,
+          customerId: custB.id,
+          billingDocumentId: invB.id,
+          provider: "CARDCOM",
+          amount: "1.00",
+          currency: "ILS",
+          status: "PENDING",
+        },
+      });
+      fkAcceptedForeign = true;
+    } catch {
+      fkAcceptedForeign = false;
+    }
+    console.log(
+      `  [evidence] a direct owner-role INSERT carrying cross-tenant FKs was ${fkAcceptedForeign ? "ACCEPTED" : "REJECTED"} by the database — this is why the application guard exists`
+    );
+    if (planted) await owner.paymentRequest.delete({ where: { id: planted.id } });
+
+    const beforeA = await reqCount(bizA.id);
+
+    // (b) foreign document.
+    let docRefused = false;
+    try {
+      await create(bizA.id, { amount: "100.00", billingDocumentId: invB.id });
+    } catch (e) {
+      docRefused = /Billing document not found/.test(String(e?.message));
+    }
+    ok("SEC-02: A cannot create a request against B's billing document", docRefused);
+    ok("SEC-02: and no PaymentRequest row was written", (await reqCount(bizA.id)) === beforeA);
+
+    // (c) foreign customer.
+    let custRefused = false;
+    try {
+      await create(bizA.id, { amount: "100.00", customerId: custB.id });
+    } catch (e) {
+      custRefused = /Customer not found/.test(String(e?.message));
+    }
+    ok("SEC-02: A cannot create a request against B's customer", custRefused);
+
+    // (d) mixed references, in both directions.
+    let mixed1 = false;
+    try {
+      await create(bizA.id, { amount: "100.00", customerId: custA.id, billingDocumentId: invB.id });
+    } catch (e) {
+      mixed1 = /Billing document not found/.test(String(e?.message));
+    }
+    let mixed2 = false;
+    try {
+      await create(bizA.id, { amount: "100.00", customerId: custB.id, billingDocumentId: invA.id });
+    } catch (e) {
+      mixed2 = /Customer not found/.test(String(e?.message));
+    }
+    ok("SEC-02: mixed own/foreign references are refused in both directions", mixed1 && mixed2);
+    ok("SEC-02: nothing was written for any refused attempt", (await reqCount(bizA.id)) === beforeA);
+
+    // (e) positive control — the guard refuses the foreign case, not everything.
+    const good = await create(bizA.id, {
+      amount: "100.00",
+      customerId: custA.id,
+      billingDocumentId: invA.id,
+    });
+    ok(
+      "SEC-02: same-tenant customer + document are accepted",
+      good.paymentRequest.customerId === custA.id &&
+        good.paymentRequest.billingDocumentId === invA.id
+    );
+
+    // (f) SEC-01 under real RLS — the balance is read through the tenant-scoped
+    // store, never supplied by the caller.
+    let overRefused = false;
+    try {
+      await create(bizA.id, { amount: "5000.00", billingDocumentId: invA.id });
+    } catch (e) {
+      overRefused = /exceeds the document's outstanding balance/.test(String(e?.message));
+    }
+    ok("SEC-01: an amount above the document's balance is refused under real RLS", overRefused);
+
+    // (g) SEC-05 through the real service wiring.
+    let currencyRefused = false;
+    try {
+      await create(bizA.id, { amount: "10.00", currency: "GBP" });
+    } catch (e) {
+      currencyRefused = /cannot be charged in GBP/.test(String(e?.message));
+    }
+    ok("SEC-05: an unsupported currency is refused before any provider call", currencyRefused);
+
+    // (h) the DATABASE half of the same guarantee, read as the RUNTIME role
+    // under each tenant's own GUC.
+    const seenByA = await rtx(rt, bizA.id, (t) =>
+      t.billingDocument.findMany({
+        where: { id: { in: [invA.id, invB.id] } },
+        select: { id: true },
+      })
+    );
+    ok(
+      "SEC-02 (DB): under A's context the runtime role sees only A's document",
+      seenByA.length === 1 && seenByA[0].id === invA.id,
+      `saw=${JSON.stringify(seenByA)}`
+    );
+    const custSeenByA = await rtx(rt, bizA.id, (t) =>
+      t.customer.findMany({
+        where: { id: { in: [custA.id, custB.id] } },
+        select: { id: true },
+      })
+    );
+    ok(
+      "SEC-02 (DB): under A's context the runtime role sees only A's customer",
+      custSeenByA.length === 1 && custSeenByA[0].id === custA.id,
+      `saw=${JSON.stringify(custSeenByA)}`
+    );
+  }
+  }
+
   // ── Phase 10: corrupted routing (adversarial) ───────────────────────────
   console.log("--- corrupted routing ---");
   const snapshot = async () => ({
@@ -581,8 +788,12 @@ async function main() {
   await cleanup();
   const res = await owner.$queryRawUnsafe(
     `SELECT (SELECT count(*)::int FROM "Business" WHERE name LIKE '${MARK}%') AS biz,
-            (SELECT count(*)::int FROM "PaymentWebhookEvent" WHERE "providerEventId" LIKE '${MARK}%') AS wh`);
-  ok("synthetic residue = 0", Number(res[0].biz) === 0 && Number(res[0].wh) === 0, JSON.stringify(res[0]));
+            (SELECT count(*)::int FROM "PaymentWebhookEvent" WHERE "providerEventId" LIKE '${MARK}%') AS wh,
+            (SELECT count(*)::int FROM "Customer" WHERE name LIKE '${MARK}%') AS cust,
+            (SELECT count(*)::int FROM "BillingDocument" WHERE "customerNameSnapshot" LIKE '${MARK}%') AS doc`);
+  ok("synthetic residue = 0 (incl. the SEC-02 customer + document fixtures)",
+    Number(res[0].biz) === 0 && Number(res[0].wh) === 0 &&
+    Number(res[0].cust) === 0 && Number(res[0].doc) === 0, JSON.stringify(res[0]));
   await owner.$disconnect();
 
   console.log(`\n[battery] target=${TARGET} PASS=${pass} FAIL=${fail}`);
