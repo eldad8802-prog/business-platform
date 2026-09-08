@@ -212,10 +212,14 @@ const server =
     ? createHttpsServer({ key: readFileSync(TLS_KEY), cert: readFileSync(TLS_CERT) }, handler)
     : createHttpServer(handler);
 
-// Bind every loopback interface, not just IPv4. An iOS run reached the point
+// Loopback only. The public HTTPS origin is a tunnel whose client connects from
+// this same machine, so nothing needs to listen on an external interface —
+// binding wider would expose the probe further than the one tunnel does.
+// Named rather than 127.0.0.1 so both loopback families resolve: an iOS run
+// reached the point
 // where the CA was trusted and the server was up, and the WebView still never
 // connected — because it was pointed at "localhost", which resolves to the IPv6
 // loopback first, and nothing was listening there.
-server.listen(PORT, () => {
+server.listen(PORT, "localhost", () => {
   console.log(`[probe] listening on ${TLS_KEY && TLS_CERT ? "https" : "http"}://127.0.0.1:${PORT} (cookie ${NAME}, attributes: ${ATTRS})`);
 });

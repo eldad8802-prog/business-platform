@@ -1,30 +1,34 @@
 # TEST-ONLY, BRANCH-ONLY. iOS WKWebView cookie-contract probe.
 #
-# EVIDENCE ONLY. This is not release CI, it is not a required check, and it must
-# not be merged to main without separate approval. It runs on pushes to its own
-# probe branch and nowhere else.
+# EVIDENCE ONLY. Not release CI, not a required check, not to be merged to main
+# without separate approval. Runs on pushes to its own probe branch and nowhere
+# else.
 #
-# It answers one question with runtime evidence: does WKWebView honour
-# HttpOnly + Secure + SameSite=Strict + Path=/api/auth/refresh, and does that
-# cookie survive the app's process being terminated? Android has already
-# answered it for its own engine; WKWebView is a different engine with a
-# different cookie store and nothing transfers.
+# THE QUESTION
 #
-# WHY REAL TLS AND NOT LOOPBACK HTTP
+# Does WKWebView honour HttpOnly + Secure + SameSite=Strict +
+# Path=/api/auth/refresh, and does that cookie survive the app's process being
+# terminated? Android answered it for its own engine; WKWebView is a different
+# engine with a different cookie store and nothing transfers.
 #
-# The first run of this probe served plain http on 127.0.0.1, which is what
-# Android accepted. WebKit refused the Secure cookie there while accepting an
-# otherwise identical non-Secure twin — so loopback http is enough for Chromium
-# and not for WebKit. The answer is to give the probe a real certificate, never
-# to drop the attribute under test. An ephemeral CA is minted on the runner,
-# trusted by this one disposable simulator, and discarded with it.
+# WHY A PUBLIC TUNNEL AND NOT A LOCAL CERTIFICATE
 #
-# Consequently the committed Info.plist is NOT touched: a trusted certificate
-# satisfies App Transport Security on its own, so production iOS configuration
-# stays exactly as it ships.
+# Two things were learned the hard way. WebKit refuses a Secure cookie from
+# http://127.0.0.1 — Chromium accepts it, which is how Android passed, so the
+# assumption had quietly crossed engines. And a private CA installed with
+# `simctl keychain add-root-cert` never produced a usable TLS connection: six
+# runs, zero requests reaching the probe, and no error to read.
 #
-# Zero secrets. Zero Production. Zero Preview. Zero database. The probe server
-# is runner-local and the cookie value is a synthetic per-run marker.
+# So the transport here is the one Production actually uses: real HTTPS with a
+# publicly trusted certificate. A Cloudflare quick tunnel provides exactly that
+# with no account, no token and no stored secret, and it disappears with the job.
+#
+# EXPOSURE
+#
+# The tunnel publishes ONLY the disposable probe: four synthetic endpoints and a
+# random per-run cookie value. No Dubiz code, no database, no auth, no
+# Production, no Preview. The probe binds loopback, so the tunnel client is the
+# only thing that can reach it, and the hostname is random per run.
 
 name: ios cookie probe (simulator, evidence only)
 
@@ -43,11 +47,10 @@ jobs:
   ios-cookie-probe:
     name: iOS cookie probe (Simulator)
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     env:
       PROBE_PORT: '3171'
-      CAP_SERVER_URL: https://localhost:3171
       BUNDLE_ID: il.co.promaxgroup.dubiz
 
     steps:
@@ -65,28 +68,62 @@ jobs:
       - name: Environment
         run: |
           xcodebuild -version
-          xcrun simctl list runtimes | grep -i ios || true
+          uname -m
 
-      # Points the WebView at the runner-local probe. Nothing about Dubiz is
-      # served: CAP_SERVER_URL is loopback, so the app loads the probe page.
-      - name: Sync the iOS project against the probe origin
-        run: npx cap sync ios
+      - name: Start the disposable probe server (loopback only)
+        run: |
+          mkdir -p native-evidence
+          node scripts/native/cookie-probe-server.mjs > native-evidence/cookie-probe-server.log 2>&1 &
+          for _ in $(seq 1 20); do
+            curl -fsS "http://localhost:${PROBE_PORT}/plan" > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS "http://localhost:${PROBE_PORT}/plan"
+          echo
 
-      - name: Mint an ephemeral CA and server certificate
+      # A quick tunnel needs no account and no token: cloudflared assigns a
+      # random trycloudflare.com hostname with a publicly trusted certificate,
+      # and tears it down with the process.
+      - name: Open a publicly trusted HTTPS tunnel to the probe
+        id: tunnel
         run: |
           set -euo pipefail
-          mkdir -p probe-tls
-          cd probe-tls
-          openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 2 -keyout ca.key -out ca.pem -subj "/CN=Dubiz Probe Ephemeral CA" -addext "basicConstraints=critical,CA:TRUE,pathlen:0" -addext "keyUsage=critical,keyCertSign,cRLSign"
-          openssl req -newkey rsa:2048 -sha256 -nodes -keyout leaf.key -out leaf.csr -subj "/CN=localhost"
-          {
-            echo "subjectAltName=DNS:localhost,IP:127.0.0.1"
-            echo "extendedKeyUsage=serverAuth"
-            echo "basicConstraints=critical,CA:FALSE"
-          } > leaf.ext
-          openssl x509 -req -in leaf.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out leaf.pem -days 2 -sha256 -extfile leaf.ext
-          openssl x509 -in leaf.pem -noout -subject -issuer -dates
-          openssl x509 -in leaf.pem -noout -text | grep -A 1 "Subject Alternative Name"
+          ARCH="$(uname -m)"
+          if [ "$ARCH" = "arm64" ]; then PKG=cloudflared-darwin-arm64.tgz; else PKG=cloudflared-darwin-amd64.tgz; fi
+          curl -fsSL -o cloudflared.tgz "https://github.com/cloudflare/cloudflared/releases/latest/download/$PKG"
+          tar -xzf cloudflared.tgz
+          chmod +x cloudflared
+          ./cloudflared --version
+          ./cloudflared tunnel --no-autoupdate --url "http://localhost:${PROBE_PORT}" > native-evidence/cloudflared.log 2>&1 &
+          URL=""
+          for _ in $(seq 1 60); do
+            URL="$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' native-evidence/cloudflared.log | head -1 || true)"
+            if [ -n "$URL" ]; then break; fi
+            sleep 2
+          done
+          if [ -z "$URL" ]; then
+            echo "no tunnel hostname was assigned"
+            tail -40 native-evidence/cloudflared.log
+            exit 1
+          fi
+          echo "tunnel origin assigned"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          # No -k and no custom CA: if this verifies against the public trust
+          # store, WKWebView has nothing to object to either.
+          for _ in $(seq 1 30); do
+            curl -fsS "$URL/plan" > /dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fsS "$URL/plan"
+          echo
+
+      # The origin is only known now, so the sync has to follow the tunnel.
+      - name: Sync the iOS project against the public probe origin
+        env:
+          CAP_SERVER_URL: ${{ steps.tunnel.outputs.url }}
+        run: |
+          npx cap sync ios
+          grep -o '"url"[^,}]*' ios/App/App/capacitor.config.json || true
 
       - name: Boot a simulator
         id: sim
@@ -101,60 +138,32 @@ jobs:
           xcrun simctl boot "$UDID"
           xcrun simctl bootstatus "$UDID" -b
 
-      # Trusted for this disposable simulator only. It is deleted with the
-      # device at the end of the job and never leaves the runner.
-      - name: Trust the ephemeral CA inside the disposable simulator
-        run: |
-          xcrun simctl keychain "${{ steps.sim.outputs.udid }}" add-root-cert probe-tls/ca.pem
-          echo "root certificate installed on ${{ steps.sim.outputs.udid }}"
-          # The network process caches trust at launch, so a root added to a
-          # already-booted device is not picked up until it restarts. Every https
-          # run so far never connected at all, while the earlier http run loaded
-          # the page fine — the difference is trust, and this is what applies it.
-          xcrun simctl shutdown "${{ steps.sim.outputs.udid }}"
-          xcrun simctl boot "${{ steps.sim.outputs.udid }}"
-          xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}" -b
-          echo "simulator restarted so the new trust anchor takes effect"
-
       - name: Build the app for the simulator
         run: |
           set -euo pipefail
-          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -destination "id=${{ steps.sim.outputs.udid }}" -derivedDataPath build-ios CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -40
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -destination "id=${{ steps.sim.outputs.udid }}" -derivedDataPath build-ios CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -30
           find build-ios -name "App.app" -maxdepth 6 -print
-
-      - name: Start the runner-local cookie probe over TLS
-        run: |
-          mkdir -p native-evidence
-          PROBE_TLS_KEY=probe-tls/leaf.key PROBE_TLS_CERT=probe-tls/leaf.pem node scripts/native/cookie-probe-server.mjs > native-evidence/cookie-probe-server.log 2>&1 &
-          for _ in $(seq 1 20); do
-            curl -fsSk "https://localhost:${PROBE_PORT}/plan" > /dev/null 2>&1 && break
-            sleep 1
-          done
-          # -k on the RUNNER only: macOS curl is built against Secure Transport and
-          # ignores --cacert, which failed the job before the real test could run.
-          # The WebView is the thing under test and it validates the chain properly.
-          curl -fsSk "https://localhost:${PROBE_PORT}/plan"
-          echo
-          cat native-evidence/cookie-probe-server.log
 
       - name: Run the iOS cookie probe
         env:
           SIM_UDID: ${{ steps.sim.outputs.udid }}
-          PROBE_SCHEME: https
+          PROBE_PUBLIC_ORIGIN: ${{ steps.tunnel.outputs.url }}
         run: |
           APP_PATH="$(find build-ios -name 'App.app' -maxdepth 6 | head -1)"
           echo "app bundle: $APP_PATH"
           APP_PATH="$APP_PATH" bash scripts/native/ios-cookie-probe.sh
 
-      # If the WebView never reported, the reason is in the app process log —
-      # a TLS trust failure looks nothing like a page that loaded and misbehaved.
-      - name: Capture the simulator log on failure
+      # A run where the WebView never connects looks identical to one where it
+      # connected and misbehaved, unless something says which.
+      - name: Capture diagnostics on failure
         if: failure()
         run: |
-          mkdir -p native-evidence
-          xcrun simctl spawn "${{ steps.sim.outputs.udid }}" log show --last 5m --predicate 'processImagePath CONTAINS "App"' > native-evidence/simulator-app.log 2>&1 || true
-          tail -80 native-evidence/simulator-app.log || true
+          echo "--- probe server ---"
           cat native-evidence/cookie-probe-server.log || true
+          echo "--- tunnel ---"
+          tail -40 native-evidence/cloudflared.log || true
+          xcrun simctl spawn "${{ steps.sim.outputs.udid }}" log show --last 5m --predicate 'processImagePath CONTAINS "App"' > native-evidence/simulator-app.log 2>&1 || true
+          grep -iE "error|fail|TLS|certificate|NSURLError" native-evidence/simulator-app.log | head -40 || true
 
       - name: Upload evidence
         if: always()
@@ -165,6 +174,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Shut the simulator down
+      - name: Tear the tunnel and simulator down
         if: always()
-        run: xcrun simctl delete "${{ steps.sim.outputs.udid }}" || true
+        run: |
+          pkill -f cloudflared || true
+          xcrun simctl delete "${{ steps.sim.outputs.udid }}" || true

@@ -32,9 +32,12 @@ LONG_DELAY="${PROBE_LONG_DELAY:-75}"
 # WebKit refused a Secure cookie over loopback http, so the probe is served
 # over TLS with an ephemeral certificate the simulator trusts. -k is for that
 # certificate on the RUNNER side only; the WebView validates it properly.
-SCHEME="${PROBE_SCHEME:-http}"
-HOSTNAME_="${PROBE_HOST:-localhost}"
-BASE="$SCHEME://$HOSTNAME_:$PORT"
+# The runner drives the probe over loopback — control traffic has no reason to
+# make a round trip through the public tunnel. The WebView is the only thing
+# that uses the public origin, and PROBE_PUBLIC_ORIGIN is what its
+# location.origin is checked against.
+BASE="http://localhost:$PORT"
+PUBLIC_ORIGIN="${PROBE_PUBLIC_ORIGIN:-$BASE}"
 
 mkdir -p "$OUT"
 : > "$CHECKS"
@@ -45,7 +48,7 @@ check() { # name, exit-code, detail
 }
 note() { echo "$1" | tee -a "$CHECKS"; }
 
-phase() { curl -fsSk "$BASE/control?phase=$1" > /dev/null; }
+phase() { curl -fsS "$BASE/control?phase=$1" > /dev/null; }
 observed() { # phase, path
   node -e '
     const fs = require("fs");
@@ -78,7 +81,7 @@ wait_report SET || { check "the probe page reported at all" 1 "no report from WK
 
 ORIGIN="$(observed SET locationOrigin)"
 check "WKWebView loaded the probe origin" \
-  "$([ "$ORIGIN" = "$BASE" ] && echo 0 || echo 1)" "location.origin=$ORIGIN"
+  "$([ "$ORIGIN" = "$PUBLIC_ORIGIN" ] && echo 0 || echo 1)" "location.origin=$ORIGIN"
 check "A. SET COOKIE accepted by WKWebView" \
   "$([ "$(observed SET refreshEndpoint.cookiePresent)" = "true" ] && echo 0 || echo 1)"
 check "B. HTTPONLY — document.cookie does not contain the marker" \
