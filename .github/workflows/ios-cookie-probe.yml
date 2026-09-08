@@ -1,0 +1,132 @@
+# TEST-ONLY, BRANCH-ONLY. iOS WKWebView cookie-contract probe.
+#
+# EVIDENCE ONLY. This is not release CI, it is not a required check, and it must
+# not be merged to main without separate approval. It runs on pushes to its own
+# probe branch and nowhere else.
+#
+# It answers one question with runtime evidence: does WKWebView honour
+# HttpOnly + Secure + SameSite=Strict + Path=/api/auth/refresh, and does that
+# cookie survive the app's process being terminated? Android has already
+# answered it for its own engine; WKWebView is a different engine with a
+# different cookie store and nothing transfers.
+#
+# Zero secrets. Zero Production. Zero Preview. Zero database. The probe server
+# is runner-local and the cookie value is a synthetic per-run marker.
+#
+# The simulator shares the host's network stack, so it reaches the runner-local
+# server directly on loopback — no tunnel, no external host, no account.
+
+name: ios cookie probe (simulator, evidence only)
+
+on:
+  push:
+    branches: [probe/ios-cookie-feasibility]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-cookie-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-cookie-probe:
+    name: iOS cookie probe (Simulator)
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    env:
+      PROBE_PORT: '3171'
+      CAP_SERVER_URL: http://127.0.0.1:3171
+      BUNDLE_ID: il.co.promaxgroup.dubiz
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Environment
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes | grep -i ios || true
+
+      # Points the WebView at the runner-local probe. Nothing about Dubiz is
+      # served: CAP_SERVER_URL is loopback, so the app loads the probe page.
+      - name: Sync the iOS project against the probe origin
+        run: npx cap sync ios
+
+      # App Transport Security blocks cleartext by default and this repo sets no
+      # exception — correctly, for production. The probe needs loopback http to
+      # exercise `Secure` without a certificate authority, so the plist is
+      # patched HERE, in the CI working copy only. The committed Info.plist is
+      # untouched, which is why this is a workflow step and not a source change.
+      - name: Permit local networking for the probe (CI working copy only)
+        run: |
+          PLIST=ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$PLIST" || true
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" "$PLIST" || \
+            /usr/libexec/PlistBuddy -c "Set :NSAppTransportSecurity:NSAllowsLocalNetworking true" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity" "$PLIST"
+          git --no-pager diff --stat -- "$PLIST"
+
+      - name: Boot a simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl create probe-iphone \
+            "$(xcrun simctl list devicetypes | grep -oE 'com.apple.CoreSimulator.SimDeviceType.iPhone-1[5-7]' | tail -1)" \
+            "$(xcrun simctl list runtimes | grep -oE 'com.apple.CoreSimulator.SimRuntime.iOS-[0-9-]+' | tail -1)")
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Build the app for the simulator
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build-ios \
+            CODE_SIGNING_ALLOWED=NO \
+            build | tail -40
+          find build-ios -name "App.app" -maxdepth 6 -print
+
+      - name: Start the runner-local cookie probe
+        run: |
+          mkdir -p native-evidence
+          node scripts/native/cookie-probe-server.mjs > native-evidence/cookie-probe-server.log 2>&1 &
+          for _ in $(seq 1 20); do
+            curl -fsS "http://127.0.0.1:${PROBE_PORT}/plan" > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS "http://127.0.0.1:${PROBE_PORT}/plan"
+
+      - name: Run the iOS cookie probe
+        env:
+          SIM_UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          APP_PATH="$(find build-ios -name 'App.app' -maxdepth 6 | head -1)"
+          echo "app bundle: $APP_PATH"
+          APP_PATH="$APP_PATH" bash scripts/native/ios-cookie-probe.sh
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-cookie-probe-evidence
+          path: native-evidence/**
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Shut the simulator down
+        if: always()
+        run: xcrun simctl delete "${{ steps.sim.outputs.udid }}" || true
