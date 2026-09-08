@@ -777,7 +777,13 @@ async function main() {
     ok("rollback: 0 W4E-A policies remain", after === 0, `found ${after}`);
     const pilotIntact = Number((await owner.$queryRawUnsafe(
       `SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p4b_tenant'`))[0].c);
-    ok("rollback: the pilot-equivalent policy survives", pilotIntact === 1, `found ${pilotIntact}`);
+    // FOUR now, not one: the lab installs the pilot-equivalent p4b_tenant on
+    // PaymentRequest and, since the SEC-02 phase, on the three tables a payable
+    // document is resolved through (Customer, BillingDocument,
+    // BillingPaymentAllocation). The assertion's meaning is unchanged — W4E-A's
+    // rollback must remove only W4E-A's own policies and leave the pilot
+    // substrate standing.
+    ok("rollback: the pilot-equivalent policies survive", pilotIntact === 4, `found ${pilotIntact}`);
     const pilotGrant = (await owner.$queryRawUnsafe(
       `SELECT has_table_privilege('${RT_ROLE}', '"PaymentRequest"', 'SELECT') AS s,
               has_table_privilege('${RT_ROLE}', '"PaymentRequest"', 'INSERT') AS i`))[0];
