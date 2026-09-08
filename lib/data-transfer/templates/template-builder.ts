@@ -77,7 +77,7 @@ const TYPE_LABELS: Record<string, string> = {
  * file itself, because the owner reads the template — not our docs. I-5
  * implements the reading and normalization of exactly this.
  */
-type FormatNote = {
+export type FormatNote = {
   title: string;
   body: string;
   /**
@@ -132,7 +132,10 @@ function typeLabel(field: DomainFieldSpec): string {
   return TYPE_LABELS[field.type] ?? field.type;
 }
 
-function guideRows(fields: readonly DomainFieldSpec[]): SheetCell[][] {
+function guideRows(
+  fields: readonly DomainFieldSpec[],
+  extraNotes: readonly FormatNote[] = []
+): SheetCell[][] {
   const fieldRows: SheetCell[][] = fields.map((f) => [
     f.header,
     f.required ? "חובה" : "רשות",
@@ -144,10 +147,11 @@ function guideRows(fields: readonly DomainFieldSpec[]): SheetCell[][] {
 
   // A blank separator, then the cross-cutting format rules that APPLY to this
   // domain. Kept on the guide sheet so the contract travels WITH the file the
-  // owner is working in.
-  const notes: SheetCell[][] = FORMAT_NOTES.filter(
-    (note) => !note.appliesTo || note.appliesTo(fields)
-  ).map((note) => [note.title, null, null, note.body, null, null]);
+  // owner is working in. A domain may add its own notes; they lead, because a
+  // rule specific to this file matters more to the reader than a general one.
+  const notes: SheetCell[][] = [...extraNotes, ...FORMAT_NOTES]
+    .filter((note) => !note.appliesTo || note.appliesTo(fields))
+    .map((note) => [note.title, null, null, note.body, null, null]);
 
   return [...fieldRows, [null, null, null, null, null, null], ...notes];
 }
@@ -176,17 +180,28 @@ export function isTemplateDomainId(
   return isExportableDomainId(value);
 }
 
-/** Build the two-sheet XLSX template for one domain. */
-export async function buildImportTemplate(
-  domainId: DataTransferDomainId,
-  at: Date
-): Promise<ImportTemplate> {
-  const descriptor = EXPORT_DESCRIPTORS.find((d) => d.id === domainId);
-  if (!descriptor) {
-    throw new Error(`No import template for domain: ${domainId}`);
-  }
-
-  const fields = importableFields(descriptor.columns);
+/**
+ * Build the two-sheet workbook from a field list.
+ *
+ * Split out from {@link buildImportTemplate} so a domain that is NOT in the
+ * export registry can still produce a template through this one implementation.
+ * The historical domain is exactly that case: it must stay out of
+ * `EXPORT_DESCRIPTORS`, because that list is what `isExportableDomainId` is
+ * built from and what every import route gates on — adding it there to get a
+ * template would silently make analyze, preview and execute accept it.
+ *
+ * The sheets, the RTL direction, the header-only data sheet and the guide
+ * contract are therefore shared rather than reimplemented.
+ */
+export async function buildTemplateWorkbook(input: {
+  domainId: DataTransferDomainId;
+  fields: readonly DomainFieldSpec[];
+  fileSlug: string;
+  at: Date;
+  /** Domain-specific guide notes, shown before the cross-cutting ones. */
+  extraNotes?: readonly FormatNote[];
+}): Promise<ImportTemplate> {
+  const { domainId, fields, fileSlug, at, extraNotes } = input;
   if (fields.length === 0) {
     throw new Error(`Domain has no importable fields: ${domainId}`);
   }
@@ -210,7 +225,7 @@ export async function buildImportTemplate(
   const guideSheet: XlsxSheetSpec = {
     name: TEMPLATE_GUIDE_SHEET,
     columns: GUIDE_COLUMNS,
-    rows: guideRows(fields),
+    rows: guideRows(fields, extraNotes),
     rightToLeft: true,
     freezeHeader: false,
     autoFilter: false,
@@ -221,9 +236,27 @@ export async function buildImportTemplate(
   return {
     domainId,
     body,
-    filename: buildTemplateFilename(descriptor.fileSlug, at),
+    filename: buildTemplateFilename(fileSlug, at),
     contentType:
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     headers: fields.map((f) => f.header),
   };
+}
+
+/** Build the two-sheet XLSX template for one EXPORT-REGISTERED domain. */
+export async function buildImportTemplate(
+  domainId: DataTransferDomainId,
+  at: Date
+): Promise<ImportTemplate> {
+  const descriptor = EXPORT_DESCRIPTORS.find((d) => d.id === domainId);
+  if (!descriptor) {
+    throw new Error(`No import template for domain: ${domainId}`);
+  }
+
+  return buildTemplateWorkbook({
+    domainId,
+    fields: importableFields(descriptor.columns),
+    fileSlug: descriptor.fileSlug,
+    at,
+  });
 }

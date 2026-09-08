@@ -223,6 +223,123 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: template/import drift fails the verifier"
 
+      # Import/Export Center I-8B.1 — the historical field contract and the two
+      # primitives a fiscal import goes quietly wrong in. Blocking, because
+      # every failure here is silent: a date read under the other convention
+      # moves an invoice into another tax period, and an amount that passes
+      # through binary floating point arrives an agora short. Nothing throws.
+      # Local equivalent: npm run verify:historical-contract
+      - name: Historical field contract, dates and Decimal-safe money
+        run: npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts
+
+      - name: I-8B.1 negative proof (a quote must never be a fiscal document)
+        run: |
+          F="lib/data-transfer/historical/historical-vocabulary.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  "CREDIT_NOTE",\n\] as const;/  "CREDIT_NOTE",\n  "QUOTE",\n] as const;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: QUOTE entered the historical fiscal vocabulary"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.1 negative proof (currency must never default to ILS)
+        run: |
+          F="lib/data-transfer/historical/historical-vocabulary.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/\): VocabularyResult<HistoricalCurrency> \{/): VocabularyResult<HistoricalCurrency> {\n  return { ok: true, value: "ILS", raw: "" };/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a missing currency was silently assumed to be shekels"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.1 negative proof (no locale date parsing)
+        run: |
+          F="lib/data-transfer/historical/historical-date.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  const iso = ISO\.exec\(original\);/  const iso = ISO.exec(original);\n  const loose = new Date(original);\n  void loose;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the date primitive started parsing user strings with Date"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.1 negative proof (money must not become a JS number)
+        run: |
+          F="lib/data-transfer/historical/historical-money.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/return \{ ok: true, value, original, display: group\(value\) \};/return { ok: true, value: Number(value) as unknown as string, original, display: group(value) };/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a fiscal amount passed through binary floating point"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.1 negative proof (no silent rounding past two decimals)
+        run: |
+          F="lib/data-transfer/historical/historical-money.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  if \(decimal\.decimalPlaces\(\) > MONEY_DECIMAL_PLACES\) \{/  if (false \&\& decimal.decimalPlaces() > MONEY_DECIMAL_PLACES) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a three-decimal amount was silently rounded into shape"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.1 negative proof (no customer phone, email or address in v1)
+        run: |
+          F="lib/data-transfer/historical/historical-fields.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/\n\] as const;/,\n  { header: "phone", target: "customerPhoneSnapshot", type: "text", exportable: false, importable: true }\n] as const;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: v1 started collecting personal contact details with no consumer"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.1 negative proof (no internal identifier reaches the owner)
+        run: |
+          F="lib/data-transfer/historical/historical-fields.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/example: "2024\/0017",/example: "2024\/0017 businessId",/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an internal identifier reached owner-facing text"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.1 negative proof (the import sheet stays headers-only)
+        run: |
+          F="lib/data-transfer/templates/template-builder.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    rows: \[\],/    rows: [["x"]],/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an example row appeared on the sheet the owner uploads"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.1 negative proof (historical is not the issued-documents template)
+        run: |
+          F="lib/data-transfer/historical/historical-template.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/domainId: "historical-documents",/domainId: "issued-documents",/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the historical template was built as the issued-documents one"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
       # The two validator extractions (I-5). Both moved rules OUT of live
       # services so the Import dry run can evaluate a row without a database.
       # These verifiers run the pre-extraction implementations side by side with
