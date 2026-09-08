@@ -7,7 +7,7 @@
 #
 # Synthetic CI-only data. ZERO secrets, ZERO Neon, ZERO production.
 
-name: i8b3 — historical duplicate lookup under RLS (ephemeral PG17)
+name: i8b3/i8b4 — historical duplicate lookup and preview under RLS (ephemeral PG17)
 
 on:
   push:
@@ -31,7 +31,7 @@ env:
 
 jobs:
   i8b3-battery:
-    name: I-8B.3 duplicate lookup battery (PG17)
+    name: I-8B.3/4 duplicate and preview battery (PG17)
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -80,7 +80,7 @@ jobs:
           DIRECT_URL: ${{ env.OWNER_URL }}
         run: npx prisma db push --skip-generate
 
-      - name: Run I-8B.3 battery
+      - name: Run I-8B.3/4 battery
         env:
           DATABASE_URL: ${{ env.OWNER_URL }}
           DIRECT_URL: ${{ env.OWNER_URL }}
@@ -124,6 +124,26 @@ jobs:
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npx tsx .i8b3/battery.mjs >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a table with no RLS passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — a stale analysis rebuilt silently
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          AUTH_TOKEN_SECRET: i8b3_ci_auth_secret_synthetic
+        run: |
+          F="lib/data-transfer/historical/historical-preview.ts"
+          cp "$F" "$F.bak"
+          # A record inserted between Analyze and Preview must stop the flow.
+          # Rebuilding quietly is the failure: the owner would confirm a preview
+          # they never read.
+          perl -0pi -e 's/    input\.expectedEvidenceFingerprint \&\&\n    input\.expectedEvidenceFingerprint !== evidenceFingerprint\n  \) \{/    false\n  ) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i8b3/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a stale analysis was rebuilt silently"; exit 1
           fi
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
