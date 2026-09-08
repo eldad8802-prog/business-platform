@@ -81,79 +81,45 @@ jobs:
           curl -fsS "http://localhost:${PROBE_PORT}/plan"
           echo
 
-      # A quick tunnel needs no account and no token: cloudflared assigns a
-      # random trycloudflare.com hostname with a publicly trusted certificate,
-      # and tears it down with the process.
+      # cloudflared was tried first and ruled out with evidence: the tunnel
+      # registered, and then NEITHER the runner resolver NOR Cloudflare's own
+      # 1.1.1.1 resolved the assigned trycloudflare hostname. The name did not
+      # exist in public DNS at all, so it was never a runner problem.
+      #
+      # localhost.run is the other tunnel needing no account and no token: an
+      # SSH remote forward that hands back a publicly trusted https origin.
       - name: Open a publicly trusted HTTPS tunnel to the probe
         id: tunnel
         run: |
-          set -euo pipefail
-          ARCH="$(uname -m)"
-          if [ "$ARCH" = "arm64" ]; then PKG=cloudflared-darwin-arm64.tgz; else PKG=cloudflared-darwin-amd64.tgz; fi
-          curl -fsSL -o cloudflared.tgz "https://github.com/cloudflare/cloudflared/releases/latest/download/$PKG"
-          tar -xzf cloudflared.tgz
-          chmod +x cloudflared
-          ./cloudflared --version
-          ./cloudflared tunnel --no-autoupdate --url "http://localhost:${PROBE_PORT}" > native-evidence/cloudflared.log 2>&1 &
+          set -uo pipefail
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -R 80:localhost:${PROBE_PORT} nokey@localhost.run > native-evidence/tunnel.log 2>&1 &
           URL=""
-          for _ in $(seq 1 60); do
-            URL="$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' native-evidence/cloudflared.log | head -1 || true)"
+          for _ in $(seq 1 45); do
+            URL="$(grep -oE 'https://[a-z0-9-]+[.]lhr[.]life' native-evidence/tunnel.log | head -1 || true)"
             if [ -n "$URL" ]; then break; fi
             sleep 2
           done
           if [ -z "$URL" ]; then
-            echo "no tunnel hostname was assigned"
-            tail -40 native-evidence/cloudflared.log
+            echo 'no tunnel hostname was assigned'
+            tail -30 native-evidence/tunnel.log
             exit 1
           fi
-          echo "tunnel origin assigned"
+          echo 'tunnel origin assigned'
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           HOST="${URL#https://}"
-
-          # cloudflared prints the hostname before the tunnel is registered and
-          # before DNS carries it. The previous run raced both: the name was
-          # assigned and "could not resolve host" a moment later. Wait for the
-          # connection first, then for DNS, then for the probe to answer.
-          for _ in $(seq 1 60); do
-            grep -q "Registered tunnel connection" native-evidence/cloudflared.log && break
-            sleep 2
-          done
-          echo "tunnel connections registered: $(grep -c "Registered tunnel connection" native-evidence/cloudflared.log || echo 0)"
-
-          # Two runs failed here with "could not resolve host" while cloudflared
-          # reported a healthy, registered tunnel. host and dig are both present,
-          # so the gate was not the problem — this runner resolver genuinely does
-          # not carry freshly-minted trycloudflare names.
-          #
-          # If a public resolver does carry it, the name is real and only this
-          # machine cannot see it, which /etc/hosts fixes for the runner AND the
-          # simulator, since the simulator uses the host resolver. TLS still
-          # validates against the hostname via SNI, so nothing about the
-          # certificate check is weakened.
-          echo "system resolver sees: $(dig +short "$HOST" | head -3 | paste -sd" " -)"
-          echo "public resolver sees: $(dig +short @1.1.1.1 "$HOST" | head -3 | paste -sd" " -)"
-          if ! dig +short "$HOST" | grep -qE "^[0-9]"; then
-            IP="$(dig +short @1.1.1.1 "$HOST" | grep -E "^[0-9]" | head -1 || true)"
-            if [ -n "$IP" ]; then
-              echo "pinning $HOST to $IP in /etc/hosts (runner resolver cannot see it)"
-              echo "$IP $HOST" | sudo tee -a /etc/hosts > /dev/null
-              dscacheutil -flushcache 2>/dev/null || true
-            else
-              echo "no public resolver carries this hostname either"
-            fi
-          fi
+          echo "system resolver sees: $(dig +short "$HOST" | head -3 | paste -sd' ' -)"
 
           # No -k and no custom CA: verifying against the public trust store is
-          # the whole point, and it is what WKWebView will do too.
+          # the whole point, and it is exactly what WKWebView will do too.
           OK=""
           for _ in $(seq 1 45); do
             if curl -fsS --max-time 10 "$URL/plan" > /dev/null 2>&1; then OK=yes; break; fi
             sleep 2
           done
           if [ -z "$OK" ]; then
-            echo "the public origin never served the probe"
-            curl -v --max-time 10 "$URL/plan" 2>&1 | tail -20 || true
-            tail -40 native-evidence/cloudflared.log
+            echo 'the public origin never served the probe'
+            curl -v --max-time 10 "$URL/plan" 2>&1 | tail -20
+            tail -30 native-evidence/tunnel.log
             exit 1
           fi
           curl -fsS "$URL/plan"
@@ -203,7 +169,7 @@ jobs:
           echo "--- probe server ---"
           cat native-evidence/cookie-probe-server.log || true
           echo "--- tunnel ---"
-          tail -40 native-evidence/cloudflared.log || true
+          tail -40 native-evidence/tunnel.log || true
           xcrun simctl spawn "${{ steps.sim.outputs.udid }}" log show --last 5m --predicate 'processImagePath CONTAINS "App"' > native-evidence/simulator-app.log 2>&1 || true
           grep -iE "error|fail|TLS|certificate|NSURLError" native-evidence/simulator-app.log | head -40 || true
 
@@ -219,5 +185,5 @@ jobs:
       - name: Tear the tunnel and simulator down
         if: always()
         run: |
-          pkill -f cloudflared || true
+          pkill -f "ssh .*localhost.run" || true
           xcrun simctl delete "${{ steps.sim.outputs.udid }}" || true
