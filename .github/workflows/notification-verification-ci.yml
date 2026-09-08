@@ -1,0 +1,139 @@
+# Notification verification — the whole family, on a disposable PostgreSQL 17.
+#
+# WHY THIS EXISTS
+#
+# There are three live notification producers (inventory, inbox, documents) and
+# nine verification suites covering the writer lifecycle, dedupe, cooldown,
+# resolution, reopen, tenant isolation, exhaustive-versus-partial truth, consumer
+# commit boundaries and the notification centre. Until now none of them ran in
+# CI, so a change to the writer, the policy, the business-status loaders or any
+# consumer could merge green. The capped-loader false-resolution defect was
+# exactly that: it shipped in two producers and nothing would have caught it.
+#
+# NON-BLOCKING, DELIBERATELY. This is Step 1 — collect stability evidence on real
+# pull requests first. Nothing here is added to branch protection, no required
+# check is renamed or removed, and release/verify is untouched. Whether this ever
+# becomes required is a separate decision with its own authorization.
+#
+# Synthetic CI-only credentials; ZERO secrets; ZERO Neon; no Production, Preview
+# or shared database is reachable from this job.
+
+name: notification verification (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/notifications/**"
+      - "lib/business-status/**"
+      - "lib/documents/pending-review.ts"
+      - "components/notifications/**"
+      - "app/api/notifications/**"
+      - "app/api/message/route.ts"
+      - "app/api/conversation/**"
+      - "app/api/documents/[id]/approve/**"
+      - "app/api/inventory/**"
+      - "lib/services/documents/process-document-pipeline.service.ts"
+      - "lib/services/integrations/whatsapp/conversation-intake.service.ts"
+      - "lib/services/integrations/whatsapp/documents-intake.service.ts"
+      - "lib/services/inventory/**"
+      # Everything above is a producer or a surface. These two are the ground
+      # the suites stand on: the tenant transaction/context helpers every
+      # consumer runs inside, and the schema the lab database is built from.
+      - "lib/tenant/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20260903200000_notification_persistence/**"
+      - "scripts/ci/notification-rls-bootstrap.mjs"
+      - ".github/workflows/notification-verification-ci.yml"
+  # Post-merge, unfiltered: a path filter cannot know which change broke a
+  # notification invariant, and the point of running on main is to notice
+  # exactly the breakage the filter would have skipped.
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notification-verification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  notifications:
+    name: notification verification (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: notif_owner
+          POSTGRES_PASSWORD: notif_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_notifications
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U notif_owner -d dubiz_notifications"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://notif_owner:notif_ci_synthetic_owner_pw@localhost:5432/dubiz_notifications
+      DIRECT_URL: postgresql://notif_owner:notif_ci_synthetic_owner_pw@localhost:5432/dubiz_notifications
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci --no-audit --no-fund
+
+      # migrate-from-zero is a known separate defect in this repository's
+      # history, so the lab schema is materialised from schema.prisma — the same
+      # choice every other PG battery here makes.
+      - name: Push schema
+        run: npx prisma db push --skip-generate
+
+      # Row-level security is hand-written SQL in the notification migration and
+      # is therefore absent from a db-push database. This reads that migration
+      # and applies the section it already contains, rather than keeping a second
+      # copy of a security boundary in YAML.
+      - name: Apply notification row-level security (from the canonical migration)
+        run: node scripts/ci/notification-rls-bootstrap.mjs
+
+      # One database, one suite at a time, each named so a failure says which.
+      # No `|| true`, no continue-on-error: the job is not required, but it must
+      # tell the truth about what happened.
+      - name: Policy — channels, cooldowns, quiet hours
+        run: npm run verify:notification-policy
+
+      - name: Writer — dedupe, cooldown claim, reopen, deliveries
+        run: npm run verify:notification-writer
+
+      - name: Read API — list, unread count, read semantics
+        run: npm run verify:notification-read-api
+
+      - name: Producer 1 — inventory alerts
+        run: npm run verify:notification-consumer-inventory
+
+      - name: Producer 2 — inbox waiting conversations
+        run: npm run verify:notification-consumer-inbox
+
+      - name: Producer 2 — inbox wiring and commit boundaries
+        run: npm run verify:notification-inbox-wiring
+
+      - name: Producer 3 — documents review queue
+        run: npm run verify:notification-consumer-documents
+
+      - name: Producer 3 — documents wiring and commit boundaries
+        run: npm run verify:notification-documents-wiring
+
+      - name: Notification centre — behaviour, auth, ordering
+        run: npm run verify:notification-center
