@@ -561,8 +561,14 @@ const E3_PW = "e3_ci_synthetic_pw";
 const RUNTIME_USER_SELECT_COLS = ["id", "email", "name", "businessId", "lastLoginAt", "loginCount"];
 const RUNTIME_BUSINESS_SELECT_COLS = ["id", "name", "createdAt", "deletionRequestedAt", "deletedAt"];
 // The only writes the runtime performs, both inside account deletion.
-const RUNTIME_USER_UPDATE_COLS = ["email", "name", "password"];
-const RUNTIME_BUSINESS_UPDATE_COLS = ["deletionRequestedAt", "deletedAt", "archivedAt", "archivedByUserId"];
+// `updatedAt` is on both lists because Prisma writes it on every update and
+// updateMany — the models carry @updatedAt. The design set omitted it, so a
+// revoke built from that design would have failed the first account deletion
+// with a permission error rather than at review.
+const RUNTIME_USER_UPDATE_COLS = ["email", "name", "password", "updatedAt"];
+const RUNTIME_BUSINESS_UPDATE_COLS = [
+  "deletionRequestedAt", "deletedAt", "archivedAt", "archivedByUserId", "updatedAt",
+];
 
 // `loginCount` is a READ as well as a write: the login stamp increments it, and
 // an increment reads the column first. The design set listed it only under
