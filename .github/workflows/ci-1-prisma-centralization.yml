@@ -869,6 +869,18 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
 
+      - name: I-8B.5 negative proof (a re-derivation outside the tenant context must be caught)
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  const preview = await runWithTenantContext\(\{ businessId: input\.businessId \}, \(\) =>/  const preview = await Promise.resolve().then(() =>/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: history was re-read with no tenant in scope"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
       - name: I-8B.5 negative proof (a statement outside the tenant transaction must be caught)
         run: |
           F="lib/data-transfer/historical/historical-execute.ts"

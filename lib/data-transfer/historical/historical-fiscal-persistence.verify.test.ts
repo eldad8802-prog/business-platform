@@ -292,7 +292,7 @@ check("Document is changed by an index only — it gains no column", () => {
 // ───────────────────────────────────────────────────────────────────────────
 // 5. The migration is expand-only and touches nothing fiscal
 // ───────────────────────────────────────────────────────────────────────────
-check("exactly one migration is added, and it is the newest in the tree", () => {
+check("exactly one migration adds it, and nothing after it touches it", () => {
   const dirs = fs
     .readdirSync("prisma/migrations", { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -300,7 +300,21 @@ check("exactly one migration is added, and it is the newest in the tree", () => 
     .sort();
   const mine = dirs.filter((name) => /i8a/i.test(name));
   assert.deepEqual(mine, ["20260907120000_i8a_historical_fiscal_documents"]);
-  assert.equal(dirs[dirs.length - 1], mine[0], "this must be the last migration in order");
+
+  // This used to read "and it is the last migration in the tree", which held
+  // only until the next unrelated migration landed. What it was protecting is
+  // narrower and does not expire: the table is created once, and no migration
+  // ordered after it alters it or reaches billing on its way past.
+  for (const later of dirs.slice(dirs.indexOf(mine[0]) + 1)) {
+    const sql = read(path.join("prisma/migrations", later, "migration.sql"))
+      .split(String.fromCharCode(10))
+      .filter((line) => !line.trimStart().startsWith("--"))
+      .join(String.fromCharCode(10));
+    assert.ok(
+      !/HistoricalFiscalDocument/i.test(sql),
+      `${later} must not touch the historical fiscal table`
+    );
+  }
   assert.deepEqual(fs.readdirSync(MIGRATION_DIR), ["migration.sql"]);
 });
 

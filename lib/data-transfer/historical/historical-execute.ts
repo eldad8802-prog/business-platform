@@ -202,16 +202,24 @@ export async function executeHistoricalImport(
   }
 
   /* ---- 2. re-derive everything, from the bytes ---- */
-  const preview = await buildHistoricalPreview({
-    businessId: input.businessId,
-    userId: input.userId,
-    filename: input.filename,
-    bytes: input.bytes,
-    sheetName: input.sheetName ?? null,
-    dateFormat: input.dateFormat ?? null,
-    mapping: input.mapping ?? null,
-    decisions: input.decisions,
-  });
+  // The re-derivation READS the tenant's history, so it needs the same tenant
+  // context the write path takes later. Establishing it here rather than in the
+  // route is what makes the executor safe to call from anywhere: there is no
+  // caller-supplied way to be in the wrong tenant, and under the restricted
+  // runtime a missing context reads as "this business has no history" instead
+  // of raising — which would turn every duplicate into a new record.
+  const preview = await runWithTenantContext({ businessId: input.businessId }, () =>
+    buildHistoricalPreview({
+      businessId: input.businessId,
+      userId: input.userId,
+      filename: input.filename,
+      bytes: input.bytes,
+      sheetName: input.sheetName ?? null,
+      dateFormat: input.dateFormat ?? null,
+      mapping: input.mapping ?? null,
+      decisions: input.decisions,
+    })
+  );
   if (!preview.ok) {
     return { ok: false, code: preview.code, message: preview.message };
   }
@@ -354,16 +362,18 @@ async function allPreviewRows(
   input: HistoricalExecuteInput,
   decisions: HistoricalDecisions
 ): Promise<HistoricalPreviewRow[]> {
-  const full = await buildHistoricalPreview({
-    businessId: input.businessId,
-    userId: input.userId,
-    filename: input.filename,
-    bytes: input.bytes,
-    sheetName: input.sheetName ?? null,
-    dateFormat: input.dateFormat ?? null,
-    mapping: input.mapping ?? null,
-    decisions,
-  });
+  const full = await runWithTenantContext({ businessId: input.businessId }, () =>
+    buildHistoricalPreview({
+      businessId: input.businessId,
+      userId: input.userId,
+      filename: input.filename,
+      bytes: input.bytes,
+      sheetName: input.sheetName ?? null,
+      dateFormat: input.dateFormat ?? null,
+      mapping: input.mapping ?? null,
+      decisions,
+    })
+  );
   if (!full.ok) return [];
   return full.rows;
 }

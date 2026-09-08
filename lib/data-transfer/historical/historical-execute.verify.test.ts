@@ -411,8 +411,16 @@ async function main(): Promise<void> {
     // restricted runtime that reads as "this tenant has no data" rather than
     // as an error. So it must not be reachable from here at all.
     assert.ok(!/\bprisma\s*\./.test(code), "the global client must not appear");
-    assert.ok(code.includes("runWithTenantContext"));
     assert.ok(code.includes("withTenantTransaction"));
+    // The re-derivation reads history too, and a read with no tenant context
+    // does not raise under the restricted runtime — it silently matches zero
+    // rows, which would turn every existing duplicate into a new record. So
+    // every rebuild is wrapped, not just the writes.
+    const rebuilds = code.split("buildHistoricalPreview(").length - 1;
+    const wrapped =
+      code.split("runWithTenantContext({ businessId: input.businessId }, () =>").length - 1;
+    assert.ok(rebuilds >= 2, "both rebuild sites must be present");
+    assert.equal(wrapped, rebuilds, "every rebuild must carry the tenant context");
   });
 
   /* ======================================= 7. capability ================ */
