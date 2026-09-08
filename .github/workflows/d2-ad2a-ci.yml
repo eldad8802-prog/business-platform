@@ -22,6 +22,7 @@ on:
       - "scripts/security/conversation-integrity-scan.mjs"
       - "scripts/ci/account-deletion-guard.sh"
       - ".ad2a/**"
+      - "lib/data-transfer/historical/**"
   workflow_dispatch:
 
 permissions:
@@ -95,3 +96,93 @@ jobs:
           DIRECT_URL: ${{ env.OWNER_URL }}
           AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
         run: npx tsx .ad2a/battery.mjs
+
+      # ── I-8A.1 — fiscal history through the erasure lifecycle ───────────────
+      - name: I-8A structural firewall (no database)
+        run: npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts
+
+      # Each mutation below removes one real part of the contract, and is
+      # confirmed to have applied before its result is believed.
+      - name: negative proof — fiscal history dropped from the retained set
+        run: |
+          F="lib/services/account/account-erasure-manifest.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  "historicalFiscalDocument",\n//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1 \
+             && npx tsx lib/services/account/account-deletion.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unretained fiscal model passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — fiscal history moved into a purge set
+        run: |
+          F="lib/services/account/account-erasure-manifest.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/export const DELETE_MODELS = \[\n/export const DELETE_MODELS = [\n  "historicalFiscalDocument",\n/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/account/account-deletion.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a purged fiscal model passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure executor reaching a fiscal row
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$F.bak"
+          # The manifest may NAME the model. The adapter may not touch it.
+          perl -0pi -e 's/          await tx\.conversation\.deleteMany\(\{ where: \{ businessId \} \}\);/          await tx.conversation.deleteMany({ where: { businessId } });\n          await tx.historicalFiscalDocument.deleteMany({ where: { businessId } });/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an executor touching fiscal history passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — an arbitrary consumer outside the allowlist
+        run: |
+          F="lib/services/documents/document-duplicate.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/^/\/\/ historicalFiscalDocument\n/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unlisted consumer passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — fiscal history reaching the uniform export
+        run: |
+          F="lib/services/billing/uniform/uniform-export-loader.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/^/\/\/ historicalFiscalDocument\n/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the tax filing reached fiscal history"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — erasure deleting the artifact fiscal history cites
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$F.bak"
+          # Documents are retained, and a historical record cites one through a
+          # RESTRICT foreign key. An erasure that started deleting them would
+          # fail on that key rather than quietly destroying fiscal evidence.
+          perl -0pi -e 's/          await tx\.conversation\.deleteMany\(\{ where: \{ businessId \} \}\);/          await tx.conversation.deleteMany({ where: { businessId } });\n          await tx.document.deleteMany({ where: { businessId } });/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .ad2a/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: deleting the cited artifact passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Confirm the tree is byte-identical after every mutation
+        run: git diff --exit-code
