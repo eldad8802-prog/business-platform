@@ -97,6 +97,15 @@ check "E. and the process did NOT die — this step is not a kill test" \
   "$([ -n "$PID_BEFORE_BG" ] && [ "$PID_BEFORE_BG" = "$PID_AFTER_BG" ] && echo 0 || echo 1)" \
   "pid $PID_BEFORE_BG -> $PID_AFTER_BG"
 
+# Two earlier runs killed the app about twelve seconds after the cookie was
+# set, and both lost it: the Secure cookie and a non-Secure twin alike. That
+# rules out this harness serving over loopback http, and points instead at the
+# WebView flushing its cookie store to disk lazily rather than being unable to
+# persist at all. This wait is the discriminator between those two.
+SETTLE="${PROBE_SETTLE_SECONDS:-75}"
+echo "== letting the WebView cookie store settle for ${SETTLE}s before the kill"
+sleep "$SETTLE"
+
 # ── F: PROCESS KILL → REOPEN. The proof the architecture rests on. ─────────
 PID_BEFORE="$(pid_of)"
 adb shell am force-stop "$PKG"
