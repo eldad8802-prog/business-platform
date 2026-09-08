@@ -49,14 +49,14 @@ function read(file: string): string {
 }
 
 /**
- * Tracked files under `paths` that mention the model, case-insensitively.
+ * Tracked files under `paths` that mention `needle`, case-insensitively.
  * `git grep` exits 1 when it finds nothing, which is the answer we most want
  * here, so an empty result is a value and never an error.
  */
-function grepFiles(paths: string[]): string[] {
+function grepFiles(paths: string[], needle = "historicalfiscal"): string[] {
   let out: string;
   try {
-    out = execFileSync("git", ["grep", "-l", "-i", "historicalfiscal", "--", ...paths], {
+    out = execFileSync("git", ["grep", "-l", "-i", needle, "--", ...paths], {
       encoding: "utf8",
     });
   } catch (error) {
@@ -461,6 +461,32 @@ check("every other surface is still inert", () => {
   };
   for (const [surface, paths] of Object.entries(forbidden)) {
     assert.deepEqual(grepFiles(paths), [], `${surface} must not reference historical records`);
+  }
+});
+
+check("naming the transfer domain did not connect it to issuance", () => {
+  // I-8B.0 registered `historical-documents` in the data-transfer registry.
+  // That is a name and a set of rules; it must not have become a route into
+  // billing. The model firewall above covers the MODEL by its own name, so this
+  // covers the DOMAIN by its id, which is the string a later increment would
+  // realistically thread through a writer or a report.
+  const DOMAIN_ID = "historical-documents";
+  for (const [surface, paths] of Object.entries({
+    "billing and issuance": ["lib/services/billing", "app/api/billing"],
+    "reporting and the uniform file": ["app/api/reports", "lib/services/billing/uniform"],
+    "payments and settlement": ["lib/services/payments", "app/api/payments"],
+  })) {
+    assert.deepEqual(
+      grepFiles(paths, DOMAIN_ID),
+      [],
+      `${surface} must not reference the historical transfer domain`
+    );
+  }
+  // And the registry entry itself names no fiscal machinery.
+  const registry = read("lib/data-transfer/domains.ts");
+  const entry = registry.slice(registry.indexOf(`id: "${DOMAIN_ID}"`));
+  for (const forbidden of ["BillingDocument", "issuedAt", "allocationNumber", "ISSUED"]) {
+    assert.ok(!entry.includes(forbidden), `the registry entry must not mention ${forbidden}`);
   }
 });
 

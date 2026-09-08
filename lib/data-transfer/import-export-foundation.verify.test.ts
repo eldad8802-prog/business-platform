@@ -4,11 +4,15 @@
  * NO database, NO network, NO secrets, NO rendering. Two invariants that are
  * cheap to state and expensive to lose:
  *
- *  1. SCOPE — exactly the six ratified domains, no seventh.
+ *  1. SCOPE — exactly the seven ratified domains, no eighth.
  *  2. NO DEAD NAVIGATION — while the feature is unreleased, it must be absent
  *     from Settings AND unreachable by URL. The failure this guards against is
  *     silent: someone adds the row "so it's ready", and a business owner finds
  *     a screen that does nothing.
+ *  3. REGISTRATION IS NOT CAPABILITY — a domain may be named here long before
+ *     anything can move through it. The historical domain is registered and has
+ *     no writer, no descriptor and no screen, and that must stay measurable
+ *     rather than assumed.
  *
  * Run: npx tsx lib/data-transfer/import-export-foundation.verify.test.ts
  */
@@ -39,6 +43,16 @@ function check(label: string, fn: () => void): void {
 
 /* ================================================== 1. approved scope ==== */
 
+/**
+ * The ratified set. It grew from six to seven in I-8B.0 — a deliberate product
+ * decision, recorded here rather than absorbed silently: the owner approved a
+ * separate domain for fiscal history that ANOTHER system issued, kept apart
+ * from `issued-documents`, which stays exactly what it was.
+ *
+ * The order is contractual. Every screen that lists domains renders them in
+ * registry order, so reordering is a visible product change and not a tidy-up,
+ * and `deepEqual` on the array is what makes that true rather than aspirational.
+ */
 const APPROVED_DOMAIN_IDS: DataTransferDomainId[] = [
   "customers",
   "suppliers",
@@ -46,11 +60,12 @@ const APPROVED_DOMAIN_IDS: DataTransferDomainId[] = [
   "inventory",
   "documents",
   "issued-documents",
+  "historical-documents",
 ];
 
-check("exactly the six ratified domains, in order, with no seventh", () => {
+check("exactly the seven ratified domains, in order, with no eighth", () => {
   assert.deepEqual([...DATA_TRANSFER_DOMAIN_IDS], APPROVED_DOMAIN_IDS);
-  assert.equal(DATA_TRANSFER_DOMAINS.length, 6);
+  assert.equal(DATA_TRANSFER_DOMAINS.length, APPROVED_DOMAIN_IDS.length);
 });
 
 check("no domain outside the approved scope has crept in", () => {
@@ -64,7 +79,7 @@ check("no domain outside the approved scope has crept in", () => {
     assert.equal(domain.description.trim().length > 0, true, domain.id);
     assert.equal(domain.icon.trim().length > 0, true, domain.id);
     assert.equal(
-      ["tabular", "files", "fiscal"].includes(domain.kind),
+      ["tabular", "files", "fiscal", "historical"].includes(domain.kind),
       true,
       domain.id
     );
@@ -72,7 +87,7 @@ check("no domain outside the approved scope has crept in", () => {
 });
 
 check("domain ids are unique", () => {
-  assert.equal(new Set(DATA_TRANSFER_DOMAIN_IDS).size, 6);
+  assert.equal(new Set(DATA_TRANSFER_DOMAIN_IDS).size, APPROVED_DOMAIN_IDS.length);
 });
 
 check("labels are owner-facing, never internal model names", () => {
@@ -101,15 +116,47 @@ check("labels are owner-facing, never internal model names", () => {
   }
 });
 
-check("the three kinds carry the domains they must", () => {
+check("the four kinds carry the domains they must", () => {
   // Documents move as FILES through the existing pipeline; issued documents are
-  // FISCAL (export-only, import deferred to I-9). Mislabelling either is how a
-  // later increment would start treating an invoice like a spreadsheet row.
+  // FISCAL (export-only). Mislabelling either is how a later increment would
+  // start treating an invoice like a spreadsheet row.
   assert.equal(getDataTransferDomain("documents").kind, "files");
   assert.equal(getDataTransferDomain("issued-documents").kind, "fiscal");
+  assert.equal(getDataTransferDomain("historical-documents").kind, "historical");
   for (const id of ["customers", "suppliers", "leads", "inventory"] as const) {
     assert.equal(getDataTransferDomain(id).kind, "tabular", id);
   }
+});
+
+check("issued and historical documents never collapse into one another", () => {
+  // The drift this catches: someone widens `fiscal` to cover both, or points
+  // the historical domain at the issued domain's wording. Either would put one
+  // word over two opposite claims about who produced the document.
+  const issued = getDataTransferDomain("issued-documents");
+  const historical = getDataTransferDomain("historical-documents");
+
+  assert.notEqual(issued.kind, historical.kind);
+  assert.notEqual(issued.title, historical.title);
+  assert.notEqual(issued.icon, historical.icon);
+
+  // Exactly one domain of each fiscal-adjacent kind, so a second `fiscal` entry
+  // cannot quietly become a second issuance surface.
+  const byKind = (kind: string) => DATA_TRANSFER_DOMAINS.filter((d) => d.kind === kind);
+  assert.equal(byKind("fiscal").length, 1);
+  assert.equal(byKind("historical").length, 1);
+  assert.equal(byKind("fiscal")[0].id, "issued-documents");
+  assert.equal(byKind("historical")[0].id, "historical-documents");
+
+  // `issued-documents` still says Dubiz produced these. Its wording is the
+  // owner's only signal of that, so it is asserted verbatim.
+  assert.equal(issued.title, "מסמכים שהפקת");
+  assert.match(issued.description, /בדוביז/);
+  // And the historical domain says the opposite, just as plainly.
+  assert.match(historical.description, /במערכת אחרת/);
+  assert.ok(
+    !historical.description.includes("שהפקת"),
+    "historical wording must never claim the owner issued these in Dubiz"
+  );
 });
 
 /* ============================================= 2. no dead navigation ===== */
@@ -304,6 +351,83 @@ check("I-2 BOUNDARY: the foundation ships no transfer machinery", () => {
       assert.equal(src.includes(needle), false, `${file} imports ${needle}`);
     }
   }
+});
+
+/* ============================== 5. registration is not capability ======== */
+
+/**
+ * A domain in the registry is a name and a set of rules. It is NOT permission
+ * to move data.
+ *
+ * The historical domain is registered by I-8B.0 and has no Analyze, no Preview,
+ * no Execute and no writer — those are later increments. What follows proves
+ * the owner cannot reach a flow that does not exist yet, and that nothing
+ * generic treats "registered" as "runnable". Two existing mechanisms do the
+ * work, which is why this increment adds no feature flag:
+ *
+ *   the screens filter on `kind === "tabular"`
+ *   the routes gate on `isExportableDomainId`
+ *
+ * If either stops being true, this section fails rather than a dead screen
+ * shipping.
+ */
+const DOMAIN_LISTING_PAGES = [
+  "app/settings/import-export/import/page.tsx",
+  "app/settings/import-export/export/page.tsx",
+  "app/settings/import-export/templates/page.tsx",
+];
+
+check("no screen lists the historical domain — all three filter on tabular", () => {
+  for (const page of DOMAIN_LISTING_PAGES) {
+    const src = fs.readFileSync(page, "utf8").replace(/\r\n/g, "\n");
+    assert.match(
+      src,
+      /DATA_TRANSFER_DOMAINS\.filter\(\s*\(domain\) => domain\.kind === "tabular"\s*\)/,
+      `${page} must list tabular domains only`
+    );
+  }
+});
+
+check("the hub gained no new action — the owner sees no historical flow", () => {
+  assert.deepEqual(
+    IMPORT_EXPORT_ACTIONS.map((a) => a.key),
+    ["import", "templates", "documents-import", "export"]
+  );
+});
+
+check("every import and export route refuses the historical domain", () => {
+  // All four take a domain from the client and gate it on the SAME predicate,
+  // which is built from the export descriptors — a hand-written list the
+  // historical domain is deliberately absent from.
+  const routes = [
+    "app/api/data-transfer/import/analyze/route.ts",
+    "app/api/data-transfer/import/preview/route.ts",
+    "app/api/data-transfer/import/execute/route.ts",
+  ];
+  for (const route of routes) {
+    const src = fs.readFileSync(route, "utf8").replace(/\r\n/g, "\n");
+    assert.match(src, /isExportableDomainId\(domain\)/, `${route} must gate on the domain list`);
+  }
+  const registry = fs
+    .readFileSync("lib/data-transfer/export/export-registry.ts", "utf8")
+    .replace(/\r\n/g, "\n");
+  assert.ok(
+    !registry.includes("historical"),
+    "no historical export descriptor may exist yet"
+  );
+});
+
+check("no writer exists for the historical domain", () => {
+  // Read rather than imported, because importing the writers would pull Prisma
+  // into a verifier that must stay database-free. `writerFor` throws for any
+  // domain absent from this record, so absence IS the refusal.
+  const src = fs
+    .readFileSync("lib/data-transfer/import/execute/domain-writers.ts", "utf8")
+    .replace(/\r\n/g, "\n");
+  const record = src.slice(src.indexOf("const WRITERS"), src.indexOf("export function writerFor"));
+  assert.match(record, /customers:/);
+  assert.ok(!record.includes("historical"), "a historical writer must not exist yet");
+  assert.match(src, /No import writer for domain/, "an unknown domain must still throw");
 });
 
 console.log(
