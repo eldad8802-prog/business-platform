@@ -129,7 +129,7 @@ async function main() {
       `INSERT INTO "HistoricalFiscalDocument"
          ("businessId","documentTypeCode","sourceSystemCode","originalDocumentNumber",
           "originalIssueDate","totalAmount","currency","reversesOriginalNumberRaw","updatedAt")
-       VALUES ($1,$2,'legacy-erp',$3,'2024-03-17'::timestamp,$4,'ILS',$5, now())`,
+       VALUES ($1,$2,'legacy-erp',$3,'2024-03-17'::timestamp,$4::numeric,'ILS',$5, now())`,
       businessId,
       type,
       number,
