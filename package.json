@@ -139,6 +139,8 @@
     "verify:historical-duplicates": "npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts",
     "verify:historical-preview": "npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts",
     "verify:historical-execute": "npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts",
+    "verify:historical-records": "npx tsx lib/data-transfer/historical/historical-records.verify.test.ts",
+    "verify:historical-ux": "npx tsx lib/data-transfer/historical/historical-ux.verify.test.ts",
     "verify:payments-currency-authority": "npx tsx lib/services/payments/payment-currency-authority.test.ts",
     "verify:payments-document-authority": "npx tsx lib/services/payments/payment-document-authority.test.ts",
     "verify:payments-tenant-ownership": "npx tsx lib/services/payments/payment-tenant-ownership.test.ts",

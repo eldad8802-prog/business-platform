@@ -460,6 +460,14 @@ const ALLOWED_TO_NAME_IT = [
   "app/api/data-transfer/import/historical/execute/route.ts",
   // and the test that holds the writer to exactly that
   "lib/data-transfer/historical/historical-execute.verify.test.ts",
+  // I-8B.6: the READER the owner-facing history is built on. A different kind
+  // of entry again — every read above asks "does this identity already exist",
+  // and this one asks "what does this business hold". See the reader rule
+  // below, which is what makes listing it safe: find, count and group, nothing
+  // that mutates, one model, inside the tenant transaction.
+  "lib/data-transfer/historical/historical-records.ts",
+  // and the test that holds it to reading only
+  "lib/data-transfer/historical/historical-records.verify.test.ts",
 ];
 
 check("only the erasure contract and the import contract name this model", () => {
@@ -583,6 +591,70 @@ check("the one file that reads a row can ONLY read, and only inside the tenant",
   );
   // And it must never write the relation the model has no UPDATE path for.
   assert.ok(!code.includes("reversesHistoricalDocumentId:"));
+});
+
+check("the owner-facing reader can ONLY read, and only inside the tenant", () => {
+  // I-8B.6 added the second read, and it is a different question from the
+  // first: "what does this business hold" rather than "does this identity
+  // already exist". It is what the owner's history screen is built on, so it
+  // sees more columns and more rows than the duplicate lookup ever does — which
+  // is exactly why it gets its own rule rather than being folded into the one
+  // above.
+  const reader = "lib/data-transfer/historical/historical-records.ts";
+  const code = read(reader)
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .split("\n")
+    .map((line) => line.replace(/\/\/.*$/, ""))
+    .join("\n");
+
+  const verbs = [
+    ...code.matchAll(/historicalFiscalDocument\.(\w+)\(/g),
+  ].map((m) => m[1]);
+  assert.deepEqual(
+    [...new Set(verbs)].sort(),
+    ["count", "findFirst", "findMany", "groupBy"],
+    "the reader may only read"
+  );
+  for (const forbidden of [
+    ".create(",
+    ".createMany(",
+    ".update(",
+    ".updateMany(",
+    ".upsert(",
+    ".delete(",
+    ".deleteMany(",
+    ".executeRaw",
+  ]) {
+    assert.ok(!code.includes(forbidden), `${reader} must not contain ${forbidden}`);
+  }
+  assert.ok(
+    code.includes("withTenantTransaction"),
+    "the read must carry the tenant GUC that row-level security evaluates"
+  );
+  // It must not reach the global client, which carries no tenant context: under
+  // the restricted role that is not an error, it is an empty result.
+  assert.ok(!code.includes("@/lib/prisma"), "the reader imports the global client");
+
+  // The reversal relation is the one column a READER may legitimately name that
+  // a writer may not: it has to be selected to answer "is this credit linked".
+  // So the rule is not absence — it is that every mention is a SELECT flag.
+  // Anything else would be an assignment, and the model has no UPDATE path.
+  // Object-literal members only: a trailing comma separates a VALUE from a type
+  // member, which ends in a semicolon and is a declaration rather than a write.
+  const mentions = [
+    ...code.matchAll(/reversesHistoricalDocumentId:\s*([^,\n]+),/g),
+  ].map((m) => m[1].trim());
+  assert.deepEqual(
+    [...new Set(mentions)],
+    ["true"],
+    "the reversal relation may only be SELECTED, never assigned"
+  );
+  // And it is reduced to a boolean rather than handed onward: an internal row
+  // id in an owner-facing payload is a handle into another business's world.
+  assert.ok(
+    code.includes("reversesLinked: row.reversesHistoricalDocumentId !== null"),
+    "the reversal id must be reduced to a boolean"
+  );
 });
 
 check("Analyze knows the field contract and nothing about issuance", () => {
