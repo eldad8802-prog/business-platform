@@ -340,6 +340,135 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
 
+      # Import/Export Center I-8B.2 — historical fiscal Analyze. Blocking,
+      # because the guarantees are all negative ones: Analyze reads a file and
+      # writes NOTHING, reaches no business data, resolves no reversal and
+      # cannot become Preview or Execute. A guarantee about absence is only
+      # worth what its proofs are worth.
+      # Local equivalent: npm run verify:historical-analyze
+      - name: Historical fiscal Analyze (read, map, normalize, validate)
+        run: npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts
+
+      - name: I-8B.2 negative proof (Analyze must not create a historical record)
+        run: |
+          F="lib/data-transfer/historical/historical-analyze.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  const rows: HistoricalAnalyzedRow\[\] = \[\];/  void historicalFiscalDocument.create({});\n  const rows: HistoricalAnalyzedRow[] = [];/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: Analyze gained a historical record write"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.2 negative proof (Analyze must not create an import run)
+        run: |
+          F="lib/data-transfer/historical/historical-analyze.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  const rows: HistoricalAnalyzedRow\[\] = \[\];/  void importRun.create({});\n  const rows: HistoricalAnalyzedRow[] = [];/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: Analyze gained an import-run write"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.2 negative proof (Analyze must not touch a customer)
+        run: |
+          F="lib/data-transfer/historical/historical-analyze.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  const rows: HistoricalAnalyzedRow\[\] = \[\];/  void customer.update({});\n  const rows: HistoricalAnalyzedRow[] = [];/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: Analyze gained a customer mutation"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.2 negative proof (Analyze must not touch billing)
+        run: |
+          F="lib/data-transfer/historical/historical-analyze.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  const rows: HistoricalAnalyzedRow\[\] = \[\];/  void billingDocument.update({});\n  const rows: HistoricalAnalyzedRow[] = [];/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: Analyze gained a billing mutation"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.2 negative proof (Analyze must not resolve a reversal against billing)
+        run: |
+          F="lib/data-transfer/historical/historical-analyze.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  \/\* ---- reversal reference: TEXT ONLY\. Nothing is resolved here ---- \*\//  void billingDocument.findFirst({});/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the reversal reference was resolved against billing"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.2 negative proof (granting Analyze must not grant Execute)
+        run: |
+          F="lib/data-transfer/export/export-registry.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    \(EXPORTABLE_DOMAIN_IDS as readonly string\[\]\)\.includes\(value\)/    ((EXPORTABLE_DOMAIN_IDS as readonly string[]).includes(value) || value === "historical-documents")/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the historical domain reached the generic import gate"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.2 negative proof (currency must never default to ILS in Analyze)
+        run: |
+          F="lib/data-transfer/historical/historical-vocabulary.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/\): VocabularyResult<HistoricalCurrency> \{/): VocabularyResult<HistoricalCurrency> {\n  return { ok: true, value: "ILS", raw: "" };/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a missing currency was silently assumed to be shekels"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.2 negative proof (an ambiguous date must not be read without a contract)
+        run: |
+          F="lib/data-transfer/historical/historical-date.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  if \(asDMY \&\& asMDY\) \{/  if (false \&\& asDMY \&\& asMDY) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an ambiguous date was read without the owner choosing"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.2 negative proof (money must not become a JS number in Analyze)
+        run: |
+          F="lib/data-transfer/historical/historical-money.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/return \{ ok: true, value, original, display: group\(value\) \};/return { ok: true, value: Number(value) as unknown as string, original, display: group(value) };/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a fiscal amount passed through binary floating point"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.2 negative proof (a VAT mismatch must never pass unreported)
+        run: |
+          F="lib/data-transfer/historical/historical-analyze.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    if \(!decimalsAgree\(subtotal, vat, total\)\) \{/    if (false) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a VAT mismatch was silently accepted"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
       # The two validator extractions (I-5). Both moved rules OUT of live
       # services so the Import dry run can evaluate a row without a database.
       # These verifiers run the pre-extraction implementations side by side with

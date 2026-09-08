@@ -425,6 +425,10 @@ const ALLOWED_TO_NAME_IT = [
   "lib/data-transfer/historical/historical-vocabulary.ts",
   // and the test that holds both to their contract
   "lib/data-transfer/historical/historical-contract.verify.test.ts",
+  // I-8B.2: the Analyze test, which names the model in order to REFUSE it —
+  // its zero-write check reads the analyzer's source and requires the model to
+  // be absent from it. The analyzer itself does not name it at all.
+  "lib/data-transfer/historical/historical-analyze.verify.test.ts",
 ];
 
 check("only the erasure contract and the import contract name this model", () => {
@@ -513,6 +517,52 @@ check("naming the transfer domain did not connect it to issuance", () => {
   const entry = registry.slice(registry.indexOf(`id: "${DOMAIN_ID}"`));
   for (const forbidden of ["BillingDocument", "issuedAt", "allocationNumber", "ISSUED"]) {
     assert.ok(!entry.includes(forbidden), `the registry entry must not mention ${forbidden}`);
+  }
+});
+
+check("Analyze knows the field contract and nothing about issuance", () => {
+  // I-8B.2 gave the historical layer its first real capability. Analyze may
+  // read a file and judge it; it must not have acquired a route to anything
+  // that ISSUES. Checked on the analyzer and its route together, because a
+  // capability is only as narrow as its entry point.
+  for (const file of [
+    "lib/data-transfer/historical/historical-analyze.ts",
+    "app/api/data-transfer/import/historical/analyze/route.ts",
+  ]) {
+    const src = read(file);
+    for (const forbidden of [
+      "billingDocument",
+      "BillingDocument",
+      "BillingDocumentNumberSequence",
+      "billing-issue",
+      "billing-draft",
+      "allocationNumber",
+      "AuthoritySubmission",
+      "uniform",
+      "financialEvent",
+      "FinancialEvent",
+      "paymentAllocation",
+      "billing-pdf",
+      "signedPdf",
+      "ISSUED",
+    ]) {
+      assert.ok(!src.includes(forbidden), `${file} must not reach ${forbidden}`);
+    }
+  }
+});
+
+check("granting Analyze did not grant Preview or Execute", () => {
+  // The generic routes gate on a list the historical domain is still absent
+  // from, and the historical capability is one route with no siblings. If a
+  // preview or execute route appears here it is a decision, not a refactor.
+  const registry = read("lib/data-transfer/export/export-registry.ts");
+  assert.ok(!registry.includes("historical"));
+  assert.ok(fs.existsSync("app/api/data-transfer/import/historical/analyze/route.ts"));
+  for (const forbidden of [
+    "app/api/data-transfer/import/historical/preview/route.ts",
+    "app/api/data-transfer/import/historical/execute/route.ts",
+  ]) {
+    assert.ok(!fs.existsSync(forbidden), `${forbidden} must not exist yet`);
   }
 });
 
