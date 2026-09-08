@@ -158,6 +158,26 @@ function fail(code: HistoricalExecuteErrorCode, message: string): HistoricalExec
   return { ok: false, code, message };
 }
 
+/**
+ * Write a marker, or concede that one is already there.
+ *
+ * The marker's primary key is (importRunId, sourceRowNumber), and two parallel
+ * executions of the SAME approved run resolve to the same run id. Each takes
+ * its snapshot of what is already done before the other writes, so both can
+ * decide to mark the same row. One of them loses the insert, and losing it is
+ * the ledger working: the row is accounted for exactly once. Only a duplicate
+ * key is conceded — anything else is a real failure and still raises.
+ */
+async function markOnce(write: () => Promise<void>): Promise<boolean> {
+  try {
+    await write();
+    return true;
+  } catch (error) {
+    if ((error as { code?: string } | null)?.code === "P2002") return false;
+    throw error;
+  }
+}
+
 /** The normalized value of one field, as Preview computed it. */
 function valueOf(row: HistoricalPreviewRow, field: string): string | null {
   return row.values.find((v) => v.field === field)?.normalized ?? null;
@@ -292,12 +312,17 @@ export async function executeHistoricalImport(
     }
 
     if (row.selectedDecision === "SKIP") {
-      await markSkippedRow(input.businessId, {
-        importRunId: run.id,
+      const marked = await markOnce(() =>
+        markSkippedRow(input.businessId, {
+          importRunId: run.id,
+          sourceRowNumber: row.sourceRowNumber,
+          action: "SKIP",
+        })
+      );
+      results.push({
         sourceRowNumber: row.sourceRowNumber,
-        action: "SKIP",
+        result: marked ? "SKIPPED" : "ALREADY_EXECUTED",
       });
-      results.push({ sourceRowNumber: row.sourceRowNumber, result: "SKIPPED" });
       continue;
     }
 
@@ -313,12 +338,23 @@ export async function executeHistoricalImport(
       createdIds.set(row.sourceRowNumber, outcome.id);
     }
     if (outcome.result !== "CREATED") {
-      await markFailedRow(input.businessId, {
-        importRunId: run.id,
-        sourceRowNumber: row.sourceRowNumber,
-        action: "CREATE",
-        errorCode: outcome.result === "ROW_PERSISTENCE_FAILED" ? "SERVICE_ERROR" : "CONFLICT",
-      });
+      const marked = await markOnce(() =>
+        markFailedRow(input.businessId, {
+          importRunId: run.id,
+          sourceRowNumber: row.sourceRowNumber,
+          action: "CREATE",
+          errorCode: outcome.result === "ROW_PERSISTENCE_FAILED" ? "SERVICE_ERROR" : "CONFLICT",
+        })
+      );
+      // The marker already existed, so another execution of this same approved
+      // run recorded the row first. Its marker is the answer; this attempt did
+      // not fail, it arrived second.
+      if (!marked) {
+        results[results.length - 1] = {
+          sourceRowNumber: row.sourceRowNumber,
+          result: "ALREADY_EXECUTED",
+        };
+      }
     }
   }
 
