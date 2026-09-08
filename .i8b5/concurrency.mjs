@@ -350,6 +350,68 @@ async function main() {
   ok("and the lock was released by the rollback, not leaked", stillHeld === 0, String(stillHeld));
   await holder.$disconnect().catch(() => {});
 
+  /* ── 5. the lock is what makes an execution WAIT ──────────────────────── */
+
+  // Two executions started together do not reliably overlap here: each parses
+  // and re-derives the whole file first, and that work is synchronous, so one
+  // usually finishes writing before the other reaches the database. That makes
+  // a racing pair a poor witness for the lock. Holding the identity key from
+  // another connection is a deterministic one — the execution must not be able
+  // to insert while somebody else holds its identity.
+  const waitKey = historicalIdentityLockKey(A, {
+    sourceSystemCode: "legacy-erp",
+    documentTypeCode: "TAX_INVOICE",
+    originalDocumentNumber: "WAIT-1",
+  });
+  const waitBytes = await fileOf("WAIT-1", "150.00");
+  const waitPreview = await previewFor(A, waitBytes);
+
+  const blocker = new PrismaClient({ datasourceUrl: OWNER_URL });
+  let releaseLock = () => {};
+  const releaseRequested = new Promise((resolve) => {
+    releaseLock = resolve;
+  });
+  const holding = blocker
+    .$transaction(
+      async (tx) => {
+        await tx.$executeRawUnsafe(
+          `SELECT pg_advisory_xact_lock($1::int, $2::int)`,
+          HISTORICAL_IDENTITY_ADVISORY_NAMESPACE,
+          waitKey
+        );
+        await releaseRequested;
+      },
+      { timeout: 60_000, maxWait: 10_000 }
+    )
+    .catch(() => {});
+
+  // Let the holder actually take it before anything else asks.
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  let finished = false;
+  const running = executeWith(A, waitBytes, waitPreview).then((result) => {
+    finished = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+
+  ok(
+    "an execution whose identity is held elsewhere waits instead of inserting",
+    finished === false && (await countFor(A, "WAIT-1")) === 0,
+    JSON.stringify({ finished, rows: await countFor(A, "WAIT-1") })
+  );
+
+  releaseLock();
+  await holding;
+  const waited = await running;
+  ok(
+    "and it completes as soon as the identity is free again",
+    waited.ok === true && waited.totals.created === 1,
+    JSON.stringify(waited.ok ? waited.totals : waited)
+  );
+  ok("exactly one record, written after the wait", (await countFor(A, "WAIT-1")) === 1);
+  await blocker.$disconnect().catch(() => {});
+
   console.log(`\n  ${pass} checks passed, ${failures.length} failed\n`);
   if (failures.length > 0) {
     failures.forEach((f) => console.log(`  FAILED: ${f}`));
