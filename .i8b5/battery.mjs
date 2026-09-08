@@ -309,6 +309,52 @@ async function main() {
     ok("and the business now holds two", (await countFor(A, "INV-100")) === 2);
   }
 
+  /* ── 3b. an approval given against a world that has since moved ──────── */
+
+  // The token attests to a database state as well as to a file. Between the
+  // owner reading a preview and confirming it, somebody else can import the
+  // same document — and then confirming means something different from what
+  // was read. The approval is refused rather than reinterpreted.
+  const staleBytes = await fileOf([line("STALE-1", "700.00")]);
+  const stalePreview = await runWithTenantContext({ businessId: A }, () =>
+    buildHistoricalPreview({
+      businessId: A,
+      userId: 1,
+      filename: "history.xlsx",
+      bytes: staleBytes,
+      sheetName: null,
+      dateFormat: null,
+    })
+  );
+  ok(
+    "an approval is issued against the world as it was",
+    stalePreview.ok === true && stalePreview.readyForExecute === true,
+    stalePreview.code
+  );
+
+  const interloper = await runImport(A, await fileOf([line("STALE-1", "700.00")]));
+  ok("and then somebody else imports the same document", interloper.execute?.ok === true);
+  ok("so the business holds it once", (await countFor(A, "STALE-1")) === 1);
+
+  if (stalePreview.ok && stalePreview.previewToken) {
+    const staleRun = await executeHistoricalImport({
+      businessId: A,
+      userId: 1,
+      filename: "history.xlsx",
+      bytes: staleBytes,
+      sheetName: null,
+      dateFormat: null,
+      decisions: stalePreview.decisions,
+      previewToken: stalePreview.previewToken,
+    });
+    ok(
+      "the older approval is refused as stale, not quietly reinterpreted",
+      staleRun.ok === false && staleRun.code === "PREVIEW_STALE",
+      JSON.stringify(staleRun)
+    );
+    ok("and the document is still held exactly once", (await countFor(A, "STALE-1")) === 1);
+  }
+
   /* ── 4. reversal: existing target, in-file target, text only ─────────── */
 
   await seed(A, "TAX_INVOICE", "INV-200", "500.00");

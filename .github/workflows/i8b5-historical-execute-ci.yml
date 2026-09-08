@@ -163,7 +163,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  if \(preview\.evidenceFingerprint !== facts\.evidenceFingerprint\) \{/  if (false) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/concurrency.mjs >/dev/null 2>&1; then
+          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a stale approval executed"; exit 1
           fi
           mv "$F.bak" "$F"
