@@ -1,0 +1,132 @@
+# I-8B.3 — historical duplicate and reversal lookup, on real PostgreSQL 17.
+#
+# The decision logic is tested without a database. What cannot be is the thing
+# this phase introduced: a tenant-scoped READ. Row-level security is a property
+# of PostgreSQL, so it is measured from PostgreSQL, through the same restricted
+# role production runs as — not superuser, not bypassrls.
+#
+# Synthetic CI-only data. ZERO secrets, ZERO Neon, ZERO production.
+
+name: i8b3 — historical duplicate lookup under RLS (ephemeral PG17)
+
+on:
+  push:
+    branches: [feat/i8b3-historical-duplicates]
+  pull_request:
+    branches: [main]
+    paths:
+      - ".i8b3/**"
+      - "lib/data-transfer/historical/**"
+      - "app/api/data-transfer/import/historical/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20260907120000_i8a_historical_fiscal_documents/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OWNER_URL: postgresql://i8b3_owner:i8b3_ci_synthetic_owner_pw@localhost:5432/dubiz_i8b3
+  RUNTIME_URL: postgresql://app_runtime:i8b3_ci_synthetic_runtime_pw@localhost:5432/dubiz_i8b3
+
+jobs:
+  i8b3-battery:
+    name: I-8B.3 duplicate lookup battery (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: i8b3_owner
+          POSTGRES_PASSWORD: i8b3_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_i8b3
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U i8b3_owner -d dubiz_i8b3"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .i8b3/battery.mjs
+
+      # The restricted role, with the ALTER DEFAULT PRIVILEGES hazard this
+      # project's databases really carry, so the migration's REVOKEs are
+      # load-bearing here exactly as they are in production.
+      - name: Create the restricted runtime role
+        env:
+          PGPASSWORD: i8b3_ci_synthetic_owner_pw
+        run: |
+          psql -h localhost -U i8b3_owner -d dubiz_i8b3 -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE app_runtime LOGIN PASSWORD 'i8b3_ci_synthetic_runtime_pw'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          GRANT USAGE ON SCHEMA public TO app_runtime;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO app_runtime;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO app_runtime;
+          SQL
+
+      - name: Push schema (lab)
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Run I-8B.3 battery
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          AUTH_TOKEN_SECRET: i8b3_ci_auth_secret_synthetic
+        run: npx tsx .i8b3/battery.mjs
+
+      # ── Negative proofs ──────────────────────────────────────────────────
+      # A tenant-isolation battery that cannot fail proves nothing. Each
+      # mutation below removes one real part of the protection, and is
+      # confirmed to have applied before its result is believed.
+      - name: negative proof — the lookup outside the tenant transaction
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          AUTH_TOKEN_SECRET: i8b3_ci_auth_secret_synthetic
+        run: |
+          F="lib/data-transfer/historical/historical-duplicates.ts"
+          cp "$F" "$F.bak"
+          # Without the tenant GUC, row-level security shows the role nothing —
+          # so every duplicate silently becomes NONE.
+          perl -0pi -e 's/  const \{ records, queryCount \} = await withTenantTransaction\(\(tx\) =>\n    readExistingRecords\(tx, businessId, allIdentities\)\n  \);/  const { records, queryCount } = await readExistingRecords(prisma as never, businessId, allIdentities);/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i8b3/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a lookup without tenant context passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — row-level security not forced
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          AUTH_TOKEN_SECRET: i8b3_ci_auth_secret_synthetic
+        run: |
+          F="prisma/migrations/20260907120000_i8a_historical_fiscal_documents/migration.sql"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/ALTER TABLE "HistoricalFiscalDocument" (ENABLE|FORCE) ROW LEVEL SECURITY;//g' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i8b3/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a table with no RLS passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Confirm the tree is byte-identical after every mutation
+        run: git diff --exit-code
