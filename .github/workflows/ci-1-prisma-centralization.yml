@@ -703,6 +703,196 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
 
+      # Import/Export Center I-8B.5 — historical fiscal Execute. Blocking. This
+      # is the first phase allowed to WRITE a historical record, so every proof
+      # below removes one protection and requires the structural suite to notice.
+      # The database half — locks, atomicity, replay, concurrency — is proven on
+      # real PostgreSQL in the i8b5 workflow, because none of it is a property of
+      # the source text.
+      # Local equivalent: npm run verify:historical-execute
+      - name: Historical execute (token, write surface, ledger, tenant)
+        run: npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts
+
+      - name: I-8B.5 negative proof (execution without a valid signed preview must be caught)
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  if \(!token\.ok\) \{/  if (false) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a forged approval reached the writer"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.5 negative proof (a business id taken from the request must be caught)
+        run: |
+          F="app/api/data-transfer/import/historical/execute/route.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/      businessId: user\.businessId,/      businessId: Number(form.get("businessId")) || user.businessId,/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the caller could name the tenant it writes into"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.5 negative proof (rows normalized by the client must be caught)
+        run: |
+          F="app/api/data-transfer/import/historical/execute/route.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  const mapping = parseJson<ResolvedMapping>\("mapping"\);/  void form.get("rows");\n  const mapping = parseJson<ResolvedMapping>("mapping");/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a value the browser normalized could be persisted"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.5 negative proof (duplicate or reversal state sent by the client must be caught)
+        run: |
+          F="app/api/data-transfer/import/historical/execute/route.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  const decisions = parseJson<HistoricalDecisions>\("decisions"\);/  void form.get("duplicate");\n  void form.get("targetId");\n  const decisions = parseJson<HistoricalDecisions>("decisions");/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the caller could declare its own duplicate or reversal answer"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.5 negative proof (executing against evidence that has moved must be caught)
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  if \(preview\.evidenceFingerprint !== facts\.evidenceFingerprint\) \{/  if (false) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an approval given against a different world still executed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.5 negative proof (executing a preview that is not ready must be caught)
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  if \(!preview\.readyForExecute\) \{/  if (false) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a blocked row could be written anyway"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.5 negative proof (an UPDATE of a historical record must be caught)
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/        return \{ result: "CREATED", id: created\.id \} as RowOutcome;/        await tx.historicalFiscalDocument.update({ where: { id: created.id }, data: {} });\n        return { result: "CREATED", id: created.id } as RowOutcome;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a written historical record could be revised"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.5 negative proof (a DELETE of a historical record must be caught)
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/        return \{ result: "CREATED", id: created\.id \} as RowOutcome;/        await tx.historicalFiscalDocument.delete({ where: { id: created.id } });\n        return { result: "CREATED", id: created.id } as RowOutcome;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: history could be removed by the importer"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.5 negative proof (a fallback to BillingDocument must be caught)
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/      return candidates\.length === 1 \? candidates\[0\]\.id : "UNRESOLVED";/      if (candidates.length === 1) return candidates[0].id;\n      const fallback = await tx.billingDocument.findFirst({ where: { businessId }, select: { id: true } });\n      return fallback?.id ?? "UNRESOLVED";/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a historical credit reached a document Dubiz issued"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.5 negative proof (a Customer touched by the importer must be caught)
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/        const created = await tx\.historicalFiscalDocument\.create\(\{/        await tx.customer.update({ where: { id: 1 }, data: {} });\n        const created = await tx.historicalFiscalDocument.create({/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: importing history edited the customer book"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.5 negative proof (a Document created by the importer must be caught)
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/        const created = await tx\.historicalFiscalDocument\.create\(\{/        await tx.document.create({ data: {} });\n        const created = await tx.historicalFiscalDocument.create({/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a historical row grew a file record it never had"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.5 negative proof (money persisted as a JavaScript number must be caught)
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  return value === null \? null : fiscalAmountToDecimal\(value\);/  return value === null ? null : (parseFloat(value) as unknown as Prisma.Decimal);/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a fiscal amount crossed into the database as a float"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.5 negative proof (a reversal bound after the insert must be caught)
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/            reversesHistoricalDocumentId: reversal,\n//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a credit was written before it knew what it credits"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.5 negative proof (a re-derivation outside the tenant context must be caught)
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  const preview = await runWithTenantContext\(\{ businessId: input\.businessId \}, \(\) =>/  const preview = await Promise.resolve().then(() =>/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: history was re-read with no tenant in scope"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.5 negative proof (a statement outside the tenant transaction must be caught)
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/        const created = await tx\.historicalFiscalDocument\.create\(\{/        const created = await prisma.historicalFiscalDocument.create({/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-execute.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a write ran without the tenant guard RLS reads"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
       # The two validator extractions (I-5). Both moved rules OUT of live
       # services so the Import dry run can evaluate a row without a database.
       # These verifiers run the pre-extraction implementations side by side with

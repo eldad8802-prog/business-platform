@@ -386,12 +386,14 @@ async function main(): Promise<void> {
 
   /* ============================================ 7. structural guards ==== */
 
-  await check("Preview is granted, and Execute still is not", () => {
+  await check("Preview is granted, and the capability is still only three routes", () => {
     assert.ok(fs.existsSync("app/api/data-transfer/import/historical/preview/route.ts"));
     assert.ok(fs.existsSync("app/api/data-transfer/import/historical/analyze/route.ts"));
-    assert.ok(
-      !fs.existsSync("app/api/data-transfer/import/historical/execute/route.ts"),
-      "there must be no historical execute route yet"
+    // I-8B.5 added Execute. What is held is the enumeration, not its absence.
+    assert.deepEqual(
+      fs.readdirSync("app/api/data-transfer/import/historical").sort(),
+      ["analyze", "execute", "preview"],
+      "no fourth historical route may appear unannounced"
     );
     const registry = fs.readFileSync(
       "lib/data-transfer/export/export-registry.ts",

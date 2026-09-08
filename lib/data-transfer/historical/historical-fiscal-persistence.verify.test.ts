@@ -292,7 +292,7 @@ check("Document is changed by an index only — it gains no column", () => {
 // ───────────────────────────────────────────────────────────────────────────
 // 5. The migration is expand-only and touches nothing fiscal
 // ───────────────────────────────────────────────────────────────────────────
-check("exactly one migration is added, and it is the newest in the tree", () => {
+check("exactly one migration adds it, and nothing after it touches it", () => {
   const dirs = fs
     .readdirSync("prisma/migrations", { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -300,7 +300,21 @@ check("exactly one migration is added, and it is the newest in the tree", () => 
     .sort();
   const mine = dirs.filter((name) => /i8a/i.test(name));
   assert.deepEqual(mine, ["20260907120000_i8a_historical_fiscal_documents"]);
-  assert.equal(dirs[dirs.length - 1], mine[0], "this must be the last migration in order");
+
+  // This used to read "and it is the last migration in the tree", which held
+  // only until the next unrelated migration landed. What it was protecting is
+  // narrower and does not expire: the table is created once, and no migration
+  // ordered after it alters it or reaches billing on its way past.
+  for (const later of dirs.slice(dirs.indexOf(mine[0]) + 1)) {
+    const sql = read(path.join("prisma/migrations", later, "migration.sql"))
+      .split(String.fromCharCode(10))
+      .filter((line) => !line.trimStart().startsWith("--"))
+      .join(String.fromCharCode(10));
+    assert.ok(
+      !/HistoricalFiscalDocument/i.test(sql),
+      `${later} must not touch the historical fiscal table`
+    );
+  }
   assert.deepEqual(fs.readdirSync(MIGRATION_DIR), ["migration.sql"]);
 });
 
@@ -439,6 +453,13 @@ const ALLOWED_TO_NAME_IT = [
   // preview path must not contain. Preview itself does not name it — it reads
   // through the duplicate lookup above and never touches the model directly.
   "lib/data-transfer/historical/historical-preview.verify.test.ts",
+  // I-8B.5: the WRITER, and the route that reaches it. This is the first entry
+  // of its kind — see the writer rule below, which is what makes listing it
+  // safe: one verb, never update or delete, inside the tenant transaction.
+  "lib/data-transfer/historical/historical-execute.ts",
+  "app/api/data-transfer/import/historical/execute/route.ts",
+  // and the test that holds the writer to exactly that
+  "lib/data-transfer/historical/historical-execute.verify.test.ts",
 ];
 
 check("only the erasure contract and the import contract name this model", () => {
@@ -595,7 +616,39 @@ check("Analyze knows the field contract and nothing about issuance", () => {
   }
 });
 
-check("the capability is Analyze and Preview — and still not Execute", () => {
+check("the one file that WRITES a row can only insert one", () => {
+  // I-8B.5 opened the first write. The migration gave this table SELECT and
+  // INSERT and revoked the rest, so an UPDATE would be refused by the database
+  // — but the code should not be trying, and "the database would have stopped
+  // it" is a worse answer than "it was never written".
+  const writer = "lib/data-transfer/historical/historical-execute.ts";
+  const code = read(writer)
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .split("\n")
+    .map((line) => line.replace(/\/\/.*$/, ""))
+    .join("\n");
+
+  const verbs = [...code.matchAll(/historicalFiscalDocument\s*\.\s*(\w+)\s*\(/g)].map((m) => m[1]);
+  assert.deepEqual(
+    [...new Set(verbs)].sort(),
+    ["create", "findFirst", "findMany", "count"].filter((v) => verbs.includes(v)).sort(),
+    `unexpected verb on the model: ${JSON.stringify([...new Set(verbs)])}`
+  );
+  for (const forbidden of ["update", "updateMany", "upsert", "delete", "deleteMany"]) {
+    assert.ok(
+      !verbs.includes(forbidden),
+      `the writer must never ${forbidden} a historical record`
+    );
+  }
+
+  // The insert happens under the identity lock, inside the tenant transaction,
+  // beside its ledger marker. Any one of those missing is a different failure.
+  assert.ok(code.includes("lockHistoricalIdentity"), "the insert must be serialised");
+  assert.ok(code.includes("withTenantTransaction"), "and carry the tenant GUC");
+  assert.ok(code.includes("markRow(tx,"), "and commit with its marker");
+});
+
+check("the capability is Analyze, Preview and Execute — and nothing generic", () => {
   // I-8B.4 granted Preview, one route at a time. The generic routes still gate
   // on a list this domain is absent from, so nothing was granted wholesale, and
   // there is no historical execute route to call. A third route appearing here
@@ -609,9 +662,13 @@ check("the capability is Analyze and Preview — and still not Execute", () => {
     assert.ok(fs.existsSync(granted), `${granted} must exist`);
   }
   assert.ok(
-    !fs.existsSync("app/api/data-transfer/import/historical/execute/route.ts"),
-    "there must be no historical execute route yet"
+    fs.existsSync("app/api/data-transfer/import/historical/execute/route.ts"),
+    "execute must exist"
   );
+  // Nothing was granted wholesale: the generic writer registry still has no
+  // historical entry, so the six tabular domains behave exactly as they did.
+  const writers = read("lib/data-transfer/import/execute/domain-writers.ts");
+  assert.ok(!writers.includes("historical"));
 });
 
 check("the Preview path cannot write, and does not reach issuance", () => {

@@ -1,0 +1,248 @@
+# I-8B.5 — historical fiscal Execute, on real PostgreSQL 17.
+#
+# The first phase that writes, so almost nothing about it can be proven without
+# a database: Decimal round trips, calendar days surviving a timestamp column,
+# advisory locks, ledger atomicity, replay and tenant isolation are all
+# properties of PostgreSQL. Measured through the same restricted role production
+# runs as — not superuser, not bypassrls.
+#
+# Synthetic CI-only data. ZERO secrets, ZERO Neon, ZERO production.
+
+name: i8b5 — historical fiscal execute (ephemeral PG17)
+
+on:
+  push:
+    branches: [feat/i8b5-historical-execute]
+  pull_request:
+    branches: [main]
+    paths:
+      - ".i8b5/**"
+      - "lib/data-transfer/historical/**"
+      - "lib/data-transfer/import/execute/**"
+      - "app/api/data-transfer/import/historical/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20260907120000_i8a_historical_fiscal_documents/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OWNER_URL: postgresql://i8b5_owner:i8b5_ci_synthetic_owner_pw@localhost:5432/dubiz_i8b5
+  RUNTIME_URL: postgresql://app_runtime:i8b5_ci_synthetic_runtime_pw@localhost:5432/dubiz_i8b5
+
+jobs:
+  i8b5-battery:
+    name: I-8B.5 historical execute battery (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: i8b5_owner
+          POSTGRES_PASSWORD: i8b5_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_i8b5
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U i8b5_owner -d dubiz_i8b5"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: node --check .i8b5/battery.mjs && node --check .i8b5/concurrency.mjs
+
+      - name: Create the restricted runtime role
+        env:
+          PGPASSWORD: i8b5_ci_synthetic_owner_pw
+        run: |
+          psql -h localhost -U i8b5_owner -d dubiz_i8b5 -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE app_runtime LOGIN PASSWORD 'i8b5_ci_synthetic_runtime_pw'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          GRANT USAGE ON SCHEMA public TO app_runtime;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO app_runtime;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO app_runtime;
+          SQL
+
+      - name: Push schema (lab)
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Run I-8B.5 execute battery
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          AUTH_TOKEN_SECRET: i8b5_ci_auth_secret_synthetic
+        run: npx tsx .i8b5/battery.mjs
+
+      - name: Run I-8B.5 concurrency battery
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          AUTH_TOKEN_SECRET: i8b5_ci_auth_secret_synthetic
+        run: npx tsx .i8b5/concurrency.mjs
+
+      # ── Negative proofs ──────────────────────────────────────────────────
+      # A write battery that cannot fail proves nothing. Each mutation removes
+      # one real protection, and is confirmed to have applied before its result
+      # is believed.
+      - name: negative proof — the identity lock removed
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          AUTH_TOKEN_SECRET: i8b5_ci_auth_secret_synthetic
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/        await lockHistoricalIdentity\(tx, businessId, identity\);//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i8b5/concurrency.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: two concurrent creates passed without the lock"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the marker written outside the record's transaction
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          AUTH_TOKEN_SECRET: i8b5_ci_auth_secret_synthetic
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          # Dropping the marker leaves a record the ledger does not know about,
+          # so a replay would create it a second time.
+          perl -0pi -e 's/        await markRow\(tx, \{\n          importRunId: runId,\n          sourceRowNumber: row\.sourceRowNumber,\n          action: "CREATE",\n          status: "CREATED",\n        \}\);//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a record without its marker passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the reversal bound to nothing
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          AUTH_TOKEN_SECRET: i8b5_ci_auth_secret_synthetic
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/            reversesHistoricalDocumentId: reversal,/            reversesHistoricalDocumentId: null,/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a credit that binds to nothing passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — stale evidence executed anyway
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          AUTH_TOKEN_SECRET: i8b5_ci_auth_secret_synthetic
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  if \(preview\.evidenceFingerprint !== facts\.evidenceFingerprint\) \{/  if (false) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a stale approval executed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — an approved CREATE quietly turned into a SKIP
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          AUTH_TOKEN_SECRET: i8b5_ci_auth_secret_synthetic
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          # CREATE_ANYWAY is a create. Reading the branch as "anything that is
+          # not a plain CREATE" would silently drop every deliberate override.
+          perl -0pi -e 's/    if \(row\.selectedDecision === "SKIP"\) \{/    if (row.selectedDecision !== "CREATE") {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an approved create was dropped without a word"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — an approved SKIP quietly turned into a CREATE
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          AUTH_TOKEN_SECRET: i8b5_ci_auth_secret_synthetic
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    if \(row\.selectedDecision === "SKIP"\) \{/    if (false) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a row the owner declined was imported"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — a re-imported file creating the record twice
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          AUTH_TOKEN_SECRET: i8b5_ci_auth_secret_synthetic
+        run: |
+          F="lib/data-transfer/historical/historical-decisions.ts"
+          cp "$F" "$F.bak"
+          # The same file imported twice is the ordinary accident. What stops the
+          # second copy is that an existing record defaults the row to SKIP.
+          perl -0pi -e 's/  if \(row\.database === "EXACT" \|\| row\.database === "STRONG_CANDIDATE"\) return "SKIP";//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: re-importing a file duplicated the history"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — one approval opening a second import run
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          AUTH_TOKEN_SECRET: i8b5_ci_auth_secret_synthetic
+        run: |
+          F="lib/data-transfer/historical/historical-execute.ts"
+          cp "$F" "$F.bak"
+          # The contract hash is what makes the run resolvable. If it varied per
+          # attempt, every retry would open a fresh ledger entry and the audit
+          # trail would stop being one story.
+          perl -0pi -e 's/    decisionsHash: contractHash,/    decisionsHash: contractHash + String(Math.random()).slice(2, 10),/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .i8b5/concurrency.mjs >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the same approval opened two runs"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Confirm the tree is byte-identical after every mutation
+        run: git diff --exit-code
