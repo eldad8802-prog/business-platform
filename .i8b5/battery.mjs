@@ -311,11 +311,18 @@ async function main() {
 
   /* ── 3b. an approval given against a world that has since moved ──────── */
 
-  // The token attests to a database state as well as to a file. Between the
-  // owner reading a preview and confirming it, somebody else can import the
-  // same document — and then confirming means something different from what
-  // was read. The approval is refused rather than reinterpreted.
-  const staleBytes = await fileOf([line("STALE-1", "700.00")]);
+  // The token attests to a database state as well as to a file, and the two
+  // are separate protections. A world change that makes an approved decision
+  // illegal is caught by re-validating the decisions; this is the other case —
+  // the decisions all stay legal, and only the evidence underneath them moved.
+  //
+  // The file holds a new document and one the business already has. The old
+  // document gains a second copy after the approval is issued: the new row is
+  // still a create, the held row is still a skip, and the read set the owner
+  // reviewed is no longer the read set being written into.
+  await seed(A, "TAX_INVOICE", "STALE-HELD", "300.00");
+  const staleBytes = await fileOf([line("STALE-NEW", "700.00"), line("STALE-HELD", "300.00")]);
+  const staleDecisions = { 1: "CREATE", 2: "SKIP" };
   const stalePreview = await runWithTenantContext({ businessId: A }, () =>
     buildHistoricalPreview({
       businessId: A,
@@ -324,17 +331,16 @@ async function main() {
       bytes: staleBytes,
       sheetName: null,
       dateFormat: null,
+      decisions: staleDecisions,
     })
   );
   ok(
     "an approval is issued against the world as it was",
     stalePreview.ok === true && stalePreview.readyForExecute === true,
-    stalePreview.code
+    JSON.stringify({ code: stalePreview.code, reasons: stalePreview.notReadyReasons })
   );
 
-  const interloper = await runImport(A, await fileOf([line("STALE-1", "700.00")]));
-  ok("and then somebody else imports the same document", interloper.execute?.ok === true);
-  ok("so the business holds it once", (await countFor(A, "STALE-1")) === 1);
+  await seed(A, "TAX_INVOICE", "STALE-HELD", "300.00");
 
   if (stalePreview.ok && stalePreview.previewToken) {
     const staleRun = await executeHistoricalImport({
@@ -352,7 +358,11 @@ async function main() {
       staleRun.ok === false && staleRun.code === "PREVIEW_STALE",
       JSON.stringify(staleRun)
     );
-    ok("and the document is still held exactly once", (await countFor(A, "STALE-1")) === 1);
+    ok(
+      "and nothing from it was written",
+      (await countFor(A, "STALE-NEW")) === 0,
+      String(await countFor(A, "STALE-NEW"))
+    );
   }
 
   /* ── 4. reversal: existing target, in-file target, text only ─────────── */
