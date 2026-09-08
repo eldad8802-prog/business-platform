@@ -220,8 +220,26 @@ async function main() {
   ok("target: account deletion can still quarantine Business (deletedAt)", T.upd_deleted === true);
   ok("target: both tables remain readable", T.user_select === true && T.biz_select === true);
 
-  // The auth plane's target is unchanged from what Production already holds, so
-  // it is asserted against the live `app_auth` group rather than a rehearsal role.
+  // The auth plane's contract is reproduced here rather than assumed present.
+  //
+  // `app_auth` was provisioned directly in Preview and Production and never
+  // through a migration, so it does not exist in this ephemeral lab. Asserting
+  // against it without building it first failed with 42704 — which is the honest
+  // signal that the contract lived only in two live databases and nowhere the CI
+  // could check it. Constructing it from the same statements that provisioned it
+  // makes the auth half provable in the lab, exactly as the runtime half is.
+  await owner.$executeRawUnsafe(
+    `DO $do$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='app_auth') THEN
+       CREATE ROLE app_auth NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+     END IF; END $do$`);
+  await owner.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO app_auth`);
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT ON public."User" TO app_auth`);
+  await owner.$executeRawUnsafe(
+    `GRANT UPDATE ("lastLoginAt","loginCount","tokenVersion","updatedAt") ON public."User" TO app_auth`);
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT ON public."Business" TO app_auth`);
+  await owner.$executeRawUnsafe(`GRANT USAGE ON SEQUENCE public."User_id_seq" TO app_auth`);
+  await owner.$executeRawUnsafe(`GRANT USAGE ON SEQUENCE public."Business_id_seq" TO app_auth`);
+
   const eAuth = await owner.$queryRawUnsafe(
     `SELECT has_table_privilege('app_auth','public."User"','DELETE')          AS user_delete,
             has_table_privilege('app_auth','public."Business"','DELETE')      AS biz_delete,
