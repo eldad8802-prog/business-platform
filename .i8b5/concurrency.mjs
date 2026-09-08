@@ -298,6 +298,7 @@ async function main() {
     originalDocumentNumber: "LOCK-1",
   });
   const holder = new PrismaClient({ datasourceUrl: OWNER_URL });
+  const waiter = new PrismaClient({ datasourceUrl: OWNER_URL });
   let observedWaiting = false;
   await holder
     .$transaction(async (tx) => {
@@ -306,26 +307,35 @@ async function main() {
         HISTORICAL_IDENTITY_ADVISORY_NAMESPACE,
         key
       );
-      // A second connection asks for the held key and must not get it.
-      const waiter = new PrismaClient({ datasourceUrl: OWNER_URL });
-      const attempt = waiter.$queryRawUnsafe(
-        `SELECT pg_advisory_xact_lock($1::int, $2::int) FROM (SELECT pg_sleep(0)) s`,
-        HISTORICAL_IDENTITY_ADVISORY_NAMESPACE,
-        key
-      );
-      // Give it a moment to be recorded as ungranted, then ask the database.
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      const locks = await owner.$queryRawUnsafe(
-        `SELECT count(*)::int AS c FROM pg_locks
-         WHERE locktype = 'advisory' AND granted = false AND classid = $1`,
-        HISTORICAL_IDENTITY_ADVISORY_NAMESPACE
-      );
-      observedWaiting = locks[0].c >= 1;
-      await waiter.$disconnect().catch(() => {});
-      void attempt.catch(() => {});
+
+      // A second connection asks for the held key and must not get it. Prisma's
+      // promises are lazy, so attaching a handler HERE is what actually sends
+      // the query — without it there would be nothing to observe, and the check
+      // would pass or fail on an empty window.
+      const attempt = waiter
+        .$queryRawUnsafe(
+          `SELECT pg_advisory_xact_lock($1::int, $2::int)`,
+          HISTORICAL_IDENTITY_ADVISORY_NAMESPACE,
+          key
+        )
+        .catch(() => {});
+
+      // Then ask the database, polling rather than guessing how long a cold
+      // connection takes to reach the lock manager.
+      for (let attemptNo = 0; attemptNo < 40 && !observedWaiting; attemptNo += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const locks = await owner.$queryRawUnsafe(
+          `SELECT count(*)::int AS c FROM pg_locks
+           WHERE locktype = 'advisory' AND granted = false AND classid = $1`,
+          HISTORICAL_IDENTITY_ADVISORY_NAMESPACE
+        );
+        observedWaiting = locks[0].c >= 1;
+      }
+      void attempt;
       throw new Error("rollback on purpose");
     })
     .catch(() => {});
+  await waiter.$disconnect().catch(() => {});
 
   ok("the database itself reported a waiter blocked on the identity lock", observedWaiting);
 
