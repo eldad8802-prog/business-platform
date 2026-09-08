@@ -564,7 +564,10 @@ const RUNTIME_BUSINESS_SELECT_COLS = ["id", "name", "createdAt", "deletionReques
 const RUNTIME_USER_UPDATE_COLS = ["email", "name", "password"];
 const RUNTIME_BUSINESS_UPDATE_COLS = ["deletionRequestedAt", "deletedAt", "archivedAt", "archivedByUserId"];
 
-const AUTH_USER_SELECT_COLS = ["id", "email", "name", "password", "businessId", "tokenVersion", "role"];
+// `loginCount` is a READ as well as a write: the login stamp increments it, and
+// an increment reads the column first. The design set listed it only under
+// UPDATE, so the narrowed grant refused the login counter stamp.
+const AUTH_USER_SELECT_COLS = ["id", "email", "name", "password", "businessId", "tokenVersion", "role", "loginCount"];
 const AUTH_BUSINESS_SELECT_COLS = ["id", "name", "deletionRequestedAt", "deletedAt"];
 const AUTH_USER_UPDATE_COLS = ["lastLoginAt", "loginCount", "tokenVersion", "updatedAt"];
 // Prisma names only the fields it supplies; the rest come from defaults.
@@ -686,13 +689,14 @@ async function stageERehearsal(owner, ownerUrl) {
       `SELECT "id","name","createdAt" FROM "Business" WHERE "name" <> 'x' ORDER BY "createdAt" DESC LIMIT 5`));
   await allow("runtime: account deletion anonymises the User",
     () => rt.$executeRawUnsafe(
-      `UPDATE "User" SET email='deleted@deleted.invalid', name=NULL, password='' WHERE "businessId" = $1`, bizId));
+      `UPDATE "User" SET email='deleted@deleted.invalid', name=NULL, password='', "updatedAt"=now() WHERE "businessId" = $1`, bizId));
   await allow("runtime: account deletion quarantines the Business",
     () => rt.$executeRawUnsafe(
-      `UPDATE "Business" SET "deletionRequestedAt"=now() WHERE id = $1 AND "deletionRequestedAt" IS NULL`, bizId));
+      `UPDATE "Business" SET "deletionRequestedAt"=now(), "updatedAt"=now() WHERE id = $1 AND "deletionRequestedAt" IS NULL`, bizId));
   await allow("runtime: account deletion finalises the purge",
     () => rt.$executeRawUnsafe(
-      `UPDATE "Business" SET "deletedAt"=now(), "archivedAt"=now(), "archivedByUserId"=NULL
+      `UPDATE "Business" SET "deletedAt"=now(), "archivedAt"=now(), "archivedByUserId"=NULL,
+              "updatedAt"=now()
         WHERE id = $1 AND "deletedAt" IS NULL`, bizId));
 
   // ---- negative: the runtime's boundary -------------------------------------
