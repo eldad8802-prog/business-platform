@@ -31,6 +31,7 @@ import path from "node:path";
 import {
   ANONYMIZE_MODELS,
   DELETE_MODELS,
+  RETAIN_MODELS,
   REVOKE_INTEGRATIONS,
   assertManifestSafe,
 } from "@/lib/services/account/account-erasure-manifest";
@@ -384,12 +385,12 @@ check("the migration and the datamodel describe the same columns", () => {
 // ───────────────────────────────────────────────────────────────────────────
 // 6. Retention, and the absence of consumers
 // ───────────────────────────────────────────────────────────────────────────
-check("account deletion cannot reach a historical fiscal record", () => {
-  // Naming it in RETAIN_MODELS is a change to application code, and the
-  // migration-first guard keeps application code out of a PR that carries a
-  // migration. It follows immediately, in its own PR. What can be asserted
-  // here today is the half that matters for safety: no purge set names it, so
-  // no deletion path can touch it either way.
+check("account deletion RETAINS a historical fiscal record", () => {
+  // A fiscal record is kept because it is fiscal, not because Dubiz produced
+  // it. The obligation to hold an invoice does not ask which software issued
+  // it, so this model belongs beside `document` and `billingDocument` in the
+  // must-retain bucket, and never in a purge set.
+  assert.ok(RETAIN_MODELS.includes("historicalFiscalDocument" as never));
   const purged: string[] = [
     ...ANONYMIZE_MODELS.map((a) => a.model),
     ...DELETE_MODELS,
@@ -399,12 +400,68 @@ check("account deletion cannot reach a historical fiscal record", () => {
   assertManifestSafe();
 });
 
-check("nothing reads or writes this model yet — the layer is inert", () => {
+/**
+ * The files permitted to name the model, and why each one is.
+ *
+ * This began as "nothing may name it at all", which was the right rule while
+ * the layer had no lifecycle. Account erasure is a lifecycle, and it has to be
+ * able to say these records are retained — a manifest that cannot name a model
+ * cannot promise anything about it. So the ban becomes a list: naming it is
+ * allowed here and nowhere else, and the ban on TOUCHING a row is unchanged and
+ * asserted separately below.
+ */
+const ALLOWED_TO_NAME_IT = [
+  // this file
+  "lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts",
+  // the erasure contract, which declares the model legally retained
+  "lib/services/account/account-erasure-manifest.ts",
+  // and the test that holds that contract to it
+  "lib/services/account/account-deletion.test.ts",
+];
+
+check("only the erasure contract and its tests name this model", () => {
   const hits = grepFiles(["app", "lib", "components", "scripts"]);
-  // This file asserts about the model; nothing else may so much as name it.
-  assert.deepEqual(hits.slice().sort(), [
-    "lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts",
-  ]);
+  assert.deepEqual(
+    hits.slice().sort(),
+    ALLOWED_TO_NAME_IT.slice().sort(),
+    "a new consumer appeared; that is a decision for its own increment"
+  );
+});
+
+check("the erasure EXECUTOR still cannot reach a row — only the manifest names it", () => {
+  // This is the distinction the allowlist rests on. The manifest is a
+  // declaration and touches nothing; the adapter is the code that actually
+  // anonymizes and deletes. If the model ever appears in the adapter or the
+  // orchestrator, a deletion path has been opened against records that must be
+  // kept.
+  for (const executor of [
+    "lib/services/account/account-deletion.prisma-store.ts",
+    "lib/services/account/account-deletion.service.ts",
+  ]) {
+    assert.ok(
+      !/[Hh]istoricalFiscal/.test(read(executor)),
+      `${executor} must never operate on historical fiscal records`
+    );
+  }
+});
+
+check("every other surface is still inert", () => {
+  // Named individually rather than by absence, so a new surface has to be
+  // argued for instead of appearing by accident.
+  const forbidden: Record<string, string[]> = {
+    "billing and issuance": ["lib/services/billing", "app/api/billing"],
+    "reporting and the uniform file": ["app/api/reports", "lib/services/billing/uniform"],
+    "documents ingestion": ["lib/services/documents", "app/api/documents"],
+    "import analyze, preview and execute": [
+      "lib/data-transfer/import",
+      "lib/data-transfer/documents",
+    ],
+    "user interface": ["components", "app/(shell)"],
+    learning: ["lib/business-memory", "lib/business-brain"],
+  };
+  for (const [surface, paths] of Object.entries(forbidden)) {
+    assert.deepEqual(grepFiles(paths), [], `${surface} must not reference historical records`);
+  }
 });
 
 check("the uniform file still draws from BillingDocument alone", () => {

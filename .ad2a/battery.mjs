@@ -57,6 +57,10 @@ const RLS_TABLES = [
   "CrmNote",
   "CrmAttachment",
   "BusinessProfile",
+  // I-8A. Fiscal history from a prior system, and the reason it is here is that
+  // erasure must be shown NOT to reach it while it is protected exactly as
+  // Production protects it.
+  "HistoricalFiscalDocument",
 ];
 
 async function main() {
@@ -98,6 +102,16 @@ async function main() {
   // LAB-ONLY privileges (see the header): enough to exercise the real code path.
   await owner.$executeRawUnsafe(
     `GRANT SELECT, INSERT, UPDATE, DELETE ON "Conversation","Message","ReplySuggestion","Customer","CrmNote","CrmAttachment","BusinessProfile","User","Business","Lead","POSApiKey","OAuthToken","EmailConnection","WhatsAppConnection","BusinessPaymentConnection","BillingAuthorityConnection","LearningEvent","Appointment" TO ${RT_ROLE}`
+  );
+  // I-8A: Production hands the runtime SELECT and INSERT here and revokes the
+  // rest, so the lab does the same. Giving this table the blanket grant above
+  // would make "erasure did not delete these rows" a statement about privileges
+  // the product does not actually have.
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT, INSERT ON "HistoricalFiscalDocument" TO ${RT_ROLE}`
+  );
+  await owner.$executeRawUnsafe(
+    `REVOKE UPDATE, DELETE ON "HistoricalFiscalDocument" FROM ${RT_ROLE}`
   );
   await owner.$executeRawUnsafe(
     `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT_ROLE}`
@@ -146,6 +160,15 @@ async function main() {
     await owner.$executeRawUnsafe(`DELETE FROM "ReplySuggestion" WHERE "businessId" IN (${bids})`);
     await owner.$executeRawUnsafe(`DELETE FROM "Message" WHERE "businessId" IN (${bids})`);
     await owner.$executeRawUnsafe(`DELETE FROM "Conversation" WHERE "businessId" IN (${bids})`);
+    await owner.$executeRawUnsafe(
+      `DELETE FROM "HistoricalFiscalDocument"
+         WHERE "businessId" IN (${bids}) AND "reversesHistoricalDocumentId" IS NOT NULL`
+    );
+    await owner.$executeRawUnsafe(
+      `DELETE FROM "HistoricalFiscalDocument" WHERE "businessId" IN (${bids})`
+    );
+    await owner.$executeRawUnsafe(`DELETE FROM "ImportRun" WHERE "businessId" IN (${bids})`);
+    await owner.$executeRawUnsafe(`DELETE FROM "Document" WHERE "businessId" IN (${bids})`);
     for (const t of ["CrmAttachment", "CrmNote", "Customer", "Lead", "BusinessProfile", "POSApiKey"]) {
       await owner.$executeRawUnsafe(`DELETE FROM "${t}" WHERE "businessId" IN (${bids})`);
     }
@@ -176,7 +199,50 @@ async function main() {
     await owner.crmNote.create({
       data: { businessId: b.id, subjectType: "CUSTOMER", subjectId: c.id, body: `${MARK}note`, createdByUserId: u.id },
     });
-    return { biz: b, user: u, customer: c, conversation: conv };
+    // I-8A fiscal history: the artifact, the import that brought it in, the
+    // record itself, and a reversal citing that record — so the deletion meets
+    // every relation the model has, not just the simple case.
+    const doc = await owner.document.create({
+      data: {
+        businessId: b.id,
+        fileUrl: `lab://${tag}/legacy-invoice.pdf`,
+        source: "upload",
+        mimeType: "application/pdf",
+        status: "processed",
+      },
+    });
+    const run = await owner.importRun.create({
+      data: {
+        businessId: b.id,
+        userId: u.id,
+        domain: "documents",
+        contentHash: `${MARK}${tag}-content`,
+        mappingHash: `${MARK}${tag}-mapping`,
+        decisionsHash: `${MARK}${tag}-decisions`,
+        totalRows: 1,
+      },
+    });
+    const historical = await owner.historicalFiscalDocument.create({
+      data: {
+        businessId: b.id,
+        documentTypeCode: "INVOICE",
+        sourceSystemCode: "legacy-erp",
+        originalDocumentNumber: `${tag}-1001`,
+        documentId: doc.id,
+        importRunId: run.id,
+      },
+    });
+    const reversal = await owner.historicalFiscalDocument.create({
+      data: {
+        businessId: b.id,
+        documentTypeCode: "CREDIT_NOTE",
+        sourceSystemCode: "legacy-erp",
+        originalDocumentNumber: `${tag}-1002`,
+        reversesHistoricalDocumentId: historical.id,
+      },
+    });
+
+    return { biz: b, user: u, customer: c, conversation: conv, doc, run, historical, reversal };
   };
 
   const A = await mkBiz("A");
@@ -262,12 +328,64 @@ async function main() {
     where: { businessId: A.biz.id, eventType: "ACCOUNT_DELETED" },
   })) === auditBefore + 1);
 
+  // I-8A — fiscal history is RETAINED, and the deletion did not trip over it.
+  //
+  // Retention is the contract, not a gap in it: the obligation to keep an
+  // invoice does not ask which software issued it, so these records are in the
+  // must-retain bucket beside Document and BillingDocument. What the deletion
+  // has to prove is that it neither removed them nor failed because of them.
+  const histA = await owner.historicalFiscalDocument.findMany({
+    where: { businessId: A.biz.id },
+    orderBy: { id: "asc" },
+  });
+  ok("A's historical fiscal records SURVIVE the erasure", histA.length === 2, `found ${histA.length}`);
+  ok(
+    "the reversal still cites the record it reverses",
+    histA[1] && histA[1].reversesHistoricalDocumentId === A.historical.id
+  );
+  ok(
+    "the record still cites its original artifact, which also survives",
+    histA[0] && histA[0].documentId === A.doc.id &&
+      (await owner.document.count({ where: { id: A.doc.id } })) === 1
+  );
+  ok(
+    "the import run that brought it in survives too",
+    (await owner.importRun.count({ where: { id: A.run.id } })) === 1
+  );
+  ok(
+    "the customer snapshot on fiscal history is untouched by customer anonymization",
+    histA[0] && histA[0].customerNameSnapshot === null
+  );
+
+  // The privilege posture that makes the above structural rather than lucky.
+  const histPriv = (
+    await owner.$queryRawUnsafe(
+      `SELECT has_table_privilege('${RT_ROLE}', '"HistoricalFiscalDocument"', 'SELECT') AS s,
+              has_table_privilege('${RT_ROLE}', '"HistoricalFiscalDocument"', 'INSERT') AS i,
+              has_table_privilege('${RT_ROLE}', '"HistoricalFiscalDocument"', 'UPDATE') AS u,
+              has_table_privilege('${RT_ROLE}', '"HistoricalFiscalDocument"', 'DELETE') AS d`
+    )
+  )[0];
+  ok(
+    "the erasure runtime holds no UPDATE and no DELETE on fiscal history",
+    histPriv.s === true && histPriv.i === true && histPriv.u === false && histPriv.d === false,
+    JSON.stringify(histPriv)
+  );
+
   // B is untouched — the whole point.
   ok("B's conversations survive A's deletion",
     (await owner.conversation.count({ where: { businessId: B.biz.id } })) === 1);
   ok("B's messages survive", (await owner.message.count({ where: { businessId: B.biz.id } })) === 1);
   const custB = await owner.customer.findFirst({ where: { businessId: B.biz.id } });
   ok("B's customer is untouched", custB.name === `${MARK}cust-B`);
+  ok(
+    "B's historical fiscal records are untouched",
+    (await owner.historicalFiscalDocument.count({ where: { businessId: B.biz.id } })) === 2
+  );
+  ok(
+    "B's original artifact is untouched",
+    (await owner.document.count({ where: { businessId: B.biz.id } })) === 1
+  );
 
   // ── Phase 8: post-quarantine closure ──────────────────────────────────────
   console.log("--- phase 8: post-quarantine ---");

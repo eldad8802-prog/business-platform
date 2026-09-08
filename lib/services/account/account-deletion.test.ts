@@ -80,6 +80,8 @@ function makeStore(state: StoreState) {
     ok("financialRecord RETAINED, never purged", RETAIN_MODELS.includes("financialRecord") && !purged.includes("financialRecord"));
     ok("document (evidence) RETAINED, never purged", RETAIN_MODELS.includes("document") && !purged.includes("document"));
     ok("financialDocument RETAINED, never purged", RETAIN_MODELS.includes("financialDocument") && !purged.includes("financialDocument"));
+    // A fiscal record is retained because it is fiscal, not because Dubiz made it.
+    ok("historicalFiscalDocument RETAINED, never purged", RETAIN_MODELS.includes("historicalFiscalDocument") && !purged.includes("historicalFiscalDocument"));
     ok("user IS anonymized", ERASURE_MANIFEST.anonymize.some((a) => a.model === "user"));
     ok("businessProfile IS anonymized", ERASURE_MANIFEST.anonymize.some((a) => a.model === "businessProfile"));
     ok("customer IS anonymized (not deleted — invoice FK)", ERASURE_MANIFEST.anonymize.some((a) => a.model === "customer") && !ERASURE_MANIFEST.delete.includes("customer"));
