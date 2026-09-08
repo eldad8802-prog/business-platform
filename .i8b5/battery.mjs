@@ -399,18 +399,23 @@ async function main() {
     JSON.stringify(untouched.preview?.notReadyReasons)
   );
 
-  // Choosing to import the blocked credit refuses the file — including the row
-  // that was otherwise fine. A blocked row is not a warning to click past.
+  // Choosing to import the blocked credit does not produce a preview at all.
+  // The decision is re-checked against the row the server just computed, and a
+  // blocked row accepts only SKIP — so the file is refused before anything is
+  // built, rather than importing the good row and dropping the bad one.
   const forced = await runImport(A, await ambiguousFile(), {
     1: "CREATE_ANYWAY",
     2: "CREATE",
   });
   ok(
     "selecting the ambiguous credit refuses the whole file",
-    forced.preview?.readyForExecute === false &&
-      (forced.preview?.notReadyReasons ?? []).includes("BLOCKED_ROW_SELECTED") &&
+    forced.preview?.ok === false &&
+      forced.preview.code === "DECISIONS_INVALID" &&
+      (forced.preview.decisionProblems ?? []).some(
+        (p) => p.sourceRowNumber === 2 && p.code === "BLOCKED_ROW"
+      ) &&
       forced.execute === null,
-    JSON.stringify(forced.preview?.notReadyReasons)
+    JSON.stringify({ code: forced.preview?.code, problems: forced.preview?.decisionProblems })
   );
 
   // And the override does what it is for and no more: the duplicate invoice is
