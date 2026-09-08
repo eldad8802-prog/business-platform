@@ -163,6 +163,113 @@ async function main() {
     ok(`${r.tbl}: SELECT/INSERT/UPDATE are still intact (auth must keep working)`,
       r.sel === true && r.ins === true && r.upd === true, JSON.stringify(r));
   }
+  // ---- 2b. the Stage E target model, rehearsed before Production ------------
+  //
+  // Stage E narrows these two tables from table-level privileges to column-level
+  // ones. PostgreSQL will not allow that to be done by subtraction: a table-level
+  // SELECT or UPDATE cannot be partially revoked, so the table grant has to go
+  // first and the columns be granted back. That is a sequence with a real outage
+  // in the middle if the column set is wrong, so it is rehearsed here — on the
+  // ephemeral lab, against the code's actual requirements — before it is proposed
+  // for Production.
+  //
+  // The assertions below are the NEGATIVE half of the target model. They are the
+  // guarantees the Production revoke is supposed to buy, and they must be
+  // demonstrable in a lab before anyone runs it for real.
+  console.log("\n== 2b. Stage E target privilege model (rehearsal, not yet Production) ==");
+  const E_TARGET = "app_runtime_e_target";
+  // A leftover from an interrupted run would also hold grants, and a role that
+  // holds grants cannot be dropped, so the privileges go first in both places.
+  await owner.$executeRawUnsafe(`DROP OWNED BY ${E_TARGET}`).catch(() => {});
+  await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${E_TARGET}`);
+  await owner.$executeRawUnsafe(
+    `CREATE ROLE ${E_TARGET} NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION`);
+  await owner.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO ${E_TARGET}`);
+  // The runtime's proposed end state: read both tables, write only the columns
+  // account deletion actually sets, insert neither.
+  await owner.$executeRawUnsafe(`GRANT SELECT ON public."User" TO ${E_TARGET}`);
+  await owner.$executeRawUnsafe(`GRANT SELECT ON public."Business" TO ${E_TARGET}`);
+  await owner.$executeRawUnsafe(
+    `GRANT UPDATE ("email","name","password") ON public."User" TO ${E_TARGET}`);
+  await owner.$executeRawUnsafe(
+    `GRANT UPDATE ("deletionRequestedAt","deletedAt","archivedAt","archivedByUserId")
+       ON public."Business" TO ${E_TARGET}`);
+
+  const eT = await owner.$queryRawUnsafe(
+    `SELECT has_table_privilege($1,'public."User"','INSERT')            AS user_insert,
+            has_table_privilege($1,'public."Business"','INSERT')        AS biz_insert,
+            has_table_privilege($1,'public."User"','DELETE')            AS user_delete,
+            has_table_privilege($1,'public."Business"','DELETE')        AS biz_delete,
+            has_column_privilege($1,'public."User"','role','UPDATE')       AS upd_role,
+            has_column_privilege($1,'public."User"','businessId','UPDATE') AS upd_bizid,
+            has_column_privilege($1,'public."User"','email','UPDATE')      AS upd_email,
+            has_column_privilege($1,'public."User"','password','UPDATE')   AS upd_pw,
+            has_column_privilege($1,'public."Business"','name','UPDATE')   AS upd_biz_name,
+            has_column_privilege($1,'public."Business"','deletedAt','UPDATE') AS upd_deleted,
+            has_table_privilege($1,'public."User"','SELECT')            AS user_select,
+            has_table_privilege($1,'public."Business"','SELECT')        AS biz_select`, E_TARGET);
+  const T = eT[0];
+  ok("target: app_runtime cannot INSERT User", T.user_insert === false);
+  ok("target: app_runtime cannot INSERT Business", T.biz_insert === false);
+  ok("target: app_runtime cannot DELETE User", T.user_delete === false);
+  ok("target: app_runtime cannot DELETE Business", T.biz_delete === false);
+  ok("target: app_runtime cannot UPDATE User.role", T.upd_role === false);
+  ok("target: app_runtime cannot UPDATE User.businessId", T.upd_bizid === false);
+  ok("target: app_runtime cannot UPDATE arbitrary Business columns (name)", T.upd_biz_name === false);
+  // The positive half. A model that forbade everything would pass a one-sided
+  // check and break account deletion, which is the only consumer of these.
+  ok("target: account deletion can still anonymise User (email, name, password)",
+    T.upd_email === true && T.upd_pw === true);
+  ok("target: account deletion can still quarantine Business (deletedAt)", T.upd_deleted === true);
+  ok("target: both tables remain readable", T.user_select === true && T.biz_select === true);
+
+  // The auth plane's contract is reproduced here rather than assumed present.
+  //
+  // `app_auth` was provisioned directly in Preview and Production and never
+  // through a migration, so it does not exist in this ephemeral lab. Asserting
+  // against it without building it first failed with 42704 — which is the honest
+  // signal that the contract lived only in two live databases and nowhere the CI
+  // could check it. Constructing it from the same statements that provisioned it
+  // makes the auth half provable in the lab, exactly as the runtime half is.
+  await owner.$executeRawUnsafe(
+    `DO $do$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='app_auth') THEN
+       CREATE ROLE app_auth NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+     END IF; END $do$`);
+  await owner.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO app_auth`);
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT ON public."User" TO app_auth`);
+  await owner.$executeRawUnsafe(
+    `GRANT UPDATE ("lastLoginAt","loginCount","tokenVersion","updatedAt") ON public."User" TO app_auth`);
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT ON public."Business" TO app_auth`);
+  await owner.$executeRawUnsafe(`GRANT USAGE ON SEQUENCE public."User_id_seq" TO app_auth`);
+  await owner.$executeRawUnsafe(`GRANT USAGE ON SEQUENCE public."Business_id_seq" TO app_auth`);
+
+  const eAuth = await owner.$queryRawUnsafe(
+    `SELECT has_table_privilege('app_auth','public."User"','DELETE')          AS user_delete,
+            has_table_privilege('app_auth','public."Business"','DELETE')      AS biz_delete,
+            has_table_privilege('app_auth','public."Business"','UPDATE')      AS biz_update,
+            has_column_privilege('app_auth','public."User"','password','UPDATE')   AS upd_pw,
+            has_column_privilege('app_auth','public."User"','role','UPDATE')       AS upd_role,
+            has_column_privilege('app_auth','public."User"','businessId','UPDATE') AS upd_bizid,
+            has_column_privilege('app_auth','public."User"','tokenVersion','UPDATE') AS upd_tv,
+            has_table_privilege('app_auth','public."User"','INSERT')          AS user_insert,
+            has_table_privilege('app_auth','public."Business"','INSERT')      AS biz_insert`);
+  const AP = eAuth[0];
+  ok("target: app_auth cannot DELETE User", AP.user_delete === false);
+  ok("target: app_auth cannot DELETE Business", AP.biz_delete === false);
+  ok("target: app_auth cannot UPDATE Business", AP.biz_update === false);
+  ok("target: app_auth cannot UPDATE User.password", AP.upd_pw === false);
+  ok("target: app_auth cannot UPDATE User.role", AP.upd_role === false);
+  ok("target: app_auth cannot UPDATE User.businessId", AP.upd_bizid === false);
+  ok("target: app_auth CAN still update tokenVersion (logout revocation)", AP.upd_tv === true);
+  ok("target: app_auth retains INSERT for signup on both tables",
+    AP.user_insert === true && AP.biz_insert === true);
+
+  // DROP OWNED BY first: a role holding grants cannot be dropped, and the error
+  // (2BP01) arrives at teardown, long after the assertions have already passed —
+  // it fails the run while telling you nothing about the contract.
+  await owner.$executeRawUnsafe(`DROP OWNED BY ${E_TARGET}`);
+  await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${E_TARGET}`);
+
   if (ledgerExists) {
     const ledger = await owner.$queryRawUnsafe(
       `SELECT has_table_privilege('app_runtime','public."_prisma_migrations"','SELECT') AS can_read`);

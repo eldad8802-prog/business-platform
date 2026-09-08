@@ -24,6 +24,37 @@ export {
  * The order matters. Cheap cryptography first, then one database read, then the
  * two checks that need that row. Nothing below gate 1 runs for a forged token.
  */
+/**
+ * The columns session resolution actually needs, and no others.
+ *
+ * This runs on every authenticated request, and it used to load the whole row —
+ * `password` included — purely because `include` selects all scalars by default.
+ * Nothing downstream reads the hash from here; the only server-side comparison
+ * lives in the login route, which selects it deliberately. Removing it from this
+ * path takes the credential out of the hottest query in the product.
+ *
+ * The nested Business selection is the lifecycle gate's input plus the two
+ * fields callers read off the relation (`/api/home` uses id and name). The gate
+ * needs `deletionRequestedAt` as well as `deletedAt`: checking the latter alone
+ * left the whole quarantine window authenticated.
+ */
+const SESSION_USER_SELECT = {
+  id: true,
+  email: true,
+  name: true,
+  businessId: true,
+  role: true,
+  tokenVersion: true,
+  business: {
+    select: {
+      id: true,
+      name: true,
+      deletionRequestedAt: true,
+      deletedAt: true,
+    },
+  },
+} as const;
+
 export async function getCurrentUser(req: Request) {
   try {
     const authHeader = req.headers.get("authorization");
@@ -46,9 +77,7 @@ export async function getCurrentUser(req: Request) {
 
     const user = await authDb().user.findUnique({
       where: { id: verified.userId },
-      include: {
-        business: true,
-      },
+      select: SESSION_USER_SELECT,
     });
 
     if (!user) {
