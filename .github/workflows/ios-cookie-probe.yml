@@ -120,11 +120,30 @@ jobs:
           done
           echo "tunnel connections registered: $(grep -c "Registered tunnel connection" native-evidence/cloudflared.log || echo 0)"
 
-          # The previous run gated on `host`/`dig`, which these runners may not
-          # ship — so the gate failed rather than DNS, and the run was stopped by
-          # my own check. curl is the only test that matters here: it resolves,
-          # connects and verifies TLS in one go, which is what the WebView does.
-          echo "which host: $(command -v host || echo ABSENT)  which dig: $(command -v dig || echo ABSENT)"
+          # Two runs failed here with "could not resolve host" while cloudflared
+          # reported a healthy, registered tunnel. host and dig are both present,
+          # so the gate was not the problem — this runner resolver genuinely does
+          # not carry freshly-minted trycloudflare names.
+          #
+          # If a public resolver does carry it, the name is real and only this
+          # machine cannot see it, which /etc/hosts fixes for the runner AND the
+          # simulator, since the simulator uses the host resolver. TLS still
+          # validates against the hostname via SNI, so nothing about the
+          # certificate check is weakened.
+          echo "system resolver:  $(dig +short "$HOST" | tr "
+" " ")"
+          echo "public resolver:  $(dig +short @1.1.1.1 "$HOST" | tr "
+" " ")"
+          if ! dig +short "$HOST" | grep -qE "^[0-9]"; then
+            IP="$(dig +short @1.1.1.1 "$HOST" | grep -E "^[0-9]" | head -1 || true)"
+            if [ -n "$IP" ]; then
+              echo "pinning $HOST to $IP in /etc/hosts (runner resolver cannot see it)"
+              echo "$IP $HOST" | sudo tee -a /etc/hosts > /dev/null
+              dscacheutil -flushcache 2>/dev/null || true
+            else
+              echo "no public resolver carries this hostname either"
+            fi
+          fi
 
           # No -k and no custom CA: verifying against the public trust store is
           # the whole point, and it is what WKWebView will do too.
