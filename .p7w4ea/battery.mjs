@@ -520,9 +520,17 @@ async function main() {
       }),
       decryptConnectionCredential: () => "stub-credential",
     };
+    // The provider is named explicitly. These fixtures give every business a
+    // connection to ALL THREE providers, so leaving it out lands in the
+    // multi-provider ambiguity refusal — which is correct behaviour, but it
+    // would fire before the ownership checks this phase is about and mask them.
+    // Naming CARDCOM also exercises the explicit-selection path end to end.
     const create = (businessId, input) =>
       runWithTenantContext({ businessId }, () =>
-        createPaymentRequest({ businessId, ...input }, createDeps)
+        createPaymentRequest(
+          { businessId, provider: "CARDCOM", ...input },
+          createDeps
+        )
       );
     const reqCount = (biz) =>
       owner.paymentRequest.count({ where: { businessId: biz } });
@@ -548,6 +556,14 @@ async function main() {
     }
     console.log(
       `  [evidence] a direct owner-role INSERT carrying cross-tenant FKs was ${fkAcceptedForeign ? "ACCEPTED" : "REJECTED"} by the database — this is why the application guard exists`
+    );
+    // Asserted, not merely printed: if the substrate ever DID reject a
+    // cross-tenant foreign key, the reasoning behind the application guard
+    // would have changed and this phase should be revisited rather than
+    // silently continuing to pass for a different reason.
+    ok(
+      "SEC-02 (substrate): a cross-tenant FK is NOT rejected by the database — the guard cannot be delegated to it",
+      fkAcceptedForeign === true
     );
     if (planted) await owner.paymentRequest.delete({ where: { id: planted.id } });
 
