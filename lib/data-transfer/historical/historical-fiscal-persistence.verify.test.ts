@@ -417,15 +417,41 @@ const ALLOWED_TO_NAME_IT = [
   "lib/services/account/account-erasure-manifest.ts",
   // and the test that holds that contract to it
   "lib/services/account/account-deletion.test.ts",
+  // I-8B.1: the import field contract. Its whole job is to say which model
+  // field each owner-facing column becomes, so it names the model by
+  // necessity — and it holds no query, no client and no row.
+  "lib/data-transfer/historical/historical-fields.ts",
+  // the vocabularies, which state why the customer snapshot has no relation
+  "lib/data-transfer/historical/historical-vocabulary.ts",
+  // and the test that holds both to their contract
+  "lib/data-transfer/historical/historical-contract.verify.test.ts",
 ];
 
-check("only the erasure contract and its tests name this model", () => {
+check("only the erasure contract and the import contract name this model", () => {
   const hits = grepFiles(["app", "lib", "components", "scripts"]);
   assert.deepEqual(
     hits.slice().sort(),
     ALLOWED_TO_NAME_IT.slice().sort(),
     "a new consumer appeared; that is a decision for its own increment"
   );
+});
+
+check("naming the model is all the contract files do — none of them can read one", () => {
+  // The allowlist is only safe while "names it" and "reaches it" stay
+  // different things. A contract file that acquired a Prisma client would be a
+  // consumer wearing a declaration's clothes, so the distinction is measured
+  // rather than trusted.
+  // The two contract SOURCES, named rather than filtered: a verifier that
+  // swept itself would trip over its own list of forbidden strings.
+  for (const file of [
+    "lib/data-transfer/historical/historical-fields.ts",
+    "lib/data-transfer/historical/historical-vocabulary.ts",
+  ]) {
+    const src = read(file);
+    for (const forbidden of ["@/lib/prisma", "PrismaClient", "findMany", "findUnique", "createMany"]) {
+      assert.ok(!src.includes(forbidden), `${file} must not be able to reach a row (${forbidden})`);
+    }
+  }
 });
 
 check("the erasure EXECUTOR still cannot reach a row — only the manifest names it", () => {
