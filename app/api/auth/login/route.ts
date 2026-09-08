@@ -133,12 +133,19 @@ export async function POST(req: Request) {
     const sessionId = randomUUID();
     const now = new Date();
 
+    // `select` is not cosmetic. Without it Prisma appends RETURNING over every
+    // scalar column of the model, and RETURNING needs SELECT on what it returns
+    // — including `createdAt`, `updatedAt` and `lastLoginAt`, which the auth
+    // plane deliberately cannot read. That is a 42501 on a CORRECT password:
+    // the write is permitted, the implicit read back is not. Nothing consumes
+    // the result, so it returns the one column this identity may already read.
     await authDb().user.update({
       where: { id: user.id },
       data: {
         lastLoginAt: now,
         loginCount: { increment: 1 },
       },
+      select: { id: true },
     });
 
     await recordProductUsageEvent({

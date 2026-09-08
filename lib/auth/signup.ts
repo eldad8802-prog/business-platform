@@ -86,8 +86,13 @@ export async function createAccount(
 ): Promise<CreatedAccount> {
   try {
     return await authDb().$transaction(async (tx) => {
+      // Both creates name their columns for the same reason the login stamp
+      // does: without `select`, Prisma appends RETURNING over every scalar
+      // column, and the auth plane holds SELECT on a deliberate subset. The
+      // lists below are exactly the fields this function goes on to read.
       const business = await tx.business.create({
         data: { name: input.businessName },
+        select: { id: true, name: true },
       });
 
       const user = await tx.user.create({
@@ -97,6 +102,7 @@ export async function createAccount(
           name: input.name,
           businessId: business.id,
         },
+        select: { id: true, email: true, tokenVersion: true },
       });
 
       return {

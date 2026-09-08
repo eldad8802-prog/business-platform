@@ -44,9 +44,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, alreadySignedOut: true });
     }
 
+    // See the same note in the login route: an implicit RETURNING reads back
+    // columns the auth plane may not select, so the global sign-out would fail
+    // with 42501 while the increment itself is permitted. Nothing consumes the
+    // result.
     await authDb().user.update({
       where: { id: user.id },
       data: { tokenVersion: { increment: 1 } },
+      select: { id: true },
     });
 
     await recordProductUsageEvent({
