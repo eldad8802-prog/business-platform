@@ -366,50 +366,65 @@ async function main() {
     JSON.stringify(unbound)
   );
 
-  /* ── 5. the skipped-target case the design turns on ──────────────────── */
+  /* ── 5. a file that restates AND credits the same document ──────────── */
 
-  // INV-200 already exists. A file re-stating it AND crediting it: the invoice
-  // row is skipped as a duplicate, and the credit must still bind to the record
-  // the business already holds.
-  const skippedTarget = await runImport(
+  // INV-200 already exists, and this file both re-states it and credits it. A
+  // person would say there is one target. The analysis says there are two
+  // candidates — the row in the file and the record in the database — and two
+  // candidates is ambiguity, which I-8B.3 settled must always block rather than
+  // be resolved by picking one. So the guarantee proven here is the refusal:
+  // no token, no run, no half-bound credit, and nothing written at all.
+  const beforeAmbiguous = await countFor(A, "CN-500");
+  const restateAndCredit = await runImport(
     A,
     await fileOf([
       line("INV-200", "500.00"),
       line("CN-500", "-500.00", { type: "חשבונית זיכוי", reverses: "INV-200" }),
     ])
   );
+  const creditRow = restateAndCredit.preview?.rows?.find((r) => r.sourceRowNumber === 2);
   ok(
-    "the file executes with its target row skipped",
-    skippedTarget.execute?.ok === true,
+    "restating a document and crediting it in one file is refused, not guessed",
+    restateAndCredit.preview?.ok === true &&
+      restateAndCredit.preview.readyForExecute === false &&
+      restateAndCredit.execute === null,
     JSON.stringify({
-      previewOk: skippedTarget.preview?.ok,
-      previewCode: skippedTarget.preview?.code,
-      ready: skippedTarget.preview?.readyForExecute,
-      executeCode: skippedTarget.execute?.code,
-      rows: skippedTarget.preview?.rows?.map((r) => ({
-        n: r.sourceRowNumber,
-        decision: r.selectedDecision,
-        dup: r.duplicate?.database?.state,
-        reversalState: r.reversal?.state,
-        targetRow: r.reversal?.targetSourceRow,
-        targetClass: r.reversalTarget,
-        blocked: r.blockingReasons,
-      })),
+      ready: restateAndCredit.preview?.readyForExecute,
+      executed: restateAndCredit.execute !== null,
     })
   );
-  const boundSkipped = (
-    await owner.$queryRawUnsafe(
-      `SELECT t."originalDocumentNumber" AS number
-       FROM "HistoricalFiscalDocument" c
-       JOIN "HistoricalFiscalDocument" t ON t.id = c."reversesHistoricalDocumentId"
-       WHERE c."businessId" = $1 AND c."originalDocumentNumber" = 'CN-500'`,
-      A
-    )
-  )[0];
   ok(
-    "the credit binds to the EXISTING record, not to nothing",
-    boundSkipped?.number === "INV-200",
-    JSON.stringify(boundSkipped)
+    "and it says why in structural terms — the credit has two candidates",
+    creditRow?.reversal?.state === "AMBIGUOUS" &&
+      (creditRow?.blockingReasons ?? []).includes("REVERSAL_AMBIGUOUS"),
+    JSON.stringify({ state: creditRow?.reversal?.state, blocked: creditRow?.blockingReasons })
+  );
+  ok(
+    "nothing was written by the refused file",
+    (await countFor(A, "CN-500")) === beforeAmbiguous,
+    String(await countFor(A, "CN-500"))
+  );
+
+  // And the override cannot clear it. CREATE_ANYWAY is permission to import a
+  // document the business already holds; it is not an answer to "which document
+  // does this credit?", and no owner click may become one.
+  const overrideAttempt = await runImport(
+    A,
+    await fileOf([
+      line("INV-200", "500.00"),
+      line("CN-500", "-500.00", { type: "חשבונית זיכוי", reverses: "INV-200" }),
+    ]),
+    { 1: "CREATE_ANYWAY" }
+  );
+  ok(
+    "CREATE_ANYWAY overrides a duplicate, never a structural ambiguity",
+    overrideAttempt.preview?.ok === true &&
+      overrideAttempt.preview.readyForExecute === false &&
+      overrideAttempt.execute === null,
+    JSON.stringify({
+      ready: overrideAttempt.preview?.readyForExecute,
+      executed: overrideAttempt.execute !== null,
+    })
   );
 
   /* ── 6. tenant isolation ─────────────────────────────────────────────── */
