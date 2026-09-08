@@ -178,6 +178,9 @@ async function main() {
   // demonstrable in a lab before anyone runs it for real.
   console.log("\n== 2b. Stage E target privilege model (rehearsal, not yet Production) ==");
   const E_TARGET = "app_runtime_e_target";
+  // A leftover from an interrupted run would also hold grants, and a role that
+  // holds grants cannot be dropped, so the privileges go first in both places.
+  await owner.$executeRawUnsafe(`DROP OWNED BY ${E_TARGET}`).catch(() => {});
   await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${E_TARGET}`);
   await owner.$executeRawUnsafe(
     `CREATE ROLE ${E_TARGET} NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION`);
@@ -261,6 +264,10 @@ async function main() {
   ok("target: app_auth retains INSERT for signup on both tables",
     AP.user_insert === true && AP.biz_insert === true);
 
+  // DROP OWNED BY first: a role holding grants cannot be dropped, and the error
+  // (2BP01) arrives at teardown, long after the assertions have already passed —
+  // it fails the run while telling you nothing about the contract.
+  await owner.$executeRawUnsafe(`DROP OWNED BY ${E_TARGET}`);
   await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${E_TARGET}`);
 
   if (ledgerExists) {
