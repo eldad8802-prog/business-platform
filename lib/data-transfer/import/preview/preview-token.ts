@@ -39,20 +39,29 @@
  * the case the ledger resolves.
  */
 
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash } from "node:crypto";
+import {
+  SignedEnvelopeConfigError,
+  signEnvelope,
+  verifyEnvelope,
+  type EnvelopeSpec,
+} from "@/lib/data-transfer/import/preview/signed-envelope";
 import { IMPORT_PREVIEW_TTL_SECONDS } from "@/lib/data-transfer/import/import-config";
 import type { DataTransferDomainId } from "@/lib/data-transfer/domains";
 
-const VERSION = 1;
-const PURPOSE = "data-transfer-import-preview";
-const KEY_DERIVATION_LABEL = "dubiz-data-transfer-import-preview-v1";
+/**
+ * This envelope's identity. The key label is unchanged from the original
+ * implementation, so tokens minted before the extraction still verify.
+ */
+const SPEC: EnvelopeSpec = {
+  keyLabel: "dubiz-data-transfer-import-preview-v1",
+  purpose: "data-transfer-import-preview",
+  version: 1,
+  ttlSeconds: IMPORT_PREVIEW_TTL_SECONDS,
+};
 
-export class PreviewTokenConfigError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PreviewTokenConfigError";
-  }
-}
+/** Kept as the name callers already catch; the envelope raises it. */
+export const PreviewTokenConfigError = SignedEnvelopeConfigError;
 
 export type PreviewTokenFacts = {
   businessId: number;
@@ -75,37 +84,6 @@ export type PreviewTokenFacts = {
   rowCount: number;
 };
 
-type PreviewTokenPayload = PreviewTokenFacts & {
-  v: number;
-  purpose: string;
-  nonce: string;
-  iat: number;
-  exp: number;
-};
-
-function signingKey(): Buffer {
-  const secret = process.env.AUTH_TOKEN_SECRET?.trim();
-  if (!secret) {
-    throw new PreviewTokenConfigError("AUTH_TOKEN_SECRET is not configured");
-  }
-  // Purpose-separated derivation: an auth bearer token or the ITA OAuth state
-  // can never validate here, and this can never validate there.
-  return createHmac("sha256", secret).update(KEY_DERIVATION_LABEL).digest();
-}
-
-function b64url(input: Buffer | string): string {
-  return Buffer.from(input)
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-function fromB64url(input: string): Buffer {
-  const padded = input.replace(/-/g, "+").replace(/_/g, "/");
-  return Buffer.from(padded, "base64");
-}
-
 /** SHA-256 hex — used for both the file bytes and the canonical mapping. */
 export function sha256Hex(input: Buffer | string): string {
   return createHash("sha256").update(input).digest("hex");
@@ -116,18 +94,7 @@ export function issuePreviewToken(
   facts: PreviewTokenFacts,
   now: Date = new Date()
 ): string {
-  const iat = Math.floor(now.getTime() / 1000);
-  const payload: PreviewTokenPayload = {
-    ...facts,
-    v: VERSION,
-    purpose: PURPOSE,
-    nonce: randomBytes(12).toString("hex"),
-    iat,
-    exp: iat + IMPORT_PREVIEW_TTL_SECONDS,
-  };
-  const body = b64url(JSON.stringify(payload));
-  const mac = b64url(createHmac("sha256", signingKey()).update(body).digest());
-  return `${body}.${mac}`;
+  return signEnvelope(SPEC, facts, now);
 }
 
 export type PreviewTokenResult =
@@ -145,38 +112,13 @@ export function verifyPreviewToken(
   token: unknown,
   now: Date = new Date()
 ): PreviewTokenResult {
-  if (typeof token !== "string" || token.length === 0) {
-    return { ok: false, reason: "MALFORMED" };
-  }
-  const parts = token.split(".");
-  if (parts.length !== 2) return { ok: false, reason: "MALFORMED" };
+  const envelope = verifyEnvelope<PreviewTokenFacts>(SPEC, token, now);
+  if (!envelope.ok) return { ok: false, reason: envelope.reason };
 
-  const [body, mac] = parts;
-  const expected = createHmac("sha256", signingKey()).update(body).digest();
-  const provided = fromB64url(mac);
-  if (
-    provided.length !== expected.length ||
-    !timingSafeEqual(provided, expected)
-  ) {
-    return { ok: false, reason: "BAD_SIGNATURE" };
-  }
-
-  let payload: PreviewTokenPayload;
-  try {
-    payload = JSON.parse(fromB64url(body).toString("utf8"));
-  } catch {
-    return { ok: false, reason: "MALFORMED" };
-  }
-
-  if (payload?.v !== VERSION || payload?.purpose !== PURPOSE) {
-    return { ok: false, reason: "WRONG_PURPOSE" };
-  }
-  if (
-    typeof payload.exp !== "number" ||
-    payload.exp * 1000 <= now.getTime()
-  ) {
-    return { ok: false, reason: "EXPIRED" };
-  }
+  const payload = envelope.facts;
+  // The envelope proved the facts are ours and unaltered. It says nothing
+  // about whether they are the SHAPE this token promises, so that is checked
+  // here rather than assumed.
   if (
     !Number.isInteger(payload.businessId) ||
     payload.businessId <= 0 ||
@@ -202,6 +144,6 @@ export function verifyPreviewToken(
       sheetName: payload.sheetName ?? null,
       rowCount: payload.rowCount,
     },
-    expiresAt: new Date(payload.exp * 1000),
+    expiresAt: envelope.expiresAt,
   };
 }

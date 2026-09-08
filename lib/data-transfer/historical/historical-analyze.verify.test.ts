@@ -747,17 +747,20 @@ async function main(): Promise<void> {
 
   /* ============================================= 13. capability gate ===== */
 
-  await check("Analyze is granted alone — there is no historical preview or execute", () => {
-    assert.ok(
-      fs.existsSync("app/api/data-transfer/import/historical/analyze/route.ts"),
-      "the analyze route must exist"
-    );
-    for (const forbidden of [
+  await check("the historical capability is Analyze and Preview — not Execute", () => {
+    // I-8B.4 granted Preview. The line that matters is still where it was:
+    // there is no historical execute route, and the generic gate the other
+    // three routes share does not know this domain.
+    for (const granted of [
+      "app/api/data-transfer/import/historical/analyze/route.ts",
       "app/api/data-transfer/import/historical/preview/route.ts",
-      "app/api/data-transfer/import/historical/execute/route.ts",
     ]) {
-      assert.ok(!fs.existsSync(forbidden), `${forbidden} must not exist yet`);
+      assert.ok(fs.existsSync(granted), `${granted} must exist`);
     }
+    assert.ok(
+      !fs.existsSync("app/api/data-transfer/import/historical/execute/route.ts"),
+      "there must be no historical execute route yet"
+    );
     // And the generic routes still refuse the domain, because the historical
     // domain is still absent from the list they gate on.
     const registry = fs.readFileSync(

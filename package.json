@@ -136,7 +136,8 @@
     "verify:historical-fiscal-persistence": "npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts",
     "verify:historical-contract": "npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts",
     "verify:historical-analyze": "npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts",
-    "verify:historical-duplicates": "npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts"
+    "verify:historical-duplicates": "npx tsx lib/data-transfer/historical/historical-duplicates.verify.test.ts",
+    "verify:historical-preview": "npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",

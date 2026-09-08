@@ -435,6 +435,10 @@ const ALLOWED_TO_NAME_IT = [
   "lib/data-transfer/historical/historical-duplicates.ts",
   // and the test that holds it to reading only
   "lib/data-transfer/historical/historical-duplicates.verify.test.ts",
+  // I-8B.4: the Preview test, which names the model in the list of writes the
+  // preview path must not contain. Preview itself does not name it — it reads
+  // through the duplicate lookup above and never touches the model directly.
+  "lib/data-transfer/historical/historical-preview.verify.test.ts",
 ];
 
 check("only the erasure contract and the import contract name this model", () => {
@@ -591,18 +595,58 @@ check("Analyze knows the field contract and nothing about issuance", () => {
   }
 });
 
-check("granting Analyze did not grant Preview or Execute", () => {
-  // The generic routes gate on a list the historical domain is still absent
-  // from, and the historical capability is one route with no siblings. If a
-  // preview or execute route appears here it is a decision, not a refactor.
+check("the capability is Analyze and Preview — and still not Execute", () => {
+  // I-8B.4 granted Preview, one route at a time. The generic routes still gate
+  // on a list this domain is absent from, so nothing was granted wholesale, and
+  // there is no historical execute route to call. A third route appearing here
+  // is a decision, not a refactor.
   const registry = read("lib/data-transfer/export/export-registry.ts");
   assert.ok(!registry.includes("historical"));
-  assert.ok(fs.existsSync("app/api/data-transfer/import/historical/analyze/route.ts"));
-  for (const forbidden of [
+  for (const granted of [
+    "app/api/data-transfer/import/historical/analyze/route.ts",
     "app/api/data-transfer/import/historical/preview/route.ts",
-    "app/api/data-transfer/import/historical/execute/route.ts",
   ]) {
-    assert.ok(!fs.existsSync(forbidden), `${forbidden} must not exist yet`);
+    assert.ok(fs.existsSync(granted), `${granted} must exist`);
+  }
+  assert.ok(
+    !fs.existsSync("app/api/data-transfer/import/historical/execute/route.ts"),
+    "there must be no historical execute route yet"
+  );
+});
+
+check("the Preview path cannot write, and does not reach issuance", () => {
+  // Preview signs a token and reads through the duplicate lookup. Neither is a
+  // write, and neither is a route into billing.
+  for (const file of [
+    "lib/data-transfer/historical/historical-preview.ts",
+    "lib/data-transfer/historical/historical-decisions.ts",
+    "lib/data-transfer/historical/historical-preview-token.ts",
+    "app/api/data-transfer/import/historical/preview/route.ts",
+  ]) {
+    const code = read(file)
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .split("\n")
+      .map((line) => line.replace(/\/\/.*$/, ""))
+      .join("\n");
+    for (const forbidden of [
+      "billingDocument",
+      "BillingDocument",
+      "financialEvent",
+      "FinancialEvent",
+      "allocationNumber",
+      "uniform",
+      "ISSUED",
+      "@/lib/prisma",
+      ".executeRaw",
+    ]) {
+      assert.ok(!code.includes(forbidden), `${file} must not reach ${forbidden}`);
+    }
+    assert.ok(
+      !/\b(historicalFiscalDocument|importRun|customer)\s*\.\s*(create|update|upsert|delete)/.test(
+        code
+      ),
+      `${file} must not write a business record`
+    );
   }
 });
 

@@ -267,6 +267,150 @@ async function main() {
   ok("every row still got an answer", bulk.byRow.size === 10_000, String(bulk.byRow.size));
   console.log(`      (${bulk.evidence.queryCount} queries, ${elapsed}ms)`);
 
+  /* ── I-8B.4: Preview, staleness, and decisions over real columns ─────── */
+
+  const { buildHistoricalPreview } = await import(
+    "@/lib/data-transfer/historical/historical-preview"
+  );
+  const { buildXlsxBuffer } = await import("@/lib/data-transfer/format/xlsx-writer");
+
+  const HEADERS = [
+    "סוג מסמך",
+    "מספר מסמך מקורי",
+    "תאריך המסמך",
+    "סכום כולל",
+    "סכום לפני מע״מ",
+    "מע״מ",
+    "מטבע",
+    "שם לקוח",
+    "מספר עוסק / ח.פ. לקוח",
+    "מערכת מקור",
+    "מספר מסמך שמזוכה",
+  ];
+
+  const sheetOf = (rows) =>
+    buildXlsxBuffer([
+      {
+        name: "ייבוא",
+        columns: HEADERS.map((h) => ({ header: h, type: "text" })),
+        rows,
+        rightToLeft: true,
+      },
+    ]);
+
+  /** One spreadsheet row, in contract order. */
+  const fileRow = (number, total, type = "חשבונית מס", reverses = "") => [
+    type,
+    number,
+    "2024-03-17",
+    total,
+    "",
+    "",
+    "ILS",
+    "",
+    "",
+    "ידני",
+    reverses,
+  ];
+
+  const previewAs = (businessId, bytes, extra = {}) =>
+    runWithTenantContext({ businessId }, () =>
+      buildHistoricalPreview({
+        businessId,
+        userId: 1,
+        filename: "history.xlsx",
+        bytes,
+        sheetName: null,
+        dateFormat: null,
+        ...extra,
+      })
+    );
+
+  // Scenario C — the decision defaults, judged against values that made a real
+  // round trip through `numeric` and `timestamp` columns.
+  const decisionFile = await sheetOf([
+    fileRow("INV-1", "1170.00"), // A holds this exactly
+    fileRow("INV-NEW", "42.00"), // A holds nothing like it
+  ]);
+  const previewA = await previewAs(A, decisionFile);
+  ok("preview builds for tenant A", previewA.ok === true, previewA.code);
+  if (previewA.ok) {
+    const byRow = new Map(previewA.rows.map((r) => [r.sourceRowNumber, r]));
+    ok(
+      "the row the business already holds defaults to SKIP",
+      byRow.get(1)?.selectedDecision === "SKIP" &&
+        byRow.get(1)?.duplicate.database.state === "EXACT",
+      `${byRow.get(1)?.selectedDecision}/${byRow.get(1)?.duplicate.database.state}`
+    );
+    ok(
+      "and may only be skipped or imported as a named override",
+      JSON.stringify(byRow.get(1)?.allowedDecisions) ===
+        JSON.stringify(["SKIP", "CREATE_ANYWAY"]),
+      JSON.stringify(byRow.get(1)?.allowedDecisions)
+    );
+    ok(
+      "the genuinely new row defaults to CREATE",
+      byRow.get(2)?.selectedDecision === "CREATE" &&
+        byRow.get(2)?.duplicate.database.state === "NONE"
+    );
+    ok("and the preview is ready to execute", previewA.readyForExecute === true, JSON.stringify(previewA.notReadyReasons));
+    ok("so a token was signed", typeof previewA.previewToken === "string");
+  }
+
+  // Scenario A — a matching record appears between Analyze and Preview.
+  const analyzeBefore = await analyzeAs(A, [rowFor("STALE-1")]);
+  ok(
+    "before the insert, the row is new",
+    analyzeBefore.byRow.get(1)?.duplicate.database.state === "NONE"
+  );
+  const evidenceBefore = analyzeBefore.evidence.fingerprint;
+
+  await insert(A, "TAX_INVOICE", "STALE-1", "1170.00", null);
+
+  const staleFile = await sheetOf([fileRow("STALE-1", "1170.00")]);
+  const stale = await previewAs(A, staleFile, {
+    expectedEvidenceFingerprint: evidenceBefore,
+  });
+  ok(
+    "a record inserted before Preview makes the analysis STALE, not silently different",
+    stale.ok === false && stale.code === "ANALYSIS_STALE",
+    stale.ok ? "preview succeeded" : stale.code
+  );
+
+  // And the owner is told what the current evidence is, so re-analyzing is a
+  // deliberate act rather than a guess.
+  ok(
+    "the refusal carries the current evidence so the owner can re-check knowingly",
+    stale.ok === false && typeof stale.currentEvidenceFingerprint === "string" &&
+      stale.currentEvidenceFingerprint !== evidenceBefore
+  );
+
+  // Scenario B — tenant B changes; A's read set has not.
+  const evidenceA = (await analyzeAs(A, [rowFor("INV-1")])).evidence.fingerprint;
+  await insert(B, "TAX_INVOICE", "B-ONLY-1", "77.00", null);
+  const evidenceAAfterB = (await analyzeAs(A, [rowFor("INV-1")])).evidence.fingerprint;
+  ok(
+    "a change in another tenant does NOT disturb this tenant's evidence",
+    evidenceA === evidenceAAfterB
+  );
+
+  // Scenario D — a resolved reversal stays inside the tenant.
+  const creditFile = await sheetOf([
+    fileRow("CN-100", "-500.00", "חשבונית זיכוי", "INV-9"),
+  ]);
+  const creditA = await previewAs(A, creditFile);
+  ok(
+    "a credit in tenant A does not resolve against tenant B's invoice",
+    creditA.ok === true && creditA.rows[0].reversal.state === "NOT_FOUND",
+    creditA.ok ? creditA.rows[0].reversal.state : creditA.code
+  );
+  const creditB = await previewAs(B, creditFile);
+  ok(
+    "and the same file in tenant B resolves to tenant B's own invoice",
+    creditB.ok === true && creditB.rows[0].reversal.state === "RESOLVED_EXISTING",
+    creditB.ok ? creditB.rows[0].reversal.state : creditB.code
+  );
+
   /* ── read-only: nothing moved ─────────────────────────────────────────── */
 
   const after = await owner.$queryRawUnsafe(
@@ -279,7 +423,9 @@ async function main() {
             (SELECT count(*)::int FROM "Customer") AS customers`
   );
   const counts = after[0];
-  ok("no historical record was created, changed or removed", counts.hist === 3, String(counts.hist));
+  // Three fixture rows plus the two the I-8B.4 scenarios insert through the
+  // PRIVILEGED owner connection. Preview itself must add nothing.
+  ok("no historical record was created by the analysis or the preview", counts.hist === 5, String(counts.hist));
   ok("no import run was created", counts.runs === 0, String(counts.runs));
   ok("no row marker was created", counts.markers === 0, String(counts.markers));
   ok("no document was created", counts.docs === 0, String(counts.docs));

@@ -609,6 +609,100 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
 
+      # Import/Export Center I-8B.4 — Preview and owner decisions. Blocking,
+      # because the guarantees are about what an owner CANNOT be walked into:
+      # a duplicate imported without saying so, validation clicked through, an
+      # ambiguity resolved by a button, or a token that authorises a preview
+      # they never read.
+      # Local equivalent: npm run verify:historical-preview
+      - name: Historical preview and owner decisions
+        run: npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts
+
+      - name: I-8B.4 negative proof (an existing duplicate must never default to CREATE)
+        run: |
+          F="lib/data-transfer/historical/historical-decisions.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  if \(row\.database === "EXACT" \|\| row\.database === "STRONG_CANDIDATE"\) return "SKIP";//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a document the business already holds would have been imported by default"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.4 negative proof (CREATE_ANYWAY must not bypass validation)
+        run: |
+          F="lib/data-transfer/historical/historical-decisions.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    if \(isBlocked\(row\) \&\& action !== "SKIP"\) \{/    if (false) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a structurally invalid row could be clicked through"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.4 negative proof (ambiguity must not become overridable)
+        run: |
+          F="lib/data-transfer/historical/historical-decisions.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  if \(row\.database === "AMBIGUOUS"\) reasons\.push\("DUPLICATE_AMBIGUOUS"\);//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an ambiguous duplicate stopped blocking"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.4 negative proof (a clean row must not offer a meaningless override)
+        run: |
+          F="lib/data-transfer/historical/historical-decisions.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  return collides \? \["SKIP", "CREATE_ANYWAY"\] : \["CREATE", "SKIP"\];/  return ["CREATE", "SKIP", "CREATE_ANYWAY"];/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: CREATE_ANYWAY was offered where there is nothing to override"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+
+      - name: I-8B.4 negative proof (an unready preview must not be signed)
+        run: |
+          F="lib/data-transfer/historical/historical-preview.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  const previewToken = readyForExecute\n    \? issueHistoricalPreviewToken\(/  const previewToken = true\n    ? issueHistoricalPreviewToken(/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a token was minted while owner decisions were still outstanding"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.4 negative proof (the token must be purpose-separated from the tabular one)
+        run: |
+          F="lib/data-transfer/historical/historical-preview-token.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  keyLabel: "dubiz-data-transfer-historical-preview-v1",/  keyLabel: "dubiz-data-transfer-import-preview-v1",/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a tabular preview token could be presented as a historical one"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: I-8B.4 negative proof (the read evidence must be bound into the token)
+        run: |
+          F="lib/data-transfer/historical/historical-preview-token.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/      evidenceFingerprint: payload\.evidenceFingerprint,/      evidenceFingerprint: "",/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/data-transfer/historical/historical-preview.verify.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the token stopped carrying what the database said"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
       # The two validator extractions (I-5). Both moved rules OUT of live
       # services so the Import dry run can evaluate a row without a database.
       # These verifiers run the pre-extraction implementations side by side with
