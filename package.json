@@ -133,7 +133,8 @@
     "verify:integration-intake": "npx tsx lib/services/documents/integration-intake.verify.test.ts",
     "verify:documents-export": "npx tsx lib/data-transfer/documents/documents-export.verify.test.ts",
     "verify:documents-hardening": "npx tsx lib/services/documents/documents-hardening.verify.test.ts",
-    "verify:historical-fiscal-persistence": "npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts"
+    "verify:historical-fiscal-persistence": "npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts",
+    "verify:historical-contract": "npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",
