@@ -10,11 +10,21 @@
 # answered it for its own engine; WKWebView is a different engine with a
 # different cookie store and nothing transfers.
 #
+# WHY REAL TLS AND NOT LOOPBACK HTTP
+#
+# The first run of this probe served plain http on 127.0.0.1, which is what
+# Android accepted. WebKit refused the Secure cookie there while accepting an
+# otherwise identical non-Secure twin — so loopback http is enough for Chromium
+# and not for WebKit. The answer is to give the probe a real certificate, never
+# to drop the attribute under test. An ephemeral CA is minted on the runner,
+# trusted by this one disposable simulator, and discarded with it.
+#
+# Consequently the committed Info.plist is NOT touched: a trusted certificate
+# satisfies App Transport Security on its own, so production iOS configuration
+# stays exactly as it ships.
+#
 # Zero secrets. Zero Production. Zero Preview. Zero database. The probe server
 # is runner-local and the cookie value is a synthetic per-run marker.
-#
-# The simulator shares the host's network stack, so it reaches the runner-local
-# server directly on loopback — no tunnel, no external host, no account.
 
 name: ios cookie probe (simulator, evidence only)
 
@@ -37,7 +47,7 @@ jobs:
 
     env:
       PROBE_PORT: '3171'
-      CAP_SERVER_URL: http://127.0.0.1:3171
+      CAP_SERVER_URL: https://127.0.0.1:3171
       BUNDLE_ID: il.co.promaxgroup.dubiz
 
     steps:
@@ -62,57 +72,63 @@ jobs:
       - name: Sync the iOS project against the probe origin
         run: npx cap sync ios
 
-      # App Transport Security blocks cleartext by default and this repo sets no
-      # exception — correctly, for production. The probe needs loopback http to
-      # exercise `Secure` without a certificate authority, so the plist is
-      # patched HERE, in the CI working copy only. The committed Info.plist is
-      # untouched, which is why this is a workflow step and not a source change.
-      - name: Permit local networking for the probe (CI working copy only)
+      - name: Mint an ephemeral CA and server certificate
         run: |
-          PLIST=ios/App/App/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$PLIST" || true
-          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" "$PLIST" || \
-            /usr/libexec/PlistBuddy -c "Set :NSAppTransportSecurity:NSAllowsLocalNetworking true" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity" "$PLIST"
-          git --no-pager diff --stat -- "$PLIST"
+          set -euo pipefail
+          mkdir -p probe-tls
+          cd probe-tls
+          openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 2 -keyout ca.key -out ca.pem -subj "/CN=Dubiz Probe Ephemeral CA" -addext "basicConstraints=critical,CA:TRUE,pathlen:0" -addext "keyUsage=critical,keyCertSign,cRLSign"
+          openssl req -newkey rsa:2048 -sha256 -nodes -keyout leaf.key -out leaf.csr -subj "/CN=127.0.0.1"
+          {
+            echo "subjectAltName=IP:127.0.0.1,DNS:localhost"
+            echo "extendedKeyUsage=serverAuth"
+            echo "basicConstraints=critical,CA:FALSE"
+          } > leaf.ext
+          openssl x509 -req -in leaf.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out leaf.pem -days 2 -sha256 -extfile leaf.ext
+          openssl x509 -in leaf.pem -noout -subject -issuer -dates -ext subjectAltName
 
       - name: Boot a simulator
         id: sim
         run: |
-          UDID=$(xcrun simctl create probe-iphone \
-            "$(xcrun simctl list devicetypes | grep -oE 'com.apple.CoreSimulator.SimDeviceType.iPhone-1[5-7]' | tail -1)" \
-            "$(xcrun simctl list runtimes | grep -oE 'com.apple.CoreSimulator.SimRuntime.iOS-[0-9-]+' | tail -1)")
+          set -euo pipefail
+          DEVTYPE="$(xcrun simctl list devicetypes | grep -oE 'com.apple.CoreSimulator.SimDeviceType.iPhone-1[5-7][^ )]*' | tail -1)"
+          RUNTIME="$(xcrun simctl list runtimes | grep -oE 'com.apple.CoreSimulator.SimRuntime.iOS-[0-9-]+' | tail -1)"
+          echo "device type: $DEVTYPE"
+          echo "runtime:     $RUNTIME"
+          UDID="$(xcrun simctl create probe-iphone "$DEVTYPE" "$RUNTIME")"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
           xcrun simctl boot "$UDID"
           xcrun simctl bootstatus "$UDID" -b
 
+      # Trusted for this disposable simulator only. It is deleted with the
+      # device at the end of the job and never leaves the runner.
+      - name: Trust the ephemeral CA inside the disposable simulator
+        run: |
+          xcrun simctl keychain "${{ steps.sim.outputs.udid }}" add-root-cert probe-tls/ca.pem
+          echo "root certificate installed on ${{ steps.sim.outputs.udid }}"
+
       - name: Build the app for the simulator
         run: |
-          set -o pipefail
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination "id=${{ steps.sim.outputs.udid }}" \
-            -derivedDataPath build-ios \
-            CODE_SIGNING_ALLOWED=NO \
-            build | tail -40
+          set -euo pipefail
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -destination "id=${{ steps.sim.outputs.udid }}" -derivedDataPath build-ios CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -40
           find build-ios -name "App.app" -maxdepth 6 -print
 
-      - name: Start the runner-local cookie probe
+      - name: Start the runner-local cookie probe over TLS
         run: |
           mkdir -p native-evidence
-          node scripts/native/cookie-probe-server.mjs > native-evidence/cookie-probe-server.log 2>&1 &
+          PROBE_TLS_KEY=probe-tls/leaf.key PROBE_TLS_CERT=probe-tls/leaf.pem node scripts/native/cookie-probe-server.mjs > native-evidence/cookie-probe-server.log 2>&1 &
           for _ in $(seq 1 20); do
-            curl -fsS "http://127.0.0.1:${PROBE_PORT}/plan" > /dev/null 2>&1 && break
+            curl -fsSk "https://127.0.0.1:${PROBE_PORT}/plan" > /dev/null 2>&1 && break
             sleep 1
           done
-          curl -fsS "http://127.0.0.1:${PROBE_PORT}/plan"
+          curl -fsSk "https://127.0.0.1:${PROBE_PORT}/plan"
+          echo
+          cat native-evidence/cookie-probe-server.log
 
       - name: Run the iOS cookie probe
         env:
           SIM_UDID: ${{ steps.sim.outputs.udid }}
+          PROBE_SCHEME: https
         run: |
           APP_PATH="$(find build-ios -name 'App.app' -maxdepth 6 | head -1)"
           echo "app bundle: $APP_PATH"

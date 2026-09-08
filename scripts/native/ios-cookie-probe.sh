@@ -29,6 +29,11 @@ REPORT="$OUT/cookie-probe.json"
 CHECKS="$OUT/ios-cookie-probe-report.txt"
 SHORT_DELAY="${PROBE_SHORT_DELAY:-10}"
 LONG_DELAY="${PROBE_LONG_DELAY:-75}"
+# WebKit refused a Secure cookie over loopback http, so the probe is served
+# over TLS with an ephemeral certificate the simulator trusts. -k is for that
+# certificate on the RUNNER side only; the WebView validates it properly.
+SCHEME="${PROBE_SCHEME:-http}"
+BASE="$SCHEME://127.0.0.1:$PORT"
 
 mkdir -p "$OUT"
 : > "$CHECKS"
@@ -39,7 +44,7 @@ check() { # name, exit-code, detail
 }
 note() { echo "$1" | tee -a "$CHECKS"; }
 
-phase() { curl -fsS "http://127.0.0.1:$PORT/control?phase=$1" > /dev/null; }
+phase() { curl -fsSk "$BASE/control?phase=$1" > /dev/null; }
 observed() { # phase, path
   node -e '
     const fs = require("fs");
@@ -72,14 +77,14 @@ wait_report SET || { check "the probe page reported at all" 1 "no report from WK
 
 ORIGIN="$(observed SET locationOrigin)"
 check "WKWebView loaded the probe origin" \
-  "$([ "$ORIGIN" = "http://127.0.0.1:$PORT" ] && echo 0 || echo 1)" "location.origin=$ORIGIN"
+  "$([ "$ORIGIN" = "$BASE" ] && echo 0 || echo 1)" "location.origin=$ORIGIN"
 check "A. SET COOKIE accepted by WKWebView" \
   "$([ "$(observed SET refreshEndpoint.cookiePresent)" = "true" ] && echo 0 || echo 1)"
 check "B. HTTPONLY — document.cookie does not contain the marker" \
   "$([ "$(observed SET documentCookieContainsMarker)" = "false" ] && echo 0 || echo 1)" \
   "document.cookie is $(observed SET documentCookie)"
-check "C. SCOPED SEND — the cookie reaches /api/auth/refresh" \
-  "$([ "$(observed SET refreshEndpoint.matchesMarker)" = "true" ] && echo 0 || echo 1)"
+check "C. SCOPED SEND — the SECURE cookie reaches /api/auth/refresh" \
+  "$([ "$(observed SET refreshEndpoint.cookiePresent)" = "true" ] && [ "$(observed SET refreshEndpoint.matchesMarker)" = "true" ] && echo 0 || echo 1)"
 check "D. PATH ISOLATION — it does NOT reach /api/other" \
   "$([ "$(observed SET otherEndpoint.cookiePresent)" = "false" ] && echo 0 || echo 1)"
 note "DIAG: non-Secure twin present at SET = $(observed SET refreshEndpoint.twinPresent)"

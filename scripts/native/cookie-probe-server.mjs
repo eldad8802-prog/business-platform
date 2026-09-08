@@ -26,8 +26,9 @@
  * to /report, which this server writes to disk as the evidence artefact.
  */
 import { randomBytes } from "node:crypto";
-import { writeFileSync } from "node:fs";
-import { createServer } from "node:http";
+import { readFileSync, writeFileSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 
 const PORT = Number(process.env.PROBE_PORT ?? 3171);
 const OUT = process.env.PROBE_REPORT ?? "native-evidence/cookie-probe.json";
@@ -52,6 +53,9 @@ const ATTRS = "HttpOnly; Secure; SameSite=Strict; Path=/api/auth/refresh";
  */
 const TWIN = "dz_probe_twin_nonsecure";
 const TWIN_ATTRS = "HttpOnly; SameSite=Strict; Path=/api/auth/refresh";
+/** Distinct on purpose: a shared value made an earlier check unable to tell
+ * the two cookies apart. */
+const TWIN_MARKER = randomBytes(16).toString("hex");
 
 /** The runner advances this; the page asks what to do. */
 let phase = "SET";
@@ -123,7 +127,17 @@ void run();
 </script>
 </body></html>`;
 
-const server = createServer((req, res) => {
+/**
+ * WebKit does not accept a Secure cookie from http://127.0.0.1 the way Chromium
+ * does — the first iOS run proved it, rejecting the Secure cookie while
+ * accepting an otherwise identical non-Secure twin. So when a key and
+ * certificate are supplied the probe serves real TLS, which is the honest way
+ * to exercise Secure rather than dropping the attribute to make a test pass.
+ */
+const TLS_KEY = process.env.PROBE_TLS_KEY;
+const TLS_CERT = process.env.PROBE_TLS_CERT;
+
+const handler = (req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
 
   if (url.pathname === "/plan") return json(res, { phase });
@@ -136,7 +150,7 @@ const server = createServer((req, res) => {
   if (url.pathname === "/set") {
     res.setHeader("Set-Cookie", [
       `${NAME}=${MARKER}; ${ATTRS}; Max-Age=7776000`,
-      `${TWIN}=${MARKER}; ${TWIN_ATTRS}; Max-Age=7776000`,
+      `${TWIN}=${TWIN_MARKER}; ${TWIN_ATTRS}; Max-Age=7776000`,
     ]);
     return json(res, { set: true, attributes: ATTRS, twinAttributes: TWIN_ATTRS });
   }
@@ -188,8 +202,13 @@ const server = createServer((req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
   res.end(PAGE);
-});
+};
+
+const server =
+  TLS_KEY && TLS_CERT
+    ? createHttpsServer({ key: readFileSync(TLS_KEY), cert: readFileSync(TLS_CERT) }, handler)
+    : createHttpServer(handler);
 
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`[probe] listening on http://127.0.0.1:${PORT} (cookie ${NAME}, attributes: ${ATTRS})`);
+  console.log(`[probe] listening on ${TLS_KEY && TLS_CERT ? "https" : "http"}://127.0.0.1:${PORT} (cookie ${NAME}, attributes: ${ATTRS})`);
 });
