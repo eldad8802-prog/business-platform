@@ -256,10 +256,10 @@ async function main() {
   ok("target: app_auth cannot UPDATE Business", AP.biz_update === false);
   ok("target: app_auth cannot UPDATE User.password", AP.upd_pw === false);
   ok("target: app_auth cannot UPDATE User.role", AP.upd_role === false);
-  ok("target: app_auth cannot UPDATE User.businessId", A.upd_bizid === false);
-  ok("target: app_auth CAN still update tokenVersion (logout revocation)", A.upd_tv === true);
+  ok("target: app_auth cannot UPDATE User.businessId", AP.upd_bizid === false);
+  ok("target: app_auth CAN still update tokenVersion (logout revocation)", AP.upd_tv === true);
   ok("target: app_auth retains INSERT for signup on both tables",
-    A.user_insert === true && A.biz_insert === true);
+    AP.user_insert === true && AP.biz_insert === true);
 
   await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${E_TARGET}`);
 
