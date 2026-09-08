@@ -133,14 +133,32 @@ async function main() {
     "מערכת מקור",
     "מספר מסמך שמזוכה",
   ];
-  const fileOf = (number, total) =>
+  const row = (number, total) => [
+    "חשבונית מס",
+    number,
+    "2024-03-17",
+    total,
+    "",
+    "",
+    "ILS",
+    "",
+    "",
+    "legacy-erp",
+    "",
+  ];
+
+  /**
+   * One document, optionally followed by a second that differs between files.
+   * Two files that share a document but differ elsewhere are two DIFFERENT
+   * approvals: different content hash, different run, same fiscal identity —
+   * which is the only shape where the identity lock is what decides the race.
+   */
+  const fileOf = (number, total, companion = null) =>
     buildXlsxBuffer([
       {
         name: "ייבוא",
         columns: HEADERS.map((h) => ({ header: h, type: "text" })),
-        rows: [
-          ["חשבונית מס", number, "2024-03-17", total, "", "", "ILS", "", "", "legacy-erp", ""],
-        ],
+        rows: companion === null ? [row(number, total)] : [row(number, total), companion],
         rightToLeft: true,
       },
     ]);
@@ -186,14 +204,15 @@ async function main() {
   // Both previews are taken while the record does not exist, so both approve a
   // CREATE. Without the lock both would insert; with it, the second waits, sees
   // the first one's record, and refuses because the world it approved is gone.
-  const raceBytes = await fileOf("RACE-1", "100.00");
-  const previewOne = await previewFor(A, raceBytes);
-  const previewTwo = await previewFor(A, raceBytes);
+  const raceBytesOne = await fileOf("RACE-1", "100.00", row("FILLER-A", "10.00"));
+  const raceBytesTwo = await fileOf("RACE-1", "100.00", row("FILLER-B", "20.00"));
+  const previewOne = await previewFor(A, raceBytesOne);
+  const previewTwo = await previewFor(A, raceBytesTwo);
   ok("both previews approved a create", previewOne.ok && previewTwo.ok && previewOne.readyForExecute && previewTwo.readyForExecute);
 
   const [resultOne, resultTwo] = await Promise.all([
-    executeWith(A, raceBytes, previewOne),
-    executeWith(A, raceBytes, previewTwo),
+    executeWith(A, raceBytesOne, previewOne),
+    executeWith(A, raceBytesTwo, previewTwo),
   ]);
 
   const raceCount = await countFor(A, "RACE-1");
@@ -202,17 +221,22 @@ async function main() {
     raceCount === 1,
     `${raceCount} records`
   );
+  // Each file also carries its own filler document, so "created" is counted per
+  // run: the winner made two, the loser made only its own.
   const createdTotals = [resultOne, resultTwo].map((r) => (r.ok ? r.totals.created : -1));
   ok(
-    "and only one of them reports having created it",
-    createdTotals.filter((c) => c === 1).length === 1,
+    "only one of them created the shared document",
+    createdTotals.filter((c) => c === 2).length === 1,
     JSON.stringify(createdTotals)
   );
-  const loser = [resultOne, resultTwo].find((r) => !r.ok || r.totals.created === 0);
+  const loser = [resultOne, resultTwo].find((r) => !r.ok || r.totals.created !== 2);
   ok(
     "the other one says so, rather than reporting a silent success",
     loser !== undefined &&
-      (!loser.ok || loser.rows.some((row) => row.result === "DUPLICATE_CHANGED")),
+      (!loser.ok ||
+        loser.rows.some(
+          (r) => r.result === "DUPLICATE_CHANGED" || r.result === "ROW_PERSISTENCE_FAILED"
+        )),
     JSON.stringify(loser)
   );
 
