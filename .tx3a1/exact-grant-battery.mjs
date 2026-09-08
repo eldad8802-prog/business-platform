@@ -518,6 +518,8 @@ async function main() {
   await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${RT_ROLE}`);
   ok("lab role and fixtures removed", true);
 
+  await stageERehearsal(owner, ownerUrl);
+
   if (denials.length) {
     console.log("\n  PERMISSION DENIALS HARVESTED:");
     for (const d of denials) console.log(`    ${d}`);
@@ -529,6 +531,205 @@ async function main() {
   if (failures.length) console.log("FAILURES:\n  " + failures.join("\n  "));
   await owner.$disconnect();
   process.exit(fail > 0 ? 1 : 0);
+}
+
+/**
+ * D2 / STAGE E3 — the narrowed grant contract, rehearsed as the roles that will
+ * hold it.
+ *
+ * Section 2b asserts what the target model FORBIDS, using catalog predicates on
+ * a role that never connects. That is necessary and not sufficient: a contract
+ * can be correctly restrictive and still break the product, and the way it
+ * breaks is a permission error inside a request nobody is watching. So this
+ * section connects as the roles, under exactly the target grants, and runs the
+ * shapes the code actually issues.
+ *
+ * Both directions are proven from the same roles. A rehearsal that only showed
+ * refusals would pass while account deletion, login and signup were all broken;
+ * one that only showed successes would pass while the boundary did nothing.
+ *
+ * The column lists are derived from the merged code, not from the design
+ * document. Where they differ, the code wins and the difference is reported.
+ */
+const E3_RUNTIME = "e3_runtime";
+const E3_AUTH = "e3_auth";
+const E3_PW = "e3_ci_synthetic_pw";
+
+// Every column the runtime reads, unioned across its call sites: the selects
+// themselves plus the columns named in where clauses and orderBy, which need
+// SELECT too.
+const RUNTIME_USER_SELECT_COLS = ["id", "email", "name", "businessId", "lastLoginAt", "loginCount"];
+const RUNTIME_BUSINESS_SELECT_COLS = ["id", "name", "createdAt", "deletionRequestedAt", "deletedAt"];
+// The only writes the runtime performs, both inside account deletion.
+const RUNTIME_USER_UPDATE_COLS = ["email", "name", "password"];
+const RUNTIME_BUSINESS_UPDATE_COLS = ["deletionRequestedAt", "deletedAt", "archivedAt", "archivedByUserId"];
+
+const AUTH_USER_SELECT_COLS = ["id", "email", "name", "password", "businessId", "tokenVersion", "role"];
+const AUTH_BUSINESS_SELECT_COLS = ["id", "name", "deletionRequestedAt", "deletedAt"];
+const AUTH_USER_UPDATE_COLS = ["lastLoginAt", "loginCount", "tokenVersion", "updatedAt"];
+// Prisma names only the fields it supplies; the rest come from defaults.
+const AUTH_USER_INSERT_COLS = ["email", "password", "name", "businessId", "updatedAt"];
+const AUTH_BUSINESS_INSERT_COLS = ["name", "updatedAt"];
+
+const cols = (list) => list.map((c) => `"${c}"`).join(",");
+
+async function stageERehearsal(owner, ownerUrl) {
+  console.log("\n== 3. STAGE E: the narrowed contract, exercised by the roles that will hold it ==");
+
+  for (const r of [E3_RUNTIME, E3_AUTH]) {
+    await owner.$executeRawUnsafe(`DROP OWNED BY ${r}`).catch(() => {});
+    await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${r}`);
+    await owner.$executeRawUnsafe(
+      `CREATE ROLE ${r} LOGIN PASSWORD '${E3_PW}' NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION`);
+    await owner.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO ${r}`);
+  }
+
+  // ---- the target contract, granted exactly and nothing beyond it -----------
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT (${cols(RUNTIME_USER_SELECT_COLS)}) ON public."User" TO ${E3_RUNTIME}`);
+  await owner.$executeRawUnsafe(
+    `GRANT UPDATE (${cols(RUNTIME_USER_UPDATE_COLS)}) ON public."User" TO ${E3_RUNTIME}`);
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT (${cols(RUNTIME_BUSINESS_SELECT_COLS)}) ON public."Business" TO ${E3_RUNTIME}`);
+  await owner.$executeRawUnsafe(
+    `GRANT UPDATE (${cols(RUNTIME_BUSINESS_UPDATE_COLS)}) ON public."Business" TO ${E3_RUNTIME}`);
+
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT (${cols(AUTH_USER_SELECT_COLS)}) ON public."User" TO ${E3_AUTH}`);
+  await owner.$executeRawUnsafe(
+    `GRANT INSERT (${cols(AUTH_USER_INSERT_COLS)}) ON public."User" TO ${E3_AUTH}`);
+  await owner.$executeRawUnsafe(
+    `GRANT UPDATE (${cols(AUTH_USER_UPDATE_COLS)}) ON public."User" TO ${E3_AUTH}`);
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT (${cols(AUTH_BUSINESS_SELECT_COLS)}) ON public."Business" TO ${E3_AUTH}`);
+  await owner.$executeRawUnsafe(
+    `GRANT INSERT (${cols(AUTH_BUSINESS_INSERT_COLS)}) ON public."Business" TO ${E3_AUTH}`);
+  for (const s of ['"User_id_seq"', '"Business_id_seq"']) {
+    await owner.$executeRawUnsafe(`GRANT USAGE ON SEQUENCE public.${s} TO ${E3_AUTH}`);
+  }
+
+  // ---- a fixture to act on --------------------------------------------------
+  const biz = await owner.$queryRawUnsafe(
+    `INSERT INTO "Business" ("name","createdAt","updatedAt") VALUES ('e3-fixture', now(), now()) RETURNING id`);
+  const bizId = biz[0].id;
+  await owner.$executeRawUnsafe(
+    `INSERT INTO "User" ("email","password","name","businessId","createdAt","updatedAt")
+     VALUES ('e3@example.invalid','not-a-real-hash','e3 user',$1, now(), now())`, bizId);
+
+  const rt = new PrismaClient({ datasourceUrl: roleUrl(ownerUrl, E3_RUNTIME, E3_PW) });
+  const au = new PrismaClient({ datasourceUrl: roleUrl(ownerUrl, E3_AUTH, E3_PW) });
+  const allow = async (label, fn) => {
+    const e = await err(fn);
+    ok(label, e === null, e ? String(e.message).split("\n").filter(Boolean).slice(-1)[0] : "");
+  };
+  const deny = async (label, fn) => {
+    const e = await err(fn);
+    ok(label, e !== null && isDenied(e), e ? String(e.message).split("\n").filter(Boolean).slice(-1)[0] : "it succeeded");
+    if (e && isDenied(e)) denials.push(label);
+  };
+
+  // ---- positive: the auth plane's real query shapes -------------------------
+  console.log("\n  -- auth plane, under the narrowed contract --");
+  await allow("login: resolve a user by email, hash included",
+    () => au.$queryRawUnsafe(
+      `SELECT ${cols(AUTH_USER_SELECT_COLS)} FROM "User" WHERE email = $1`, "e3@example.invalid"));
+  await allow("login: read the business name it returns",
+    () => au.$queryRawUnsafe(`SELECT "name" FROM "Business" WHERE id = $1`, bizId));
+  await allow("login: stamp the counters",
+    () => au.$executeRawUnsafe(
+      `UPDATE "User" SET "lastLoginAt"=now(), "loginCount"="loginCount"+1, "updatedAt"=now() WHERE id > 0`));
+  await allow("session resolution: by id, WITHOUT the hash",
+    () => au.$queryRawUnsafe(
+      `SELECT "id","email","name","businessId","role","tokenVersion" FROM "User" WHERE id > 0`));
+  await allow("session resolution: the lifecycle gate's Business columns",
+    () => au.$queryRawUnsafe(
+      `SELECT "id","name","deletionRequestedAt","deletedAt" FROM "Business" WHERE id = $1`, bizId));
+  await allow("logout: increment tokenVersion",
+    () => au.$executeRawUnsafe(`UPDATE "User" SET "tokenVersion"="tokenVersion"+1, "updatedAt"=now() WHERE id > 0`));
+  await allow("signup: create Business then User in one transaction",
+    () => au.$transaction(async (tx) => {
+      const b = await tx.$queryRawUnsafe(
+        `INSERT INTO "Business" ("name","updatedAt") VALUES ('e3-signup', now()) RETURNING id`);
+      await tx.$executeRawUnsafe(
+        `INSERT INTO "User" ("email","password","name","businessId","updatedAt")
+         VALUES ('e3-signup@example.invalid','hash','n',$1, now())`, b[0].id);
+    }));
+
+  // ---- negative: the auth plane's boundary ----------------------------------
+  await deny("auth: DELETE User", () => au.$executeRawUnsafe(`DELETE FROM "User" WHERE id = -1`));
+  await deny("auth: DELETE Business", () => au.$executeRawUnsafe(`DELETE FROM "Business" WHERE id = -1`));
+  await deny("auth: UPDATE Business", () => au.$executeRawUnsafe(`UPDATE "Business" SET name=name WHERE id=-1`));
+  await deny("auth: UPDATE User.password",
+    () => au.$executeRawUnsafe(`UPDATE "User" SET password='x' WHERE id = -1`));
+  await deny("auth: UPDATE User.role",
+    () => au.$executeRawUnsafe(`UPDATE "User" SET role='PLATFORM_ADMIN' WHERE id = -1`));
+  await deny("auth: UPDATE User.businessId",
+    () => au.$executeRawUnsafe(`UPDATE "User" SET "businessId"=-1 WHERE id = -1`));
+  await deny("auth: SELECT a Business column outside its contract (createdAt)",
+    () => au.$queryRawUnsafe(`SELECT "createdAt" FROM "Business" WHERE id = $1`, bizId));
+
+  // ---- positive: the runtime's real query shapes ----------------------------
+  console.log("\n  -- tenant runtime, under the narrowed contract --");
+  await allow("runtime: account deletion lists a tenant's user ids",
+    () => rt.$queryRawUnsafe(`SELECT "id" FROM "User" WHERE "businessId" = $1`, bizId));
+  await allow("runtime: read a user's name (billing authority decision)",
+    () => rt.$queryRawUnsafe(`SELECT "name" FROM "User" WHERE id > 0`));
+  await allow("runtime: platform usage overview shape",
+    () => rt.$queryRawUnsafe(
+      `SELECT "id","email","lastLoginAt","loginCount" FROM "User"
+        WHERE "lastLoginAt" IS NOT NULL ORDER BY "lastLoginAt" DESC LIMIT 8`));
+  await allow("runtime: business lifecycle gate",
+    () => rt.$queryRawUnsafe(
+      `SELECT "deletionRequestedAt","deletedAt" FROM "Business" WHERE id = $1`, bizId));
+  await allow("runtime: platform business listing shape (id, name, createdAt, sortable)",
+    () => rt.$queryRawUnsafe(
+      `SELECT "id","name","createdAt" FROM "Business" WHERE "name" <> 'x' ORDER BY "createdAt" DESC LIMIT 5`));
+  await allow("runtime: account deletion anonymises the User",
+    () => rt.$executeRawUnsafe(
+      `UPDATE "User" SET email='deleted@deleted.invalid', name=NULL, password='' WHERE "businessId" = $1`, bizId));
+  await allow("runtime: account deletion quarantines the Business",
+    () => rt.$executeRawUnsafe(
+      `UPDATE "Business" SET "deletionRequestedAt"=now() WHERE id = $1 AND "deletionRequestedAt" IS NULL`, bizId));
+  await allow("runtime: account deletion finalises the purge",
+    () => rt.$executeRawUnsafe(
+      `UPDATE "Business" SET "deletedAt"=now(), "archivedAt"=now(), "archivedByUserId"=NULL
+        WHERE id = $1 AND "deletedAt" IS NULL`, bizId));
+
+  // ---- negative: the runtime's boundary -------------------------------------
+  await deny("runtime: INSERT User",
+    () => rt.$executeRawUnsafe(
+      `INSERT INTO "User" ("email","password","name","businessId","updatedAt")
+       VALUES ('x@example.invalid','h','n',$1, now())`, bizId));
+  await deny("runtime: INSERT Business",
+    () => rt.$executeRawUnsafe(`INSERT INTO "Business" ("name","updatedAt") VALUES ('x', now())`));
+  await deny("runtime: DELETE User", () => rt.$executeRawUnsafe(`DELETE FROM "User" WHERE id = -1`));
+  await deny("runtime: DELETE Business", () => rt.$executeRawUnsafe(`DELETE FROM "Business" WHERE id = -1`));
+  await deny("runtime: UPDATE User.role",
+    () => rt.$executeRawUnsafe(`UPDATE "User" SET role='PLATFORM_ADMIN' WHERE id = -1`));
+  await deny("runtime: UPDATE User.businessId",
+    () => rt.$executeRawUnsafe(`UPDATE "User" SET "businessId"=-1 WHERE id = -1`));
+  await deny("runtime: UPDATE User.tokenVersion (revocation is the auth plane's)",
+    () => rt.$executeRawUnsafe(`UPDATE "User" SET "tokenVersion"=99 WHERE id = -1`));
+  await deny("runtime: UPDATE an arbitrary Business column (name)",
+    () => rt.$executeRawUnsafe(`UPDATE "Business" SET name='x' WHERE id = -1`));
+  await deny("runtime: SELECT User.password",
+    () => rt.$queryRawUnsafe(`SELECT "password" FROM "User" WHERE id > 0`));
+  await deny("runtime: SELECT User.role",
+    () => rt.$queryRawUnsafe(`SELECT "role" FROM "User" WHERE id > 0`));
+  await deny("runtime: SELECT * on User (the default all-scalars shape E2 removed)",
+    () => rt.$queryRawUnsafe(`SELECT * FROM "User" WHERE id > 0`));
+  await deny("runtime: SELECT * on Business",
+    () => rt.$queryRawUnsafe(`SELECT * FROM "Business" WHERE id > 0`));
+
+  await rt.$disconnect();
+  await au.$disconnect();
+  for (const r of [E3_RUNTIME, E3_AUTH]) {
+    await owner.$executeRawUnsafe(`DROP OWNED BY ${r}`).catch(() => {});
+    await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${r}`);
+  }
+  await owner.$executeRawUnsafe(`DELETE FROM "User" WHERE email LIKE 'e3%@example.invalid' OR email = 'deleted@deleted.invalid'`);
+  await owner.$executeRawUnsafe(`DELETE FROM "Business" WHERE name IN ('e3-fixture','e3-signup')`);
+  ok("Stage E rehearsal roles and fixtures removed", true);
 }
 
 main().catch((e) => { console.error("FATAL:", e); process.exit(1); });
