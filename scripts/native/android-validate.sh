@@ -12,6 +12,25 @@
 # (login screen) unless an operator has already signed in on the device.
 set -uo pipefail
 
+# --- TEST-ONLY DISPATCH (branch probe/android-cookie-feasibility) ---------
+# When CAP_SERVER_URL points at loopback there is no Dubiz app to validate:
+# the WebView has been pointed at a disposable cookie-contract probe served by
+# this runner. Hand over to the probe and never run the app battery against
+# it. A production dispatch passes a real https origin and cannot enter here.
+case "${CAP_SERVER_URL:-}" in
+  http://127.0.0.1:*|http://localhost:*)
+    echo "== CAP_SERVER_URL is loopback -> running the disposable cookie probe"
+    export PROBE_PORT="${PROBE_PORT:-3171}"
+    mkdir -p native-evidence
+    node scripts/native/cookie-probe-server.mjs > native-evidence/cookie-probe-server.log 2>&1 &
+    for _ in $(seq 1 20); do
+      curl -fsS "http://127.0.0.1:${PROBE_PORT}/plan" > /dev/null 2>&1 && break
+      sleep 1
+    done
+    exec bash scripts/native/android-cookie-probe.sh
+    ;;
+esac
+
 OUT="native-evidence"
 APK="android/app/build/outputs/apk/debug/app-debug.apk"
 PKG="il.co.promaxgroup.dubiz"

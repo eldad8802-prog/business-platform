@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TEST-ONLY, DEBUG SOURCE SET.
+
+  Android merges this manifest into DEBUG builds only. The release APK/AAB is
+  built from src/main and is not affected by anything here — that is the whole
+  reason this lives in src/debug rather than behind a flag someone could get
+  wrong.
+
+  It exists so a CI emulator can reach a runner-local cookie probe over
+  loopback. `Secure` cookies need a trustworthy origin, and Chromium treats
+  127.0.0.1 as one, so the probe needs no certificate authority and no trust
+  store edit — but Android still blocks cleartext by default, hence this narrow
+  permission scoped to loopback and nothing else.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application
+        android:networkSecurityConfig="@xml/probe_network_security_config"
+        tools:replace="android:networkSecurityConfig" />
+</manifest>
