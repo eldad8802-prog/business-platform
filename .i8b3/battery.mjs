@@ -198,9 +198,21 @@ async function main() {
   );
 
   const forB = await analyzeAs(B, [rowFor("INV-9")]);
+  // B's stored INV-9 is 500.00 and the uploaded row says 1170.00, so the state
+  // must be STRONG_CANDIDATE rather than EXACT — which proves two things at
+  // once: the isolation above is not simply an empty read, and the comparison
+  // is running against values that made a real round trip through a `numeric`
+  // column rather than against something held in memory.
   ok(
-    "and tenant B does see its own — so the isolation is not just an empty read",
-    forB.byRow.get(1)?.duplicate.database.state === "EXACT"
+    "tenant B sees its own record, and the amount difference is detected",
+    forB.byRow.get(1)?.duplicate.database.state === "STRONG_CANDIDATE",
+    forB.byRow.get(1)?.duplicate.database.state
+  );
+  ok(
+    "and the differing field named is the total",
+    JSON.stringify(forB.byRow.get(1)?.duplicate.database.differingFields) ===
+      JSON.stringify(["totalAmount"]),
+    JSON.stringify(forB.byRow.get(1)?.duplicate.database.differingFields)
   );
 
   /* ── reversal never crosses a tenant ──────────────────────────────────── */
