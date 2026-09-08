@@ -138,6 +138,9 @@ const TLS_KEY = process.env.PROBE_TLS_KEY;
 const TLS_CERT = process.env.PROBE_TLS_CERT;
 
 const handler = (req, res) => {
+  // Every request is logged: a run where the WebView never connects looks
+  // exactly like one where it connected and failed, unless this says otherwise.
+  console.log(`[probe] ${req.method} ${req.url}`);
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
 
   if (url.pathname === "/plan") return json(res, { phase });
@@ -209,6 +212,10 @@ const server =
     ? createHttpsServer({ key: readFileSync(TLS_KEY), cert: readFileSync(TLS_CERT) }, handler)
     : createHttpServer(handler);
 
-server.listen(PORT, "127.0.0.1", () => {
+// Bind every loopback interface, not just IPv4. An iOS run reached the point
+// where the CA was trusted and the server was up, and the WebView still never
+// connected — because it was pointed at "localhost", which resolves to the IPv6
+// loopback first, and nothing was listening there.
+server.listen(PORT, () => {
   console.log(`[probe] listening on ${TLS_KEY && TLS_CERT ? "https" : "http"}://127.0.0.1:${PORT} (cookie ${NAME}, attributes: ${ATTRS})`);
 });
