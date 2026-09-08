@@ -378,7 +378,25 @@ async function main() {
       line("CN-500", "-500.00", { type: "חשבונית זיכוי", reverses: "INV-200" }),
     ])
   );
-  ok("the file executes with its target row skipped", skippedTarget.execute?.ok === true, skippedTarget.execute?.code);
+  ok(
+    "the file executes with its target row skipped",
+    skippedTarget.execute?.ok === true,
+    JSON.stringify({
+      previewOk: skippedTarget.preview?.ok,
+      previewCode: skippedTarget.preview?.code,
+      ready: skippedTarget.preview?.readyForExecute,
+      executeCode: skippedTarget.execute?.code,
+      rows: skippedTarget.preview?.rows?.map((r) => ({
+        n: r.sourceRowNumber,
+        decision: r.selectedDecision,
+        dup: r.duplicate?.database?.state,
+        reversalState: r.reversal?.state,
+        targetRow: r.reversal?.targetSourceRow,
+        targetClass: r.reversalTarget,
+        blocked: r.blockingReasons,
+      })),
+    })
+  );
   const boundSkipped = (
     await owner.$queryRawUnsafe(
       `SELECT t."originalDocumentNumber" AS number
