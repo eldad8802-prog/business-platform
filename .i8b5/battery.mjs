@@ -370,61 +370,62 @@ async function main() {
 
   // INV-200 already exists, and this file both re-states it and credits it. A
   // person would say there is one target. The analysis says there are two
-  // candidates — the row in the file and the record in the database — and two
-  // candidates is ambiguity, which I-8B.3 settled must always block rather than
-  // be resolved by picking one. So the guarantee proven here is the refusal:
-  // no token, no run, no half-bound credit, and nothing written at all.
-  const beforeAmbiguous = await countFor(A, "CN-500");
-  const restateAndCredit = await runImport(
-    A,
-    await fileOf([
+  // candidates — the row in the file and the record in the database — and
+  // I-8B.3 settled that two candidates block rather than being resolved by
+  // picking one. What is proven here is that the block is real at every level:
+  // the credit is never selectable, saying CREATE for it refuses the whole
+  // file, and an override of the duplicate does not quietly resolve it either.
+  const ambiguousFile = () =>
+    fileOf([
       line("INV-200", "500.00"),
       line("CN-500", "-500.00", { type: "חשבונית זיכוי", reverses: "INV-200" }),
-    ])
-  );
-  const creditRow = restateAndCredit.preview?.rows?.find((r) => r.sourceRowNumber === 2);
+    ]);
+  const beforeAmbiguous = await countFor(A, "CN-500");
+
+  const untouched = await runImport(A, await ambiguousFile());
+  const creditRow = untouched.preview?.rows?.find((r) => r.sourceRowNumber === 2);
   ok(
-    "restating a document and crediting it in one file is refused, not guessed",
-    restateAndCredit.preview?.ok === true &&
-      restateAndCredit.preview.readyForExecute === false &&
-      restateAndCredit.execute === null,
-    JSON.stringify({
-      ready: restateAndCredit.preview?.readyForExecute,
-      executed: restateAndCredit.execute !== null,
-    })
-  );
-  ok(
-    "and it says why in structural terms — the credit has two candidates",
+    "the credit is blocked, and says why in structural terms",
     creditRow?.reversal?.state === "AMBIGUOUS" &&
+      creditRow?.blocked === true &&
       (creditRow?.blockingReasons ?? []).includes("REVERSAL_AMBIGUOUS"),
     JSON.stringify({ state: creditRow?.reversal?.state, blocked: creditRow?.blockingReasons })
   );
   ok(
-    "nothing was written by the refused file",
-    (await countFor(A, "CN-500")) === beforeAmbiguous,
-    String(await countFor(A, "CN-500"))
+    "with the invoice already held and the credit blocked, there is nothing to import",
+    untouched.preview?.readyForExecute === false &&
+      (untouched.preview?.notReadyReasons ?? []).includes("NOTHING_TO_IMPORT") &&
+      untouched.execute === null,
+    JSON.stringify(untouched.preview?.notReadyReasons)
   );
 
-  // And the override cannot clear it. CREATE_ANYWAY is permission to import a
-  // document the business already holds; it is not an answer to "which document
-  // does this credit?", and no owner click may become one.
-  const overrideAttempt = await runImport(
-    A,
-    await fileOf([
-      line("INV-200", "500.00"),
-      line("CN-500", "-500.00", { type: "חשבונית זיכוי", reverses: "INV-200" }),
-    ]),
-    { 1: "CREATE_ANYWAY" }
+  // Choosing to import the blocked credit refuses the file — including the row
+  // that was otherwise fine. A blocked row is not a warning to click past.
+  const forced = await runImport(A, await ambiguousFile(), {
+    1: "CREATE_ANYWAY",
+    2: "CREATE",
+  });
+  ok(
+    "selecting the ambiguous credit refuses the whole file",
+    forced.preview?.readyForExecute === false &&
+      (forced.preview?.notReadyReasons ?? []).includes("BLOCKED_ROW_SELECTED") &&
+      forced.execute === null,
+    JSON.stringify(forced.preview?.notReadyReasons)
+  );
+
+  // And the override does what it is for and no more: the duplicate invoice is
+  // imported on purpose, the ambiguous credit is still skipped, and no credit
+  // was bound to a document nobody chose.
+  const overridden = await runImport(A, await ambiguousFile(), { 1: "CREATE_ANYWAY" });
+  ok(
+    "CREATE_ANYWAY imports the duplicate it was given for",
+    overridden.execute?.ok === true && overridden.execute.totals.created === 1,
+    JSON.stringify(overridden.execute?.totals)
   );
   ok(
-    "CREATE_ANYWAY overrides a duplicate, never a structural ambiguity",
-    overrideAttempt.preview?.ok === true &&
-      overrideAttempt.preview.readyForExecute === false &&
-      overrideAttempt.execute === null,
-    JSON.stringify({
-      ready: overrideAttempt.preview?.readyForExecute,
-      executed: overrideAttempt.execute !== null,
-    })
+    "and the ambiguous credit is still not written",
+    (await countFor(A, "CN-500")) === beforeAmbiguous,
+    String(await countFor(A, "CN-500"))
   );
 
   /* ── 6. tenant isolation ─────────────────────────────────────────────── */
