@@ -130,10 +130,8 @@ jobs:
           # simulator, since the simulator uses the host resolver. TLS still
           # validates against the hostname via SNI, so nothing about the
           # certificate check is weakened.
-          echo "system resolver:  $(dig +short "$HOST" | tr "
-" " ")"
-          echo "public resolver:  $(dig +short @1.1.1.1 "$HOST" | tr "
-" " ")"
+          echo "system resolver sees: $(dig +short "$HOST" | head -3 | paste -sd" " -)"
+          echo "public resolver sees: $(dig +short @1.1.1.1 "$HOST" | head -3 | paste -sd" " -)"
           if ! dig +short "$HOST" | grep -qE "^[0-9]"; then
             IP="$(dig +short @1.1.1.1 "$HOST" | grep -E "^[0-9]" | head -1 || true)"
             if [ -n "$IP" ]; then
