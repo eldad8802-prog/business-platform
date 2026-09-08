@@ -54,6 +54,15 @@ export interface ProviderDescriptor {
   merchantIdField: ProviderMerchantField;
   credentialFields: CredentialField[];
   capabilities: ProviderCapabilities;
+  /**
+   * Mirrors `PaymentProviderAdapter.supportedCurrencies` so the catalog — and
+   * therefore the UI — can state what a provider accepts without duck-typing
+   * the adapter. Both are read from one constant per provider file, and
+   * `provider-framework.test.ts` asserts they never drift apart.
+   *
+   * `null` = the adapter translates nothing and forwards the ISO code.
+   */
+  supportedCurrencies: readonly string[] | null;
 }
 
 /** Catalog shape returned by GET /api/payments/providers (metadata only). */

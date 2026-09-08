@@ -95,17 +95,52 @@ export interface ProviderPaymentStatus {
 export interface PaymentProviderAdapter {
   readonly provider: PaymentProvider;
 
+  /**
+   * Currencies this adapter can ENCODE for its provider.
+   *
+   * A concrete list means the adapter translates the ISO code into a
+   * provider-specific value from a fixed table it carries. A code outside that
+   * table cannot be expressed at all, so it must be refused BEFORE the provider
+   * is called — never coerced to a neighbouring currency, which would charge a
+   * cardholder in one currency while every record we keep claims another.
+   *
+   * `null` means the adapter forwards the ISO code unchanged and translates
+   * nothing, so there is no code it could silently mis-encode; the provider
+   * itself is then the authority on what it accepts and what it rejects.
+   */
+  readonly supportedCurrencies: readonly string[] | null;
+
   createPaymentLink(
     input: CreatePaymentLinkInput
   ): Promise<CreatePaymentLinkResult>;
 
-  /** Authenticate an inbound webhook. Implementations must never throw. */
-  verifyWebhook(input: VerifyWebhookInput): VerifyWebhookResult;
+  /**
+   * Authenticate an inbound webhook.
+   *
+   * ASYNC BY CONTRACT. Most providers can be authenticated from the body and
+   * headers alone, but a provider that verifies a callback through its own API
+   * (PayPal's verify-webhook-signature, for example) needs I/O to answer, and a
+   * synchronous signature made that impossible to express. An adapter needing
+   * no I/O simply declares the method `async` and returns immediately.
+   *
+   * Implementations should not throw; a caller must nonetheless treat a
+   * rejected promise as a verification FAILURE, never as a pass.
+   */
+  verifyWebhook(input: VerifyWebhookInput): Promise<VerifyWebhookResult>;
 
   /** Parse an inbound webhook into a normalized event. Must never throw. */
   parseWebhook(input: ParseWebhookInput): ParsedWebhookEvent;
 
-  /** Optional active status poll (not used in P1 webhook flow). */
+  /**
+   * Provider-authoritative status query.
+   *
+   * Optional in the TYPE, mandatory in PRACTICE for any provider offered as an
+   * active capability: the Authority Principle lets a request reach PAID only
+   * from an outcome this call establishes, so an adapter without it can never
+   * settle anything. `provider-availability.ts` carries that invariant, and
+   * `provider-authority.test.ts` locks it — see the note there for why it is
+   * enforced at the capability boundary rather than by making this required.
+   */
   getPaymentStatus?(
     input: GetPaymentStatusInput
   ): Promise<ProviderPaymentStatus>;

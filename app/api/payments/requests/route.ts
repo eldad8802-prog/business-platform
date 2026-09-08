@@ -14,8 +14,10 @@ import {
 } from "@/lib/services/payments/payment-api.serializer";
 import type {
   ListPaymentRequestsOptions,
+  PaymentProvider,
   PaymentRequestStatus,
 } from "@/lib/services/payments/payments.types";
+import { AmbiguousPaymentProviderError } from "@/lib/services/payments/payment-request.service";
 import { runWithTenantContext } from "@/lib/tenant/context";
 
 export const runtime = "nodejs";
@@ -64,6 +66,16 @@ export async function POST(req: NextRequest) {
       throw new ValidationError("amount is required");
     }
 
+    // Multi-provider seam. `provider` is OPTIONAL: every existing caller omits
+    // it and keeps the single-active-connection behaviour untouched. Sending it
+    // is what lets a business with more than one acquirer say which to use.
+    // Whether the value is known, enabled and connected is the service's
+    // decision — the route only shapes it.
+    const provider =
+      typeof body.provider === "string" && body.provider.trim() !== ""
+        ? (body.provider.trim().toUpperCase() as PaymentProvider)
+        : undefined;
+
     const result = await await runWithTenantContext(
       { businessId: actor.businessId },
       () =>
@@ -71,6 +83,7 @@ export async function POST(req: NextRequest) {
           {
             businessId: actor.businessId,
             actorUserId: actor.userId,
+            provider,
             amount: body.amount as string | number,
             currency: typeof body.currency === "string" ? body.currency : undefined,
             description:
@@ -93,6 +106,19 @@ export async function POST(req: NextRequest) {
       status: 201,
     });
   } catch (error) {
+    // The one refusal a client can act on directly: several acquirers are
+    // connected and none was named. Returning the candidates turns a dead end
+    // into a choice the UI can present.
+    if (error instanceof AmbiguousPaymentProviderError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          candidates: error.candidates,
+        },
+        { status: 400 }
+      );
+    }
     return handleError(error);
   }
 }

@@ -1579,6 +1579,116 @@ jobs:
       - name: Payment webhook orchestration (authority + pre-persistence refusal)
         run: npx tsx lib/services/payments/payment-webhook.test.ts
 
+      # ── PAYMENTS FOUNDATION CLOSURE ────────────────────────────────────
+      # Six controls on the money path, each paired with a negative proof that
+      # re-plants the real defect and requires its suite to notice. Blocking:
+      # every one of them guards a way for a payment to be created, charged or
+      # settled against something the caller should not have been able to name.
+      # Local equivalent: npm run verify:payments-foundation
+      - name: SEC-05 currency authority (no silent fallback to ILS)
+        run: npx tsx lib/services/payments/payment-currency-authority.test.ts
+
+      - name: SEC-05 negative proof (restoring the currency fallback must be caught)
+        run: |
+          F="lib/services/payments/providers/cardcom/cardcom.provider.ts"
+          cp "$F" "$F.bak"
+          # The original defect: an unmapped currency silently became shekels.
+          # The fail-closed RESOLVER is what has to be removed — replacing only
+          # the field would leave the guard above it still throwing.
+          perl -0pi -e 's/      const isoCoinId = resolveIsoCoinId\(input\.currency\);/      const isoCoinId = ISO_COIN_ID[input.currency] ?? ISO_COIN_ID.ILS;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payment-currency-authority.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a coerced currency passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: SEC-01 amount authority (the server decides what a document may collect)
+        run: npx tsx lib/services/payments/payment-document-authority.test.ts
+
+      - name: SEC-01 negative proof (trusting the client's amount must be caught)
+        run: |
+          F="lib/services/payments/payment-request.service.ts"
+          cp "$F" "$F.bak"
+          # The original defect: the amount arrived from the browser and was
+          # never checked against the document it claimed to be paying.
+          perl -0pi -e 's/    assertAmountPayableAgainstDocument\(payableDocument, \{ amount, currency \}\);/    void payableDocument;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payment-document-authority.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unchecked amount passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: SEC-02 tenant ownership of customer + document references
+        run: npx tsx lib/services/payments/payment-tenant-ownership.test.ts
+
+      - name: SEC-02 negative proof (an unresolved document reference must be caught)
+        run: |
+          F="lib/services/payments/payment-request.service.ts"
+          cp "$F" "$F.bak"
+          # The original defect: the id was accepted as a bare integer, so it
+          # could name another tenant's document. Foreign keys do not stop that
+          # — referential integrity is evaluated with row security bypassed.
+          perl -0pi -e 's/    if \(!payableDocument\) \{/    if (false) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payment-tenant-ownership.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the ownership scope was ignored"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Multi-provider request seam (deterministic selection)
+        run: npx tsx lib/services/payments/payment-provider-seam.test.ts
+
+      - name: Multi-provider negative proof (dropping the enablement gate must be caught)
+        run: |
+          F="lib/services/payments/payment-request.service.ts"
+          cp "$F" "$F.bak"
+          # Without this gate a surviving connection to a switched-off provider
+          # can still mint a payment link whose callback the webhook answers
+          # with 404 — money taken that could never be confirmed.
+          perl -0pi -e 's/    assertPaymentProviderEnabled\(input\.requested\);//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payment-provider-seam.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a disabled provider stayed selectable"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Async webhook verification contract (awaited, fail-closed)
+        run: npx tsx lib/services/payments/payment-webhook-async-verification.test.ts
+
+      - name: Async webhook negative proof (not awaiting verification must be caught)
+        run: |
+          F="lib/services/payments/payment-webhook.service.ts"
+          cp "$F" "$F.bak"
+          # Dropping the await lets processing race ahead of authentication.
+          perl -0pi -e 's/    verify = await adapter\.verifyWebhook\(\{/    verify = { ok: true }; void adapter.verifyWebhook({/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payment-webhook-async-verification.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: unverified processing passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Status authority contract (every enabled provider can verify)
+        run: npx tsx lib/services/payments/provider-authority.test.ts
+
+      - name: Status authority negative proof (enabling a provider that cannot verify must be caught)
+        run: |
+          F="lib/services/payments/providers/provider-availability.ts"
+          cp "$F" "$F.bak"
+          # Tranzila has no getPaymentStatus, so enabling it would offer a
+          # capability that can take a payment and never settle it.
+          perl -0pi -e 's/  "TRANZILA",\r?\n//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/provider-authority.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a non-verifying provider was enabled"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
       # Two negative proofs, each aimed at a control that is actually
       # load-bearing. (A third candidate — re-planting the fail-open branch in
       # CardCom's own verifyWebhook — was tried and DELIBERATELY dropped: the

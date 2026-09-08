@@ -11,6 +11,7 @@ import {
   listAllProviderDescriptors,
   listProviderDescriptors,
   isSupportedProvider,
+  resolvePaymentProvider,
 } from "./providers/provider-registry";
 import {
   connectProviderFromDescriptor,
@@ -65,6 +66,25 @@ async function main() {
         assert.ok(f.key && f.label && (f.type === "text" || f.type === "secret"));
         assert.ok(!("value" in (f as Record<string, unknown>)));
       }
+    }
+
+    // SEC-05: the descriptor's currency declaration is what the UI reads; the
+    // adapter's is what the create path enforces. Both come from one constant
+    // per provider file, and drift between them would let the UI offer a
+    // currency the adapter then refuses — or, worse, the reverse.
+    for (const d of listAllProviderDescriptors()) {
+      const adapter = resolvePaymentProvider(d.key);
+      assert.deepEqual(
+        d.supportedCurrencies,
+        adapter.supportedCurrencies,
+        `${d.key}: descriptor and adapter disagree about supported currencies`
+      );
+      assert.ok(
+        d.supportedCurrencies === null ||
+          (Array.isArray(d.supportedCurrencies) &&
+            d.supportedCurrencies.length > 0),
+        `${d.key}: supportedCurrencies must be null or a non-empty list`
+      );
     }
   }
 

@@ -10,8 +10,11 @@
  * On success we redirect the browser to the provider's hosted checkout URL.
  *
  * Deliberately no BillingDocument, no Tax Authority flow, no customer capture.
- * Provider is chosen by the business's single active connection (same as the
- * existing invoice→payment flow); this screen sends no provider hint.
+ *
+ * Provider: with one active connection the screen sends it explicitly and shows
+ * no choice, which is the same outcome the server would have reached on its own.
+ * With several, the server refuses to pick one, so a selector appears and the
+ * merchant says which acquirer takes the payment.
  *
  * NOTE: relocated verbatim from /payments to /payments/new when /payments
  * became the Collection Workspace. Logic unchanged (real V1 standalone create).
@@ -31,12 +34,30 @@ type SubmitState =
   | { status: "redirecting" }
   | { status: "error"; message: string };
 
+/** One of the business's payment connections. Never carries any secret. */
+type ConnectedProvider = { provider: string; isActive: boolean };
+
+/** Provider display names. A key with no entry falls back to the key itself. */
+const PROVIDER_LABEL: Record<string, string> = {
+  CARDCOM: "CardCom",
+  TRANZILA: "Tranzila",
+  PAYPAL: "PayPal",
+};
+
 export default function StandalonePaymentsPage() {
   const router = useRouter();
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<Currency>("ILS");
   const [description, setDescription] = useState("");
   const [submit, setSubmit] = useState<SubmitState>({ status: "idle" });
+  /**
+   * The business's ACTIVE providers. Normally exactly one, and then no choice
+   * is offered — asking someone to pick from a list of one is a question with
+   * no information in it. The selector appears only when the answer is
+   * genuinely ambiguous, which is the case a second acquirer creates.
+   */
+  const [providers, setProviders] = useState<ConnectedProvider[]>([]);
+  const [provider, setProvider] = useState<string>("");
 
   useEffect(() => {
     const token =
@@ -44,13 +65,47 @@ export default function StandalonePaymentsPage() {
     if (!token) router.replace("/login");
   }, [router]);
 
+  useEffect(() => {
+    const token =
+      typeof window !== "undefined" ? window.localStorage.getItem("token") : null;
+    if (!token) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/payments/connections", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { connections?: ConnectedProvider[] };
+        if (cancelled) return;
+        const active = (data.connections ?? []).filter((c) => c.isActive);
+        setProviders(active);
+        // Preselect when there is exactly one, so the body is explicit either
+        // way and the server never has to infer anything.
+        if (active.length === 1) setProvider(active[0]!.provider);
+      } catch {
+        // Soft-fail. The server still resolves a single active provider by
+        // itself, so a failed catalogue read must not block creating a charge.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const amountValue = Number(amount);
   const amountValid = Number.isFinite(amountValue) && amountValue > 0;
   const busy = submit.status === "submitting" || submit.status === "redirecting";
+  // With several active providers the choice is REQUIRED: submitting without
+  // one would be refused by the server, so the button stays disabled until the
+  // merchant has actually answered the question.
+  const providerChosen = providers.length <= 1 || provider !== "";
+  const canSubmit = amountValid && providerChosen;
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!amountValid || busy) return;
+    if (!canSubmit || busy) return;
 
     const token =
       typeof window !== "undefined" ? window.localStorage.getItem("token") : null;
@@ -67,11 +122,14 @@ export default function StandalonePaymentsPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        // No billingDocumentId — this is a standalone request.
+        // No billingDocumentId — this is a standalone request. `provider` is
+        // omitted unless one is known, which keeps the single-connection body
+        // byte-for-byte what it was.
         body: JSON.stringify({
           amount,
           currency,
           description: description.trim() ? description.trim() : undefined,
+          ...(provider ? { provider } : {}),
         }),
       });
 
@@ -166,6 +224,31 @@ export default function StandalonePaymentsPage() {
             </select>
           </label>
 
+          {/*
+            Shown only when the business has more than one active provider.
+            With one, the answer is already known and the field would be noise;
+            with several, the server refuses to choose and this is where the
+            merchant says which acquirer takes the payment.
+          */}
+          {providers.length > 1 ? (
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={labelStyle}>ספק סליקה</span>
+              <select
+                value={provider}
+                onChange={(e) => setProvider(e.target.value)}
+                style={inputStyle}
+                required
+              >
+                <option value="">בחר ספק</option>
+                {providers.map((c) => (
+                  <option key={c.provider} value={c.provider}>
+                    {PROVIDER_LABEL[c.provider] ?? c.provider}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
           <label style={{ display: "grid", gap: 6 }}>
             <span style={labelStyle}>תיאור (אופציונלי)</span>
             <input
@@ -197,16 +280,16 @@ export default function StandalonePaymentsPage() {
 
           <button
             type="submit"
-            disabled={!amountValid || busy}
+            disabled={!canSubmit || busy}
             style={{
               minHeight: 52,
               borderRadius: 14,
               border: "none",
-              background: !amountValid || busy ? "var(--dz-info-border)" : BRAND,
+              background: !canSubmit || busy ? "var(--dz-info-border)" : BRAND,
               color: "var(--dz-text-on-brand)",
               fontSize: 16,
               fontWeight: 800,
-              cursor: !amountValid || busy ? "default" : "pointer",
+              cursor: !canSubmit || busy ? "default" : "pointer",
               transition: "background 0.15s ease",
               touchAction: "manipulation",
             }}

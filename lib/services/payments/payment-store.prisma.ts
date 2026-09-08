@@ -6,8 +6,13 @@
  * values by construction) and serializes Decimal amounts as strings.
  */
 
-import { Prisma } from "@prisma/client";
+import {
+  BillingDocumentStatus,
+  BillingDocumentType,
+  Prisma,
+} from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { computeOutstanding } from "@/lib/services/billing/collection/awaiting-payment.rules";
 import { getTenantContext, runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { assertBusinessAcceptsWritesTx, readBusinessLifecycle } from "@/lib/tenant/business-lifecycle";
@@ -318,6 +323,95 @@ export function createPaymentPrismaStore(): PaymentStore {
     async findPaymentRequestById(id: number) {
       const row = await dbStep((db) => db.paymentRequest.findUnique({ where: { id } }));
       return row ? toRequestRecord(row) : null;
+    },
+
+    // SEC-01 + SEC-02. TWO INDEPENDENT LAYERS, deliberately not collapsed:
+    //
+    //   application — `businessId` sits in the predicate, taken from the
+    //     authenticated actor. Another tenant's document simply does not match,
+    //     so the caller gets null and cannot tell "mine, missing" apart from
+    //     "someone else's".
+    //   database — the read runs through `dbStep`, so under an established
+    //     tenant context it executes inside a tenant transaction against a
+    //     FORCE-RLS'd BillingDocument. A predicate bug alone cannot cross the
+    //     boundary.
+    //
+    // The balance rule is BILLING's, imported rather than restated: total, less
+    // receipt allocations, less ISSUED credit notes, floored at zero. Only an
+    // ISSUED credit note reduces a balance — a draft is an intention, not a
+    // reversal — so the relation filter matches the collection loader exactly.
+    async findPayableDocument(businessId: number, billingDocumentId: number) {
+      const doc = await dbStep((db) =>
+        db.billingDocument.findFirst({
+          where: { id: billingDocumentId, businessId },
+          select: {
+            id: true,
+            businessId: true,
+            documentType: true,
+            status: true,
+            currency: true,
+            totalAmount: true,
+            paymentAllocationsAsInvoice: { select: { allocatedAmount: true } },
+            creditNotes: {
+              where: {
+                documentType: BillingDocumentType.CREDIT_NOTE,
+                status: BillingDocumentStatus.ISSUED,
+              },
+              select: { totalAmount: true },
+            },
+          },
+        })
+      );
+      if (!doc) return null;
+
+      const zero = new Prisma.Decimal(0);
+      const allocatedAmount = doc.paymentAllocationsAsInvoice.reduce(
+        (sum, a) => sum.plus(a.allocatedAmount),
+        zero
+      );
+      const creditedAmount = doc.creditNotes.reduce(
+        (sum, c) => sum.plus(c.totalAmount),
+        zero
+      );
+
+      // computeOutstanding reads only the three amounts; the remaining
+      // InvoiceRow fields are identity the balance does not depend on.
+      const outstanding = computeOutstanding({
+        id: doc.id,
+        documentNumber: null,
+        type: doc.documentType,
+        status: doc.status,
+        issuedAt: null,
+        totalAmount: doc.totalAmount,
+        currency: doc.currency,
+        allocatedAmount,
+        creditedAmount,
+        customerId: null,
+        customerName: null,
+        customerPhone: null,
+        customerEmail: null,
+      });
+
+      return {
+        id: doc.id,
+        businessId: doc.businessId,
+        documentType: doc.documentType as string,
+        status: doc.status as string,
+        currency: doc.currency,
+        totalAmount: doc.totalAmount.toString(),
+        outstandingAmount: outstanding.toString(),
+      };
+    },
+
+    // SEC-02 — the same two layers, on the customer reference.
+    async findCustomerRef(businessId: number, customerId: number) {
+      const row = await dbStep((db) =>
+        db.customer.findFirst({
+          where: { id: customerId, businessId },
+          select: { id: true },
+        })
+      );
+      return row ? { id: row.id } : null;
     },
 
     // D2/P7-W4E — the ONLY tenant-resolution step, and what the whole

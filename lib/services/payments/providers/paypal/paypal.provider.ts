@@ -271,6 +271,12 @@ export function createPayPalProvider(
 
   return {
     provider: PAYPAL_PROVIDER,
+    // This adapter carries NO currency translation table: `currency_code` is
+    // forwarded to PayPal exactly as given, so there is no code it could
+    // silently mis-encode and no local list that would be honest to declare.
+    // PayPal itself rejects a code it does not accept, which surfaces here as
+    // CREATE_FAILED. See `supportedCurrencies` on PaymentProviderAdapter.
+    supportedCurrencies: null,
 
     async createPaymentLink(
       input: CreatePaymentLinkInput
@@ -357,7 +363,7 @@ export function createPayPalProvider(
       return interpretOrder(order);
     },
 
-    verifyWebhook(input: VerifyWebhookInput): VerifyWebhookResult {
+    async verifyWebhook(input: VerifyWebhookInput): Promise<VerifyWebhookResult> {
       // PayPal is NOT provisioned: no active connection, no payment request and
       // no configured secret in any environment. Wave D removes the former
       // fail-OPEN branch (`if (!secret) return ok`), which let an unconfigured
@@ -419,4 +425,6 @@ export const payPalDescriptor: ProviderDescriptor = {
     webhooks: true,
     tokens: false,
   },
+  // No local translation table — the adapter forwards the ISO code unchanged.
+  supportedCurrencies: null,
 };

@@ -31,6 +31,7 @@ import type {
   ParsedPaymentOutcome,
   PaymentProviderAdapter,
   ProviderPaymentStatus,
+  VerifyWebhookResult,
 } from "./providers/payment-provider.types";
 import { recordPaymentAuditEvent } from "./payment-audit.service";
 
@@ -188,15 +189,29 @@ export async function processPaymentWebhook(
     };
   };
 
-  // A. STRUCTURAL GATE (no I/O). Fail closed: a provider adapter that cannot
-  // vouch for the shape (or, where the provider does sign, the signature) of
-  // this body stops the request here. No provider may accept by default.
+  // A. AUTHENTICATION GATE. Fail closed: an adapter that cannot vouch for the
+  // shape — or, where the provider signs, the signature — of this body stops
+  // the request here. No provider may accept by default.
+  //
+  // AWAITED. The adapter contract is asynchronous so that a provider which
+  // authenticates its callback through its own API can be expressed at all.
+  // Two consequences are load-bearing, and both are pinned by tests:
+  //   - nothing below this point runs until verification has RESOLVED, so a
+  //     slow verification cannot let processing race ahead of it;
+  //   - a REJECTED promise is a FAILURE, never a pass. An adapter that throws
+  //     is a broken adapter, and a broken adapter must not be able to
+  //     authenticate anything — so the catch refuses instead of falling through.
   const secret = deps.resolveWebhookSecret?.(input.provider) ?? null;
-  const verify = adapter.verifyWebhook({
-    rawBody: input.rawBody,
-    headers,
-    secret,
-  });
+  let verify: VerifyWebhookResult;
+  try {
+    verify = await adapter.verifyWebhook({
+      rawBody: input.rawBody,
+      headers,
+      secret,
+    });
+  } catch {
+    return reject("verify: verification_error", "FAILED");
+  }
   if (!verify.ok) {
     return reject(`verify: ${verify.reason}`, "FAILED");
   }

@@ -154,7 +154,7 @@ async function main() {
   // === emission: PAYMENT_REQUEST_CREATED (USER) ============================
   {
     const store = createInMemoryPaymentStore();
-    store.seedConnection({ businessId: 1, provider: "TRANZILA", isActive: true });
+    store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
     await createPaymentRequest(
       { businessId: 1, amount: 150, actorUserId: 42 },
       {
@@ -189,16 +189,16 @@ async function main() {
   // === emission: webhook signal-only (SYSTEM) =============================
   {
     const store = createInMemoryPaymentStore();
-    store.seedConnection({ businessId: 1, provider: "TRANZILA", isActive: true });
+    store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
     const req = await store.createPaymentRequest({
       businessId: 1, customerId: null, billingDocumentId: null,
-      provider: "TRANZILA", amount: "100.00", currency: "ILS",
+      provider: "CARDCOM", amount: "100.00", currency: "ILS",
       description: null, status: "PENDING", expiresAt: null,
     });
     await store.updatePaymentRequest(req.id, { providerRequestId: "r-sig" });
     await processPaymentWebhook(
       {
-        provider: "TRANZILA",
+        provider: "CARDCOM",
         rawBody: JSON.stringify({ eventId: "e1", providerRequestId: "r-sig", outcome: "PAID" }),
       },
       { store, resolveProvider: () => createStubProvider() } // no verifiedStatus => signal-only
@@ -212,16 +212,16 @@ async function main() {
   // === emission: webhook verified PAID (PROVIDER) =========================
   {
     const store = createInMemoryPaymentStore();
-    store.seedConnection({ businessId: 1, provider: "TRANZILA", isActive: true });
+    store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
     const req = await store.createPaymentRequest({
       businessId: 1, customerId: null, billingDocumentId: null,
-      provider: "TRANZILA", amount: "100.00", currency: "ILS",
+      provider: "CARDCOM", amount: "100.00", currency: "ILS",
       description: null, status: "PENDING", expiresAt: null,
     });
     await store.updatePaymentRequest(req.id, { providerRequestId: "r-paid" });
     await processPaymentWebhook(
       {
-        provider: "TRANZILA",
+        provider: "CARDCOM",
         rawBody: JSON.stringify({ eventId: "e1", providerRequestId: "r-paid", providerTransactionId: "t1", outcome: "PAID" }),
       },
       {
@@ -240,15 +240,15 @@ async function main() {
   // === emission: webhook verification error (SYSTEM) ======================
   {
     const store = createInMemoryPaymentStore();
-    store.seedConnection({ businessId: 1, provider: "TRANZILA", isActive: true });
+    store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
     const req = await store.createPaymentRequest({
       businessId: 1, customerId: null, billingDocumentId: null,
-      provider: "TRANZILA", amount: "100.00", currency: "ILS",
+      provider: "CARDCOM", amount: "100.00", currency: "ILS",
       description: null, status: "PENDING", expiresAt: null,
     });
     await store.updatePaymentRequest(req.id, { providerRequestId: "r-err" });
     const throwingVerify: PaymentProviderAdapter = {
-      provider: "TRANZILA",
+      provider: "CARDCOM",
       async createPaymentLink() { throw new Error("unused"); },
       verifyWebhook: () => ({ ok: true }),
       parseWebhook: () => ({
@@ -258,7 +258,7 @@ async function main() {
       async getPaymentStatus() { throw new Error("verification endpoint down"); },
     };
     await processPaymentWebhook(
-      { provider: "TRANZILA", rawBody: "{}" },
+      { provider: "CARDCOM", rawBody: "{}" },
       { store, resolveProvider: () => throwingVerify, decryptConnectionCredential: () => "cred" }
     );
     const ev = store.auditEvents.find((e) => e.eventType === "PAYMENT_VERIFICATION_ERROR");

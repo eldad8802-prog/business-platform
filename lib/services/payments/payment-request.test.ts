@@ -39,7 +39,7 @@ async function main() {
 // --- 2. inactive connection => still fails ---
 {
   const { store, deps } = depsWith();
-  store.seedConnection({ businessId: 1, provider: "TRANZILA", isActive: false });
+  store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: false });
   await assert.rejects(
     () => createPaymentRequest({ businessId: 1, amount: 100 }, deps),
     /No active payment connection/
@@ -49,7 +49,16 @@ async function main() {
 // --- 3. active connection + stub provider => returns paymentUrl ---
 {
   const { store, deps } = depsWith();
-  store.seedConnection({ businessId: 1, provider: "TRANZILA", isActive: true });
+  store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
+  // SEC-01/SEC-02: a document reference is now RESOLVED server-side, so the
+  // document has to exist and belong to this business for the request to be
+  // created at all. 100 of a 100 balance is the full-payment case.
+  store.seedDocument({
+    id: 5,
+    businessId: 1,
+    totalAmount: "100.00",
+    outstandingAmount: "100.00",
+  });
   const result = await createPaymentRequest(
     { businessId: 1, amount: 100, description: "Invoice #5", billingDocumentId: 5 },
     deps
@@ -68,11 +77,12 @@ async function main() {
   const { store, deps } = depsWith(
     createInMemoryPaymentStore(),
     {
-      provider: "TRANZILA",
+      provider: "CARDCOM",
+      supportedCurrencies: ["ILS"],
       async createPaymentLink() {
         throw new Error("provider down");
       },
-      verifyWebhook: () => ({ ok: true }),
+      verifyWebhook: async () => ({ ok: true }),
       parseWebhook: () => ({
         providerEventId: null,
         eventType: null,
@@ -84,7 +94,7 @@ async function main() {
       }),
     }
   );
-  store.seedConnection({ businessId: 1, provider: "TRANZILA", isActive: true });
+  store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
   await assert.rejects(
     () => createPaymentRequest({ businessId: 1, amount: 50 }, deps),
     /Failed to create payment link/
@@ -96,7 +106,7 @@ async function main() {
 // --- 5. invalid amount => validation error ---
 {
   const { store, deps } = depsWith();
-  store.seedConnection({ businessId: 1, provider: "TRANZILA", isActive: true });
+  store.seedConnection({ businessId: 1, provider: "CARDCOM", isActive: true });
   await assert.rejects(
     () => createPaymentRequest({ businessId: 1, amount: -5 }, deps),
     /amount must be a positive number/

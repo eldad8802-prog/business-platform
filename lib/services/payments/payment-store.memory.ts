@@ -21,6 +21,7 @@ import type {
   PaymentStore,
   PaymentTransactionRecord,
   PaymentWebhookEventRecord,
+  PayableDocumentRef,
   UpsertConnectionRow,
   UpsertProviderRoutingRow,
   WebhookEventPatch,
@@ -32,6 +33,19 @@ export interface InMemoryPaymentStore extends PaymentStore {
     businessId: number;
     provider: PaymentProvider;
   }): PaymentConnectionRecord;
+  /**
+   * Seed a billing document the payments layer may be asked to collect against.
+   *
+   * The outstanding balance is SUPPLIED, not derived. Billing owns that
+   * computation; re-deriving it inside the fake would let the fake and the real
+   * store disagree about the one number the amount gate depends on.
+   */
+  seedDocument(document: Partial<PayableDocumentRef> & {
+    id: number;
+    businessId: number;
+  }): PayableDocumentRef;
+  /** Seed a customer belonging to a business. */
+  seedCustomer(customer: { id: number; businessId: number }): void;
   readonly requests: PaymentRequestRecord[];
   readonly transactions: PaymentTransactionRecord[];
   readonly webhookEvents: PaymentWebhookEventRecord[];
@@ -46,6 +60,8 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
   const webhookEvents: PaymentWebhookEventRecord[] = [];
   const routing: UpsertProviderRoutingRow[] = [];
   const auditEvents: PaymentAuditEventRecord[] = [];
+  const documents: PayableDocumentRef[] = [];
+  const customers: { id: number; businessId: number }[] = [];
 
   let connectionSeq = 0;
   let requestSeq = 0;
@@ -168,6 +184,42 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
       return record ? { ...record } : null;
     },
 
+    seedDocument(document) {
+      const record: PayableDocumentRef = {
+        id: document.id,
+        businessId: document.businessId,
+        documentType: document.documentType ?? "TAX_INVOICE",
+        status: document.status ?? "ISSUED",
+        currency: document.currency ?? "ILS",
+        totalAmount: document.totalAmount ?? "100.00",
+        outstandingAmount:
+          document.outstandingAmount ?? document.totalAmount ?? "100.00",
+      };
+      documents.push(record);
+      return { ...record };
+    },
+
+    seedCustomer(customer) {
+      customers.push({ ...customer });
+    },
+
+    // SEC-01 + SEC-02 — the fake enforces the SAME tenant predicate the Prisma
+    // store puts in its WHERE clause, so a cross-tenant reference is refused in
+    // the pure tests for the same reason it is refused in Postgres.
+    async findPayableDocument(businessId: number, billingDocumentId: number) {
+      const doc = documents.find(
+        (d) => d.id === billingDocumentId && d.businessId === businessId
+      );
+      return doc ? { ...doc } : null;
+    },
+
+    async findCustomerRef(businessId: number, customerId: number) {
+      const row = customers.find(
+        (c) => c.id === customerId && c.businessId === businessId
+      );
+      return row ? { id: row.id } : null;
+    },
+
     // D2/P7-W4E — the in-memory fake keeps the same routing contract as the
     // Prisma store so the pure unit tests exercise the real code path. The
     // routing table is the only thing a session-less callback may consult.
@@ -237,6 +289,31 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
     },
 
     async createTransaction(row: CreateTransactionRow) {
+      // Mirrors the DATABASE unique on (provider, providerTransactionId), which
+      // is where settlement idempotency actually lives. The service narrows the
+      // common case with a read-then-write check, but that check is a race: two
+      // callbacks for one settlement can both read "no transaction" and both
+      // proceed. Without this constraint the fake silently accepted the second
+      // write, so the service's P2002 recovery path — re-read, and treat it as
+      // the duplicate it is — was exercised only against real PostgreSQL.
+      //
+      // NULL is distinct in Postgres, so unverified rows carrying no provider
+      // id are unaffected here too.
+      if (row.providerTransactionId != null) {
+        const clash = transactions.find(
+          (t) =>
+            t.provider === row.provider &&
+            t.providerTransactionId === row.providerTransactionId
+        );
+        if (clash) {
+          const error = new Error(
+            "Unique constraint failed on the fields: (`provider`,`providerTransactionId`)"
+          ) as Error & { code: string };
+          error.code = "P2002";
+          throw error;
+        }
+      }
+
       const record: PaymentTransactionRecord = {
         id: ++transactionSeq,
         paymentRequestId: row.paymentRequestId,

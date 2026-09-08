@@ -17,15 +17,16 @@
  */
 
 import type { PaymentProvider } from "../../payments.types";
-import type {
-  CreatePaymentLinkInput,
-  CreatePaymentLinkResult,
-  ParsedPaymentOutcome,
-  ParsedWebhookEvent,
-  ParseWebhookInput,
-  PaymentProviderAdapter,
-  VerifyWebhookInput,
-  VerifyWebhookResult,
+import {
+  PaymentProviderError,
+  type CreatePaymentLinkInput,
+  type CreatePaymentLinkResult,
+  type ParsedPaymentOutcome,
+  type ParsedWebhookEvent,
+  type ParseWebhookInput,
+  type PaymentProviderAdapter,
+  type VerifyWebhookInput,
+  type VerifyWebhookResult,
 } from "../payment-provider.types";
 import type { ProviderDescriptor } from "../provider-descriptor.types";
 
@@ -37,6 +38,20 @@ const TRANZILA_CURRENCY_CODE: Record<string, string> = {
   USD: "2",
   EUR: "978",
 };
+
+/**
+ * Declared currency support — derived from the code table, never written twice.
+ *
+ * SEC-05. Tranzila carried the identical silent fallback CardCom did
+ * (`TRANZILA_CURRENCY_CODE[currency] ?? "1"`, and "1" is ILS). The provider is a
+ * dormant capability today, so this was latent rather than live — but it is the
+ * same defect, in an adapter that would be reawakened by a single constant, and
+ * leaving one silent-coercion path in place while removing the other would make
+ * the invariant untrue exactly where nobody was looking.
+ */
+export const TRANZILA_SUPPORTED_CURRENCIES: readonly string[] = Object.freeze(
+  Object.keys(TRANZILA_CURRENCY_CODE)
+);
 
 /** Custom field we attach to the hosted page so the notification echoes it. */
 const REQUEST_ID_FIELD = "dubiz_request_id";
@@ -110,6 +125,7 @@ function mapResponseToOutcome(fields: Record<string, string>): ParsedPaymentOutc
 
 export const tranzilaProvider: PaymentProviderAdapter = {
   provider: TRANZILA_PROVIDER,
+  supportedCurrencies: TRANZILA_SUPPORTED_CURRENCIES,
 
   async createPaymentLink(
     input: CreatePaymentLinkInput
@@ -119,7 +135,15 @@ export const tranzilaProvider: PaymentProviderAdapter = {
     }
 
     const providerRequestId = stableProviderRequestId(input);
-    const currencyCode = TRANZILA_CURRENCY_CODE[input.currency] ?? "1";
+    // SEC-05 — fail closed rather than silently charging in shekels.
+    const currencyCode = TRANZILA_CURRENCY_CODE[input.currency];
+    if (currencyCode === undefined) {
+      throw new PaymentProviderError(
+        TRANZILA_PROVIDER,
+        "UNSUPPORTED_CURRENCY",
+        `Tranzila cannot be charged in ${input.currency}. Supported: ${TRANZILA_SUPPORTED_CURRENCIES.join(", ")}.`
+      );
+    }
 
     const params = new URLSearchParams();
     // DOCS-CONFIRM: hosted-page field names (sum / currency / custom fields).
@@ -139,7 +163,7 @@ export const tranzilaProvider: PaymentProviderAdapter = {
     };
   },
 
-  verifyWebhook(input: VerifyWebhookInput): VerifyWebhookResult {
+  async verifyWebhook(input: VerifyWebhookInput): Promise<VerifyWebhookResult> {
     // Tranzila is NOT provisioned: it has no active connection, no payment
     // request and no configured secret in any environment. Wave D removes the
     // former fail-OPEN branch (`if (!secret) return ok`), which let an
@@ -230,4 +254,5 @@ export const tranzilaDescriptor: ProviderDescriptor = {
     webhooks: true,
     tokens: false,
   },
+  supportedCurrencies: TRANZILA_SUPPORTED_CURRENCIES,
 };
