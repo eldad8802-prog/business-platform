@@ -29,6 +29,8 @@ import {
   PRODUCT_USAGE_OUTCOMES,
 } from "@/lib/services/product-usage/product-usage-catalog";
 import { recordProductUsageEvent } from "@/lib/services/product-usage/record-product-usage-event";
+import { clearRefreshCookie, readRefreshCookie } from "@/lib/auth/refresh-cookie";
+import { endRefreshSession } from "@/lib/auth/refresh-session.service";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +43,13 @@ export async function POST(req: Request) {
     // make the client treat an already-expired session as a failed logout and
     // leave its local state behind.
     if (!user) {
-      return NextResponse.json({ success: true, alreadySignedOut: true });
+      // Still clear the cookie. A caller with no valid access token may well
+      // still be holding a refresh credential, and leaving it in the jar would
+      // let the very next request resurrect the session they asked to end.
+      await endRefreshSession(readRefreshCookie(req));
+      const goneRes = NextResponse.json({ success: true, alreadySignedOut: true });
+      goneRes.headers.set("set-cookie", clearRefreshCookie());
+      return goneRes;
     }
 
     // See the same note in the login route: an implicit RETURNING reads back
@@ -62,7 +70,15 @@ export async function POST(req: Request) {
       outcome: PRODUCT_USAGE_OUTCOMES.SUCCESS,
     });
 
-    return NextResponse.json({ success: true });
+    // The tokenVersion increment above already invalidates every session on
+    // every device, because each one carries the generation it was issued
+    // under. Removing this row as well keeps the browser from presenting a
+    // credential that can now only ever be refused.
+    await endRefreshSession(readRefreshCookie(req));
+
+    const res = NextResponse.json({ success: true });
+    res.headers.set("set-cookie", clearRefreshCookie());
+    return res;
   } catch (error) {
     console.error("LOGOUT_ERROR:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });

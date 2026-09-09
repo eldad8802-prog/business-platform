@@ -57,6 +57,15 @@ fi
 #
 # The allowlist enumerates the complete auth/bootstrap surface rather than
 # matching a directory, so adding a caller is a deliberate, reviewable act.
+#
+# PR2 adds ONE entry: lib/auth/refresh-session.store.ts. Persistent login is an
+# auth/bootstrap path by construction — a refresh resolves a session by its
+# selector BEFORE any tenant is known, which is the same reason User and
+# Business sit outside RLS. It reads User.tokenVersion and the Business
+# lifecycle flags, both already inside the auth plane's E4 column grants, and
+# writes only the two AuthSession tables, on which the tenant plane holds ZERO
+# privilege. Routing it through lib/prisma.ts would not merely be untidy:
+# app_runtime cannot reach those tables at all, so every refresh would fail.
 ci2a="$(
   grep -rnE "from ['\"](@/lib/prisma-auth|[./]+lib/prisma-auth|[./]+prisma-auth)['\"]" \
     "$ROOT/app" "$ROOT/lib" \
@@ -64,6 +73,7 @@ ci2a="$(
     | grep -vE "(^|/)app/api/auth/(login|logout|me)/route\.ts:" \
     | grep -vE "(^|/)lib/auth\.ts:" \
     | grep -vE "(^|/)lib/auth/signup\.ts:" \
+    | grep -vE "(^|/)lib/auth/refresh-session\.store\.ts:" \
     | grep -vE "(^|/)lib/prisma-auth\.ts:" \
     | grep -vE "\.test\.ts:|/__mocks__/" \
     || true

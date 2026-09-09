@@ -13,6 +13,8 @@ import {
   PRODUCT_USAGE_OUTCOMES,
 } from "@/lib/services/product-usage/product-usage-catalog";
 import { recordProductUsageEvent } from "@/lib/services/product-usage/record-product-usage-event";
+import { serializeRefreshCookie } from "@/lib/auth/refresh-cookie";
+import { issueRefreshSession } from "@/lib/auth/refresh-session.service";
 
 async function recordLoginFailure(input: {
   businessId?: number | null;
@@ -157,7 +159,13 @@ export async function POST(req: Request) {
       outcome: PRODUCT_USAGE_OUTCOMES.SUCCESS,
     });
 
-    return NextResponse.json({
+    // Persistent login. Best-effort BY CONTRACT: a password that verified must
+    // not be refused because the session store was unavailable. A null here
+    // degrades to exactly the behaviour before this change — a 24h bearer token
+    // and no cookie — which is a shorter session, never a weaker one.
+    const refresh = await issueRefreshSession(user.id, user.tokenVersion, now);
+
+    const response = NextResponse.json({
       success: true,
       // Minted at the user's CURRENT generation. A token signed at generation 0
       // for someone who has logged out three times would be refused on its very
@@ -172,6 +180,14 @@ export async function POST(req: Request) {
         businessName: user.business.name,
       },
     });
+
+    if (refresh) {
+      response.headers.set(
+        "set-cookie",
+        serializeRefreshCookie(refresh.cookieValue, refresh.maxAgeSeconds)
+      );
+    }
+    return response;
   } catch (error) {
     if (error instanceof AuthTokenConfigError) {
       console.error("LOGIN_ERROR:", error.message);
