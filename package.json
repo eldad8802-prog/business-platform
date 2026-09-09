@@ -150,7 +150,8 @@
     "verify:payplus-webhook-auth": "npx tsx lib/services/payments/payplus-webhook-auth.test.ts",
     "verify:payplus-connection": "npx tsx lib/services/payments/payplus-connection-and-selection.test.ts",
     "verify:payplus-webhook-route": "npx tsx lib/services/payments/payplus-webhook-route.test.ts",
-    "verify:payplus": "npm run verify:payplus-adapter && npm run verify:payplus-webhook-auth && npm run verify:payplus-connection && npm run verify:payplus-webhook-route && npm run verify:dormant-providers && npm run verify:payments-provider-authority"
+    "verify:payplus-diagnostics": "npx tsx lib/services/payments/payplus-callback-diagnostics.test.ts",
+    "verify:payplus": "npm run verify:payplus-adapter && npm run verify:payplus-webhook-auth && npm run verify:payplus-connection && npm run verify:payplus-webhook-route && npm run verify:payplus-diagnostics && npm run verify:dormant-providers && npm run verify:payments-provider-authority"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",

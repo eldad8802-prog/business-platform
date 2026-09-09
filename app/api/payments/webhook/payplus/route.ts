@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleProviderWebhook } from "@/lib/services/payments/payment-webhook-handler";
 import { paymentWebhookDeps } from "@/lib/services/payments/payments.deps";
+import {
+  buildPayPlusCallbackDiagnostic,
+  payPlusDiagnosticsEnabled,
+} from "@/lib/services/payments/providers/payplus/payplus-callback-diagnostics";
 
 // Public webhook endpoint (no auth at the transport layer). Node.js runtime is
 // required: PayPlus signs the RAW request body, so the handler needs the bytes
@@ -58,6 +62,31 @@ async function handle(req: NextRequest) {
   req.headers.forEach((value, key) => {
     headers[key.toLowerCase()] = value;
   });
+
+  // TEMPORARY, OPT-IN, and inert unless PAYPLUS_CALLBACK_DIAGNOSTICS=1.
+  //
+  // Placed FIRST, so it also captures a callback that is about to be refused —
+  // which is the delivery most worth seeing during a first integration, and the
+  // one the orchestration deliberately keeps no copy of. It records no body, no
+  // header values beyond a three-name allowlist, and no query values. Remove it
+  // once the sandbox run has settled the method and the signed-string question.
+  if (payPlusDiagnosticsEnabled(process.env)) {
+    try {
+      console.info(
+        "[payplus-callback-diagnostic]",
+        JSON.stringify(
+          buildPayPlusCallbackDiagnostic({
+            method: req.method,
+            url: req.url,
+            headers,
+            rawBody,
+          })
+        )
+      );
+    } catch {
+      // A diagnostic must never be able to break the callback it observes.
+    }
+  }
 
   try {
     const result = await handleProviderWebhook(

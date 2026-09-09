@@ -289,6 +289,22 @@ function hmacBase64(message: string, secret: string): string {
  * disabled: once a real sandbox callback shows which form PayPlus actually
  * signs, the other candidate should be deleted.
  */
+/**
+ * TEMPORARY, OPT-IN. Names which of the two candidate strings a genuine
+ * callback was actually signed over — the one question about PayPlus that
+ * cannot be answered from documentation, and cannot be answered from outside
+ * this function either, because only here is the merchant's key in scope.
+ *
+ * It emits a single word, `raw` or `reserialized`. No key, no digest, no body.
+ * Inert unless PAYPLUS_CALLBACK_DIAGNOSTICS=1, so the adapter's normal
+ * behaviour — including making no log calls at all — is unchanged. Delete this
+ * together with the losing candidate once the sandbox run has answered it.
+ */
+function reportSignatureCandidate(candidate: "raw" | "reserialized"): void {
+  if (process.env.PAYPLUS_CALLBACK_DIAGNOSTICS !== "1") return;
+  console.info("[payplus-signature-candidate]", candidate);
+}
+
 export function verifyPayPlusSignature(input: {
   rawBody: string;
   headers: Record<string, string | null | undefined>;
@@ -308,6 +324,7 @@ export function verifyPayPlusSignature(input: {
   // webhook in this codebase verifies against, and the only reading that is
   // robust to a serialiser disagreement.
   if (safeEqual(hmacBase64(input.rawBody, input.secretKey), provided)) {
+    reportSignatureCandidate("raw");
     return { ok: true };
   }
 
@@ -323,6 +340,7 @@ export function verifyPayPlusSignature(input: {
     canonical !== input.rawBody &&
     safeEqual(hmacBase64(canonical, input.secretKey), provided)
   ) {
+    reportSignatureCandidate("reserialized");
     return { ok: true };
   }
 

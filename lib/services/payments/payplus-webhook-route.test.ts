@@ -167,6 +167,51 @@ async function main() {
     );
   }
 
+  // --- the temporary first-callback capture is inert by default ------------
+  //
+  // The capture ships disabled. What matters at the route level is not what it
+  // records — `payplus-callback-diagnostics.test.ts` proves that adversarially —
+  // but that it emits NOTHING while its switch is unset, and that it runs even
+  // for a callback that is about to be refused, which is the delivery most worth
+  // seeing during a first integration.
+  {
+    const original = console.info;
+    const seen: string[] = [];
+    console.info = (...args: unknown[]) => {
+      seen.push(args.map((a) => String(a)).join(" "));
+    };
+    const previous = process.env.PAYPLUS_CALLBACK_DIAGNOSTICS;
+    try {
+      delete process.env.PAYPLUS_CALLBACK_DIAGNOSTICS;
+      await payplusRoute.POST(post(SIGNED_BODY, { hash: "x" }));
+      ok(
+        "with the switch unset the capture emits nothing at all",
+        seen.every((line) => !line.includes("payplus-callback-diagnostic"))
+      );
+
+      seen.length = 0;
+      process.env.PAYPLUS_CALLBACK_DIAGNOSTICS = "1";
+      await payplusRoute.POST(post(SIGNED_BODY, { hash: "x" }));
+      const captured = seen.filter((l) => l.includes("payplus-callback-diagnostic"));
+      ok("with the switch on it emits exactly one record", captured.length === 1);
+      ok(
+        "and it runs even though this callback is refused before processing",
+        captured[0]?.includes('"method":"POST"') === true
+      );
+      ok(
+        "the record still carries no part of the body",
+        captured[0] !== undefined && !captured[0].includes(SIGNED_BODY)
+      );
+    } finally {
+      console.info = original;
+      if (previous === undefined) {
+        delete process.env.PAYPLUS_CALLBACK_DIAGNOSTICS;
+      } else {
+        process.env.PAYPLUS_CALLBACK_DIAGNOSTICS = previous;
+      }
+    }
+  }
+
   // A sanity check on the harness itself: the refusal above must come from the
   // capability switch, not from the request being malformed. A well-formed,
   // plausible callback is refused for the same reason and with the same words.

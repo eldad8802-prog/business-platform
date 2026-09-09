@@ -1712,6 +1712,42 @@ jobs:
       - name: PayPlus callback route (both methods, one door, nothing widened)
         run: npx tsx lib/services/payments/payplus-webhook-route.test.ts
 
+      # The temporary first-callback capture. It ships disabled and exists only
+      # to settle the documented ambiguities against a real sandbox delivery, so
+      # what CI must hold is that it stays inert by default and cannot leak.
+      - name: PayPlus callback diagnostics (inert by default, and leaks nothing)
+        run: npx tsx lib/services/payments/payplus-callback-diagnostics.test.ts
+
+      - name: PayPlus negative proof (a leaking diagnostic must be caught)
+        run: |
+          F="lib/services/payments/providers/payplus/payplus-callback-diagnostics.ts"
+          cp "$F" "$F.bak"
+          # The failure this guards is the whole reason the capture is allowed to
+          # exist at all: put the request body back into the record. A PayPlus
+          # callback carries an amount, a masked card and possibly a payer name.
+          perl -0pi -e 's/    bodyLength: rawBody\.length,/    bodyLength: rawBody.length,\n    rawBody,/' "$F"
+          perl -0pi -e 's/  bodyLength: number;/  bodyLength: number;\n  rawBody?: string;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payplus-callback-diagnostics.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the diagnostic recorded the request body"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: PayPlus negative proof (a diagnostic that is on by default must be caught)
+        run: |
+          F="lib/services/payments/providers/payplus/payplus-callback-diagnostics.ts"
+          cp "$F" "$F.bak"
+          # Shipping the capture enabled would turn a debugging aid into a
+          # standing log of every production callback's shape.
+          perl -0pi -e 's/  return env\.PAYPLUS_CALLBACK_DIAGNOSTICS === "1";/  return env.PAYPLUS_CALLBACK_DIAGNOSTICS !== "0";/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payplus-callback-diagnostics.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the capture defaulted to ON"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
       - name: PayPlus negative proof (inventing an outcome from a timeout must be caught)
         run: |
           F="lib/services/payments/providers/payplus/payplus.provider.ts"
