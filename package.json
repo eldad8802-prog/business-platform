@@ -145,7 +145,13 @@
     "verify:payments-provider-seam": "npx tsx lib/services/payments/payment-provider-seam.test.ts",
     "verify:payments-async-webhook": "npx tsx lib/services/payments/payment-webhook-async-verification.test.ts",
     "verify:payments-provider-authority": "npx tsx lib/services/payments/provider-authority.test.ts",
-    "verify:payments-foundation": "npm run verify:payments-currency-authority && npm run verify:payments-document-authority && npm run verify:payments-tenant-ownership && npm run verify:payments-provider-seam && npm run verify:payments-async-webhook && npm run verify:payments-provider-authority && npm run verify:cardcom-webhook-hardening && npm run verify:payment-webhook && npm run verify:payment-webhook-quarantine && npm run verify:dormant-providers"
+    "verify:payments-foundation": "npm run verify:payments-currency-authority && npm run verify:payments-document-authority && npm run verify:payments-tenant-ownership && npm run verify:payments-provider-seam && npm run verify:payments-async-webhook && npm run verify:payments-provider-authority && npm run verify:cardcom-webhook-hardening && npm run verify:payment-webhook && npm run verify:payment-webhook-quarantine && npm run verify:dormant-providers",
+    "verify:payplus-adapter": "npx tsx lib/services/payments/providers/payplus/payplus.provider.test.ts",
+    "verify:payplus-webhook-auth": "npx tsx lib/services/payments/payplus-webhook-auth.test.ts",
+    "verify:payplus-connection": "npx tsx lib/services/payments/payplus-connection-and-selection.test.ts",
+    "verify:payplus-webhook-route": "npx tsx lib/services/payments/payplus-webhook-route.test.ts",
+    "verify:payplus-diagnostics": "npx tsx lib/services/payments/payplus-callback-diagnostics.test.ts",
+    "verify:payplus": "npm run verify:payplus-adapter && npm run verify:payplus-webhook-auth && npm run verify:payplus-connection && npm run verify:payplus-webhook-route && npm run verify:payplus-diagnostics && npm run verify:dormant-providers && npm run verify:payments-provider-authority"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",
