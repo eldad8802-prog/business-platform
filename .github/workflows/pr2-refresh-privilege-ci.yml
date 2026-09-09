@@ -1,0 +1,155 @@
+# PERSISTENT LOGIN (PR2) — refresh sessions under least privilege, ephemeral PG17.
+#
+# The auth plane's grants on "AuthSession" and "AuthSessionSecret" are narrow on
+# purpose: column-level INSERT, column-level UPDATE that withholds
+# absoluteExpiresAt, tokenVersionAtIssue and userId, and no UPDATE at all on the
+# rotation history. Those three withheld columns are the 90-day ceiling, global
+# logout and session ownership; withholding them is what turns three promises the
+# code makes into guarantees the database enforces.
+#
+# A privilege battery that only asserts the documented column lists cannot see
+# whether the application actually fits inside them. Prisma appends
+# `RETURNING <every scalar column>` to a write with no `select`, and it names
+# columns filled from model defaults in an INSERT the caller never mentioned —
+# which is exactly how Production login returned 500 on a correct password for
+# two hours on 2026-09-08. So this workflow CAPTURES the SQL Prisma emits, drives
+# the REAL issue / refresh / logout paths through a LOGIN role attached to
+# `app_auth` under the SHIPPED grants, and keeps that incident as a negative
+# control: if a write with no `select` ever stops being refused, the lab has
+# stopped reproducing Production and every other result here is worthless.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO
+# Production.
+
+name: persistent-login — refresh privilege rehearsal (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/api/auth/**"
+      - "lib/auth/**"
+      - "lib/prisma-auth.ts"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20260908120000_persistent_auth_sessions/**"
+      - "prisma/migrations/20260908180000_d2_user_business_privilege_narrowing/**"
+      - "prisma/migrations/20260908200000_auth_session_privilege_contract/**"
+      - ".pr2/**"
+      - ".github/workflows/pr2-refresh-privilege-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr2-refresh-privilege-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  refresh-privilege:
+    name: refresh privilege rehearsal (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: pr2_owner
+          POSTGRES_PASSWORD: pr2_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_pr2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pr2_owner -d dubiz_pr2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://pr2_owner:pr2_ci_synthetic_owner_pw@localhost:5432/dubiz_pr2
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --no-audit --no-fund
+
+      - name: Decision layer (no database)
+        run: npx tsx lib/auth/refresh-session.test.ts
+
+      - name: Auth boundary guards (blocking)
+        run: bash scripts/ci/admin-boundary-guard.sh .
+
+      # `db push` rather than `migrate deploy`: migrate-from-zero is a known,
+      # separate defect in this repository and is not what this battery measures.
+      - name: Push schema (lab)
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Refresh privilege rehearsal
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          AUTH_TOKEN_SECRET: pr2_ci_auth_secret_synthetic
+        run: npx tsx .pr2/refresh-privilege-battery.ts
+
+      # Each mutation removes one real part of the contract and is confirmed to
+      # have applied before its result is believed.
+      - name: negative proof — a rotation write that names no columns
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          AUTH_TOKEN_SECRET: pr2_ci_auth_secret_synthetic
+        run: |
+          F="lib/auth/refresh-session.store.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/      select: \{ id: true, absoluteExpiresAt: true \},\n//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .pr2/refresh-privilege-battery.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unnamed RETURNING passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — revoking a session for an unknown secret
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          AUTH_TOKEN_SECRET: pr2_ci_auth_secret_synthetic
+        run: |
+          F="lib/auth/refresh-session.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    return \{ kind: "refuse", reason: "unknown_secret" \};/    return { kind: "revoke", reason: "refresh_chain_divergence" };/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/auth/refresh-session.test.ts >/dev/null 2>&1 \
+             && npx tsx .pr2/refresh-privilege-battery.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: turning the selector into a kill switch passed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — divergence without the later-use condition
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          AUTH_TOKEN_SECRET: pr2_ci_auth_secret_synthetic
+        run: |
+          F="lib/auth/refresh-session.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  if \(session\.lastUsedAt\.getTime\(\) > rotated\.graceUntil\.getTime\(\)\) \{/  if (true) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/auth/refresh-session.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a lost response now kills the session"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Confirm the tree is byte-identical after every mutation
+        run: git diff --exit-code
