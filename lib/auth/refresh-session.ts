@@ -43,6 +43,8 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 
+import { acceptsNormalWrites } from "@/lib/tenant/business-lifecycle";
+
 /** 256 bits, hex. */
 const SECRET_BYTES = 32;
 
@@ -69,7 +71,16 @@ export type RefreshOutcome =
    */
   | { kind: "unauthorized"; reason: "no_credential" | "malformed" | "unknown_secret" | "not_found" }
   /** Conclusively dead. The caller clears the cookie. */
-  | { kind: "invalid"; reason: "revoked" | "idle_expired" | "absolute_expired" | "token_version_mismatch" }
+  | {
+      kind: "invalid";
+      reason:
+        | "revoked"
+        | "idle_expired"
+        | "absolute_expired"
+        | "token_version_mismatch"
+        /** The business is being or has been erased. See the gate in refreshSession. */
+        | "account_quarantined";
+    }
   /** Proven chain divergence. Session revoked, cookie cleared, event logged. */
   | { kind: "replay_revoked"; sessionId: string; userId: number }
   /** A known rotated secret past its grace, with no proof anyone else used the session. */
@@ -303,14 +314,46 @@ export async function refreshSession(
 
     // A global logout increments User.tokenVersion. A session issued under an
     // older generation is one that logout already killed.
+    //
+    // The business lifecycle is read in the same statement because the account
+    // may be under an erasure quarantine, which is checked immediately below.
     const user = await db.user.findUnique({
       where: { id: session.userId },
-      select: { id: true, tokenVersion: true },
+      select: {
+        id: true,
+        tokenVersion: true,
+        business: { select: { deletionRequestedAt: true, deletedAt: true } },
+      },
     });
     if (!user) return { kind: "unauthorized", reason: "not_found" };
     if (user.tokenVersion !== session.tokenVersionAtIssue) {
       await revokeOne(db, session.id, now, REVOKED_REASON.TOKEN_VERSION_MISMATCH);
       return { kind: "invalid", reason: "token_version_mismatch" };
+    }
+
+    // ACCOUNT-DELETION QUARANTINE.
+    //
+    // `getCurrentUser` refuses a bearer token the instant a business enters
+    // DELETION_REQUESTED. Without the same gate here, refresh would be the one
+    // door left open: the erasure runs on the tenant plane, which holds no
+    // privilege on these tables at all, so it cannot reach a session to kill it,
+    // and a client holding a valid credential would go on minting fresh access
+    // tokens for an account being erased.
+    //
+    // This calls the CANONICAL gate rather than re-deriving the rule. A second
+    // copy of "which timestamps mean quarantined" is exactly how the two answers
+    // drift apart, and the lifecycle module is the one place that decides it.
+    //
+    // Fail-closed: a missing business row denies. The check runs BEFORE any
+    // rotation write and long before the route mints anything, so no token is
+    // signed for a quarantined account even transiently.
+    //
+    // The session is deliberately NOT revoked. Revocation in this design means
+    // "something about this credential is proven bad"; here the credential is
+    // fine and the account is closing. The row goes when the erasure cascades
+    // through User, or when the sweep collects it.
+    if (!user.business || !acceptsNormalWrites(user.business)) {
+      return { kind: "invalid", reason: "account_quarantined" };
     }
 
     // ---- the current secret ------------------------------------------------
