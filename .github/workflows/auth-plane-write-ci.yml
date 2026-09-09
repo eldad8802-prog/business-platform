@@ -1,0 +1,92 @@
+# AUTH-PLANE WRITE CONTRACT — ephemeral PG17 proof.
+#
+# Production login, logout and signup returned 500 for hours because Prisma
+# appends `RETURNING <every scalar column>` to a write that carries no `select`,
+# and D2 E4 had narrowed the auth plane's SELECT on "User" to a column list.
+# Every column the write SET was granted; the read back nobody wrote was not.
+#
+# The existing privilege batteries could not have caught it. They prove what a
+# ROLE may do, and every statement they issue is one a human chose to write. So
+# this workflow drives the REAL login, logout and signup code paths through a
+# LOGIN role attached to `app_auth`, under the SHIPPED E4 grants, on PostgreSQL
+# 17 — and keeps the incident itself as a negative control.
+#
+# Synthetic CI-only credentials; ZERO secrets, ZERO Neon, ZERO network, ZERO
+# Production.
+
+name: auth-plane — write contract under least privilege (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/api/auth/**"
+      - "lib/auth/**"
+      - "lib/prisma-auth.ts"
+      - "prisma/migrations/20260908180000_d2_user_business_privilege_narrowing/**"
+      - ".authfix/**"
+      - ".github/workflows/auth-plane-write-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auth-plane-write-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  auth-plane-writes:
+    name: auth-plane write contract (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: authfix_owner
+          POSTGRES_PASSWORD: authfix_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_authfix
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U authfix_owner -d dubiz_authfix"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      OWNER_URL: postgresql://authfix_owner:authfix_ci_synthetic_owner_pw@localhost:5432/dubiz_authfix
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      # Source lock first: it needs no database, so a missing `select` fails in
+      # seconds rather than after the lab is built.
+      - name: Auth-plane write contract (source lock)
+        run: npx tsx lib/auth/auth-plane-write-contract.test.ts
+
+      - name: Prisma validate + generate
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          npx prisma validate
+          npx prisma generate
+
+      - name: Build the lab schema
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Auth-plane write battery (real routes, real grants, PG17)
+        env:
+          OWNER_URL: ${{ env.OWNER_URL }}
+        run: npx tsx .authfix/auth-plane-write-battery.ts
