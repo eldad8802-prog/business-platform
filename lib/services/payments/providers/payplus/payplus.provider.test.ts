@@ -11,9 +11,12 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 
+import { PaymentProviderError } from "../payment-provider.types";
 import {
+  PAYPLUS_DEFAULT_TIMEOUT_MS,
   PAYPLUS_SUPPORTED_CURRENCIES,
   createPayPlusProvider,
+  withDeadline,
   interpretPayPlusTransaction,
   payPlusDescriptor,
   resolvePayPlusBaseUrl,
@@ -449,6 +452,211 @@ async function main() {
       data: { uid: "T", status_code: "000" },
     }).outcome === "PAID"
   );
+
+  // --- unusable credential --------------------------------------------------
+  //
+  // Decryption can fail for reasons that have nothing to do with the caller: a
+  // rotated `PAYMENTS_ENCRYPTION_KEY`, a row written under a different key id, a
+  // corrupted blob. The store then hands the adapter `null` or a string that
+  // will not parse, and every one of those must be a REFUSAL. The hazard is
+  // specifically an accept-by-default: a callback that cannot be checked against
+  // a key must never be treated as though it had been.
+  {
+    const provider = createPayPlusProvider({
+      fetchImpl: recorder(LINK_OK).fetchImpl,
+      baseUrl: SANDBOX,
+      publicBaseUrl: "https://app.example",
+    });
+    const rawBody = JSON.stringify({ page_request_uid: "PRQ-1", more_info: "1" });
+    const headers = { "user-agent": "PayPlus", hash: "irrelevant" };
+
+    for (const [label, credential] of [
+      ["a credential that could not be decrypted at all", null],
+      ["a credential that is not JSON", "<<not-json>>"],
+      ["a JSON credential missing the secret key", JSON.stringify({ apiKey: "ak" })],
+      ["a JSON credential missing the API key", JSON.stringify({ secretKey: "sk" })],
+      [
+        "a JSON credential whose keys are empty strings",
+        JSON.stringify({ apiKey: "", secretKey: "" }),
+      ],
+      ["a credential that decrypted to an empty string", ""],
+    ] as [string, string | null][]) {
+      const res = await provider.authenticateWebhook!({
+        rawBody,
+        headers,
+        credential,
+        merchantId: "page-uid",
+      });
+      ok(
+        `${label} is refused, never accepted by default`,
+        res.ok === false && res.reason === "merchant_credential_unavailable"
+      );
+    }
+  }
+  {
+    // The same on the outbound path. An unusable credential must stop the
+    // request before it leaves the process, so a half-configured merchant
+    // cannot create a live payment page that nothing can later settle.
+    const { calls, fetchImpl } = recorder(LINK_OK);
+    const provider = createPayPlusProvider({
+      fetchImpl,
+      baseUrl: SANDBOX,
+      publicBaseUrl: "https://app.example",
+    });
+    let message = "";
+    try {
+      await provider.createPaymentLink({
+        businessId: 7,
+        paymentRequestId: 4242,
+        amount: "10.00",
+        currency: "ILS",
+        description: null,
+        merchantId: "page-uid",
+        credential: "corrupt-blob-not-json",
+      });
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    ok("an unusable credential refuses the payment link", message !== "");
+    ok("and nothing reached PayPlus", calls.length === 0);
+    ok(
+      "and the error repeats no credential material",
+      !message.includes("corrupt-blob-not-json")
+    );
+  }
+
+  // --- request deadline ----------------------------------------------------
+  //
+  // A provider that accepts the connection and then never answers is the worst
+  // shape of failure on a money path: it holds the caller — and its tenant
+  // transaction — open indefinitely. What follows proves the wait is bounded,
+  // and that reaching the bound is a FAILURE rather than a settlement.
+  {
+    // Never resolves, and ignores the abort signal entirely — the pessimistic
+    // case, and the reason the deadline cannot rely on the signal alone.
+    const hang: PayPlusHttpClient = () => new Promise(() => {});
+    const provider = createPayPlusProvider({
+      fetchImpl: hang,
+      baseUrl: SANDBOX,
+      publicBaseUrl: "https://app.example",
+      requestTimeoutMs: 25,
+    });
+
+    const started = Date.now();
+    await assert.rejects(
+      () =>
+        provider.createPaymentLink({
+          businessId: 7,
+          paymentRequestId: 4242,
+          amount: "150.00",
+          currency: "ILS",
+          description: null,
+          merchantId: "page-uid",
+          credential: CREDENTIAL,
+        }),
+      (err: unknown) =>
+        err instanceof PaymentProviderError && err.code === "HTTP_ERROR"
+    );
+    ok(
+      "a hanging generateLink is abandoned at the deadline, not awaited forever",
+      Date.now() - started < 2000
+    );
+
+    // The same guarantee on the authority path. This one matters most: a
+    // timeout here must never be read as "the provider said it was paid".
+    let status: unknown = "NOT_THROWN";
+    try {
+      await provider.getPaymentStatus!({
+        providerRequestId: "PRQ-9",
+        merchantId: "page",
+        credential: CREDENTIAL,
+        correlationValue: "4242",
+      });
+    } catch (err) {
+      status = err;
+    }
+    ok(
+      "a hanging status query throws rather than inventing an outcome",
+      status instanceof PaymentProviderError && status.code === "HTTP_ERROR"
+    );
+    ok(
+      "and it never resolves to PAID",
+      !(
+        typeof status === "object" &&
+        status !== null &&
+        (status as { outcome?: string }).outcome === "PAID"
+      )
+    );
+  }
+  {
+    // The signal is offered to the transport, so a well-behaved client can
+    // release the socket rather than leak it until the process exits.
+    let seen: AbortSignal | undefined;
+    const capture: PayPlusHttpClient = async (_url, init) => {
+      seen = init.signal;
+      return { ok: true, status: 200, json: async () => LINK_OK };
+    };
+    const provider = createPayPlusProvider({
+      fetchImpl: capture,
+      baseUrl: SANDBOX,
+      publicBaseUrl: "https://app.example",
+    });
+    await provider.createPaymentLink({
+      businessId: 7,
+      paymentRequestId: 4242,
+      amount: "1.00",
+      currency: "ILS",
+      description: null,
+      merchantId: "page-uid",
+      credential: CREDENTIAL,
+    });
+    ok("the transport is handed an abort signal", seen instanceof AbortSignal);
+    ok("which is not already aborted on a healthy call", seen?.aborted === false);
+  }
+  {
+    // The deadline aborts the signal it handed out, so a transport that DOES
+    // honour it learns the attempt was abandoned.
+    let aborted = false;
+    await assert.rejects(() =>
+      withDeadline((signal) => {
+        signal.addEventListener("abort", () => {
+          aborted = true;
+        });
+        return new Promise(() => {});
+      }, 20)
+    );
+    ok("reaching the deadline aborts the in-flight attempt", aborted);
+  }
+  {
+    // Fail-closed on configuration: "no timeout" is not an option this provider
+    // offers, so a nonsense value falls back to the default rather than either
+    // disabling the deadline or firing it instantly.
+    const { fetchImpl } = recorder(LINK_OK);
+    const provider = createPayPlusProvider({
+      fetchImpl,
+      baseUrl: SANDBOX,
+      publicBaseUrl: "https://app.example",
+      requestTimeoutMs: 0,
+    });
+    const result = await provider.createPaymentLink({
+      businessId: 7,
+      paymentRequestId: 4242,
+      amount: "1.00",
+      currency: "ILS",
+      description: null,
+      merchantId: "page-uid",
+      credential: CREDENTIAL,
+    });
+    ok(
+      "a zero timeout falls back to the default instead of aborting every call",
+      result.paymentUrl === "https://payplus.example/pay/abc"
+    );
+    ok(
+      "the default deadline is a real, finite bound",
+      Number.isFinite(PAYPLUS_DEFAULT_TIMEOUT_MS) &&
+        PAYPLUS_DEFAULT_TIMEOUT_MS > 0
+    );
+  }
 
   console.log(`\npayplus.provider: ${pass} passed, ${failures.length} failed`);
   if (failures.length > 0) {

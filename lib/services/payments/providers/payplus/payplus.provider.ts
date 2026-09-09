@@ -103,7 +103,12 @@ export interface PayPlusHttpResponse {
 }
 export type PayPlusHttpClient = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body: string }
+  init: {
+    method: string;
+    headers: Record<string, string>;
+    body: string;
+    signal?: AbortSignal;
+  }
 ) => Promise<PayPlusHttpResponse>;
 
 export interface PayPlusProviderOptions {
@@ -111,6 +116,62 @@ export interface PayPlusProviderOptions {
   /** Explicit base URL. Overrides environment resolution; used by tests. */
   baseUrl?: string;
   publicBaseUrl?: string;
+  /**
+   * Deadline for a single PayPlus HTTP call. Tests set it low; production uses
+   * `PAYPLUS_DEFAULT_TIMEOUT_MS`. A non-finite or non-positive value falls back
+   * to the default rather than disabling the deadline — "wait forever" is not an
+   * outcome this provider is allowed to have.
+   */
+  requestTimeoutMs?: number;
+}
+
+/**
+ * Default per-request deadline.
+ *
+ * Sits below the platform's serverless function limit so that a provider hang
+ * surfaces as OUR bounded error — which every caller already treats as "not
+ * settled" — rather than as the platform killing the function mid-flight with
+ * no record of what happened. Deliberately generous: a hosted-page creation
+ * that is merely slow must still be allowed to succeed, because abandoning it
+ * early can leave a payment page live at PayPlus for which Dubiz holds no
+ * `providerRequestId`.
+ */
+export const PAYPLUS_DEFAULT_TIMEOUT_MS = 20_000;
+
+/**
+ * Run one HTTP attempt under a hard deadline.
+ *
+ * Two mechanisms, on purpose. The `AbortSignal` asks the transport to release
+ * the socket, which is the clean path; the race is what guarantees the deadline
+ * is actually observed even when the transport ignores the signal — a real
+ * possibility for an injected client, and precisely the case where an unbounded
+ * wait would hold a tenant transaction open.
+ *
+ * On timeout this REJECTS. It never resolves to a synthetic response: no caller
+ * may be able to mistake "we stopped waiting" for "the provider answered".
+ */
+export async function withDeadline<T>(
+  attempt: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`PayPlus request exceeded ${timeoutMs}ms.`));
+    }, timeoutMs);
+  });
+  // NOT `unref`ed, deliberately. An unref'd timer does not hold the event loop
+  // open, so while a slow provider is being awaited the loop can look empty and
+  // the process exits silently with code 0 — mid-request, mid-transaction, and
+  // with no error anywhere. This timer is always cleared in the `finally` below,
+  // so it can never outlive the request it bounds.
+  try {
+    return await Promise.race([attempt(controller.signal), deadline]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 // --- credential model ------------------------------------------------------
@@ -375,6 +436,15 @@ export function createPayPlusProvider(
   const baseUrl = (): string =>
     options.baseUrl?.replace(/\/+$/, "") ?? resolvePayPlusBaseUrl(process.env);
 
+  // Fail-closed on a nonsense value: an unbounded wait is not a configuration
+  // this provider offers, so 0, a negative, or NaN resolves to the default.
+  const requestTimeoutMs =
+    typeof options.requestTimeoutMs === "number" &&
+    Number.isFinite(options.requestTimeoutMs) &&
+    options.requestTimeoutMs > 0
+      ? options.requestTimeoutMs
+      : PAYPLUS_DEFAULT_TIMEOUT_MS;
+
   const resolvePublicBaseUrl = (): string | null => {
     const v = options.publicBaseUrl ?? process.env.PAYMENTS_PUBLIC_BASE_URL ?? null;
     return v ? v.replace(/\/+$/, "") : null;
@@ -387,22 +457,32 @@ export function createPayPlusProvider(
   ): Promise<unknown> {
     let res: PayPlusHttpResponse;
     try {
-      res = await fetchImpl(`${baseUrl()}${path}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          // Per-merchant credentials, sent server-side only.
-          "api-key": credential.apiKey,
-          "secret-key": credential.secretKey,
-        },
-        body: JSON.stringify(body),
-      });
+      // BOUNDED. A provider that accepts the connection and then never answers
+      // would otherwise hold a webhook — and its tenant transaction — open
+      // indefinitely. The deadline turns that into an ordinary network error,
+      // which the authority path already treats as "not settled" rather than as
+      // success. Never invent an outcome from a timeout.
+      res = await withDeadline(
+        (signal) =>
+          fetchImpl(`${baseUrl()}${path}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+              // Per-merchant credentials, sent server-side only.
+              "api-key": credential.apiKey,
+              "secret-key": credential.secretKey,
+            },
+            body: JSON.stringify(body),
+            signal,
+          }),
+        requestTimeoutMs
+      );
     } catch {
       throw new PaymentProviderError(
         PAYPLUS_PROVIDER,
         "HTTP_ERROR",
-        "PayPlus request failed (network)."
+        "PayPlus request failed (network or timeout)."
       );
     }
     if (!res.ok) {
