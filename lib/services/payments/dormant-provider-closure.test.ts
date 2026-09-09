@@ -61,12 +61,18 @@ const ok = (label: string, condition: boolean) => {
 };
 
 async function main() {
-  // ── 1. the disabled set is exactly PayPal + Tranzila ─────────────────────
+  // ── 1. the disabled set ──────────────────────────────────────────────────
+  //
+  // PAYPLUS joins the two Wave E dormant providers, for a different reason: its
+  // adapter is complete and its authoritative status query is real, but it
+  // ships disabled until a sandbox end-to-end settles which serialisation
+  // PayPlus actually signs. The assertion stays EXACT rather than loosening to
+  // "contains", so enabling any provider has to be a deliberate edit here.
   {
     assert.deepEqual(
       [...DISABLED_PAYMENT_PROVIDERS].sort(),
-      ["PAYPAL", "TRANZILA"],
-      "only the two dormant providers are disabled"
+      ["PAYPAL", "PAYPLUS", "TRANZILA"],
+      "the dormant set is exactly PayPal, PayPlus and Tranzila"
     );
     ok("CardCom remains enabled", isPaymentProviderEnabled("CARDCOM"));
     pass += 1;
@@ -159,7 +165,7 @@ async function main() {
     const all = listAllProviderDescriptors().map((d) => d.key).sort();
     assert.deepEqual(
       all,
-      ["CARDCOM", "PAYPAL", "TRANZILA"],
+      ["CARDCOM", "PAYPAL", "PAYPLUS", "TRANZILA"],
       "every descriptor is still resolvable for historical records"
     );
     for (const provider of DORMANT) {

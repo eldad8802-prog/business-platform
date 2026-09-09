@@ -17,7 +17,12 @@ import type { PayableDocumentRef } from "./payment-document-authority";
 
 export type { PayableDocumentRef };
 
-export type PaymentProvider = "TRANZILA" | "CARDCOM" | "PAYPAL";
+export type PaymentProvider =
+  | "TRANZILA"
+  | "CARDCOM"
+  | "PAYPAL"
+  /** PayPlus — an Israeli acquirer, and a different company from PayPal. */
+  | "PAYPLUS";
 
 export type PaymentRequestStatus =
   | "PENDING"
