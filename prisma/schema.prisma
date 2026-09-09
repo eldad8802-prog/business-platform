@@ -3009,6 +3009,10 @@ enum PaymentProvider {
   TRANZILA
   CARDCOM
   PAYPAL
+  /// PayPlus — an Israeli acquirer, and a DIFFERENT company from PayPal above.
+  /// The second real provider; ships DISABLED as a capability until its sandbox
+  /// end-to-end is proven.
+  PAYPLUS
 }
 
 enum PaymentRequestStatus {

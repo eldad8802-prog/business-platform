@@ -1,0 +1,17 @@
+-- Expand-only: add PAYPLUS to the PaymentProvider enum.
+--
+-- PayPlus is an Israeli acquirer and a DIFFERENT company from PayPal, which
+-- already occupies the PAYPAL value; the existing value cannot serve for it.
+--
+-- Safe/additive — no existing row, column or constraint changes, and no data
+-- rewrite. `ADD VALUE IF NOT EXISTS` is idempotent (Postgres 12+). Adding the
+-- value only makes the identity STORABLE; PayPlus ships as a DISABLED
+-- capability, so nothing can create a connection, a request or a webhook event
+-- against it until it is explicitly enabled in provider-availability.ts.
+--
+-- Same shape as 20260624150000_add_cardcom_payment_provider and
+-- 20260705120000_add_paypal_provider.
+--
+-- NOT applied to Production by this change. Production application goes
+-- through the repository's gated release-migrate flow.
+ALTER TYPE "PaymentProvider" ADD VALUE IF NOT EXISTS 'PAYPLUS';
