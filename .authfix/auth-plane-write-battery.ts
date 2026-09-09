@@ -227,6 +227,20 @@ async function main() {
       (after?.tokenVersion ?? -1) === seeded.tokenVersion + 1,
       `was ${seeded.tokenVersion}, now ${after?.tokenVersion}`
     );
+
+    // This lab grants app_auth nothing on "AuthSession", so logout's session
+    // revocation is REFUSED here — which makes it the exact test for the thing
+    // that matters: the increment above has already signed the user out of every
+    // device, so the endpoint must report success. Answering 500 would tell
+    // someone who IS signed out that they are not, and a refresh carrying the
+    // old generation is refused by the version check regardless.
+    const sessionsVisible = await owner.$queryRawUnsafe<Array<{ n: bigint }>>(
+      `SELECT count(*)::bigint AS n FROM "AuthSession"`
+    );
+    ok(
+      "logout reports success even where session revocation is refused",
+      res.status === 200 && Number(sessionsVisible[0]?.n ?? -1) === 0
+    );
   }
 
   // ------------------------------------------------------------- signup ----

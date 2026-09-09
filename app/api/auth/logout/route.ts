@@ -69,13 +69,33 @@ export async function POST(req: Request) {
     //
     // Revoked, never deleted: retention is a separate lifecycle contract, and
     // this plane holds no DELETE privilege it does not need.
-    const revoked = await revokeAllSessionsForUser(authDb(), {
-      userId: user.id,
-      now: new Date(),
-      reason: REVOKED_REASON.LOGOUT,
-    });
-    if (revoked > 0) {
-      console.log(JSON.stringify({ event: "refresh_sessions_revoked", userId: user.id, revoked }));
+    // In its own try, and this is a security decision rather than caution.
+    //
+    // The increment above is the load-bearing half: it kills every access token
+    // AND every refresh session at once, because a refresh whose
+    // `tokenVersionAtIssue` no longer matches the user's generation is refused
+    // before it can rotate anything. Marking the rows is what makes that state
+    // explicit rather than implied.
+    //
+    // So if the marking fails, the user IS signed out and the response must say
+    // so. Reporting 500 here would tell someone who has already been signed out
+    // that they have not been — the worst possible lie for this endpoint to
+    // tell, and one a battery caught by revoking against a lab where this plane
+    // held no privilege on the table.
+    try {
+      const revoked = await revokeAllSessionsForUser(authDb(), {
+        userId: user.id,
+        now: new Date(),
+        reason: REVOKED_REASON.LOGOUT,
+      });
+      if (revoked > 0) {
+        console.log(JSON.stringify({ event: "refresh_sessions_revoked", userId: user.id, revoked }));
+      }
+    } catch (error) {
+      console.error(
+        "LOGOUT_SESSION_REVOKE_ERROR:",
+        error instanceof Error ? error.name : "UnknownError"
+      );
     }
 
     await recordProductUsageEvent({
