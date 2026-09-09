@@ -23,6 +23,7 @@ on:
       - "app/api/auth/**"
       - "lib/auth/**"
       - "lib/prisma-auth.ts"
+      - "components/auth/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/20260908120000_persistent_auth_sessions/**"
       - "prisma/migrations/20260908180000_d2_user_business_privilege_narrowing/**"
@@ -119,3 +120,18 @@ jobs:
         env:
           OWNER_URL: ${{ env.OWNER_URL }}
         run: npx tsx .authfix/auth-session-orm-battery.ts
+
+      # The browser half and the client coordinator need no database, so they run
+      # before the state machine and fail in seconds when they fail.
+      - name: Persistent login — cookie, CSRF and client coordinator
+        run: |
+          npx tsx lib/auth/refresh-cookie.test.ts
+          npx tsx lib/auth/refresh-client.test.ts
+
+      # The state machine against real grants: rotation, the grace window,
+      # concurrency, replay, every lifecycle refusal, and the rollback that
+      # decides whether a lost response means "sign in again" or "carry on".
+      - name: Persistent login — refresh state machine (PG17)
+        env:
+          OWNER_URL: ${{ env.OWNER_URL }}
+        run: npx tsx .authfix/refresh-state-machine-battery.ts

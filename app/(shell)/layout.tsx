@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ShellChrome } from "@/components/navigation/shell-chrome";
+import { RefreshCoordinator } from "@/components/auth/refresh-coordinator";
 
 /**
  * Preboot no-flash script for the brand intro. Runs before first paint on a full
@@ -28,7 +29,9 @@ export default function ShellLayout({ children }: { children: ReactNode }) {
   return (
     <>
       <script dangerouslySetInnerHTML={{ __html: INTRO_PREBOOT }} />
-      <ShellChrome>{children}</ShellChrome>
+      <RefreshCoordinator>
+        <ShellChrome>{children}</ShellChrome>
+      </RefreshCoordinator>
     </>
   );
 }
