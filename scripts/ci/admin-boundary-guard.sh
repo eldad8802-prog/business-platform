@@ -57,11 +57,15 @@ fi
 #
 # The allowlist enumerates the complete auth/bootstrap surface rather than
 # matching a directory, so adding a caller is a deliberate, reviewable act.
+#
+# The refresh endpoint joins that surface with persistent login: it exchanges
+# the rotating cookie for a short access token, which is session resolution by
+# another name and belongs to the same plane as login and logout.
 ci2a="$(
   grep -rnE "from ['\"](@/lib/prisma-auth|[./]+lib/prisma-auth|[./]+prisma-auth)['\"]" \
     "$ROOT/app" "$ROOT/lib" \
     --include="*.ts" --include="*.tsx" 2>/dev/null \
-    | grep -vE "(^|/)app/api/auth/(login|logout|me)/route\.ts:" \
+    | grep -vE "(^|/)app/api/auth/(login|logout|me|refresh)/route\.ts:" \
     | grep -vE "(^|/)lib/auth\.ts:" \
     | grep -vE "(^|/)lib/auth/signup\.ts:" \
     | grep -vE "(^|/)lib/prisma-auth\.ts:" \

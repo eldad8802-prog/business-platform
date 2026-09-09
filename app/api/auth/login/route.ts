@@ -7,6 +7,8 @@ import { AuthTokenConfigError, signAuthToken } from "@/lib/auth";
 import { normalizeEmail } from "@/lib/auth/signup-identity";
 import bcrypt from "bcrypt";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
+import { issueRefreshSession } from "@/lib/auth/refresh-session";
+import { setRefreshCookie } from "@/lib/auth/refresh-cookie";
 import {
   PRODUCT_USAGE_ACTIONS,
   PRODUCT_USAGE_FEATURES,
@@ -157,7 +159,7 @@ export async function POST(req: Request) {
       outcome: PRODUCT_USAGE_OUTCOMES.SUCCESS,
     });
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       success: true,
       // Minted at the user's CURRENT generation. A token signed at generation 0
       // for someone who has logged out three times would be refused on its very
@@ -172,6 +174,32 @@ export async function POST(req: Request) {
         businessName: user.business.name,
       },
     });
+
+    // Persistent login. The access token above still expires within 24 hours;
+    // this is the credential that survives it, and it never reaches JavaScript.
+    //
+    // Issued AFTER the response body exists and inside its own try: a session
+    // that fails to persist must not cost the user a login they have already
+    // passed. They get the ordinary 24-hour session and the next login tries
+    // again — degraded, not broken.
+    try {
+      const session = await issueRefreshSession(authDb(), {
+        userId: user.id,
+        tokenVersion: user.tokenVersion,
+        now,
+      });
+      setRefreshCookie(res, session.credential, {
+        now,
+        absoluteExpiresAt: session.absoluteExpiresAt,
+      });
+    } catch (error) {
+      console.error(
+        "REFRESH_SESSION_ISSUE_ERROR:",
+        error instanceof Error ? error.name : "UnknownError"
+      );
+    }
+
+    return res;
   } catch (error) {
     if (error instanceof AuthTokenConfigError) {
       console.error("LOGIN_ERROR:", error.message);
