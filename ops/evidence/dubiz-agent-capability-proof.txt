@@ -13,3 +13,11 @@ that the dubiz-agent GitHub App can write repository contents on a branch,
 while separately being unable to approve or administer the production-db gate.
 
 Delete freely.
+
+CUTOVER_WRITE_PROOF
+timestamp  : 2026-09-09T19:28:48Z
+main sha   : eb055cdbddc1f95f0fc9cdaa373460fdf3b04a77
+
+Written through the App-only execution path (%USERPROFILE%\.dubiz-agent\gh-app.mjs),
+using a short-lived installation token minted from the local private key.
+No owner OAuth credential was involved in this commit.
