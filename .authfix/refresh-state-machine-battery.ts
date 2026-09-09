@@ -432,6 +432,175 @@ async function main() {
     ok("ROLLBACK: the old credential is still usable afterwards", after.kind === "rotated", after.kind);
   }
 
+  // ── 12. the account-deletion quarantine ──────────────────────────────────
+  //
+  // `getCurrentUser` refuses a bearer token the moment a business enters
+  // DELETION_REQUESTED. Refresh has to refuse too, and it is the harder half:
+  // the erasure runs on the TENANT plane, which holds no privilege on these two
+  // tables at all, so it cannot reach a session to kill one. Without this gate a
+  // client holding a valid credential keeps minting fresh access tokens for an
+  // account being erased, and the quarantine has a door in the back.
+  //
+  // A dedicated business, because quarantining the shared one would end every
+  // other case in this file.
+  {
+    const doomed = await owner.business.create({
+      data: { name: "Quarantine Lab" },
+      select: { id: true },
+    });
+    const mkUser = async (tag: string) =>
+      owner.user.create({
+        data: {
+          email: `quarantine-${Date.now()}-${tag}@lab.invalid`,
+          password: "x",
+          name: "u",
+          businessId: doomed.id,
+        },
+        select: { id: true, tokenVersion: true },
+      });
+
+    // Baseline: while the business is ACTIVE the same credential works, so a
+    // later refusal is attributable to the lifecycle and to nothing else.
+    const u1 = await mkUser("active");
+    const s1 = await issueRefreshSession(auth, {
+      userId: u1.id,
+      tokenVersion: u1.tokenVersion,
+      now: T0,
+    });
+    const active = await refreshSession(auth, { credential: s1.credential, now: at(1000) });
+    ok("QUARANTINE baseline: an ACTIVE business refreshes normally", active.kind === "rotated", active.kind);
+
+    // DELETION_REQUESTED — the window the erasure opens before it destroys
+    // anything, and the one a session could previously have been used through.
+    const u2 = await mkUser("requested");
+    const s2 = await issueRefreshSession(auth, {
+      userId: u2.id,
+      tokenVersion: u2.tokenVersion,
+      now: T0,
+    });
+    await owner.business.update({
+      where: { id: doomed.id },
+      data: { deletionRequestedAt: new Date() },
+      select: { id: true },
+    });
+    const requested = await refreshSession(auth, { credential: s2.credential, now: at(1000) });
+    ok(
+      "DELETION_REQUESTED refuses the refresh",
+      requested.kind === "invalid" && requested.reason === "account_quarantined",
+      `${requested.kind}/${(requested as { reason?: string }).reason}`
+    );
+
+    // No token can have been minted: the route signs one only for `rotated`.
+    ok("...and the outcome is not rotated, so no access token is signed", requested.kind !== "rotated");
+
+    // The credential is refused, not condemned. The session stays unrevoked
+    // because nothing about it is proven bad — the account is closing, not the
+    // credential leaking.
+    const parsedS2 = parseCredential(s2.credential)!;
+    const rowS2 = await owner.authSession.findUnique({
+      where: { id: parsedS2.sessionId },
+      select: { revokedAt: true },
+    });
+    ok("...and the session is NOT revoked — the account is closing, not the credential", rowS2?.revokedAt === null);
+
+    // PURGED. `deletedAt` wins over `deletionRequestedAt` in the canonical
+    // derivation, so the terminal state must refuse just as firmly.
+    await owner.business.update({
+      where: { id: doomed.id },
+      data: { deletedAt: new Date() },
+      select: { id: true },
+    });
+    const purged = await refreshSession(auth, { credential: s2.credential, now: at(2000) });
+    ok(
+      "PURGED refuses the refresh",
+      purged.kind === "invalid" && purged.reason === "account_quarantined",
+      `${purged.kind}/${(purged as { reason?: string }).reason}`
+    );
+
+    // Back to ACTIVE, and the same credential works again. This is what proves
+    // the refusal came from the lifecycle rather than from the credential having
+    // been quietly spoiled along the way.
+    await owner.business.update({
+      where: { id: doomed.id },
+      data: { deletionRequestedAt: null, deletedAt: null },
+      select: { id: true },
+    });
+    const restored = await refreshSession(auth, { credential: s2.credential, now: at(3000) });
+    ok("REVERSIBILITY: the same credential works once the business is ACTIVE again", restored.kind === "rotated", restored.kind);
+  }
+
+  // ── 13. the columns the DATABASE refuses ─────────────────────────────────
+  //
+  // Everything above proves the code does not write these columns. That is a
+  // property of the code, and it is the weaker of the two guarantees. The
+  // privilege contract withholds them so that a future call site CANNOT write
+  // them even if someone tries, and nothing so far has asked PostgreSQL whether
+  // it would actually say no.
+  //
+  // Each column is a mechanism the whole design rests on:
+  //
+  //   absoluteExpiresAt    advancing it removes the 90-day ceiling entirely
+  //   tokenVersionAtIssue  rewriting it revives a session global logout killed
+  //   userId               repointing it is session hijack in one statement
+  //   AuthSessionSecret    any UPDATE lets a grace deadline be widened after the
+  //                        fact, turning a divergence into an acceptance
+  //
+  // These run as the SAME restricted role every case above used, under the
+  // SHIPPED contract. No grant is added to make them pass — a proof that needed
+  // its own privileges would be proving something about the lab.
+  {
+    const u = await newUser();
+    const s = await issueRefreshSession(auth, { userId: u.id, tokenVersion: u.tokenVersion, now: T0 });
+    const parsed = parseCredential(s.credential)!;
+    // One rotation so the history table has a row to aim at.
+    await refreshSession(auth, { credential: s.credential, now: at(1000) });
+
+    const denied = async (fn: () => Promise<unknown>): Promise<string | null> => {
+      try {
+        await fn();
+        return null;
+      } catch (e) {
+        const text = String((e as Error)?.message ?? e);
+        const m = text.match(/code:\s*"(\w+)"/) ?? text.match(/\b(42501)\b/);
+        return m ? m[1] : "no-code";
+      }
+    };
+
+    for (const [label, data] of [
+      ["absoluteExpiresAt", { absoluteExpiresAt: new Date(Date.now() + 9e10) }],
+      ["tokenVersionAtIssue", { tokenVersionAtIssue: 0 }],
+      ["userId", { userId: u.id }],
+    ] as const) {
+      const code = await denied(() =>
+        auth.authSession.updateMany({ where: { id: parsed.sessionId }, data })
+      );
+      ok(`DB REFUSES an UPDATE of AuthSession.${label} (42501)`, code === "42501", `got ${code ?? "no error — the column is writable"}`);
+    }
+
+    const secretCode = await denied(() =>
+      auth.authSessionSecret.updateMany({
+        where: { sessionId: parsed.sessionId },
+        data: { graceUntil: new Date(Date.now() + 9e10) },
+      })
+    );
+    ok(
+      "DB REFUSES any UPDATE of AuthSessionSecret, so a grace deadline is unforgeable (42501)",
+      secretCode === "42501",
+      `got ${secretCode ?? "no error — graceUntil is writable"}`
+    );
+
+    // The positive half, so the four refusals above cannot be a broken client or
+    // a role with no privileges at all: the columns the contract DOES grant are
+    // still writable by this very role.
+    const allowed = await denied(() =>
+      auth.authSession.updateMany({
+        where: { id: parsed.sessionId },
+        data: { lastUsedAt: new Date() },
+      })
+    );
+    ok("CONTROL: the same role CAN still write a granted column (lastUsedAt)", allowed === null, `got ${allowed}`);
+  }
+
   await auth.$disconnect();
   await owner.$disconnect();
   console.log(`\n[refresh-state-machine-battery] PASS=${pass} FAIL=${fail}`);

@@ -135,3 +135,25 @@ jobs:
         env:
           OWNER_URL: ${{ env.OWNER_URL }}
         run: npx tsx .authfix/refresh-state-machine-battery.ts
+
+      # A gate nobody can delete quietly. The mutation is confirmed to have
+      # applied before its result is believed, so a pattern that silently stops
+      # matching fails the step rather than reporting a green it never earned.
+      - name: negative proof — a refresh that ignores the deletion quarantine
+        env:
+          OWNER_URL: ${{ env.OWNER_URL }}
+        run: |
+          F="lib/auth/refresh-session.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/if \(!user\.business \|\| !acceptsNormalWrites\(user\.business\)\) \{/if (false) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .authfix/refresh-state-machine-battery.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an account being erased can still mint access tokens"
+            exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Confirm the tree is byte-identical after the mutation
+        run: git diff --exit-code
