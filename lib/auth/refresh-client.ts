@@ -52,6 +52,23 @@ function writeToken(token: string): void {
 }
 
 /**
+ * Only for a DEFINITIVE refusal. A dead token left in storage is worse than no
+ * token: every screen reads it, sends it, and fails with 401 forever, and the
+ * user is shown a broken app instead of a sign-in.
+ *
+ * Never called for a network failure or a 500 — those say nothing about the
+ * session, and turning them into a sign-out would make a flaky connection
+ * indistinguishable from an ended one.
+ */
+function clearToken(): void {
+  try {
+    window.localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* nothing to clear */
+  }
+}
+
+/**
  * The access token's expiry, read WITHOUT verifying it. Verification is the
  * server's job and needs the secret; the client only needs to know when to ask
  * for a new one, and a forged `exp` costs an attacker nothing but their own
@@ -124,6 +141,56 @@ export function isTokenExpired(now: number, expiryMs: number | null): boolean {
   return expiryMs === null ? false : expiryMs <= now;
 }
 
+/**
+ * What boot must do, decided SYNCHRONOUSLY.
+ *
+ * The decision has to be available before the first paint, because the gate
+ * that holds the authenticated shell reads it in a layout effect. Making it
+ * async would cost every healthy load a blank frame to answer a question whose
+ * answer was already sitting in localStorage.
+ */
+export type BootstrapDecision = "no_session" | "ready" | "must_refresh";
+
+export function bootstrapDecision(now: number = Date.now()): BootstrapDecision {
+  const token = readToken();
+  if (token === null) return "no_session";
+  const expiry = readTokenExpiry(token);
+  // A token whose payload we cannot read is not ours to judge. The server will
+  // reject it if it is invalid; refreshing on its behalf would rotate the
+  // credential for no reason.
+  if (expiry === null) return "ready";
+  return msUntilRefresh(now, expiry) === 0 ? "must_refresh" : "ready";
+}
+
+export type BootstrapOutcome = "no_session" | "ready" | "refreshed" | "unauthenticated" | "degraded";
+
+/**
+ * Boot. At most ONE refresh, and only when the access token is actually spent.
+ *
+ * A healthy token is left alone: refreshing it would rotate the credential on
+ * every mount, which is a write, a network round trip and a new secret for a
+ * session that had nothing wrong with it.
+ */
+export async function bootstrapRefresh(
+  opts: { now?: () => number; refresh?: () => Promise<RefreshResult> } = {}
+): Promise<BootstrapOutcome> {
+  const now = opts.now ?? (() => Date.now());
+  const refresh = opts.refresh ?? refreshAccessToken;
+
+  const decision = bootstrapDecision(now());
+  if (decision !== "must_refresh") return decision;
+
+  const result = await refresh();
+  if (result === "refreshed") return "refreshed";
+  if (result === "unauthenticated") {
+    clearToken();
+    return "unauthenticated";
+  }
+  // Transient. The token stays exactly as it was; the caller carries on and the
+  // timer will try again.
+  return "degraded";
+}
+
 export type CoordinatorHandle = { stop: () => void };
 
 /**
@@ -142,6 +209,8 @@ export function startRefreshCoordinator(
     now?: () => number;
     refresh?: () => Promise<RefreshResult>;
     onUnauthenticated?: () => void;
+    /** Set when the bootstrap gate has already run boot and is awaiting it. */
+    skipBoot?: boolean;
   } = {}
 ): CoordinatorHandle {
   const now = opts.now ?? (() => Date.now());
@@ -168,15 +237,29 @@ export function startRefreshCoordinator(
 
   const tick = async () => {
     if (stopped) return;
-    // No token at all means nobody is signed in on this device. Asking the
-    // server would only tell an anonymous visitor that they are anonymous.
-    if (readToken() === null) return;
+
+    // Two reasons to do nothing, and both matter.
+    //
+    // No token means nobody is signed in on this device: asking the server
+    // would only tell an anonymous visitor that they are anonymous.
+    //
+    // A token that is not yet due means there is nothing to fix. Refreshing it
+    // anyway would ROTATE the credential on every mount — a write, a round trip
+    // and a new secret for a session that had nothing wrong with it.
+    const decision = bootstrapDecision(now());
+    if (decision === "no_session") return;
+    if (decision === "ready") {
+      schedule();
+      return;
+    }
 
     const result = await refresh();
     if (result === "unauthenticated") {
-      // The server has spoken: this credential is finished. Leave the decision
-      // about where to send the user to the caller — this module does not
-      // navigate, so it stays testable and does not fight the router.
+      // The server has spoken: this credential is finished. Drop the dead token
+      // so screens stop presenting it, and let the caller decide where the user
+      // goes — this module does not navigate, so it stays testable and does not
+      // fight the router.
+      clearToken();
       opts.onUnauthenticated?.();
       return;
     }
@@ -194,7 +277,10 @@ export function startRefreshCoordinator(
     }
   };
 
-  void tick();
+  // The gate runs boot itself and holds the shell until it resolves; running it
+  // again here would be a second decision on the same question.
+  if (opts.skipBoot === true) schedule();
+  else void tick();
 
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", onVisible);

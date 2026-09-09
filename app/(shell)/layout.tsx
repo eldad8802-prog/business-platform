@@ -29,8 +29,9 @@ export default function ShellLayout({ children }: { children: ReactNode }) {
   return (
     <>
       <script dangerouslySetInnerHTML={{ __html: INTRO_PREBOOT }} />
-      <RefreshCoordinator />
-      <ShellChrome>{children}</ShellChrome>
+      <RefreshCoordinator>
+        <ShellChrome>{children}</ShellChrome>
+      </RefreshCoordinator>
     </>
   );
 }

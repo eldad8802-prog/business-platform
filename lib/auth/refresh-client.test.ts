@@ -42,6 +42,7 @@ function installBrowser(initialToken: string | null) {
     localStorage: {
       getItem: (k: string) => store.get(k) ?? null,
       setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
     },
     addEventListener: add,
     removeEventListener: () => {},
@@ -140,6 +141,73 @@ async function main() {
     ok("a 200 with no token is a failure", (await mod.refreshAccessToken()) === "failed");
   }
 
+  // ---- boot decides synchronously, and mostly decides "do nothing" --------
+  //
+  // The bug this locks: boot used to refresh ANY existing token, so every mount
+  // rotated the credential — a write and a round trip for a session that had
+  // nothing wrong with it.
+  {
+    installBrowser(fakeToken(Math.floor(NOW / 1000) + 7200));
+    ok("a healthy token needs no boot refresh", mod.bootstrapDecision(NOW) === "ready");
+
+    installBrowser(fakeToken(Math.floor(NOW / 1000) - 10));
+    ok("a spent token must refresh at boot", mod.bootstrapDecision(NOW) === "must_refresh");
+
+    installBrowser(fakeToken(Math.floor(NOW / 1000) + 60));
+    ok("a token inside the skew window must refresh at boot", mod.bootstrapDecision(NOW) === "must_refresh");
+
+    installBrowser(null);
+    ok("no token is no session", mod.bootstrapDecision(NOW) === "no_session");
+
+    installBrowser("unreadable");
+    ok("a token we cannot read is left alone", mod.bootstrapDecision(NOW) === "ready");
+  }
+
+  // ---- bootstrapRefresh outcomes ------------------------------------------
+  {
+    installBrowser(fakeToken(Math.floor(NOW / 1000) + 7200));
+    let calls = 0;
+    const outcome = await mod.bootstrapRefresh({
+      now: () => NOW,
+      refresh: async () => {
+        calls += 1;
+        return "refreshed";
+      },
+    });
+    ok("HEALTHY BOOT makes ZERO refresh calls", calls === 0, `${calls}`);
+    ok("...and reports ready", outcome === "ready");
+  }
+  {
+    const b = installBrowser(fakeToken(Math.floor(NOW / 1000) - 10));
+    let calls = 0;
+    const outcome = await mod.bootstrapRefresh({
+      now: () => NOW,
+      refresh: async () => {
+        calls += 1;
+        b.store.set("token", fakeToken(Math.floor(NOW / 1000) + 7200));
+        return "refreshed";
+      },
+    });
+    ok("EXPIRED BOOT makes exactly ONE refresh call", calls === 1, `${calls}`);
+    ok("...and reports refreshed", outcome === "refreshed");
+  }
+  {
+    const b = installBrowser(fakeToken(Math.floor(NOW / 1000) - 10));
+    const outcome = await mod.bootstrapRefresh({ now: () => NOW, refresh: async () => "unauthenticated" });
+    ok("a DEFINITIVE refusal reports unauthenticated", outcome === "unauthenticated");
+    ok(
+      "...and the dead token is removed, so screens stop presenting it",
+      b.store.get("token") === undefined
+    );
+  }
+  {
+    const b = installBrowser(fakeToken(Math.floor(NOW / 1000) - 10));
+    const before = b.store.get("token");
+    const outcome = await mod.bootstrapRefresh({ now: () => NOW, refresh: async () => "failed" });
+    ok("a TRANSIENT failure is not a sign-out", outcome === "degraded");
+    ok("...and the token is left exactly as it was", b.store.get("token") === before);
+  }
+
   // ---- coordinator triggers ----------------------------------------------
   {
     // Boot with a spent token: it must refresh before anything else happens.
@@ -189,6 +257,91 @@ async function main() {
     });
     await new Promise((r) => setImmediate(r));
     ok("no token means no refresh request", refreshes === 0);
+    handle.stop();
+  }
+
+  // A healthy token must not be rotated by simply mounting the coordinator.
+  {
+    installBrowser(fakeToken(Math.floor(NOW / 1000) + 7200));
+    let refreshes = 0;
+    const handle = mod.startRefreshCoordinator({
+      now: () => NOW,
+      refresh: async () => {
+        refreshes += 1;
+        return "refreshed";
+      },
+    });
+    await new Promise((r) => setImmediate(r));
+    ok("HEALTHY BOOT: mounting rotates nothing", refreshes === 0, `${refreshes}`);
+    handle.stop();
+  }
+
+  // The coordinator started by the gate must not run boot a second time.
+  {
+    installBrowser(fakeToken(Math.floor(NOW / 1000) - 10));
+    let refreshes = 0;
+    const handle = mod.startRefreshCoordinator({
+      now: () => NOW,
+      skipBoot: true,
+      refresh: async () => {
+        refreshes += 1;
+        return "refreshed";
+      },
+    });
+    await new Promise((r) => setImmediate(r));
+    ok("skipBoot leaves boot to the gate", refreshes === 0, `${refreshes}`);
+    handle.stop();
+  }
+
+  // A definitive refusal through the coordinator clears the token too, so a
+  // screen cannot keep presenting a credential the server has finished with.
+  {
+    const b = installBrowser(fakeToken(Math.floor(NOW / 1000) - 10));
+    let signedOut = 0;
+    const handle = mod.startRefreshCoordinator({
+      now: () => NOW,
+      refresh: async () => "unauthenticated",
+      onUnauthenticated: () => {
+        signedOut += 1;
+      },
+    });
+    await new Promise((r) => setImmediate(r));
+    ok("a definitive refusal reaches the caller", signedOut === 1, `${signedOut}`);
+    ok("...and the dead token is gone", b.store.get("token") === undefined);
+    handle.stop();
+  }
+
+  // Boot, focus and the timer firing together must produce ONE request. Every
+  // refresh rotates, so a burst would be a chain where all but the last
+  // response is already stale.
+  {
+    const b = installBrowser(fakeToken(Math.floor(NOW / 1000) - 10));
+    mod.__testing.resetInFlight();
+    let network = 0;
+    let release: (() => void) | null = null;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    (globalThis as unknown as { fetch: unknown }).fetch = async () => {
+      network += 1;
+      await gate;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ token: fakeToken(Math.floor(NOW / 1000) + 7200) }),
+      } as unknown as Response;
+    };
+
+    const boot = mod.bootstrapRefresh({ now: () => NOW });
+    const handle = mod.startRefreshCoordinator({ now: () => NOW });
+    b.fire("focus");
+    b.fire("visibilitychange");
+    await new Promise((r) => setImmediate(r));
+    release?.();
+    await boot;
+    await new Promise((r) => setImmediate(r));
+
+    ok("SIMULTANEOUS boot, focus and timer make ONE network refresh", network === 1, `${network}`);
     handle.stop();
   }
 
