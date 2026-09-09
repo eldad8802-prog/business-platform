@@ -23,7 +23,10 @@ on:
       - "app/api/auth/**"
       - "lib/auth/**"
       - "lib/prisma-auth.ts"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20260908120000_persistent_auth_sessions/**"
       - "prisma/migrations/20260908180000_d2_user_business_privilege_narrowing/**"
+      - "prisma/migrations/20260908200000_auth_session_privilege_contract/**"
       - ".authfix/**"
       - ".github/workflows/auth-plane-write-ci.yml"
   workflow_dispatch:
@@ -90,3 +93,29 @@ jobs:
         env:
           OWNER_URL: ${{ env.OWNER_URL }}
         run: npx tsx .authfix/auth-plane-write-battery.ts
+
+      # ── PERSISTENT LOGIN: model parity, then ORM behaviour ────────────────
+      #
+      # The AuthSession models describe tables that ALREADY EXIST in Production.
+      # `db push` above built them from the models; this replaces them with the
+      # SHIPPED DDL and then asks Prisma whether the models still need any DDL.
+      # `--exit-code` fails the step on any difference, so the models can never
+      # quietly drift from the shape Production actually has.
+      - name: Persistent login — schema parity against the shipped DDL
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'DROP TABLE IF EXISTS "AuthSessionSecret" CASCADE;'
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'DROP TABLE IF EXISTS "AuthSession" CASCADE;'
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f prisma/migrations/20260908120000_persistent_auth_sessions/migration.sql
+          npx prisma migrate diff \
+            --from-url "$DATABASE_URL" \
+            --to-schema-datamodel prisma/schema.prisma \
+            --exit-code
+
+      - name: Persistent login — ORM behaviour under the shipped grants (PG17)
+        env:
+          OWNER_URL: ${{ env.OWNER_URL }}
+        run: npx tsx .authfix/auth-session-orm-battery.ts
