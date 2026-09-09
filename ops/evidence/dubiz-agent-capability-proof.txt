@@ -1,0 +1,15 @@
+dubiz-agent capability proof
+
+app name        : dubiz-agent
+app id          : 4888812
+installation id : 160407947
+repository      : eldad8802-prog/business-platform
+base sha        : eb055cdbddc1f95f0fc9cdaa373460fdf3b04a77
+created at      : 2026-09-09T19:00:34Z
+
+This file is a capability proof and nothing else. It carries no secret, no
+configuration and no runtime or workflow behaviour. It exists to demonstrate
+that the dubiz-agent GitHub App can write repository contents on a branch,
+while separately being unable to approve or administer the production-db gate.
+
+Delete freely.
