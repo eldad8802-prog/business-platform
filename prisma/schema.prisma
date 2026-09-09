@@ -265,6 +265,7 @@ model User {
   crmNotesCreated                            CrmNote[]
   crmAttachmentsUploaded                     CrmAttachment[]
   platformAdminMfa                           PlatformAdminMfa?
+  authSessions                               AuthSession[]
 }
 
 /// CASA 3.3.1 — second authentication factor for PLATFORM-LEVEL administrators.
@@ -3625,4 +3626,65 @@ model HistoricalFiscalDocument {
   @@index([businessId, documentId])
   @@index([businessId, reversesHistoricalDocumentId])
   @@index([importRunId])
+}
+
+/// PERSISTENT LOGIN — the refresh-session tables, as they ALREADY EXIST in
+/// Production. Created by 20260908120000_persistent_auth_sessions and granted by
+/// 20260908200000_auth_session_privilege_contract; this block only teaches
+/// Prisma about them and introduces no DDL of its own.
+///
+/// Two properties of the shape are load-bearing and easy to undo by accident:
+///
+///   * There is NO `updatedAt`. `@updatedAt` would make Prisma write a column
+///     that does not exist, and `@default(now())` on a timestamp would hand the
+///     value to PostgreSQL, whose `CURRENT_TIMESTAMP` is a timestamptz cast into
+///     these `timestamp(3)` columns through a session TimeZone this project
+///     never sets. Measured cost of that cast on an Asia/Riyadh server: three
+///     hours, in the direction that makes every expiry more lenient. All six
+///     timestamps are supplied by the application, from one instant per request.
+///
+///   * `revokedAt` and `revokedReason` are nullable with no default, so Prisma
+///     omits them from an INSERT it was not asked to write them in. A session is
+///     never born revoked, and the privilege contract withholds INSERT on both
+///     columns as the second, independent half of that guarantee.
+model AuthSession {
+  /// `gen_random_uuid()` is the DEFAULT the shipped DDL already carries, so it
+  /// is declared as database-generated rather than `uuid()`. Prisma-side
+  /// generation would work — the contract grants INSERT on `id` — but it would
+  /// report the existing column default as drift and offer to drop it.
+  id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId              Int
+  /// SHA-256 hex of the presented secret. The DB also enforces length 64 and
+  /// `^[0-9a-f]{64}$` through a CHECK constraint that Prisma cannot represent —
+  /// `prisma db pull` would silently drop it, so it must never regenerate this.
+  secretHash          String
+  /// The generation this session was issued under. Withheld from UPDATE, so a
+  /// session global logout has already killed cannot be revived.
+  tokenVersionAtIssue Int
+  createdAt           DateTime            @db.Timestamp(3)
+  lastUsedAt          DateTime            @db.Timestamp(3)
+  idleExpiresAt       DateTime            @db.Timestamp(3)
+  /// The 90-day ceiling. Withheld from UPDATE, so no session can be made immortal.
+  absoluteExpiresAt   DateTime            @db.Timestamp(3)
+  revokedAt           DateTime?           @db.Timestamp(3)
+  revokedReason       String?
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  secrets             AuthSessionSecret[]
+
+  @@index([userId])
+}
+
+/// Rotated secrets, kept for their grace window so a refresh that raced a
+/// rotation is still recognised. Written once and never updated: the privilege
+/// contract grants no UPDATE at all here, which is what makes `graceUntil`
+/// unforgeable after the fact.
+model AuthSessionSecret {
+  id         String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId  String      @db.Uuid
+  secretHash String
+  rotatedAt  DateTime    @db.Timestamp(3)
+  graceUntil DateTime    @db.Timestamp(3)
+  session    AuthSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([sessionId, secretHash])
 }
