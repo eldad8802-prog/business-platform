@@ -100,18 +100,52 @@ jobs:
 
       # Each mutation removes one real part of the contract and is confirmed to
       # have applied before its result is believed.
-      - name: negative proof — a rotation write that names no columns
+      # NOTE ON A PROOF THAT IS DELIBERATELY NOT HERE.
+      #
+      # The obvious mutation — delete the `select` from the session create, the
+      # exact shape of the 2026-09-08 outage — does NOT fail on these two tables,
+      # and asserting that it would would be a lie the first run exposes. The
+      # auth plane holds TABLE-LEVEL SELECT on AuthSession and AuthSessionSecret,
+      # so an implicit RETURNING over every column is permitted here. It was the
+      # COLUMN-LEVEL SELECT on "User" that turned a missing `select` into 42501.
+      #
+      # The `select` calls in the store are kept anyway, for the day that grant
+      # is narrowed. What guards them is the battery's own assertion that the
+      # store touches nothing outside the two session tables, plus the User
+      # negative control inside the battery, which does still fail closed.
+
+      - name: negative proof — a refresh that ignores global logout
         env:
           DATABASE_URL: ${{ env.OWNER_URL }}
           DIRECT_URL: ${{ env.OWNER_URL }}
           AUTH_TOKEN_SECRET: pr2_ci_auth_secret_synthetic
         run: |
-          F="lib/auth/refresh-session.store.ts"
+          F="lib/auth/refresh-session.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/      select: \{ id: true, absoluteExpiresAt: true \},\n//' "$F"
+          perl -0pi -e 's/if \(session\.tokenVersionAtIssue !== currentTokenVersion\) \{/if (false) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .pr2/refresh-privilege-battery.ts >/dev/null 2>&1; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unnamed RETURNING passed"; exit 1
+          if npx tsx lib/auth/refresh-session.test.ts >/dev/null 2>&1 \
+             && npx tsx .pr2/refresh-privilege-battery.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a signed-out session can still refresh"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — a refresh that ignores the deletion quarantine
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          AUTH_TOKEN_SECRET: pr2_ci_auth_secret_synthetic
+        run: |
+          F="lib/auth/refresh-session.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/if \(!accountAcceptsUse\) \{/if (false) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/auth/refresh-session.test.ts >/dev/null 2>&1 \
+             && npx tsx .pr2/refresh-privilege-battery.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: an account being erased can still mint tokens"; exit 1
           fi
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
@@ -124,7 +158,7 @@ jobs:
         run: |
           F="lib/auth/refresh-session.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/    return \{ kind: "refuse", reason: "unknown_secret" \};/    return { kind: "revoke", reason: "refresh_chain_divergence" };/' "$F"
+          perl -0pi -e 's/return \{ kind: "refuse", reason: "unknown_secret" \};/return { kind: "revoke", reason: "refresh_chain_divergence" };/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npx tsx lib/auth/refresh-session.test.ts >/dev/null 2>&1 \
              && npx tsx .pr2/refresh-privilege-battery.ts >/dev/null 2>&1; then
@@ -142,7 +176,7 @@ jobs:
         run: |
           F="lib/auth/refresh-session.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/  if \(session\.lastUsedAt\.getTime\(\) > rotated\.graceUntil\.getTime\(\)\) \{/  if (true) {/' "$F"
+          perl -0pi -e 's/if \(session\.lastUsedAt\.getTime\(\) > rotated\.graceUntil\.getTime\(\)\) \{/if (true) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npx tsx lib/auth/refresh-session.test.ts >/dev/null 2>&1; then
             mv "$F.bak" "$F"
