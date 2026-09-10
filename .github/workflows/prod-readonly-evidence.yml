@@ -27,6 +27,7 @@ on:
           - 'ops/evidence/conversation-coherence-evidence.sql'
           - 'ops/evidence/i8a-historical-fiscal-evidence.sql'
           - 'ops/evidence/i8a-runtime-role-evidence.sql'
+          - 'ops/evidence/payplus-enum-evidence.sql'
 
 permissions:
   contents: read
