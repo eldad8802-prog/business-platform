@@ -524,6 +524,35 @@ async function main() {
     ok("...and login works again once the grant is back", recovered.status === 200, `${recovered.status}`);
   }
 
+  // ── refresh: a token, and it names the session it came from ─────────────
+  //
+  // The negative case below proves refresh withholds a token when it has no
+  // session. This is the other half, and the half that would go unnoticed: a
+  // refresh that succeeds but hands back a token naming nobody would restore
+  // exactly the 24-hour blind spot this phase exists to close.
+  {
+    const e = await mkUser();
+    const s = await issue(e.id, e.tokenVersion, CHROME_WIN);
+    const res = await refreshRoute.handleRefresh(
+      new Request("https://lab.invalid/api/auth/refresh", {
+        method: "POST",
+        headers: {
+          origin: "https://lab.invalid",
+          host: "lab.invalid",
+          cookie: `dubiz_rt=${s.credential}`,
+        },
+      })
+    );
+    const body = (await res.json()) as { token?: string };
+    ok("REFRESH succeeds and returns a token", res.status === 200 && typeof body.token === "string");
+    const ctx = await getAuthContext(bearer(body.token ?? ""));
+    ok("PHASE 3.3: the refresh token ALWAYS names a session", ctx !== null && ctx.sessionId !== null);
+    // Rotation replaces the secret, not the session, so the device the owner
+    // sees must be the same row before and after.
+    ok("...the same session, so the device list does not grow on every refresh",
+      ctx?.sessionId === s.sessionId);
+  }
+
   // ── refresh: no session, no token ───────────────────────────────────────
   {
     const res = await refreshRoute.handleRefresh(
