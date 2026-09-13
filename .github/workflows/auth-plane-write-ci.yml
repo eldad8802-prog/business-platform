@@ -28,6 +28,7 @@ on:
       - "prisma/migrations/20260908120000_persistent_auth_sessions/**"
       - "prisma/migrations/20260908180000_d2_user_business_privilege_narrowing/**"
       - "prisma/migrations/20260908200000_auth_session_privilege_contract/**"
+      - "prisma/migrations/20260913120000_authsession_user_agent/**"
       - ".authfix/**"
       - ".github/workflows/auth-plane-write-ci.yml"
   workflow_dispatch:
@@ -157,3 +158,12 @@ jobs:
 
       - name: Confirm the tree is byte-identical after the mutation
         run: git diff --exit-code
+
+      # LAST on purpose. It adds the userAgent column, which prisma/schema.prisma
+      # does not describe yet — that is what PR-1 of the migration-first rule
+      # means. Running it before the parity step above would make that step read
+      # the new column as drift and fail for the right reason at the wrong time.
+      - name: Device metadata — userAgent column and grant delta (PG17)
+        env:
+          OWNER_URL: ${{ env.OWNER_URL }}
+        run: npx tsx prisma/migrations/20260913120000_authsession_user_agent/grant-delta.test.ts
