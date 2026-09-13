@@ -254,9 +254,12 @@ check("the hub asks direction first, and never shows the six domains", () => {
   // files rather than rows — so they are their own row rather than a sixth
   // domain inside the tabular import, which would have asked the owner to pick
   // a "domain" and then handed them a completely different screen.
+  // I-8B.6 added a third, on the same reasoning: historical records are fiscal
+  // documents another system issued, and they obey rules the tabular domains do
+  // not.
   assert.deepEqual(
     IMPORT_EXPORT_ACTIONS.map((a) => a.key),
-    ["import", "templates", "documents-import", "export"]
+    ["import", "templates", "documents-import", "historical", "export"]
   );
   // Templates sits with Import, not after Export: it belongs to that journey,
   // and it serves the TABULAR import specifically — which is why the documents
@@ -388,11 +391,25 @@ check("no screen lists the historical domain — all three filter on tabular", (
   }
 });
 
-check("the hub gained no new action — the owner sees no historical flow", () => {
-  assert.deepEqual(
-    IMPORT_EXPORT_ACTIONS.map((a) => a.key),
-    ["import", "templates", "documents-import", "export"]
-  );
+/**
+ * I-8B.6 released the historical flow, and this check turned over with it.
+ *
+ * Until now it asserted the owner could NOT reach the historical domain,
+ * because Analyze, Preview and Execute did not exist. They exist, they are
+ * proven, and the flow is now the point — so what has to be asserted is that it
+ * is exposed EXACTLY ONCE, under its own route, and that opening it did not
+ * quietly widen the generic domain gate (checked immediately below).
+ */
+check("the hub exposes the historical flow exactly once, on its own route", () => {
+  const historical = IMPORT_EXPORT_ACTIONS.filter((a) => a.key === "historical");
+  assert.equal(historical.length, 1);
+  assert.equal(historical[0].available, true);
+  assert.equal(historical[0].href, `${IMPORT_EXPORT_ROUTE}/historical`);
+  // It is not a domain picker: the historical domain id must not be the key.
+  assert.notEqual(historical[0].key, "historical-documents");
+  // The wording says the documents came from ELSEWHERE. An owner reading this
+  // row next to "מסמכים שהפקת" must not be able to confuse the two.
+  assert.match(historical[0].description, /מערכת אחרת/);
 });
 
 check("every import and export route refuses the historical domain", () => {

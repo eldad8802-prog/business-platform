@@ -386,14 +386,15 @@ async function main(): Promise<void> {
 
   /* ============================================ 7. structural guards ==== */
 
-  await check("Preview is granted, and the capability is still only three routes", () => {
+  await check("Preview is granted, and the capability is still the named routes", () => {
     assert.ok(fs.existsSync("app/api/data-transfer/import/historical/preview/route.ts"));
     assert.ok(fs.existsSync("app/api/data-transfer/import/historical/analyze/route.ts"));
-    // I-8B.5 added Execute. What is held is the enumeration, not its absence.
+    // I-8B.5 added Execute; I-8B.6 added the template download. What is held is
+    // the enumeration, not its absence.
     assert.deepEqual(
       fs.readdirSync("app/api/data-transfer/import/historical").sort(),
-      ["analyze", "execute", "preview"],
-      "no fourth historical route may appear unannounced"
+      ["analyze", "execute", "preview", "template"],
+      "no fifth historical route may appear unannounced"
     );
     const registry = fs.readFileSync(
       "lib/data-transfer/export/export-registry.ts",

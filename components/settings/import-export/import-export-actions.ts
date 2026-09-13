@@ -38,7 +38,7 @@
 import { IMPORT_EXPORT_ROUTE } from "./import-export-release";
 
 export type ImportExportAction = {
-  key: "import" | "documents-import" | "templates" | "export";
+  key: "import" | "documents-import" | "templates" | "historical" | "export";
   href: string;
   title: string;
   description: string;
@@ -81,6 +81,24 @@ export const IMPORT_EXPORT_ACTIONS: readonly ImportExportAction[] = [
     title: "ייבוא מסמכים",
     description: "בדקו קבצים ממערכת אחרת לפני קליטה",
     icon: "🧾",
+    available: true,
+  },
+  {
+    // I-8B.6 gives the historical engine an owner. It is a third way IN and it
+    // is deliberately its own row rather than a domain inside the tabular
+    // import: those six domains are rows the owner can hand-edit, and these are
+    // FISCAL records another system issued. Putting them behind the same
+    // "choose an area" question would have implied they obey the same rules,
+    // and they do not — a duplicate here is a decision about somebody's
+    // accounting history, not a spreadsheet collision.
+    //
+    // The wording says where the documents came FROM and when, so it cannot be
+    // confused with "מסמכים שהפקת" — the documents Dubiz itself issued.
+    key: "historical",
+    href: `${IMPORT_EXPORT_ROUTE}/historical`,
+    title: "היסטוריה ממערכת קודמת",
+    description: "חשבוניות וקבלות שהופקו במערכת אחרת, לפני דוביז",
+    icon: "🗄️",
     available: true,
   },
   {
