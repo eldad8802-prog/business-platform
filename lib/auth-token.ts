@@ -62,6 +62,14 @@ type AuthTokenPayload = {
    * holds. Adding this therefore signs nobody out.
    */
   tv?: number;
+  /**
+   * The AuthSession this token was minted for. A SELECTOR, not an authority: it
+   * is read only after the signature has been verified, and the session it names
+   * is then checked to belong to `sub`. Optional when decoding because tokens
+   * minted before per-device revocation existed carry none, and those are
+   * accepted only until their own `exp`.
+   */
+  sid?: string;
 };
 
 function getAuthTokenSecret(): string | null {
@@ -107,6 +115,21 @@ function decodePayload(payloadB64: string): AuthTokenPayload | null {
     ) {
       return null;
     }
+    // `sid` is handled differently from `tv`, on purpose.
+    //
+    // A malformed `tv` falls back to 0, which is the value every pre-revocation
+    // token already carries — failing toward existing behaviour.
+    //
+    // A malformed `sid` is REJECTED instead. Absent means "minted before
+    // per-device revocation existed" and takes the bounded compatibility path;
+    // present-but-unusable would slip a token onto that same path and so escape
+    // gate 4 entirely. We signed this payload ourselves, so the only way to see
+    // a non-string here is our own bug, and the safe reading of our own bug is
+    // "not authenticated".
+    if (parsed.sid !== undefined && (typeof parsed.sid !== "string" || parsed.sid.length === 0)) {
+      return null;
+    }
+
     return {
       sub: parsed.sub,
       iat: parsed.iat,
@@ -119,6 +142,11 @@ function decodePayload(payloadB64: string): AuthTokenPayload | null {
         typeof parsed.tv === "number" && Number.isInteger(parsed.tv)
           ? parsed.tv
           : 0,
+      // Whitelisted explicitly. This function builds a fresh object rather than
+      // spreading the parsed one, which is the right instinct — and it is exactly
+      // why a new claim has to be added HERE as well as to the type. Forgetting
+      // this made every token read as sid-less and silently skip gate 4.
+      ...(parsed.sid === undefined ? {} : { sid: parsed.sid }),
     };
   } catch {
     return null;
@@ -126,7 +154,11 @@ function decodePayload(payloadB64: string): AuthTokenPayload | null {
 }
 
 /** Issues an HMAC-SHA256 signed bearer token for the given user id. */
-export function signAuthToken(userId: number, tokenVersion = 0): string {
+export function signAuthToken(
+  userId: number,
+  tokenVersion = 0,
+  sessionId?: string
+): string {
   if (!Number.isInteger(userId) || userId <= 0) {
     throw new Error("signAuthToken: userId must be a positive integer");
   }
@@ -146,6 +178,7 @@ export function signAuthToken(userId: number, tokenVersion = 0): string {
     iat: now,
     exp: now + ttlSeconds,
     tv: tokenVersion,
+    ...(sessionId === undefined ? {} : { sid: sessionId }),
   });
   const signature = signPayload(payloadB64, secret).toString("base64url");
 
@@ -156,6 +189,8 @@ export function signAuthToken(userId: number, tokenVersion = 0): string {
 export type VerifiedAuthToken = {
   userId: number;
   tokenVersion: number;
+  /** null only for a token minted before sid existed. See getCurrentUser. */
+  sessionId: string | null;
 };
 
 /**
@@ -217,7 +252,11 @@ export function verifyAuthTokenPayload(
     return null;
   }
 
-  return { userId: payload.sub, tokenVersion: payload.tv ?? 0 };
+  return {
+    userId: payload.sub,
+    tokenVersion: payload.tv ?? 0,
+    sessionId: typeof payload.sid === "string" && payload.sid.length > 0 ? payload.sid : null,
+  };
 }
 
 /**

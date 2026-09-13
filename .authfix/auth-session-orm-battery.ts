@@ -211,6 +211,11 @@ async function main() {
   for (const file of [E4, CONTRACT]) {
     for (const s of statements(readFileSync(file, "utf8"))) await owner.$executeRawUnsafe(s);
   }
+  // The device-metadata column too. The Prisma model names `userAgent`, so a lab
+  // built from the table migration alone fails with "column does not exist" on
+  // the first insert. A lab that is behind the schema tests nothing.
+  for (const s of statements(readFileSync(MIG("20260913120000_authsession_user_agent"), "utf8")))
+    await owner.$executeRawUnsafe(s);
   ok("shipped table DDL + E4 + privilege contract applied to the lab", true);
 
   // The extractor is proven before anything depends on it. A negative control
@@ -296,7 +301,18 @@ async function main() {
   {
     const ret = returningColumns(lastMatching(/^INSERT/i, "AuthSession"));
     console.log(`\n  [measured] RETURNING with NO select: ${ret.length} columns — ${ret.join(", ")}\n`);
-    ok("with no select, RETURNING names every scalar column", ret.length === 10, `${ret.length}`);
+    // Counted from the live table, not hardcoded. The claim is "every scalar
+    // column", and a literal quietly stops meaning that the moment a column is
+    // added — which is exactly what userAgent did.
+    const scalars = await owner.$queryRawUnsafe<Array<{ n: bigint }>>(
+      `SELECT count(*)::bigint AS n FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'AuthSession'`
+    );
+    ok(
+      "with no select, RETURNING names every scalar column",
+      ret.length === Number(scalars[0]?.n),
+      `RETURNING ${ret.length} vs ${Number(scalars[0]?.n)} columns`
+    );
   }
 
   // ---------------------------------------------------------- 3. rotation ---

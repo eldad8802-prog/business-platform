@@ -61,6 +61,11 @@ fi
 # The refresh endpoint joins that surface with persistent login: it exchanges
 # the rotating cookie for a short access token, which is session resolution by
 # another name and belongs to the same plane as login and logout.
+#
+# lib/auth/session-directory.ts joins it for device management. Every query the
+# owner-facing session list and its revokes make lives in that ONE module, so the
+# ownership predicate sits in one place instead of three routes remembering it.
+# Allowlisting the module rather than the three routes is what keeps that true.
 ci2a="$(
   grep -rnE "from ['\"](@/lib/prisma-auth|[./]+lib/prisma-auth|[./]+prisma-auth)['\"]" \
     "$ROOT/app" "$ROOT/lib" \
@@ -68,6 +73,7 @@ ci2a="$(
     | grep -vE "(^|/)app/api/auth/(login|logout|me|refresh)/route\.ts:" \
     | grep -vE "(^|/)lib/auth\.ts:" \
     | grep -vE "(^|/)lib/auth/signup\.ts:" \
+    | grep -vE "(^|/)lib/auth/session-directory\\.ts:" \
     | grep -vE "(^|/)lib/prisma-auth\.ts:" \
     | grep -vE "\.test\.ts:|/__mocks__/" \
     || true

@@ -39,10 +39,10 @@ const AUTH_ROLE = "app_auth_battery";
 const AUTH_PW = "authfix_ci_synthetic_pw";
 const AUTH_URL = OWNER_URL.replace(/\/\/[^@]*@/, `//${AUTH_ROLE}:${AUTH_PW}@`);
 
-const E4 = join(
-  ROOT,
-  "prisma/migrations/20260908180000_d2_user_business_privilege_narrowing/migration.sql"
-);
+const MIG = (n: string) => join(ROOT, "prisma/migrations", n, "migration.sql");
+const E4 = MIG("20260908180000_d2_user_business_privilege_narrowing");
+const SESSION_CONTRACT = MIG("20260908200000_auth_session_privilege_contract");
+const USER_AGENT = MIG("20260913120000_authsession_user_agent");
 
 let pass = 0;
 let fail = 0;
@@ -63,12 +63,48 @@ function pgCode(error: unknown): string | null {
   return m ? m[1] : null;
 }
 
+/**
+ * Dollar-quote-aware statement splitter.
+ *
+ * The naive split-on-semicolon version this replaces could not survive the
+ * privilege-contract migrations, whose statements live inside DO $do$ ... $do$
+ * guards: it tore a guard in half and reported a syntax error that said nothing
+ * about the real cause.
+ */
+function dollarTagAt(src: string, i: number): string | null {
+  if (src[i] !== "$") return null;
+  let j = i + 1;
+  while (j < src.length && /[A-Za-z0-9_]/.test(src[j])) j++;
+  if (src[j] !== "$") return null;
+  return src.slice(i, j + 1);
+}
+
 function statements(sql: string): string[] {
-  return sql
-    .replace(/--.*$/gm, "")
-    .split(";")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const src = sql.replace(/--.*$/gm, "");
+  const out: string[] = [];
+  let buf = "";
+  let i = 0;
+  while (i < src.length) {
+    const tag = dollarTagAt(src, i);
+    if (tag !== null) {
+      // Copy the whole quoted body verbatim, semicolons included.
+      const close = src.indexOf(tag, i + tag.length);
+      const end = close === -1 ? src.length : close + tag.length;
+      buf += src.slice(i, end);
+      i = end;
+      continue;
+    }
+    if (src[i] === ";") {
+      if (buf.trim()) out.push(buf.trim());
+      buf = "";
+      i++;
+      continue;
+    }
+    buf += src[i];
+    i++;
+  }
+  if (buf.trim()) out.push(buf.trim());
+  return out;
 }
 
 async function main() {
@@ -92,6 +128,10 @@ async function main() {
     `GRANT SELECT, INSERT, UPDATE, DELETE ON public."User", public."Business" TO app_runtime`,
     `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_auth`,
     `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_runtime`,
+    // Login now fails CLOSED if it cannot create a session, so this lab has to
+    // be able to create one or every assertion below would fail for a reason
+    // that has nothing to do with the User/Business contract under test.
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON public."AuthSession", public."AuthSessionSecret" TO app_auth`,
   ]) {
     await owner.$executeRawUnsafe(sql);
   }
@@ -99,6 +139,11 @@ async function main() {
   // The privilege contract under test is the file that actually ships.
   for (const s of statements(readFileSync(E4, "utf8"))) {
     await owner.$executeRawUnsafe(s);
+  }
+  // And the rest of the shipped auth surface, so the lab is not behind the
+  // schema the Prisma model describes.
+  for (const f of [SESSION_CONTRACT, USER_AGENT]) {
+    for (const s of statements(readFileSync(f, "utf8"))) await owner.$executeRawUnsafe(s);
   }
   ok("shipped E4 migration applied to the lab", true);
 
@@ -228,19 +273,57 @@ async function main() {
       `was ${seeded.tokenVersion}, now ${after?.tokenVersion}`
     );
 
-    // This lab grants app_auth nothing on "AuthSession", so logout's session
-    // revocation is REFUSED here — which makes it the exact test for the thing
-    // that matters: the increment above has already signed the user out of every
-    // device, so the endpoint must report success. Answering 500 would tell
-    // someone who IS signed out that they are not, and a refresh carrying the
-    // old generation is refused by the version check regardless.
-    const sessionsVisible = await owner.$queryRawUnsafe<Array<{ n: bigint }>>(
-      `SELECT count(*)::bigint AS n FROM "AuthSession"`
-    );
-    ok(
-      "logout reports success even where session revocation is refused",
-      res.status === 200 && Number(sessionsVisible[0]?.n ?? -1) === 0
-    );
+    // The property that matters, now created DELIBERATELY instead of by accident.
+    //
+    // The increment above has already signed the user out of every device, so a
+    // failure to MARK the rows must not be reported as a failed logout: telling
+    // someone who IS signed out that it did not work is the worst lie this
+    // endpoint can tell. This used to be proven incidentally, because the lab
+    // happened to grant nothing on the table. Login now needs those privileges to
+    // exist, so the condition has to be created on purpose.
+    {
+      const second = await owner.user.create({
+        data: {
+          email: `logout-${Date.now()}@lab.invalid`,
+          password: hash,
+          name: "lo",
+          businessId: business.id,
+        },
+        select: { id: true, email: true, tokenVersion: true },
+      });
+      const loginAgain = await loginRoute.POST(
+        new Request("https://lab.invalid/api/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email: second.email, password: PASSWORD }),
+        })
+      );
+      const tok = ((await loginAgain.json()) as { token?: string }).token ?? "";
+      await owner.$executeRawUnsafe(`REVOKE UPDATE ON public."AuthSession" FROM app_auth`);
+      const out = await logoutRoute.POST(
+        new Request("https://lab.invalid/api/auth/logout", {
+          method: "POST",
+          headers: { authorization: `Bearer ${tok}` },
+        })
+      );
+      const bumped = await owner.user.findUnique({
+        where: { id: second.id },
+        select: { tokenVersion: true },
+      });
+      ok("logout reports success even where session revocation is refused", out.status === 200, `${out.status}`);
+      ok(
+        "...and the generation moved anyway, which is what actually signs them out",
+        (bumped?.tokenVersion ?? -1) === second.tokenVersion + 1
+      );
+      // Restore, and prove the restore worked rather than assuming it.
+      for (const f of [SESSION_CONTRACT, USER_AGENT]) {
+        for (const st of statements(readFileSync(f, "utf8"))) await owner.$executeRawUnsafe(st);
+      }
+      const restored = await owner.$queryRawUnsafe<Array<{ v: boolean }>>(
+        `SELECT has_column_privilege($$app_auth$$, $$public."AuthSession"$$, $$revokedAt$$, $$UPDATE$$) AS v`
+      );
+      ok("...and the privilege was restored", restored[0]?.v === true);
+    }
   }
 
   // ------------------------------------------------------------- signup ----

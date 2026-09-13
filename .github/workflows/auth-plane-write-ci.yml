@@ -21,7 +21,13 @@ on:
     branches: [main]
     paths:
       - "app/api/auth/**"
+      - "app/api/security/**"
+      - "app/settings/security/**"
+      - "components/settings/security/**"
       - "lib/auth/**"
+      - "lib/auth.ts"
+      - "lib/auth-token.ts"
+      - "lib/client-session.ts"
       - "lib/prisma-auth.ts"
       - "components/auth/**"
       - "prisma/schema.prisma"
@@ -100,9 +106,10 @@ jobs:
       #
       # The AuthSession models describe tables that ALREADY EXIST in Production.
       # `db push` above built them from the models; this replaces them with the
-      # SHIPPED DDL and then asks Prisma whether the models still need any DDL.
-      # `--exit-code` fails the step on any difference, so the models can never
-      # quietly drift from the shape Production actually has.
+      # SHIPPED DDL — both migrations now, because the models have caught up and
+      # describe userAgent — and then asks Prisma whether the models still need
+      # any DDL at all. `--exit-code` fails the step on any difference, so the
+      # models can never quietly drift from the shape Production actually has.
       - name: Persistent login — schema parity against the shipped DDL
         env:
           DATABASE_URL: ${{ env.OWNER_URL }}
@@ -112,6 +119,8 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'DROP TABLE IF EXISTS "AuthSession" CASCADE;'
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
             -f prisma/migrations/20260908120000_persistent_auth_sessions/migration.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f prisma/migrations/20260913120000_authsession_user_agent/migration.sql
           npx prisma migrate diff \
             --from-url "$DATABASE_URL" \
             --to-schema-datamodel prisma/schema.prisma \
@@ -129,6 +138,12 @@ jobs:
           npx tsx lib/auth/refresh-cookie.test.ts
           npx tsx lib/auth/refresh-client.test.ts
 
+      # The device label is built from a header the caller controls, so the thing
+      # under test is not "does it recognise Chrome". It is whether a hostile
+      # User-Agent can ever put text of its choosing on the owner's screen.
+      - name: Device sessions — device label from a hostile User-Agent
+        run: npx tsx lib/auth/device-label.test.ts
+
       # The state machine against real grants: rotation, the grace window,
       # concurrency, replay, every lifecycle refusal, and the rollback that
       # decides whether a lost response means "sign in again" or "carry on".
@@ -136,6 +151,14 @@ jobs:
         env:
           OWNER_URL: ${{ env.OWNER_URL }}
         run: npx tsx .authfix/refresh-state-machine-battery.ts
+
+      # sid binding end to end: the fourth gate, the three device routes, the
+      # login that fails closed when it cannot create a session, and the rule that
+      # no Phase 3.3 path may mint an access token naming no session.
+      - name: Device sessions — sid binding and the device routes (PG17)
+        env:
+          OWNER_URL: ${{ env.OWNER_URL }}
+        run: npx tsx .authfix/device-sessions-battery.ts
 
       # A gate nobody can delete quietly. The mutation is confirmed to have
       # applied before its result is believed, so a pattern that silently stops
@@ -156,13 +179,33 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
 
-      - name: Confirm the tree is byte-identical after the mutation
+      # The first draft of this feature passed every test while validating nothing,
+      # because the token decoder rebuilt the payload from a whitelist and quietly
+      # dropped the sid claim — so every token read as sid-less and the fourth gate
+      # was never reached. Disabling that gate on purpose proves the suite would
+      # now notice. A literal string replace, so "did not apply" is unambiguous.
+      - name: negative proof — an auth context that skips the session gate
+        env:
+          OWNER_URL: ${{ env.OWNER_URL }}
+        run: |
+          F=lib/auth.ts
+          cp "$F" "$F.bak"
+          node -e "const fs=require('fs');const f=process.argv[1];const s=fs.readFileSync(f,'utf8');const m=s.replace('if (verified.sessionId !== null) {','if (false) {');if (m === s) process.exit(9);fs.writeFileSync(f,m)" "$F" \
+            || { mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; }
+          if npx tsx .authfix/device-sessions-battery.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: a revoked or expired session still authenticates"
+            exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Confirm the tree is byte-identical after both mutations
         run: git diff --exit-code
 
-      # LAST on purpose. It adds the userAgent column, which prisma/schema.prisma
-      # does not describe yet — that is what PR-1 of the migration-first rule
-      # means. Running it before the parity step above would make that step read
-      # the new column as drift and fail for the right reason at the wrong time.
+      # The migration's own grant delta, kept as a standing check: the new column
+      # must carry the same column-level privileges as the rest of the table and no
+      # more. It rebuilds its own lab, so it is independent of every step above.
       - name: Device metadata — userAgent column and grant delta (PG17)
         env:
           OWNER_URL: ${{ env.OWNER_URL }}
