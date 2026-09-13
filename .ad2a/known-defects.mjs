@@ -33,13 +33,14 @@
  * whether a failure is one of the three we already understand.
  */
 
-/** Stage 1 runs on the tenant client with no GUC; four FORCE-RLS'd tables match zero rows. */
-export const DEFECT_A_CREDENTIALS = [
-  "Gmail refresh token is DESTROYED",
-  "Gmail connection is REVOKED",
-  "SHAAM authority tokens are CLEARED and the connection revoked",
-  "payment-provider credential is CLEARED and deactivated",
-];
+/**
+ * CLOSED. Stage 1's credential destruction now runs inside runTenantJob +
+ * withTenantTransaction, so the four FORCE-RLS'd tables are reachable and the
+ * secrets are actually destroyed. The battery asserts all four as ordinary
+ * requirements now; if any regresses, it fails outright rather than being
+ * absorbed here.
+ */
+export const DEFECT_A_CREDENTIALS = [];
 
 /** `Conversation` has no DELETE policy, so `deleteMany` matches zero rows and never raises. */
 export const DEFECT_B_CONVERSATION = [
@@ -48,17 +49,14 @@ export const DEFECT_B_CONVERSATION = [
   "no message body survives the erasure",
 ];
 
-/** Stage 3 inserts into FORCE-RLS'd `LearningEvent` with no GUC; WITH CHECK raises 42501. */
-export const DEFECT_C_FINALIZATION = [
-  "erasure evidence was written",
-  "A reached the terminal PURGED state",
-  "the deletion call reported success",
-  "re-requesting deletion is an idempotent no-op",
-  "two concurrent deletion requests do not corrupt each other",
-  "D ends in exactly one terminal state",
-  "D has exactly one erasure evidence row (finalize is conditional)",
-  "the deletion resumes cleanly once the audit can be written",
-];
+/**
+ * CLOSED. Stage 3 writes its evidence under tenant context and BEFORE the
+ * terminal transition, so `LearningEvent` is no longer refused and a deletion
+ * can reach PURGED. The eight assertions here covered the whole downstream
+ * wreckage of that one refusal — terminal state, reported success, idempotent
+ * re-request, both concurrency cases and the resume — and all eight now hold.
+ */
+export const DEFECT_C_FINALIZATION = [];
 
 export const KNOWN_DEFECTS = [
   ...DEFECT_A_CREDENTIALS,

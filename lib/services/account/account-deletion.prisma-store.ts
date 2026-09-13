@@ -79,13 +79,11 @@ async function assertTenantContextIs(
   }
 }
 
-function assertExactlyOne(count: number, operation: string): void {
-  if (count !== 1) {
-    throw new ErasureExecutionError(
-      `erasure ${operation} affected ${count} rows, expected exactly 1`
-    );
-  }
-}
+// `assertExactlyOne` lived here and is gone with its last caller. Both lifecycle
+// transitions are now CONDITIONAL — the quarantine on `deletionRequestedAt: null`
+// and the finalization on `deletedAt: null` — so zero rows is the ordinary way a
+// resumed or concurrent attempt observes that the other one got there first. It
+// was never an error; asserting it was is what made a resume throw.
 
 function assertAtLeastOne(count: number, operation: string): void {
   if (count < 1) {
@@ -129,54 +127,92 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
    * which is what actually stops the integration from being usable.
    */
   async quarantineAndRevokeIntegrations(businessId, now) {
-    return prisma.$transaction(async (tx) => {
-      // Same advisory lock the in-transaction write gate takes. Whichever side gets
-      // it first runs to completion; the other then observes the committed state.
+    // ── 1. LIFECYCLE TRANSITION — deliberately OUTSIDE tenant context ──────
+    //
+    // `Business` carries no RLS, and it is the one statement here that must not
+    // run inside a tenant job: the transition is what CREATES the quarantine,
+    // and `runTenantJob` refuses a quarantined business by default. The advisory
+    // lock belongs here and nowhere else — it exists to serialise this
+    // transition against `assertBusinessAcceptsWritesTx`, which takes the same
+    // lock from the other side. Once this commits, normal writes are refused
+    // everywhere, which is what makes the destruction below safe to do second.
+    const transitioned = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADVISORY_NAMESPACE}::int, ${businessId}::int)`;
-      const transitioned = await tx.business.updateMany({
+      const moved = await tx.business.updateMany({
         where: { id: businessId, deletionRequestedAt: null, deletedAt: null },
         data: { deletionRequestedAt: now },
       });
-      if (transitioned.count === 0) {
-        // Another request already quarantined this business. Not an error — the
-        // caller resumes from stage 2.
-        return false;
-      }
-      assertExactlyOne(transitioned.count, "quarantine transition");
-
-      // Bucket C — destroy at-rest credentials. Zero rows is legitimate here: a
-      // business may simply never have connected a given provider.
-      await tx.billingAuthorityConnection.updateMany({
-        where: { businessId },
-        data: {
-          accessTokenEncrypted: null, accessTokenIv: null, accessTokenTag: null,
-          refreshTokenEncrypted: null, refreshTokenIv: null, refreshTokenTag: null,
-          revokedAt: now,
-        },
-      });
-      await tx.businessPaymentConnection.updateMany({
-        where: { businessId },
-        data: { credentialEncrypted: null, credentialIv: null, credentialTag: null, isActive: false },
-      });
-      await tx.whatsAppConnection.updateMany({
-        where: { businessId },
-        data: { accessTokenEncrypted: "", accessTokenIv: "", accessTokenTag: "", status: "REVOKED_BY_META" },
-      });
-      await tx.emailConnection.updateMany({
-        where: { businessId },
-        data: { status: "revoked", lastSyncCursor: null },
-      });
-      // OAuthTokens hang off EmailConnection; delete via the relation (no fiscal FK).
-      await tx.oAuthToken.deleteMany({ where: { connection: { businessId } } });
-      // POS keys: DELETE the rows. keyHash is globally @unique, so blanking it to a
-      // constant would collide across multiple account deletions; the row carries no
-      // fiscal FK, so deletion is the correct revoke. (AD-2A recon flagged that the
-      // restricted runtime holds no DELETE here — see the closure report's residue
-      // section; nothing about that privilege is changed by this wave.)
-      await tx.pOSApiKey.deleteMany({ where: { businessId } });
-
-      return true;
+      return moved.count;
     });
+    const wonTheRace = transitioned === 1;
+
+    // ── 2. CREDENTIAL DESTRUCTION — REQUIRES tenant context ────────────────
+    //
+    // THIS IS THE FIX. Four of these six tables are FORCE-RLS'd, and every
+    // statement below used to run on the context-less tenant client inside the
+    // transaction above. Under RLS the predicate evaluated to NULL, so each
+    // matched ZERO rows, returned without raising, and left the secret at rest
+    // while the flow reported it destroyed. Measured: the Gmail refresh token,
+    // the SHAAM access and refresh tokens, and the payment-provider credential
+    // all survived. `WhatsAppConnection` and `POSApiKey` carry no RLS and were
+    // destroyed correctly by the very same transaction — which is what proved
+    // the stage executed rather than never running.
+    //
+    // Only the statements that NEED the context get it. The transition above
+    // does not and is not wrapped.
+    //
+    // This runs on EVERY attempt, not only when this caller won the race. Each
+    // statement is a state-convergent overwrite, so repeating it is a no-op, and
+    // an attempt that died between the transition and this point would otherwise
+    // leave credentials alive with nothing left to reach them.
+    //
+    // `quarantinePolicy: "erasure"` is required and is the ONLY sanctioned way
+    // past the lifecycle gate: by now the business IS quarantined, which is
+    // exactly why this job must be allowed to act on it. CI confines the literal
+    // to this module.
+    await runTenantJob(
+      { businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          // The same silent-zero backstop stage 2 uses, and for the same reason:
+          // zero rows IS legitimate here, because a business may simply never
+          // have connected a provider, so row counts can never detect a missing
+          // context on their own.
+          await assertTenantContextIs(tx, businessId);
+
+          await tx.billingAuthorityConnection.updateMany({
+            where: { businessId },
+            data: {
+              accessTokenEncrypted: null, accessTokenIv: null, accessTokenTag: null,
+              refreshTokenEncrypted: null, refreshTokenIv: null, refreshTokenTag: null,
+              revokedAt: now,
+            },
+          });
+          await tx.businessPaymentConnection.updateMany({
+            where: { businessId },
+            data: { credentialEncrypted: null, credentialIv: null, credentialTag: null, isActive: false },
+          });
+          await tx.whatsAppConnection.updateMany({
+            where: { businessId },
+            data: { accessTokenEncrypted: "", accessTokenIv: "", accessTokenTag: "", status: "REVOKED_BY_META" },
+          });
+          await tx.emailConnection.updateMany({
+            where: { businessId },
+            data: { status: "revoked", lastSyncCursor: null },
+          });
+          // OAuthTokens hang off EmailConnection; delete via the relation (no fiscal FK).
+          await tx.oAuthToken.deleteMany({ where: { connection: { businessId } } });
+          // POS keys: DELETE the rows. keyHash is globally @unique, so blanking it to a
+          // constant would collide across multiple account deletions; the row carries no
+          // fiscal FK, so deletion is the correct revoke.
+          await tx.pOSApiKey.deleteMany({ where: { businessId } });
+        }),
+      { quarantinePolicy: "erasure" }
+    );
+
+    // false = another request transitioned first. Not an error; the caller
+    // resumes from stage 2. Credentials converged either way.
+    return wonTheRace;
   },
 
   /**
@@ -238,36 +274,84 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
   },
 
   /**
-   * STAGE 3 — finalize + evidence, atomically.
+   * STAGE 3 — evidence FIRST, then the terminal transition.
    *
-   * The audit is written with the transaction, which makes `logAuditEvent` RETHROW
-   * instead of swallowing (its documented contract). A deletion that reports success
-   * without durable evidence of the erasure is worse than one that fails and is
-   * retried, so the transition and the evidence commit together or not at all.
+   * THE ORDER IS THE FIX, and the context is the other half of it.
+   *
+   * `logAuditEvent` writes `LearningEvent`, which is FORCE-RLS'd with a tenant
+   * predicate in both USING and WITH CHECK. This used to run on the context-less
+   * tenant client, so the INSERT's WITH CHECK evaluated to NULL and PostgreSQL
+   * refused it outright with 42501 — not silently, loudly. `logAuditEvent`
+   * rethrows when a `tx` is supplied, by contract, so the surrounding
+   * transaction rolled back and `deletedAt` was never set. Every deletion ended
+   * there: quarantined, partially purged, no evidence, HTTP 500, and no way back
+   * because the quarantine had already killed the session that would retry.
+   *
+   * The two writes are now in separate transactions, deliberately, because they
+   * belong to different planes: the evidence is tenant data and needs the GUC,
+   * while `Business` has no RLS and must stay outside a tenant job. That gives
+   * up single-transaction atomicity, so the ORDER has to carry the guarantee
+   * instead — and evidence-first is the safe direction:
+   *
+   *   evidence fails      → terminal state NEVER committed. The business stays
+   *                         DELETION_REQUESTED and the attempt is resumable.
+   *                         This is the property that must never be lost.
+   *   transition fails    → evidence exists for an unfinished deletion. The
+   *                         resume is safe: the evidence write below is
+   *                         conditional, so it is not duplicated, and the
+   *                         transition is conditional on `deletedAt: null`.
+   *
+   * The opposite order — the one this replaces — makes "reported deleted with no
+   * evidence" representable, which is the failure nobody can audit after the fact.
    */
   async finalizeAndAudit(businessId, actorUserId, now) {
+    // ── 1. EVIDENCE, under tenant context, exactly once ───────────────────
+    await runTenantJob(
+      { businessId },
+      () =>
+        withTenantTransaction(async (tx) => {
+          await assertTenantContextIs(tx, businessId);
+          // The same lock the quarantine takes, so two concurrent finalizations
+          // cannot both decide the evidence is absent and write it twice.
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADVISORY_NAMESPACE}::int, ${businessId}::int)`;
+
+          // Conditional, because a resumed attempt must not append a second
+          // ACCOUNT_DELETED for the same erasure. One erasure, one record.
+          const already = await tx.learningEvent.count({
+            where: { businessId, eventType: "ACCOUNT_DELETED" },
+          });
+          if (already > 0) return;
+
+          await logAuditEvent(
+            {
+              businessId,
+              eventType: "ACCOUNT_DELETED",
+              entityType: "BUSINESS",
+              entityId: businessId,
+              payload: {
+                actorUserId,
+                at: now.toISOString(),
+                categories: ["user_identity", "business_profile_pii", "customers", "leads", "conversations", "crm", "integrations"],
+                retained: ["fiscal_documents", "financial_records", "billing_audit", "governance"],
+              },
+            },
+            { tx }
+          );
+        }),
+      { quarantinePolicy: "erasure" }
+    );
+
+    // ── 2. TERMINAL TRANSITION, only now that the evidence is durable ──────
+    //
+    // Conditional on `deletedAt: null`. Zero rows means another attempt reached
+    // the terminal state first, which is a legitimate outcome of a resume or a
+    // race rather than an error — so this no longer asserts exactly-one. The
+    // orchestrator already treats an ALREADY-PURGED business as success.
     await prisma.$transaction(async (tx) => {
-      const finalized = await tx.business.updateMany({
+      await tx.business.updateMany({
         where: { id: businessId, deletedAt: null },
         data: { deletedAt: now, archivedAt: now, archivedByUserId: actorUserId },
       });
-      assertExactlyOne(finalized.count, "purge finalization");
-
-      await logAuditEvent(
-        {
-          businessId,
-          eventType: "ACCOUNT_DELETED",
-          entityType: "BUSINESS",
-          entityId: businessId,
-          payload: {
-            actorUserId,
-            at: now.toISOString(),
-            categories: ["user_identity", "business_profile_pii", "customers", "leads", "conversations", "crm", "integrations"],
-            retained: ["fiscal_documents", "financial_records", "billing_audit", "governance"],
-          },
-        },
-        { tx }
-      );
     });
   },
 };
