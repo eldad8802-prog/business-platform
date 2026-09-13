@@ -105,6 +105,12 @@ async function main() {
     "20260908180000_d2_user_business_privilege_narrowing",
     "20260908200000_auth_session_privilege_contract",
   ]) for (const s of statements(readFileSync(MIG(f), "utf8"))) await owner.$executeRawUnsafe(s);
+  // The device-metadata column too. The lab has to carry EVERY shipped auth
+  // migration: the Prisma model names `userAgent`, so a lab built from the
+  // table migration alone fails with "column does not exist" on the first
+  // insert — a lab that is behind the schema tests nothing.
+  for (const s of statements(readFileSync(MIG("20260913120000_authsession_user_agent"), "utf8")))
+    await owner.$executeRawUnsafe(s);
   ok("lab built from the shipped DDL and the shipped privilege contract", true);
 
   const business = await owner.business.create({ data: { name: "Refresh Lab" }, select: { id: true } });

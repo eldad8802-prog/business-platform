@@ -135,6 +135,35 @@ export async function POST(req: Request) {
     const sessionId = randomUUID();
     const now = new Date();
 
+    // THE SESSION IS CREATED FIRST, AND ITS FAILURE FAILS THE LOGIN.
+    //
+    // Phase 2 issued the session after the response and swallowed a failure, so a
+    // login still succeeded with an ordinary 24-hour token. That is no longer
+    // acceptable: the access token now NAMES its session, and per-device
+    // revocation is only immediate because every token carries one. A token
+    // minted without a session would be a token no device revocation can reach,
+    // and it would live for 24 hours. So there is exactly one contract here —
+    // a session, or no login.
+    //
+    // First, before the login stamp, so a failure costs the user nothing at all.
+    let session: Awaited<ReturnType<typeof issueRefreshSession>>;
+    try {
+      session = await issueRefreshSession(authDb(), {
+        userId: user.id,
+        tokenVersion: user.tokenVersion,
+        now,
+        // Read here and nowhere else, truncated before the insert, and never
+        // returned to a client. No IP, no location, no fingerprint.
+        userAgent: req.headers.get("user-agent"),
+      });
+    } catch (error) {
+      console.error(
+        "LOGIN_SESSION_ISSUE_ERROR:",
+        error instanceof Error ? error.name : "UnknownError"
+      );
+      return NextResponse.json({ error: "Server error" }, { status: 500 });
+    }
+
     // `select` is not cosmetic. Without it Prisma appends RETURNING over every
     // scalar column of the model, and RETURNING needs SELECT on what it returns
     // — including `createdAt`, `updatedAt` and `lastLoginAt`, which the auth
@@ -161,10 +190,10 @@ export async function POST(req: Request) {
 
     const res = NextResponse.json({
       success: true,
-      // Minted at the user's CURRENT generation. A token signed at generation 0
-      // for someone who has logged out three times would be refused on its very
-      // first request.
-      token: signAuthToken(user.id, user.tokenVersion),
+      // Minted at the user's CURRENT generation, and NAMING the session above.
+      // The generation is the global switch; the session id is what makes a
+      // single device revocable on its own.
+      token: signAuthToken(user.id, user.tokenVersion, session.sessionId),
       sessionId,
       user: {
         id: user.id,
@@ -175,29 +204,12 @@ export async function POST(req: Request) {
       },
     });
 
-    // Persistent login. The access token above still expires within 24 hours;
-    // this is the credential that survives it, and it never reaches JavaScript.
-    //
-    // Issued AFTER the response body exists and inside its own try: a session
-    // that fails to persist must not cost the user a login they have already
-    // passed. They get the ordinary 24-hour session and the next login tries
-    // again — degraded, not broken.
-    try {
-      const session = await issueRefreshSession(authDb(), {
-        userId: user.id,
-        tokenVersion: user.tokenVersion,
-        now,
-      });
-      setRefreshCookie(res, session.credential, {
-        now,
-        absoluteExpiresAt: session.absoluteExpiresAt,
-      });
-    } catch (error) {
-      console.error(
-        "REFRESH_SESSION_ISSUE_ERROR:",
-        error instanceof Error ? error.name : "UnknownError"
-      );
-    }
+    // The credential that outlives the 24-hour token, and never reaches
+    // JavaScript.
+    setRefreshCookie(res, session.credential, {
+      now,
+      absoluteExpiresAt: session.absoluteExpiresAt,
+    });
 
     return res;
   } catch (error) {

@@ -42,6 +42,7 @@
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
+import { normalizeUserAgent } from "@/lib/auth/device-label";
 
 import { acceptsNormalWrites } from "@/lib/tenant/business-lifecycle";
 
@@ -62,7 +63,15 @@ const RECOVERY_ATTEMPTS = 2;
 
 export type RefreshOutcome =
   /** The credential was current, or recoverable inside its grace. */
-  | { kind: "rotated"; userId: number; tokenVersion: number; credential: string; absoluteExpiresAt: Date }
+  | {
+      kind: "rotated";
+      userId: number;
+      tokenVersion: number;
+      /** The session this credential belongs to. Goes into the access token as `sid`. */
+      sessionId: string;
+      credential: string;
+      absoluteExpiresAt: Date;
+    }
   /**
    * Refused, but nothing about this session is proven. The caller MUST NOT
    * revoke and MUST NOT clear the cookie: the selector authenticates nothing, so
@@ -150,8 +159,8 @@ function nextIdle(now: Date, absoluteExpiresAt: Date): Date {
  */
 export async function issueRefreshSession(
   db: PrismaClient,
-  input: { userId: number; tokenVersion: number; now: Date }
-): Promise<{ credential: string; absoluteExpiresAt: Date }> {
+  input: { userId: number; tokenVersion: number; now: Date; userAgent?: string | null }
+): Promise<{ sessionId: string; credential: string; absoluteExpiresAt: Date }> {
   const secret = mintSecret();
   const absoluteExpiresAt = new Date(input.now.getTime() + ABSOLUTE_MS);
 
@@ -169,11 +178,14 @@ export async function issueRefreshSession(
       lastUsedAt: input.now,
       idleExpiresAt: new Date(input.now.getTime() + IDLE_MS),
       absoluteExpiresAt,
+      // Truncated by the caller. The column caps it too, but a cap that is the
+      // only defence turns a hostile header into a failed login.
+      userAgent: normalizeUserAgent(input.userAgent),
     },
     select: { id: true },
   });
 
-  return { credential: buildCredential(row.id, secret), absoluteExpiresAt };
+  return { sessionId: row.id, credential: buildCredential(row.id, secret), absoluteExpiresAt };
 }
 
 /**
@@ -364,6 +376,7 @@ export async function refreshSession(
           kind: "rotated",
           userId: session.userId,
           tokenVersion: user.tokenVersion,
+          sessionId: session.id,
           credential: buildCredential(session.id, rotated.secret),
           absoluteExpiresAt: session.absoluteExpiresAt,
         };
@@ -392,6 +405,7 @@ export async function refreshSession(
           kind: "rotated",
           userId: session.userId,
           tokenVersion: user.tokenVersion,
+          sessionId: session.id,
           credential: buildCredential(session.id, rotated.secret),
           absoluteExpiresAt: session.absoluteExpiresAt,
         };

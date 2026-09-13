@@ -89,7 +89,13 @@ export async function handleRefresh(
     switch (outcome.kind) {
       case "rotated": {
         const res = NextResponse.json(
-          { success: true, token: signAuthToken(outcome.userId, outcome.tokenVersion) },
+          {
+            success: true,
+            // Every token this endpoint mints names its session. There is no
+            // path here that produces a sid-less token: the only outcome that
+            // reaches this branch is one where a session was just rotated.
+            token: signAuthToken(outcome.userId, outcome.tokenVersion, outcome.sessionId),
+          },
           { headers: { "cache-control": "no-store" } }
         );
         setRefreshCookie(res, outcome.credential, {

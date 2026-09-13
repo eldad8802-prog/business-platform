@@ -40,6 +40,15 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     description: "שפה, מטבע ואזור זמן",
     icon: "🌍",
   },
+  // Listed now that it shows real information and allows a real action: the
+  // devices signed in to this account, and ending any one of them.
+  {
+    key: "security",
+    href: "/settings/security",
+    title: "אבטחה",
+    description: "המכשירים שמחוברים לחשבון שלך",
+    icon: "🛡️",
+  },
   {
     key: "account-privacy",
     href: "/settings/account",

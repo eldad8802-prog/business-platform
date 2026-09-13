@@ -3668,6 +3668,12 @@ model AuthSession {
   absoluteExpiresAt   DateTime            @db.Timestamp(3)
   revokedAt           DateTime?           @db.Timestamp(3)
   revokedReason       String?
+  /// The User-Agent as sent at login, truncated to 512 before the insert and
+  /// never rendered raw. The human label is derived when the list is read: parsing
+  /// rules improve, and a stored label would freeze whatever the parser believed on
+  /// the day the row was written. INSERT-only by privilege, so a device cannot be
+  /// relabelled after the fact.
+  userAgent           String?             @db.VarChar(512)
   user                User                @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   secrets             AuthSessionSecret[]
 
