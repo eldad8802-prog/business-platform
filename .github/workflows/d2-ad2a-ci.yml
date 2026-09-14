@@ -59,7 +59,11 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
-      - run: node --check .ad2a/battery.mjs && node --check scripts/security/conversation-integrity-scan.mjs
+      - run: |
+          node --check .ad2a/battery.mjs
+          node --check .ad2a/production-contract.mjs
+          node --check .ad2a/known-defects.mjs
+          node --check scripts/security/conversation-integrity-scan.mjs
 
       - name: CI-AD guards + negative self-proofs (blocking)
         run: |
@@ -90,12 +94,30 @@ jobs:
           DIRECT_URL: ${{ env.OWNER_URL }}
         run: npx prisma db push --skip-generate
 
-      - name: Run AD-2A battery
+      # THE BATTERY IS HONESTLY RED ON MAIN TODAY, and that is the point.
+      #
+      # It now applies the PRODUCTION policy contract — per-command pilot
+      # policies with no DELETE, and the five RLS tables the old lab omitted —
+      # so it reproduces three proven product defects instead of hiding them
+      # behind a `FOR ALL` policy that was broader than Production.
+      #
+      # Running it in default mode here would paint every unrelated PR red until
+      # the product is fixed, and a red that nobody can act on is a red everyone
+      # learns to ignore. `--baseline-check` is the ratchet instead: it passes
+      # ONLY when the failure set is exactly the defects recorded in
+      # .ad2a/known-defects.mjs. A new failure fails the build. A recorded defect
+      # that starts passing ALSO fails the build, so the repair has to be written
+      # down rather than absorbed.
+      #
+      # There is one harness, measuring the same properties before and after. The
+      # product fix empties that list, and this step then means exactly what the
+      # default mode means.
+      - name: AD-2A battery — Production-faithful contract (known-defect ratchet)
         env:
           DATABASE_URL: ${{ env.OWNER_URL }}
           DIRECT_URL: ${{ env.OWNER_URL }}
           AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
-        run: npx tsx .ad2a/battery.mjs
+        run: npx tsx .ad2a/battery.mjs --baseline-check
 
       # ── I-8A.1 — fiscal history through the erasure lifecycle ───────────────
       - name: I-8A structural firewall (no database)
@@ -133,7 +155,12 @@ jobs:
           F="lib/services/account/account-deletion.prisma-store.ts"
           cp "$F" "$F.bak"
           # The manifest may NAME the model. The adapter may not touch it.
-          perl -0pi -e 's/          await tx\.conversation\.deleteMany\(\{ where: \{ businessId \} \}\);/          await tx.conversation.deleteMany({ where: { businessId } });\n          await tx.historicalFiscalDocument.deleteMany({ where: { businessId } });/' "$F"
+          # Anchored on the conversation ANONYMISATION. Stage 2 rewrites the graph
+          # in place instead of deleting it, so the `conversation.deleteMany` line
+          # this proof used to target no longer exists. The proof is unchanged in
+          # substance: inject a fiscal delete into the erasure executor, and the
+          # structural firewall must refuse it.
+          perl -0pi -e 's/          await tx\.messageAnalysis\.updateMany\(\{/          await tx.historicalFiscalDocument.deleteMany({ where: { businessId } });\n          await tx.messageAnalysis.updateMany({/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an executor touching fiscal history passed"; exit 1
@@ -176,9 +203,14 @@ jobs:
           # Documents are retained, and a historical record cites one through a
           # RESTRICT foreign key. An erasure that started deleting them would
           # fail on that key rather than quietly destroying fiscal evidence.
-          perl -0pi -e 's/          await tx\.conversation\.deleteMany\(\{ where: \{ businessId \} \}\);/          await tx.conversation.deleteMany({ where: { businessId } });\n          await tx.document.deleteMany({ where: { businessId } });/' "$F"
+          perl -0pi -e 's/          await tx\.messageAnalysis\.updateMany\(\{/          await tx.document.deleteMany({ where: { businessId } });\n          await tx.messageAnalysis.updateMany({/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .ad2a/battery.mjs >/dev/null 2>&1; then
+          # --baseline-check, NOT the default mode. The battery is legitimately red
+          # on main today, so "did it fail?" would now be true no matter what this
+          # mutation did, and the proof would quietly stop discriminating. The
+          # ratchet still does: it fails only when the failure set CHANGES, which
+          # is exactly what deleting a cited artifact would do.
+          if npx tsx .ad2a/battery.mjs --baseline-check >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: deleting the cited artifact passed"; exit 1
           fi
           mv "$F.bak" "$F"
