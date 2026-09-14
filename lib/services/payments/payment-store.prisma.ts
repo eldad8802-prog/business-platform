@@ -231,6 +231,68 @@ function bootstrapStep<T>(fn: (db: typeof prisma) => Promise<T>): Promise<T> {
   return fn(prisma);
 }
 
+/**
+ * CONSISTENCY GATE, shared by both pre-context routes in.
+ *
+ * A routing row is a HINT. The stored PaymentRequest is the authority, so the
+ * parent is re-read under the routed tenant with the routed businessId in the
+ * predicate. Extracted so that adding a second route in — the callback-secret
+ * one — could not ship with a quietly weaker version of the same check.
+ */
+async function resolveRoutedRequest(
+  provider: PaymentProvider,
+  route: { paymentRequestId: number; businessId: number } | null
+): Promise<PaymentRequestRecord | null> {
+  if (!route) return null;
+
+  // The parent is fetched with BOTH the routed id AND the routed businessId in
+  // the predicate: a row comes back only when
+  //     PaymentRequest.businessId === PaymentProviderRouting.businessId
+  // holds, which is exactly the equality this gate has to establish. A corrupted
+  // routing row — pointing at a missing request, or at another tenant's request
+  // in either direction — therefore yields nothing, and nothing downstream ever
+  // runs. FORCE RLS makes this observable only as "not found": under the
+  // candidate tenant's own GUC another tenant's row is invisible by
+  // construction, which is the correct security posture but means missing and
+  // mismatched are indistinguishable here — so both are treated as the same
+  // hard failure and logged loudly.
+  const row = await runWithTenantContext(
+    { businessId: route.businessId },
+    () =>
+      withTenantTransaction((tx) =>
+        tx.paymentRequest.findFirst({
+          where: {
+            id: route.paymentRequestId,
+            businessId: route.businessId,
+          },
+        })
+      )
+  );
+  if (!row) {
+    console.error(
+      "[payments-routing] INCONSISTENT ROUTING — refusing to resolve a tenant:",
+      {
+        provider,
+        paymentRequestId: route.paymentRequestId,
+        routedBusinessId: route.businessId,
+        reason: "parent missing or owned by another business",
+      }
+    );
+    return null;
+  }
+  // Belt and braces: the authority downstream is the STORED parent's own
+  // businessId, never the routing hint. Identical by the predicate above —
+  // asserted so a future refactor of the query cannot silently regress it.
+  if (row.businessId !== route.businessId) {
+    console.error(
+      "[payments-routing] ROUTING/PARENT MISMATCH — refusing to resolve a tenant:",
+      { provider, paymentRequestId: route.paymentRequestId }
+    );
+    return null;
+  }
+  return toRequestRecord(row);
+}
+
 export function createPaymentPrismaStore(): PaymentStore {
   return {
     async findActiveConnection(businessId, provider) {
@@ -432,56 +494,34 @@ export function createPaymentPrismaStore(): PaymentStore {
           select: { paymentRequestId: true, businessId: true },
         })
       );
-      if (!route) return null;
+      return resolveRoutedRequest(provider, route);
+    },
 
-      // CONSISTENCY GATE. The routing row is a HINT, never the authority. The
-      // stored PaymentRequest is the authority, so the parent is fetched with
-      // BOTH the routed id AND the routed businessId in the predicate: a row
-      // comes back only when
-      //     PaymentRequest.businessId === PaymentProviderRouting.businessId
-      // holds, which is exactly the equality this gate has to establish. A
-      // corrupted routing row — pointing at a missing request, or at another
-      // tenant's request in either direction — therefore yields nothing, and
-      // nothing downstream ever runs. FORCE RLS makes this observable only as
-      // "not found": under the candidate tenant's own GUC another tenant's row
-      // is invisible by construction, which is the correct security posture but
-      // means missing and mismatched are indistinguishable here — so both are
-      // treated as the same hard failure and logged loudly.
-      const row = await runWithTenantContext(
-        { businessId: route.businessId },
-        () =>
-          withTenantTransaction((tx) =>
-            tx.paymentRequest.findFirst({
-              where: {
-                id: route.paymentRequestId,
-                businessId: route.businessId,
-              },
-            })
-          )
+    /**
+     * The second pre-context route in, for a provider whose callback carries no
+     * signature and no session id: hash what arrived and look the hash up.
+     *
+     * Deliberately goes through the SAME consistency gate as the
+     * providerRequestId path. The route in differs; what a route is allowed to
+     * prove does not.
+     */
+    async findPaymentRequestByCallbackSecretHash(provider, callbackSecretHash) {
+      const route = await bootstrapStep((db) =>
+        db.paymentProviderRouting.findUnique({
+          where: { callbackSecretHash },
+          select: { paymentRequestId: true, businessId: true, provider: true },
+        })
       );
-      if (!row) {
+      // A secret minted for one provider must not resolve a callback that
+      // arrived on a different provider's route.
+      if (route && route.provider !== provider) {
         console.error(
-          "[payments-routing] INCONSISTENT ROUTING — refusing to resolve a tenant:",
-          {
-            provider,
-            paymentRequestId: route.paymentRequestId,
-            routedBusinessId: route.businessId,
-            reason: "parent missing or owned by another business",
-          }
+          "[payments-routing] CALLBACK SECRET PROVIDER MISMATCH — refusing to resolve a tenant:",
+          { arrivedAs: provider, routedProvider: route.provider }
         );
         return null;
       }
-      // Belt and braces: the authority downstream is the STORED parent's own
-      // businessId, never the routing hint. Identical by the predicate above —
-      // asserted so a future refactor of the query cannot silently regress it.
-      if (row.businessId !== route.businessId) {
-        console.error(
-          "[payments-routing] ROUTING/PARENT MISMATCH — refusing to resolve a tenant:",
-          { provider, paymentRequestId: route.paymentRequestId }
-        );
-        return null;
-      }
-      return toRequestRecord(row);
+      return resolveRoutedRequest(provider, route);
     },
 
     // Routing rows are written by the owner-authenticated creation flow that
@@ -489,6 +529,13 @@ export function createPaymentPrismaStore(): PaymentStore {
     // retried link creation cannot fork a request's routing, and unique on
     // (provider, providerRequestId) so two tenants can never claim the same
     // provider reference.
+    //
+    // EVERY route in has to be written here. A field the creation flow computes
+    // but this upsert drops fails nowhere visible: the row is created, the
+    // checkout succeeds, and only the later callback - which has no other way to
+    // name its request - is refused. `callbackSecretHash` is exactly that kind of
+    // field, and it is carried on BOTH branches because a re-issued link mints a
+    // fresh secret and the stale hash must not outlive it.
     async upsertProviderRouting(row) {
       await bootstrapStep((db) =>
         db.paymentProviderRouting.upsert({
@@ -496,12 +543,14 @@ export function createPaymentPrismaStore(): PaymentStore {
           create: {
             provider: row.provider,
             providerRequestId: row.providerRequestId,
+            callbackSecretHash: row.callbackSecretHash ?? null,
             paymentRequestId: row.paymentRequestId,
             businessId: row.businessId,
           },
           update: {
             provider: row.provider,
             providerRequestId: row.providerRequestId,
+            callbackSecretHash: row.callbackSecretHash ?? null,
           },
         })
       );

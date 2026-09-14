@@ -21,6 +21,7 @@ import {
   isTerminalRequestStatus,
   type PaymentConnectionRecord,
   type PaymentProvider,
+  type PaymentRequestRecord,
   type PaymentRequestStatus,
   type PaymentStore,
   type PaymentTransactionStatus,
@@ -34,6 +35,7 @@ import type {
   VerifyWebhookResult,
 } from "./providers/payment-provider.types";
 import { recordPaymentAuditEvent } from "./payment-audit.service";
+import { hashCallbackSecret } from "./payment-callback-secret";
 
 export interface ProcessWebhookInput {
   provider: PaymentProvider;
@@ -41,6 +43,17 @@ export interface ProcessWebhookInput {
   headers?: Record<string, string | null | undefined>;
   /** Optional pre-parsed JSON body, when the route already parsed it. */
   parsedBody?: unknown;
+  /**
+   * The opaque per-request secret lifted from the callback URL, for a provider
+   * that signs nothing and whose callback carries no session id.
+   *
+   * Supplied by the ROUTE from the request path, never from the body, so a
+   * payload cannot nominate its own route in. When present it replaces
+   * `providerRequestId` as the correlation channel; the rest of the
+   * orchestration — authority, amount and currency coherence, idempotency — is
+   * unchanged and still applies.
+   */
+  callbackSecret?: string | null;
 }
 
 export interface ProcessWebhookDeps {
@@ -229,22 +242,46 @@ export async function processPaymentWebhook(
   if (!parsed || parsed.outcome === "UNKNOWN") {
     return reject("unparseable_or_unknown_outcome");
   }
-  if (!parsed.providerRequestId) {
-    return reject("missing_provider_request_id");
-  }
-  // Hoisted: the null-check above does not narrow inside the tenant closure.
-  const providerRequestId = parsed.providerRequestId;
+  // C. CORRELATION (read-only). The callback must resolve to a PaymentRequest
+  // THIS system created. Both routes in go through PaymentProviderRouting and
+  // its consistency gate, which also fixes the tenant; something we never
+  // issued resolves to nothing and the callback is refused here, before any
+  // write.
+  //
+  // TWO ROUTES, because providers correlate in two different ways.
+  //
+  //   - the provider's own session id, echoed on the callback;
+  //   - the opaque secret in the callback URL, for a provider that issues no
+  //     session id and signs nothing. The secret comes from the ROUTE's path,
+  //     never from the body, so a payload cannot choose how it is correlated.
+  //
+  // The URL secret is preferred when present: it is the stronger claim of the
+  // two, since it is unguessable and was handed only to the provider.
+  const callbackSecretHash = input.callbackSecret
+    ? hashCallbackSecret(input.callbackSecret)
+    : null;
 
-  // C. CORRELATION (read-only). The identifier must resolve to a PaymentRequest
-  // THIS system created — the lookup goes through PaymentProviderRouting and its
-  // consistency gate, which also fixes the tenant. An identifier we never issued
-  // resolves to nothing and the callback is refused here, before any write.
-  const request = await deps.store.findPaymentRequestByProviderRequestId(
-    input.provider,
-    providerRequestId
-  );
-  if (!request) {
-    return reject("no_matching_payment_request");
+  let request: PaymentRequestRecord | null = null;
+
+  if (callbackSecretHash) {
+    request = await deps.store.findPaymentRequestByCallbackSecretHash(
+      input.provider,
+      callbackSecretHash
+    );
+    if (!request) {
+      return reject("no_matching_payment_request");
+    }
+  } else {
+    if (!parsed.providerRequestId) {
+      return reject("missing_provider_request_id");
+    }
+    request = await deps.store.findPaymentRequestByProviderRequestId(
+      input.provider,
+      parsed.providerRequestId
+    );
+    if (!request) {
+      return reject("no_matching_payment_request");
+    }
   }
 
   // D. SECOND CORRELATION CHANNEL. When the provider echoes a Dubiz-issued
@@ -417,9 +454,15 @@ export async function processPaymentWebhook(
   let status: ProviderPaymentStatus;
   try {
     status = await adapter.getPaymentStatus({
-      providerRequestId,
+      // The STORED request's provider id, which is null for a provider that
+      // issues none. Never the payload's.
+      providerRequestId: request.providerRequestId,
       merchantId: connection.merchantId,
       credential,
+      // The Dubiz side of the correlation, for a provider whose authoritative
+      // lookup cannot be keyed on a session id it never issued. Taken from the
+      // STORED request, never from the payload.
+      correlationValue: String(request.id),
     });
   } catch {
     // Fail safe: a failed/erroring verification can never produce PAID.

@@ -1516,6 +1516,111 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS: matrix caught the removed capability gate"
 
+      # ── SUMIT + THE TWO GENERIC CAPABILITY CHANGES ─────────────────────
+      # SUMIT is the first provider that issues NO session identifier at
+      # checkout and signs NOTHING on its callback. Both properties were proven
+      # against its sandbox, and both needed a generic change rather than an
+      # adapter trick. The proofs below aim at the controls those changes rest
+      # on, not at the adapter's happy path.
+      # Local equivalent: npm run verify:sumit
+      - name: Opaque callback secret capability (generic, no provider involved)
+        run: npx tsx lib/services/payments/payment-callback-secret.test.ts
+
+      - name: Optional provider id + callback-secret correlation (orchestration)
+        run: npx tsx lib/services/payments/payment-optional-provider-id.test.ts
+
+      - name: SUMIT adapter (checkout, IPN parsing, authority, refunds, deadline)
+        run: npx tsx lib/services/payments/providers/sumit/sumit.provider.test.ts
+
+      - name: SUMIT negative proof (a synthesised provider id must be caught)
+        run: |
+          F="lib/services/payments/providers/sumit/sumit.provider.ts"
+          cp "$F" "$F.bak"
+          # The temptation this guards against: inventing an id so the field is
+          # never null. It would make the field's name untrue and would poison
+          # the routing index that callbacks resolve against.
+          perl -0pi -e 's/        providerRequestId: null,\r?\n        expiresAt: input\.expiresAt \?\? null,/        providerRequestId: "sumit-" + String(input.paymentRequestId),\n        expiresAt: input.expiresAt ?? null,/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/providers/sumit/sumit.provider.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a fabricated provider id was accepted"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: SUMIT negative proof (accepting any callback secret must be caught)
+        run: |
+          F="lib/services/payments/payment-callback-secret.ts"
+          cp "$F" "$F.bak"
+          # Accept anything, however short or empty. The callback would then
+          # authenticate on possession of a URL that no longer has to be secret.
+          perl -0pi -e 's/  if \(trimmed\.length < MIN_CALLBACK_SECRET_LENGTH\) return null;/  if (false) return null;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payment-callback-secret.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a too-short secret was accepted"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: SUMIT negative proof (settling from the callback payload must be caught)
+        run: |
+          F="lib/services/payments/providers/sumit/sumit.provider.ts"
+          cp "$F" "$F.bak"
+          # Let the callback's own `valid` flag decide the outcome. This is the
+          # Authority Principle violation the whole design exists to prevent:
+          # the payload would settle a payment on its own say-so.
+          perl -0pi -e 's/      const outcome: ParsedPaymentOutcome = usable \? "PENDING" : "UNKNOWN";/      const outcome: ParsedPaymentOutcome = fields.valid === "true" ? "PAID" : (usable ? "PENDING" : "UNKNOWN");/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/providers/sumit/sumit.provider.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the callback payload was allowed to assert PAID"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: SUMIT negative proof (choosing one of several clearings must be caught)
+        run: |
+          F="lib/services/payments/providers/sumit/sumit.provider.ts"
+          cp "$F" "$F.bak"
+          # Take the first match instead of refusing. An ambiguous correlation
+          # would then settle a Dubiz request against a clearing that may belong
+          # to a different one.
+          perl -0pi -e 's/  if \(list\.length > 1\) \{\r?\n    return \{ outcome: "AMBIGUOUS", paymentId: null, count: list\.length \};\r?\n  \}/  \/\/ mutated/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/providers/sumit/sumit.provider.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an ambiguous correlation was resolved by guessing"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: SUMIT negative proof (silently enabling it must be caught)
+        run: |
+          F="lib/services/payments/providers/provider-availability.ts"
+          cp "$F" "$F.bak"
+          # SUMIT ships disabled until a production connection exists and Bit is
+          # proven. Neither is true yet.
+          perl -0pi -e 's/  "SUMIT",\r?\n//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/dormant-provider-closure.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: SUMIT was enabled without the proof"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: SUMIT negative proof (a dropped routing column must be caught)
+        run: |
+          F="lib/services/payments/payment-store.prisma.ts"
+          cp "$F" "$F.bak"
+          # The in-memory store persists a routing row by spreading it whole; the
+          # Prisma store names its columns one at a time. A field dropped there
+          # fails nothing anyone can see — the checkout still succeeds — until a
+          # real callback arrives in production and cannot name its request.
+          perl -0pi -e 's/            callbackSecretHash: row\.callbackSecretHash \?\? null,\r?\n//g' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payment-optional-provider-id.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a dropped routing column was accepted"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
       # WhatsApp webhook EVENT-CLASS boundary. A read-only audit found that
       # acceptance was decided by payload SHAPE, not event class: change.field
       # was never read, so any change carrying a value.messages[] array reached

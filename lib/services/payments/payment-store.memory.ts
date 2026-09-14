@@ -240,6 +240,24 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
       return record ? { ...record } : null;
     },
 
+    // The second pre-context route in: a provider whose callback carries no
+    // signature and no session id is resolved by the hash of the secret minted
+    // for that request. Mirrors the Prisma store, including the refusal to let a
+    // secret minted for one provider resolve another provider's callback.
+    async findPaymentRequestByCallbackSecretHash(provider, callbackSecretHash) {
+      if (!callbackSecretHash) return null;
+      const route = routing.find(
+        (r) => r.callbackSecretHash === callbackSecretHash
+      );
+      if (!route || route.provider !== provider) return null;
+      const record = requests.find((r) => r.id === route.paymentRequestId);
+      if (!record) return null;
+      // Same consistency gate as the Prisma store: a routing row is a hint, and
+      // a hint that disagrees with the stored request resolves nothing.
+      if (record.businessId !== route.businessId) return null;
+      return { ...record };
+    },
+
     async listPaymentRequests(
       businessId: number,
       options?: ListPaymentRequestsOptions

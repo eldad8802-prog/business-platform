@@ -45,7 +45,7 @@ async function main() {
     assert.deepEqual(cat.map((d) => d.key).sort(), ["CARDCOM"]);
     assert.deepEqual(
       listAllProviderDescriptors().map((d) => d.key).sort(),
-      ["CARDCOM", "PAYPAL", "TRANZILA"]
+      ["CARDCOM", "PAYPAL", "SUMIT", "TRANZILA"]
     );
 
     const cc = getProviderDescriptor("CARDCOM");
