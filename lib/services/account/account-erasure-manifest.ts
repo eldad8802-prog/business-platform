@@ -58,12 +58,45 @@ export const ANONYMIZE_MODELS = [
   { model: "businessProfile", fields: { billingLegalName: "null", billingTaxId: "null", billingVatNumber: "null", billingPhone: "null", billingEmail: "null", billingAddress: "null", city: "null", latitude: "null", longitude: "null", billingLogoDataUrl: "null", billingSignatureDataUrl: "null" } },
   { model: "customer", fields: { name: "anonymized-name", phone: "null", email: "null", city: "null", legalName: "null", taxId: "null", notes: "null" } },
   { model: "lead", fields: { name: "anonymized-name", phone: "null", email: "null" } },
+
+  // ── the conversation graph ────────────────────────────────────────────────
+  //
+  // This used to be one line in DELETE_MODELS. It deleted nothing: the five
+  // pilot tables carry SELECT/INSERT/UPDATE policies and NO DELETE policy, so
+  // under FORCE RLS the delete matched zero rows, raised nothing, and the
+  // cascade never fired. The ratified decision was to anonymise in place rather
+  // than grant a DELETE policy, so the guarantee changed from "the rows are
+  // gone" to "nothing readable, derived or identifying is left in them".
+  //
+  // The graph is therefore listed field by field, deepest-first, exactly as the
+  // adapter writes it. A model-level entry could not express this: "delete the
+  // conversation" was a single claim, and what replaced it is twenty-four
+  // separate ones, each of which has to be true.
+  { model: "messageAnalysis", fields: { intent: "blank", stage: "blank" } },
+  { model: "replySuggestion", fields: { text: "blank", toneLabel: "null", strategyLabel: "null" } },
+  {
+    model: "message",
+    fields: {
+      contentText: "null", languageCode: "null", intentLabel: "null",
+      sentimentLabel: "null", objectionLabel: "null", stageLabel: "null",
+      providerMessageId: "null", clientRequestId: "null",
+      sendErrorCode: "null", sendErrorMessage: "null", customerId: "null",
+    },
+  },
+  {
+    model: "conversation",
+    fields: {
+      intentType: "null", sentimentSnapshot: "null", outcomeReason: "null",
+      lostReason: "null", pendingFollowUp: "json-null",
+      pendingAppointmentRequest: "json-null", customerId: "null", leadId: "null",
+    },
+  },
 ] as const;
 
 /** Bucket B.2 — delete (pure operational communications PII, no fiscal linkage).
- *  Deleting a Conversation cascades its Messages/analyses. */
+ *  `conversation` is NOT here any more: the graph is anonymised in place, and is
+ *  declared field by field in ANONYMIZE_MODELS above. */
 export const DELETE_MODELS = [
-  "conversation", // cascades message, messageAnalysis, replySuggestion
   "crmNote",
   "crmAttachment",
 ] as const;
