@@ -53,6 +53,13 @@ import type { PaymentProvider } from "../payments.types";
 export const DISABLED_PAYMENT_PROVIDERS: readonly PaymentProvider[] = [
   "PAYPAL",
   "TRANZILA",
+  // PayPlus ships DISABLED. Its adapter is complete and its authoritative
+  // status query is real, so it satisfies the capability invariant above — but
+  // satisfying the invariant is not the same as being proven. Two things must
+  // be settled against the real sandbox first: which exact serialisation
+  // PayPlus signs (see verifyPayPlusSignature), and a full sandbox end-to-end
+  // run. Enabling it is a deliberate, separate decision.
+  "PAYPLUS",
 ] as const;
 
 /** True when the provider is an active capability. */

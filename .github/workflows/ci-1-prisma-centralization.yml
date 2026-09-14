@@ -1689,6 +1689,154 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
 
+      # ── PAYPLUS BASELINE ───────────────────────────────────────────────
+      # The second real provider. Its authentication model differs from
+      # CardCom's in the way that matters: PayPlus signs each callback with the
+      # MERCHANT's own key, so the signature can only be checked after the
+      # callback has been correlated to a stored request. The proofs below are
+      # about that ordering being safe, not merely present.
+      # Local equivalent: npm run verify:payplus
+      - name: PayPlus adapter (link, currency, signature, authoritative status)
+        run: npx tsx lib/services/payments/providers/payplus/payplus.provider.test.ts
+
+      - name: PayPlus merchant-scoped webhook authentication (Gap A)
+        run: npx tsx lib/services/payments/payplus-webhook-auth.test.ts
+
+      - name: PayPlus connection + multi-provider selection
+        run: npx tsx lib/services/payments/payplus-connection-and-selection.test.ts
+
+      # PayPlus documents its callback as a GET, which the generic `/[provider]`
+      # route does not accept. This proves the dedicated route takes both
+      # methods through the SAME orchestration, still refuses while PayPlus is a
+      # disabled capability, and widened no other provider's route on the way in.
+      - name: PayPlus callback route (both methods, one door, nothing widened)
+        run: npx tsx lib/services/payments/payplus-webhook-route.test.ts
+
+      # The temporary first-callback capture. It ships disabled and exists only
+      # to settle the documented ambiguities against a real sandbox delivery, so
+      # what CI must hold is that it stays inert by default and cannot leak.
+      - name: PayPlus callback diagnostics (inert by default, and leaks nothing)
+        run: npx tsx lib/services/payments/payplus-callback-diagnostics.test.ts
+
+      - name: PayPlus negative proof (a leaking diagnostic must be caught)
+        run: |
+          F="lib/services/payments/providers/payplus/payplus-callback-diagnostics.ts"
+          cp "$F" "$F.bak"
+          # The failure this guards is the whole reason the capture is allowed to
+          # exist at all: put the request body back into the record. A PayPlus
+          # callback carries an amount, a masked card and possibly a payer name.
+          perl -0pi -e 's/    bodyLength: rawBody\.length,/    bodyLength: rawBody.length,\n    rawBody,/' "$F"
+          perl -0pi -e 's/  bodyLength: number;/  bodyLength: number;\n  rawBody?: string;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payplus-callback-diagnostics.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the diagnostic recorded the request body"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: PayPlus negative proof (a diagnostic that is on by default must be caught)
+        run: |
+          F="lib/services/payments/providers/payplus/payplus-callback-diagnostics.ts"
+          cp "$F" "$F.bak"
+          # Shipping the capture enabled would turn a debugging aid into a
+          # standing log of every production callback's shape.
+          perl -0pi -e 's/  return env\.PAYPLUS_CALLBACK_DIAGNOSTICS === "1";/  return env.PAYPLUS_CALLBACK_DIAGNOSTICS !== "0";/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payplus-callback-diagnostics.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the capture defaulted to ON"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: PayPlus negative proof (inventing an outcome from a timeout must be caught)
+        run: |
+          F="lib/services/payments/providers/payplus/payplus.provider.ts"
+          cp "$F" "$F.bak"
+          # The failure mode this guards is subtle and expensive: a provider
+          # that accepts the connection and never answers. Here the bounded
+          # request is made to fabricate a SUCCESS instead of failing, which is
+          # the one reading of a timeout that could settle a payment nobody made.
+          perl -0pi -e 's/\} catch \{\r?\n      throw new PaymentProviderError\(\r?\n        PAYPLUS_PROVIDER,\r?\n        "HTTP_ERROR",\r?\n        "PayPlus request failed \(network or timeout\)\."\r?\n      \);\r?\n    \}/} catch {\n      res = { ok: true, status: 200, json: async () => ({ results: { status: "success" }, data: { uid: "INVENTED", status_code: "000" } }) };\n    }/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/providers/payplus/payplus.provider.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a timed-out request was reported as a successful payment"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: PayPlus negative proof (an unbounded provider wait must be caught)
+        run: |
+          F="lib/services/payments/providers/payplus/payplus.provider.ts"
+          cp "$F" "$F.bak"
+          # Ignore the configured deadline. A hang would then be bounded only by
+          # the platform killing the function, mid-write and with no record.
+          # `timeout` caps the proof itself: if the mutated adapter hangs, the
+          # non-zero exit is the suite refusing to pass, which is what we want.
+          perl -0pi -e 's/      \? options\.requestTimeoutMs\r?\n      : PAYPLUS_DEFAULT_TIMEOUT_MS;/      ? 600000\n      : 600000;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if timeout 120 npx tsx lib/services/payments/providers/payplus/payplus.provider.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the request deadline was ignored and nothing noticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: PayPlus negative proof (authenticating before the first write must be caught)
+        run: |
+          F="lib/services/payments/payment-webhook.service.ts"
+          cp "$F" "$F.bak"
+          # Move merchant authentication AFTER persistence. The callback would
+          # then be able to write a webhook event row before its signature was
+          # ever checked — state created by an unauthenticated caller.
+          perl -0pi -e 's/  if \(typeof adapter\.authenticateWebhook === "function"\) \{/  if (false) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payplus-webhook-auth.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unauthenticated callback was processed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: PayPlus negative proof (accepting any merchant's signature must be caught)
+        run: |
+          F="lib/services/payments/providers/payplus/payplus.provider.ts"
+          cp "$F" "$F.bak"
+          # The cross-merchant hazard: a signature that verifies under SOME key
+          # rather than under THIS merchant's key.
+          perl -0pi -e 's/      return \{ ok: false, reason: "merchant_credential_unavailable" \};/      return { ok: true };/' "$F"
+          perl -0pi -e 's/  return \{ ok: false, reason: "signature_mismatch" \};/  return { ok: true };/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payplus-webhook-auth.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a foreign signature was accepted"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: PayPlus negative proof (a live-host default in non-production must be caught)
+        run: |
+          F="lib/services/payments/providers/payplus/payplus.provider.ts"
+          cp "$F" "$F.bak"
+          # This is the CardCom defect, re-planted in PayPlus: fall back to the
+          # LIVE acquirer when no override is configured.
+          perl -0pi -e 's/  return isProduction \? PRODUCTION_BASE_URL : SANDBOX_BASE_URL;/  return PRODUCTION_BASE_URL;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/providers/payplus/payplus.provider.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a non-production environment defaulted to the live host"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: PayPlus negative proof (silently enabling it must be caught)
+        run: |
+          F="lib/services/payments/providers/provider-availability.ts"
+          cp "$F" "$F.bak"
+          # PayPlus ships disabled until its sandbox end-to-end is proven.
+          perl -0pi -e 's/  "PAYPLUS",\r?\n//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payplus-connection-and-selection.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: PayPlus was enabled without the sandbox proof"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
       # Two negative proofs, each aimed at a control that is actually
       # load-bearing. (A third candidate — re-planting the fail-open branch in
       # CardCom's own verifyWebhook — was tried and DELIBERATELY dropped: the

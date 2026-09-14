@@ -274,8 +274,65 @@ export async function processPaymentWebhook(
     return reject("currency_mismatch");
   }
 
-  // F. Only a correlated callback is persisted. Idempotent on
-  // (provider, providerEventId).
+  // E2. MERCHANT-SCOPED AUTHENTICATION. Only for providers that sign callbacks
+  // with the MERCHANT's own key (PayPlus). Adapters without
+  // `authenticateWebhook` — CardCom, and every provider before this one — skip
+  // it entirely and behave exactly as they did.
+  //
+  // WHY IT SITS HERE AND NOT AT STEP A. The signing key belongs to one
+  // business. Until the callback has been correlated to a stored
+  // PaymentRequest, the system does not know which business that is, so the
+  // candidate key cannot be chosen any earlier.
+  //
+  // WHY THAT IS STILL SAFE. Correlation is a READ, and a read is not
+  // authorization:
+  //   - the identifier must be one THIS system issued and stored, or step C
+  //     already refused the callback;
+  //   - the tenant comes from the STORED request, never from the payload;
+  //   - EXACTLY ONE candidate key is tried — the one belonging to the business
+  //     that owns the correlated request. No key is ever tried against a second
+  //     merchant, so a payload signed with merchant B's key but pointing at
+  //     merchant A's request fails, which is the whole point;
+  //   - and this block sits BEFORE the first write. Nothing is persisted, no
+  //     request moves, nothing settles. An unauthenticated caller can at most
+  //     cause one scoped lookup and then be refused.
+  //
+  // The connection read runs inside the tenant's own context because
+  // BusinessPaymentConnection is FORCE-RLS'd. The decrypted credential is used
+  // in memory only and is never logged, echoed or persisted.
+  if (typeof adapter.authenticateWebhook === "function") {
+    const authenticate = adapter.authenticateWebhook.bind(adapter);
+    const merchantConnection = await runWithTenantContext(
+      { businessId: request.businessId },
+      () => deps.store.findActiveConnection(request.businessId, input.provider)
+    );
+    if (!merchantConnection) {
+      // No connection means no key, and no key means the callback cannot be
+      // authenticated. Refused before persistence — never accepted by default.
+      return reject("merchant_authentication_unavailable", "FAILED");
+    }
+
+    let authResult: VerifyWebhookResult;
+    try {
+      authResult = await authenticate({
+        rawBody: input.rawBody,
+        headers,
+        credential:
+          deps.decryptConnectionCredential?.(merchantConnection) ?? null,
+        merchantId: merchantConnection.merchantId,
+      });
+    } catch {
+      return reject("merchant_authentication_error", "FAILED");
+    }
+    if (!authResult.ok) {
+      // The reason is the adapter's own, and adapters must not put credential
+      // material in it.
+      return reject(`merchant_auth: ${authResult.reason}`, "FAILED");
+    }
+  }
+
+  // F. Only a correlated and (where applicable) AUTHENTICATED callback is
+  // persisted. Idempotent on (provider, providerEventId).
   const { created, event } = await deps.store.insertWebhookEventIfNew({
     provider: input.provider,
     eventType: parsed.eventType,
@@ -420,6 +477,13 @@ export async function processPaymentWebhook(
       providerRequestId,
       merchantId: connection.merchantId,
       credential,
+      // Gap B. Some providers cannot be asked about a payment SESSION, only
+      // about a transaction or about the merchant's own reference. Both extra
+      // values are server-derived: the correlation value is the stored
+      // request's id, not the payload's claim of it, and by this point the
+      // payload's claim has already had to match it (step D).
+      correlationValue: String(request.id),
+      providerTransactionId: parsed.providerTransactionId,
     });
   } catch {
     // Fail safe: a failed/erroring verification can never produce PAID.

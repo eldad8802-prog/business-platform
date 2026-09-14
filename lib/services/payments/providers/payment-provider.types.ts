@@ -45,6 +45,26 @@ export type VerifyWebhookResult =
   | { ok: true }
   | { ok: false; reason: string };
 
+/**
+ * Input to MERCHANT-SCOPED webhook authentication — see
+ * `PaymentProviderAdapter.authenticateWebhook` for why this is a separate step.
+ *
+ * Everything here is derived server-side from the STORED PaymentRequest the
+ * callback correlated to. Nothing in it comes from the payload.
+ */
+export interface AuthenticateWebhookInput {
+  /** The body exactly as received. The signature is over these bytes. */
+  rawBody: string;
+  headers: Record<string, string | null | undefined>;
+  /**
+   * The DECRYPTED credential of the merchant connection the correlated request
+   * belongs to. In-memory only — never logged, echoed, or persisted.
+   */
+  credential: string | null;
+  /** Merchant/terminal identifier from that same connection. */
+  merchantId: string | null;
+}
+
 export interface ParseWebhookInput {
   rawBody: string;
   /** Optional pre-parsed body when the route already did JSON.parse. */
@@ -82,9 +102,33 @@ export interface ParsedWebhookEvent {
 }
 
 export interface GetPaymentStatusInput {
+  /**
+   * The PROVIDER's identifier for the payment session, as the provider issued
+   * it (CardCom: LowProfileId; PayPlus: page_request_uid). Never a Dubiz id —
+   * putting our own id in this field would make the name untrue and would
+   * silently corrupt the routing index, which is keyed on it.
+   */
   providerRequestId: string;
   merchantId: string | null;
   credential: string | null;
+  /**
+   * The Dubiz-issued value that round-trips through the provider — the same
+   * value `ParsedWebhookEvent.correlationValue` carries back, and the one the
+   * second correlation channel already checks. It is the PaymentRequest id as a
+   * string.
+   *
+   * Present because a provider's authoritative lookup may not accept its own
+   * session id. PayPlus's `/Transactions/View` documents `transaction_uid` and
+   * `more_info` but no `page_request_uid`, and `more_info` is precisely this
+   * value — so without it PayPlus could not answer the one question the
+   * Authority Principle requires. Adapters that do not need it ignore it.
+   */
+  correlationValue?: string | null;
+  /**
+   * The provider's own transaction identifier when the callback already carried
+   * one. Some providers can only be queried by transaction, not by session.
+   */
+  providerTransactionId?: string | null;
 }
 
 export interface ProviderPaymentStatus {
@@ -130,6 +174,34 @@ export interface PaymentProviderAdapter {
 
   /** Parse an inbound webhook into a normalized event. Must never throw. */
   parseWebhook(input: ParseWebhookInput): ParsedWebhookEvent;
+
+  /**
+   * MERCHANT-SCOPED webhook authentication. Optional; implemented only by
+   * providers that sign callbacks with the MERCHANT's own key.
+   *
+   * Why a second method rather than widening `verifyWebhook`: the two run at
+   * different moments, because they can. `verifyWebhook` is pre-correlation and
+   * therefore knows nothing about a tenant — which is exactly what lets it
+   * reject a malformed body before any lookup happens at all. PayPlus, though,
+   * signs with the merchant's own secret key, and until a callback has been
+   * correlated to a stored PaymentRequest the system does not know WHICH
+   * merchant's key to check. Handing `verifyWebhook` a credential it cannot
+   * have at that point would be a lie in the type.
+   *
+   * The ordering guarantee that makes this safe: correlation is a READ, and a
+   * read is not authorization. An unauthenticated caller may cause the system
+   * to look up a candidate secret; it may not cause one byte of state to
+   * change. Nothing is persisted, no request moves and nothing settles until
+   * this call returns ok — the orchestration places it before the first write,
+   * and `payplus-webhook-auth.test.ts` proves it.
+   *
+   * Never try more than one merchant's key. The candidate is fixed by
+   * correlation to a single stored request; a callback whose signature does not
+   * match THAT merchant's key is refused, not retried against others.
+   */
+  authenticateWebhook?(
+    input: AuthenticateWebhookInput
+  ): Promise<VerifyWebhookResult>;
 
   /**
    * Provider-authoritative status query.

@@ -45,8 +45,11 @@ async function main() {
     assert.deepEqual(cat.map((d) => d.key).sort(), ["CARDCOM"]);
     assert.deepEqual(
       listAllProviderDescriptors().map((d) => d.key).sort(),
-      ["CARDCOM", "PAYPAL", "TRANZILA"]
+      ["CARDCOM", "PAYPAL", "PAYPLUS", "TRANZILA"]
     );
+    // PayPlus is registered but not offered: it is in the full descriptor list
+    // and absent from the catalogue the settings UI reads.
+    assert.equal(isSupportedProvider("PAYPLUS"), true);
 
     const cc = getProviderDescriptor("CARDCOM");
     const tz = getProviderDescriptor("TRANZILA");
