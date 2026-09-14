@@ -14,6 +14,7 @@ import {
   DEFAULT_BILLING_PDF_TEMPLATE_STYLE,
   parseBillingPdfTemplateStyle,
 } from "@/lib/billing/billing-pdf-template-style";
+import { loadBillingInvoiceProfile } from "@/lib/services/billing/billing-invoice-profile.service";
 
 const MAX_LOGO_CHARS = 500_000;
 
@@ -64,6 +65,19 @@ function validateLogo(value: string | null): void {
   }
 }
 
+/**
+ * Read the business's invoice identity.
+ *
+ * This handler used to `upsert` — a GET that WROTE a row. Under the restricted
+ * runtime that write is refused (`BusinessProfile` is FORCE-RLS'd and the
+ * runtime holds SELECT only), which turned the endpoint into a 500 for every
+ * business. Reading is now a read: a tenant-scoped `findUnique`. A business
+ * that has never filled the form has no row, and that is answered with a
+ * well-formed empty profile and `identityComplete: false` — a real empty state,
+ * with 200 — rather than by materialising a row on a GET.
+ *
+ * See lib/services/billing/billing-invoice-profile.service.ts.
+ */
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
@@ -71,38 +85,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const profile = await prisma.businessProfile.upsert({
-      where: { businessId: user.businessId },
-      create: { businessId: user.businessId },
-      update: {},
-      select: {
-        billingLegalName: true,
-        billingBusinessKind: true,
-        billingTaxId: true,
-        billingVatNumber: true,
-        billingPhone: true,
-        billingEmail: true,
-        billingAddress: true,
-        billingPaymentNote: true,
-        billingFooterNote: true,
-        billingLogoDataUrl: true,
-        billingSignatureDataUrl: true,
-        billingPdfTemplateStyle: true,
-      },
-    });
+    const result = await loadBillingInvoiceProfile(user.businessId);
 
-    return NextResponse.json(
-      {
-        profile: {
-          ...profile,
-          billingPdfTemplateStyle: parseBillingPdfTemplateStyle(
-            profile.billingPdfTemplateStyle
-          ),
-        },
-        identityComplete: isBillingIdentityComplete(profile),
-      },
-      { status: 200 }
-    );
+    return NextResponse.json(result, { status: 200 });
   } catch (error) {
     return handleError(error);
   }
