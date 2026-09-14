@@ -40,6 +40,7 @@ import {
   terminalStatusFor,
 } from "@/lib/data-transfer/import/execute/execution-semantics";
 import { IMPORT_EXECUTE_BATCH_SIZE } from "@/lib/data-transfer/import/import-config";
+import { retryKeyOf } from "@/lib/data-transfer/import/execute/import-run-store";
 import type { PreviewRow } from "@/lib/data-transfer/import/preview/preview-orchestrator";
 
 let passed = 0;
@@ -640,6 +641,108 @@ check("the batch transaction carries an explicit budget, not Prisma's 5s default
   // The single-row retries keep the default: they do one row of work, and a
   // long budget there would hold a connection open for no reason.
   assert.equal(exec.split("timeoutMs").length - 1, 1);
+});
+
+/* ============================ 7. F-01 retry identity ================== */
+
+console.log("\n7. F-01 — retry identity excludes mutable state");
+
+const storeSrc = fs.readFileSync(
+  "lib/data-transfer/import/execute/import-run-store.ts",
+  "utf8"
+);
+
+check("F-01: the retry key is stable, and moves only with its three inputs", () => {
+  const base = { businessId: 7, contentHash: "aa", mappingHash: "bb" };
+  assert.equal(retryKeyOf(base), retryKeyOf({ ...base }));
+  assert.notEqual(retryKeyOf(base), retryKeyOf({ ...base, businessId: 8 }));
+  assert.notEqual(retryKeyOf(base), retryKeyOf({ ...base, contentHash: "cc" }));
+  assert.notEqual(retryKeyOf(base), retryKeyOf({ ...base, mappingHash: "dd" }));
+});
+
+check("F-01: nothing the import can change reaches the retry key", () => {
+  // The whole defect in one assertion. `retryKeyOf` reads three fields and the
+  // decisions are not among them, so no decision set can move it. The schema's
+  // old unique index did exactly what this forbids.
+  const source = stripComments(storeSrc);
+  const fn = source.slice(
+    source.indexOf("export function retryKeyOf"),
+    source.indexOf("export type RunIdentity")
+  );
+  assert.equal(fn.includes("decisionsHash"), false, "the key must not read decisions");
+  for (const field of ["businessId", "contentHash", "mappingHash"]) {
+    assert.equal(fn.includes(field), true, `the key must read ${field}`);
+  }
+});
+
+check("F-01: neither ledger lookup keys on the decisions any more", () => {
+  const source = stripComments(storeSrc);
+  const open = source.slice(
+    source.indexOf("export async function openOrResumeRun"),
+    source.indexOf("type RunRecord")
+  );
+  const find = source.slice(source.indexOf("export async function findExistingRun"));
+  for (const [name, body] of [
+    ["openOrResumeRun", open],
+    ["findExistingRun", find],
+  ] as const) {
+    assert.equal(body.includes("retryKey"), true, `${name} must resolve by retryKey`);
+    assert.equal(
+      body.includes("businessId_contentHash_mappingHash_decisionsHash"),
+      false,
+      `${name} must not use the old compound key`
+    );
+  }
+});
+
+check("F-01: decisionsHash is still RECORDED, it just is not identity", () => {
+  // Taking it out of the key must not take away the audit trail of what the
+  // owner approved.
+  const source = stripComments(storeSrc);
+  const create = source.slice(
+    source.indexOf("tx.importRun.create"),
+    source.indexOf("created: true")
+  );
+  assert.equal(create.includes("decisionsHash: identity.decisionsHash"), true);
+  assert.equal(create.includes("retryKey"), true);
+});
+
+check("F-01: the schema's unique index is the retry key, not the decisions", () => {
+  const schema = fs.readFileSync("prisma/schema.prisma", "utf8");
+  const model = schema.slice(
+    schema.indexOf("model ImportRun {"),
+    schema.indexOf("model ImportRunRow {")
+  );
+  assert.equal(
+    model.includes("@@unique([businessId, contentHash, mappingHash, decisionsHash])"),
+    false,
+    "the decisions-based unique key must be gone"
+  );
+  // Nullable on purpose: runs written before the migration keep NULL, PostgreSQL
+  // treats NULLs as distinct, and the index therefore builds on existing data
+  // whatever duplicates F-01 already left. No backfill, nothing deleted.
+  assert.match(model, /retryKey\s+String\?\s+@unique/);
+});
+
+check("F-01 REGRESSION: the decision set MOVES on a real retry — the key must not", () => {
+  // Section 2 calls defaultDecisions twice with the SAME rows and proves
+  // determinism. That cannot catch F-01, because on a real retry the input is
+  // not the same: the first import created records, so the duplicate evidence
+  // differs the second time. This pins the difference the old test assumed away.
+  const before = defaultDecisions("customers", [row(1, []), row(2, [])]);
+  const after = defaultDecisions("customers", [
+    row(1, [existing("טלפון")]), // now collides — the first import created it
+    row(2, []), // keyless, still nothing to collide with
+  ]);
+  assert.notDeepEqual(
+    before,
+    after,
+    "a retry is expected to decide differently; that is the premise of F-01"
+  );
+
+  // And that movement must not reach the retry identity.
+  const identity = { businessId: 1, contentHash: "same", mappingHash: "same" };
+  assert.equal(retryKeyOf(identity), retryKeyOf(identity));
 });
 
 console.log(`\nIMPORT EXECUTE CONTRACT VERIFY PASS — ${passed} checks green.`);

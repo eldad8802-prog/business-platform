@@ -532,6 +532,149 @@ async function main() {
     `has_table_privilege=${runUpdate[0].granted}`
   );
 
+  /* ══ F-01 — the retry a FRESH preview produces ═══════════════════════════
+   *
+   * Everything above replays the IDENTICAL request: same bytes, same mapping,
+   * same decisions, same token. That is a lost response or a double-click, and
+   * it was already safe — which is exactly why this battery did not catch F-01.
+   *
+   * It is not what the product promises. "Run the same file again and Dubiz
+   * will complete only what is missing" describes an owner UPLOADING THE FILE
+   * AGAIN, and the screen re-runs the preview before every execute. That
+   * preview is computed against a database the FIRST import changed: a row that
+   * now collides defaults to SKIP, one that never collides stays CREATE. The
+   * decision set therefore differs — and while it was part of the run identity,
+   * a second run opened and the markers protecting the first no longer applied.
+   *
+   * A row with no business key had nothing else to identify it, and was created
+   * twice. What follows drives the real path twice, exactly as the UI does.
+   */
+
+  const keylessFixtures = {
+    customers: {
+      headers: ["שם", "טלפון", "אימייל"],
+      rows: [[`${MARK}לקוח ללא טלפון`, "", ""]],
+    },
+    suppliers: {
+      headers: ["שם ספק", "מספר עוסק / ח.פ.", "טלפון"],
+      rows: [[`${MARK}ספק ללא חפ`, "", ""]],
+    },
+    leads: {
+      headers: ["שם", "טלפון", "אימייל"],
+      rows: [[`${MARK}ליד ללא טלפון`, "", ""]],
+    },
+    inventory: {
+      headers: ["שם פריט", "מק״ט", "ברקוד"],
+      rows: [[`${MARK}פריט ללא מקט`, "", ""]],
+    },
+  };
+
+  for (const [domainId, fixture] of Object.entries(keylessFixtures)) {
+    const firstRun = await runImport(domainId, fixture.headers, fixture.rows);
+    // The retry an owner actually performs: a NEW preview, therefore possibly
+    // NEW decisions, then execute. No token carried over from the first run.
+    const secondRun = await runImport(domainId, fixture.headers, fixture.rows);
+
+    ok(
+      `F-01 ${domainId}: the first import of a keyless row creates it`,
+      firstRun.result.ok && firstRun.result.counts.createdCount === 1,
+      JSON.stringify(firstRun.result?.counts)
+    );
+    ok(
+      `F-01 ${domainId}: re-uploading the same file resolves to the SAME run`,
+      secondRun.result.ok &&
+        secondRun.result.importRunId === firstRun.result.importRunId,
+      `first=${firstRun.result.importRunId} second=${secondRun.result.importRunId}`
+    );
+    ok(
+      `F-01 ${domainId}: and creates NOTHING the second time`,
+      secondRun.result.ok && secondRun.result.counts.createdCount === 0,
+      JSON.stringify(secondRun.result?.counts)
+    );
+  }
+
+  // Two identical keyless rows in ONE file are two different source rows, and
+  // both are legitimate. Idempotency must not merge them — only stop either
+  // being written twice.
+  const twinHeaders = ["שם", "טלפון", "אימייל"];
+  const twinRows = [
+    [`${MARK}תאומים`, "", ""],
+    [`${MARK}תאומים`, "", ""],
+  ];
+  const twinsFirst = await runImport("customers", twinHeaders, twinRows);
+  ok(
+    "F-01 twins: two identical keyless rows both import the first time",
+    twinsFirst.result.ok && twinsFirst.result.counts.createdCount === 2,
+    JSON.stringify(twinsFirst.result?.counts)
+  );
+  const twinsAgain = await runImport("customers", twinHeaders, twinRows);
+  ok(
+    "F-01 twins: and neither is created again on a retry",
+    twinsAgain.result.ok && twinsAgain.result.counts.createdCount === 0,
+    JSON.stringify(twinsAgain.result?.counts)
+  );
+
+  // Two executes racing: a double-click, two tabs, a network retry. The retry
+  // key is a unique index, so exactly one INSERT wins and the loser resolves to
+  // it; the marker primary key then holds each source row to one business write.
+  const raceHeaders = ["שם", "טלפון", "אימייל"];
+  const raceRows = [[`${MARK}מרוץ`, "", ""]];
+  const raceBytes = csv(raceHeaders, raceRows);
+  const raceBase = {
+    businessId: bizA.id,
+    userId: userA.id,
+    domainId: "customers",
+    filename: `${MARK}race.csv`,
+    bytes: raceBytes,
+    sheetName: null,
+    mapping: mappingFor(raceHeaders),
+  };
+  const racePreview = await buildImportPreview(raceBase);
+  const raceCall = () =>
+    executeImport({
+      ...raceBase,
+      decisions: racePreview.decisions,
+      previewToken: racePreview.previewToken,
+    });
+  const raced = await Promise.all([raceCall(), raceCall()]);
+  const racedCreated = raced.reduce(
+    (n, r) => n + (r.ok ? r.counts.createdCount ?? 0 : 0),
+    0
+  );
+  ok(
+    "F-01 concurrency: two simultaneous executes create the row exactly once",
+    racedCreated === 1,
+    `total createdCount across both = ${racedCreated}`
+  );
+  ok(
+    "F-01 concurrency: and both calls report the same run",
+    raced[0].ok && raced[1].ok && raced[0].importRunId === raced[1].importRunId,
+    `${raced[0].importRunId} vs ${raced[1].importRunId}`
+  );
+
+  // The key itself. It must not move when the decisions do, and must move when
+  // the business, the bytes or the mapping do.
+  const { retryKeyOf } = await import(
+    "@/lib/data-transfer/import/execute/import-run-store"
+  );
+  const keyBase = { businessId: bizA.id, contentHash: "c", mappingHash: "m" };
+  ok(
+    "F-01 key: the same business, file and mapping always give the same key",
+    retryKeyOf(keyBase) === retryKeyOf({ ...keyBase })
+  );
+  ok(
+    "F-01 key: a different file gives a different key",
+    retryKeyOf(keyBase) !== retryKeyOf({ ...keyBase, contentHash: "c2" })
+  );
+  ok(
+    "F-01 key: a different mapping gives a different key",
+    retryKeyOf(keyBase) !== retryKeyOf({ ...keyBase, mappingHash: "m2" })
+  );
+  ok(
+    "F-01 key: another tenant with the same file gets a different key",
+    retryKeyOf(keyBase) !== retryKeyOf({ ...keyBase, businessId: bizB.id })
+  );
+
   /* ── cleanup ─────────────────────────────────────────────────────────── */
 
   await owner.$disconnect();

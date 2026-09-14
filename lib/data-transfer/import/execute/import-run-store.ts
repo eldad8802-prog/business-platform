@@ -7,9 +7,9 @@
  *
  * # The idempotency chain, top to bottom
  *
- *   ImportRun      unique on (businessId, contentHash, mappingHash, decisionsHash)
- *                  Re-submitting the same file with the same mapping and the
- *                  same decisions RESOLVES to the run that already exists.
+ *   ImportRun      unique on `retryKey` = sha256(businessId, contentHash,
+ *                  mappingHash). Re-submitting the same file with the same
+ *                  mapping RESOLVES to the run that already exists.
  *   ImportRunRow   primary key (importRunId, sourceRowNumber)
  *                  Written in the SAME transaction as the business record, so a
  *                  record without its marker, or a marker without its record,
@@ -17,6 +17,18 @@
  *
  * Together those mean a replay re-executes nothing: it finds the run, reads the
  * markers, and has no rows left to do.
+ *
+ * # Why `decisionsHash` is NOT in the retry identity (F-01)
+ *
+ * It used to be, and that was the defect. Decisions are DERIVED FROM THE
+ * DATABASE: a source row that collides with an existing record defaults to SKIP,
+ * one that does not defaults to CREATE. So the FIRST import changes what the
+ * SECOND one decides — the hash moves, the key stops matching, a second run
+ * opens, and the marker above no longer applies to it. A row carrying no
+ * business key, with nothing else to identify it by, was written twice.
+ *
+ * An idempotency key must never be computed from state the operation mutates.
+ * `decisionsHash` is still stored, as audit evidence of what was approved.
  *
  * # Why creating the run races safely
  *
@@ -26,12 +38,39 @@
  * window between the two.
  */
 
+import { createHash } from "node:crypto";
+
 import { Prisma } from "@prisma/client";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction, type TenantTx } from "@/lib/tenant/transaction";
 import type { DataTransferDomainId } from "@/lib/data-transfer/domains";
 import type { RowErrorCode } from "@/lib/data-transfer/import/execute/execution-semantics";
 import type { RunCounts, TerminalRunStatus } from "@/lib/data-transfer/import/execute/execution-semantics";
+
+/**
+ * The retry identity of an import: this business, these exact bytes, this exact
+ * mapping. Nothing else, and in particular nothing the import itself can change.
+ *
+ * Exported so the contract can be asserted directly: the same three inputs must
+ * always produce the same key, and any difference in any of them must produce a
+ * different one.
+ */
+export function retryKeyOf(identity: {
+  businessId: number;
+  contentHash: string;
+  mappingHash: string;
+}): string {
+  return createHash("sha256")
+    .update(
+      [
+        "import-retry:v1",
+        `business:${identity.businessId}`,
+        `content:${identity.contentHash}`,
+        `mapping:${identity.mappingHash}`,
+      ].join("\n")
+    )
+    .digest("hex");
+}
 
 export type RunIdentity = {
   businessId: number;
@@ -58,23 +97,18 @@ export type OpenedRun = {
 };
 
 /**
- * Find the run for this exact (file, mapping, decisions), or create it.
+ * Find the run for this exact (business, file, mapping), or create it.
  *
  * The returned `created: false` with a terminal status is the replay case, and
  * the caller reports the original outcome rather than doing anything again.
+ * The decisions are deliberately NOT part of the lookup — see the module note.
  */
 export async function openOrResumeRun(
   identity: RunIdentity
 ): Promise<OpenedRun> {
   return runWithTenantContext({ businessId: identity.businessId }, async () => {
-    const where = {
-      businessId_contentHash_mappingHash_decisionsHash: {
-        businessId: identity.businessId,
-        contentHash: identity.contentHash,
-        mappingHash: identity.mappingHash,
-        decisionsHash: identity.decisionsHash,
-      },
-    };
+    const retryKey = retryKeyOf(identity);
+    const where = { retryKey };
 
     try {
       const run = await withTenantTransaction((tx) =>
@@ -86,6 +120,7 @@ export async function openOrResumeRun(
             contentHash: identity.contentHash,
             mappingHash: identity.mappingHash,
             decisionsHash: identity.decisionsHash,
+            retryKey,
             sheetName: identity.sheetName,
             totalRows: identity.totalRows,
           },
@@ -325,23 +360,11 @@ export async function loadFailedRunRows(
  * allowed to create.
  */
 export async function findExistingRun(
-  identity: Pick<
-    RunIdentity,
-    "businessId" | "contentHash" | "mappingHash" | "decisionsHash"
-  >
+  identity: Pick<RunIdentity, "businessId" | "contentHash" | "mappingHash">
 ): Promise<OpenedRun | null> {
   return runWithTenantContext({ businessId: identity.businessId }, async () => {
     const run = await withTenantTransaction((tx) =>
-      tx.importRun.findUnique({
-        where: {
-          businessId_contentHash_mappingHash_decisionsHash: {
-            businessId: identity.businessId,
-            contentHash: identity.contentHash,
-            mappingHash: identity.mappingHash,
-            decisionsHash: identity.decisionsHash,
-          },
-        },
-      })
+      tx.importRun.findUnique({ where: { retryKey: retryKeyOf(identity) } })
     );
     return run ? { ...toOpened(run), created: false } : null;
   });

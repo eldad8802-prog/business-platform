@@ -199,15 +199,20 @@ export async function executeImport(
   // just created. A lost response would have left the owner unable to confirm
   // anything, told to re-run a check that now shows every row as a duplicate.
   //
-  // An existing run is proof that these exact decisions were already validated:
-  // the run's identity IS (file, mapping, decisions), and only a validated set
-  // is ever allowed to create one.
+  // An existing run is proof that this file was already executed under a
+  // validated decision set: only a validated set is ever allowed to create one.
+  //
+  // F-01 made the identity narrower still. It used to include `decisionsHash`,
+  // and that reopened the same wound one layer up: the decisions THEMSELVES are
+  // derived from the database, so after the first import the second one decides
+  // differently, the key stops matching, and a fresh run is opened for a file
+  // that has already been imported. The identity is now (business, file,
+  // mapping) — the three things a retry cannot change.
 
   const existing = await findExistingRun({
     businessId: input.businessId,
     contentHash,
     mappingHash,
-    decisionsHash,
   });
 
   if (existing && existing.status !== "EXECUTING") {

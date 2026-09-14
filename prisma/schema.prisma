@@ -3438,11 +3438,24 @@ model ImportRun {
   rows                      ImportRunRow[]
   historicalFiscalDocuments HistoricalFiscalDocument[]
 
-  /// THE idempotency key. The same file, mapped the same way, decided the same
-  /// way, is ONE run — a second execute finds this row instead of writing again.
+  /// THE retry identity: sha256 over businessId + contentHash + mappingHash.
+  ///
+  /// `decisionsHash` used to be part of this key and had to leave it. Decisions
+  /// are derived from the database — a row that collides defaults to SKIP, one
+  /// that does not defaults to CREATE — so the FIRST import changes what the
+  /// second one decides. The hash moved, a second run opened, and a row with no
+  /// business key was written twice. An idempotency key must never be computed
+  /// from state the operation itself mutates.
+  ///
+  /// Nullable because every run predating this column keeps NULL, and PostgreSQL
+  /// treats NULLs as distinct: the unique index builds on any existing data,
+  /// including whatever collisions F-01 already left, and needs no backfill.
+  /// Every run written from here on carries a key.
+  retryKey                  String?                    @unique
+
   /// It survives the 30-day row cleanup, so a completed import can never become
   /// silently replayable once its retry scaffolding is gone.
-  @@unique([businessId, contentHash, mappingHash, decisionsHash])
+  @@index([businessId, contentHash, mappingHash])
   @@index([businessId, status])
   @@index([businessId, startedAt])
 }

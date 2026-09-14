@@ -290,9 +290,16 @@ export async function executeDocumentImport(
   // decisions as "this file already exists" — about files it created itself —
   // and the run could never be finished.
   //
-  // An existing run is proof these exact decisions were already validated: the
-  // run's identity IS (business, batch bytes, mapping sentinel, decisions), and
-  // only a validated decision set is ever allowed to create one.
+  // An existing run is proof this batch was already executed under a validated
+  // decision set, and only a validated set is ever allowed to open one.
+  //
+  // F-01 took `decisionsHash` out of that identity, here for the same reason as
+  // in the tabular executor and with the sharpness the paragraph above already
+  // names: the decisions are derived from the world the run itself changes, so
+  // keeping them in the key meant a re-upload of the SAME batch opened a SECOND
+  // run — and the row markers that made the first one safe belong to the first
+  // run's id, so they no longer applied. The identity is now (business, batch
+  // bytes, mapping sentinel): the three things a retry cannot change.
 
   const contentHash = documentsBatchContentHash(contentHashes);
   const mappingHash = documentsMappingHash();
@@ -302,7 +309,6 @@ export async function executeDocumentImport(
     businessId: input.businessId,
     contentHash,
     mappingHash,
-    decisionsHash,
   });
 
   if (existing && existing.status !== "EXECUTING") {
