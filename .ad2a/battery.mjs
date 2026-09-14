@@ -593,10 +593,19 @@ async function main() {
     select: { intent: true, stage: true },
   });
 
-  // The fixtures are marked, so ANY surviving marker anywhere in the graph is a
-  // leak — and this catches a field nobody remembered to clear, not only the
-  // ones named above.
-  const leaked = JSON.stringify({ msgRows, convRows, suggRows, analysisRows }).includes(MARK);
+  // The fixtures write the marker ONLY into fields the erasure contract says must
+  // be cleared, and this sweep reads back EVERY scalar column of all four models
+  // — no `select`, so a column added next year is swept the day it exists. That
+  // is the difference between "the fields I remembered to check are clean" and
+  // "the skeleton contains no prohibited data", which is the property actually
+  // being claimed.
+  const fullRows = {
+    msg: await owner.message.findMany({ where: { businessId: A.biz.id } }),
+    conv: await owner.conversation.findMany({ where: { businessId: A.biz.id } }),
+    sugg: await owner.replySuggestion.findMany({ where: { businessId: A.biz.id } }),
+    analysis: await owner.messageAnalysis.findMany({ where: { message: { businessId: A.biz.id } } }),
+  };
+  const leaked = JSON.stringify(fullRows).includes(MARK);
 
   const p2a = ok(
     "the conversation skeleton survives — anonymise-in-place, not purge",
@@ -639,7 +648,7 @@ async function main() {
     JSON.stringify(convRows.map((c) => [c.customerId, c.leadId]))
   );
   const p2f = ok(
-    "NO fixture marker survives anywhere in the conversation graph",
+    "NO fixture marker survives in ANY column of the conversation graph",
     !leaked,
     "a marked value is still readable in one of the four models"
   );
