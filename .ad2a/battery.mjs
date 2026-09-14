@@ -690,20 +690,28 @@ async function main() {
   // operation that returns without raising and destroys nothing. Recorded
   // explicitly so a future reader cannot mistake "no exception" for "done".
   console.log("--- phase 7d: false-success ledger ---");
+  // This section existed to RECORD the defects, because their signature was
+  // silence: a destructive statement returned normally, changed nothing, and the
+  // deletion reported success on top of it. Both were hardcoded passes that
+  // narrated the breakage rather than measuring anything.
+  //
+  // With A and B closed that narration is no longer true, and a hardcoded pass
+  // asserting it would be a false statement printed in green. So the section now
+  // measures the property the defects violated: no destructive statement may
+  // report success while changing nothing.
   ok(
-    "stage 1 did NOT raise on the credential statements it failed to apply",
-    true,
-    "recorded: every credential UPDATE/DELETE returned normally"
-  );
-  ok(
-    "the conversation delete returned normally while the rows survived",
-    true,
-    `recorded: conversation.deleteMany returned, ${convAfter} row(s) remain`
+    "no destructive statement reported success while changing nothing",
+    credFindings.length === 0,
+    `${credFindings.length} statement(s) returned normally and proved nothing`
   );
   if (credFindings.length > 0) {
     console.log("  [false-success] destructive statements that proved nothing:");
     for (const f of credFindings) console.log(`      - ${f}`);
   }
+  // The conversation graph is no longer deleted at all, so the old silent-zero
+  // DELETE cannot recur on this path: there is no DELETE on it to be silent.
+  // What replaced it is measured above, in phase 7b.
+  console.log(`  [ledger] conversation graph anonymised in place — ${convAfter} skeleton row(s) retained`);
 
   // I-8A — fiscal history is RETAINED, and the deletion did not trip over it.
   //
