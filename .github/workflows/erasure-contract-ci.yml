@@ -1,0 +1,120 @@
+# ERASURE CONTRACT — does the code do what the erasure manifest promises?
+#
+# Deliberately its OWN workflow rather than a step inside the AD-2A battery job.
+# Two reasons. It needs no database, so bolting it onto a job that spends minutes
+# starting Postgres would make a two-second check take two minutes. And the AD-2A
+# workflow is being actively rewritten in another pull request; a new required check
+# should not have to wait behind that, or conflict with it.
+#
+# Mode: --baseline-check. The manifest and the adapter genuinely disagree on the tree
+# today — that is the finding this guard was built to surface — so the honest default
+# mode is red, and a red required check on every unrelated pull request gets switched
+# off within a week. The ratchet is the alternative to switching it off: it fails when
+# the contract breaks somewhere NEW, and it also fails when recorded debt quietly gets
+# fixed, so an improvement has to be written down rather than drifting in.
+#
+# Run `npm run verify:erasure-contract` with no flag to see the real, unfiltered state.
+
+name: erasure contract (manifest ↔ schema ↔ implementation)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Erasure contract — schema ↔ manifest ↔ adapter (ratchet)
+        run: npm run verify:erasure-contract -- --baseline-check
+
+      # Each proof breaks the contract in ONE specific way and requires the guard to
+      # notice. Without these the guard is a script that prints "PASS", and a script
+      # that prints PASS when it cannot parse its input prints PASS forever.
+      #
+      # Every mutation is confirmed to have applied before its result is believed, and
+      # the tree is checked byte-identical at the end of the job.
+      - name: negative proof — M1 manifest names a column that does not exist
+        run: |
+          F="lib/services/account/account-erasure-manifest.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/taxId: "null", notes: "null" \} \}/taxId: "null", notes: "null", fakeField: "null" } }/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a nonexistent column passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      # The one that matters most. `email` is a real column on User, Customer and Lead;
+      # BusinessProfile has `billingEmail`. A guard that searched field names globally
+      # would call this valid, and would then also have called `lead.email` valid.
+      - name: negative proof — M2 right column name, wrong model
+        run: |
+          F="lib/services/account/account-erasure-manifest.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/billingSignatureDataUrl: "null" \} \}/billingSignatureDataUrl: "null", email: "null" } }/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a wrong-model column passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — M3 the adapter stops keeping a declared promise
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/data: \{ name: "לקוח שנמחק", phone: null, email: null,/data: { name: "לקוח שנמחק", email: null,/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unkept promise passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — M4 the adapter erases something undeclared
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/data: \{ customerName: null, phone: null \},/data: { customerName: null, phone: null, sourceChannel: null },/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an undeclared mutation passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      # A relation field is not a stored value. Accepting one as proof that a column
+      # was erased would let `lead.business` stand in for `lead.email`.
+      - name: negative proof — M5 a relation offered where a column is required
+        run: |
+          F="lib/services/account/account-erasure-manifest.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/\{ model: "lead", fields: \{ name: "anonymized-name", phone: "null", email: "null" \} \}/{ model: "lead", fields: { name: "anonymized-name", phone: "null", email: "null", business: "null" } }/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a relation satisfied a column requirement"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      # Removing one disposition is the same shape as adding a column tomorrow and
+      # forgetting to say what happens to it.
+      - name: negative proof — M6 a covered column with no disposition
+        run: |
+          F="lib/services/account/erasure-dispositions.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    isActive: \{ disposition: "STRUCTURAL" \},\n//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unclassified covered column passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      - name: Confirm the tree is byte-identical after every mutation
+        run: git diff --exit-code
