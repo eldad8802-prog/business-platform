@@ -174,6 +174,9 @@ model Business {
   emailAttachmentImports        EmailAttachmentImport[]
   whatsappAttachmentImports     WhatsAppAttachmentImport[]
   emailConnections              EmailConnection[]
+  inboundEmailAddresses         InboundEmailAddress[]
+  inboundEmailMessages          InboundEmailMessage[]
+  inboundEmailAttachmentImports InboundEmailAttachmentImport[]
   documents                     FinancialDocument[]
   financialRecords              FinancialRecord[]
   financialEvents               FinancialEvent[]
@@ -1334,6 +1337,7 @@ model Document {
   business                  Business                   @relation(fields: [businessId], references: [id], onDelete: Cascade)
   emailImport               EmailAttachmentImport?
   whatsappImport            WhatsAppAttachmentImport?
+  inboundEmailImport        InboundEmailAttachmentImport?
   extractedData             ExtractedData?
   financialRecord           FinancialRecord?
   historicalFiscalDocuments HistoricalFiscalDocument[]
@@ -3693,4 +3697,252 @@ model AuthSessionSecret {
   session    AuthSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@unique([sessionId, secretHash])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INBOUND EMAIL DOCUMENT INGESTION — inert foundation.
+//
+// A supplier sends an invoice to the owner's own mailbox. The owner sets up
+// automatic forwarding to a Dubiz address, and the attachment becomes a
+// Document through the SAME pipeline as an upload. There is no mailbox here
+// and no OAuth: the existing Gmail integration is untouched and unrelated.
+//
+// NOTHING READS OR WRITES THESE TABLES YET. No route, no service consumer, no
+// UI. They exist so the pipeline that will use them has somewhere to land.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Lifecycle of one inbound address. Rotation is "create the new one, move the
+/// forwarding, revoke the old one" — which is why several may coexist.
+enum InboundEmailAddressStatus {
+  ACTIVE
+  REVOKED
+}
+
+/// What happened to one received message. RECEIVED is the only non-terminal
+/// state; everything else is a decision we can explain to the owner.
+enum InboundEmailMessageStatus {
+  RECEIVED
+  PROCESSED
+  QUARANTINED
+  REJECTED
+}
+
+/// Sender-authentication and content-scan verdicts, recorded as EVIDENCE and
+/// never as a gate.
+///
+/// The values mirror what the receiving provider reports so nothing is lost in
+/// translation. UNKNOWN exists because a verdict can be absent, and an absent
+/// verdict must not be silently recorded as a passing one.
+///
+/// READ THIS BEFORE WRITING ANY RULE ON THESE FIELDS: in a FORWARDING
+/// architecture an SPF failure is NORMAL. The forwarding server is not
+/// authorised to send for the supplier's domain, so SPF legitimately breaks on
+/// almost every message we will ever receive. DKIM usually survives. Treating
+/// a failure here as grounds for rejection would reject the product's main use
+/// case. These fields inform the human reviewer; they do not decide.
+enum InboundEmailAuthVerdict {
+  PASS
+  FAIL
+  GRAY
+  PROCESSING_FAILED
+  UNKNOWN
+}
+
+/// A routing capability that delivers mail to ONE business.
+///
+/// # The address is not a credential
+///
+/// Possessing it lets someone put a document in front of that business's
+/// review queue. It does not authenticate anybody, it grants no read access,
+/// and it can never reach another tenant. The whole design assumes it leaks
+/// eventually, which is why revocation and rotation are first-class here
+/// rather than bolted on later.
+///
+/// # Two representations of the address, for two different jobs
+///
+/// `tokenHash` ROUTES. A message arrives, we hash the envelope recipient, we
+/// find the tenant. That path never needs the plaintext and never has it.
+///
+/// The encrypted columns REDISPLAY. An owner has to be able to read their own
+/// address back — to configure a second mailbox, to re-check a typo, to hand it
+/// to a bookkeeper. Storing only a hash would answer "show me my address" with
+/// "rotate and reconfigure everything", which turns a routine question into a
+/// self-inflicted outage.
+///
+/// The two are independent: neither is derivable from the other without the
+/// key. `localPartPreview` stays as a cheap masked fragment so a list of
+/// addresses is readable, and so logs have something safe to print.
+model InboundEmailAddress {
+  id Int @id @default(autoincrement())
+
+  businessId Int
+
+  /// SHA-256 (hex, lowercase) of the normalised local part. Unique GLOBALLY,
+  /// not per tenant: an address resolves to exactly one business before any
+  /// tenant context exists, and a collision would be a routing ambiguity.
+  tokenHash String @unique
+
+  /// Masked fragment for display and for logs. Never sufficient to receive.
+  localPartPreview String
+
+  /// AES-256-GCM material for the recoverable local part. All three are
+  /// required to decrypt, and the AAD binds them to `businessId:tokenHash`, so
+  /// a ciphertext moved to another row fails authentication rather than
+  /// decrypting into somebody else's address. See `inbound-address-crypto.ts`
+  /// for why this uses its own key and not any existing one.
+  localPartEncrypted String
+  localPartIv        String
+  localPartTag       String
+
+  /// Key version label, so a future key rolls forward per row without a
+  /// format change.
+  encryptionKeyId String
+
+  /// Owner's own name for it. Display only.
+  label String?
+
+  status InboundEmailAddressStatus @default(ACTIVE)
+
+  /// Set when the first message actually arrives, which is the only honest
+  /// proof that forwarding was configured correctly.
+  verifiedAt DateTime?
+
+  revokedAt      DateTime?
+  lastReceivedAt DateTime?
+
+  createdAt       DateTime @default(now())
+  createdByUserId Int?
+
+  business Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  messages InboundEmailMessage[]
+
+  /// Composite so a child row cannot reference an address across tenants.
+  @@unique([businessId, id])
+  @@index([businessId, status])
+}
+
+/// One received message, reduced to the minimum worth keeping.
+///
+/// # What is deliberately absent
+///
+/// No body, no full header set, no other recipients, no raw MIME. Dubiz is not
+/// becoming a mailbox; the product of this pipeline is the DOCUMENT. The raw
+/// message lives in object storage for as long as processing needs it and is
+/// then deleted — `rawObjectKey` is nulled at that point, which is what makes
+/// deletion observable rather than assumed.
+model InboundEmailMessage {
+  id Int @id @default(autoincrement())
+
+  businessId Int
+  addressId  Int
+
+  /// The provider's message identifier. With the unique below it is what makes
+  /// redelivery — which an at-least-once queue guarantees will happen — a
+  /// no-op instead of a duplicate document.
+  providerMessageId String
+
+  status InboundEmailMessageStatus @default(RECEIVED)
+
+  /// Metadata kept ONLY for the reviewer and for support. `fromEmail` is
+  /// provenance, never identity: it is trivially forged.
+  fromEmail  String?
+  subject    String?
+  receivedAt DateTime?
+
+  spfVerdict   InboundEmailAuthVerdict @default(UNKNOWN)
+  dkimVerdict  InboundEmailAuthVerdict @default(UNKNOWN)
+  dmarcVerdict InboundEmailAuthVerdict @default(UNKNOWN)
+  spamVerdict  InboundEmailAuthVerdict @default(UNKNOWN)
+  virusVerdict InboundEmailAuthVerdict @default(UNKNOWN)
+
+  attachmentCount Int @default(0)
+  acceptedCount   Int @default(0)
+
+  /// Why this message produced no document, in words a human can act on.
+  rejectionReason String?
+
+  /// Object-storage key of the raw MIME while it is still needed. NULL means
+  /// "no longer retained", which is the normal end state.
+  rawObjectKey String?
+  rawDeletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business    Business                       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  address     InboundEmailAddress            @relation(fields: [businessId, addressId], references: [businessId, id], onDelete: Cascade)
+  attachments InboundEmailAttachmentImport[]
+
+  @@unique([businessId, providerMessageId])
+  @@unique([businessId, id])
+  @@index([businessId, createdAt])
+  @@index([status, createdAt])
+}
+
+/// Per-attachment ledger: the record of one file's journey into Documents.
+///
+/// # Why this is not `EmailAttachmentImport`
+///
+/// That model exists and has almost this shape, but it is bound to
+/// `EmailConnection` — the Gmail OAuth integration, which is frozen. Hanging a
+/// second, unrelated intake path off it would couple this work to the very
+/// code we were told not to touch, and would make a Gmail disconnect delete
+/// inbound-email history through the cascade.
+///
+/// # What it buys
+///
+/// A DB-level idempotency boundary per file, and the link back to the Document
+/// that was actually created. `ingestDocument` already refuses duplicate
+/// content; this makes the refusal recordable and explainable to the owner.
+model InboundEmailAttachmentImport {
+  id Int @id @default(autoincrement())
+
+  businessId Int
+  messageId  Int
+
+  /// Filename as declared by the sender. Display and triage only — stored
+  /// object names are derived from the verified container, never from this.
+  filename  String?
+  mimeType  String
+  sizeBytes Int?
+
+  /// SHA-256 (hex, lowercase) of the file bytes. The same identity Documents
+  /// already uses, so the two agree by construction.
+  contentHashSha256 String
+
+  status EmailAttachmentImportStatus
+  error  String?
+
+  /// # Why this reference is NOT the tenant-scoped composite
+  ///
+  /// The message and attachment links above use `[businessId, id]`, because a
+  /// composite reference makes crossing a tenant structurally impossible. The
+  /// obvious move is to do the same to Document. It was done that way first,
+  /// and it broke four unrelated CI batteries.
+  ///
+  /// `Document_businessId_id_key` is an index the I-8A battery DROPS on purpose:
+  /// it rewinds the database to the pre-I-8A state, runs that migration, and
+  /// asserts the migration re-created exactly that index. A foreign key from
+  /// here depending on the same index makes the drop fail with 2BP01, so a
+  /// later feature would silently break an earlier feature's proof.
+  ///
+  /// So this matches what both existing attachment ledgers already do —
+  /// `EmailAttachmentImport` and `WhatsAppAttachmentImport` each reference
+  /// `Document(id)` plainly. The tenant boundary here is carried by this row's
+  /// own `businessId` under row-level security, plus a write path that only
+  /// ever attaches a Document it just created inside the tenant context. That
+  /// is the same guarantee the other two ledgers have relied on since they
+  /// were written.
+  documentId Int? @unique
+
+  createdAt DateTime @default(now())
+
+  business Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  message  InboundEmailMessage @relation(fields: [businessId, messageId], references: [businessId, id], onDelete: Cascade)
+  document Document?           @relation(fields: [documentId], references: [id])
+
+  /// Same-content-twice is a skip, not an error, and the database says so.
+  @@unique([businessId, contentHashSha256])
+  @@index([businessId, messageId])
+  @@index([documentId])
 }
