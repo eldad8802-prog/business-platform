@@ -49,6 +49,16 @@ const OAUTH_VIA_PARENT =
   `AND p."businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)`;
 
 /**
+ * `MessageAnalysis` owns through `Message` for the same reason and is reproduced
+ * the same way. It matters here because the erasure reaches it with a Prisma
+ * RELATION filter, and a simplified tenant predicate would let that statement
+ * succeed in the lab for a reason Production does not share.
+ */
+const ANALYSIS_VIA_MESSAGE =
+  `EXISTS (SELECT 1 FROM "Message" p WHERE p."id" = "MessageAnalysis"."messageId" ` +
+  `AND p."businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)`;
+
+/**
  * @typedef {{name: string, command: 'SELECT'|'INSERT'|'UPDATE'|'ALL', using?: string, check?: string}} PolicySpec
  * @typedef {{table: string, policies: PolicySpec[], migration: string, why: string}} TableSpec
  */
@@ -168,8 +178,19 @@ export const PRODUCTION_RLS_CONTRACT = [
   {
     table: "ReplySuggestion",
     migration: "20260826150000_d2_p7_w4b_whatsapp_tenant_rls",
-    why: "cascades from Conversation",
+    why: "holds generated reply text, which the erasure anonymises in place",
     policies: [{ name: "p7w4b_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
+  {
+    table: "MessageAnalysis",
+    migration: "20260826150000_d2_p7_w4b_whatsapp_tenant_rls",
+    why:
+      "derived analysis of message content. It carries NO businessId — ownership " +
+      "is reached through Message — so the erasure can only touch it if the lab " +
+      "reproduces that EXISTS predicate instead of a simpler tenant one.",
+    policies: [
+      { name: "p7w4b_tenant", command: "ALL", using: ANALYSIS_VIA_MESSAGE, check: ANALYSIS_VIA_MESSAGE },
+    ],
   },
   {
     table: "CrmNote",

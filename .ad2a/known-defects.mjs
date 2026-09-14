@@ -42,12 +42,21 @@
  */
 export const DEFECT_A_CREDENTIALS = [];
 
-/** `Conversation` has no DELETE policy, so `deleteMany` matches zero rows and never raises. */
-export const DEFECT_B_CONVERSATION = [
-  "A's conversations are gone",
-  "A's messages went with them (cascade)",
-  "no message body survives the erasure",
-];
+/**
+ * CLOSED, and by a change of property rather than a change of privilege.
+ *
+ * The three entries here asserted that `Conversation` rows were DELETED. They
+ * failed because the table has no DELETE policy, deliberately, and the owner's
+ * decision was anonymise-in-place rather than granting one. So the assertions
+ * were not removed — they were REPLACED by stronger ones that read every
+ * surviving row back and require that no raw content, no derived content, no
+ * provider linkage and no participant linkage is left anywhere in the graph,
+ * plus a marker sweep that catches a field nobody remembered to clear.
+ *
+ * A delete-count could have passed while derived analysis or a generated reply
+ * survived elsewhere. These cannot.
+ */
+export const DEFECT_B_CONVERSATION = [];
 
 /**
  * CLOSED. Stage 3 writes its evidence under tenant context and BEFORE the

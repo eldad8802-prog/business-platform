@@ -153,7 +153,7 @@ async function main() {
   );
   // LAB-ONLY privileges (see the header): enough to exercise the real code path.
   await owner.$executeRawUnsafe(
-    `GRANT SELECT, INSERT, UPDATE, DELETE ON "Conversation","Message","ReplySuggestion","Customer","CrmNote","CrmAttachment","BusinessProfile","User","Business","Lead","POSApiKey","OAuthToken","EmailConnection","WhatsAppConnection","BusinessPaymentConnection","BillingAuthorityConnection","LearningEvent","Appointment" TO ${RT_ROLE}`
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON "Conversation","Message","MessageAnalysis","ReplySuggestion","Customer","CrmNote","CrmAttachment","BusinessProfile","User","Business","Lead","POSApiKey","OAuthToken","EmailConnection","WhatsAppConnection","BusinessPaymentConnection","BillingAuthorityConnection","LearningEvent","Appointment" TO ${RT_ROLE}`
   );
   // I-8A: Production hands the runtime SELECT and INSERT here and revokes the
   // rest, so the lab does the same. Giving this table the blanket grant above
@@ -247,14 +247,58 @@ async function main() {
     const conv = await owner.conversation.create({
       data: { businessId: b.id, customerId: c.id, channel: "WHATSAPP" },
     });
-    await owner.message.create({
+    // A message carrying EVERY class the erasure contract names, not just a
+    // body: the words, the provider's own id for them, the client idempotency
+    // key, the provider error text (which routinely quotes the number or the
+    // message), and the derived labels. Anything left readable here is a hole.
+    const msg = await owner.message.create({
       data: {
         businessId: b.id,
         conversationId: conv.id,
+        customerId: c.id,
         channel: "WHATSAPP",
         direction: "INBOUND",
         senderType: "CUSTOMER",
         contentText: `${MARK}secret`,
+        languageCode: "he",
+        intentLabel: `${MARK}intent`,
+        sentimentLabel: `${MARK}sentiment`,
+        objectionLabel: `${MARK}objection`,
+        stageLabel: `${MARK}stage`,
+        providerMessageId: `${MARK}wamid-${tag}`,
+        clientRequestId: `${MARK}creq-${tag}`,
+        sendErrorCode: `${MARK}errcode`,
+        sendErrorMessage: `${MARK}errmsg`,
+      },
+    });
+    // Derived analysis. Owns through Message, no businessId of its own.
+    await owner.messageAnalysis.create({
+      data: { messageId: msg.id, intent: `${MARK}derived-intent`, stage: `${MARK}derived-stage` },
+    });
+    // A generated reply — content the product wrote ABOUT the exchange.
+    await owner.replySuggestion.create({
+      data: {
+        businessId: b.id,
+        conversationId: conv.id,
+        messageId: msg.id,
+        suggestionType: "reply",
+        text: `${MARK}suggestion`,
+        toneLabel: `${MARK}tone`,
+        strategyLabel: `${MARK}strategy`,
+      },
+    });
+    // Conversation-level snapshots that summarise what was said, plus the two
+    // Json blobs and the participant pointers.
+    await owner.conversation.update({
+      where: { id: conv.id },
+      data: {
+        intentType: `${MARK}conv-intent`,
+        sentimentSnapshot: `${MARK}conv-sentiment`,
+        outcomeReason: `${MARK}conv-outcome`,
+        lostReason: `${MARK}conv-lost`,
+        pendingFollowUp: { note: `${MARK}pending-followup` },
+        pendingAppointmentRequest: { note: `${MARK}pending-appt` },
+        leadId: null,
       },
     });
     await owner.crmNote.create({
@@ -514,17 +558,95 @@ async function main() {
   const secretsAfter = await owner.message.count({
     where: { businessId: A.biz.id, contentText: { contains: `${MARK}secret` } },
   });
-  const p2a = ok("A's conversations are gone", convAfter === 0, `surviving: ${convAfter}`);
-  const p2b = ok("A's messages went with them (cascade)", msgAfter === 0, `surviving: ${msgAfter}`);
-  const p2c = ok(
-    "no message body survives the erasure",
-    secretsAfter === 0,
-    `message bodies still readable: ${secretsAfter}`
-  );
-  const PHASE2 = convAfter === 0 && msgAfter === 0 && secretsAfter === 0;
+  // ── the ERASURE CONTRACT for the conversation graph ──────────────────────
+  //
+  // The product decision is anonymise-in-place, so "the rows are gone" is no
+  // longer the property being asserted — and these checks are deliberately
+  // STRONGER than the delete-count they replace. A delete-count could pass while
+  // derived analysis, a generated reply or a provider message id survived
+  // somewhere else in the graph. These read every surviving row back and require
+  // that nothing readable, derived or identifying is left in any of them.
+  //
+  // The skeleton is allowed to remain. Nothing in it may reconstruct the
+  // exchange or reconnect it to a person.
+  const msgRows = await owner.message.findMany({
+    where: { businessId: A.biz.id },
+    select: {
+      contentText: true, languageCode: true, intentLabel: true, sentimentLabel: true,
+      objectionLabel: true, stageLabel: true, providerMessageId: true,
+      clientRequestId: true, sendErrorCode: true, sendErrorMessage: true, customerId: true,
+    },
+  });
+  const convRows = await owner.conversation.findMany({
+    where: { businessId: A.biz.id },
+    select: {
+      intentType: true, sentimentSnapshot: true, outcomeReason: true, lostReason: true,
+      pendingFollowUp: true, pendingAppointmentRequest: true, customerId: true, leadId: true,
+    },
+  });
+  const suggRows = await owner.replySuggestion.findMany({
+    where: { businessId: A.biz.id },
+    select: { text: true, toneLabel: true, strategyLabel: true },
+  });
+  const analysisRows = await owner.messageAnalysis.findMany({
+    where: { message: { businessId: A.biz.id } },
+    select: { intent: true, stage: true },
+  });
 
-  // What DID work under a proven tenant context, so the failure above is attributable
-  // to the missing DELETE policy rather than to stage 2 never running.
+  // The fixtures are marked, so ANY surviving marker anywhere in the graph is a
+  // leak — and this catches a field nobody remembered to clear, not only the
+  // ones named above.
+  const leaked = JSON.stringify({ msgRows, convRows, suggRows, analysisRows }).includes(MARK);
+
+  const p2a = ok(
+    "the conversation skeleton survives — anonymise-in-place, not purge",
+    convAfter > 0 && msgAfter > 0,
+    `conversations=${convAfter} messages=${msgAfter}`
+  );
+  const p2b = ok(
+    "NO raw message content remains",
+    secretsAfter === 0 && msgRows.every((m) => m.contentText === null),
+    `bodies still readable: ${secretsAfter}`
+  );
+  const p2c = ok(
+    "NO derived conversation content remains",
+    analysisRows.every((a) => a.intent === "" && a.stage === "") &&
+      suggRows.every((s) => s.text === "" && s.toneLabel === null && s.strategyLabel === null) &&
+      msgRows.every((m) =>
+        m.intentLabel === null && m.sentimentLabel === null &&
+        m.objectionLabel === null && m.stageLabel === null && m.languageCode === null
+      ) &&
+      convRows.every((c) =>
+        c.intentType === null && c.sentimentSnapshot === null &&
+        c.outcomeReason === null && c.lostReason === null &&
+        c.pendingFollowUp === null && c.pendingAppointmentRequest === null
+      ),
+    `analysis=${JSON.stringify(analysisRows)} suggestions=${JSON.stringify(suggRows)}`
+  );
+  const p2d = ok(
+    "NO provider linkage remains that reconnects the skeleton to the live thread",
+    msgRows.every(
+      (m) =>
+        m.providerMessageId === null && m.clientRequestId === null &&
+        m.sendErrorCode === null && m.sendErrorMessage === null
+    ),
+    JSON.stringify(msgRows.map((m) => m.providerMessageId))
+  );
+  const p2e = ok(
+    "NO participant linkage remains on the skeleton",
+    msgRows.every((m) => m.customerId === null) &&
+      convRows.every((c) => c.customerId === null && c.leadId === null),
+    JSON.stringify(convRows.map((c) => [c.customerId, c.leadId]))
+  );
+  const p2f = ok(
+    "NO fixture marker survives anywhere in the conversation graph",
+    !leaked,
+    "a marked value is still readable in one of the four models"
+  );
+  const PHASE2 = p2a && p2b && p2c && p2d && p2e && p2f;
+
+  // What else stage 2 does, so a failure above is attributable to the graph
+  // anonymisation specifically rather than to stage 2 never running at all.
   ok("A's CRM notes are gone (FOR ALL policy covers DELETE)",
     (await owner.crmNote.count({ where: { businessId: A.biz.id } })) === 0);
   const custA = await owner.customer.findFirst({ where: { businessId: A.biz.id } });
@@ -622,6 +744,53 @@ async function main() {
   ok("B's conversations survive A's deletion",
     (await owner.conversation.count({ where: { businessId: B.biz.id } })) === 1);
   ok("B's messages survive", (await owner.message.count({ where: { businessId: B.biz.id } })) === 1);
+
+  // Counting B's rows is not enough now that A's are anonymised IN PLACE rather
+  // than deleted: an over-broad UPDATE would leave B's row count untouched while
+  // blanking everything in it. So B's content, derived analysis, generated reply
+  // and provider linkage are all read back and required to be exactly as seeded.
+  const bMsg = await owner.message.findFirst({
+    where: { businessId: B.biz.id },
+    select: {
+      contentText: true, providerMessageId: true, intentLabel: true,
+      languageCode: true, customerId: true,
+    },
+  });
+  const bConv = await owner.conversation.findFirst({
+    where: { businessId: B.biz.id },
+    select: { intentType: true, sentimentSnapshot: true, customerId: true },
+  });
+  const bSugg = await owner.replySuggestion.findFirst({
+    where: { businessId: B.biz.id },
+    select: { text: true, toneLabel: true },
+  });
+  const bAnalysis = await owner.messageAnalysis.findFirst({
+    where: { message: { businessId: B.biz.id } },
+    select: { intent: true, stage: true },
+  });
+  ok(
+    "B's message CONTENT, labels and provider id are untouched",
+    bMsg?.contentText === `${MARK}secret` &&
+      bMsg?.providerMessageId === `${MARK}wamid-B` &&
+      bMsg?.intentLabel === `${MARK}intent` &&
+      bMsg?.languageCode === "he" &&
+      bMsg?.customerId !== null,
+    JSON.stringify(bMsg)
+  );
+  ok(
+    "B's derived analysis and generated reply are untouched",
+    bAnalysis?.intent === `${MARK}derived-intent` &&
+      bSugg?.text === `${MARK}suggestion` &&
+      bSugg?.toneLabel === `${MARK}tone`,
+    JSON.stringify({ bAnalysis, bSugg })
+  );
+  ok(
+    "B's conversation snapshots and participant linkage are untouched",
+    bConv?.intentType === `${MARK}conv-intent` &&
+      bConv?.sentimentSnapshot === `${MARK}conv-sentiment` &&
+      bConv?.customerId !== null,
+    JSON.stringify(bConv)
+  );
   const custB = await owner.customer.findFirst({ where: { businessId: B.biz.id } });
   ok("B's customer is untouched", custB.name === `${MARK}cust-B`);
   ok(
@@ -661,6 +830,44 @@ async function main() {
     `returned=${again ? again.status : "threw"} ${againErr ? String(againErr.message).split("\n")[0] : ""}`);
   console.log(
     `[retry] a resumed deletion ${againErr ? "FAILS THE SAME WAY — the account cannot be finished" : "converged"}`
+  );
+
+  // Anonymise-in-place is only safe if it is CONVERGENT: every value it writes is
+  // a constant, so a second execution must be a no-op rather than a second pass
+  // that eats further into the skeleton or lets any content back. A delete got
+  // this property for free; an in-place rewrite has to prove it.
+  const convRerun = await owner.conversation.count({ where: { businessId: A.biz.id } });
+  const msgRerun = await owner.message.count({ where: { businessId: A.biz.id } });
+  ok(
+    "a second deletion does not damage the skeleton further",
+    convRerun === convAfter && msgRerun === msgAfter,
+    `conversations ${convAfter}->${convRerun} messages ${msgAfter}->${msgRerun}`
+  );
+  const rerunRows = {
+    msg: await owner.message.findMany({
+      where: { businessId: A.biz.id },
+      select: { contentText: true, providerMessageId: true, intentLabel: true, customerId: true },
+    }),
+    conv: await owner.conversation.findMany({
+      where: { businessId: A.biz.id },
+      select: { intentType: true, sentimentSnapshot: true, customerId: true, leadId: true },
+    }),
+    sugg: await owner.replySuggestion.findMany({
+      where: { businessId: A.biz.id },
+      select: { text: true, toneLabel: true },
+    }),
+    analysis: await owner.messageAnalysis.findMany({
+      where: { message: { businessId: A.biz.id } },
+      select: { intent: true, stage: true },
+    }),
+  };
+  ok(
+    "a second deletion leaves the graph anonymised — nothing is resurrected",
+    !JSON.stringify(rerunRows).includes(MARK) &&
+      rerunRows.msg.every((m) => m.contentText === null && m.providerMessageId === null) &&
+      rerunRows.conv.every((c) => c.customerId === null && c.leadId === null) &&
+      rerunRows.sugg.every((s) => s.text === "") &&
+      rerunRows.analysis.every((a) => a.intent === "" && a.stage === "")
   );
 
   // ── Phase 9: the TOCTOU race ──────────────────────────────────────────────
@@ -739,6 +946,26 @@ async function main() {
     `deletedAt=${eRow.deletedAt}`
   );
   ok("the quarantine still stands after the failed finalize (resumable)", eRow.deletionRequestedAt !== null);
+  // Stage 2 commits in its own tenant transaction, so a stage-3 failure does not
+  // roll the erasure back. That is the direction that must hold: a deletion that
+  // fails LATE has still destroyed the content, and the retry has nothing left to
+  // undo. The opposite — content reappearing because the run aborted — would make
+  // every failed deletion a silent retention.
+  const eMsgs = await owner.message.findMany({
+    where: { businessId: E.biz.id },
+    select: { contentText: true, providerMessageId: true, customerId: true },
+  });
+  const eSugg = await owner.replySuggestion.findMany({
+    where: { businessId: E.biz.id },
+    select: { text: true },
+  });
+  ok(
+    "a failure AFTER anonymisation does not bring the content back",
+    eMsgs.length > 0 &&
+      eMsgs.every((m) => m.contentText === null && m.providerMessageId === null && m.customerId === null) &&
+      eSugg.every((s) => s.text === ""),
+    `messages=${eMsgs.length}`
+  );
   await owner.$executeRawUnsafe(`GRANT INSERT ON "LearningEvent" TO ${RT_ROLE}`);
   // J-0. This phase used to prove that restoring the missing PRIVILEGE lets the
   // deletion resume. Under the Production contract it does not, and the reason is

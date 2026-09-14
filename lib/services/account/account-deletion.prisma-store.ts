@@ -32,7 +32,10 @@
  * "" (ciphertext gone). Provider-side revoke is a separate best-effort concern
  * (documented in the design doc); here we guarantee the at-rest secret is destroyed.
  */
-import type { Prisma } from "@prisma/client";
+// `Prisma` is a VALUE import, not a type-only one: clearing a nullable Json
+// column needs `Prisma.DbNull`, because a plain `null` there means "JSON null"
+// rather than "no value".
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
 import { runTenantJob } from "@/lib/tenant/job";
@@ -264,10 +267,90 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
             data: { customerName: null, phone: null },
           });
 
-          // B.2 delete pure communications PII (Conversation cascades Message/analysis).
+          // B.2 delete pure communications PII with no fiscal linkage.
           await tx.crmAttachment.deleteMany({ where: { businessId } });
           await tx.crmNote.deleteMany({ where: { businessId } });
-          await tx.conversation.deleteMany({ where: { businessId } });
+
+          // ── B.3 — the conversation graph, ANONYMISED IN PLACE ──────────────
+          //
+          // This used to be `conversation.deleteMany`, and it deleted nothing.
+          // The five pilot tables carry SELECT/INSERT/UPDATE policies and NO
+          // DELETE policy, deliberately, so under FORCE RLS the delete matched
+          // zero rows, raised nothing, and the cascade to Message never fired.
+          // Every customer message body survived an erasure that reported
+          // removing them.
+          //
+          // The owner's decision is anonymise-in-place rather than purge, so no
+          // DELETE policy, no grant and no new identity are introduced. The
+          // guarantee changes from "the rows are gone" to "nothing readable,
+          // derived or identifying is left in them", which the UPDATE policies
+          // these tables already carry are enough to deliver.
+          //
+          // DEEPEST FIRST, so a failure part-way through can never leave a child
+          // holding content whose parent already claims to be clean.
+          //
+          // Every statement is a state-convergent overwrite to a constant, which
+          // is what makes the whole thing idempotent: running it twice leaves
+          // exactly the same safe state, and a retry after a partial pass simply
+          // finishes the job.
+
+          // Derived analysis. No businessId of its own — its policy reaches it
+          // through Message, so the relation filter is also what satisfies RLS.
+          // Both columns are NOT NULL, so they are blanked rather than nulled.
+          await tx.messageAnalysis.updateMany({
+            where: { message: { businessId } },
+            data: { intent: "", stage: "" },
+          });
+
+          // Generated replies. `text` is the model's own content and is NOT
+          // NULL; the two labels describe how it was written and would survive
+          // as a description of what was said.
+          await tx.replySuggestion.updateMany({
+            where: { businessId },
+            data: { text: "", toneLabel: null, strategyLabel: null },
+          });
+
+          // The messages themselves: the words, the language they were in, every
+          // derived label about them, the provider's own id for the message —
+          // which is the value that could reconnect this skeleton to the live
+          // thread on WhatsApp or Gmail — the client idempotency key, and the
+          // provider error text, which routinely quotes the number or the body.
+          await tx.message.updateMany({
+            where: { businessId },
+            data: {
+              contentText: null,
+              languageCode: null,
+              intentLabel: null,
+              sentimentLabel: null,
+              objectionLabel: null,
+              stageLabel: null,
+              providerMessageId: null,
+              clientRequestId: null,
+              sendErrorCode: null,
+              sendErrorMessage: null,
+              customerId: null,
+            },
+          });
+
+          // The conversation row: free-text snapshots that summarise what was
+          // said, the two Json blobs that carry pending follow-up and
+          // appointment detail, and the participant pointers. `leadId` matters
+          // most — a Lead still holds contact fields this erasure does not
+          // scrub, so leaving the pointer would reconnect the skeleton to a
+          // person through a table B does not own.
+          await tx.conversation.updateMany({
+            where: { businessId },
+            data: {
+              intentType: null,
+              sentimentSnapshot: null,
+              outcomeReason: null,
+              lostReason: null,
+              pendingFollowUp: Prisma.DbNull,
+              pendingAppointmentRequest: Prisma.DbNull,
+              customerId: null,
+              leadId: null,
+            },
+          });
         }),
       { quarantinePolicy: "erasure" }
     );
