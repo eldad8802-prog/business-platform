@@ -109,7 +109,8 @@ jobs:
         run: |
           F="lib/services/account/erasure-dispositions.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/    isActive: \{ disposition: "STRUCTURAL" \},\n//' "$F"
+          # \r?\n so the proof works from a CRLF checkout as well as a LF one.
+          perl -0pi -e 's/    isActive: \{ disposition: "STRUCTURAL" \},\r?\n//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unclassified covered column passed"; exit 1
