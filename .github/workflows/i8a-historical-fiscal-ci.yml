@@ -24,7 +24,17 @@ on:
       - "prisma/schema.prisma"
       - "prisma/migrations/20260907120000_i8a_historical_fiscal_documents/**"
       - "lib/data-transfer/historical/**"
-      - "lib/services/account/account-erasure-manifest.ts"
+      # The route that reaches the writer. It is a pinned consumer of the model,
+      # so this job's own verifier can fail because of it — found by the
+      # coverage check at the end of that verifier, not by eye.
+      - "app/api/data-transfer/import/historical/**"
+      # The whole erasure surface, not one file inside it. This used to name
+      # account-erasure-manifest.ts alone, and that is precisely how the guard
+      # came to be bypassed: erasure-model-coverage.ts became a second consumer
+      # of HistoricalFiscalDocument and this workflow never ran on the PR that
+      # added it. A single-file allowlist protects the file it names, not the
+      # contract it was meant to protect.
+      - "lib/services/account/**"
   workflow_dispatch:
 
 permissions:

@@ -431,6 +431,14 @@ const ALLOWED_TO_NAME_IT = [
   "lib/services/account/account-erasure-manifest.ts",
   // and the test that holds that contract to it
   "lib/services/account/account-deletion.test.ts",
+  // the per-model coverage gate, which makes every Prisma model state its own
+  // erasure disposition. Same KIND of entry as the manifest above: it names the
+  // model in order to DECLARE it — RETAINED_BY_DESIGN, on a legal/fiscal basis —
+  // and says in the same breath that the email, phone and address snapshots are
+  // NOT part of that basis and their retention is unproven. It holds no Prisma
+  // client, no query and no row, so none of the reader or writer rules below
+  // apply to it.
+  "lib/services/account/erasure-model-coverage.ts",
   // I-8B.1: the import field contract. Its whole job is to say which model
   // field each owner-facing column becomes, so it names the model by
   // necessity — and it holds no query, no client and no row.
@@ -788,6 +796,70 @@ check("the uniform file still draws from BillingDocument alone", () => {
     [],
     "no billing surface may reference historical records"
   );
+});
+
+/**
+ * THE GUARD THAT GUARDS THE GUARD.
+ *
+ * Everything above only protects the contract if CI actually RUNS it. Both
+ * workflows that do so are gated on `paths:`, and that is how this verifier came
+ * to be bypassed: `erasure-model-coverage.ts` became a consumer of the model,
+ * neither workflow listed a path covering it, so the PR that added it went green
+ * and main shipped a broken contract. The breakage only surfaced later, on an
+ * unrelated PR that happened to touch `prisma/schema.prisma`.
+ *
+ * Fixing the two path lists by hand closes that instance. This closes the CLASS:
+ * every file the contract names must be covered by the path filters of every
+ * workflow that runs this verifier. A future consumer added in an uncovered
+ * directory now fails HERE, in the contract, rather than silently months later.
+ *
+ * Deliberately not a YAML parser. The patterns in use are literal paths and
+ * `dir/**` prefixes, so matching them takes a few lines and adds no dependency.
+ */
+const WORKFLOWS_RUNNING_THIS_VERIFIER = [
+  ".github/workflows/i8a-historical-fiscal-ci.yml",
+  ".github/workflows/i8b6-historical-records-ci.yml",
+];
+
+/** The `paths:` entries of a workflow's `pull_request:` trigger. */
+function pullRequestPaths(workflowSource: string): string[] {
+  const lines = workflowSource.split("\n");
+  const start = lines.findIndex((l) => /^\s{4}paths:\s*$/.test(l));
+  if (start === -1) return [];
+  const out: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    const entry = line.match(/^\s{6}-\s*"([^"]+)"\s*$/);
+    if (entry) {
+      out.push(entry[1]!);
+      continue;
+    }
+    if (/^\s*#/.test(line) || line.trim() === "") continue;
+    break; // the list ended
+  }
+  return out;
+}
+
+function covers(pattern: string, file: string): boolean {
+  if (pattern.endsWith("/**")) return file.startsWith(pattern.slice(0, -2));
+  return pattern === file;
+}
+
+check("every workflow that runs this verifier covers every file it names", () => {
+  for (const workflow of WORKFLOWS_RUNNING_THIS_VERIFIER) {
+    const paths = pullRequestPaths(read(workflow));
+    assert.ok(
+      paths.length > 0,
+      `${workflow}: could not read its pull_request paths — the parser above must follow the file's shape`
+    );
+    const uncovered = ALLOWED_TO_NAME_IT.filter(
+      (file) => !paths.some((pattern) => covers(pattern, file))
+    );
+    assert.deepEqual(
+      uncovered,
+      [],
+      `${workflow} does not run when these consumers change, so the contract they are part of is unguarded there`
+    );
+  }
 });
 
 console.log(`\n  ${passed} checks passed\n`);
