@@ -438,7 +438,7 @@ const ALLOWED_TO_NAME_IT = [
   // NOT part of that basis and their retention is unproven. It holds no Prisma
   // client, no query and no row, so none of the reader or writer rules below
   // apply to it.
-  "lib/services/account/erasure-model-coverage.ts",
+  "scripts/ci/erasure/erasure-model-coverage.ts",
   // I-8B.1: the import field contract. Its whole job is to say which model
   // field each owner-facing column becomes, so it names the model by
   // necessity — and it holds no query, no client and no row.
