@@ -62,7 +62,6 @@ const cssFromTs = (p) => {
 
 const CRM_CSS = read("app/(shell)/customers/crm.css");
 const INV_PRIMITIVES_CSS = cssFromTs("components/inventory/inventory-primitives.css.ts");
-const INV_ITEMS_CSS = cssFromTs("components/inventory/inventory-items-list.css.ts");
 
 // Geometry-neutral stand-ins for the CRM/inventory custom properties. Only the
 // ones that can affect layout are given real values (weights, radii, spacing);
@@ -329,22 +328,24 @@ function crmCard(p) {
   </div>`;
 }
 
-/** The inventory items row: the seven-track grid. */
+/**
+ * The LIVE inventory list row. `/inventory/items` renders this shape from
+ * inventory-primitives, NOT `inventory-items-list-ui.tsx` — which has no
+ * importer at all. Pointing the fixture at the unwired component would have
+ * meant a green harness over a shipped screen that still overflowed.
+ */
 function invRow(p) {
-  return `<li><button type="button" class="inv-items-list__row" data-tone="${p.tone}" data-fixture="inv-${p.id}">
-    <span class="inv-items-list__thumb inv-items-list__thumb--ph">▣</span>
-    <span class="inv-items-list__main">
-      <span class="inv-items-list__name">${esc(p.name)}</span>
-      <span class="inv-items-list__meta">${esc(p.meta)}</span>
+  return `<a class="inv-row" href="#" data-fixture="inv-${p.id}">
+    <span class="inv-row__thumb" aria-hidden>▣</span>
+    <span class="inv-row__mid">
+      <span class="inv-row__nm" dir="auto">${esc(p.name)}</span>
+      <span class="inv-row__meta">${esc(p.meta)}</span>
     </span>
-    <span class="inv-items-list__bar"><div></div></span>
-    <span class="inv-items-list__price${p.price === "ללא מחיר" ? " inv-items-list__price--missing" : ""}">${esc(p.price)}</span>
-    <span class="inv-items-list__badge-cell"><span class="inv-status-badge inv-status-badge--${p.tone}">${
-      p.tone === "ok" ? "תקין" : p.tone === "low" ? "מלאי נמוך" : "מלאי קריטי"
-    }</span></span>
-    <span class="inv-trend inv-trend--${p.tone === "ok" ? "up" : "down"}" aria-hidden>↗</span>
-    <span class="inv-items-list__qty">${p.qty}</span>
-  </button></li>`;
+    <span class="inv-row__trail">
+      <span class="inv-row__pill">${esc(p.tone === "ok" ? "תקין" : "מלאי קריטי")}</span>
+      <span class="inv-row__qty">${p.qty}<small> יח׳</small></span>
+    </span>
+  </a>`;
 }
 
 /** The inventory order line — the other place the inline-span defect lived. */
@@ -363,7 +364,6 @@ function page() {
 <style>${THEME_STUB}</style>
 <style>${CRM_CSS}</style>
 <style>${INV_PRIMITIVES_CSS}</style>
-<style>${INV_ITEMS_CSS}</style>
 </head><body>
 <!-- Customers / Suppliers master pane. 380px is the real desktop master width. -->
 <section class="crm-scope" data-screen="customers" dir="rtl">
@@ -400,9 +400,9 @@ function page() {
   <div data-pane>${PEOPLE.map(crmCard).join("")}</div>
 </section>
 
-<section data-screen="inventory-items" data-inventory-items-list dir="rtl">
+<section data-screen="inventory-items" data-inventory-module dir="rtl">
   <div data-pane>
-    <div class="inv-items-list__panel"><ul class="inv-items-list__list">${PRODUCTS.map(invRow).join("")}</ul></div>
+    <div class="inv-rows">${PRODUCTS.map(invRow).join("")}</div>
   </div>
 </section>
 
@@ -433,7 +433,7 @@ function measure() {
   const TOL = 1.0; // sub-pixel rounding only
   const findings = [];
 
-  const cardOf = (el) => el.closest(".crm-row, .crm-item, .crm-id, .inv-items-list__row, .inv-oline");
+  const cardOf = (el) => el.closest(".crm-row, .crm-item, .crm-id, .inv-row, .inv-oline");
 
   /** The card's content box — border + padding excluded, which is where text must live. */
   function contentBox(el) {
@@ -457,9 +457,10 @@ function measure() {
     ".crm-item__title",
     ".crm-item__meta",
     ".crm-item__amount",
-    ".inv-items-list__name",
-    ".inv-items-list__meta",
-    ".inv-items-list__price",
+    ".inv-row__nm",
+    ".inv-row__meta",
+    ".inv-row__pill",
+    ".inv-row__qty",
     ".inv-oline__nm",
     ".inv-oline__sub",
   ].join(",");
@@ -487,7 +488,7 @@ function measure() {
   }
 
   // 2 — no card escapes its pane.
-  for (const card of document.querySelectorAll(".crm-row, .crm-item, .crm-id, .inv-items-list__row, .inv-oline")) {
+  for (const card of document.querySelectorAll(".crm-row, .crm-item, .crm-id, .inv-row, .inv-oline")) {
     const pane = card.closest("[data-pane]");
     if (!pane) continue;
     const r = card.getBoundingClientRect();
@@ -597,9 +598,11 @@ function measure() {
     }
   }
 
-  // 8 — information that must not be silently dropped.
+  // 8 — information that must not be silently dropped. The stock pill states
+  // health in words and the quantity is the number the owner came for; neither
+  // may be hidden at a narrow width, since colour alone is not a label.
   const hidden = [];
-  for (const sel of [".inv-items-list__price", ".inv-items-list__badge-cell"]) {
+  for (const sel of [".inv-row__pill", ".inv-row__qty"]) {
     for (const el of document.querySelectorAll(sel)) {
       if (getComputedStyle(el).display === "none") { hidden.push(sel); break; }
     }

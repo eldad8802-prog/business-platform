@@ -30,7 +30,6 @@ const read = (p: string) => readFileSync(path.join(ROOT, p), "utf8");
 
 const CRM_CSS = read("app/(shell)/customers/crm.css");
 const INV_PRIMITIVES = read("components/inventory/inventory-primitives.css.ts");
-const INV_ITEMS = read("components/inventory/inventory-items-list.css.ts");
 
 const CONSUMERS = [
   "components/customers/CustomerRow.tsx",
@@ -115,21 +114,16 @@ const TRUNCATING_RULES: Array<{
       via: "parent",
     },
   },
+  // The LIVE inventory list row. `/inventory/items` renders `.inv-row` from the
+  // primitives — NOT `inventory-items-list-ui.tsx`, which has no importer at all.
+  // Checking the wired component is the whole point; the dead one would pass
+  // forever while the shipped screen stayed broken.
   {
-    css: INV_ITEMS,
-    where: "inventory-items-list.css.ts",
-    selector: "[data-inventory-items-list] .inv-items-list__name",
+    css: INV_PRIMITIVES,
+    where: "inventory-primitives.css.ts",
+    selector: "[data-inventory-module] .inv-row__meta",
     blockifiedBy: {
-      selector: "[data-inventory-items-list] .inv-items-list__main",
-      via: "parent",
-    },
-  },
-  {
-    css: INV_ITEMS,
-    where: "inventory-items-list.css.ts",
-    selector: "[data-inventory-items-list] .inv-items-list__meta",
-    blockifiedBy: {
-      selector: "[data-inventory-items-list] .inv-items-list__main",
+      selector: "[data-inventory-module] .inv-row__mid",
       via: "parent",
     },
   },
@@ -330,24 +324,40 @@ for (const file of ROW_META_USERS) {
   );
 }
 
-console.log("\n[8] Inventory rows keep price and stock status on a phone");
+console.log("\n[8] The inventory rules are attached to the WIRED component");
 
-const mobileBlock = /@media \(max-width: 720px\) \{([\s\S]*?)\n  \}/.exec(INV_ITEMS)?.[1] ?? "";
-check("inventory mobile block found", mobileBlock.length > 0);
+/**
+ * `components/inventory/inventory-items-list-ui.tsx` (and its stylesheet, and
+ * `InventoryItemRow`) have no importer anywhere — `/inventory/items` renders
+ * `.inv-row` from the primitives instead. That was worth finding the hard way:
+ * a fix aimed at the unwired file would have verified green while the shipped
+ * screen kept overflowing. If someone wires it up later, this check fails and
+ * the contract above has to grow to cover it.
+ */
+const inventoryListUiImporters = [
+  "app/(shell)/inventory/items/page.tsx",
+  "components/inventory/inventory-shell.tsx",
+  "components/inventory/product-detail-view.tsx",
+].filter((f) => read(f).includes("inventory-items-list-ui"));
+
 check(
-  "the price is not display:none on mobile",
-  !/__price[^{]*\{[^}]*display\s*:\s*none/.test(mobileBlock),
-  "the selling price is not derivable from anything else on the row",
+  "inventory-items-list-ui is still unwired (else this contract must cover it)",
+  inventoryListUiImporters.length === 0,
+  inventoryListUiImporters.join(", "),
 );
 check(
-  "the stock badge is not display:none on mobile",
-  !/__badge-cell[^{]*\{[^}]*display\s*:\s*none/.test(mobileBlock),
-  "the coloured quantity is colour alone, not a label",
+  "the live inventory row uses the primitives' .inv-row",
+  /className="inv-row__mid"/.test(read("components/inventory/inventory-primitives.tsx")),
 );
-check(
-  "the row becomes two grid rows rather than seven squeezed cells",
-  /grid-template-rows\s*:\s*auto auto/.test(mobileBlock),
-);
+
+for (const [selector, label] of [
+  ["[data-inventory-module] .inv-row__nm", "live inventory row name"],
+  ["[data-inventory-module] .inv-oline__nm", "inventory order-line name"],
+] as Array<[string, string]>) {
+  const body = ruleBody(INV_PRIMITIVES, selector);
+  check(`${selector} (${label}) wraps instead of overflowing`, has(body, /overflow-wrap\s*:\s*anywhere/));
+  check(`${selector} is bounded by a line clamp`, has(body, /line-clamp\s*:\s*2/));
+}
 
 console.log(
   `\n${failures === 0 ? "PASS" : "FAIL"} — ${checks - failures}/${checks} checks passed`,
