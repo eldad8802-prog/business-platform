@@ -85,7 +85,18 @@ function makeStore(state: StoreState) {
     ok("user IS anonymized", ERASURE_MANIFEST.anonymize.some((a) => a.model === "user"));
     ok("businessProfile IS anonymized", ERASURE_MANIFEST.anonymize.some((a) => a.model === "businessProfile"));
     ok("customer IS anonymized (not deleted — invoice FK)", ERASURE_MANIFEST.anonymize.some((a) => a.model === "customer") && !ERASURE_MANIFEST.delete.includes("customer"));
-    ok("conversation IS deleted (comms PII)", ERASURE_MANIFEST.delete.includes("conversation"));
+    // The conversation graph is ANONYMISED, not deleted. The assertion that used
+    // to stand here required the opposite, and it passed for months while the
+    // delete it described silently removed nothing — those tables carry no DELETE
+    // policy. It is REPLACED rather than dropped, and by a stronger claim: every
+    // model in the graph is declared, and none of them is in a delete set.
+    for (const m of ["conversation", "message", "messageAnalysis", "replySuggestion"]) {
+      ok(
+        `${m} IS anonymised in place (the graph has no DELETE policy)`,
+        ERASURE_MANIFEST.anonymize.some((a) => a.model === m) &&
+          !ERASURE_MANIFEST.delete.includes(m)
+      );
+    }
     // a mutated manifest that purges a retained model must throw
     const bad = { ...ERASURE_MANIFEST, delete: [...ERASURE_MANIFEST.delete, "billingDocument"] };
     let threw = false;

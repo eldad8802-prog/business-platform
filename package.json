@@ -135,6 +135,7 @@
     "verify:documents-export": "npx tsx lib/data-transfer/documents/documents-export.verify.test.ts",
     "verify:documents-hardening": "npx tsx lib/services/documents/documents-hardening.verify.test.ts",
     "verify:inbound-email-foundation": "npx tsx lib/inbound-email/inbound-email-foundation.verify.test.ts",
+    "verify:erasure-contract": "npx tsx lib/services/account/erasure-contract.verify.test.ts",
     "verify:historical-fiscal-persistence": "npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts",
     "verify:historical-contract": "npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts",
     "verify:historical-analyze": "npx tsx lib/data-transfer/historical/historical-analyze.verify.test.ts",
