@@ -2954,13 +2954,33 @@ model PaymentTransaction {
 /// that closes that gap: routing columns ONLY — no amount, no customer, no
 /// description, no payload, nothing a leak could turn into business data.
 /// Written inside the same tenant transaction that stores providerRequestId.
+///
+/// TWO WAYS IN, because providers correlate in two different ways.
+///
+///   - `providerRequestId` — the provider issues a session id at checkout and
+///     echoes it on the callback. CardCom and PayPlus work this way.
+///   - `callbackSecretHash` — the provider issues NOTHING at checkout, so the
+///     only thing tying a callback to a request is a high-entropy secret WE
+///     generated and embedded in the callback URL handed to the provider.
+///     SUMIT works this way: its BeginRedirect returns a URL and no id at all.
+///
+/// Both are routing columns and neither is authority. A row here says which
+/// tenant an inbound signal belongs to; what actually happened is still
+/// established by asking the provider.
+///
+/// Only the HASH of the callback secret is stored. The secret itself lives in
+/// the URL held by the provider and is never persisted, so a database leak
+/// yields nothing a caller could present. `providerRequestId` is nullable
+/// because a provider may genuinely have none, and NULL is distinct in
+/// Postgres, so many such rows coexist under the unique constraint.
 model PaymentProviderRouting {
-  id                Int             @id @default(autoincrement())
-  provider          PaymentProvider
-  providerRequestId String
-  paymentRequestId  Int             @unique
-  businessId        Int
-  createdAt         DateTime        @default(now())
+  id                 Int             @id @default(autoincrement())
+  provider           PaymentProvider
+  providerRequestId  String?
+  callbackSecretHash String?         @unique
+  paymentRequestId   Int             @unique
+  businessId         Int
+  createdAt          DateTime        @default(now())
 
   @@unique([provider, providerRequestId])
   @@index([businessId])
@@ -3018,6 +3038,12 @@ enum PaymentProvider {
   /// The second real provider; ships DISABLED as a capability until its sandbox
   /// end-to-end is proven.
   PAYPLUS
+  /// SUMIT (formerly OfficeGuy), clearing through the Upay aggregator or a
+  /// direct terminal. The first provider that issues NO session identifier at
+  /// checkout: correlation is a Dubiz-generated value carried through, and
+  /// settlement is established by querying SUMIT rather than by trusting a
+  /// callback. Ships DISABLED as a capability.
+  SUMIT
 }
 
 enum PaymentRequestStatus {
