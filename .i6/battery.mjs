@@ -206,9 +206,15 @@ async function main() {
   const { withTenantTransaction } = await import("@/lib/tenant/transaction");
 
   /** Preview then execute, through the real code path. */
-  async function runImport(domainId, headers, rows, businessId = bizA.id) {
+  async function runImport(
+    domainId,
+    headers,
+    rows,
+    businessId = bizA.id,
+    mappingOverride = null
+  ) {
     const bytes = csv(headers, rows);
-    const mapping = mappingFor(headers);
+    const mapping = mappingOverride ?? mappingFor(headers);
     const base = {
       businessId,
       userId: userA.id,
@@ -612,6 +618,34 @@ async function main() {
     "F-01 twins: and neither is created again on a retry",
     twinsAgain.result.ok && twinsAgain.result.counts.createdCount === 0,
     JSON.stringify(twinsAgain.result?.counts)
+  );
+
+  // The mapping is the other half of the identity, and it must still count.
+  // The SAME bytes read through a DIFFERENT mapping are a different import —
+  // the owner has said these columns mean something else — so it must open its
+  // own run and do its own work. Narrowing the retry key to (business, file,
+  // mapping) must not go so far that it swallows this case.
+  const remapHeaders = ["שם", "טלפון", "אימייל"];
+  const remapRows = [[`${MARK}מיפוי שונה`, "", ""]];
+  const remapFirst = await runImport("customers", remapHeaders, remapRows);
+  const remapSecond = await runImport(
+    "customers",
+    remapHeaders,
+    remapRows,
+    bizA.id,
+    // Same bytes, but only the name column is mapped now.
+    { 0: "שם" }
+  );
+  ok(
+    "F-01 mapping: the same bytes under a DIFFERENT mapping open a NEW run",
+    remapSecond.result.ok &&
+      remapSecond.result.importRunId !== remapFirst.result.importRunId,
+    `first=${remapFirst.result.importRunId} second=${remapSecond.result.importRunId}`
+  );
+  ok(
+    "F-01 mapping: and it is a real import, not a no-op replay",
+    remapSecond.result.ok && remapSecond.result.counts.createdCount === 1,
+    JSON.stringify(remapSecond.result?.counts)
   );
 
   // Two executes racing: a double-click, two tabs, a network retry. The retry
