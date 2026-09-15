@@ -99,6 +99,12 @@ export const ANONYMIZE_MODELS = [
 export const DELETE_MODELS = [
   "crmNote",
   "crmAttachment",
+  // Inbound-email sender authorisation. Child before parent: the challenge
+  // rows are subordinate to the claim they verify and mean nothing without
+  // it. Both hold personal data about someone OUTSIDE the business and have
+  // no fiscal linkage, so they are deleted rather than anonymised.
+  "inboundEmailSenderChallenge",
+  "inboundEmailAuthorizedSender",
 ] as const;
 
 export type ErasureManifest = {
