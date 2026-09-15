@@ -80,6 +80,10 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   ReplySuggestion: { disposition: "ERASURE_MANAGED" },
   CrmNote: { disposition: "ERASURE_MANAGED" },
   CrmAttachment: { disposition: "ERASURE_MANAGED" },
+  // E2-W1. Moved out of UNMANAGED_PERSONAL_DATA because the adapter now writes
+  // it, not because the finding was inconvenient: the title and summary are
+  // cleared under tenant context and the battery proves the sentinel is gone.
+  Notification: { disposition: "ERASURE_MANAGED" },
   WhatsAppConnection: { disposition: "ERASURE_MANAGED" },
   EmailConnection: { disposition: "ERASURE_MANAGED" },
   OAuthToken: { disposition: "ERASURE_MANAGED" },
@@ -168,7 +172,6 @@ const unmanaged = (surface: string, target = "E2"): ModelCoverage => ({
 const UNMANAGED: Record<string, ModelCoverage> = {
   Supplier: unmanaged("name, phone, email, contactName/Role/Phone/Email, legalName, taxId, full address, notes"),
   Appointment: unmanaged("notes and title as free text, plus customerId and leadId"),
-  Notification: unmanaged("title carries the customer name verbatim, built from customerLabel(customerName)"),
   Task: unmanaged("title and description as free text"),
   BusinessObligation: unmanaged("obligeeName and note"),
   Deal: unmanaged("lostReason, and leadId to a partially-scrubbed Lead"),
