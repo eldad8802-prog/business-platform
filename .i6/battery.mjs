@@ -588,9 +588,10 @@ async function main() {
     leads: {
       headers: ["שם", "טלפון", "אימייל"],
       rows: [[`${MARK}ליד ללא טלפון`, "", ""]],
+      // A Lead carries the person's name in `customerName`, not `name`.
       count: () =>
         owner.lead.count({
-          where: { businessId: bizA.id, name: `${MARK}ליד ללא טלפון` },
+          where: { businessId: bizA.id, customerName: `${MARK}ליד ללא טלפון` },
         }),
     },
     inventory: {
