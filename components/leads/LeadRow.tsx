@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
 import { leadFollowUpLabel } from "@/lib/services/crm/lead-core";
+import { CrmRowMeta } from "@/components/crm/CrmRowMeta";
 import type { LeadListRow } from "@/lib/api/leads";
 import {
   leadIntelligenceDetail,
@@ -58,10 +59,13 @@ export function LeadRow({
   lead: LeadListRow;
   selected?: boolean;
 }) {
-  const phone = lead.phone ? formatPhoneForDisplay(lead.phone) : null;
-  const meta = [phone, leadSourceLabel(lead.sourceChannel), formatLastActivity(lead.lastActivityAt)]
-    .filter((v): v is string => Boolean(v && v.trim()))
-    .join(" · ");
+  // Values, not a joined string: `CrmRowMeta` owns the separators so the line
+  // can wrap on a narrow screen and each value keeps its own bidi isolation.
+  const metaParts = [
+    lead.phone ? formatPhoneForDisplay(lead.phone) : null,
+    leadSourceLabel(lead.sourceChannel),
+    formatLastActivity(lead.lastActivityAt),
+  ];
 
   // W3 — at most TWO lines of conversation reading, never more. The row has to
   // stay readable on a 390px screen held in one hand, so the intelligence gets a
@@ -89,7 +93,9 @@ export function LeadRow({
         {initials(lead.name)}
       </span>
       <span className="crm-row__body">
-        <span className="crm-row__name">{lead.name ?? "ליד ללא שם"}</span>
+        <span className="crm-row__name">
+          <bdi>{lead.name ?? "ליד ללא שם"}</bdi>
+        </span>
         <span
           style={{
             display: "flex",
@@ -101,16 +107,12 @@ export function LeadRow({
           <Badge tone={statusTone}>{leadStatusLabel(lead.status)}</Badge>
           {fuTone && fuLabel ? <Badge tone={fuTone}>{fuLabel}</Badge> : null}
         </span>
-        {headline ? (
-          <span
-            className="crm-row__meta"
-            style={{ color: "var(--crm-ink)", fontWeight: 600 }}
-          >
-            {headline}
-          </span>
-        ) : null}
-        {detail ? <span className="crm-row__meta">{detail}</span> : null}
-        {meta ? <span className="crm-row__meta">{meta}</span> : null}
+        <CrmRowMeta
+          parts={[headline]}
+          style={{ color: "var(--crm-ink)", fontWeight: 600 }}
+        />
+        <CrmRowMeta parts={[detail]} />
+        <CrmRowMeta parts={metaParts} />
       </span>
       <span className="crm-row__chevron" aria-hidden>
         ‹

@@ -21,6 +21,7 @@ import type {
   SupplierMatchReason,
 } from "@/lib/api/suppliers";
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
+import { CrmRowMeta } from "@/components/crm/CrmRowMeta";
 
 const REASON_LABEL: Record<SupplierMatchReason, string> = {
   TAX_ID: "אותו מספר עוסק / ח.פ.",
@@ -89,19 +90,20 @@ export function SupplierDuplicateNotice({
               <span className="crm-row__body">
                 <span className="crm-row__name">
                   <bdi>{match.name}</bdi>
-                  {!match.isActive ? (
-                    <span
-                      className="crm-badge"
-                      style={{ marginInlineStart: 8, verticalAlign: "middle" }}
-                    >
-                      לא פעיל
-                    </span>
-                  ) : null}
                 </span>
-                <span className="crm-row__meta">
-                  {describe(match)}
-                  {match.phone ? ` · ${formatPhoneForDisplay(match.phone)}` : ""}
-                </span>
+                {/* Sibling of the name: the name is clamped to two lines, and a
+                    badge inside it would be clipped on long names. */}
+                {!match.isActive ? (
+                  <span className="crm-row__badges">
+                    <span className="crm-badge">לא פעיל</span>
+                  </span>
+                ) : null}
+                <CrmRowMeta
+                  parts={[
+                    describe(match),
+                    match.phone ? formatPhoneForDisplay(match.phone) : null,
+                  ]}
+                />
               </span>
               <span className="crm-row__chevron" aria-hidden>
                 ‹

@@ -229,15 +229,10 @@ function LeadCardBody({
   return (
     <>
       <div className="crm-id">
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "space-between",
-            gap: 12,
-          }}
-        >
-          <h1 className="crm-id__name">{lead.name ?? "ליד ללא שם"}</h1>
+        <div className="crm-id__head">
+          <h1 className="crm-id__name">
+            <bdi>{lead.name ?? "ליד ללא שם"}</bdi>
+          </h1>
           <span
             className="crm-badge"
             style={{
@@ -256,7 +251,11 @@ function LeadCardBody({
             {identityFields.map((f) => (
               <div className="crm-id__field" key={f.label}>
                 <div className="crm-id__label">{f.label}</div>
-                <div className="crm-id__value">{f.value}</div>
+                {/* `bdi` so a phone / email keeps its own direction inside the
+                    RTL card instead of reordering against the label. */}
+                <div className="crm-id__value">
+                  <bdi>{f.value}</bdi>
+                </div>
               </div>
             ))}
           </div>

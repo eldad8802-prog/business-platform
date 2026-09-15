@@ -213,14 +213,28 @@ export const inventoryItemsListCss = `
     gap: 2px;
   }
 
+  /*
+    The product name identifies the row, so it gets two lines rather than one
+    ellipsised line — a name cut at 14 characters on a phone is not a shorter
+    label, it is a row the owner cannot identify. Still bounded, so a pathological
+    name cannot turn one row into a paragraph. __meta below keeps its single
+    ellipsised line: minimum / in-stock are both restated by the quantity cell.
+    Both are flex items of the __main column, so the clamp and the ellipsis
+    genuinely apply here — unlike the inline spans this pass fixed elsewhere.
+  */
   [data-inventory-items-list] .inv-items-list__name {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
     font-size: 14px;
     font-weight: 600;
     color: var(--inv-text, var(--dz-text-primary));
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     line-height: 1.3;
+    min-width: 0;
+    unicode-bidi: isolate;
   }
 
   [data-inventory-items-list] .inv-items-list__meta {
@@ -229,6 +243,8 @@ export const inventoryItemsListCss = `
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
+    unicode-bidi: isolate;
   }
 
   [data-inventory-items-list] .inv-items-list__price {
@@ -356,15 +372,27 @@ export const inventoryItemsListCss = `
     box-shadow: var(--inv-primary-shadow-soft, var(--inv-shadow-glow));
   }
 
+  /*
+    Narrow screens: the seven-track row cannot hold its columns, so it becomes
+    two rows rather than seven squeezed cells.
+
+    It used to display: none the price AND the stock badge here. That is
+    information loss, not responsiveness — on a phone the owner lost the selling
+    price and the only textual statement of stock health (the coloured quantity
+    is colour alone, which is not a label). They now STACK onto a second line
+    under the name instead. Only the two genuinely derivable decorations stay
+    hidden: the stock bar and the trend arrow both restate the tone that the
+    badge and the quantity already say in words.
+  */
   @media (max-width: 720px) {
     [data-inventory-items-list] .inv-items-list__row {
       grid-template-columns: 44px minmax(0, 1fr) auto;
-      gap: 10px 12px;
+      grid-template-rows: auto auto;
+      gap: 6px 12px;
+      align-items: center;
     }
 
     [data-inventory-items-list] .inv-items-list__bar,
-    [data-inventory-items-list] .inv-items-list__price,
-    [data-inventory-items-list] .inv-items-list__badge-cell,
     [data-inventory-items-list] .inv-trend {
       display: none;
     }
@@ -372,6 +400,33 @@ export const inventoryItemsListCss = `
     [data-inventory-items-list] .inv-items-list__thumb {
       width: 40px;
       height: 40px;
+      grid-column: 1;
+      grid-row: 1 / span 2;
+      align-self: center;
+    }
+
+    [data-inventory-items-list] .inv-items-list__main {
+      grid-column: 2;
+      grid-row: 1;
+    }
+
+    [data-inventory-items-list] .inv-items-list__qty {
+      grid-column: 3;
+      grid-row: 1;
+    }
+
+    [data-inventory-items-list] .inv-items-list__badge-cell {
+      grid-column: 2;
+      grid-row: 2;
+      justify-self: start;
+      min-width: 0;
+    }
+
+    [data-inventory-items-list] .inv-items-list__price {
+      grid-column: 3;
+      grid-row: 2;
+      justify-self: end;
+      text-align: end;
     }
   }
 `;

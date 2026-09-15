@@ -23,6 +23,7 @@ import {
   redirectToLogin,
 } from "@/lib/client-session";
 import { formatPhoneForDisplay } from "@/lib/format/phone-display";
+import { CrmRowMeta } from "@/components/crm/CrmRowMeta";
 
 /**
  * Suppliers master list (Spec v1 §23 — workspace pilot, owner-approved).
@@ -40,9 +41,13 @@ function initials(name: string): string {
   return (parts[0][0] ?? "") + (parts[1][0] ?? "");
 }
 
-function rowMeta(s: SupplierListRow): string | null {
-  const phone = s.phone ? formatPhoneForDisplay(s.phone) : null;
-  return [phone, s.email].filter((v) => v && String(v).trim()).join(" · ") || null;
+/**
+ * The row's meta VALUES, in reading order — deliberately NOT joined into one
+ * string: `CrmRowMeta` owns the separators, the wrapping and the per-value bidi
+ * isolation, so a long email cannot run out of the card or reorder itself.
+ */
+function rowMetaParts(s: SupplierListRow): Array<string | null> {
+  return [s.phone ? formatPhoneForDisplay(s.phone) : null, s.email];
 }
 
 const FILTERS: Array<{ key: SupplierStatusFilter; label: string }> = [
@@ -221,7 +226,6 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
       ) : (
         <div className="crm-rows">
           {suppliers.map((s) => {
-            const meta = rowMeta(s);
             const selected = String(s.id) === selectedId;
             return (
               <a
@@ -235,17 +239,16 @@ export function SuppliersList({ selectedId }: { selectedId: string | null }) {
                 </span>
                 <span className="crm-row__body">
                   <span className="crm-row__name">
-                    {s.name}
-                    {!s.isActive ? (
-                      <span
-                        className="crm-badge"
-                        style={{ marginInlineStart: 8, verticalAlign: "middle" }}
-                      >
-                        לא פעיל
-                      </span>
-                    ) : null}
+                    <bdi>{s.name}</bdi>
                   </span>
-                  {meta ? <span className="crm-row__meta">{meta}</span> : null}
+                  {/* Sibling of the name: the name is clamped to two lines, and
+                      a badge inside it would be clipped on long names. */}
+                  {!s.isActive ? (
+                    <span className="crm-row__badges">
+                      <span className="crm-badge">לא פעיל</span>
+                    </span>
+                  ) : null}
+                  <CrmRowMeta parts={rowMetaParts(s)} />
                 </span>
                 <span className="crm-row__chevron" aria-hidden>
                   ‹
