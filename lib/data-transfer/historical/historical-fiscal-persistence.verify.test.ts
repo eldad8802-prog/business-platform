@@ -468,6 +468,16 @@ const ALLOWED_TO_NAME_IT = [
   "lib/data-transfer/historical/historical-records.ts",
   // and the test that holds it to reading only
   "lib/data-transfer/historical/historical-records.verify.test.ts",
+  // E1.1: the model-coverage registry names EVERY Prisma model exactly once,
+  // this one included, and classifies it RETAINED_BY_DESIGN with a fiscal basis.
+  // It is a declaration that the model is retained — the same claim this file
+  // enforces — and it neither reads nor writes the table.
+  //
+  // It arrived in PR #429 and this list was not updated, so this check has been
+  // failing on main since that merge. It did not fail in CI because the I-8A
+  // workflow has a `paths:` filter that #429's four files do not match; the
+  // filter is widened in the same commit as this line.
+  "lib/services/account/erasure-model-coverage.ts",
 ];
 
 check("only the erasure contract and the import contract name this model", () => {

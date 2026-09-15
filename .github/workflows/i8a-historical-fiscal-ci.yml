@@ -25,6 +25,10 @@ on:
       - "prisma/migrations/20260907120000_i8a_historical_fiscal_documents/**"
       - "lib/data-transfer/historical/**"
       - "lib/services/account/account-erasure-manifest.ts"
+      # E1.1 named this model in the coverage registry and this filter did not
+      # match, so the firewall did not run and the break reached main unseen.
+      - "lib/services/account/erasure-model-coverage.ts"
+      - "lib/services/account/erasure-dispositions.ts"
   workflow_dispatch:
 
 permissions:
