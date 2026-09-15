@@ -30,6 +30,7 @@ on:
       # there can break this job — and did. It was absent here entirely, which
       # is why a new erasure consumer reached main with both guards silent.
       - "lib/services/account/**"
+      - "scripts/ci/erasure/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/20260907120000_i8a_historical_fiscal_documents/**"
   workflow_dispatch:

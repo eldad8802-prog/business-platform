@@ -148,7 +148,7 @@ jobs:
 
       - name: negative proof — N2 a disposition for a model that does not exist
         run: |
-          F="lib/services/account/erasure-model-coverage.ts"
+          F="scripts/ci/erasure/erasure-model-coverage.ts"
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts N2
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
@@ -161,7 +161,7 @@ jobs:
       # as separate sources rather than trusting the merged registry.
       - name: negative proof — N3 one model in two categories
         run: |
-          F="lib/services/account/erasure-model-coverage.ts"
+          F="scripts/ci/erasure/erasure-model-coverage.ts"
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts N3
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
@@ -173,7 +173,7 @@ jobs:
       # The bridge to the field-level contract: a model-level claim that bypasses it.
       - name: negative proof — N4 ERASURE_MANAGED without any erasure
         run: |
-          F="lib/services/account/erasure-model-coverage.ts"
+          F="scripts/ci/erasure/erasure-model-coverage.ts"
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts N4
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
@@ -184,7 +184,7 @@ jobs:
 
       - name: negative proof — N5 an existing model loses its classification
         run: |
-          F="lib/services/account/erasure-model-coverage.ts"
+          F="scripts/ci/erasure/erasure-model-coverage.ts"
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts N5
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi

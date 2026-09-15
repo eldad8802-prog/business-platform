@@ -34,7 +34,9 @@ const ROOT = path.resolve(__dirname, "../..");
 const MANIFEST = path.join(ROOT, "lib/services/account/account-erasure-manifest.ts");
 const ADAPTER = path.join(ROOT, "lib/services/account/account-deletion.prisma-store.ts");
 const DISPOSITIONS = path.join(ROOT, "lib/services/account/erasure-dispositions.ts");
-const COVERAGE = path.join(ROOT, "lib/services/account/erasure-model-coverage.ts");
+// Relocated out of lib/ by PR #434, together with the debt registry. This follows
+// the canonical path; no compatibility copy is left behind at the old one.
+const COVERAGE = path.join(ROOT, "scripts/ci/erasure/erasure-model-coverage.ts");
 
 function parse(file: string): ts.SourceFile {
   return ts.createSourceFile(
