@@ -123,6 +123,10 @@ async function main() {
     "InventoryItem",
     "InventoryMovement",
     "Conversation",
+    // Creating a Lead writes an audit row in the SAME transaction, so without
+    // this the lead import rolls back with "permission denied for table
+    // LearningEvent" and the domain silently proves nothing.
+    "LearningEvent",
   ];
   for (const t of TOUCHED) {
     await owner
@@ -277,13 +281,18 @@ async function main() {
   );
 
   // (b) The same FILE re-imported after the world changed. The supplier now
-  // exists, so the preview's default flips to SKIP and this is a different run
-  // by identity — which is correct, and must still not duplicate anything.
+  // exists, so the preview's default flips to SKIP.
+  //
+  // This used to open a SECOND run, because the decisions were part of the run
+  // identity and they had just moved. That was F-01. It now resolves to the
+  // first run and reports what that run did, so the counters here are the
+  // ORIGINAL run's counters, not zeroes. What must stay true either way is the
+  // line below: the Supplier is not duplicated.
   const replay = await runImport("suppliers", supHeaders, supRows);
   ok(
-    "re-importing the same file after the record exists defaults to SKIP",
-    replay.result.ok && replay.result.counts.createdCount === 0,
-    JSON.stringify(replay.result)
+    "re-importing the same file after the record exists resolves to the SAME run",
+    replay.result.ok && replay.result.importRunId === first.result.importRunId,
+    `first=${first.result.importRunId} replay=${replay.result.importRunId}`
   );
 
   const supCount = await owner.supplier.count({
@@ -556,35 +565,56 @@ async function main() {
    * twice. What follows drives the real path twice, exactly as the UI does.
    */
 
+  // Every fixture must carry each domain's REQUIRED columns, or the preview is
+  // rejected before any of this is exercised. What makes the row keyless is the
+  // blocking key being EMPTY, not the column being absent.
   const keylessFixtures = {
     customers: {
       headers: ["שם", "טלפון", "אימייל"],
       rows: [[`${MARK}לקוח ללא טלפון`, "", ""]],
+      count: () =>
+        owner.customer.count({
+          where: { businessId: bizA.id, name: `${MARK}לקוח ללא טלפון` },
+        }),
     },
     suppliers: {
       headers: ["שם ספק", "מספר עוסק / ח.פ.", "טלפון"],
       rows: [[`${MARK}ספק ללא חפ`, "", ""]],
+      count: () =>
+        owner.supplier.count({
+          where: { businessId: bizA.id, name: `${MARK}ספק ללא חפ` },
+        }),
     },
     leads: {
       headers: ["שם", "טלפון", "אימייל"],
       rows: [[`${MARK}ליד ללא טלפון`, "", ""]],
+      count: () =>
+        owner.lead.count({
+          where: { businessId: bizA.id, name: `${MARK}ליד ללא טלפון` },
+        }),
     },
     inventory: {
-      headers: ["שם פריט", "מק״ט", "ברקוד"],
-      rows: [[`${MARK}פריט ללא מקט`, "", ""]],
+      headers: ["שם פריט", "יחידת מידה", "מק״ט", "ברקוד"],
+      rows: [[`${MARK}פריט ללא מקט`, "יח׳", "", ""]],
+      count: () =>
+        owner.inventoryItem.count({
+          where: { businessId: bizA.id, name: `${MARK}פריט ללא מקט` },
+        }),
     },
   };
 
   for (const [domainId, fixture] of Object.entries(keylessFixtures)) {
     const firstRun = await runImport(domainId, fixture.headers, fixture.rows);
+    const afterFirst = await fixture.count();
     // The retry an owner actually performs: a NEW preview, therefore possibly
     // NEW decisions, then execute. No token carried over from the first run.
     const secondRun = await runImport(domainId, fixture.headers, fixture.rows);
+    const afterSecond = await fixture.count();
 
     ok(
       `F-01 ${domainId}: the first import of a keyless row creates it`,
-      firstRun.result.ok && firstRun.result.counts.createdCount === 1,
-      JSON.stringify(firstRun.result?.counts)
+      firstRun.result.ok && afterFirst === 1,
+      `rows=${afterFirst} counts=${JSON.stringify(firstRun.result?.counts)}`
     );
     ok(
       `F-01 ${domainId}: re-uploading the same file resolves to the SAME run`,
@@ -592,10 +622,13 @@ async function main() {
         secondRun.result.importRunId === firstRun.result.importRunId,
       `first=${firstRun.result.importRunId} second=${secondRun.result.importRunId}`
     );
+    // THE assertion. Not the reported counters — a resolved replay deliberately
+    // reports what the ORIGINAL run did — but the rows actually in the table.
+    // This is the exact wrong-row-twice that F-01 produced.
     ok(
-      `F-01 ${domainId}: and creates NOTHING the second time`,
-      secondRun.result.ok && secondRun.result.counts.createdCount === 0,
-      JSON.stringify(secondRun.result?.counts)
+      `F-01 ${domainId}: and writes NOTHING the second time`,
+      secondRun.result.ok && afterSecond === 1,
+      `rows after second run = ${afterSecond}`
     );
   }
 
@@ -607,17 +640,23 @@ async function main() {
     [`${MARK}תאומים`, "", ""],
     [`${MARK}תאומים`, "", ""],
   ];
+  const countTwins = () =>
+    owner.customer.count({
+      where: { businessId: bizA.id, name: `${MARK}תאומים` },
+    });
   const twinsFirst = await runImport("customers", twinHeaders, twinRows);
+  const twinsAfterFirst = await countTwins();
   ok(
     "F-01 twins: two identical keyless rows both import the first time",
-    twinsFirst.result.ok && twinsFirst.result.counts.createdCount === 2,
-    JSON.stringify(twinsFirst.result?.counts)
+    twinsFirst.result.ok && twinsAfterFirst === 2,
+    `rows=${twinsAfterFirst} counts=${JSON.stringify(twinsFirst.result?.counts)}`
   );
   const twinsAgain = await runImport("customers", twinHeaders, twinRows);
+  const twinsAfterSecond = await countTwins();
   ok(
-    "F-01 twins: and neither is created again on a retry",
-    twinsAgain.result.ok && twinsAgain.result.counts.createdCount === 0,
-    JSON.stringify(twinsAgain.result?.counts)
+    "F-01 twins: and neither is written again on a retry",
+    twinsAgain.result.ok && twinsAfterSecond === 2,
+    `rows after second run = ${twinsAfterSecond}`
   );
 
   // The mapping is the other half of the identity, and it must still count.
@@ -627,15 +666,21 @@ async function main() {
   // mapping) must not go so far that it swallows this case.
   const remapHeaders = ["שם", "טלפון", "אימייל"];
   const remapRows = [[`${MARK}מיפוי שונה`, "", ""]];
+  const countRemap = () =>
+    owner.customer.count({
+      where: { businessId: bizA.id, name: `${MARK}מיפוי שונה` },
+    });
   const remapFirst = await runImport("customers", remapHeaders, remapRows);
   const remapSecond = await runImport(
     "customers",
     remapHeaders,
     remapRows,
     bizA.id,
-    // Same bytes, but only the name column is mapped now.
+    // Same bytes. Only "שם" is required, so dropping the two optional columns
+    // is a VALID mapping — and a different one.
     { 0: "שם" }
   );
+  const remapRows2 = await countRemap();
   ok(
     "F-01 mapping: the same bytes under a DIFFERENT mapping open a NEW run",
     remapSecond.result.ok &&
@@ -643,9 +688,9 @@ async function main() {
     `first=${remapFirst.result.importRunId} second=${remapSecond.result.importRunId}`
   );
   ok(
-    "F-01 mapping: and it is a real import, not a no-op replay",
-    remapSecond.result.ok && remapSecond.result.counts.createdCount === 1,
-    JSON.stringify(remapSecond.result?.counts)
+    "F-01 mapping: and it does real work rather than resolving as a replay",
+    remapSecond.result.ok && remapRows2 === 2,
+    `rows=${remapRows2}`
   );
 
   // Two executes racing: a double-click, two tabs, a network retry. The retry
