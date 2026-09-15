@@ -41,7 +41,10 @@ import {
 } from "@/lib/data-transfer/import/execute/execution-semantics";
 import { IMPORT_EXECUTE_BATCH_SIZE } from "@/lib/data-transfer/import/import-config";
 import { retryKeyOf } from "@/lib/data-transfer/import/execute/import-run-store";
-import { attestedOverrideActionHash } from "@/lib/data-transfer/import/execute/override-action";
+import {
+  attestOverrideAction,
+  attestedOverrideActionHash,
+} from "@/lib/data-transfer/import/execute/override-action";
 import type { PreviewRow } from "@/lib/data-transfer/import/preview/preview-orchestrator";
 
 let passed = 0;
@@ -827,6 +830,77 @@ check("the raw id never reaches the token — only a hash of it", () => {
   assert.match(hash, /^[0-9a-f]{64}$/);
 });
 
+check("a genuine override with NO action id is REFUSED, not downgraded", () => {
+  // THE silent-failure check. Falling through to "no component" would resolve
+  // the owner's explicit "add it anyway" to the run that already exists and
+  // drop their decision without a word — the exact defect class F-01 is.
+  const refused = attestOverrideAction({
+    overrideActionId: null,
+    hasGenuineOverride: true,
+  });
+  assert.equal(refused.ok, false);
+  if (!refused.ok) {
+    assert.equal(refused.code, "OVERRIDE_ACTION_REQUIRED");
+    assert.ok(refused.message.length > 0);
+  }
+});
+
+check("a genuine override with a MALFORMED action id is refused the same way", () => {
+  for (const bad of [undefined, "", "short", "has space", 42, {}]) {
+    const refused = attestOverrideAction({
+      overrideActionId: bad,
+      hasGenuineOverride: true,
+    });
+    assert.equal(refused.ok, false, `accepted ${JSON.stringify(bad)}`);
+  }
+});
+
+check("an ordinary import is NEVER asked for an action id", () => {
+  // Backward compatibility, stated as a test: only an override is held to the
+  // contract. An import with nothing to override carries on as it always has.
+  const plain = attestOverrideAction({
+    overrideActionId: null,
+    hasGenuineOverride: false,
+  });
+  assert.equal(plain.ok, true);
+  if (plain.ok) assert.equal(plain.overrideActionHash, null);
+});
+
+check("an ordinary import cannot buy identity with an id either", () => {
+  const withId = attestOverrideAction({
+    overrideActionId: "a".repeat(32),
+    hasGenuineOverride: false,
+  });
+  assert.equal(withId.ok, true);
+  if (withId.ok) assert.equal(withId.overrideActionHash, null);
+});
+
+check("every preview path REFUSES rather than falling through", () => {
+  for (const [file, label] of [
+    ["lib/data-transfer/import/preview/preview-orchestrator.ts", "tabular"],
+    ["lib/data-transfer/historical/historical-preview.ts", "historical"],
+    ["app/api/data-transfer/documents/analyze/route.ts", "documents"],
+  ] as const) {
+    const code = fs.readFileSync(file, "utf8");
+    assert.match(
+      code,
+      /attestOverrideAction\(\{/,
+      `${label} must use the refusing attestation`
+    );
+    assert.match(
+      code,
+      /if \(!attestation\.ok\)/,
+      `${label} must act on the refusal rather than ignoring it`
+    );
+    // The silent fallback, in every shape it could come back in.
+    assert.equal(
+      /attestedOverrideActionHash\(/.test(code),
+      false,
+      `${label} must not use the non-refusing helper`
+    );
+  }
+});
+
 check("the override component is read from the TOKEN, never the request body", () => {
   for (const [file, label] of [
     ["lib/data-transfer/import/execute/import-executor.ts", "tabular"],
@@ -856,7 +930,7 @@ check("every importer attests the override server-side, at preview", () => {
     const code = fs.readFileSync(file, "utf8");
     assert.match(
       code,
-      /attestedOverrideActionHash\(\{/,
+      /attestOverrideAction\(\{/,
       `${label} must decide the override itself`
     );
     assert.match(

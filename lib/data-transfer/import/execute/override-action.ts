@@ -87,3 +87,52 @@ export function attestedOverrideActionHash(input: {
   if (!input.hasGenuineOverride) return null;
   return overrideActionHashOf(input.overrideActionId);
 }
+
+/** Refused before anything executable is minted. */
+export const OVERRIDE_ACTION_REQUIRED = "OVERRIDE_ACTION_REQUIRED" as const;
+
+export const OVERRIDE_ACTION_REQUIRED_MESSAGE =
+  "הבחירה להוסיף בכל זאת לא זוהתה כפעולה אחת. יש להריץ את הבדיקה מחדש ולאשר שוב.";
+
+export type OverrideAttestation =
+  | { ok: true; overrideActionHash: string | null }
+  | { ok: false; code: typeof OVERRIDE_ACTION_REQUIRED; message: string };
+
+/**
+ * Decide the override component, or REFUSE.
+ *
+ * There are exactly three outcomes, and the third is the one that matters:
+ *
+ *   no genuine override            -> no component. An id the caller attached
+ *                                     anyway is ignored, so an ordinary import
+ *                                     keeps the identity it has always had and
+ *                                     normal replay stays idempotent.
+ *   genuine override + good id     -> the component. This is a deliberate act.
+ *   genuine override + NO good id  -> REFUSED, here, before a token exists.
+ *
+ * The last case used to fall through to "no component", which resolved the
+ * owner's explicit "add it anyway" to the run that already existed and threw
+ * their decision away without a word. Swallowing an explicit instruction is the
+ * defect this whole change exists to remove; doing it in a new place would not
+ * be an improvement. So it is an error, raised at PREVIEW — nothing executable
+ * is minted, and nothing is written.
+ *
+ * Only an override is held to this. An import with no override needs no action
+ * id and is never asked for one.
+ */
+export function attestOverrideAction(input: {
+  overrideActionId: unknown;
+  hasGenuineOverride: boolean;
+}): OverrideAttestation {
+  if (!input.hasGenuineOverride) return { ok: true, overrideActionHash: null };
+
+  const hash = overrideActionHashOf(input.overrideActionId);
+  if (!hash) {
+    return {
+      ok: false,
+      code: OVERRIDE_ACTION_REQUIRED,
+      message: OVERRIDE_ACTION_REQUIRED_MESSAGE,
+    };
+  }
+  return { ok: true, overrideActionHash: hash };
+}

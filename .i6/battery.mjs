@@ -836,9 +836,42 @@ async function main() {
     `rows=${await countOv()}`
   );
 
-  // 8. The real thing: the owner overrides the row, with an action id.
+  // A REAL override with no action id is refused, out loud, before anything
+  // executable exists. Falling through to "ordinary import" would resolve the
+  // owner's explicit choice to the run that already exists and drop it without
+  // a word — which is the defect class this whole change removes.
   const ACTION_A = "a".repeat(32);
   const overrideDecisions = { 1: "CREATE" };
+
+  const noId = await runOverride(overrideDecisions, null);
+  ok(
+    "F-01 override: a real override with NO action id is refused",
+    noId.preview.ok === false && noId.preview.code === "OVERRIDE_ACTION_REQUIRED",
+    JSON.stringify(noId.preview.ok ? "preview succeeded" : noId.preview.code)
+  );
+  ok(
+    "F-01 override: the refusal mints no executable token",
+    noId.preview.ok === false && noId.preview.previewToken === undefined
+  );
+  ok(
+    "F-01 override: and nothing was written",
+    (await countOv()) === 1,
+    `rows=${await countOv()}`
+  );
+
+  const badId = await runOverride(overrideDecisions, "too-short");
+  ok(
+    "F-01 override: a malformed action id is refused the same way",
+    badId.preview.ok === false && badId.preview.code === "OVERRIDE_ACTION_REQUIRED",
+    JSON.stringify(badId.preview.ok ? "preview succeeded" : badId.preview.code)
+  );
+  ok(
+    "F-01 override: and that wrote nothing either",
+    (await countOv()) === 1,
+    `rows=${await countOv()}`
+  );
+
+  // 8. The real thing: the owner overrides the row, with an action id.
   const ovSecond = await runOverride(overrideDecisions, ACTION_A);
   ok(
     "F-01 override: a genuine override opens a NEW run",

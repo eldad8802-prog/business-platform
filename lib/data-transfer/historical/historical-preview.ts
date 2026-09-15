@@ -35,7 +35,7 @@ import {
   type HistoricalAnalyzedRowWithDuplicates,
 } from "@/lib/data-transfer/historical/historical-analyze-duplicates";
 import type { HistoricalAnalyzeInput } from "@/lib/data-transfer/historical/historical-analyze";
-import { attestedOverrideActionHash } from "@/lib/data-transfer/import/execute/override-action";
+import { attestOverrideAction } from "@/lib/data-transfer/import/execute/override-action";
 import {
   allowedActionsFor,
   blockingReasons,
@@ -291,10 +291,17 @@ export async function buildHistoricalPreview(
   const hasGenuineOverride = Object.values(decisions).some(
     (action) => action === "CREATE_ANYWAY"
   );
-  const overrideActionHash = attestedOverrideActionHash({
+  const attestation = attestOverrideAction({
     overrideActionId: input.overrideActionId,
     hasGenuineOverride,
   });
+  // Refused here, before a token exists. A CREATE_ANYWAY the server cannot tie
+  // to ONE action is not quietly downgraded to an ordinary import — that would
+  // resolve it to the run that already exists and drop the owner's decision.
+  if (!attestation.ok) {
+    return { ok: false, code: attestation.code, message: attestation.message };
+  }
+  const overrideActionHash = attestation.overrideActionHash;
   const byRow = new Map(analysis.rows.map((row) => [row.sourceRowNumber, row]));
 
   const rows: HistoricalPreviewRow[] = analysis.rows.map((row) => {

@@ -47,7 +47,7 @@ import {
   issuePreviewToken,
   sha256Hex,
 } from "@/lib/data-transfer/import/preview/preview-token";
-import { attestedOverrideActionHash } from "@/lib/data-transfer/import/execute/override-action";
+import { attestOverrideAction } from "@/lib/data-transfer/import/execute/override-action";
 import {
   deriveImportRows,
   type DerivedRow,
@@ -266,10 +266,17 @@ export async function buildImportPreview(
       submitted?.[row.rowNumber] === "CREATE" &&
       mayOverrideToCreate(input.domainId, row, eligible)
   );
-  const overrideActionHash = attestedOverrideActionHash({
+  const attestation = attestOverrideAction({
     overrideActionId: input.overrideActionId,
     hasGenuineOverride,
   });
+  // Refused here, before a token exists. An override the server cannot tie to
+  // ONE action is not quietly downgraded to an ordinary import — that would
+  // resolve it to the run that already exists and drop the owner's decision.
+  if (!attestation.ok) {
+    return { ok: false, code: attestation.code, message: attestation.message };
+  }
+  const overrideActionHash = attestation.overrideActionHash;
 
   // Only the rows that will actually run — a SKIPPED row creates nothing, and
   // counting it would overstate what confirming does.

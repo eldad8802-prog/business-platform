@@ -302,6 +302,25 @@ async function main() {
       })
     );
 
+  // With no action id the server cannot tell ONE deliberate act from a
+  // resubmission of it, and refuses rather than resolving the override to the
+  // run that already exists and dropping the owner's choice in silence.
+  const noActionId = await overrideOnce({ 1: "CREATE_ANYWAY" }, null);
+  ok(
+    "CREATE_ANYWAY with NO override action id is refused",
+    noActionId.ok === false && noActionId.code === "OVERRIDE_ACTION_REQUIRED",
+    JSON.stringify(noActionId.ok ? "preview succeeded" : noActionId.code)
+  );
+  ok(
+    "the refusal mints no executable token",
+    noActionId.ok === false && noActionId.previewToken === undefined
+  );
+  ok(
+    "and no second record was written",
+    (await countFor(A, "INV-100")) === 1,
+    String(await countFor(A, "INV-100"))
+  );
+
   const overridePreview = await overrideOnce({ 1: "CREATE_ANYWAY" }, OVERRIDE_ACTION);
   ok("an override makes the preview ready", overridePreview.ok && overridePreview.readyForExecute === true);
   if (overridePreview.ok && overridePreview.previewToken) {

@@ -17,7 +17,7 @@ import {
 } from "@/lib/data-transfer/documents/batch-analyze";
 import { readDocumentBatchForm } from "@/lib/data-transfer/documents/documents-request";
 import { issuePreviewToken } from "@/lib/data-transfer/import/preview/preview-token";
-import { attestedOverrideActionHash } from "@/lib/data-transfer/import/execute/override-action";
+import { attestOverrideAction } from "@/lib/data-transfer/import/execute/override-action";
 import { IMPORT_PREVIEW_TTL_SECONDS } from "@/lib/data-transfer/import/import-config";
 
 export const runtime = "nodejs";
@@ -127,10 +127,20 @@ export async function POST(req: Request) {
     const hasGenuineOverride = Object.values(decisions).some(
       (action) => action === "CREATE_ANYWAY"
     );
-    const overrideActionHash = attestedOverrideActionHash({
+    const attestation = attestOverrideAction({
       overrideActionId: batch.overrideActionId,
       hasGenuineOverride,
     });
+    // Refused here, before a token exists. An override the server cannot tie to
+    // ONE action is not quietly downgraded to an ordinary batch — that would
+    // resolve it to the run that already exists and drop the owner's decision.
+    if (!attestation.ok) {
+      return NextResponse.json(
+        { error: attestation.message, code: attestation.code },
+        { status: 409, headers: NO_STORE }
+      );
+    }
+    const overrideActionHash = attestation.overrideActionHash;
 
     const issuedAt = new Date();
     const previewToken = issuePreviewToken(
