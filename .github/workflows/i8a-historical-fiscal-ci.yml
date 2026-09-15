@@ -35,6 +35,7 @@ on:
       # added it. A single-file allowlist protects the file it names, not the
       # contract it was meant to protect.
       - "lib/services/account/**"
+      - "scripts/ci/erasure/**"
   workflow_dispatch:
 
 permissions:

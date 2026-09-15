@@ -45,8 +45,8 @@ import {
   REVOKE_INTEGRATIONS,
 } from "./account-erasure-manifest";
 import { COVERED_MODELS, DISPOSITIONS } from "./erasure-dispositions";
-import { COVERAGE_SOURCES, MODEL_COVERAGE } from "./erasure-model-coverage";
-import { ACCEPTED_DEBT, debtKey } from "./erasure-contract-debt";
+import { COVERAGE_SOURCES, MODEL_COVERAGE } from "../../../scripts/ci/erasure/erasure-model-coverage";
+import { ACCEPTED_DEBT, debtKey } from "../../../scripts/ci/erasure/erasure-contract-debt";
 import { delegateName, parseAdapter, parsePrismaSchema } from "./erasure-contract";
 
 const ROOT = path.resolve(__dirname, "../../..");
