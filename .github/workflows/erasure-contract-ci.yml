@@ -117,5 +117,71 @@ jobs:
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
 
+      # ── E1.1 — model-level coverage ────────────────────────────────────────
+      # E1 proves the models inside the boundary are handled. These prove there is
+      # no outside. The failure they catch is not "this model holds personal data"
+      # — no guard can know that — but "nobody said what happens to this model".
+
+      # The one that actually happened: three inbound-email models entered main
+      # carrying fromEmail, subject and a raw MIME object key, and every check in
+      # the repository stayed green.
+      - name: negative proof — N1 a new model with no disposition
+        run: |
+          F="prisma/schema.prisma"
+          cp "$F" "$F.bak"
+          printf '\nmodel FuturePersonalThing {\n  id     Int     @id @default(autoincrement())\n  secret String?\n}\n' >> "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unclassified model passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — N2 a disposition for a model that does not exist
+        run: |
+          F="lib/services/account/erasure-model-coverage.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  Usage: operational\("per-week feature counters"\),/  Usage: operational("per-week feature counters"),\n  ModelThatDoesNotExist: operational("stale entry"),/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a stale classification passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      # Object spread keeps the last write silently, so the categories are compared
+      # as separate sources rather than trusting the merged registry.
+      - name: negative proof — N3 one model in two categories
+        run: |
+          F="lib/services/account/erasure-model-coverage.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  Usage: operational\("per-week feature counters"\),/  Usage: operational("per-week feature counters"),\n  Supplier: operational("contradicts the UNMANAGED_PERSONAL_DATA entry"),/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a conflicting classification passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      # The bridge to E1: a model-level claim that bypasses the field-level contract.
+      - name: negative proof — N4 ERASURE_MANAGED without any erasure
+        run: |
+          F="lib/services/account/erasure-model-coverage.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  Usage: operational\("per-week feature counters"\),/  Usage: { disposition: "ERASURE_MANAGED" },/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a hollow ERASURE_MANAGED claim passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — N5 an existing model loses its classification
+        run: |
+          F="lib/services/account/erasure-model-coverage.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  Usage: operational\("per-week feature counters"\),\r?\n//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a de-classified model passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
       - name: Confirm the tree is byte-identical after every mutation
         run: git diff --exit-code

@@ -45,6 +45,7 @@ import {
   REVOKE_INTEGRATIONS,
 } from "./account-erasure-manifest";
 import { COVERED_MODELS, DISPOSITIONS } from "./erasure-dispositions";
+import { COVERAGE_SOURCES, MODEL_COVERAGE } from "./erasure-model-coverage";
 import { ACCEPTED_DEBT, debtKey } from "./erasure-contract-debt";
 import { delegateName, parseAdapter, parsePrismaSchema } from "./erasure-contract";
 
@@ -318,6 +319,119 @@ function main(): number {
           `${modelName}.${declared}`,
           `a disposition exists for ${modelName}.${declared}, which is not a column on that model`
         );
+      }
+    }
+  }
+
+  // ── E1.1 — model-level coverage ────────────────────────────────────────────
+  //
+  // E1 proves the models inside the boundary are handled correctly. These checks
+  // prove there is no outside: every model in the schema carries exactly one
+  // explicit disposition, and the model-level answer agrees with the field-level
+  // one. Without them a new model is simply a question nobody asked — which is
+  // what happened when the inbound-email models landed.
+
+  // C8 — fail closed on a model with no disposition.
+  for (const model of models.values()) {
+    if (!MODEL_COVERAGE[model.name]) {
+      report(
+        "C8-UNCLASSIFIED-MODEL",
+        model.name,
+        `${model.name} is in the schema and has no erasure disposition — classify it in erasure-model-coverage.ts`
+      );
+    }
+  }
+
+  // C9 — a disposition for a model that no longer exists is drift the other way.
+  for (const declared of Object.keys(MODEL_COVERAGE)) {
+    if (!models.has(declared)) {
+      report(
+        "C9-STALE-CLASSIFICATION",
+        declared,
+        `a disposition exists for ${declared}, which is not a model in the schema`
+      );
+    }
+  }
+
+  // C10 — one model, one answer. The registry merges several objects, and a merge
+  // would silently keep the last write, so the sources are compared directly.
+  const seenIn = new Map<string, string[]>();
+  for (const src of COVERAGE_SOURCES) {
+    for (const name of Object.keys(src.models)) {
+      seenIn.set(name, [...(seenIn.get(name) ?? []), src.name]);
+    }
+  }
+  for (const [name, where] of seenIn) {
+    if (where.length > 1) {
+      report(
+        "C10-CONFLICTING-CLASSIFICATION",
+        name,
+        `${name} is classified ${where.length} times: ${where.join(", ")}`
+      );
+    }
+  }
+
+  // C11 — the bridge to E1. A model-level answer that contradicts what the adapter
+  // actually does is the same class of lie the field-level contract was built to
+  // stop, one level up.
+  //
+  // "Erasure writes" excludes the lifecycle bookkeeping, so marking a business
+  // deleted does not make `Business` erasure-managed.
+  const erasureWrites = new Set(
+    adapter.writes
+      .filter((w) => !LIFECYCLE_WRITES.has(`${w.delegate}.${w.field}`))
+      .map((w) => byDelegate.get(w.delegate)?.name)
+      .filter((n): n is string => !!n)
+  );
+  for (const d of adapter.deletes) {
+    const n = byDelegate.get(d.delegate)?.name;
+    if (n) erasureWrites.add(n);
+  }
+
+  for (const [name, cov] of Object.entries(MODEL_COVERAGE)) {
+    const touched = erasureWrites.has(name);
+    if (cov.disposition === "ERASURE_MANAGED" && !touched) {
+      report(
+        "C11-MANAGED-BUT-UNTOUCHED",
+        name,
+        `${name} claims ERASURE_MANAGED and the adapter performs no erasure write or delete on it`
+      );
+    }
+    if (cov.disposition !== "ERASURE_MANAGED" && touched) {
+      report(
+        "C11-TOUCHED-BUT-UNMANAGED",
+        name,
+        `the adapter erases ${name} but its model disposition is ${cov.disposition}`
+      );
+    }
+    if (cov.disposition === "RETAINED_BY_DESIGN" && (!cov.reason || !cov.basis)) {
+      report("C11-RETENTION-WITHOUT-BASIS", name, `${name} is retained by design without a purpose and a basis`);
+    }
+    if (
+      (cov.disposition === "NON_PERSONAL_OPERATIONAL" || cov.disposition === "SYSTEM_INTERNAL") &&
+      !cov.reason
+    ) {
+      report("C11-DECLARATION-WITHOUT-REASON", name, `${name} is declared ${cov.disposition} with no stated reason`);
+    }
+    // Both of these ARE findings, by design. The registry being complete is not the
+    // same as the erasure being complete, and collapsing the two would be the exact
+    // comfortable green this whole programme exists to refuse.
+    if (cov.disposition === "UNMANAGED_PERSONAL_DATA") {
+      if (!cov.surface || !cov.target) {
+        report("C11-UNMANAGED-WITHOUT-TARGET", name, `${name} is unmanaged personal data with no surface or target named`);
+      } else {
+        report(
+          "C12-UNMANAGED-PERSONAL-DATA",
+          name,
+          `${name} holds personal data the erasure does not touch (${cov.surface}) — ${cov.target}`
+        );
+      }
+    }
+    if (cov.disposition === "NEEDS_OWNER_DECISION") {
+      if (!cov.question) {
+        report("C11-DECISION-WITHOUT-QUESTION", name, `${name} needs a decision but no question is stated`);
+      } else {
+        report("C13-NEEDS-OWNER-DECISION", name, `${name}: ${cov.question}`);
       }
     }
   }
