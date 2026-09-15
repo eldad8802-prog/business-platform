@@ -186,7 +186,15 @@ async function main() {
   ];
 
   /** Preview then Execute, as a caller would. */
-  const runImport = async (businessId, bytes, decisions = null) => {
+  const runImport = async (
+    businessId,
+    bytes,
+    decisions = null,
+    // Required whenever `decisions` carries a CREATE_ANYWAY: the server refuses
+    // an override it cannot tie to ONE deliberate action rather than resolving
+    // it to the run that already exists.
+    overrideActionId = null
+  ) => {
     const preview = await runWithTenantContext({ businessId }, () =>
       buildHistoricalPreview({
         businessId,
@@ -196,6 +204,7 @@ async function main() {
         sheetName: null,
         dateFormat: null,
         decisions,
+        overrideActionId,
       })
     );
     if (!preview.ok) return { preview, execute: null };
@@ -537,7 +546,12 @@ async function main() {
   // And the override does what it is for and no more: the duplicate invoice is
   // imported on purpose, the ambiguous credit is still skipped, and no credit
   // was bound to a document nobody chose.
-  const overridden = await runImport(A, await ambiguousFile(), { 1: "CREATE_ANYWAY" });
+  const overridden = await runImport(
+    A,
+    await ambiguousFile(),
+    { 1: "CREATE_ANYWAY" },
+    "i8b5ambiguousoverrideaction00001"
+  );
   ok(
     "CREATE_ANYWAY imports the duplicate it was given for",
     overridden.execute?.ok === true && overridden.execute.totals.created === 1,
