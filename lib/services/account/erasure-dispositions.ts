@@ -55,7 +55,7 @@ export type FieldDisposition = {
  * the product in this increment, or listing personal data as RETAIN_BY_DESIGN with a
  * basis nobody has agreed to. Both are worse than an honest boundary.
  */
-export const COVERED_MODELS = ["User", "BusinessProfile", "Customer", "Lead"] as const;
+export const COVERED_MODELS = ["User", "BusinessProfile", "Customer", "Lead", "Notification"] as const;
 
 export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
   User: {
@@ -189,6 +189,53 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
     lastActivityAt: { disposition: "STRUCTURAL" },
     closedAt: { disposition: "STRUCTURAL" },
     lostReason: { disposition: "ERASE" },
+    createdAt: { disposition: "STRUCTURAL" },
+    updatedAt: { disposition: "STRUCTURAL" },
+  },
+
+  // E2-W1. Notification joins the exhaustive list because the erasure now
+  // manages it. Leaving it outside would mean a new personal column here — and
+  // this model's whole problem is that its columns are COPIES of other models'
+  // personal data — could arrive without anyone answering for it.
+  Notification: {
+    id: { disposition: "STRUCTURAL" },
+    businessId: { disposition: "STRUCTURAL" },
+    dedupeKey: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "b<businessId>:<domain>:<category>:<entityType>:<entityId> — ids only, and the uniqueness the writer depends on",
+      basis: "PRODUCT",
+    },
+    domain: { disposition: "STRUCTURAL" },
+    semanticCategory: { disposition: "STRUCTURAL" },
+    severity: { disposition: "STRUCTURAL" },
+    entityType: { disposition: "STRUCTURAL" },
+    entityId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "points at a row in the same tenant that is itself anonymised; an id, not an identity",
+      basis: "PRODUCT",
+    },
+    // An enum ARRAY is still a column, and the guard treats it as one — which is
+    // how this entry came to be written at all.
+    intendedChannels: { disposition: "STRUCTURAL" },
+    title: { disposition: "ERASE" },
+    summary: { disposition: "ERASE" },
+    href: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "an internal route such as /inbox or /leads/<id>; names nobody",
+      basis: "PRODUCT",
+    },
+    reason: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "a fixed policy string from notification-policy.ts explaining why the class of fact is surfaced at all",
+      basis: "PRODUCT",
+    },
+    cooldownHours: { disposition: "STRUCTURAL" },
+    firstSurfacedAt: { disposition: "STRUCTURAL" },
+    lastSurfacedAt: { disposition: "STRUCTURAL" },
+    lastNotifiedAt: { disposition: "STRUCTURAL" },
+    readAt: { disposition: "STRUCTURAL" },
+    dismissedAt: { disposition: "STRUCTURAL" },
+    resolvedAt: { disposition: "STRUCTURAL" },
     createdAt: { disposition: "STRUCTURAL" },
     updatedAt: { disposition: "STRUCTURAL" },
   },

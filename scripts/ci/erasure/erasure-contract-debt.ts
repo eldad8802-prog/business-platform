@@ -41,14 +41,6 @@ const NAMING: DebtEntry[] = [
     key: "REVOKE_INTEGRATIONS:posApiKey",
     why: "manifest says `posApiKey`; the Prisma delegate is `pOSApiKey`. E2.",
   },
-  {
-    code: "C2-NO-SUCH-FIELD",
-    key: "Lead.name",
-    why:
-      "the manifest declares `lead.name`; the column is `customerName`. The adapter " +
-      "clears the right column, so this is a wrong name in the contract rather than " +
-      "wrong behaviour. E2.",
-  },
 ];
 
 /** The finding the residual sweep was built around. The contract promises the lead's
@@ -57,11 +49,6 @@ const NAMING: DebtEntry[] = [
  *  → deferred to E2 ONLY because this increment is forbidden from changing product
  *    behaviour; it is the first thing E2 should close. */
 const UNKEPT_PROMISE: DebtEntry[] = [
-  {
-    code: "C3-DECLARED-NOT-IMPLEMENTED",
-    key: "Lead.email",
-    why: "the manifest promises it is nulled and the adapter never writes it. E2, first.",
-  },
 ];
 
 /** Erasure the adapter performs that no contract represents. None of these is wrong
@@ -118,31 +105,6 @@ const UNDECLARED: DebtEntry[] = [
  *  → deferred to E2. Listing them as debt is the point: the disposition is the decision,
  *    and the guard now holds us to it. */
 const LEAD_RESIDUALS: DebtEntry[] = [
-  {
-    code: "C6-DISPOSITION-NOT-IMPLEMENTED",
-    key: "Lead.customerId",
-    why: "dispositioned UNLINK; the pointer to the anonymised customer is left in place. E2.",
-  },
-  {
-    code: "C6-DISPOSITION-NOT-IMPLEMENTED",
-    key: "Lead.email",
-    why: "dispositioned ERASE; same gap as the C3 entry, seen from the disposition side. E2.",
-  },
-  {
-    code: "C6-DISPOSITION-NOT-IMPLEMENTED",
-    key: "Lead.intentSnapshot",
-    why: "dispositioned ERASE; free text derived from the exchange survives. E2.",
-  },
-  {
-    code: "C6-DISPOSITION-NOT-IMPLEMENTED",
-    key: "Lead.followUpNote",
-    why: "dispositioned ERASE; free text about a named person survives. E2.",
-  },
-  {
-    code: "C6-DISPOSITION-NOT-IMPLEMENTED",
-    key: "Lead.lostReason",
-    why: "dispositioned ERASE; free text that routinely quotes the objection survives. E2.",
-  },
 ];
 
 
@@ -174,7 +136,6 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryDraft", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryItem", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryMovement", why: "E2" },
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Notification", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "PurchaseOrder", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "PurchaseOrderLine", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "ReceivingSession", why: "E2" },

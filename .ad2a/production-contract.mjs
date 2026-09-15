@@ -217,6 +217,21 @@ export const PRODUCTION_RLS_CONTRACT = [
     policies: [{ name: "p7w1_tenant", command: "ALL", using: TENANT, check: TENANT }],
   },
   {
+    table: "Notification",
+    migration: "20260903200000_notification_persistence",
+    why:
+      "the notification title and summary are a denormalised COPY of counterparty " +
+      "identity and of conversation content — the erasure anonymises them in place, " +
+      "because the runtime holds SELECT/INSERT/UPDATE here and no DELETE",
+    policies: [{ name: "notif_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
+  {
+    table: "NotificationDelivery",
+    migration: "20260903200000_notification_persistence",
+    why: "child of Notification; carries no personal text of its own, but must be under the same contract",
+    policies: [{ name: "notif_delivery_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
+  {
     table: "HistoricalFiscalDocument",
     migration: "20260907120000_i8a_historical_fiscal_documents",
     why: "retained fiscal history; SELECT and INSERT only, so neither UPDATE nor DELETE can reach it even under a correct context",
