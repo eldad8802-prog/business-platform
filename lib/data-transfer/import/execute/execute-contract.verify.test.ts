@@ -901,6 +901,35 @@ check("every preview path REFUSES rather than falling through", () => {
   }
 });
 
+check("only the executor may replay an attestation, and only from the token", () => {
+  // Execute re-derives the historical preview to check the approved decisions
+  // still hold. That re-derivation is a CHECK, not a new request, so it replays
+  // the attestation instead of being asked for an action id again. The escape
+  // hatch that makes that possible must stay unreachable from a request.
+  const executor = fs.readFileSync(
+    "lib/data-transfer/historical/historical-execute.ts",
+    "utf8"
+  );
+  assert.match(
+    executor,
+    /attestedOverrideActionHash:\s*facts\.overrideActionHash/,
+    "the executor must replay the VERIFIED token's attestation"
+  );
+
+  for (const route of [
+    "app/api/data-transfer/import/historical/preview/route.ts",
+    "app/api/data-transfer/import/preview/route.ts",
+    "app/api/data-transfer/documents/analyze/route.ts",
+  ]) {
+    const code = fs.readFileSync(route, "utf8");
+    assert.equal(
+      code.includes("attestedOverrideActionHash"),
+      false,
+      `${route} must not be able to assert its own attestation`
+    );
+  }
+});
+
 check("the override component is read from the TOKEN, never the request body", () => {
   for (const [file, label] of [
     ["lib/data-transfer/import/execute/import-executor.ts", "tabular"],

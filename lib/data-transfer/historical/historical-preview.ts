@@ -158,6 +158,19 @@ export type HistoricalPreviewInput = HistoricalAnalyzeInput & {
    */
   overrideActionId?: string | null;
   /**
+   * An attestation this server already made, replayed.
+   *
+   * Execute re-derives the preview to check that the approved decisions still
+   * hold, and that re-derivation is not a new request from the owner — it must
+   * not be asked for an action id the owner already supplied once. So execute
+   * passes back what it read from the VERIFIED token, and the requirement is
+   * satisfied by the attestation rather than by a fresh claim.
+   *
+   * Only the executor sets this, and only from a verified token. A route must
+   * never populate it from a request.
+   */
+  attestedOverrideActionHash?: string | null;
+  /**
    * The fingerprint Analyze reported. When supplied and the database has since
    * moved, Preview refuses rather than rebuilding silently.
    */
@@ -291,17 +304,24 @@ export async function buildHistoricalPreview(
   const hasGenuineOverride = Object.values(decisions).some(
     (action) => action === "CREATE_ANYWAY"
   );
-  const attestation = attestOverrideAction({
-    overrideActionId: input.overrideActionId,
-    hasGenuineOverride,
-  });
-  // Refused here, before a token exists. A CREATE_ANYWAY the server cannot tie
-  // to ONE action is not quietly downgraded to an ordinary import — that would
-  // resolve it to the run that already exists and drop the owner's decision.
-  if (!attestation.ok) {
-    return { ok: false, code: attestation.code, message: attestation.message };
+  let overrideActionHash: string | null;
+  if (input.attestedOverrideActionHash !== undefined) {
+    // Execute replaying its own verified attestation. Not a new request, so
+    // not asked again for what the owner already supplied.
+    overrideActionHash = input.attestedOverrideActionHash;
+  } else {
+    const attestation = attestOverrideAction({
+      overrideActionId: input.overrideActionId,
+      hasGenuineOverride,
+    });
+    // Refused here, before a token exists. A CREATE_ANYWAY the server cannot
+    // tie to ONE action is not quietly downgraded to an ordinary import — that
+    // would resolve it to the run that already exists and drop the decision.
+    if (!attestation.ok) {
+      return { ok: false, code: attestation.code, message: attestation.message };
+    }
+    overrideActionHash = attestation.overrideActionHash;
   }
-  const overrideActionHash = attestation.overrideActionHash;
   const byRow = new Map(analysis.rows.map((row) => [row.sourceRowNumber, row]));
 
   const rows: HistoricalPreviewRow[] = analysis.rows.map((row) => {
