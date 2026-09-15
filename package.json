@@ -91,6 +91,7 @@
     "verify:payment-webhook": "npx tsx lib/services/payments/payment-webhook.test.ts",
     "verify:billing-issue-tenant-isolation": "npx tsx lib/services/billing/billing-issue.tenant-isolation.test.ts",
     "verify:billing-invoice-profile-contract": "npx tsx lib/services/billing/billing-invoice-profile.rls-contract.test.ts",
+    "verify:businessprofile-grants": "npx tsx prisma/migrations/20260915120000_businessprofile_runtime_grants/contract.test.ts",
     "verify:coupon-v1": "npx tsx lib/revenue/coupon-v1.verify.test.ts",
     "verify:coupon-tenant": "npx tsx lib/services/revenue/coupon-tenant.db.test.ts",
     "verify:gmail-refresh-token-upgrade": "npx tsx lib/services/integrations/gmail/gmail-refresh-token-upgrade.test.ts",
