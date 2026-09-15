@@ -47,6 +47,7 @@ import {
   issuePreviewToken,
   sha256Hex,
 } from "@/lib/data-transfer/import/preview/preview-token";
+import { attestOverrideAction } from "@/lib/data-transfer/import/execute/override-action";
 import {
   deriveImportRows,
   type DerivedRow,
@@ -156,6 +157,15 @@ export type PreviewInput = AnalyzeInput & {
    * that it was ever legitimate.
    */
   decisions?: RowDecisions | null;
+  /**
+   * The id of ONE deliberate override action, when the owner is performing one.
+   *
+   * It is a CLAIM, and it is treated as one. It reaches the token only if the
+   * server finds a genuine override among the submitted decisions under the
+   * duplicate policy it already enforces — so attaching it to an ordinary
+   * import buys nothing at all. See `import/execute/override-action.ts`.
+   */
+  overrideActionId?: string | null;
 };
 
 export type PreviewRow = DerivedRow;
@@ -246,6 +256,28 @@ export async function buildImportPreview(
     )
     .map((row) => row.rowNumber);
 
+  // An override, here, is the owner choosing CREATE on a row the policy would
+  // have SKIPPED and is willing to let them override. The tabular vocabulary
+  // has no separate word for it, so it is recognised rather than declared —
+  // and NOT every CREATE is one: a row that never blocked has nothing to
+  // override, so choosing CREATE there is just the default, said out loud.
+  const hasGenuineOverride = derived.rows.some(
+    (row) =>
+      submitted?.[row.rowNumber] === "CREATE" &&
+      mayOverrideToCreate(input.domainId, row, eligible)
+  );
+  const attestation = attestOverrideAction({
+    overrideActionId: input.overrideActionId,
+    hasGenuineOverride,
+  });
+  // Refused here, before a token exists. An override the server cannot tie to
+  // ONE action is not quietly downgraded to an ordinary import — that would
+  // resolve it to the run that already exists and drop the owner's decision.
+  if (!attestation.ok) {
+    return { ok: false, code: attestation.code, message: attestation.message };
+  }
+  const overrideActionHash = attestation.overrideActionHash;
+
   // Only the rows that will actually run — a SKIPPED row creates nothing, and
   // counting it would overstate what confirming does.
   const sideEffects =
@@ -276,6 +308,7 @@ export async function buildImportPreview(
       decisionsHash: decisionsHashOf(decisions),
       sheetName: derived.sheetName,
       rowCount: derived.counts.totalRows,
+      overrideActionHash,
     },
     issuedAt
   );

@@ -123,6 +123,10 @@ async function main() {
     "InventoryItem",
     "InventoryMovement",
     "Conversation",
+    // Creating a Lead writes an audit row in the SAME transaction, so without
+    // this the lead import rolls back with "permission denied for table
+    // LearningEvent" and the domain silently proves nothing.
+    "LearningEvent",
   ];
   for (const t of TOUCHED) {
     await owner
@@ -206,9 +210,15 @@ async function main() {
   const { withTenantTransaction } = await import("@/lib/tenant/transaction");
 
   /** Preview then execute, through the real code path. */
-  async function runImport(domainId, headers, rows, businessId = bizA.id) {
+  async function runImport(
+    domainId,
+    headers,
+    rows,
+    businessId = bizA.id,
+    mappingOverride = null
+  ) {
     const bytes = csv(headers, rows);
-    const mapping = mappingFor(headers);
+    const mapping = mappingOverride ?? mappingFor(headers);
     const base = {
       businessId,
       userId: userA.id,
@@ -271,13 +281,18 @@ async function main() {
   );
 
   // (b) The same FILE re-imported after the world changed. The supplier now
-  // exists, so the preview's default flips to SKIP and this is a different run
-  // by identity — which is correct, and must still not duplicate anything.
+  // exists, so the preview's default flips to SKIP.
+  //
+  // This used to open a SECOND run, because the decisions were part of the run
+  // identity and they had just moved. That was F-01. It now resolves to the
+  // first run and reports what that run did, so the counters here are the
+  // ORIGINAL run's counters, not zeroes. What must stay true either way is the
+  // line below: the Supplier is not duplicated.
   const replay = await runImport("suppliers", supHeaders, supRows);
   ok(
-    "re-importing the same file after the record exists defaults to SKIP",
-    replay.result.ok && replay.result.counts.createdCount === 0,
-    JSON.stringify(replay.result)
+    "re-importing the same file after the record exists resolves to the SAME run",
+    replay.result.ok && replay.result.importRunId === first.result.importRunId,
+    `first=${first.result.importRunId} replay=${replay.result.importRunId}`
   );
 
   const supCount = await owner.supplier.count({
@@ -530,6 +545,421 @@ async function main() {
     "and DOES hold it on the run, which terminalization needs",
     runUpdate[0].granted === true,
     `has_table_privilege=${runUpdate[0].granted}`
+  );
+
+  /* ══ F-01 — the retry a FRESH preview produces ═══════════════════════════
+   *
+   * Everything above replays the IDENTICAL request: same bytes, same mapping,
+   * same decisions, same token. That is a lost response or a double-click, and
+   * it was already safe — which is exactly why this battery did not catch F-01.
+   *
+   * It is not what the product promises. "Run the same file again and Dubiz
+   * will complete only what is missing" describes an owner UPLOADING THE FILE
+   * AGAIN, and the screen re-runs the preview before every execute. That
+   * preview is computed against a database the FIRST import changed: a row that
+   * now collides defaults to SKIP, one that never collides stays CREATE. The
+   * decision set therefore differs — and while it was part of the run identity,
+   * a second run opened and the markers protecting the first no longer applied.
+   *
+   * A row with no business key had nothing else to identify it, and was created
+   * twice. What follows drives the real path twice, exactly as the UI does.
+   */
+
+  // Every fixture must carry each domain's REQUIRED columns, or the preview is
+  // rejected before any of this is exercised. What makes the row keyless is the
+  // blocking key being EMPTY, not the column being absent.
+  const keylessFixtures = {
+    customers: {
+      headers: ["שם", "טלפון", "אימייל"],
+      rows: [[`${MARK}לקוח ללא טלפון`, "", ""]],
+      count: () =>
+        owner.customer.count({
+          where: { businessId: bizA.id, name: `${MARK}לקוח ללא טלפון` },
+        }),
+    },
+    suppliers: {
+      headers: ["שם ספק", "מספר עוסק / ח.פ.", "טלפון"],
+      rows: [[`${MARK}ספק ללא חפ`, "", ""]],
+      count: () =>
+        owner.supplier.count({
+          where: { businessId: bizA.id, name: `${MARK}ספק ללא חפ` },
+        }),
+    },
+    leads: {
+      headers: ["שם", "טלפון", "אימייל"],
+      rows: [[`${MARK}ליד ללא טלפון`, "", ""]],
+      // A Lead carries the person's name in `customerName`, not `name`.
+      count: () =>
+        owner.lead.count({
+          where: { businessId: bizA.id, customerName: `${MARK}ליד ללא טלפון` },
+        }),
+    },
+    inventory: {
+      headers: ["שם פריט", "יחידת מידה", "מק״ט", "ברקוד"],
+      rows: [[`${MARK}פריט ללא מקט`, "יחידה", "", ""]],
+      count: () =>
+        owner.inventoryItem.count({
+          where: { businessId: bizA.id, name: `${MARK}פריט ללא מקט` },
+        }),
+    },
+  };
+
+  for (const [domainId, fixture] of Object.entries(keylessFixtures)) {
+    const firstRun = await runImport(domainId, fixture.headers, fixture.rows);
+    const afterFirst = await fixture.count();
+    // The retry an owner actually performs: a NEW preview, therefore possibly
+    // NEW decisions, then execute. No token carried over from the first run.
+    const secondRun = await runImport(domainId, fixture.headers, fixture.rows);
+    const afterSecond = await fixture.count();
+
+    ok(
+      `F-01 ${domainId}: the first import of a keyless row creates it`,
+      firstRun.result.ok && afterFirst === 1,
+      `rows=${afterFirst} counts=${JSON.stringify(firstRun.result?.counts)}`
+    );
+    ok(
+      `F-01 ${domainId}: re-uploading the same file resolves to the SAME run`,
+      secondRun.result.ok &&
+        secondRun.result.importRunId === firstRun.result.importRunId,
+      `first=${firstRun.result.importRunId} second=${secondRun.result.importRunId}`
+    );
+    // THE assertion. Not the reported counters — a resolved replay deliberately
+    // reports what the ORIGINAL run did — but the rows actually in the table.
+    // This is the exact wrong-row-twice that F-01 produced.
+    ok(
+      `F-01 ${domainId}: and writes NOTHING the second time`,
+      secondRun.result.ok && afterSecond === 1,
+      `rows after second run = ${afterSecond}`
+    );
+  }
+
+  // Two identical keyless rows in ONE file are two different source rows, and
+  // both are legitimate. Idempotency must not merge them — only stop either
+  // being written twice.
+  const twinHeaders = ["שם", "טלפון", "אימייל"];
+  const twinRows = [
+    [`${MARK}תאומים`, "", ""],
+    [`${MARK}תאומים`, "", ""],
+  ];
+  const countTwins = () =>
+    owner.customer.count({
+      where: { businessId: bizA.id, name: `${MARK}תאומים` },
+    });
+  const twinsFirst = await runImport("customers", twinHeaders, twinRows);
+  const twinsAfterFirst = await countTwins();
+  ok(
+    "F-01 twins: two identical keyless rows both import the first time",
+    twinsFirst.result.ok && twinsAfterFirst === 2,
+    `rows=${twinsAfterFirst} counts=${JSON.stringify(twinsFirst.result?.counts)}`
+  );
+  const twinsAgain = await runImport("customers", twinHeaders, twinRows);
+  const twinsAfterSecond = await countTwins();
+  ok(
+    "F-01 twins: and neither is written again on a retry",
+    twinsAgain.result.ok && twinsAfterSecond === 2,
+    `rows after second run = ${twinsAfterSecond}`
+  );
+
+  // The mapping is the other half of the identity, and it must still count.
+  // The SAME bytes read through a DIFFERENT mapping are a different import —
+  // the owner has said these columns mean something else — so it must open its
+  // own run and do its own work. Narrowing the retry key to (business, file,
+  // mapping) must not go so far that it swallows this case.
+  const remapHeaders = ["שם", "טלפון", "אימייל"];
+  const remapRows = [[`${MARK}מיפוי שונה`, "", ""]];
+  const countRemap = () =>
+    owner.customer.count({
+      where: { businessId: bizA.id, name: `${MARK}מיפוי שונה` },
+    });
+  const remapFirst = await runImport("customers", remapHeaders, remapRows);
+  const remapSecond = await runImport(
+    "customers",
+    remapHeaders,
+    remapRows,
+    bizA.id,
+    // Same bytes. Only "שם" is required, so dropping the two optional columns
+    // is a VALID mapping — and a different one.
+    { 0: "שם" }
+  );
+  const remapRows2 = await countRemap();
+  ok(
+    "F-01 mapping: the same bytes under a DIFFERENT mapping open a NEW run",
+    remapSecond.result.ok &&
+      remapSecond.result.importRunId !== remapFirst.result.importRunId,
+    `first=${remapFirst.result.importRunId} second=${remapSecond.result.importRunId}`
+  );
+  ok(
+    "F-01 mapping: and it does real work rather than resolving as a replay",
+    remapSecond.result.ok && remapRows2 === 2,
+    `rows=${remapRows2}`
+  );
+
+  // Two executes racing: a double-click, two tabs, a network retry. The retry
+  // key is a unique index, so exactly one INSERT wins and the loser resolves to
+  // it; the marker primary key then holds each source row to one business write.
+  const raceHeaders = ["שם", "טלפון", "אימייל"];
+  const raceRows = [[`${MARK}מרוץ`, "", ""]];
+  const raceBytes = csv(raceHeaders, raceRows);
+  const raceBase = {
+    businessId: bizA.id,
+    userId: userA.id,
+    domainId: "customers",
+    filename: `${MARK}race.csv`,
+    bytes: raceBytes,
+    sheetName: null,
+    mapping: mappingFor(raceHeaders),
+  };
+  const racePreview = await buildImportPreview(raceBase);
+  const raceCall = () =>
+    executeImport({
+      ...raceBase,
+      decisions: racePreview.decisions,
+      previewToken: racePreview.previewToken,
+    });
+  const raced = await Promise.all([raceCall(), raceCall()]);
+  const racedCreated = raced.reduce(
+    (n, r) => n + (r.ok ? r.counts.createdCount ?? 0 : 0),
+    0
+  );
+  // The rows in the table, not the reported totals: the call that loses the
+  // race resolves to the winner's run and reports the winner's counts, so the
+  // sum is 2 even when exactly one row was written.
+  const racedRows = await owner.customer.count({
+    where: { businessId: bizA.id, name: `${MARK}מרוץ` },
+  });
+  ok(
+    "F-01 concurrency: two simultaneous executes create the row exactly once",
+    racedRows === 1,
+    `rows=${racedRows} (reported createdCount across both = ${racedCreated}, which double-counts because the loser replays the winner's totals)`
+  );
+  ok(
+    "F-01 concurrency: and both calls report the same run",
+    raced[0].ok && raced[1].ok && raced[0].importRunId === raced[1].importRunId,
+    `${raced[0].importRunId} vs ${raced[1].importRunId}`
+  );
+
+  // The key itself. It must not move when the decisions do, and must move when
+  // the business, the bytes or the mapping do.
+  const { retryKeyOf } = await import(
+    "@/lib/data-transfer/import/execute/import-run-store"
+  );
+  const keyBase = { businessId: bizA.id, contentHash: "c", mappingHash: "m" };
+  ok(
+    "F-01 key: the same business, file and mapping always give the same key",
+    retryKeyOf(keyBase) === retryKeyOf({ ...keyBase })
+  );
+  ok(
+    "F-01 key: a different file gives a different key",
+    retryKeyOf(keyBase) !== retryKeyOf({ ...keyBase, contentHash: "c2" })
+  );
+  ok(
+    "F-01 key: a different mapping gives a different key",
+    retryKeyOf(keyBase) !== retryKeyOf({ ...keyBase, mappingHash: "m2" })
+  );
+  ok(
+    "F-01 key: another tenant with the same file gets a different key",
+    retryKeyOf(keyBase) !== retryKeyOf({ ...keyBase, businessId: bizB.id })
+  );
+
+  /* ══ F-01 — the deliberate override is not a retry ════════════════════════
+   *
+   * Narrowing the identity to (business, file, mapping) fixed the retry and
+   * broke the one case where the same file, mapped the same way, legitimately
+   * means MORE: the owner looking at a duplicate and choosing to take it
+   * anyway. A business may genuinely hold two supplier records for one legal
+   * entity, which is why the policy marks that collision overridable.
+   *
+   * So the ACTION carries an id. The server only honours it where it finds a
+   * real override, and reads it back from its own signed token — an id on an
+   * ordinary import is worth exactly nothing, which is the property that keeps
+   * the F-01 fix intact while this one works.
+   */
+
+  const ovHeaders = ["שם ספק", "מספר עוסק / ח.פ.", "טלפון"];
+  const ovRows = [[`${MARK}ספק עוקף`, "598765432", "0502222222"]];
+  const countOv = () =>
+    owner.supplier.count({
+      where: { businessId: bizA.id, name: `${MARK}ספק עוקף` },
+    });
+
+  /** Preview then execute, carrying the owner's own decisions and action id. */
+  async function runOverride(decisionsFor, overrideActionId) {
+    const base = {
+      businessId: bizA.id,
+      userId: userA.id,
+      domainId: "suppliers",
+      filename: `${MARK}override.csv`,
+      bytes: csv(ovHeaders, ovRows),
+      sheetName: null,
+      mapping: mappingFor(ovHeaders),
+    };
+    const preview = await buildImportPreview({
+      ...base,
+      decisions: decisionsFor,
+      overrideActionId,
+    });
+    if (!preview.ok) return { preview, result: { ok: false, code: preview.code } };
+    const result = await executeImport({
+      ...base,
+      decisions: preview.decisions,
+      previewToken: preview.previewToken,
+    });
+    return { preview, result };
+  }
+
+  const ovFirst = await runOverride(null, null);
+  ok(
+    "F-01 override: the supplier imports the first time",
+    ovFirst.result.ok && (await countOv()) === 1,
+    JSON.stringify(ovFirst.result?.counts)
+  );
+
+  const ovOffered = await runOverride(null, null);
+  ok(
+    "F-01 override: re-previewing the same file now offers the override",
+    ovOffered.preview.ok && ovOffered.preview.overridableRows.length === 1,
+    JSON.stringify(ovOffered.preview?.overridableRows)
+  );
+
+  // 6. An id with NO override behind it must change nothing. This is the
+  //    attack: if a caller could mint identity at will, every replay would
+  //    become a fresh import and F-01 would be back with better manners.
+  const forged = await runOverride(null, "f".repeat(32));
+  ok(
+    "F-01 override: an action id on an ORDINARY import resolves to the same run",
+    forged.result.ok && forged.result.importRunId === ovFirst.result.importRunId,
+    `first=${ovFirst.result.importRunId} forged=${forged.result.importRunId}`
+  );
+  ok(
+    "F-01 override: and writes nothing",
+    (await countOv()) === 1,
+    `rows=${await countOv()}`
+  );
+
+  // A REAL override with no action id is refused, out loud, before anything
+  // executable exists. Falling through to "ordinary import" would resolve the
+  // owner's explicit choice to the run that already exists and drop it without
+  // a word — which is the defect class this whole change removes.
+  const ACTION_A = "a".repeat(32);
+  const overrideDecisions = { 1: "CREATE" };
+
+  const noId = await runOverride(overrideDecisions, null);
+  ok(
+    "F-01 override: a real override with NO action id is refused",
+    noId.preview.ok === false && noId.preview.code === "OVERRIDE_ACTION_REQUIRED",
+    JSON.stringify(noId.preview.ok ? "preview succeeded" : noId.preview.code)
+  );
+  ok(
+    "F-01 override: the refusal mints no executable token",
+    noId.preview.ok === false && noId.preview.previewToken === undefined
+  );
+  ok(
+    "F-01 override: and nothing was written",
+    (await countOv()) === 1,
+    `rows=${await countOv()}`
+  );
+
+  const badId = await runOverride(overrideDecisions, "too-short");
+  ok(
+    "F-01 override: a malformed action id is refused the same way",
+    badId.preview.ok === false && badId.preview.code === "OVERRIDE_ACTION_REQUIRED",
+    JSON.stringify(badId.preview.ok ? "preview succeeded" : badId.preview.code)
+  );
+  ok(
+    "F-01 override: and that wrote nothing either",
+    (await countOv()) === 1,
+    `rows=${await countOv()}`
+  );
+
+  // 8. The real thing: the owner overrides the row, with an action id.
+  const ovSecond = await runOverride(overrideDecisions, ACTION_A);
+  ok(
+    "F-01 override: a genuine override opens a NEW run",
+    ovSecond.result.ok &&
+      ovSecond.result.importRunId !== ovFirst.result.importRunId,
+    `first=${ovFirst.result.importRunId} override=${ovSecond.result.importRunId}`
+  );
+  ok(
+    "F-01 override: and the second record the owner asked for exists",
+    (await countOv()) === 2,
+    `rows=${await countOv()}`
+  );
+
+  // 9. Retrying THAT action — same decisions, same id — must add nothing.
+  const ovRetry = await runOverride(overrideDecisions, ACTION_A);
+  ok(
+    "F-01 override: retrying the same action resolves to the same run",
+    ovRetry.result.ok &&
+      ovRetry.result.importRunId === ovSecond.result.importRunId,
+    `override=${ovSecond.result.importRunId} retry=${ovRetry.result.importRunId}`
+  );
+  ok(
+    "F-01 override: and creates no third record",
+    (await countOv()) === 2,
+    `rows=${await countOv()}`
+  );
+
+  // 4. Two submissions of the same action at once. One record, not two.
+  const ACTION_C = "c".repeat(32);
+  const racedOv = await Promise.all([
+    runOverride(overrideDecisions, ACTION_C),
+    runOverride(overrideDecisions, ACTION_C),
+  ]);
+  ok(
+    "F-01 override: two simultaneous submissions of one action write once",
+    (await countOv()) === 3,
+    `rows=${await countOv()}`
+  );
+  ok(
+    "F-01 override: and both report the same run",
+    racedOv[0].result.ok &&
+      racedOv[1].result.ok &&
+      racedOv[0].result.importRunId === racedOv[1].result.importRunId,
+    `${racedOv[0].result.importRunId} vs ${racedOv[1].result.importRunId}`
+  );
+
+  // 5. A LATER, separate decision to override again is a new action.
+  const ovAgain = await runOverride(overrideDecisions, "b".repeat(32));
+  ok(
+    "F-01 override: a NEW action id overrides again, on purpose",
+    ovAgain.result.ok && ovAgain.result.importRunId !== ovSecond.result.importRunId,
+    `${ovSecond.result.importRunId} vs ${ovAgain.result.importRunId}`
+  );
+  ok(
+    "F-01 override: and that record exists too",
+    (await countOv()) === 4,
+    `rows=${await countOv()}`
+  );
+
+  // 7. An id cannot buy a decision the policy refuses. Customers dedupe on
+  //    phone and that collision is NOT overridable, so CREATE is not on offer.
+  const blockedHeaders = ["שם", "טלפון", "אימייל"];
+  const blockedRows = [[`${MARK}לקוח חסום`, "0503333333", ""]];
+  const blockedBase = {
+    businessId: bizA.id,
+    userId: userA.id,
+    domainId: "customers",
+    filename: `${MARK}blocked.csv`,
+    bytes: csv(blockedHeaders, blockedRows),
+    sheetName: null,
+    mapping: mappingFor(blockedHeaders),
+  };
+  await runImport("customers", blockedHeaders, blockedRows);
+  const blockedPreview = await buildImportPreview({
+    ...blockedBase,
+    decisions: { 1: "CREATE" },
+    overrideActionId: "d".repeat(32),
+  });
+  ok(
+    "F-01 override: an action id cannot buy a decision the policy refuses",
+    blockedPreview.ok === false && blockedPreview.code === "DECISIONS_INVALID",
+    JSON.stringify(blockedPreview.ok ? blockedPreview.overridableRows : blockedPreview.code)
+  );
+  ok(
+    "F-01 override: and the blocked customer was not written twice",
+    (await owner.customer.count({
+      where: { businessId: bizA.id, name: `${MARK}לקוח חסום` },
+    })) === 1
   );
 
   /* ── cleanup ─────────────────────────────────────────────────────────── */

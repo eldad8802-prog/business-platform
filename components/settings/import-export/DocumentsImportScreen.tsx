@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { SettingsSection } from "@/components/settings/SettingsSection";
+import { newOverrideActionId } from "@/components/settings/import-export/override-action-id";
 import { DocumentsExportPanel } from "@/components/settings/import-export/DocumentsExportPanel";
 
 /**
@@ -123,6 +124,8 @@ export function DocumentsImportScreen() {
   const [files, setFiles] = useState<File[]>([]);
   const [result, setResult] = useState<AnalyzeResult | null>(null);
   const [decisions, setDecisions] = useState<Record<number, FileAction>>({});
+  // Which deliberate "add it anyway" action the current selection is.
+  const [overrideActionId, setOverrideActionId] = useState<string | null>(null);
   const [stage, setStage] = useState<"check" | "confirm" | "done">("check");
   const [executed, setExecuted] = useState<ExecuteResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -173,6 +176,7 @@ export function DocumentsImportScreen() {
     const body = new FormData();
     for (const f of chosen) body.append("files", f);
     if (withDecisions) body.append("decisions", JSON.stringify(withDecisions));
+    if (overrideActionId) body.append("overrideActionId", overrideActionId);
     const data = await post("/api/data-transfer/documents/analyze", body);
     if (!data) return null;
     const next = data as AnalyzeResult;
@@ -345,14 +349,17 @@ export function DocumentsImportScreen() {
                       <input
                         type="checkbox"
                         checked={decisions[f.index] === "CREATE_ANYWAY"}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          // A new decision about overriding, so a new action
+                          // identity. Retries of THIS decision reuse it.
+                          setOverrideActionId(newOverrideActionId());
                           setDecisions((prev) => ({
                             ...prev,
                             [f.index]: e.target.checked
                               ? "CREATE_ANYWAY"
                               : "SKIP",
-                          }))
-                        }
+                          }));
+                        }}
                       />
                       הוסיפו בכל זאת עותק נוסף
                     </label>

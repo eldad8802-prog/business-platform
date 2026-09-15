@@ -177,6 +177,8 @@ model Business {
   inboundEmailAddresses         InboundEmailAddress[]
   inboundEmailMessages          InboundEmailMessage[]
   inboundEmailAttachmentImports InboundEmailAttachmentImport[]
+  inboundEmailAuthorizedSenders InboundEmailAuthorizedSender[]
+  inboundEmailSenderChallenges  InboundEmailSenderChallenge[]
   documents                     FinancialDocument[]
   financialRecords              FinancialRecord[]
   financialEvents               FinancialEvent[]
@@ -2954,13 +2956,33 @@ model PaymentTransaction {
 /// that closes that gap: routing columns ONLY — no amount, no customer, no
 /// description, no payload, nothing a leak could turn into business data.
 /// Written inside the same tenant transaction that stores providerRequestId.
+///
+/// TWO WAYS IN, because providers correlate in two different ways.
+///
+///   - `providerRequestId` — the provider issues a session id at checkout and
+///     echoes it on the callback. CardCom and PayPlus work this way.
+///   - `callbackSecretHash` — the provider issues NOTHING at checkout, so the
+///     only thing tying a callback to a request is a high-entropy secret WE
+///     generated and embedded in the callback URL handed to the provider.
+///     SUMIT works this way: its BeginRedirect returns a URL and no id at all.
+///
+/// Both are routing columns and neither is authority. A row here says which
+/// tenant an inbound signal belongs to; what actually happened is still
+/// established by asking the provider.
+///
+/// Only the HASH of the callback secret is stored. The secret itself lives in
+/// the URL held by the provider and is never persisted, so a database leak
+/// yields nothing a caller could present. `providerRequestId` is nullable
+/// because a provider may genuinely have none, and NULL is distinct in
+/// Postgres, so many such rows coexist under the unique constraint.
 model PaymentProviderRouting {
-  id                Int             @id @default(autoincrement())
-  provider          PaymentProvider
-  providerRequestId String
-  paymentRequestId  Int             @unique
-  businessId        Int
-  createdAt         DateTime        @default(now())
+  id                 Int             @id @default(autoincrement())
+  provider           PaymentProvider
+  providerRequestId  String?
+  callbackSecretHash String?         @unique
+  paymentRequestId   Int             @unique
+  businessId         Int
+  createdAt          DateTime        @default(now())
 
   @@unique([provider, providerRequestId])
   @@index([businessId])
@@ -3018,6 +3040,12 @@ enum PaymentProvider {
   /// The second real provider; ships DISABLED as a capability until its sandbox
   /// end-to-end is proven.
   PAYPLUS
+  /// SUMIT (formerly OfficeGuy), clearing through the Upay aggregator or a
+  /// direct terminal. The first provider that issues NO session identifier at
+  /// checkout: correlation is a Dubiz-generated value carried through, and
+  /// settlement is established by querying SUMIT rather than by trusting a
+  /// callback. Ships DISABLED as a capability.
+  SUMIT
 }
 
 enum PaymentRequestStatus {
@@ -3442,11 +3470,24 @@ model ImportRun {
   rows                      ImportRunRow[]
   historicalFiscalDocuments HistoricalFiscalDocument[]
 
-  /// THE idempotency key. The same file, mapped the same way, decided the same
-  /// way, is ONE run — a second execute finds this row instead of writing again.
+  /// THE retry identity: sha256 over businessId + contentHash + mappingHash.
+  ///
+  /// `decisionsHash` used to be part of this key and had to leave it. Decisions
+  /// are derived from the database — a row that collides defaults to SKIP, one
+  /// that does not defaults to CREATE — so the FIRST import changes what the
+  /// second one decides. The hash moved, a second run opened, and a row with no
+  /// business key was written twice. An idempotency key must never be computed
+  /// from state the operation itself mutates.
+  ///
+  /// Nullable because every run predating this column keeps NULL, and PostgreSQL
+  /// treats NULLs as distinct: the unique index builds on any existing data,
+  /// including whatever collisions F-01 already left, and needs no backfill.
+  /// Every run written from here on carries a key.
+  retryKey                  String?                    @unique
+
   /// It survives the 30-day row cleanup, so a completed import can never become
   /// silently replayable once its retry scaffolding is gone.
-  @@unique([businessId, contentHash, mappingHash, decisionsHash])
+  @@index([businessId, contentHash, mappingHash])
   @@index([businessId, status])
   @@index([businessId, startedAt])
 }
@@ -3803,9 +3844,12 @@ model InboundEmailAddress {
 
   status InboundEmailAddressStatus @default(ACTIVE)
 
-  /// Set when the first message actually arrives, which is the only honest
-  /// proof that forwarding was configured correctly.
-  verifiedAt DateTime?
+  /// When the first message actually reached this address. It is provenance,
+  /// not trust: it says forwarding was configured, and says NOTHING about who
+  /// may send here. Authorisation of a SENDER lives in
+  /// InboundEmailAuthorizedSender and is evaluated per message. The old name
+  /// `verifiedAt` read as though arrival verified somebody, which it does not.
+  firstMessageAt DateTime?
 
   revokedAt      DateTime?
   lastReceivedAt DateTime?
@@ -3849,6 +3893,35 @@ model InboundEmailMessage {
   subject    String?
   receivedAt DateTime?
 
+  /// The RFC5322 Message-ID header, kept to correlate with what the sender and
+  /// the forwarding mailbox each believe they sent. Sender-controlled, so it is
+  /// provenance and never an idempotency key — `providerMessageId` is that.
+  messageIdHeader String?
+
+  /// # Authorisation, recorded mechanism-neutrally
+  ///
+  /// The OUTCOME is stored separately from WHAT MATCHED, deliberately. No value
+  /// here may be read as "this input proves authorisation": the forwarding
+  /// matcher has not been measured against real SES deliveries yet, and an enum
+  /// that named a mechanism as authoritative would freeze a guess into the
+  /// schema. `authorizationMatchedSource` is therefore free text, describing
+  /// which input the evaluator compared, not what that input is worth.
+  ///
+  /// NOT_EVALUATED is the honest default while no evaluator exists.
+  authorizationOutcome InboundEmailAuthorizationOutcome @default(NOT_EVALUATED)
+
+  /// The authorised-sender row that matched, when one did. Plain reference to
+  /// the sender id rather than the tenant composite: revoking or removing a
+  /// sender must never cascade away the provenance of messages it explains, and
+  /// a composite here would put a RESTRICT in the path of Business cascade.
+  /// Tenant safety is this row own businessId under forced row-level security.
+  authorizedSenderId Int?
+
+  /// The normalised value the evaluator actually compared, and where it read it
+  /// from. Both NULL until an evaluator exists.
+  authorizationMatchedValue  String?
+  authorizationMatchedSource String?
+
   spfVerdict   InboundEmailAuthVerdict @default(UNKNOWN)
   dkimVerdict  InboundEmailAuthVerdict @default(UNKNOWN)
   dmarcVerdict InboundEmailAuthVerdict @default(UNKNOWN)
@@ -3871,12 +3944,14 @@ model InboundEmailMessage {
 
   business    Business                       @relation(fields: [businessId], references: [id], onDelete: Cascade)
   address     InboundEmailAddress            @relation(fields: [businessId, addressId], references: [businessId, id], onDelete: Cascade)
-  attachments InboundEmailAttachmentImport[]
+  authorizedSender InboundEmailAuthorizedSender? @relation(fields: [authorizedSenderId], references: [id], onDelete: SetNull)
+  attachments      InboundEmailAttachmentImport[]
 
   @@unique([businessId, providerMessageId])
   @@unique([businessId, id])
   @@index([businessId, createdAt])
   @@index([status, createdAt])
+  @@index([authorizedSenderId])
 }
 
 /// Per-attachment ledger: the record of one file's journey into Documents.
@@ -3899,6 +3974,12 @@ model InboundEmailAttachmentImport {
 
   businessId Int
   messageId  Int
+
+  /// Position of this part within the parsed message, zero-based. Nullable
+  /// because it is added to a table that already exists: no default is invented
+  /// for rows written before the parser recorded it, and a wrong 0 would be
+  /// worse than an absent answer.
+  attachmentIndex Int?
 
   /// Filename as declared by the sender. Display and triage only — stored
   /// object names are derived from the verified container, never from this.
@@ -3943,6 +4024,123 @@ model InboundEmailAttachmentImport {
 
   /// Same-content-twice is a skip, not an error, and the database says so.
   @@unique([businessId, contentHashSha256])
+  /// One row per part position per message. Same-content-twice is already a
+  /// skip above; this catches the same POSITION being imported twice, which is
+  /// a redelivery bug rather than a duplicate file.
+  @@unique([businessId, messageId, attachmentIndex])
   @@index([businessId, messageId])
   @@index([documentId])
+}
+
+/// Whether a sender address has completed the reply-challenge, and nothing more.
+/// VERIFIED means the holder of that mailbox answered a challenge we sent to it.
+/// It does not mean the address is trustworthy, only that it is reachable and
+/// that somebody with access to it asked to be listed.
+enum InboundEmailSenderStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  REVOKED
+}
+
+/// The RESULT of evaluating a message against the authorised senders of its
+/// tenant. Deliberately says nothing about HOW: no member names a header, an
+/// envelope field or any other mechanism, because naming one here would assert
+/// that matching it is sufficient. That assertion has not been earned yet.
+enum InboundEmailAuthorizationOutcome {
+  /// No evaluator has run. The honest state for every row written before one
+  /// exists, which is every row this migration can produce.
+  NOT_EVALUATED
+  AUTHORIZED
+  UNAUTHORIZED
+  /// Evaluated, and the inputs did not support a decision either way.
+  INDETERMINATE
+}
+
+/// An address the owner has asked to be able to forward FROM, beyond whatever
+/// the runtime later decides about the business own users.
+///
+/// This table is a list of claims, not a list of proofs. A row exists the moment
+/// an owner names an address; it becomes VERIFIED only once somebody holding that
+/// mailbox answers a challenge. Nothing here authorises a message on its own —
+/// that is a per-message decision recorded on InboundEmailMessage.
+///
+/// `normalizedEmail` is stored already canonicalised. The canonicalisation itself
+/// is service code that does not exist yet; the column records its OUTPUT so that
+/// the uniqueness below means what it appears to mean.
+model InboundEmailAuthorizedSender {
+  id Int @id @default(autoincrement())
+
+  businessId Int
+
+  /// Canonicalised by the future service before it is written. Never compared
+  /// case-sensitively or with display formatting.
+  normalizedEmail String
+
+  status InboundEmailSenderStatus @default(PENDING_VERIFICATION)
+
+  /// When the challenge for this address was answered correctly.
+  verifiedAt DateTime?
+  revokedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The user who added it. Scalar without a relation, matching
+  /// InboundEmailAddress: the inbound family records who acted without taking a
+  /// foreign key on User.
+  createdByUserId Int?
+
+  business   Business                      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  challenges InboundEmailSenderChallenge[]
+  messages   InboundEmailMessage[]
+
+  /// One claim per address per tenant. The SAME address may be listed by two
+  /// different businesses — a bookkeeper forwards for several clients — so this
+  /// is deliberately not globally unique.
+  @@unique([businessId, normalizedEmail])
+
+  /// Composite so a child row cannot reference a sender across tenants.
+  @@unique([businessId, id])
+  @@index([businessId, status])
+}
+
+/// The reply-challenge issued to a claimed sender address.
+///
+/// # There is no plaintext column here, and there never may be
+///
+/// The challenge is a 160-bit CSPRNG value mailed to the claimed address. Only
+/// its hash is stored, for the same reason a password is not kept: a database
+/// read must not yield the ability to complete somebody else verification. The
+/// service that mints it holds the plaintext exactly long enough to send it.
+///
+/// The columns below are persistence for rules this migration does NOT implement:
+/// 24h expiry, single use, at most five failed attempts, and regeneration
+/// invalidating whatever came before. Rows accumulate rather than being
+/// overwritten, so a superseded challenge stays visible as history instead of
+/// disappearing.
+model InboundEmailSenderChallenge {
+  id Int @id @default(autoincrement())
+
+  /// Carried on the row itself so the tenant policy is the same shape as every
+  /// other table here, rather than a join away.
+  businessId         Int
+  authorizedSenderId Int
+
+  /// SHA-256 (hex, lowercase) of the challenge. Not unique: two tenants
+  /// colliding is astronomically unlikely and would be a false rejection, not a
+  /// security event, and the lookup is always by sender rather than by hash.
+  challengeHash String
+
+  expiresAt  DateTime
+  consumedAt DateTime?
+
+  failedAttempts Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  business         Business                     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  authorizedSender InboundEmailAuthorizedSender @relation(fields: [businessId, authorizedSenderId], references: [businessId, id], onDelete: Cascade)
+
+  @@index([businessId, authorizedSenderId])
+  @@index([expiresAt])
 }

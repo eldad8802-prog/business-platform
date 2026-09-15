@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { SettingsSection } from "@/components/settings/SettingsSection";
+import { newOverrideActionId } from "@/components/settings/import-export/override-action-id";
 
 /**
  * הגדרות → ייבוא וייצוא → ייבוא — the dry run.
@@ -147,6 +148,9 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
   // The owner's overrides ONLY. Everything else keeps the server's default, so
   // a row the owner never touched cannot drift when the file is re-derived.
   const [overrides, setOverrides] = useState<Record<number, RowAction>>({});
+  // Which deliberate override action the current selection is. Held so a retry
+  // of the same decision is a retry, and a new decision is a new action.
+  const [overrideActionId, setOverrideActionId] = useState<string | null>(null);
   const [result, setResult] = useState<ExecuteResult | null>(null);
 
   function resetFrom(step: "domain" | "file") {
@@ -249,6 +253,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
       }
       setPreview(data as Preview);
       setOverrides({});
+      setOverrideActionId(null);
       setResult(null);
     } catch {
       setError("שגיאת רשת — בדקו את החיבור ונסו שוב.");
@@ -285,6 +290,7 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
       if (sheet) bound.append("sheet", sheet);
       bound.append("mapping", JSON.stringify(mapping));
       bound.append("decisions", JSON.stringify(decisions));
+      if (overrideActionId) bound.append("overrideActionId", overrideActionId);
 
       const previewResponse = await fetch("/api/data-transfer/import/preview", {
         method: "POST",
@@ -728,13 +734,17 @@ export function ImportScreen({ domains }: { domains: readonly ImportDomainOption
                       {canImport ? (
                         <button
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
+                            // Touching an override is a new decision, so the
+                            // action it belongs to gets a new identity. Retries
+                            // of THIS decision reuse it; a later change does not.
+                            setOverrideActionId(newOverrideActionId());
                             setOverrides((prev) => ({
                               ...prev,
                               [row.rowNumber]:
                                 action === "CREATE" ? "SKIP" : "CREATE",
-                            }))
-                          }
+                            }));
+                          }}
                           className="mt-2 rounded-full border border-[var(--dz-border-subtle)] px-3 py-1.5 text-xs font-semibold text-[var(--dz-text-primary)] transition hover:bg-[var(--dz-surface-muted)]"
                         >
                           {action === "CREATE" ? "בכל זאת לדלג" : "לייבא בכל זאת"}

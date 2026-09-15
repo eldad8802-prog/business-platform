@@ -1,0 +1,29 @@
+-- Expand-only: add SUMIT to the PaymentProvider enum.
+--
+-- SUMIT (formerly OfficeGuy) is an Israeli business platform that clears either
+-- through the Upay aggregator or through a direct credit-company terminal. None
+-- of the existing values can stand in for it.
+--
+-- Safe/additive — no existing row, column or constraint changes, and no data
+-- rewrite. `ADD VALUE IF NOT EXISTS` is idempotent (Postgres 12+). Adding the
+-- value only makes the identity STORABLE; SUMIT ships as a DISABLED capability,
+-- so nothing can create a connection, a request or a webhook event against it
+-- until it is explicitly enabled in provider-availability.ts.
+--
+-- Same shape as 20260624150000_add_cardcom_payment_provider,
+-- 20260705120000_add_paypal_provider and 20260909020000_add_payplus_provider.
+--
+-- Deliberately alone in its own migration. `ALTER TYPE ... ADD VALUE` may not be
+-- used by other statements in the same transaction, and keeping it separate from
+-- the routing change in 20260915130100 means neither has to reason about the
+-- other's transaction boundary.
+--
+-- RENAMED from 20260915120000 during a base refresh: main landed
+-- 20260915120000_businessprofile_runtime_grants while this PR was open, and two
+-- migrations sharing a timestamp would leave their order decided by the
+-- alphabetical tie-break on the name rather than by intent. The SQL is
+-- unchanged; only the directory moved.
+--
+-- NOT applied to Production by this change. Production application goes through
+-- the repository's gated release-migrate flow.
+ALTER TYPE "PaymentProvider" ADD VALUE IF NOT EXISTS 'SUMIT';

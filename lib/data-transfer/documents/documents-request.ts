@@ -23,7 +23,17 @@ import type {
 } from "@/lib/data-transfer/documents/batch-analyze";
 
 export type BatchFormResult =
-  | { ok: true; files: IncomingFile[]; decisions: DocumentDecisions | null }
+  | {
+      ok: true;
+      files: IncomingFile[];
+      decisions: DocumentDecisions | null;
+      /**
+       * The owner's id for ONE deliberate CREATE_ANYWAY action. Carried through
+       * unvalidated on purpose — it is a claim, and the analyze route decides
+       * whether it earns anything. See `import/execute/override-action.ts`.
+       */
+      overrideActionId: string | null;
+    }
   | { ok: false; code: string; error: string; status: 400 | 413 };
 
 const ACTIONS: readonly string[] = ["CREATE", "CREATE_ANYWAY", "SKIP"];
@@ -107,5 +117,8 @@ export async function readDocumentBatchForm(
     }
   }
 
-  return { ok: true, files, decisions };
+  const rawAction = form.get("overrideActionId");
+  const overrideActionId = typeof rawAction === "string" ? rawAction : null;
+
+  return { ok: true, files, decisions, overrideActionId };
 }

@@ -66,6 +66,15 @@ export type HistoricalPreviewFacts = {
   decisionsHash: string;
   /** SHA-256 of the historical records the analysis matched. */
   evidenceFingerprint: string;
+  /**
+   * The server's own attestation that this preview carried a GENUINE override
+   * — a CREATE_ANYWAY the owner chose — and which deliberate override action
+   * it belongs to. Absent on an ordinary preview.
+   *
+   * A hash, never the caller's raw id: an envelope is signed, not encrypted.
+   * See `import/execute/override-action.ts` for the rule that puts it here.
+   */
+  overrideActionHash?: string | null;
 };
 
 export function issueHistoricalPreviewToken(
@@ -100,7 +109,9 @@ export function verifyHistoricalPreviewToken(
     typeof payload.analysisHash !== "string" ||
     typeof payload.decisionsHash !== "string" ||
     typeof payload.evidenceFingerprint !== "string" ||
-    !Number.isInteger(payload.rowCount)
+    !Number.isInteger(payload.rowCount) ||
+    (payload.overrideActionHash != null &&
+      typeof payload.overrideActionHash !== "string")
   ) {
     return { ok: false, reason: "MALFORMED" };
   }
@@ -119,6 +130,7 @@ export function verifyHistoricalPreviewToken(
       rowCount: payload.rowCount,
       decisionsHash: payload.decisionsHash,
       evidenceFingerprint: payload.evidenceFingerprint,
+      overrideActionHash: payload.overrideActionHash ?? null,
     },
     expiresAt: envelope.expiresAt,
   };
