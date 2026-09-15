@@ -282,31 +282,72 @@ async function main() {
     JSON.stringify(skipRun.execute?.totals)
   );
 
-  const overridePreview = await runWithTenantContext({ businessId: A }, () =>
-    buildHistoricalPreview({
-      businessId: A,
-      userId: 1,
-      filename: "history.xlsx",
-      bytes: dupFile,
-      sheetName: null,
-      dateFormat: null,
-      decisions: { 1: "CREATE_ANYWAY" },
-    })
-  );
+  // The same file, the same mapping, and the owner deliberately adding the
+  // record anyway. That is not a retry, so it carries the id of THIS override
+  // action — exactly what the screen sends. Without one the server has nothing
+  // to tell a second deliberate act apart from a resubmission of the first,
+  // and resolves it to the run that already exists.
+  const OVERRIDE_ACTION = "i8b5overrideaction00000000000001";
+  const overrideOnce = (decisions, overrideActionId) =>
+    runWithTenantContext({ businessId: A }, () =>
+      buildHistoricalPreview({
+        businessId: A,
+        userId: 1,
+        filename: "history.xlsx",
+        bytes: dupFile,
+        sheetName: null,
+        dateFormat: null,
+        decisions,
+        overrideActionId,
+      })
+    );
+
+  const overridePreview = await overrideOnce({ 1: "CREATE_ANYWAY" }, OVERRIDE_ACTION);
   ok("an override makes the preview ready", overridePreview.ok && overridePreview.readyForExecute === true);
   if (overridePreview.ok && overridePreview.previewToken) {
-    const overrideRun = await executeHistoricalImport({
-      businessId: A,
-      userId: 1,
-      filename: "history.xlsx",
-      bytes: dupFile,
-      sheetName: null,
-      dateFormat: null,
-      decisions: overridePreview.decisions,
-      previewToken: overridePreview.previewToken,
-    });
+    const execOverride = async (preview) =>
+      executeHistoricalImport({
+        businessId: A,
+        userId: 1,
+        filename: "history.xlsx",
+        bytes: dupFile,
+        sheetName: null,
+        dateFormat: null,
+        decisions: preview.decisions,
+        previewToken: preview.previewToken,
+      });
+
+    const overrideRun = await execOverride(overridePreview);
     ok("CREATE_ANYWAY creates a SECOND record on purpose", overrideRun.ok && overrideRun.totals.created === 1, JSON.stringify(overrideRun));
     ok("and the business now holds two", (await countFor(A, "INV-100")) === 2);
+
+    // Retrying THAT action — same choice, same id — must add nothing. This is
+    // the half that keeps F-01 fixed while the override works.
+    const retryPreview = await overrideOnce({ 1: "CREATE_ANYWAY" }, OVERRIDE_ACTION);
+    if (retryPreview.ok && retryPreview.previewToken) {
+      const retryRun = await execOverride(retryPreview);
+      ok(
+        "retrying the SAME override action resolves to the same run",
+        retryRun.ok && retryRun.runId === overrideRun.runId,
+        `${overrideRun.runId} vs ${retryRun.runId}`
+      );
+      ok("and the business still holds two", (await countFor(A, "INV-100")) === 2);
+    }
+
+    // A LATER, separate decision to override again is a new action.
+    const againPreview = await overrideOnce(
+      { 1: "CREATE_ANYWAY" },
+      "i8b5overrideaction00000000000002"
+    );
+    if (againPreview.ok && againPreview.previewToken) {
+      const againRun = await execOverride(againPreview);
+      ok(
+        "a NEW override action adds another record, on purpose",
+        againRun.ok && againRun.runId !== overrideRun.runId,
+        `${overrideRun.runId} vs ${againRun.runId}`
+      );
+      ok("and the business now holds three", (await countFor(A, "INV-100")) === 3);
+    }
   }
 
   /* ── 3b. an approval given against a world that has since moved ──────── */
