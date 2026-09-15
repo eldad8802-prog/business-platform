@@ -351,7 +351,15 @@ async function main() {
 
     // Retrying THAT action — same choice, same id — must add nothing. This is
     // the half that keeps F-01 fixed while the override works.
+    //
+    // Asserted, never skipped: a preview that quietly came back unusable would
+    // take these proofs with it and the battery would still look green.
     const retryPreview = await overrideOnce({ 1: "CREATE_ANYWAY" }, OVERRIDE_ACTION);
+    ok(
+      "the retry of an override action still previews",
+      retryPreview.ok === true && !!retryPreview.previewToken,
+      JSON.stringify(retryPreview.ok ? retryPreview.notReadyReasons : retryPreview.code)
+    );
     if (retryPreview.ok && retryPreview.previewToken) {
       const retryRun = await execOverride(retryPreview);
       ok(
@@ -359,13 +367,22 @@ async function main() {
         retryRun.ok && retryRun.runId === overrideRun.runId,
         `${overrideRun.runId} vs ${retryRun.runId}`
       );
-      ok("and the business still holds two", (await countFor(A, "INV-100")) === 2);
+      ok(
+        "and the business still holds two",
+        (await countFor(A, "INV-100")) === 2,
+        String(await countFor(A, "INV-100"))
+      );
     }
 
     // A LATER, separate decision to override again is a new action.
     const againPreview = await overrideOnce(
       { 1: "CREATE_ANYWAY" },
       "i8b5overrideaction00000000000002"
+    );
+    ok(
+      "a second deliberate override still previews",
+      againPreview.ok === true && !!againPreview.previewToken,
+      JSON.stringify(againPreview.ok ? againPreview.notReadyReasons : againPreview.code)
     );
     if (againPreview.ok && againPreview.previewToken) {
       const againRun = await execOverride(againPreview);
@@ -374,7 +391,11 @@ async function main() {
         againRun.ok && againRun.runId !== overrideRun.runId,
         `${overrideRun.runId} vs ${againRun.runId}`
       );
-      ok("and the business now holds three", (await countFor(A, "INV-100")) === 3);
+      ok(
+        "and the business now holds three",
+        (await countFor(A, "INV-100")) === 3,
+        String(await countFor(A, "INV-100"))
+      );
     }
   }
 
