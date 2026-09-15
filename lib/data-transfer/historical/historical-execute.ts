@@ -238,6 +238,10 @@ export async function executeHistoricalImport(
       dateFormat: input.dateFormat ?? null,
       mapping: input.mapping ?? null,
       decisions: input.decisions,
+      // Replaying this server's own attestation from the verified token. The
+      // re-derivation is a check, not a new request from the owner, so it must
+      // not be asked again for the action id they already supplied.
+      attestedOverrideActionHash: facts.overrideActionHash ?? null,
     })
   );
   if (!preview.ok) {
@@ -278,7 +282,11 @@ export async function executeHistoricalImport(
   });
 
   const allRows = preview.rowsTruncated
-    ? await allPreviewRows(input, preview.decisions)
+    ? await allPreviewRows(
+        input,
+        preview.decisions,
+        facts.overrideActionHash ?? null
+      )
     : preview.rows;
 
   const run = await openOrResumeRun({
@@ -290,6 +298,10 @@ export async function executeHistoricalImport(
     decisionsHash: contractHash,
     sheetName: facts.sheetName,
     totalRows: allRows.length,
+    // From the verified token. A CREATE_ANYWAY is the owner adding a record on
+    // purpose from a file they have already imported, so it must not resolve to
+    // that earlier run — while a retry of that same decision still must.
+    overrideActionHash: facts.overrideActionHash ?? null,
   });
 
   const alreadyDone = await loadExecutedRowNumbers(input.businessId, run.id);
@@ -396,7 +408,9 @@ export async function executeHistoricalImport(
  */
 async function allPreviewRows(
   input: HistoricalExecuteInput,
-  decisions: HistoricalDecisions
+  decisions: HistoricalDecisions,
+  /** This server's own attestation, from the verified token. */
+  attestedOverrideActionHash: string | null
 ): Promise<HistoricalPreviewRow[]> {
   const full = await runWithTenantContext({ businessId: input.businessId }, () =>
     buildHistoricalPreview({
@@ -408,6 +422,7 @@ async function allPreviewRows(
       dateFormat: input.dateFormat ?? null,
       mapping: input.mapping ?? null,
       decisions,
+      attestedOverrideActionHash,
     })
   );
   if (!full.ok) return [];

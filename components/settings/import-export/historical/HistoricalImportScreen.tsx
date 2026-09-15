@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 
 import { SettingsSection } from "@/components/settings/SettingsSection";
+import { newOverrideActionId } from "@/components/settings/import-export/override-action-id";
 import {
   ACTION_BUTTON,
   ACTION_HELP,
@@ -275,6 +276,9 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
   // The owner's overrides ONLY. Every other row keeps the server's default, so
   // a row nobody touched cannot drift when the file is re-derived.
   const [overrides, setOverrides] = useState<Record<number, Action>>({});
+  // Which deliberate override action the current selection is. Held so a retry
+  // of the same decision is a retry, and a new decision is a new action.
+  const [overrideActionId, setOverrideActionId] = useState<string | null>(null);
   const [result, setResult] = useState<ExecuteResult | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const [failure, setFailure] = useState<Failure>(null);
@@ -461,6 +465,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
       body.append("mapping", JSON.stringify(mapping));
       body.append("expectedEvidence", analysis.duplicateEvidence.fingerprint);
       if (decisions) body.append("decisions", JSON.stringify(decisions));
+      if (overrideActionId) body.append("overrideActionId", overrideActionId);
 
       const response = await fetch("/api/data-transfer/import/historical/preview", {
         method: "POST",
@@ -517,6 +522,7 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
       if (dateFormat) bound.append("dateFormat", dateFormat);
       bound.append("mapping", JSON.stringify(mapping));
       bound.append("decisions", JSON.stringify(decisions));
+      if (overrideActionId) bound.append("overrideActionId", overrideActionId);
       if (analysis) {
         bound.append("expectedEvidence", analysis.duplicateEvidence.fingerprint);
       }
@@ -1097,12 +1103,16 @@ export function HistoricalImportScreen({ fields, headers, recordsHref }: Props) 
                                 key={action}
                                 type="button"
                                 disabled={busy !== null}
-                                onClick={() =>
+                                onClick={() => {
+                                  // A new decision about this row, so a new
+                                  // action identity. Retries of THIS decision
+                                  // reuse it and add nothing a second time.
+                                  setOverrideActionId(newOverrideActionId());
                                   setOverrides((prev) => ({
                                     ...prev,
                                     [row.sourceRowNumber]: action,
-                                  }))
-                                }
+                                  }));
+                                }}
                                 className={`min-h-[44px] rounded-full border px-4 text-xs font-semibold transition disabled:opacity-60 ${
                                   chosen === action
                                     ? "border-[var(--dz-accent)] text-[var(--dz-accent)]"

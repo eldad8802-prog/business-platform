@@ -199,15 +199,30 @@ export async function executeImport(
   // just created. A lost response would have left the owner unable to confirm
   // anything, told to re-run a check that now shows every row as a duplicate.
   //
-  // An existing run is proof that these exact decisions were already validated:
-  // the run's identity IS (file, mapping, decisions), and only a validated set
-  // is ever allowed to create one.
+  // An existing run is proof that this file was already executed under a
+  // validated decision set: only a validated set is ever allowed to create one.
+  //
+  // F-01 made the identity narrower still. It used to include `decisionsHash`,
+  // and that reopened the same wound one layer up: the decisions THEMSELVES are
+  // derived from the database, so after the first import the second one decides
+  // differently, the key stops matching, and a fresh run is opened for a file
+  // that has already been imported. The identity is now (business, file,
+  // mapping) — the three things a retry cannot change.
+  //
+  // With ONE addition. An owner who chose CREATE on a row the policy would have
+  // skipped, and was allowed to, is not retrying anything: they are adding a
+  // record on purpose, from the same file. That action carries its own id, and
+  // it is read from the VERIFIED token rather than the request body — the
+  // server attested there that a genuine override was present. A caller that
+  // invents an id for an ordinary import changes nothing.
+
+  const overrideActionHash = facts.overrideActionHash ?? null;
 
   const existing = await findExistingRun({
     businessId: input.businessId,
     contentHash,
     mappingHash,
-    decisionsHash,
+    overrideActionHash,
   });
 
   if (existing && existing.status !== "EXECUTING") {
@@ -256,6 +271,7 @@ export async function executeImport(
     decisionsHash,
     sheetName: derived.sheetName,
     totalRows: derived.counts.totalRows,
+    overrideActionHash,
   });
 
   if (!run.created && run.status !== "EXECUTING") {

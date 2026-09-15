@@ -35,6 +35,7 @@ import {
   type HistoricalAnalyzedRowWithDuplicates,
 } from "@/lib/data-transfer/historical/historical-analyze-duplicates";
 import type { HistoricalAnalyzeInput } from "@/lib/data-transfer/historical/historical-analyze";
+import { attestOverrideAction } from "@/lib/data-transfer/import/execute/override-action";
 import {
   allowedActionsFor,
   blockingReasons,
@@ -150,6 +151,25 @@ export type HistoricalPreviewInput = HistoricalAnalyzeInput & {
   userId: number;
   /** The owner's choices, or null on the first call. */
   decisions?: HistoricalDecisions | null;
+  /**
+   * The id of ONE deliberate CREATE_ANYWAY action, when the owner is taking
+   * one. A claim, and treated as one: it reaches the token only if a genuine
+   * override is actually present. See `import/execute/override-action.ts`.
+   */
+  overrideActionId?: string | null;
+  /**
+   * An attestation this server already made, replayed.
+   *
+   * Execute re-derives the preview to check that the approved decisions still
+   * hold, and that re-derivation is not a new request from the owner — it must
+   * not be asked for an action id the owner already supplied once. So execute
+   * passes back what it read from the VERIFIED token, and the requirement is
+   * satisfied by the attestation rather than by a fresh claim.
+   *
+   * Only the executor sets this, and only from a verified token. A route must
+   * never populate it from a request.
+   */
+  attestedOverrideActionHash?: string | null;
   /**
    * The fingerprint Analyze reported. When supplied and the database has since
    * moved, Preview refuses rather than rebuilding silently.
@@ -277,6 +297,31 @@ export async function buildHistoricalPreview(
 
   const decisions = resolveDecisions(decidable, submitted);
   const awaitingDecision = unresolvedRows(decidable, submitted);
+  // CREATE_ANYWAY is never a default — `defaultActionFor` cannot return it and
+  // `allowedActionsFor` will not offer it where there is nothing to override.
+  // So a row carrying it in the RESOLVED set is there because the owner put it
+  // there, and holds no trace of the database state this import changes.
+  const hasGenuineOverride = Object.values(decisions).some(
+    (action) => action === "CREATE_ANYWAY"
+  );
+  let overrideActionHash: string | null;
+  if (input.attestedOverrideActionHash !== undefined) {
+    // Execute replaying its own verified attestation. Not a new request, so
+    // not asked again for what the owner already supplied.
+    overrideActionHash = input.attestedOverrideActionHash;
+  } else {
+    const attestation = attestOverrideAction({
+      overrideActionId: input.overrideActionId,
+      hasGenuineOverride,
+    });
+    // Refused here, before a token exists. A CREATE_ANYWAY the server cannot
+    // tie to ONE action is not quietly downgraded to an ordinary import — that
+    // would resolve it to the run that already exists and drop the decision.
+    if (!attestation.ok) {
+      return { ok: false, code: attestation.code, message: attestation.message };
+    }
+    overrideActionHash = attestation.overrideActionHash;
+  }
   const byRow = new Map(analysis.rows.map((row) => [row.sourceRowNumber, row]));
 
   const rows: HistoricalPreviewRow[] = analysis.rows.map((row) => {
@@ -359,6 +404,7 @@ export async function buildHistoricalPreview(
           rowCount: rows.length,
           decisionsHash: decisionsHashOf(decisions),
           evidenceFingerprint,
+          overrideActionHash,
         },
         issuedAt
       )

@@ -231,12 +231,18 @@ jobs:
           RUNTIME_DATABASE_URL: ${{ env.RUNTIME_URL }}
           AUTH_TOKEN_SECRET: i8b5_ci_auth_secret_synthetic
         run: |
-          F="lib/data-transfer/historical/historical-execute.ts"
+          F="lib/data-transfer/import/execute/import-run-store.ts"
           cp "$F" "$F.bak"
-          # The contract hash is what makes the run resolvable. If it varied per
+          # The RETRY KEY is what makes the run resolvable. If it varied per
           # attempt, every retry would open a fresh ledger entry and the audit
           # trail would stop being one story.
-          perl -0pi -e 's/    decisionsHash: contractHash,/    decisionsHash: contractHash + String(Math.random()).slice(2, 10),/' "$F"
+          #
+          # This used to mutate `decisionsHash` instead, because the decisions
+          # WERE the identity. F-01 took them out of it — they were derived from
+          # the database the import itself changes — so mutating them no longer
+          # opens a second run and this proof stopped proving anything. It is
+          # aimed at what actually carries the identity now.
+          perl -0pi -e 's/    "import-retry:v1",/    "import-retry:v1" + String(Math.random()),/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npx tsx .i8b5/concurrency.mjs >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the same approval opened two runs"; exit 1

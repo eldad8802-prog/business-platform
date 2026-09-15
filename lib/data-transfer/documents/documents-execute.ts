@@ -290,19 +290,33 @@ export async function executeDocumentImport(
   // decisions as "this file already exists" — about files it created itself —
   // and the run could never be finished.
   //
-  // An existing run is proof these exact decisions were already validated: the
-  // run's identity IS (business, batch bytes, mapping sentinel, decisions), and
-  // only a validated decision set is ever allowed to create one.
+  // An existing run is proof this batch was already executed under a validated
+  // decision set, and only a validated set is ever allowed to open one.
+  //
+  // F-01 took `decisionsHash` out of that identity, here for the same reason as
+  // in the tabular executor and with the sharpness the paragraph above already
+  // names: the decisions are derived from the world the run itself changes, so
+  // keeping them in the key meant a re-upload of the SAME batch opened a SECOND
+  // run — and the row markers that made the first one safe belong to the first
+  // run's id, so they no longer applied. The identity is now (business, batch
+  // bytes, mapping sentinel): the three things a retry cannot change.
+  //
+  // Except when the owner says CREATE_ANYWAY. That is them choosing to take a
+  // file Dubiz already holds, from a batch they have already sent, and it is
+  // not a retry of anything. It carries its own action id, read from the
+  // VERIFIED token — analyze attested there that a real override was present,
+  // so an id attached to an ordinary batch changes nothing here.
 
   const contentHash = documentsBatchContentHash(contentHashes);
   const mappingHash = documentsMappingHash();
   const decisionsHash = documentDecisionsHash(input.decisions);
+  const overrideActionHash = facts.overrideActionHash ?? null;
 
   const existing = await ports.findExistingRun({
     businessId: input.businessId,
     contentHash,
     mappingHash,
-    decisionsHash,
+    overrideActionHash,
   });
 
   if (existing && existing.status !== "EXECUTING") {
@@ -352,6 +366,7 @@ export async function executeDocumentImport(
     // second place to say it.
     sheetName: null,
     totalRows: input.files.length,
+    overrideActionHash,
   });
 
   if (!run.created && run.status !== "EXECUTING") {

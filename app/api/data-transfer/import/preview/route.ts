@@ -4,6 +4,11 @@ import { isExportableDomainId } from "@/lib/data-transfer/export/export-registry
 import { buildImportPreview } from "@/lib/data-transfer/import/preview/preview-orchestrator";
 import { IMPORT_MAX_FILE_BYTES } from "@/lib/data-transfer/import/import-config";
 import type { ResolvedMapping } from "@/lib/data-transfer/import/mapping/mapping-proposer";
+import {
+  ROW_ACTIONS,
+  type RowAction,
+  type RowDecisions,
+} from "@/lib/data-transfer/import/execute/row-decisions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -102,6 +107,42 @@ export async function POST(req: Request) {
   const sheetRaw = form.get("sheet");
   const sheetName = typeof sheetRaw === "string" && sheetRaw ? sheetRaw : null;
 
+  // The owner's per-row choices on the SECOND preview call.
+  //
+  // The screen has always sent these and this route has always dropped them,
+  // so the preview returned the server's defaults and the override the screen
+  // offered never reached anything. Parsed defensively here and then FULLY
+  // re-validated by the orchestrator, which refuses any choice it would not
+  // have offered — a shape check here only keeps garbage out.
+  let decisions: RowDecisions | null = null;
+  const rawDecisions = form.get("decisions");
+  if (typeof rawDecisions === "string" && rawDecisions !== "") {
+    try {
+      const parsed = JSON.parse(rawDecisions);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        throw new Error("decisions must be an object");
+      }
+      decisions = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        const rowNumber = Number(key);
+        if (!Number.isInteger(rowNumber)) throw new Error("row number");
+        if (typeof value !== "string" || !ROW_ACTIONS.includes(value as RowAction)) {
+          throw new Error("action");
+        }
+        decisions[rowNumber] = value as RowAction;
+      }
+    } catch {
+      return NextResponse.json(
+        { error: "הבחירות אינן תקינות", code: "DECISIONS_MALFORMED" },
+        { status: 400, headers: NO_STORE }
+      );
+    }
+  }
+
+  const rawOverrideAction = form.get("overrideActionId");
+  const overrideActionId =
+    typeof rawOverrideAction === "string" ? rawOverrideAction : null;
+
   try {
     const result = await buildImportPreview({
       // Server-derived. There is no businessId field in this request.
@@ -112,6 +153,10 @@ export async function POST(req: Request) {
       bytes,
       sheetName,
       mapping,
+      decisions,
+      // A claim about WHICH override action this is. The orchestrator decides
+      // whether it earns anything.
+      overrideActionId,
     });
 
     if (!result.ok) {

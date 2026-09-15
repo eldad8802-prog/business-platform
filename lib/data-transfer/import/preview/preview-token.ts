@@ -82,6 +82,15 @@ export type PreviewTokenFacts = {
   sheetName: string | null;
   /** Data rows considered (header excluded). */
   rowCount: number;
+  /**
+   * The server's own attestation that this preview carried a GENUINE override,
+   * and which deliberate override action it belongs to. Absent on an ordinary
+   * preview, which is what keeps normal replay idempotent.
+   *
+   * A hash, never the caller's raw id: an envelope is signed, not encrypted.
+   * See `import/execute/override-action.ts` for the rule that puts it here.
+   */
+  overrideActionHash?: string | null;
 };
 
 /** SHA-256 hex — used for both the file bytes and the canonical mapping. */
@@ -127,7 +136,9 @@ export function verifyPreviewToken(
     typeof payload.contentHash !== "string" ||
     typeof payload.mappingHash !== "string" ||
     typeof payload.decisionsHash !== "string" ||
-    !Number.isInteger(payload.rowCount)
+    !Number.isInteger(payload.rowCount) ||
+    (payload.overrideActionHash != null &&
+      typeof payload.overrideActionHash !== "string")
   ) {
     return { ok: false, reason: "MALFORMED" };
   }
@@ -143,6 +154,7 @@ export function verifyPreviewToken(
       decisionsHash: payload.decisionsHash,
       sheetName: payload.sheetName ?? null,
       rowCount: payload.rowCount,
+      overrideActionHash: payload.overrideActionHash ?? null,
     },
     expiresAt: envelope.expiresAt,
   };

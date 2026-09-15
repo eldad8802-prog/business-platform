@@ -186,7 +186,15 @@ async function main() {
   ];
 
   /** Preview then Execute, as a caller would. */
-  const runImport = async (businessId, bytes, decisions = null) => {
+  const runImport = async (
+    businessId,
+    bytes,
+    decisions = null,
+    // Required whenever `decisions` carries a CREATE_ANYWAY: the server refuses
+    // an override it cannot tie to ONE deliberate action rather than resolving
+    // it to the run that already exists.
+    overrideActionId = null
+  ) => {
     const preview = await runWithTenantContext({ businessId }, () =>
       buildHistoricalPreview({
         businessId,
@@ -196,6 +204,7 @@ async function main() {
         sheetName: null,
         dateFormat: null,
         decisions,
+        overrideActionId,
       })
     );
     if (!preview.ok) return { preview, execute: null };
@@ -282,31 +291,101 @@ async function main() {
     JSON.stringify(skipRun.execute?.totals)
   );
 
-  const overridePreview = await runWithTenantContext({ businessId: A }, () =>
-    buildHistoricalPreview({
-      businessId: A,
-      userId: 1,
-      filename: "history.xlsx",
-      bytes: dupFile,
-      sheetName: null,
-      dateFormat: null,
-      decisions: { 1: "CREATE_ANYWAY" },
-    })
+  // The same file, the same mapping, and the owner deliberately adding the
+  // record anyway. That is not a retry, so it carries the id of THIS override
+  // action — exactly what the screen sends. Without one the server has nothing
+  // to tell a second deliberate act apart from a resubmission of the first,
+  // and resolves it to the run that already exists.
+  const OVERRIDE_ACTION = "i8b5overrideaction00000000000001";
+  const overrideOnce = (decisions, overrideActionId) =>
+    runWithTenantContext({ businessId: A }, () =>
+      buildHistoricalPreview({
+        businessId: A,
+        userId: 1,
+        filename: "history.xlsx",
+        bytes: dupFile,
+        sheetName: null,
+        dateFormat: null,
+        decisions,
+        overrideActionId,
+      })
+    );
+
+  // With no action id the server cannot tell ONE deliberate act from a
+  // resubmission of it, and refuses rather than resolving the override to the
+  // run that already exists and dropping the owner's choice in silence.
+  const noActionId = await overrideOnce({ 1: "CREATE_ANYWAY" }, null);
+  ok(
+    "CREATE_ANYWAY with NO override action id is refused",
+    noActionId.ok === false && noActionId.code === "OVERRIDE_ACTION_REQUIRED",
+    JSON.stringify(noActionId.ok ? "preview succeeded" : noActionId.code)
   );
+  ok(
+    "the refusal mints no executable token",
+    noActionId.ok === false && noActionId.previewToken === undefined
+  );
+  ok(
+    "and no second record was written",
+    (await countFor(A, "INV-100")) === 1,
+    String(await countFor(A, "INV-100"))
+  );
+
+  const overridePreview = await overrideOnce({ 1: "CREATE_ANYWAY" }, OVERRIDE_ACTION);
   ok("an override makes the preview ready", overridePreview.ok && overridePreview.readyForExecute === true);
   if (overridePreview.ok && overridePreview.previewToken) {
-    const overrideRun = await executeHistoricalImport({
-      businessId: A,
-      userId: 1,
-      filename: "history.xlsx",
-      bytes: dupFile,
-      sheetName: null,
-      dateFormat: null,
-      decisions: overridePreview.decisions,
-      previewToken: overridePreview.previewToken,
-    });
+    const execOverride = async (preview) =>
+      executeHistoricalImport({
+        businessId: A,
+        userId: 1,
+        filename: "history.xlsx",
+        bytes: dupFile,
+        sheetName: null,
+        dateFormat: null,
+        decisions: preview.decisions,
+        previewToken: preview.previewToken,
+      });
+
+    const overrideRun = await execOverride(overridePreview);
     ok("CREATE_ANYWAY creates a SECOND record on purpose", overrideRun.ok && overrideRun.totals.created === 1, JSON.stringify(overrideRun));
     ok("and the business now holds two", (await countFor(A, "INV-100")) === 2);
+
+    // What happens NEXT is decided by this domain, not by retry identity, and
+    // it is worth pinning because it is easy to assume otherwise.
+    //
+    // With two copies of INV-100 now held, the row is no longer a duplicate of
+    // ONE record — it is ambiguous, and the historical policy blocks an
+    // ambiguous row to SKIP alone. So neither a retry of the same override nor
+    // a fresh decision to override again gets past the decision check, and the
+    // question of which run they would resolve to never arises.
+    //
+    // Asserted rather than skipped: both used to sit behind an `if (preview.ok)`
+    // with no else, which is how a check that never ran passes for one that did.
+    const retryPreview = await overrideOnce({ 1: "CREATE_ANYWAY" }, OVERRIDE_ACTION);
+    ok(
+      "retrying the override is refused by the DECISION policy, one layer earlier",
+      retryPreview.ok === false && retryPreview.code === "DECISIONS_INVALID",
+      JSON.stringify(retryPreview.ok ? "preview succeeded" : retryPreview.code)
+    );
+    ok(
+      "and the business still holds exactly two",
+      (await countFor(A, "INV-100")) === 2,
+      String(await countFor(A, "INV-100"))
+    );
+
+    const againPreview = await overrideOnce(
+      { 1: "CREATE_ANYWAY" },
+      "i8b5overrideaction00000000000002"
+    );
+    ok(
+      "a NEW override action cannot get past that policy either",
+      againPreview.ok === false && againPreview.code === "DECISIONS_INVALID",
+      JSON.stringify(againPreview.ok ? "preview succeeded" : againPreview.code)
+    );
+    ok(
+      "and no third copy was written",
+      (await countFor(A, "INV-100")) === 2,
+      String(await countFor(A, "INV-100"))
+    );
   }
 
   /* ── 3b. an approval given against a world that has since moved ──────── */
@@ -477,7 +556,12 @@ async function main() {
   // And the override does what it is for and no more: the duplicate invoice is
   // imported on purpose, the ambiguous credit is still skipped, and no credit
   // was bound to a document nobody chose.
-  const overridden = await runImport(A, await ambiguousFile(), { 1: "CREATE_ANYWAY" });
+  const overridden = await runImport(
+    A,
+    await ambiguousFile(),
+    { 1: "CREATE_ANYWAY" },
+    "i8b5ambiguousoverrideaction00001"
+  );
   ok(
     "CREATE_ANYWAY imports the duplicate it was given for",
     overridden.execute?.ok === true && overridden.execute.totals.created === 1,

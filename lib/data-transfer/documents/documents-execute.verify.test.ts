@@ -289,13 +289,17 @@ function portsFor(w: World): ExecutePorts {
         return set;
       },
 
+      // F-01: the retry identity is (business, batch bytes, mapping) and no
+      // longer carries the decisions. These doubles model the REAL ports — one
+      // that still matched on decisions would keep passing after the real port
+      // had stopped behaving that way, which is how F-01 survived in the first
+      // place.
       findExistingRun: async (id) => {
         const run = w.runs.find(
           (r) =>
             r.businessId === id.businessId &&
             r.contentHash === id.contentHash &&
-            r.mappingHash === id.mappingHash &&
-            r.decisionsHash === id.decisionsHash
+            r.mappingHash === id.mappingHash
         );
         return run ? toOpened(run, false) : null;
       },
@@ -305,8 +309,7 @@ function portsFor(w: World): ExecutePorts {
           (r) =>
             r.businessId === id.businessId &&
             r.contentHash === id.contentHash &&
-            r.mappingHash === id.mappingHash &&
-            r.decisionsHash === id.decisionsHash
+            r.mappingHash === id.mappingHash
         );
         if (found) return toOpened(found, false);
         const run: Run = {
