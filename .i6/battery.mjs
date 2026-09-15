@@ -596,7 +596,7 @@ async function main() {
     },
     inventory: {
       headers: ["שם פריט", "יחידת מידה", "מק״ט", "ברקוד"],
-      rows: [[`${MARK}פריט ללא מקט`, "יח׳", "", ""]],
+      rows: [[`${MARK}פריט ללא מקט`, "יחידה", "", ""]],
       count: () =>
         owner.inventoryItem.count({
           where: { businessId: bizA.id, name: `${MARK}פריט ללא מקט` },
@@ -721,10 +721,16 @@ async function main() {
     (n, r) => n + (r.ok ? r.counts.createdCount ?? 0 : 0),
     0
   );
+  // The rows in the table, not the reported totals: the call that loses the
+  // race resolves to the winner's run and reports the winner's counts, so the
+  // sum is 2 even when exactly one row was written.
+  const racedRows = await owner.customer.count({
+    where: { businessId: bizA.id, name: `${MARK}מרוץ` },
+  });
   ok(
     "F-01 concurrency: two simultaneous executes create the row exactly once",
-    racedCreated === 1,
-    `total createdCount across both = ${racedCreated}`
+    racedRows === 1,
+    `rows=${racedRows} (reported createdCount across both = ${racedCreated}, which double-counts because the loser replays the winner's totals)`
   );
   ok(
     "F-01 concurrency: and both calls report the same run",
