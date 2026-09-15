@@ -83,7 +83,11 @@ jobs:
         run: |
           F="lib/services/account/account-deletion.prisma-store.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/data: \{ customerName: null, phone: null \},/data: { customerName: null, phone: null, sourceChannel: null },/' "$F"
+          # Re-anchored: E2 Wave 1 made the lead `data` object multi-line, so the
+          # old single-line anchor no longer exists. `href` is dispositioned
+          # RETAIN_BY_DESIGN on Notification, so writing it IS undeclared erasure —
+          # the property under test is unchanged.
+          perl -0pi -e 's/data: \{ title: "", summary: null \},/data: { title: "", summary: null, href: "" },/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an undeclared mutation passed"; exit 1
@@ -96,7 +100,9 @@ jobs:
         run: |
           F="lib/services/account/account-erasure-manifest.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/\{ model: "lead", fields: \{ name: "anonymized-name", phone: "null", email: "null" \} \}/{ model: "lead", fields: { name: "anonymized-name", phone: "null", email: "null", business: "null" } }/' "$F"
+          # Re-anchored onto the notification entry for the same reason as M4.
+          # `business` is a relation there too, so the property is unchanged.
+          perl -0pi -e 's/\{ model: "notification", fields: \{ title: "blank", summary: "null" \} \}/{ model: "notification", fields: { title: "blank", summary: "null", business: "null" } }/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a relation satisfied a column requirement"; exit 1
