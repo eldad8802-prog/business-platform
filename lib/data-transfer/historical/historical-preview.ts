@@ -35,6 +35,7 @@ import {
   type HistoricalAnalyzedRowWithDuplicates,
 } from "@/lib/data-transfer/historical/historical-analyze-duplicates";
 import type { HistoricalAnalyzeInput } from "@/lib/data-transfer/historical/historical-analyze";
+import { attestedOverrideActionHash } from "@/lib/data-transfer/import/execute/override-action";
 import {
   allowedActionsFor,
   blockingReasons,
@@ -150,6 +151,12 @@ export type HistoricalPreviewInput = HistoricalAnalyzeInput & {
   userId: number;
   /** The owner's choices, or null on the first call. */
   decisions?: HistoricalDecisions | null;
+  /**
+   * The id of ONE deliberate CREATE_ANYWAY action, when the owner is taking
+   * one. A claim, and treated as one: it reaches the token only if a genuine
+   * override is actually present. See `import/execute/override-action.ts`.
+   */
+  overrideActionId?: string | null;
   /**
    * The fingerprint Analyze reported. When supplied and the database has since
    * moved, Preview refuses rather than rebuilding silently.
@@ -277,6 +284,17 @@ export async function buildHistoricalPreview(
 
   const decisions = resolveDecisions(decidable, submitted);
   const awaitingDecision = unresolvedRows(decidable, submitted);
+  // CREATE_ANYWAY is never a default — `defaultActionFor` cannot return it and
+  // `allowedActionsFor` will not offer it where there is nothing to override.
+  // So a row carrying it in the RESOLVED set is there because the owner put it
+  // there, and holds no trace of the database state this import changes.
+  const hasGenuineOverride = Object.values(decisions).some(
+    (action) => action === "CREATE_ANYWAY"
+  );
+  const overrideActionHash = attestedOverrideActionHash({
+    overrideActionId: input.overrideActionId,
+    hasGenuineOverride,
+  });
   const byRow = new Map(analysis.rows.map((row) => [row.sourceRowNumber, row]));
 
   const rows: HistoricalPreviewRow[] = analysis.rows.map((row) => {
@@ -359,6 +377,7 @@ export async function buildHistoricalPreview(
           rowCount: rows.length,
           decisionsHash: decisionsHashOf(decisions),
           evidenceFingerprint,
+          overrideActionHash,
         },
         issuedAt
       )

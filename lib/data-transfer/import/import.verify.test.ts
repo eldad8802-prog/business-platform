@@ -564,12 +564,34 @@ const FACTS = {
   decisionsHash: sha256Hex("1=CREATE"),
   sheetName: "ייבוא",
   rowCount: 3,
+  // An ordinary preview carries no override action. Stated rather than omitted,
+  // because "absent" and "null" must read the same way to every caller.
+  overrideActionHash: null,
 };
 
 check("a fresh token verifies and returns exactly what was bound", () => {
   const result = verifyPreviewToken(issuePreviewToken(FACTS, AT), AT);
   assert.equal(result.ok, true);
   if (result.ok) assert.deepEqual(result.facts, FACTS);
+});
+
+check("an override action, once bound, survives the round trip", () => {
+  const bound = { ...FACTS, overrideActionHash: sha256Hex("action") };
+  const result = verifyPreviewToken(issuePreviewToken(bound, AT), AT);
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.facts.overrideActionHash, bound.overrideActionHash);
+});
+
+check("an override action of the wrong TYPE makes the token malformed", () => {
+  // Signed, not trusted: the envelope proves nobody edited the payload, which
+  // is a different question from whether the payload is the shape we promised.
+  const forged = issuePreviewToken(
+    { ...FACTS, overrideActionHash: 12345 as unknown as string },
+    AT
+  );
+  const result = verifyPreviewToken(forged, AT);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, "MALFORMED");
 });
 
 check("a token with no decisions bound is refused, not treated as empty", () => {
@@ -732,6 +754,9 @@ check("the token carries NO rows, values or business records", () => {
       "iat",
       "mappingHash",
       "nonce",
+      // A digest of the owner's id for one deliberate override action — never
+      // the id itself, which is a client-supplied string.
+      "overrideActionHash",
       "purpose",
       "rowCount",
       "sheetName",

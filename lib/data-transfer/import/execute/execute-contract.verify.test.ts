@@ -41,6 +41,7 @@ import {
 } from "@/lib/data-transfer/import/execute/execution-semantics";
 import { IMPORT_EXECUTE_BATCH_SIZE } from "@/lib/data-transfer/import/import-config";
 import { retryKeyOf } from "@/lib/data-transfer/import/execute/import-run-store";
+import { attestedOverrideActionHash } from "@/lib/data-transfer/import/execute/override-action";
 import type { PreviewRow } from "@/lib/data-transfer/import/preview/preview-orchestrator";
 
 let passed = 0;
@@ -743,6 +744,172 @@ check("F-01 REGRESSION: the decision set MOVES on a real retry — the key must 
   // And that movement must not reach the retry identity.
   const identity = { businessId: 1, contentHash: "same", mappingHash: "same" };
   assert.equal(retryKeyOf(identity), retryKeyOf(identity));
+});
+
+/* ========================= 8. the deliberate override action ============ */
+
+console.log("\n8. F-01 — a deliberate override is not a retry");
+
+const BASE = { businessId: 1, contentHash: "c", mappingHash: "m" };
+
+check("an override action changes the identity", () => {
+  assert.notEqual(
+    retryKeyOf(BASE),
+    retryKeyOf({ ...BASE, overrideActionHash: "a1" })
+  );
+});
+
+check("the SAME override action is the same identity, every time", () => {
+  assert.equal(
+    retryKeyOf({ ...BASE, overrideActionHash: "a1" }),
+    retryKeyOf({ ...BASE, overrideActionHash: "a1" })
+  );
+});
+
+check("a DIFFERENT override action is a different identity", () => {
+  assert.notEqual(
+    retryKeyOf({ ...BASE, overrideActionHash: "a1" }),
+    retryKeyOf({ ...BASE, overrideActionHash: "a2" })
+  );
+});
+
+check("no override action hashes exactly as it did before overrides existed", () => {
+  // The ordinary import must not have moved. Null, undefined and empty are one
+  // case, because a caller with nothing to say should not be able to say it in
+  // three ways that mean three different things.
+  assert.equal(retryKeyOf(BASE), retryKeyOf({ ...BASE, overrideActionHash: null }));
+  assert.equal(
+    retryKeyOf(BASE),
+    retryKeyOf({ ...BASE, overrideActionHash: undefined })
+  );
+  assert.equal(retryKeyOf(BASE), retryKeyOf({ ...BASE, overrideActionHash: "" }));
+});
+
+check("an id alone is never authorization — it needs a genuine override", () => {
+  // THE security property. A caller can put any id in the request; with no real
+  // override to attach it to it buys nothing, and replay stays replay.
+  assert.equal(
+    attestedOverrideActionHash({
+      overrideActionId: "a".repeat(32),
+      hasGenuineOverride: false,
+    }),
+    null
+  );
+  assert.notEqual(
+    attestedOverrideActionHash({
+      overrideActionId: "a".repeat(32),
+      hasGenuineOverride: true,
+    }),
+    null
+  );
+});
+
+check("a malformed id earns nothing even where an override IS genuine", () => {
+  for (const bad of [null, undefined, 42, "short", "a".repeat(200), "has space", {}]) {
+    assert.equal(
+      attestedOverrideActionHash({ overrideActionId: bad, hasGenuineOverride: true }),
+      null,
+      `accepted ${JSON.stringify(bad)}`
+    );
+  }
+});
+
+check("the raw id never reaches the token — only a hash of it", () => {
+  // A signed envelope is signed, not encrypted. Anyone holding one can read the
+  // payload, so a client-supplied string must never be written into it verbatim.
+  const id = "b".repeat(32);
+  const hash = attestedOverrideActionHash({
+    overrideActionId: id,
+    hasGenuineOverride: true,
+  });
+  assert.ok(hash);
+  assert.equal(hash.includes(id), false);
+  assert.match(hash, /^[0-9a-f]{64}$/);
+});
+
+check("the override component is read from the TOKEN, never the request body", () => {
+  for (const [file, label] of [
+    ["lib/data-transfer/import/execute/import-executor.ts", "tabular"],
+    ["lib/data-transfer/documents/documents-execute.ts", "documents"],
+    ["lib/data-transfer/historical/historical-execute.ts", "historical"],
+  ] as const) {
+    const code = fs.readFileSync(file, "utf8");
+    assert.match(
+      code,
+      /overrideActionHash[^\n]*facts\.overrideActionHash/,
+      `${label} must take the override action from the verified token`
+    );
+    assert.equal(
+      /overrideActionHash:\s*input\./.test(code),
+      false,
+      `${label} must not take the override action from the request`
+    );
+  }
+});
+
+check("every importer attests the override server-side, at preview", () => {
+  for (const [file, label] of [
+    ["lib/data-transfer/import/preview/preview-orchestrator.ts", "tabular"],
+    ["lib/data-transfer/historical/historical-preview.ts", "historical"],
+    ["app/api/data-transfer/documents/analyze/route.ts", "documents"],
+  ] as const) {
+    const code = fs.readFileSync(file, "utf8");
+    assert.match(
+      code,
+      /attestedOverrideActionHash\(\{/,
+      `${label} must decide the override itself`
+    );
+    assert.match(
+      code,
+      /hasGenuineOverride/,
+      `${label} must pass its own verdict, not the caller's`
+    );
+  }
+});
+
+check("tabular reads an override as CREATE the policy would have SKIPPED", () => {
+  // NOT every CREATE. A row that never blocked has nothing to override, so
+  // counting one would hand every ordinary import a way out of replay.
+  const code = fs.readFileSync(
+    "lib/data-transfer/import/preview/preview-orchestrator.ts",
+    "utf8"
+  );
+  const block = code.slice(
+    code.indexOf("const hasGenuineOverride"),
+    code.indexOf("const overrideActionHash")
+  );
+  assert.match(block, /=== "CREATE"/);
+  assert.match(block, /mayOverrideToCreate\(/);
+});
+
+check("CREATE_ANYWAY is never a server default, which is what makes it usable", () => {
+  // The whole design rests on this: a row carrying the override word carries no
+  // trace of the database state the import changes, because only the owner can
+  // put it there. If a default could ever produce it, the key would be derived
+  // from mutable state again and F-01 would be back.
+  const historical = fs.readFileSync(
+    "lib/data-transfer/historical/historical-decisions.ts",
+    "utf8"
+  );
+  // The BODY only. The comments around it say "CREATE_ANYWAY" precisely because
+  // they explain why it can never be returned here.
+  const fromDefault = historical.slice(
+    historical.indexOf("export function defaultActionFor")
+  );
+  const defaults = fromDefault.slice(0, fromDefault.indexOf("\n}"));
+  assert.equal(defaults.includes("CREATE_ANYWAY"), false);
+
+  const documents = fs.readFileSync(
+    "lib/data-transfer/documents/batch-analyze.ts",
+    "utf8"
+  );
+  const docDefaults = documents.slice(
+    documents.indexOf("export function defaultDocumentDecisions")
+  );
+  assert.equal(
+    docDefaults.slice(0, docDefaults.indexOf("}")).includes("CREATE_ANYWAY"),
+    false
+  );
 });
 
 console.log(`\nIMPORT EXECUTE CONTRACT VERIFY PASS — ${passed} checks green.`);

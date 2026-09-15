@@ -108,6 +108,9 @@ export async function POST(req: Request) {
 
   const mapping = parseJson<ResolvedMapping>("mapping");
   const decisions = parseJson<HistoricalDecisions>("decisions");
+  const rawOverrideAction = form.get("overrideActionId");
+  const overrideActionId =
+    typeof rawOverrideAction === "string" ? rawOverrideAction : null;
   if (!mapping.ok || !decisions.ok) {
     return NextResponse.json(
       { error: "בקשה לא תקינה", code: "INVALID_BODY" },
@@ -127,6 +130,9 @@ export async function POST(req: Request) {
         dateFormat,
         mapping: mapping.value,
         decisions: decisions.value,
+        // What the screen claims about WHICH override action this is. Preview
+        // decides whether the claim earns anything.
+        overrideActionId: overrideActionId,
         expectedEvidenceFingerprint,
       })
     );

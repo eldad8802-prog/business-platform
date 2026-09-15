@@ -17,6 +17,7 @@ import {
 } from "@/lib/data-transfer/documents/batch-analyze";
 import { readDocumentBatchForm } from "@/lib/data-transfer/documents/documents-request";
 import { issuePreviewToken } from "@/lib/data-transfer/import/preview/preview-token";
+import { attestedOverrideActionHash } from "@/lib/data-transfer/import/execute/override-action";
 import { IMPORT_PREVIEW_TTL_SECONDS } from "@/lib/data-transfer/import/import-config";
 
 export const runtime = "nodejs";
@@ -118,6 +119,19 @@ export async function POST(req: Request) {
       }
     }
 
+    // CREATE_ANYWAY is only ever the owner's word — `isDecisionPermitted`
+    // accepts it solely where the analysis marked the file overridable, and
+    // `defaultDocumentDecisions` never produces it. A batch carrying one is a
+    // deliberate act of adding a file Dubiz already holds, not a retry of the
+    // upload that first brought it in.
+    const hasGenuineOverride = Object.values(decisions).some(
+      (action) => action === "CREATE_ANYWAY"
+    );
+    const overrideActionHash = attestedOverrideActionHash({
+      overrideActionId: batch.overrideActionId,
+      hasGenuineOverride,
+    });
+
     const issuedAt = new Date();
     const previewToken = issuePreviewToken(
       {
@@ -131,6 +145,7 @@ export async function POST(req: Request) {
         decisionsHash: documentDecisionsHash(decisions),
         sheetName: null,
         rowCount: analyzed.files.length,
+        overrideActionHash,
       },
       issuedAt
     );

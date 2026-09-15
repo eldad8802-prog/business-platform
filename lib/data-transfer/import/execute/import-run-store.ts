@@ -51,7 +51,21 @@ import type { RunCounts, TerminalRunStatus } from "@/lib/data-transfer/import/ex
  * The retry identity of an import: this business, these exact bytes, this exact
  * mapping. Nothing else, and in particular nothing the import itself can change.
  *
- * Exported so the contract can be asserted directly: the same three inputs must
+ * Plus, for ONE case, the identity of a deliberate override action.
+ *
+ * An owner looking at a duplicate and saying "add it ANYWAY" means a new
+ * record, and the file, the mapping and the rows are all identical to the
+ * import that produced the duplicate. Identity has to be able to tell that
+ * apart from a retry, and the decisions cannot be what tells it — they are
+ * derived from the database this import changes, which is F-01 itself.
+ *
+ * So the override carries its own id, and it reaches here ATTESTED: the server
+ * put it in the signed preview token only after judging, under the duplicate
+ * policy it already enforces, that a genuine override was present. An ordinary
+ * import has no component, whatever the caller claims, so normal replay stays
+ * exactly as idempotent as it was. See `override-action.ts`.
+ *
+ * Exported so the contract can be asserted directly: the same inputs must
  * always produce the same key, and any difference in any of them must produce a
  * different one.
  */
@@ -59,17 +73,21 @@ export function retryKeyOf(identity: {
   businessId: number;
   contentHash: string;
   mappingHash: string;
+  /** Attested by the server, never taken from the request body. */
+  overrideActionHash?: string | null;
 }): string {
-  return createHash("sha256")
-    .update(
-      [
-        "import-retry:v1",
-        `business:${identity.businessId}`,
-        `content:${identity.contentHash}`,
-        `mapping:${identity.mappingHash}`,
-      ].join("\n")
-    )
-    .digest("hex");
+  const parts = [
+    "import-retry:v1",
+    `business:${identity.businessId}`,
+    `content:${identity.contentHash}`,
+    `mapping:${identity.mappingHash}`,
+  ];
+  // Appended only when there IS one, so an ordinary import hashes exactly as
+  // it did before this existed.
+  if (identity.overrideActionHash) {
+    parts.push(`override:${identity.overrideActionHash}`);
+  }
+  return createHash("sha256").update(parts.join("\n")).digest("hex");
 }
 
 export type RunIdentity = {
@@ -81,6 +99,11 @@ export type RunIdentity = {
   decisionsHash: string;
   sheetName: string | null;
   totalRows: number;
+  /**
+   * Present only when the signed preview token attested a genuine override.
+   * Callers pass what the VERIFIED token says, never what the request said.
+   */
+  overrideActionHash?: string | null;
 };
 
 export type OpenedRun = {
@@ -360,7 +383,10 @@ export async function loadFailedRunRows(
  * allowed to create.
  */
 export async function findExistingRun(
-  identity: Pick<RunIdentity, "businessId" | "contentHash" | "mappingHash">
+  identity: Pick<
+    RunIdentity,
+    "businessId" | "contentHash" | "mappingHash" | "overrideActionHash"
+  >
 ): Promise<OpenedRun | null> {
   return runWithTenantContext({ businessId: identity.businessId }, async () => {
     const run = await withTenantTransaction((tx) =>

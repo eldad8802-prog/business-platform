@@ -208,11 +208,21 @@ export async function executeImport(
   // differently, the key stops matching, and a fresh run is opened for a file
   // that has already been imported. The identity is now (business, file,
   // mapping) — the three things a retry cannot change.
+  //
+  // With ONE addition. An owner who chose CREATE on a row the policy would have
+  // skipped, and was allowed to, is not retrying anything: they are adding a
+  // record on purpose, from the same file. That action carries its own id, and
+  // it is read from the VERIFIED token rather than the request body — the
+  // server attested there that a genuine override was present. A caller that
+  // invents an id for an ordinary import changes nothing.
+
+  const overrideActionHash = facts.overrideActionHash ?? null;
 
   const existing = await findExistingRun({
     businessId: input.businessId,
     contentHash,
     mappingHash,
+    overrideActionHash,
   });
 
   if (existing && existing.status !== "EXECUTING") {
@@ -261,6 +271,7 @@ export async function executeImport(
     decisionsHash,
     sheetName: derived.sheetName,
     totalRows: derived.counts.totalRows,
+    overrideActionHash,
   });
 
   if (!run.created && run.status !== "EXECUTING") {

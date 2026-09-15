@@ -73,6 +73,9 @@ const FACTS: HistoricalPreviewFacts = {
   rowCount: 3,
   decisionsHash: "d".repeat(64),
   evidenceFingerprint: "e".repeat(64),
+  // An ordinary preview carries no override action. Stated rather than omitted,
+  // because "absent" and "null" must read the same way to every caller.
+  overrideActionHash: null,
 };
 
 /** Tamper with one field inside a signed envelope, keeping the signature. */
@@ -375,6 +378,9 @@ async function main(): Promise<void> {
         "iat",
         "mappingHash",
         "nonce",
+        // A digest of the owner's id for one deliberate CREATE_ANYWAY action.
+        // Never the id itself, which is a client-supplied string.
+        "overrideActionHash",
         "purpose",
         "rowCount",
         "sheetName",

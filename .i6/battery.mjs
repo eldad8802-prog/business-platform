@@ -761,6 +761,174 @@ async function main() {
     retryKeyOf(keyBase) !== retryKeyOf({ ...keyBase, businessId: bizB.id })
   );
 
+  /* ══ F-01 — the deliberate override is not a retry ════════════════════════
+   *
+   * Narrowing the identity to (business, file, mapping) fixed the retry and
+   * broke the one case where the same file, mapped the same way, legitimately
+   * means MORE: the owner looking at a duplicate and choosing to take it
+   * anyway. A business may genuinely hold two supplier records for one legal
+   * entity, which is why the policy marks that collision overridable.
+   *
+   * So the ACTION carries an id. The server only honours it where it finds a
+   * real override, and reads it back from its own signed token — an id on an
+   * ordinary import is worth exactly nothing, which is the property that keeps
+   * the F-01 fix intact while this one works.
+   */
+
+  const ovHeaders = ["שם ספק", "מספר עוסק / ח.פ.", "טלפון"];
+  const ovRows = [[`${MARK}ספק עוקף`, "598765432", "0502222222"]];
+  const countOv = () =>
+    owner.supplier.count({
+      where: { businessId: bizA.id, name: `${MARK}ספק עוקף` },
+    });
+
+  /** Preview then execute, carrying the owner's own decisions and action id. */
+  async function runOverride(decisionsFor, overrideActionId) {
+    const base = {
+      businessId: bizA.id,
+      userId: userA.id,
+      domainId: "suppliers",
+      filename: `${MARK}override.csv`,
+      bytes: csv(ovHeaders, ovRows),
+      sheetName: null,
+      mapping: mappingFor(ovHeaders),
+    };
+    const preview = await buildImportPreview({
+      ...base,
+      decisions: decisionsFor,
+      overrideActionId,
+    });
+    if (!preview.ok) return { preview, result: { ok: false, code: preview.code } };
+    const result = await executeImport({
+      ...base,
+      decisions: preview.decisions,
+      previewToken: preview.previewToken,
+    });
+    return { preview, result };
+  }
+
+  const ovFirst = await runOverride(null, null);
+  ok(
+    "F-01 override: the supplier imports the first time",
+    ovFirst.result.ok && (await countOv()) === 1,
+    JSON.stringify(ovFirst.result?.counts)
+  );
+
+  const ovOffered = await runOverride(null, null);
+  ok(
+    "F-01 override: re-previewing the same file now offers the override",
+    ovOffered.preview.ok && ovOffered.preview.overridableRows.length === 1,
+    JSON.stringify(ovOffered.preview?.overridableRows)
+  );
+
+  // 6. An id with NO override behind it must change nothing. This is the
+  //    attack: if a caller could mint identity at will, every replay would
+  //    become a fresh import and F-01 would be back with better manners.
+  const forged = await runOverride(null, "f".repeat(32));
+  ok(
+    "F-01 override: an action id on an ORDINARY import resolves to the same run",
+    forged.result.ok && forged.result.importRunId === ovFirst.result.importRunId,
+    `first=${ovFirst.result.importRunId} forged=${forged.result.importRunId}`
+  );
+  ok(
+    "F-01 override: and writes nothing",
+    (await countOv()) === 1,
+    `rows=${await countOv()}`
+  );
+
+  // 8. The real thing: the owner overrides the row, with an action id.
+  const ACTION_A = "a".repeat(32);
+  const overrideDecisions = { 1: "CREATE" };
+  const ovSecond = await runOverride(overrideDecisions, ACTION_A);
+  ok(
+    "F-01 override: a genuine override opens a NEW run",
+    ovSecond.result.ok &&
+      ovSecond.result.importRunId !== ovFirst.result.importRunId,
+    `first=${ovFirst.result.importRunId} override=${ovSecond.result.importRunId}`
+  );
+  ok(
+    "F-01 override: and the second record the owner asked for exists",
+    (await countOv()) === 2,
+    `rows=${await countOv()}`
+  );
+
+  // 9. Retrying THAT action — same decisions, same id — must add nothing.
+  const ovRetry = await runOverride(overrideDecisions, ACTION_A);
+  ok(
+    "F-01 override: retrying the same action resolves to the same run",
+    ovRetry.result.ok &&
+      ovRetry.result.importRunId === ovSecond.result.importRunId,
+    `override=${ovSecond.result.importRunId} retry=${ovRetry.result.importRunId}`
+  );
+  ok(
+    "F-01 override: and creates no third record",
+    (await countOv()) === 2,
+    `rows=${await countOv()}`
+  );
+
+  // 4. Two submissions of the same action at once. One record, not two.
+  const ACTION_C = "c".repeat(32);
+  const racedOv = await Promise.all([
+    runOverride(overrideDecisions, ACTION_C),
+    runOverride(overrideDecisions, ACTION_C),
+  ]);
+  ok(
+    "F-01 override: two simultaneous submissions of one action write once",
+    (await countOv()) === 3,
+    `rows=${await countOv()}`
+  );
+  ok(
+    "F-01 override: and both report the same run",
+    racedOv[0].result.ok &&
+      racedOv[1].result.ok &&
+      racedOv[0].result.importRunId === racedOv[1].result.importRunId,
+    `${racedOv[0].result.importRunId} vs ${racedOv[1].result.importRunId}`
+  );
+
+  // 5. A LATER, separate decision to override again is a new action.
+  const ovAgain = await runOverride(overrideDecisions, "b".repeat(32));
+  ok(
+    "F-01 override: a NEW action id overrides again, on purpose",
+    ovAgain.result.ok && ovAgain.result.importRunId !== ovSecond.result.importRunId,
+    `${ovSecond.result.importRunId} vs ${ovAgain.result.importRunId}`
+  );
+  ok(
+    "F-01 override: and that record exists too",
+    (await countOv()) === 4,
+    `rows=${await countOv()}`
+  );
+
+  // 7. An id cannot buy a decision the policy refuses. Customers dedupe on
+  //    phone and that collision is NOT overridable, so CREATE is not on offer.
+  const blockedHeaders = ["שם", "טלפון", "אימייל"];
+  const blockedRows = [[`${MARK}לקוח חסום`, "0503333333", ""]];
+  const blockedBase = {
+    businessId: bizA.id,
+    userId: userA.id,
+    domainId: "customers",
+    filename: `${MARK}blocked.csv`,
+    bytes: csv(blockedHeaders, blockedRows),
+    sheetName: null,
+    mapping: mappingFor(blockedHeaders),
+  };
+  await runImport("customers", blockedHeaders, blockedRows);
+  const blockedPreview = await buildImportPreview({
+    ...blockedBase,
+    decisions: { 1: "CREATE" },
+    overrideActionId: "d".repeat(32),
+  });
+  ok(
+    "F-01 override: an action id cannot buy a decision the policy refuses",
+    blockedPreview.ok === false && blockedPreview.code === "DECISIONS_INVALID",
+    JSON.stringify(blockedPreview.ok ? blockedPreview.overridableRows : blockedPreview.code)
+  );
+  ok(
+    "F-01 override: and the blocked customer was not written twice",
+    (await owner.customer.count({
+      where: { businessId: bizA.id, name: `${MARK}לקוח חסום` },
+    })) === 1
+  );
+
   /* ── cleanup ─────────────────────────────────────────────────────────── */
 
   await owner.$disconnect();

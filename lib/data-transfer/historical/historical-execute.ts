@@ -290,6 +290,10 @@ export async function executeHistoricalImport(
     decisionsHash: contractHash,
     sheetName: facts.sheetName,
     totalRows: allRows.length,
+    // From the verified token. A CREATE_ANYWAY is the owner adding a record on
+    // purpose from a file they have already imported, so it must not resolve to
+    // that earlier run — while a retry of that same decision still must.
+    overrideActionHash: facts.overrideActionHash ?? null,
   });
 
   const alreadyDone = await loadExecutedRowNumbers(input.businessId, run.id);
