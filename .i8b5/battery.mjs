@@ -349,54 +349,43 @@ async function main() {
     ok("CREATE_ANYWAY creates a SECOND record on purpose", overrideRun.ok && overrideRun.totals.created === 1, JSON.stringify(overrideRun));
     ok("and the business now holds two", (await countFor(A, "INV-100")) === 2);
 
-    // Retrying THAT action — same choice, same id — must add nothing. This is
-    // the half that keeps F-01 fixed while the override works.
+    // What happens NEXT is decided by this domain, not by retry identity, and
+    // it is worth pinning because it is easy to assume otherwise.
     //
-    // Asserted, never skipped: a preview that quietly came back unusable would
-    // take these proofs with it and the battery would still look green.
+    // With two copies of INV-100 now held, the row is no longer a duplicate of
+    // ONE record — it is ambiguous, and the historical policy blocks an
+    // ambiguous row to SKIP alone. So neither a retry of the same override nor
+    // a fresh decision to override again gets past the decision check, and the
+    // question of which run they would resolve to never arises.
+    //
+    // Asserted rather than skipped: both used to sit behind an `if (preview.ok)`
+    // with no else, which is how a check that never ran passes for one that did.
     const retryPreview = await overrideOnce({ 1: "CREATE_ANYWAY" }, OVERRIDE_ACTION);
     ok(
-      "the retry of an override action still previews",
-      retryPreview.ok === true && !!retryPreview.previewToken,
-      JSON.stringify(retryPreview.ok ? retryPreview.notReadyReasons : retryPreview.code)
+      "retrying the override is refused by the DECISION policy, one layer earlier",
+      retryPreview.ok === false && retryPreview.code === "DECISIONS_INVALID",
+      JSON.stringify(retryPreview.ok ? "preview succeeded" : retryPreview.code)
     );
-    if (retryPreview.ok && retryPreview.previewToken) {
-      const retryRun = await execOverride(retryPreview);
-      ok(
-        "retrying the SAME override action resolves to the same run",
-        retryRun.ok && retryRun.runId === overrideRun.runId,
-        `${overrideRun.runId} vs ${retryRun.runId}`
-      );
-      ok(
-        "and the business still holds two",
-        (await countFor(A, "INV-100")) === 2,
-        String(await countFor(A, "INV-100"))
-      );
-    }
+    ok(
+      "and the business still holds exactly two",
+      (await countFor(A, "INV-100")) === 2,
+      String(await countFor(A, "INV-100"))
+    );
 
-    // A LATER, separate decision to override again is a new action.
     const againPreview = await overrideOnce(
       { 1: "CREATE_ANYWAY" },
       "i8b5overrideaction00000000000002"
     );
     ok(
-      "a second deliberate override still previews",
-      againPreview.ok === true && !!againPreview.previewToken,
-      JSON.stringify(againPreview.ok ? againPreview.notReadyReasons : againPreview.code)
+      "a NEW override action cannot get past that policy either",
+      againPreview.ok === false && againPreview.code === "DECISIONS_INVALID",
+      JSON.stringify(againPreview.ok ? "preview succeeded" : againPreview.code)
     );
-    if (againPreview.ok && againPreview.previewToken) {
-      const againRun = await execOverride(againPreview);
-      ok(
-        "a NEW override action adds another record, on purpose",
-        againRun.ok && againRun.runId !== overrideRun.runId,
-        `${overrideRun.runId} vs ${againRun.runId}`
-      );
-      ok(
-        "and the business now holds three",
-        (await countFor(A, "INV-100")) === 3,
-        String(await countFor(A, "INV-100"))
-      );
-    }
+    ok(
+      "and no third copy was written",
+      (await countFor(A, "INV-100")) === 2,
+      String(await countFor(A, "INV-100"))
+    );
   }
 
   /* ── 3b. an approval given against a world that has since moved ──────── */
