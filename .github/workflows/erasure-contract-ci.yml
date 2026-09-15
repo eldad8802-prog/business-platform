@@ -1,10 +1,8 @@
 # ERASURE CONTRACT — does the code do what the erasure manifest promises?
 #
 # Deliberately its OWN workflow rather than a step inside the AD-2A battery job.
-# Two reasons. It needs no database, so bolting it onto a job that spends minutes
-# starting Postgres would make a two-second check take two minutes. And the AD-2A
-# workflow is being actively rewritten in another pull request; a new required check
-# should not have to wait behind that, or conflict with it.
+# It needs no database, so bolting it onto a job that spends minutes starting
+# Postgres would make a two-second check take two minutes.
 #
 # Mode: --baseline-check. The manifest and the adapter genuinely disagree on the tree
 # today — that is the finding this guard was built to surface — so the honest default
@@ -38,16 +36,30 @@ jobs:
         run: npm run verify:erasure-contract -- --baseline-check
 
       # Each proof breaks the contract in ONE specific way and requires the guard to
-      # notice. Without these the guard is a script that prints "PASS", and a script
-      # that prints PASS when it cannot parse its input prints PASS forever.
+      # notice. Without them the guard is a script that prints PASS, and a script that
+      # prints PASS when it cannot parse its input prints PASS forever.
       #
-      # Every mutation is confirmed to have applied before its result is believed, and
-      # the tree is checked byte-identical at the end of the job.
+      # THE MUTATIONS ARE AST-BASED, NOT TEXT-BASED. They used to be `perl -0pi -e`
+      # substitutions anchored on exact source lines, and that broke three separate
+      # times — each time because a change to the code a proof guards reformatted the
+      # line the proof matched. The failure mode was the dangerous one: MUTATION NOT
+      # APPLIED, a red build that says nothing about the contract, and a standing
+      # temptation to move the anchor and carry on.
+      #
+      # `scripts/ci/erasure-mutate.ts` expresses every mutation against the TypeScript
+      # syntax tree instead — "the data object of the notification.updateMany call",
+      # not a run of characters — so reflowing, reindenting or reordering the target
+      # cannot stop it applying. The format-robustness step near the end proves that
+      # rather than asserting it.
+      #
+      # The driver only mutates. The copy/restore around each step and the
+      # byte-identical check at the end are what prove the tree comes back.
+
       - name: negative proof — M1 manifest names a column that does not exist
         run: |
           F="lib/services/account/account-erasure-manifest.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/taxId: "null", notes: "null" \} \}/taxId: "null", notes: "null", fakeField: "null" } }/' "$F"
+          npx tsx scripts/ci/erasure-mutate.ts M1
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a nonexistent column passed"; exit 1
@@ -61,7 +73,7 @@ jobs:
         run: |
           F="lib/services/account/account-erasure-manifest.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/billingSignatureDataUrl: "null" \} \}/billingSignatureDataUrl: "null", email: "null" } }/' "$F"
+          npx tsx scripts/ci/erasure-mutate.ts M2
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a wrong-model column passed"; exit 1
@@ -72,7 +84,7 @@ jobs:
         run: |
           F="lib/services/account/account-deletion.prisma-store.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/data: \{ name: "לקוח שנמחק", phone: null, email: null,/data: { name: "לקוח שנמחק", email: null,/' "$F"
+          npx tsx scripts/ci/erasure-mutate.ts M3
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unkept promise passed"; exit 1
@@ -83,11 +95,7 @@ jobs:
         run: |
           F="lib/services/account/account-deletion.prisma-store.ts"
           cp "$F" "$F.bak"
-          # Re-anchored: E2 Wave 1 made the lead `data` object multi-line, so the
-          # old single-line anchor no longer exists. `href` is dispositioned
-          # RETAIN_BY_DESIGN on Notification, so writing it IS undeclared erasure —
-          # the property under test is unchanged.
-          perl -0pi -e 's/data: \{ title: "", summary: null \},/data: { title: "", summary: null, href: "" },/' "$F"
+          npx tsx scripts/ci/erasure-mutate.ts M4
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an undeclared mutation passed"; exit 1
@@ -95,14 +103,12 @@ jobs:
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
 
       # A relation field is not a stored value. Accepting one as proof that a column
-      # was erased would let `lead.business` stand in for `lead.email`.
+      # was erased would let a relation stand in for `lead.email`.
       - name: negative proof — M5 a relation offered where a column is required
         run: |
           F="lib/services/account/account-erasure-manifest.ts"
           cp "$F" "$F.bak"
-          # Re-anchored onto the notification entry for the same reason as M4.
-          # `business` is a relation there too, so the property is unchanged.
-          perl -0pi -e 's/\{ model: "notification", fields: \{ title: "blank", summary: "null" \} \}/{ model: "notification", fields: { title: "blank", summary: "null", business: "null" } }/' "$F"
+          npx tsx scripts/ci/erasure-mutate.ts M5
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a relation satisfied a column requirement"; exit 1
@@ -115,18 +121,16 @@ jobs:
         run: |
           F="lib/services/account/erasure-dispositions.ts"
           cp "$F" "$F.bak"
-          # \r?\n so the proof works from a CRLF checkout as well as a LF one.
-          perl -0pi -e 's/    isActive: \{ disposition: "STRUCTURAL" \},\r?\n//' "$F"
+          npx tsx scripts/ci/erasure-mutate.ts M6
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unclassified covered column passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
 
-      # ── E1.1 — model-level coverage ────────────────────────────────────────
-      # E1 proves the models inside the boundary are handled. These prove there is
-      # no outside. The failure they catch is not "this model holds personal data"
-      # — no guard can know that — but "nobody said what happens to this model".
+      # ── model-level coverage ───────────────────────────────────────────────
+      # The failure these catch is not "this model holds personal data" — no guard
+      # can know that — but "nobody said what happens to this model".
 
       # The one that actually happened: three inbound-email models entered main
       # carrying fromEmail, subject and a raw MIME object key, and every check in
@@ -135,7 +139,7 @@ jobs:
         run: |
           F="prisma/schema.prisma"
           cp "$F" "$F.bak"
-          printf '\nmodel FuturePersonalThing {\n  id     Int     @id @default(autoincrement())\n  secret String?\n}\n' >> "$F"
+          printf 'model FuturePersonalThing {\n  id Int @id @default(autoincrement())\n  secret String?\n}\n' >> "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unclassified model passed"; exit 1
@@ -146,7 +150,7 @@ jobs:
         run: |
           F="lib/services/account/erasure-model-coverage.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/  Usage: operational\("per-week feature counters"\),/  Usage: operational("per-week feature counters"),\n  ModelThatDoesNotExist: operational("stale entry"),/' "$F"
+          npx tsx scripts/ci/erasure-mutate.ts N2
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a stale classification passed"; exit 1
@@ -159,19 +163,19 @@ jobs:
         run: |
           F="lib/services/account/erasure-model-coverage.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/  Usage: operational\("per-week feature counters"\),/  Usage: operational("per-week feature counters"),\n  Supplier: operational("contradicts the UNMANAGED_PERSONAL_DATA entry"),/' "$F"
+          npx tsx scripts/ci/erasure-mutate.ts N3
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a conflicting classification passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
 
-      # The bridge to E1: a model-level claim that bypasses the field-level contract.
+      # The bridge to the field-level contract: a model-level claim that bypasses it.
       - name: negative proof — N4 ERASURE_MANAGED without any erasure
         run: |
           F="lib/services/account/erasure-model-coverage.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/  Usage: operational\("per-week feature counters"\),/  Usage: { disposition: "ERASURE_MANAGED" },/' "$F"
+          npx tsx scripts/ci/erasure-mutate.ts N4
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a hollow ERASURE_MANAGED claim passed"; exit 1
@@ -182,12 +186,35 @@ jobs:
         run: |
           F="lib/services/account/erasure-model-coverage.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/  Usage: operational\("per-week feature counters"\),\r?\n//' "$F"
+          npx tsx scripts/ci/erasure-mutate.ts N5
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a de-classified model passed"; exit 1
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      # ── the proof about the proofs ─────────────────────────────────────────
+      # Reflow the two targets that a product change reformatted, then mutate. The
+      # reflow is GENERATED FROM THE SYNTAX TREE, so it cannot be accused of being
+      # hand-written to keep matching: it re-emits the same properties across more
+      # lines. With the old text anchors this exact sequence produced MUTATION NOT
+      # APPLIED and a green contract. Now both mutations must still apply and the
+      # guard must still go red.
+      - name: negative proof — M4 and M5 survive a formatting-only change
+        run: |
+          A="lib/services/account/account-deletion.prisma-store.ts"
+          M="lib/services/account/account-erasure-manifest.ts"
+          cp "$A" "$A.bak"
+          cp "$M" "$M.bak"
+          npx tsx scripts/ci/erasure-mutate.ts --reflow M4
+          npx tsx scripts/ci/erasure-mutate.ts --reflow M5
+          if cmp -s "$A" "$A.bak"; then mv "$A.bak" "$A"; mv "$M.bak" "$M"; echo "REFLOW CHANGED NOTHING"; exit 1; fi
+          npx tsx scripts/ci/erasure-mutate.ts M4
+          npx tsx scripts/ci/erasure-mutate.ts M5
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$A.bak" "$A"; mv "$M.bak" "$M"; echo "FORMAT-ROBUSTNESS FAIL: the guard stayed green"; exit 1
+          fi
+          mv "$A.bak" "$A"; mv "$M.bak" "$M"; echo "FORMAT-ROBUSTNESS PASS"
 
       - name: Confirm the tree is byte-identical after every mutation
         run: git diff --exit-code
