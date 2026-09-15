@@ -145,11 +145,73 @@ const LEAD_RESIDUALS: DebtEntry[] = [
   },
 ];
 
+
+/** E1.1 — every model now carries a disposition, and two of the categories ARE debt by
+ *  construction. `UNMANAGED_PERSONAL_DATA` means the model holds personal data the
+ *  erasure does not touch; `NEEDS_OWNER_DECISION` means I could not classify it from the
+ *  schema without guessing. Both are recorded here so the registry being COMPLETE is
+ *  never mistaken for the erasure being complete.
+ *
+ *  Each entry duplicates only the target increment. The surface and the question live in
+ *  erasure-model-coverage.ts, which is the single description; this file is the schedule.
+ *  Adding a model to either category therefore requires touching this file too, which is
+ *  the point: one more unmanaged model cannot slip in as a one-line edit. */
+const MODEL_LEVEL: DebtEntry[] = [
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Appointment", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "AuthSession", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "AuthSessionSecret", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessBotKnowledge", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessObligation", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessService", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "CollaborationDeal", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Deal", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailAddress", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailAttachmentImport", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailMessage", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryAlert", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryDraft", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryItem", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryMovement", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Notification", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "PurchaseOrder", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "PurchaseOrderLine", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "ReceivingSession", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Recommendation", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "RecommendationOutcome", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Supplier", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "SupplierPurchaseDraft", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "SupplierPurchaseDraftLine", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Task", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "VendorLearning", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "Business", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "BusinessBot", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "BusinessBotLearningSuggestion", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "BusinessBotMemoryPolicy", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "BusinessBotRecommendation", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "BusinessBotSettings", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "BusinessBotSetupDraft", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "ContentEvent", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "ContentRender", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "ContentRun", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "ContentVariant", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "DerivedClaimProjection", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "ExtractionEvidence", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "ExtractionSnapshot", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "ImportRun", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "LearningEvent", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "Offer", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "PartyResolutionClaim", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "PaymentWebhookEvent", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "ReviewEvent", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "SliceDecision", why: "E2" },
+];
+
 export const ACCEPTED_DEBT: DebtEntry[] = [
   ...NAMING,
   ...UNKEPT_PROMISE,
   ...UNDECLARED,
   ...LEAD_RESIDUALS,
+  ...MODEL_LEVEL,
 ];
 
 /** Findings and debt entries are matched on code + key, never on the prose detail, so
