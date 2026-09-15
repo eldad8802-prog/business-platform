@@ -1,0 +1,382 @@
+/**
+ * ERASURE CONTRACT GUARD — proves the manifest, the schema and the adapter agree.
+ *
+ * Run: npm run verify:erasure-contract              (honest: red while debt exists)
+ *      npm run verify:erasure-contract -- --baseline-check   (CI: red only on NEW debt)
+ *
+ * ── WHY THE MANIFEST VALIDATES THE ADAPTER RATHER THAN DRIVING IT ──────────────
+ *
+ * The obvious fix for two artifacts that can disagree is to delete one: make the
+ * manifest the specification and have a generic executor derive the statements. That
+ * was considered and rejected, and the reason is worth writing down, because it will
+ * look like the better idea again in six months.
+ *
+ * The erasure is not a uniform sweep. It is a sequence of decisions that a data-driven
+ * loop would have to encode anyway, and would then hide:
+ *
+ *   - the conversation graph must be written deepest-first, so a failure part-way can
+ *     never leave a child holding content whose parent claims to be clean;
+ *   - `MessageAnalysis` has no `businessId`, so it is reached through a relation filter
+ *     that is simultaneously what satisfies its RLS policy;
+ *   - a nullable Json column needs `Prisma.DbNull`, because a plain `null` writes the
+ *     JSON value null instead of emptying the column;
+ *   - `POSApiKey` rows are DELETED rather than blanked, because `keyHash` is globally
+ *     unique and a constant would collide across two account deletions;
+ *   - `Customer` is anonymised rather than deleted because issued invoices reference it;
+ *   - stages 1, 2 and 3 sit in different transactions on purpose, and the ordering IS
+ *     the security property.
+ *
+ * A generic executor would either lose those or grow an option for each, at which point
+ * it is the same code with an interpreter in front of it — and one that takes a list of
+ * tables to mutate, which is a far wider blast radius than a fixed sequence of
+ * statements. So the adapter stays explicit and readable, and this guard makes it
+ * impossible for the adapter and the manifest to drift apart without the build saying so.
+ *
+ * Trade-off accepted: this reads the adapter statically, so it proves the code CONTAINS
+ * the write. That the write reaches its rows under FORCE RLS is a different property,
+ * proven at runtime by `.ad2a/battery.mjs`. Neither replaces the other.
+ */
+import path from "node:path";
+import fs from "node:fs";
+import {
+  ANONYMIZE_MODELS,
+  DELETE_MODELS,
+  RETAIN_MODELS,
+  REVOKE_INTEGRATIONS,
+} from "./account-erasure-manifest";
+import { COVERED_MODELS, DISPOSITIONS } from "./erasure-dispositions";
+import { ACCEPTED_DEBT, debtKey } from "./erasure-contract-debt";
+import { delegateName, parseAdapter, parsePrismaSchema } from "./erasure-contract";
+
+const ROOT = path.resolve(__dirname, "../../..");
+const SCHEMA = path.join(ROOT, "prisma", "schema.prisma");
+const ADAPTER = path.join(ROOT, "lib", "services", "account", "account-deletion.prisma-store.ts");
+
+type Finding = { code: string; key: string; detail: string };
+
+const findings: Finding[] = [];
+const seenFinding = new Set<string>();
+/** Deduped on code + key. The same model is resolved from several buckets, and one
+ *  broken name should be one finding, not one per place it is mentioned — otherwise
+ *  the debt baseline records the same fact several times and drifts on refactors. */
+const report = (code: string, key: string, detail: string) => {
+  const id = `${code}::${key}`;
+  if (seenFinding.has(id)) return;
+  seenFinding.add(id);
+  findings.push({ code, key, detail });
+};
+
+/**
+ * Writes that are lifecycle bookkeeping, not erasure. The deletion has to record that
+ * it happened; that is the audit trail, not personal data, and requiring a disposition
+ * for it would be noise. Listed explicitly so the exemption is visible and bounded.
+ */
+const LIFECYCLE_WRITES = new Set([
+  "business.deletionRequestedAt",
+  "business.deletedAt",
+  "business.archivedAt",
+  "business.archivedByUserId",
+]);
+
+function main(): number {
+  for (const f of [SCHEMA, ADAPTER]) {
+    if (!fs.existsSync(f)) {
+      console.log(`FATAL: required artifact missing -> ${f}`);
+      return 1;
+    }
+  }
+
+  const models = parsePrismaSchema(SCHEMA);
+  const byDelegate = new Map([...models.values()].map((m) => [m.delegate, m]));
+  const adapter = parseAdapter(ADAPTER);
+
+  console.log(
+    `[contract] schema: ${models.size} models | adapter: ${adapter.writes.length} field write(s), ` +
+      `${adapter.deletes.length} delete(s)`
+  );
+
+  // ── Parse integrity ────────────────────────────────────────────────────────
+  // Before any conclusion: if the analyzer did not understand the adapter, it cannot
+  // claim anything about it. An unread call site is a failure, never a pass.
+  for (const u of adapter.unanalyzable) {
+    report("C0-UNREADABLE", `adapter:${u.line}`, `${u.detail} (line ${u.line})`);
+  }
+
+  /** Resolve a manifest model string to a real schema model, or report why not. */
+  const resolve = (name: string, bucket: string) => {
+    const direct = byDelegate.get(name);
+    if (direct) return direct;
+    // A manifest name that differs only in case from a real delegate is the most
+    // likely mistake, and naming the correction makes the failure actionable.
+    const near = [...byDelegate.keys()].find((d) => d.toLowerCase() === name.toLowerCase());
+    report(
+      "C1-NO-SUCH-MODEL",
+      `${bucket}:${name}`,
+      near
+        ? `${bucket} names "${name}", which is not a Prisma delegate. Did you mean "${near}"?`
+        : `${bucket} names "${name}", which matches no model in the schema`
+    );
+    return null;
+  };
+
+  /** Resolve a field on a model, requiring it to be an actual column. */
+  const requireScalar = (model: ReturnType<typeof resolve>, field: string, bucket: string) => {
+    if (!model) return null;
+    const f = model.fields.find((x) => x.name === field);
+    if (!f) {
+      report(
+        "C2-NO-SUCH-FIELD",
+        `${model.name}.${field}`,
+        `${bucket} names "${field}" on ${model.name}, which has no such field`
+      );
+      return null;
+    }
+    if (!f.isScalar) {
+      // C5. A relation is not a column. Nulling it in Prisma is a different
+      // operation with different semantics, and it can never be the thing that
+      // satisfies a promise to erase a stored value.
+      report(
+        "C5-NOT-A-COLUMN",
+        `${model.name}.${field}`,
+        `${bucket} names "${field}" on ${model.name}, but that is a relation field, not a column`
+      );
+      return null;
+    }
+    return f;
+  };
+
+  // ── C1/C2 — every manifest name exists, on the model it is claimed on ──────
+  for (const name of RETAIN_MODELS) resolve(name, "RETAIN_MODELS");
+  for (const name of DELETE_MODELS) resolve(name, "DELETE_MODELS");
+
+  const written = new Set(adapter.writes.map((w) => `${w.delegate}.${w.field}`));
+  const deleted = new Set(adapter.deletes.map((d) => d.delegate));
+
+  for (const entry of ANONYMIZE_MODELS) {
+    const model = resolve(entry.model, "ANONYMIZE_MODELS");
+    for (const field of Object.keys(entry.fields)) {
+      if (!requireScalar(model, field, "ANONYMIZE_MODELS")) continue;
+      // ── C3 — the promise must be kept ────────────────────────────────────
+      if (!written.has(`${model!.delegate}.${field}`)) {
+        report(
+          "C3-DECLARED-NOT-IMPLEMENTED",
+          `${model!.name}.${field}`,
+          `the manifest declares ${model!.name}.${field} is erased; the adapter never writes it`
+        );
+      }
+    }
+  }
+
+  for (const entry of REVOKE_INTEGRATIONS) {
+    const model = resolve(entry.model, "REVOKE_INTEGRATIONS");
+    const declared = [...entry.clear, ...Object.keys(entry.set)];
+    for (const field of declared) {
+      if (!requireScalar(model, field, "REVOKE_INTEGRATIONS")) continue;
+      if (!written.has(`${model!.delegate}.${field}`) && !deleted.has(model!.delegate)) {
+        report(
+          "C3-DECLARED-NOT-IMPLEMENTED",
+          `${model!.name}.${field}`,
+          `the manifest declares ${model!.name}.${field} is cleared; the adapter neither writes it nor deletes the row`
+        );
+      }
+    }
+  }
+
+  for (const name of DELETE_MODELS) {
+    const model = resolve(name, "DELETE_MODELS");
+    if (model && !deleted.has(model.delegate)) {
+      report(
+        "C3-DECLARED-NOT-IMPLEMENTED",
+        `${model.name}.*`,
+        `the manifest declares ${model.name} rows are deleted; the adapter issues no delete on it`
+      );
+    }
+  }
+
+  // ── C4 — nothing the adapter erases may be undeclared ──────────────────────
+  // The reverse direction, and the one that catches a field quietly added to a
+  // `data` object. Every write on the erasure path is erasure behaviour and has to
+  // be represented, either by the manifest or by an explicit disposition.
+  const manifestFields = new Set<string>();
+  for (const e of ANONYMIZE_MODELS) {
+    for (const f of Object.keys(e.fields)) manifestFields.add(`${e.model}.${f}`);
+  }
+  for (const e of REVOKE_INTEGRATIONS) {
+    for (const f of [...e.clear, ...Object.keys(e.set)]) manifestFields.add(`${e.model}.${f}`);
+  }
+
+  for (const w of adapter.writes) {
+    const key = `${w.delegate}.${w.field}`;
+    if (LIFECYCLE_WRITES.has(key)) continue;
+    const model = byDelegate.get(w.delegate);
+    if (!model) {
+      report(
+        "C4-UNKNOWN-DELEGATE",
+        key,
+        `the adapter writes \`${w.delegate}\`, which matches no model in the schema (line ${w.line})`
+      );
+      continue;
+    }
+    const declaredInManifest = manifestFields.has(key) || manifestFields.has(`${model.name}.${w.field}`);
+    const disp = DISPOSITIONS[model.name]?.[w.field];
+    const declaredByDisposition =
+      disp !== undefined && ["ERASE", "ANONYMISE", "UNLINK"].includes(disp.disposition);
+    if (!declaredInManifest && !declaredByDisposition) {
+      report(
+        "C4-UNDECLARED-MUTATION",
+        `${model.name}.${w.field}`,
+        `the adapter writes ${model.name}.${w.field} (line ${w.line}) and no contract declares it`
+      );
+    }
+  }
+
+  for (const d of adapter.deletes) {
+    const model = byDelegate.get(d.delegate);
+    if (!model) {
+      report(
+        "C4-UNKNOWN-DELEGATE",
+        d.delegate,
+        `the adapter deletes from \`${d.delegate}\`, which matches no model in the schema (line ${d.line})`
+      );
+      continue;
+    }
+    const delegateDeclared = new Set<string>([
+      ...DELETE_MODELS.map((m) => m as string),
+      ...REVOKE_INTEGRATIONS.map((e) => e.model as string),
+    ]);
+    if (!delegateDeclared.has(model.delegate) && !delegateDeclared.has(model.name)) {
+      report(
+        "C4-UNDECLARED-DELETE",
+        `${model.name}.*`,
+        `the adapter deletes ${model.name} rows (line ${d.line}) and no contract declares it`
+      );
+    }
+  }
+
+  // ── C6 — a covered model answers for every column it has ──────────────────
+  for (const modelName of COVERED_MODELS) {
+    const model = models.get(modelName);
+    if (!model) {
+      report("C6-NO-SUCH-MODEL", modelName, `COVERED_MODELS names ${modelName}, which is not in the schema`);
+      continue;
+    }
+    const table = DISPOSITIONS[modelName] ?? {};
+    for (const field of model.fields) {
+      if (!field.isScalar) continue;
+      const d = table[field.name];
+      if (!d) {
+        report(
+          "C6-NO-DISPOSITION",
+          `${modelName}.${field.name}`,
+          `${modelName}.${field.name} is a covered column with no disposition — decide ERASE / ANONYMISE / UNLINK / RETAIN_BY_DESIGN / STRUCTURAL`
+        );
+        continue;
+      }
+      if (d.disposition === "RETAIN_BY_DESIGN" && (!d.purpose || !d.basis)) {
+        report(
+          "C6-RETENTION-WITHOUT-BASIS",
+          `${modelName}.${field.name}`,
+          `${modelName}.${field.name} is retained by design without a stated purpose and basis`
+        );
+        continue;
+      }
+      if (["ERASE", "ANONYMISE", "UNLINK"].includes(d.disposition)) {
+        if (!written.has(`${model.delegate}.${field.name}`) && !deleted.has(model.delegate)) {
+          report(
+            "C6-DISPOSITION-NOT-IMPLEMENTED",
+            `${modelName}.${field.name}`,
+            `${modelName}.${field.name} is dispositioned ${d.disposition} and the adapter never writes it`
+          );
+        }
+      }
+    }
+    // ── C7 — the KIND of write has to match the disposition ────────────────
+    // ERASE means the value is destroyed, so the column must end up null or blank.
+    // A write the analyzer cannot evaluate to a constant is not proof of erasure: a
+    // value derived from the old one would satisfy a mere "is this field written?"
+    // check while leaving the information in place.
+    for (const [fieldName, d] of Object.entries(table)) {
+      if (d.disposition !== "ERASE" && d.disposition !== "UNLINK") continue;
+      const w = adapter.writes.find(
+        (x) => x.delegate === model.delegate && x.field === fieldName
+      );
+      if (w && w.kind !== "CLEAR") {
+        report(
+          "C7-WRONG-WRITE-KIND",
+          `${modelName}.${fieldName}`,
+          `${modelName}.${fieldName} is dispositioned ${d.disposition}, but the adapter writes a ${w.kind} value (line ${w.line}) rather than clearing it`
+        );
+      }
+    }
+
+    // A disposition for a column that no longer exists is drift in the other
+    // direction, and would otherwise sit unnoticed forever.
+    for (const declared of Object.keys(table)) {
+      if (!model.fields.some((f) => f.name === declared && f.isScalar)) {
+        report(
+          "C6-STALE-DISPOSITION",
+          `${modelName}.${declared}`,
+          `a disposition exists for ${modelName}.${declared}, which is not a column on that model`
+        );
+      }
+    }
+  }
+
+  // ── Result ─────────────────────────────────────────────────────────────────
+  const baselineMode = process.argv.includes("--baseline-check");
+  const accepted = new Set(ACCEPTED_DEBT.map((d) => debtKey(d)));
+  const seen = new Set(findings.map((f) => debtKey(f)));
+
+  const fresh = findings.filter((f) => !accepted.has(debtKey(f)));
+  const fixed = [...accepted].filter((k) => !seen.has(k));
+
+  if (findings.length === 0) {
+    console.log("[contract] NO FINDINGS — schema, manifest and adapter agree on every field.");
+  } else {
+    console.log(`\n[contract] ${findings.length} finding(s):\n`);
+    const byCode = new Map<string, Finding[]>();
+    for (const f of findings) byCode.set(f.code, [...(byCode.get(f.code) ?? []), f]);
+    for (const [code, list] of [...byCode.entries()].sort()) {
+      console.log(`  ${code}  (${list.length})`);
+      for (const f of list) {
+        console.log(`    ${accepted.has(debtKey(f)) ? "known" : " NEW "}  ${f.detail}`);
+      }
+      console.log("");
+    }
+  }
+
+  if (!baselineMode) {
+    console.log(
+      findings.length === 0
+        ? "[contract] PASS"
+        : `[contract] FAIL — ${findings.length} finding(s). This is the honest mode: it is red while the contract is broken.`
+    );
+    return findings.length === 0 ? 0 : 1;
+  }
+
+  console.log("--- baseline check ---");
+  console.log(`NEW FINDINGS      = ${fresh.length}`);
+  console.log(`ACCEPTED DEBT     = ${accepted.size}`);
+  console.log(`DEBT NOW RESOLVED = ${fixed.length}`);
+  for (const f of fresh) console.log(`  NEW    ${f.code}  ${f.detail}`);
+  for (const k of fixed) console.log(`  FIXED  ${k}`);
+
+  if (fresh.length > 0) {
+    console.log(
+      "\nBASELINE FAIL — the erasure contract broke in a NEW place. Either implement it or, " +
+        "if it is a deliberate deferral, record it in erasure-contract-debt.ts with a reason."
+    );
+    return 1;
+  }
+  if (fixed.length > 0) {
+    console.log(
+      "\nBASELINE FAIL — recorded debt is now clean. Remove those entries from " +
+        "erasure-contract-debt.ts so the improvement is locked in and cannot silently regress."
+    );
+    return 1;
+  }
+  console.log("\nBASELINE OK — the failure set is exactly the recorded debt.");
+  return 0;
+}
+
+process.exit(main());
