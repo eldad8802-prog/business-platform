@@ -3,7 +3,6 @@ import type { Prisma } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
-import { prisma } from "@/lib/prisma";
 import {
   BILLING_BUSINESS_KIND_VALUES,
   isBillingIdentityComplete,
@@ -14,7 +13,11 @@ import {
   DEFAULT_BILLING_PDF_TEMPLATE_STYLE,
   parseBillingPdfTemplateStyle,
 } from "@/lib/billing/billing-pdf-template-style";
-import { loadBillingInvoiceProfile } from "@/lib/services/billing/billing-invoice-profile.service";
+import {
+  BILLING_INVOICE_PROFILE_SELECT,
+  loadBillingInvoiceProfile,
+} from "@/lib/services/billing/billing-invoice-profile.service";
+import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 
 const MAX_LOGO_CHARS = 500_000;
 
@@ -162,23 +165,16 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (Object.keys(data).length === 0) {
-      const profile = await prisma.businessProfile.findUnique({
-        where: { businessId: user.businessId },
-        select: {
-          billingLegalName: true,
-          billingBusinessKind: true,
-          billingTaxId: true,
-          billingVatNumber: true,
-          billingPhone: true,
-          billingEmail: true,
-          billingAddress: true,
-          billingPaymentNote: true,
-          billingFooterNote: true,
-          billingLogoDataUrl: true,
-          billingSignatureDataUrl: true,
-          billingPdfTemplateStyle: true,
-        },
-      });
+      // Nothing recognisable to persist — read back what is stored. Under the
+      // tenant transaction, because a context-less SELECT on a FORCE-RLS'd table
+      // matches zero rows and returns `null` SILENTLY: this branch would answer
+      // "you have no profile" to a business that has one.
+      const profile = await billingTenantTx(user.businessId, (tx) =>
+        tx.businessProfile.findUnique({
+          where: { businessId: user.businessId },
+          select: BILLING_INVOICE_PROFILE_SELECT,
+        })
+      );
       return NextResponse.json(
         {
           profile: profile
@@ -197,28 +193,23 @@ export async function PATCH(req: NextRequest) {
 
     const persist = normalizeProfilePayloadForDb(data);
 
-    const profile = await prisma.businessProfile.upsert({
-      where: { businessId: user.businessId },
-      create: {
-        businessId: user.businessId,
-        ...persist,
-      } as Prisma.BusinessProfileUncheckedCreateInput,
-      update: persist as Prisma.BusinessProfileUncheckedUpdateInput,
-      select: {
-        billingLegalName: true,
-        billingBusinessKind: true,
-        billingTaxId: true,
-        billingVatNumber: true,
-        billingPhone: true,
-        billingEmail: true,
-        billingAddress: true,
-        billingPaymentNote: true,
-        billingFooterNote: true,
-        billingLogoDataUrl: true,
-        billingSignatureDataUrl: true,
-        billingPdfTemplateStyle: true,
-      },
-    });
+    // The write, under the tenant transaction. `BusinessProfile` is FORCE-RLS'd
+    // and the runtime is NOBYPASSRLS, so without `app.current_business_id` the
+    // policy's WITH CHECK refuses the INSERT and the UPDATE matches nothing —
+    // which is why saving the billing identity returned 500 for every business.
+    // The tenant is the session's, re-asserted here; `businessId` never comes
+    // from the request body.
+    const profile = await billingTenantTx(user.businessId, (tx) =>
+      tx.businessProfile.upsert({
+        where: { businessId: user.businessId },
+        create: {
+          businessId: user.businessId,
+          ...persist,
+        } as Prisma.BusinessProfileUncheckedCreateInput,
+        update: persist as Prisma.BusinessProfileUncheckedUpdateInput,
+        select: BILLING_INVOICE_PROFILE_SELECT,
+      })
+    );
 
     return NextResponse.json(
       {
