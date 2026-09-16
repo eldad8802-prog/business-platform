@@ -237,6 +237,26 @@ check("the AD-2A battery seeds both tenants and proves the delete is scoped", ()
   }
 });
 
+check("the battery grants its lab role DELETE on both tables", () => {
+  // Found the hard way. The battery enumerates privileges rather than granting
+  // schema-wide, deliberately, so that it holds exactly what Production holds —
+  // and a table created after that list was written holds nothing at all. The
+  // first run failed with 42501, permission denied, which from the outside is
+  // indistinguishable from an adapter that forgot to delete.
+  //
+  // The migration grants both tables to app_runtime; the lab has to mirror it or
+  // it is testing a privilege state the product does not have.
+  const grant = battery.match(
+    /GRANT[^`]*\bON\b[^`]*InboundEmailAuthorizedSender[^`]*TO \$\{RT_ROLE\}/
+  );
+  assert.ok(grant, "the lab role is never granted anything on InboundEmailAuthorizedSender");
+  assert.ok(/\bDELETE\b/.test(grant[0]), "the lab role cannot DELETE, so the erasure cannot be proven");
+  assert.ok(
+    grant[0].includes("InboundEmailSenderChallenge"),
+    "the lab role is never granted anything on InboundEmailSenderChallenge"
+  );
+});
+
 // ── 6. Nothing else moved ────────────────────────────────────────────────────
 
 check("this increment adds no migration and no schema change", () => {

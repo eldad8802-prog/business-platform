@@ -155,6 +155,20 @@ async function main() {
   await owner.$executeRawUnsafe(
     `GRANT SELECT, INSERT, UPDATE, DELETE ON "Conversation","Message","MessageAnalysis","ReplySuggestion","Customer","CrmNote","CrmAttachment","BusinessProfile","User","Business","Lead","POSApiKey","OAuthToken","EmailConnection","WhatsAppConnection","BusinessPaymentConnection","BillingAuthorityConnection","LearningEvent","Appointment" TO ${RT_ROLE}`
   );
+  // T1-ERASURE: the inbound sender authorisation list, granted separately for the
+  // same reason the list above is enumerated rather than schema-wide — the lab
+  // must hold exactly what Production holds. The T1-DB migration grants both
+  // tables to app_runtime, so the runtime genuinely has SELECT/INSERT/UPDATE and
+  // DELETE on them, and account erasure relies on the DELETE.
+  //
+  // This is where their absence showed up. The first run of the erasure against a
+  // seeded fixture failed with 42501, permission denied, because the lab role had
+  // never been granted anything on tables that did not exist when the list above
+  // was written. A missing grant is indistinguishable from a missing delete from
+  // the outside, so it has to be stated here rather than inherited.
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON "InboundEmailAuthorizedSender","InboundEmailSenderChallenge" TO ${RT_ROLE}`
+  );
   // I-8A: Production hands the runtime SELECT and INSERT here and revokes the
   // rest, so the lab does the same. Giving this table the blanket grant above
   // would make "erasure did not delete these rows" a statement about privileges
