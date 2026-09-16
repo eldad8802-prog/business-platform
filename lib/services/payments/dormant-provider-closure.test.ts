@@ -264,37 +264,78 @@ async function main() {
     }
   }
 
-  // ── 9. STRUCTURAL GUARD — the UI cannot re-enable on its own ─────────────
-  // A future edit that puts Tranzila back in the settings picker without
-  // re-enabling the capability fails here rather than shipping a provider whose
-  // callback is switched off.
+  // ── 9. STRUCTURAL GUARD — the UI cannot decide who is connectable ────────
+  //
+  // THIS CHECK USED TO COMPARE TWO LISTS, and that was the wrong invariant.
+  // It read a hard-coded `SELECTABLE_PROVIDERS` array out of the settings card
+  // and asserted it equalled the server's enabled set — which kept the two in
+  // step but blessed the existence of a second list. The consequence was a real
+  // defect: a provider could be enabled, publish a complete descriptor, appear
+  // in the catalogue, and still be impossible to connect, because the card had
+  // never heard of it and nothing failed.
+  //
+  // So the invariant is now architectural rather than numerical: the connection
+  // UI DERIVES its options from the canonical catalogue and names no provider
+  // at all. A list that does not exist cannot drift, and re-introducing one is
+  // caught by the provider-name check below — you cannot hard-code an allowlist
+  // without naming a provider.
   {
     const ui = fs.readFileSync(
       "components/settings/PaymentConnectionCard.tsx",
       "utf8"
     );
-    const m = ui.match(
-      /const SELECTABLE_PROVIDERS: readonly ProviderKey\[\] = \[([^\]]*)\]/
+
+    ok(
+      "the settings card reads the canonical provider catalogue",
+      ui.includes("/api/payments/providers")
     );
-    assert.ok(m, "SELECTABLE_PROVIDERS must exist in the settings card");
-    const selectable = [...m[1].matchAll(/"([A-Z]+)"/g)].map((x) => x[1]).sort();
-    const enabled = listProviderDescriptors().map((d) => d.key).sort();
+    ok(
+      "and submits through the generic descriptor-validated connect route",
+      /fetch\(\s*"\/api\/payments\/connections"/.test(ui)
+    );
+    ok(
+      "with no per-provider connect endpoint left in the UI",
+      !/\/api\/payments\/connections\/[a-z]/.test(ui)
+    );
+    ok(
+      "its options are rendered from catalogue state, not from a constant",
+      /catalogue\.map\(/.test(ui)
+    );
+    ok(
+      "a catalogue it cannot read leaves nothing selectable",
+      /setCatalogue\(\[\]\)/.test(ui) && ui.includes("catalogueFailed")
+    );
+
+    // The whole class, in one assertion. Every provider key the system knows —
+    // enabled, dormant or otherwise — must be absent from this file. There is
+    // no way to re-introduce an allowlist, a label map or a provider-specific
+    // branch without tripping it.
+    const everyProviderKey = listAllProviderDescriptors().map((d) => d.key);
+    const named = everyProviderKey.filter((key) =>
+      new RegExp(`\\b${key}\\b`).test(ui)
+    );
     assert.deepEqual(
-      selectable,
-      enabled,
-      "the settings picker must offer exactly the server-enabled providers"
+      named,
+      [],
+      `the connection UI must not name any payment provider; found: ${named.join(", ")}`
     );
     for (const provider of DORMANT) {
       ok(
-        `${provider}: not selectable in the settings UI`,
-        !selectable.includes(provider)
+        `${provider}: cannot be named by the settings UI`,
+        !named.includes(provider)
       );
     }
-    ok(
-      "the picker no longer hardcodes a dormant <option>",
-      !/<option value="(TRANZILA|PAYPAL)"/.test(ui)
-    );
-    ok("the default selection is not a dormant provider", !/useState<ProviderKey>\("(TRANZILA|PAYPAL)"\)/.test(ui));
+
+    // And the catalogue the card reads is still the enabled set, so "derives
+    // from the server" remains a real restriction rather than a nicer-sounding
+    // one. Dormant providers are absent from it by construction.
+    const advertised = listProviderDescriptors().map((d) => d.key);
+    for (const provider of DORMANT) {
+      ok(
+        `${provider}: not advertised by the catalogue the UI renders`,
+        !advertised.includes(provider)
+      );
+    }
   }
 
   console.log(

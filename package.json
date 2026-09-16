@@ -164,8 +164,9 @@
     "verify:callback-secret": "npx tsx lib/services/payments/payment-callback-secret.test.ts",
     "verify:optional-provider-id": "npx tsx lib/services/payments/payment-optional-provider-id.test.ts",
     "verify:payments-refund": "npx tsx lib/services/payments/payment-refund.test.ts",
+    "verify:connection-form": "npx tsx lib/services/payments/connection-form.test.ts",
     "verify:sumit": "npm run verify:callback-secret && npm run verify:optional-provider-id && npm run verify:sumit-adapter && npm run verify:payments-refund && npm run verify:dormant-providers",
-    "verify:payments-foundation": "npm run verify:payments-currency-authority && npm run verify:payments-document-authority && npm run verify:payments-tenant-ownership && npm run verify:payments-provider-seam && npm run verify:payments-async-webhook && npm run verify:payments-provider-authority && npm run verify:cardcom-webhook-hardening && npm run verify:payment-webhook && npm run verify:payment-webhook-quarantine && npm run verify:payments-refund && npm run verify:dormant-providers"
+    "verify:payments-foundation": "npm run verify:payments-currency-authority && npm run verify:payments-document-authority && npm run verify:payments-tenant-ownership && npm run verify:payments-provider-seam && npm run verify:payments-async-webhook && npm run verify:payments-provider-authority && npm run verify:cardcom-webhook-hardening && npm run verify:payment-webhook && npm run verify:payment-webhook-quarantine && npm run verify:payments-refund && npm run verify:connection-form && npm run verify:dormant-providers"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",
