@@ -39,15 +39,39 @@ export const RETAIN_MODELS = [
   "historicalFiscalDocument",
 ] as const;
 
-/** Bucket C — external integration credentials to revoke (provider-side best-effort) +
- *  clear at rest. `clear` = ciphertext/secret fields to null; `set` = status/markers. */
+/** Bucket C — external integration credentials to revoke (provider-side best-effort).
+ *
+ *  An entry has exactly ONE of two shapes, and the difference between them is a
+ *  difference in what is being promised:
+ *
+ *    { model, clear, set }      the ROW SURVIVES. `clear` = ciphertext/secret columns
+ *                              nulled or blanked; `set` = status/revocation markers.
+ *                              The claim is about named columns, and only a write to
+ *                              those columns can keep it.
+ *
+ *    { model, deleteRow: true } the ROW IS DELETED, and everything on it goes with it.
+ *                              The claim is about the row, and only an actual delete
+ *                              can keep it.
+ *
+ *  They are not interchangeable, and the contract guard no longer lets them be. A row
+ *  deletion used to count as satisfying a `clear` declaration, which meant the manifest
+ *  could describe destroying an entire row as "these two columns are cleared" — weaker
+ *  than the truth, and silent about every other column on the row. `OAuthToken` and
+ *  `POSApiKey` were exactly that, and because nothing resolved their names the declared
+ *  columns did not even exist on them. */
 export const REVOKE_INTEGRATIONS = [
   { model: "billingAuthorityConnection", clear: ["accessTokenEncrypted", "accessTokenIv", "accessTokenTag", "refreshTokenEncrypted", "refreshTokenIv", "refreshTokenTag"], set: { revokedAt: "now" } },
-  { model: "emailConnection", clear: [], set: { status: "revoked" } },
-  { model: "oauthToken", clear: ["accessToken", "refreshToken"], set: {} },
-  { model: "whatsAppConnection", clear: [], set: { status: "REVOKED_BY_META" } },
-  { model: "businessPaymentConnection", clear: ["credentialEncrypted", "credentialIv", "credentialTag"], set: {} },
-  { model: "posApiKey", clear: ["hashedKey"], set: {} },
+  { model: "emailConnection", clear: ["lastSyncCursor"], set: { status: "revoked" } },
+  // Deleted, not cleared. The rows hang off EmailConnection and carry no fiscal FK,
+  // so the whole row goes — ciphertext, key id, expiry and all. The delegate is
+  // `oAuthToken`: Prisma Client uncapitalises only the FIRST character.
+  { model: "oAuthToken", deleteRow: true },
+  { model: "whatsAppConnection", clear: ["accessTokenEncrypted", "accessTokenIv", "accessTokenTag"], set: { status: "REVOKED_BY_META" } },
+  { model: "businessPaymentConnection", clear: ["credentialEncrypted", "credentialIv", "credentialTag"], set: { isActive: "false" } },
+  // Deleted for a reason a clear could not achieve: `keyHash` is globally @unique, so
+  // blanking it to a constant would collide across two account deletions. The delegate
+  // is `pOSApiKey`, and the column is `keyHash` — the old entry named neither.
+  { model: "pOSApiKey", deleteRow: true },
 ] as const;
 
 /** Bucket B.1 — anonymize in place (row kept, PII fields scrubbed). Customers are
@@ -127,6 +151,32 @@ export const DELETE_MODELS = [
   "inboundEmailSenderChallenge",
   "inboundEmailAuthorizedSender",
 ] as const;
+
+/** The two shapes of a Bucket-C entry, as types rather than as a convention.
+ *
+ *  `revokesRow` is the only sanctioned way to tell them apart. A bare `"deleteRow" in e`
+ *  is also true for `deleteRow: false`, and an entry that explicitly opted OUT of row
+ *  deletion must never be read as one that opted in. */
+export type RevokeByColumns = {
+  readonly model: string;
+  readonly clear: readonly string[];
+  readonly set: Readonly<Record<string, string>>;
+};
+
+export type RevokeByRowDeletion = {
+  readonly model: string;
+  readonly deleteRow: true;
+};
+
+export type RevokeEntry = RevokeByColumns | RevokeByRowDeletion;
+
+export function revokesRow(entry: RevokeEntry): entry is RevokeByRowDeletion {
+  return (entry as RevokeByRowDeletion).deleteRow === true;
+}
+
+/** Bucket C as the union, for every consumer that has to distinguish the two shapes.
+ *  `REVOKE_INTEGRATIONS` keeps its `as const` literal type for everything else. */
+export const REVOKE_ENTRIES: readonly RevokeEntry[] = REVOKE_INTEGRATIONS;
 
 export type ErasureManifest = {
   retain: readonly string[];

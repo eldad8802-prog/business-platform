@@ -1,7 +1,7 @@
 /**
  * ERASURE CONTRACT — the mutation driver for the negative proofs.
  *
- * Usage:  npx tsx scripts/ci/erasure-mutate.ts <M1|M2|M3|M4|M5|M6|N2|N3|N4|N5>
+ * Usage:  npx tsx scripts/ci/erasure-mutate.ts <M1|M2|M3|M4|M5|M6|D1|D2|D3|D4|N2|N3|N4|N5>
  *
  * WHY THIS REPLACED THE REGEXES
  *
@@ -108,6 +108,60 @@ function prismaData(src: ts.SourceFile, delegate: string, method: string): ts.Ob
   return found;
 }
 
+/** The whole statement that performs a Prisma call, located by delegate and method.
+ *  Used by the row-deletion proofs, which have to remove or replace an entire
+ *  `deleteMany` rather than edit a `data` object — `deleteMany` has no `data`. */
+function prismaStatement(src: ts.SourceFile, delegate: string, method: string): ts.Statement {
+  let found: ts.Statement | null = null;
+  const walk = (n: ts.Node) => {
+    if (
+      !found &&
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      n.expression.name.text === method &&
+      ts.isPropertyAccessExpression(n.expression.expression) &&
+      n.expression.expression.name.text === delegate
+    ) {
+      let up: ts.Node = n;
+      while (up.parent && !ts.isStatement(up)) up = up.parent;
+      if (ts.isStatement(up)) found = up;
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(src);
+  if (!found) throw new Error(`no statement containing ${delegate}.${method}()`);
+  return found;
+}
+
+/** A top-level `const NAME = [ … ]` array, located by declaration name. The
+ *  declaration may be wrapped in `as const`, which is an assertion expression. */
+function namedArray(src: ts.SourceFile, name: string): ts.ArrayLiteralExpression {
+  let found: ts.ArrayLiteralExpression | null = null;
+  const walk = (n: ts.Node) => {
+    if (!found && ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name && n.initializer) {
+      let init: ts.Node = n.initializer;
+      while (ts.isAsExpression(init) || ts.isParenthesizedExpression(init)) init = init.expression;
+      if (ts.isArrayLiteralExpression(init)) found = init;
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(src);
+  if (!found) throw new Error(`no array literal declared as "${name}"`);
+  return found;
+}
+
+/** Replace a node's text in place. */
+function replaceNode(source: string, src: ts.SourceFile, node: ts.Node, text: string): string {
+  return source.slice(0, node.getStart(src)) + text + source.slice(node.getEnd());
+}
+
+/** Remove a whole statement, and the newline it sat on. */
+function removeStatement(source: string, src: ts.SourceFile, stmt: ts.Statement): string {
+  let end = stmt.getEnd();
+  while (end < source.length && (source[end] === "\r" || source[end] === "\n")) end += 1;
+  return source.slice(0, stmt.getStart(src)) + source.slice(end);
+}
+
 /** A top-level `const NAME = { … }` object, located by declaration name. */
 function namedObject(src: ts.SourceFile, name: string): ts.ObjectLiteralExpression {
   let found: ts.ObjectLiteralExpression | null = null;
@@ -129,9 +183,15 @@ function namedObject(src: ts.SourceFile, name: string): ts.ObjectLiteralExpressi
   return found;
 }
 
-/** Splice text in immediately after the object's opening brace. */
-function insertInto(source: string, obj: ts.ObjectLiteralExpression, text: string): string {
-  const at = obj.getStart() + 1;
+/** Splice text in immediately after the opening brace or bracket. Arrays are accepted
+ *  as well as objects because `REVOKE_INTEGRATIONS` is an array and D3 has to add a
+ *  whole entry to it, not a property to one. */
+function insertInto(
+  source: string,
+  node: ts.ObjectLiteralExpression | ts.ArrayLiteralExpression,
+  text: string
+): string {
+  const at = node.getStart() + 1;
   return `${source.slice(0, at)} ${text}${source.slice(at)}`;
 }
 
@@ -194,6 +254,56 @@ const MUTATIONS: Record<string, Mutation> = {
       if (!p) throw new Error("Customer has no `isActive` disposition");
       return removeProperty(text, src, p);
     },
+  },
+  // ── D1…D4: the DELETE ROW contract ──────────────────────────────────────
+  //
+  // `deleteRow: true` is a STRONGER claim than `clear`, and a stronger claim needs
+  // its own proofs. Without these four, the new shape would be a comment: the guard
+  // would read it and nothing would establish that reading it changes any outcome.
+
+  // The adapter stops deleting a model the manifest says is deleted outright.
+  D1: {
+    file: ADAPTER,
+    what: "remove the OAuthToken row deletion from the adapter",
+    apply: (src, text) => removeStatement(text, src, prismaStatement(src, "oAuthToken", "deleteMany")),
+  },
+  // The one that earns the shape. The row deletion is swapped for a column clear
+  // that blanks the very column the old manifest named. Under the old contract this
+  // was indistinguishable from a delete; it must not be now, because the row —
+  // businessId, label, source, lastUsedAt — survives.
+  D2: {
+    file: ADAPTER,
+    what: "downgrade the POSApiKey row deletion to a column clear",
+    apply: (src, text) =>
+      replaceNode(
+        text,
+        src,
+        prismaStatement(src, "pOSApiKey", "deleteMany"),
+        `await tx.pOSApiKey.updateMany({ where: { businessId }, data: { keyHash: "" } });`
+      ),
+  },
+  // A row-deletion declaration for a delegate that does not exist. The C1 path must
+  // cover the new shape too, or a typo in a `deleteRow` entry would be inert exactly
+  // the way `oauthToken` was inert for months.
+  D3: {
+    file: MANIFEST,
+    what: "declare deleteRow for a delegate that does not exist",
+    apply: (src, text) =>
+      insertInto(text, namedArray(src, "REVOKE_INTEGRATIONS"), `{ model: "noSuchDelegate", deleteRow: true },`),
+  },
+  // The regression lock. Rewriting a `deleteRow` entry back into the `clear` shape
+  // is precisely the cheaper fix this increment rejected, and the guard has to refuse
+  // it rather than merely prefer the other one.
+  D4: {
+    file: MANIFEST,
+    what: "downgrade the OAuthToken deleteRow entry back to a column clear",
+    apply: (src, text) =>
+      replaceNode(
+        text,
+        src,
+        manifestEntry(src, "oAuthToken"),
+        `{ model: "oAuthToken", clear: ["accessTokenEncrypted", "refreshTokenEncrypted"], set: {} }`
+      ),
   },
   // A disposition for a model that is not in the schema.
   N2: {
