@@ -209,7 +209,28 @@ export function ExportScreen({ domains }: Props) {
         </SettingsSection>
       </div>
 
-      <div className="mt-4">
+      {/* Room to scroll clear of the bar below, which is out of flow on a phone.
+          Without it the last format option sits underneath and cannot be read. */}
+      <div className="h-36 sm:hidden" aria-hidden="true" />
+
+      {/* The action stays with the owner.
+       *
+       * It used to sit at the very end of the page, 761px down, after a list of
+       * four domains and a list of two formats. That fits a 844px synthetic
+       * viewport and does not fit a phone: the usable height once the browser's
+       * own chrome is on screen is nearer 640-670px, so the owner finished
+       * choosing and had nothing in front of them to press.
+       *
+       * `sticky bottom-0` was the first thing tried and does nothing here: a
+       * sticky element only travels inside its own parent, and this is the
+       * parent's last child, so its natural position already IS the parent's
+       * bottom edge. Measured at 774px either way.
+       *
+       * So: out of flow on a phone, in flow from `sm` up, decided by a CSS
+       * breakpoint rather than a JS tier branch — a branch would remount the
+       * screen, which is the mistake this repo already made once in Billing.
+       */}
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--dz-border-subtle)] bg-[var(--dz-background)] px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:static sm:z-auto sm:mt-4 sm:border-0 sm:bg-transparent sm:p-0">
         <SettingsSection>
           <button
             type="button"
