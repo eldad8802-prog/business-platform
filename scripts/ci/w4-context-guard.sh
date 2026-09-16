@@ -242,11 +242,14 @@ run_guard() {
   fi
 
   # ── CI-W4E-8: provider calls stay outside the tenant transaction ──────────
+  # `refundPayment` joined the list when the reversal seam landed: a refund is a
+  # remote call like any other, and holding a tenant transaction open across it
+  # would pin a database connection for the length of an acquirer's network.
   for pf in lib/services/payments/*.ts; do
     [ -f "$pf" ] || continue
     case "$pf" in *.test.ts) continue ;; esac
     if awk '/withTenantTransaction\(/{d=1} d{print} /^[[:space:]]*\)[[:space:]]*;?[[:space:]]*$/{d=0}' "$pf" \
-       | grep -qE "getPaymentStatus|createPaymentLink|fetch\("; then
+       | grep -qE "getPaymentStatus|createPaymentLink|refundPayment|fetch\("; then
       echo "CI-W4E-8 FAIL: $pf makes a provider call inside a tenant transaction"; fail=1
     fi
   done

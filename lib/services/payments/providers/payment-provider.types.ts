@@ -201,6 +201,72 @@ export interface PaymentProviderAdapter {
   getPaymentStatus?(
     input: GetPaymentStatusInput
   ): Promise<ProviderPaymentStatus>;
+
+  /**
+   * Reverse part or all of a settled payment.
+   *
+   * OPTIONAL, and absence is meaningful: a provider that cannot reverse a
+   * payment must not declare this, and the domain then refuses the refund
+   * rather than pretending. There is no default implementation to inherit,
+   * because "reverse money" has no safe default.
+   *
+   * The adapter receives the settlement Dubiz already holds, never a client's
+   * idea of it, and never a credential from a request body. Everything a
+   * provider needs beyond the amount — a stored customer id, a transaction
+   * reference — it reads out of `settlement`, which keeps provider-shaped
+   * knowledge inside the provider's own adapter.
+   *
+   * Implementations must not report success they have not established. An
+   * accepted-but-unconfirmed reversal is `UNKNOWN`, which the domain treats as
+   * still in flight, never as done and never as failed.
+   */
+  refundPayment?(input: RefundPaymentInput): Promise<RefundPaymentResult>;
+}
+
+/**
+ * The settled payment a refund reverses, exactly as Dubiz persisted it.
+ *
+ * This is the authority a refund is computed against. It comes from the store,
+ * never from the caller, so a client cannot nominate which settlement it is
+ * reversing or how large that settlement was.
+ */
+export interface SettlementRef {
+  /** The provider's own id for the settlement, when it issued one. */
+  providerTransactionId: string | null;
+  amount: string;
+  currency: string;
+  /**
+   * The provider body Dubiz stored with the settlement.
+   *
+   * Opaque to the domain and meaningful only to the adapter that wrote it. It
+   * is how a provider recovers its own identifiers — SUMIT's customer id, for
+   * one — without the domain having to learn any provider's field names.
+   */
+  rawPayload: unknown;
+}
+
+export interface RefundPaymentInput {
+  merchantId: string | null;
+  credential: string | null;
+  /** Positive decimal string. The domain has already bounded it. */
+  amount: string;
+  currency: string;
+  description?: string | null;
+  /** Dubiz's own request id, for providers that correlate on it. */
+  paymentRequestId: number;
+  settlement: SettlementRef;
+}
+
+/**
+ * REFUNDED means the provider established the reversal. UNKNOWN means it did
+ * not — the request may have reached the provider and may yet settle, so the
+ * amount stays reserved and no further refund is allowed until a human
+ * resolves it. There is deliberately no FAILED: a definite refusal is an
+ * exception, not a result, so it can never be mistaken for an outcome.
+ */
+export interface RefundPaymentResult {
+  providerRefundId: string | null;
+  outcome: "REFUNDED" | "UNKNOWN";
 }
 
 export class PaymentProviderError extends Error {

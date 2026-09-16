@@ -32,6 +32,7 @@ import type {
   PaymentStore,
   PaymentTransactionRecord,
   PaymentWebhookEventRecord,
+  TransactionPatch,
   UpsertConnectionRow,
   WebhookEventPatch,
 } from "./payments.types";
@@ -634,6 +635,29 @@ export function createPaymentPrismaStore(): PaymentStore {
         orderBy: { id: "asc" },
       }));
       return rows.map(toTransactionRecord);
+    },
+
+    // Resolves a reservation row once its outcome is known. Only the three
+    // fields the patch carries can move; amount, currency, provider and parent
+    // are the record of what happened and are never rewritten here.
+    async updateTransaction(id: number, patch: TransactionPatch) {
+      const tenant = getTenantContext();
+      const step = tenant
+        ? <T,>(f: (db: typeof prisma) => Promise<T>) => guardedDbStep(tenant.businessId, f)
+        : dbStep;
+      const row = await step((db) => db.paymentTransaction.update({
+        where: { id },
+        data: {
+          ...(patch.status !== undefined ? { status: patch.status } : {}),
+          ...(patch.providerTransactionId !== undefined
+            ? { providerTransactionId: patch.providerTransactionId }
+            : {}),
+          ...(patch.rawPayload !== undefined
+            ? { rawPayload: toJsonInput(patch.rawPayload) }
+            : {}),
+        },
+      }));
+      return toTransactionRecord(row);
     },
 
     async insertWebhookEventIfNew(row: InsertWebhookEventRow) {

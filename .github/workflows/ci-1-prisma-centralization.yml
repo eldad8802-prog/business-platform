@@ -1621,6 +1621,73 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
 
+      # ── REVERSAL (M5) — the generic refund seam ────────────────────────
+      # A refund inverts the domain's risk. A payment is something the provider
+      # tells us happened; a refund is something we instruct and then find out
+      # about, so the dangerous failure is not "it did not happen" but "it
+      # happened twice". The proofs below aim at exactly that.
+      # Local equivalent: npm run verify:payments-refund
+      - name: Reversal seam (bounds, tenant isolation, retry safety, providers)
+        run: npx tsx lib/services/payments/payment-refund.test.ts
+
+      - name: Refund negative proof (settling before the provider answers must be caught)
+        run: |
+          F="lib/services/payments/payment-refund.service.ts"
+          cp "$F" "$F.bak"
+          # Treat an unestablished reversal as done. The row would resolve to
+          # PAID on a refund the provider never confirmed, and the next refund
+          # would be issued against a balance that had not actually moved.
+          perl -0pi -e 's/  if \(result\.outcome !== "REFUNDED"\) \{/  if (false) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payment-refund.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unestablished refund was accepted as settled"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Refund negative proof (reserving only after the provider call must be caught)
+        run: |
+          F="lib/services/payments/payment-refund.service.ts"
+          cp "$F" "$F.bak"
+          # Stop counting unresolved reversals against the refundable balance.
+          # A refund that reached the provider and never came back would then
+          # free its own amount, and a retry would spend it a second time.
+          perl -0pi -e 's/\(t\.status === "PAID" \|\| t\.status === "PENDING"\)/t.status === "PAID"/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payment-refund.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an in-flight refund stopped reserving its amount"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Refund negative proof (dropping the ownership gate must be caught)
+        run: |
+          F="lib/services/payments/payment-refund.service.ts"
+          cp "$F" "$F.bak"
+          # Refund anything that exists, whoever asks. This is the one defect
+          # on this path that spends somebody else's money.
+          perl -0pi -e 's/  if \(!request \|\| request\.businessId !== input\.businessId\) \{/  if (!request) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payment-refund.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a cross-business refund was allowed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Refund negative proof (an unsupported provider must not be emulated)
+        run: |
+          F="lib/services/payments/payment-refund.service.ts"
+          cp "$F" "$F.bak"
+          # Carry on without a provider capability. The domain would record a
+          # reversal nobody performed, which is worse than refusing outright.
+          perl -0pi -e 's/    throw new PaymentRefundUnsupportedError\(request\.provider\);/    void 0;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/payment-refund.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a provider with no refund capability was accepted"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
       # WhatsApp webhook EVENT-CLASS boundary. A read-only audit found that
       # acceptance was decided by payload SHAPE, not event class: change.field
       # was never read, so any change carrying a value.messages[] array reached
