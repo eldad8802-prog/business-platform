@@ -44,6 +44,7 @@ import {
   IconChevronStart,
 } from "@/components/inventory/inventory-design";
 import { inventoryPrimitivesCss } from "@/components/inventory/inventory-primitives.css";
+import { SupplierField } from "@/components/inventory/supplier-field";
 import { getProductEmoji } from "@/lib/inventory/product-emoji";
 import { getMovementReasonLabel } from "@/lib/inventory/inventory-labels";
 
@@ -409,7 +410,17 @@ export default function ProductDetailView({
             </div>
             <div className="inv-field">
               <div className="inv-field__lab">ספק</div>
-              <input className="inv-input" value={form.supplierName} onChange={(e) => setForm((f) => ({ ...f, supplierName: e.target.value }))} placeholder="שם הספק" />
+              {/* The same field the create form uses. The orphan seed is this
+                  item's OWN stored name: the card loads one item, not the
+                  catalogue, so enumerating every snapshot name would mean
+                  fetching all items just to fill a dropdown. What matters when
+                  editing is that the value already on the item stays selectable. */}
+              <SupplierField
+                value={form.supplierName}
+                onChange={(supplierName) => setForm((f) => ({ ...f, supplierName }))}
+                orphanNames={item?.supplierName ? [item.supplierName] : []}
+                idPrefix="inv-edit-supplier"
+              />
             </div>
             <div className="inv-field"><div className="inv-field__lab">יחידת מידה</div><SegmentedControl value={form.unitType} onChange={(v) => setForm((f) => ({ ...f, unitType: v }))} options={UNIT_OPTIONS} /></div>
             <div className="inv-two">
