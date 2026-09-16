@@ -86,6 +86,8 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   POSApiKey: { disposition: "ERASURE_MANAGED" },
   BillingAuthorityConnection: { disposition: "ERASURE_MANAGED" },
   BusinessPaymentConnection: { disposition: "ERASURE_MANAGED" },
+  InboundEmailAuthorizedSender: { disposition: "ERASURE_MANAGED" },
+  InboundEmailSenderChallenge: { disposition: "ERASURE_MANAGED" },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -195,14 +197,6 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   ),
   InboundEmailAddress: unmanaged("localPartPreview, label, and the encrypted local part with its key id"),
   InboundEmailAttachmentImport: unmanaged("filename, plus the link to the message and the document"),
-  InboundEmailAuthorizedSender: unmanaged(
-    "normalizedEmail — an address belonging to a person outside this business, and the " +
-      "createdByUserId of whoever listed them"
-  ),
-  InboundEmailSenderChallenge: unmanaged(
-    "challengeHash and failedAttempts are not identifiers, but every row points at an " +
-      "InboundEmailAuthorizedSender, so the LINK is the personal data that survives"
-  ),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -155,6 +155,20 @@ async function main() {
   await owner.$executeRawUnsafe(
     `GRANT SELECT, INSERT, UPDATE, DELETE ON "Conversation","Message","MessageAnalysis","ReplySuggestion","Customer","CrmNote","CrmAttachment","BusinessProfile","User","Business","Lead","POSApiKey","OAuthToken","EmailConnection","WhatsAppConnection","BusinessPaymentConnection","BillingAuthorityConnection","LearningEvent","Appointment" TO ${RT_ROLE}`
   );
+  // T1-ERASURE: the inbound sender authorisation list, granted separately for the
+  // same reason the list above is enumerated rather than schema-wide — the lab
+  // must hold exactly what Production holds. The T1-DB migration grants both
+  // tables to app_runtime, so the runtime genuinely has SELECT/INSERT/UPDATE and
+  // DELETE on them, and account erasure relies on the DELETE.
+  //
+  // This is where their absence showed up. The first run of the erasure against a
+  // seeded fixture failed with 42501, permission denied, because the lab role had
+  // never been granted anything on tables that did not exist when the list above
+  // was written. A missing grant is indistinguishable from a missing delete from
+  // the outside, so it has to be stated here rather than inherited.
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON "InboundEmailAuthorizedSender","InboundEmailSenderChallenge" TO ${RT_ROLE}`
+  );
   // I-8A: Production hands the runtime SELECT and INSERT here and revokes the
   // rest, so the lab does the same. Giving this table the blanket grant above
   // would make "erasure did not delete these rows" a statement about privileges
@@ -303,6 +317,28 @@ async function main() {
     });
     await owner.crmNote.create({
       data: { businessId: b.id, subjectType: "CUSTOMER", subjectId: c.id, body: `${MARK}note`, createdByUserId: u.id },
+    });
+
+    // T1-ERASURE: the inbound-email sender authorisation list. Seeded for BOTH
+    // businesses so the control tenant proves the delete is scoped rather than
+    // merely effective. The hash is a marker, so a survivor is readable in the
+    // output instead of showing up only as a count.
+    const inboundSender = await owner.inboundEmailAuthorizedSender.create({
+      data: {
+        businessId: b.id,
+        normalizedEmail: `${tag}-forwarder@ad2a.test`,
+        status: "VERIFIED",
+        verifiedAt: new Date(),
+        createdByUserId: u.id,
+      },
+    });
+    await owner.inboundEmailSenderChallenge.create({
+      data: {
+        businessId: b.id,
+        authorizedSenderId: inboundSender.id,
+        challengeHash: `${MARK}challenge-hash`,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
     });
 
     // J-0: the integration credentials stage 1 claims to destroy. The old fixture
@@ -658,6 +694,10 @@ async function main() {
   // anonymisation specifically rather than to stage 2 never running at all.
   ok("A's CRM notes are gone (FOR ALL policy covers DELETE)",
     (await owner.crmNote.count({ where: { businessId: A.biz.id } })) === 0);
+  ok("A's inbound sender challenges are gone (child deleted before parent)",
+    (await owner.inboundEmailSenderChallenge.count({ where: { businessId: A.biz.id } })) === 0);
+  ok("A's inbound authorised senders are gone",
+    (await owner.inboundEmailAuthorizedSender.count({ where: { businessId: A.biz.id } })) === 0);
   const custA = await owner.customer.findFirst({ where: { businessId: A.biz.id } });
   ok("A's customer is ANONYMIZED, not deleted (invoice FK)", custA !== null && custA.name === "לקוח שנמחק");
   const userA = await owner.user.findUnique({ where: { id: A.user.id } });
@@ -761,6 +801,10 @@ async function main() {
   ok("B's conversations survive A's deletion",
     (await owner.conversation.count({ where: { businessId: B.biz.id } })) === 1);
   ok("B's messages survive", (await owner.message.count({ where: { businessId: B.biz.id } })) === 1);
+  ok("B's inbound authorised sender survives (the delete is tenant-scoped)",
+    (await owner.inboundEmailAuthorizedSender.count({ where: { businessId: B.biz.id } })) === 1);
+  ok("B's inbound sender challenge survives",
+    (await owner.inboundEmailSenderChallenge.count({ where: { businessId: B.biz.id } })) === 1);
 
   // Counting B's rows is not enough now that A's are anonymised IN PLACE rather
   // than deleted: an over-broad UPDATE would leave B's row count untouched while

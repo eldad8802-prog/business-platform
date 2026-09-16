@@ -340,26 +340,37 @@ check("every inbound model has an explicit erasure disposition", () => {
   }
 });
 
-check("no new model claims an erasure that no adapter performs", () => {
-  // T1-DB adds no account-deletion code. A model claiming ERASURE_MANAGED here
-  // would be a promise with nothing behind it; the honest answer is the
-  // transitional one, recorded as debt that T1-ERASURE closes.
+check("every new model still answers for its own erasure", () => {
+  // T1-DB itself added no account-deletion code, so both models were
+  // UNMANAGED_PERSONAL_DATA with recorded debt. T1-ERASURE implemented the
+  // deletion and promoted them to ERASURE_MANAGED, which is what makes the
+  // promotion honest rather than a registry edit.
+  //
+  // What must hold in EITHER increment is that the model is classified at all.
+  // Whether a specific disposition is earned is not this file's question: the
+  // erasure verifier derives ERASURE_MANAGED from the adapter and fails both
+  // ways (C11 for a claim with no code, and the reverse for code with no
+  // claim), and inbound-email-erasure.verify.test.ts pins the deletion itself.
   for (const m of NEW_TENANT_TABLES) {
     const coverage = MODEL_COVERAGE[m];
     assert.ok(coverage, `${m} is unclassified`);
-    assert.notEqual(
-      coverage.disposition,
-      "ERASURE_MANAGED",
-      `${m} claims managed erasure while no adapter touches it`
+    assert.ok(
+      typeof coverage.disposition === "string" && coverage.disposition.length > 0,
+      `${m} has no disposition`
     );
   }
 });
 
 // ── 8. Still inert ───────────────────────────────────────────────────────────
 
-check("nothing in the application reads or writes the new models", () => {
+check("nothing but account erasure reads or writes the new models", () => {
   const roots = ["app", "components", "lib"];
   const offenders: string[] = [];
+  // The ONE permitted consumer, and it is permitted because of what it does:
+  // account deletion removes these rows, it does not ingest mail. Nothing here
+  // routes a message, parses MIME, verifies a sender or serves a page. The
+  // feature stays inert; erasing data is not using it.
+  const ERASURE_CONSUMER = "lib/services/account/account-deletion.prisma-store.ts";
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
       const rel = `${dir}/${entry.name}`;
@@ -368,9 +379,11 @@ check("nothing in the application reads or writes the new models", () => {
         continue;
       }
       if (!/\.tsx?$/.test(entry.name)) continue;
+      if (rel === ERASURE_CONSUMER) continue;
       // This file names them in order to forbid consumers; the erasure registry
       // names them in order to classify them. Neither holds a client.
       if (rel.endsWith("inbound-email-t1-db.verify.test.ts")) continue;
+      if (rel.endsWith("inbound-email-erasure.verify.test.ts")) continue;
       const src = fs.readFileSync(path.join(ROOT, rel), "utf8");
       for (const m of NEW_TENANT_TABLES) {
         const delegate = m[0]!.toLowerCase() + m.slice(1);
