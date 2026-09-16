@@ -348,7 +348,19 @@ export function createPayPalProvider(
       input: GetPaymentStatusInput
     ): Promise<ProviderPaymentStatus> {
       const token = await getAccessToken();
+      // PayPal's authoritative lookup is keyed on the order id it issued at
+      // checkout, and it has no other key. The field became nullable because
+      // some providers issue no session id at all; for PayPal a missing one
+      // means there is nothing to ask about, so refuse rather than call the API
+      // with a stringified null.
       const orderId = input.providerRequestId;
+      if (!orderId) {
+        throw new PaymentProviderError(
+          PAYPAL_PROVIDER,
+          "NO_LOOKUP_KEY",
+          "PayPal status query requires the order id issued at checkout."
+        );
+      }
 
       let order = await getOrder(orderId, token);
       if (String(get(order, "status") ?? "") === "APPROVED") {

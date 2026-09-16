@@ -17,7 +17,7 @@ import type { PayableDocumentRef } from "./payment-document-authority";
 
 export type { PayableDocumentRef };
 
-export type PaymentProvider = "TRANZILA" | "CARDCOM" | "PAYPAL";
+export type PaymentProvider = "TRANZILA" | "CARDCOM" | "PAYPAL" | "SUMIT";
 
 export type PaymentRequestStatus =
   | "PENDING"
@@ -141,7 +141,19 @@ export interface UpsertConnectionRow {
  */
 export interface UpsertProviderRoutingRow {
   provider: PaymentProvider;
-  providerRequestId: string;
+  /**
+   * The provider's own session id, when it issues one. Null for a provider that
+   * issues none; never a synthesised stand-in, which would corrupt the very
+   * index callbacks resolve against.
+   */
+  providerRequestId: string | null;
+  /**
+   * SHA-256 of the callback secret, for a provider whose callback carries no
+   * signature and authenticates by possessing a URL only it was given. The
+   * secret itself is never stored, so a leak of this table yields nothing a
+   * caller could replay.
+   */
+  callbackSecretHash?: string | null;
   paymentRequestId: number;
   businessId: number;
 }
@@ -306,6 +318,21 @@ export interface PaymentStore {
   findPaymentRequestByProviderRequestId(
     provider: PaymentProvider,
     providerRequestId: string
+  ): Promise<PaymentRequestRecord | null>;
+
+  /**
+   * The second pre-context route in, for a provider whose callback carries no
+   * signature and no session id. The caller hashes the secret it received and
+   * looks the hash up here; a miss means the callback cannot be attributed to
+   * any request and must be refused.
+   *
+   * Like `findPaymentRequestByProviderRequestId`, this is a READ, and a read is
+   * not authorization: resolving a tenant only decides whose key to check and
+   * whose provider to ask. Nothing settles until the provider is asked.
+   */
+  findPaymentRequestByCallbackSecretHash(
+    provider: PaymentProvider,
+    callbackSecretHash: string
   ): Promise<PaymentRequestRecord | null>;
 
   /**

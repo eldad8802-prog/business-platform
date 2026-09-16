@@ -310,6 +310,39 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           await tx.crmAttachment.deleteMany({ where: { businessId } });
           await tx.crmNote.deleteMany({ where: { businessId } });
 
+          // ── B.2.1 — the inbound-email sender authorisation list ─────────────
+          //
+          // Two tables of pure personal data with no fiscal linkage: an address
+          // belonging to a person OUTSIDE this business who was asked to be
+          // allowed to forward, and the hashed challenges sent to prove they
+          // hold that mailbox. Nothing downstream reads either, so there is
+          // nothing to anonymise around — they are deleted outright.
+          //
+          // CHILD FIRST, and explicitly, rather than leaning on the composite
+          // CASCADE the schema declares. A referential action is performed by
+          // the database, and under FORCE row-level security that is exactly the
+          // shape that failed silently once before: `conversation.deleteMany`
+          // matched zero rows, raised nothing, and the cascade to Message never
+          // fired. Deleting the child in code keeps the guarantee where this
+          // file's own tests can see it.
+          //
+          // Both are scoped by businessId, so they can only reach rows this
+          // transaction's tenant GUC already admits.
+          //
+          // NOT erased here, deliberately: InboundEmailAddress,
+          // InboundEmailMessage and InboundEmailAttachmentImport stay
+          // UNMANAGED_PERSONAL_DATA with recorded debt. Their raw MIME lives in
+          // object storage OUTSIDE Postgres, which no database erasure reaches,
+          // so closing them honestly needs an increment that deletes those
+          // objects too. Claiming them here would be a promise this code cannot
+          // keep.
+          //
+          // Deleting a sender leaves InboundEmailMessage.authorizedSenderId to
+          // the schema's ON DELETE SET NULL, which drops the link to the person
+          // without touching that message row's own retention.
+          await tx.inboundEmailSenderChallenge.deleteMany({ where: { businessId } });
+          await tx.inboundEmailAuthorizedSender.deleteMany({ where: { businessId } });
+
           // ── B.3 — the conversation graph, ANONYMISED IN PLACE ──────────────
           //
           // This used to be `conversation.deleteMany`, and it deleted nothing.

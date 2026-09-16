@@ -53,6 +53,14 @@ import type { PaymentProvider } from "../payments.types";
 export const DISABLED_PAYMENT_PROVIDERS: readonly PaymentProvider[] = [
   "PAYPAL",
   "TRANZILA",
+  // SUMIT ships DISABLED. Its adapter is complete and its authoritative lookup
+  // is real and proven against the sandbox, so it satisfies the capability
+  // invariant above — but satisfying the invariant is not the same as being
+  // ready for a live merchant. Two things are still open: no production SUMIT
+  // connection exists, and Bit, which runs only through the Upay aggregator,
+  // could not be exercised in any sandbox and so remains entirely unproven.
+  // Enabling it is a deliberate, separate decision.
+  "SUMIT",
 ] as const;
 
 /** True when the provider is an active capability. */

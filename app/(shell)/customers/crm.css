@@ -36,16 +36,27 @@
 /* Header */
 .crm-hd {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+}
+/* The title block takes the leftover room and may shrink; the action never
+   gets crushed and wraps to its own line instead. */
+.crm-hd > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.crm-hd > .crm-btn {
+  flex-shrink: 0;
 }
 .crm-hd__title {
   font-size: 24px;
   font-weight: var(--crm-w-semibold);
   margin: 0;
   color: var(--crm-ink);
+  overflow-wrap: anywhere;
 }
 .crm-hd__sub {
   font-size: 13px;
@@ -170,25 +181,84 @@
   font-size: 16px;
   font-weight: var(--crm-w-semibold);
 }
+/*
+  OVERFLOW CONTRACT for a CRM row (Customers / Leads / Suppliers).
+
+  `.crm-row__body` is a flex ITEM of `.crm-row`, so it is blockified and its
+  `min-width: 0` really does let it shrink. Its CHILDREN were not: `__name` and
+  `__meta` are rendered as `<span>`, i.e. non-replaced INLINE boxes, on which
+  `overflow`/`text-overflow` have no effect at all — only `white-space: nowrap`
+  applied. The result was a single unwrappable line that ignored the shrink and
+  painted outside the card (then silently chopped by `body{overflow-x:hidden}`,
+  which is why it never showed up as a scrollbar).
+
+  The body is now a flex COLUMN, which blockifies both children, and the text
+  wraps instead of being cut: `overflow-wrap: anywhere` is deliberate over
+  `break-word` because only `anywhere` also shrinks the min-content width, so a
+  60-character email or an unbroken QA string can never set a floor wider than
+  the pane. The name is clamped to two lines so a pathological value cannot turn
+  one row into a paragraph; the meta is allowed to wrap freely — on a narrow
+  screen its parts move to the next line instead of colliding or disappearing.
+*/
 .crm-row__body {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 .crm-row__name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 15px;
   font-weight: var(--crm-w-medium);
   color: var(--crm-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .crm-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 12px;
   color: var(--crm-muted);
   margin-top: 3px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+/*
+  Status badges ("לא פעיל") are a SIBLING of the name, never inside it. Inside,
+  they sat after the text and the name's two-line clamp simply clipped them away
+  — the row then said nothing about the record being inactive. A lifecycle state
+  is not decoration and must not depend on how long the name happens to be.
+*/
+.crm-row__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+/*
+  One meta value (phone / email / city / source / last activity). Each part is
+  its own flex item — so it wraps to a new line rather than being cut — and each
+  is isolated for bidi: a Latin email or an Israeli phone number inside an RTL
+  row must not reorder itself or drag the separators around with it. The "·" is
+  a generated separator rather than literal text in the run, for the same reason.
+*/
+.crm-row__meta-part {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  unicode-bidi: isolate;
+}
+.crm-row__meta-part + .crm-row__meta-part::before {
+  content: "·";
+  margin-inline: 6px;
+  color: var(--crm-tertiary);
+  unicode-bidi: isolate;
 }
 .crm-row__chevron {
   flex-shrink: 0;
@@ -254,7 +324,30 @@
   padding: 18px;
   margin-bottom: 16px;
 }
+/*
+  Card head: the subject's name beside its actions. The name was a flex child
+  with the default `min-width: auto`, so an unbroken value (a pasted handle, a
+  synthetic QA name) set a floor wider than the card and shoved the buttons out
+  of it. `overflow-wrap: anywhere` collapses that floor; the actions keep their
+  natural size and simply drop to the next line when the name needs the room.
+*/
+.crm-id__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.crm-id__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .crm-id__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 20px;
   font-weight: var(--crm-w-semibold);
   margin: 0 0 10px;
@@ -272,10 +365,18 @@
   color: var(--crm-tertiary);
   margin-bottom: 2px;
 }
+/*
+  `overflow-wrap: anywhere` rather than `word-break: break-word`: only the former
+  also lowers the intrinsic min-content width, which is what actually stops a
+  long email from widening the grid track it sits in. `unicode-bidi: isolate`
+  keeps a Latin/numeric value (email, phone, tax id) from reordering against the
+  Hebrew label beside it.
+*/
 .crm-id__value {
   font-size: 14px;
   color: var(--crm-ink);
-  word-break: break-word;
+  overflow-wrap: anywhere;
+  unicode-bidi: isolate;
 }
 .crm-chips {
   display: flex;
@@ -347,18 +448,27 @@
   justify-content: space-between;
   gap: 12px;
 }
+/*
+  `min-width: 0` alone only permits shrinking — it never forced the main column
+  to TAKE the leftover room, so a long title set the flex basis and squeezed the
+  amount instead. `flex: 1 1 auto` + a wrap-anywhere floor makes the text column
+  the one that gives, and the amount keeps its `flex-shrink: 0`.
+*/
 .crm-item__main {
+  flex: 1 1 auto;
   min-width: 0;
 }
 .crm-item__title {
   font-size: 14px;
   font-weight: var(--crm-w-medium);
   color: var(--crm-ink);
+  overflow-wrap: anywhere;
 }
 .crm-item__meta {
   font-size: 12px;
   color: var(--crm-muted);
   margin-top: 2px;
+  overflow-wrap: anywhere;
 }
 .crm-item__amount {
   flex-shrink: 0;
@@ -543,6 +653,8 @@
   margin-bottom: 6px;
 }
 .crm-note-card__author {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 12px;
   font-weight: var(--crm-w-semibold);
   color: var(--crm-ink);
@@ -649,6 +761,10 @@
   flex: 1;
   min-width: 0;
 }
+/* These two ARE block boxes inside a `min-width: 0` flex item, so the ellipsis
+   actually takes effect here (unlike the row classes above) — and the full name
+   stays reachable via the `title` attribute. Isolation only: a Latin filename
+   must not reorder against the Hebrew chrome around it. */
 .crm-att-card__name {
   font-size: 14px;
   font-weight: var(--crm-w-medium);
@@ -656,6 +772,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  unicode-bidi: isolate;
 }
 .crm-att-card__meta {
   font-size: 12px;
@@ -665,6 +782,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  unicode-bidi: isolate;
 }
 .crm-att-card__actions {
   flex-shrink: 0;

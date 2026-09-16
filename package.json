@@ -104,6 +104,9 @@
     "verify:signup-closed-e2e": "npx tsx lib/auth/signup-closed.e2e.test.ts",
     "postinstall": "prisma generate",
     "verify:mist-tokens": "npx tsx lib/design/mist.verify.test.ts",
+    "verify:entity-list-overflow": "npx tsx lib/design/entity-list-overflow.verify.test.ts",
+    "qa:entity-list-overflow": "node scripts/qa/ui/entity-list-overflow.mjs",
+    "qa:entity-list-runtime": "node scripts/qa/ui/entity-list-runtime-qa.mjs",
     "verify:conversation-coherence": "bash scripts/ci/conversation-coherence-guard.sh . && bash scripts/ci/conversation-coherence-guard.sh --self-test .",
     "verify:signup-identity": "npx tsx lib/auth/signup.verify.test.ts",
     "verify:token-revocation": "npx tsx lib/auth/token-revocation.verify.test.ts",
@@ -137,6 +140,7 @@
     "verify:documents-hardening": "npx tsx lib/services/documents/documents-hardening.verify.test.ts",
     "verify:inbound-email-foundation": "npx tsx lib/inbound-email/inbound-email-foundation.verify.test.ts",
     "verify:inbound-email-t1-db": "npx tsx lib/inbound-email/inbound-email-t1-db.verify.test.ts",
+    "verify:inbound-email-erasure": "npx tsx lib/services/account/inbound-email-erasure.verify.test.ts",
     "verify:erasure-contract": "npx tsx lib/services/account/erasure-contract.verify.test.ts",
     "verify:historical-fiscal-persistence": "npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts",
     "verify:historical-contract": "npx tsx lib/data-transfer/historical/historical-contract.verify.test.ts",
@@ -152,6 +156,10 @@
     "verify:payments-provider-seam": "npx tsx lib/services/payments/payment-provider-seam.test.ts",
     "verify:payments-async-webhook": "npx tsx lib/services/payments/payment-webhook-async-verification.test.ts",
     "verify:payments-provider-authority": "npx tsx lib/services/payments/provider-authority.test.ts",
+    "verify:sumit-adapter": "npx tsx lib/services/payments/providers/sumit/sumit.provider.test.ts",
+    "verify:callback-secret": "npx tsx lib/services/payments/payment-callback-secret.test.ts",
+    "verify:optional-provider-id": "npx tsx lib/services/payments/payment-optional-provider-id.test.ts",
+    "verify:sumit": "npm run verify:callback-secret && npm run verify:optional-provider-id && npm run verify:sumit-adapter && npm run verify:dormant-providers",
     "verify:payments-foundation": "npm run verify:payments-currency-authority && npm run verify:payments-document-authority && npm run verify:payments-tenant-ownership && npm run verify:payments-provider-seam && npm run verify:payments-async-webhook && npm run verify:payments-provider-authority && npm run verify:cardcom-webhook-hardening && npm run verify:payment-webhook && npm run verify:payment-webhook-quarantine && npm run verify:dormant-providers"
   },
   "dependencies": {
