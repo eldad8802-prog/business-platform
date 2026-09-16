@@ -209,31 +209,43 @@ export function ExportScreen({ domains }: Props) {
         </SettingsSection>
       </div>
 
-      {/* Room to scroll clear of the bar below, which is out of flow on a phone.
-          Without it the last format option sits underneath and cannot be read. */}
-      <div className="h-36 sm:hidden" aria-hidden="true" />
+      {/* Room to scroll clear of the bar below, which is out of flow at every
+          width. Without it the last format option sits underneath it. */}
+      <div className="h-36" aria-hidden="true" />
 
-      {/* The action stays with the owner.
+      {/* The action stays with the owner, at every width.
        *
        * It used to sit at the very end of the page, 761px down, after a list of
-       * four domains and a list of two formats. That fits a 844px synthetic
-       * viewport and does not fit a phone: the usable height once the browser's
-       * own chrome is on screen is nearer 640-670px, so the owner finished
-       * choosing and had nothing in front of them to press.
+       * four domains and a list of two formats. A window has to be ~810px tall
+       * to show it and almost none are: a phone leaves 640-670px once the
+       * browser's own chrome is on screen, and a laptop leaves 590-780px.
+       * Measured in Production, the action was BELOW the fold at 1024x768,
+       * 1366x600 and 1440x740, and above it only at 1440x900 — which is how a
+       * first pass that tested 900px called desktop fine. "The position did not
+       * change" is not a statement about whether anyone can reach it.
        *
-       * `sticky bottom-0` was the first thing tried and does nothing here: a
-       * sticky element only travels inside its own parent, and this is the
-       * parent's last child, so its natural position already IS the parent's
-       * bottom edge. Measured at 774px either way.
+       * `sticky bottom-0` was tried and does nothing here: a sticky element
+       * only travels inside its own parent, and this is the parent's last
+       * child, so its natural position already IS the parent's bottom edge.
        *
-       * So: out of flow on a phone, in flow from `sm` up, decided by a CSS
-       * breakpoint rather than a JS tier branch — a branch would remount the
-       * screen, which is the mistake this repo already made once in Billing.
+       * The offsets below are the shell's own, mirrored:
+       *
+       *   under 768   a fixed bottom nav owns the last 100px plus the
+       *               safe-area inset, at z-index 100. The bar sits ABOVE it
+       *               rather than under it — measured overlapping by 21px
+       *               before this.
+       *   768-1023    a 76px side rail on the inline-start (the right, in RTL)
+       *   1024 and up a 248px sidebar in the same place
+       *
+       * `shell-chrome.tsx` hardcodes these same numbers for `.shell-content`.
+       * They are repeated here because a fixed element opts out of the padding
+       * that reservation provides, and the shell exposes no variable to read.
        */}
       <div
         data-export-action-bar
-        className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--dz-border-subtle)] bg-[var(--dz-background)] px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:static sm:z-auto sm:mt-4 sm:border-0 sm:bg-transparent sm:p-0"
+        className="fixed inset-x-0 bottom-[calc(100px+env(safe-area-inset-bottom,0px))] z-20 border-t border-[var(--dz-border-subtle)] bg-[var(--dz-background)] px-4 pt-3 pb-3 md:bottom-0 md:ps-[76px] md:pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:ps-[248px]"
       >
+        <div className="mx-auto w-full max-w-md sm:max-w-2xl lg:max-w-4xl">
         <SettingsSection>
           <button
             type="button"
@@ -264,6 +276,7 @@ export function ExportScreen({ domains }: Props) {
             ) : null}
           </div>
         </SettingsSection>
+        </div>
       </div>
     </>
   );

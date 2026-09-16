@@ -155,21 +155,55 @@ async function reachability(browser, label, viewport, auth) {
     return { position: cs.position, paddingBottom: cs.paddingBottom };
   });
   const floorPx = padding ? parseFloat(padding.paddingBottom) : -1;
-  if (viewport.width < 640) {
-    // Only where the bar is out of flow. In flow it is an ordinary block at the
-    // end of the page and the page's own padding is what keeps it off the edge.
-    ok(
-      `${label}: the out-of-flow bar keeps its bottom padding floor`,
-      padding !== null && floorPx >= 12,
-      JSON.stringify(padding)
-    );
-  }
   ok(
-    `${label}: the bar is ${viewport.width < 640 ? "out of flow" : "in flow"} at this width`,
-    padding !== null &&
-      (viewport.width < 640 ? padding.position === "fixed" : padding.position === "static"),
+    `${label}: the bar keeps its bottom padding floor`,
+    padding !== null && floorPx >= 12,
     JSON.stringify(padding)
   );
+  // The action must be out of flow at EVERY width. The previous version of this
+  // check asserted `static` above `sm` — it was pinning the old position rather
+  // than asking whether anyone could reach it, which is how a 761px action
+  // passed as "desktop is fine".
+  ok(
+    `${label}: the bar is out of flow`,
+    padding !== null && padding.position === "fixed",
+    JSON.stringify(padding)
+  );
+
+  // Visible is not the same as hittable. The shell has its own fixed bottom
+  // navigation at z-index 100 below 768px, and a bar sitting under it would
+  // still measure as "on screen".
+  const hit = await page.evaluate(() => {
+    const btn = [...document.querySelectorAll("button")].find((b) =>
+      /הורד קובץ|מכין את הקובץ/.test(b.textContent ?? "")
+    );
+    if (!btn) return null;
+    const r = btn.getBoundingClientRect();
+    const corners = [
+      [r.left + r.width / 2, r.top + 2],
+      [r.left + r.width / 2, r.bottom - 2],
+      [r.left + 4, r.top + r.height / 2],
+      [r.right - 4, r.top + r.height / 2],
+    ];
+    return corners.every((c) => {
+      const el = document.elementFromPoint(c[0], c[1]);
+      return el === btn || (el ? btn.contains(el) || el.contains(btn) : false);
+    });
+  });
+  ok(`${label}: nothing covers the action, edge to edge`, hit === true, `hit=${hit}`);
+
+  const overflowX = await page.evaluate(
+    () => document.documentElement.scrollWidth > window.innerWidth + 1
+  );
+  ok(`${label}: no horizontal overflow`, overflowX === false);
+
+  const ctaCount = await page.evaluate(
+    () =>
+      [...document.querySelectorAll("button")].filter((b) =>
+        /הורד קובץ|מכין את הקובץ/.test(b.textContent ?? "")
+      ).length
+  );
+  ok(`${label}: exactly one download action on the page`, ctaCount === 1, `count=${ctaCount}`);
 
   await context.close();
   return { before, after };
@@ -185,7 +219,17 @@ async function downloadCase(browser, auth, { label, domains, format, viewport })
   await page.locator(`input[name="export-format"][value="${format}"]`).check();
 
   const button = cta(page);
-  await button.scrollIntoViewIfNeeded();
+  // Deliberately NOT scrolled into view first. Scrolling to the button before
+  // clicking it is how a download test passes on a screen where nobody could
+  // have found the button — the exact hole that let the desktop defect ship.
+  // The click below is what a person would do, from where the page loads.
+  const reachable = await visibleWithoutScrolling(page, button);
+  ok(
+    `${label}: the action is on screen at the moment of clicking`,
+    reachable.onScreen,
+    `top=${reachable.top}px viewport=${reachable.vh}px`
+  );
+
   const waitDownload = page.waitForEvent("download", { timeout: 90000 });
   await button.click();
 
@@ -243,7 +287,16 @@ async function main() {
     { label: "phone small (360x640)", size: { width: 360, height: 640 } },
     { label: "phone in use (390x664)", size: { width: 390, height: 664 } },
     { label: "phone nominal (390x844)", size: MOBILE },
-    { label: "desktop (1440x900)", size: DESKTOP },
+    { label: "tablet (768x1024)", size: { width: 768, height: 1024 } },
+    { label: "tablet landscape (1024x768)", size: { width: 1024, height: 768 } },
+    // A LAPTOP, measured as a window rather than as a screen. A 1366x768 panel
+    // gives roughly 590-650px of viewport once the browser's own chrome is on
+    // it, and 1440x900 gives roughly 720-780. Testing the panel size instead of
+    // the window is what let a 761px action pass as "desktop is fine".
+    { label: "laptop 1366x768 (viewport 600)", size: { width: 1366, height: 600 } },
+    { label: "laptop panel (1366x768)", size: { width: 1366, height: 768 } },
+    { label: "laptop 1440x900 (viewport 740)", size: { width: 1440, height: 740 } },
+    { label: "desktop tall (1440x900)", size: DESKTOP },
   ];
   const reach = [];
   for (const v of VIEWPORTS) {
@@ -302,6 +355,38 @@ async function main() {
 
   const mobileDl = await downloadCase(browser, auth, { label: "mobile one domain xlsx", domains: [0], format: "xlsx", viewport: MOBILE });
   ok("mobile -> a file arrives", mobileDl.size > 0 && mobileDl.isXlsx);
+
+  // The desktop windows that could not reach the action at all before this.
+  // Downloading from a viewport that USED to fail is the closure condition —
+  // a file arriving at 1440x900 says nothing about the window someone has open.
+  const laptopXlsx = await downloadCase(browser, auth, {
+    label: "laptop 1440x740 two domains xlsx",
+    domains: [0, 1],
+    format: "xlsx",
+    viewport: { width: 1440, height: 740 },
+  });
+  ok(
+    "laptop 1440x740 (failed before) -> a file arrives",
+    laptopXlsx.size > 0 && laptopXlsx.isXlsx,
+    laptopXlsx.suggested
+  );
+  ok(
+    "laptop 1440x740 -> and it refused a second press while busy",
+    laptopXlsx.lockedWhileBusy
+  );
+
+  const laptopCsv = await downloadCase(browser, auth, {
+    label: "laptop 1366x600 one domain csv",
+    domains: [0],
+    format: "csv",
+    viewport: { width: 1366, height: 600 },
+  });
+  ok(
+    "laptop 1366x600 (failed before) -> a CSV arrives",
+    laptopCsv.size > 0 && /\.csv$/i.test(laptopCsv.suggested),
+    laptopCsv.suggested
+  );
+  ok("laptop 1366x600 -> Hebrew survived", laptopCsv.hasHebrew, laptopCsv.text.slice(0, 60));
 
   await browser.close();
 
