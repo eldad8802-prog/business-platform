@@ -25,12 +25,37 @@ export interface CreatePaymentLinkInput {
   successUrl?: string;
   failureUrl?: string;
   expiresAt?: Date | null;
+  /**
+   * A high-entropy, single-use secret minted by the orchestration for THIS
+   * request, for providers whose callback carries no signature.
+   *
+   * Such a provider proves authenticity by possessing a URL only it was given.
+   * The adapter's job is to embed this value in whatever callback URL it
+   * registers; the orchestration stores only its hash and resolves the tenant
+   * from it later. Adapters that authenticate callbacks by signature ignore it.
+   *
+   * Never logged, never returned to a browser, never persisted in the clear.
+   */
+  callbackSecret?: string | null;
 }
 
 export interface CreatePaymentLinkResult {
   paymentUrl: string;
-  /** Provider-side identifier we store as `PaymentRequest.providerRequestId`. */
-  providerRequestId: string;
+  /**
+   * Provider-side identifier we store as `PaymentRequest.providerRequestId`.
+   *
+   * OPTIONAL, because not every provider issues one. CardCom returns a
+   * LowProfileId and PayPlus a page_request_uid, but SUMIT's hosted checkout
+   * returns a payment page URL and nothing else — its published response object
+   * declares `additionalProperties: false` around a single `RedirectURL`, and a
+   * live sandbox run confirmed it.
+   *
+   * An adapter with no id MUST omit it rather than synthesise one. A fabricated
+   * value would make the field's name untrue and would poison the routing index
+   * that callbacks resolve against, which is keyed on it. A provider that omits
+   * it correlates some other way — see `callbackSecret` above.
+   */
+  providerRequestId?: string | null;
   expiresAt?: Date | null;
 }
 
@@ -82,9 +107,25 @@ export interface ParsedWebhookEvent {
 }
 
 export interface GetPaymentStatusInput {
-  providerRequestId: string;
+  /**
+   * The PROVIDER's identifier for the payment session, as the provider issued
+   * it. Null for a provider that issues none, which is exactly the case this
+   * whole capability exists for. Never a Dubiz id: putting our own id in a field
+   * named for the provider's would make the name untrue.
+   */
+  providerRequestId: string | null;
   merchantId: string | null;
   credential: string | null;
+  /**
+   * The Dubiz-issued value that round-trips through the provider, present when
+   * the provider carries one through the payment.
+   *
+   * For a provider with no session id this is the ONLY way to ask the
+   * authoritative question at all: SUMIT's clearing record is searchable by the
+   * external identifier we set at checkout and by nothing else we control.
+   * Adapters that do not need it ignore it.
+   */
+  correlationValue?: string | null;
 }
 
 export interface ProviderPaymentStatus {
@@ -109,6 +150,22 @@ export interface PaymentProviderAdapter {
    * itself is then the authority on what it accepts and what it rejects.
    */
   readonly supportedCurrencies: readonly string[] | null;
+
+  /**
+   * Declares that this provider's callbacks are authenticated by POSSESSION of
+   * a URL rather than by a signature on the message.
+   *
+   * When true the orchestration mints a fresh high-entropy secret for every
+   * checkout, hands it to `createPaymentLink`, and stores only its hash as the
+   * route from a later callback back to this request. When absent or false
+   * nothing is minted and nothing is stored, so existing signature-based
+   * providers are untouched.
+   *
+   * A provider should declare this only if it genuinely publishes no signature.
+   * Preferring a URL secret over a signature the provider does offer would be a
+   * downgrade.
+   */
+  readonly usesCallbackSecret?: boolean;
 
   createPaymentLink(
     input: CreatePaymentLinkInput

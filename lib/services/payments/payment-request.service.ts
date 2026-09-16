@@ -23,6 +23,10 @@ import type {
 } from "./payments.types";
 import type { PaymentProviderAdapter } from "./providers/payment-provider.types";
 import { recordPaymentAuditEvent } from "./payment-audit.service";
+import {
+  generateCallbackSecret,
+  hashCallbackSecret,
+} from "./payment-callback-secret";
 import { assertAmountPayableAgainstDocument } from "./payment-document-authority";
 import { assertPaymentProviderEnabled } from "./providers/provider-availability";
 import { isSupportedProvider } from "./providers/provider-registry";
@@ -305,6 +309,16 @@ export async function createPaymentRequest(
   // 4. ask the provider for a hosted-checkout link.
   const credential = deps.decryptConnectionCredential(connection);
 
+  // A provider whose callback carries no signature authenticates by possessing a
+  // URL only it was given. Minting the secret HERE, inside the owner-
+  // authenticated flow, is what keeps it server-derived: the adapter receives
+  // it, embeds it in the callback URL it registers with the provider, and
+  // nothing else ever sees it. Adapters that authenticate by signature declare
+  // no such need and none is minted for them.
+  const callbackSecret = adapter.usesCallbackSecret === true
+    ? generateCallbackSecret()
+    : null;
+
   let linkResult;
   try {
     linkResult = await adapter.createPaymentLink({
@@ -318,6 +332,7 @@ export async function createPaymentRequest(
       successUrl: input.successUrl,
       failureUrl: input.failureUrl,
       expiresAt: input.expiresAt ?? null,
+      callbackSecret,
     });
   } catch (error) {
     // Provider failed — mark the request FAILED so it is not left dangling,
@@ -330,10 +345,11 @@ export async function createPaymentRequest(
     throw new ValidationError(`Failed to create payment link: ${message}`);
   }
 
-  // 5. save link + provider id.
+  // 5. save link + provider id. A provider that issues no id stores null; the
+  // adapter is forbidden from inventing one.
   const paymentRequest = await deps.store.updatePaymentRequest(created.id, {
     paymentUrl: linkResult.paymentUrl,
-    providerRequestId: linkResult.providerRequestId,
+    providerRequestId: linkResult.providerRequestId ?? null,
     expiresAt: linkResult.expiresAt ?? input.expiresAt ?? null,
   });
 
@@ -343,10 +359,21 @@ export async function createPaymentRequest(
   // callback's pre-context lookup returns nothing and the webhook is
   // fail-closed. Written HERE, inside the owner-authenticated flow, so the
   // tenant on the routing row is server-derived and never payload-supplied.
-  if (linkResult.providerRequestId) {
+  //
+  // A row is written when EITHER route in exists: the provider's own session
+  // id, or the hash of the callback secret we minted. Only the hash is stored,
+  // never the secret. With neither, there is nothing a callback could resolve
+  // against, so no row is written and any callback for this request is refused
+  // — which is the correct outcome, not an omission.
+  const callbackSecretHash = callbackSecret
+    ? hashCallbackSecret(callbackSecret)
+    : null;
+
+  if (linkResult.providerRequestId || callbackSecretHash) {
     await deps.store.upsertProviderRouting({
       provider,
-      providerRequestId: linkResult.providerRequestId,
+      providerRequestId: linkResult.providerRequestId ?? null,
+      callbackSecretHash,
       paymentRequestId: created.id,
       businessId: input.businessId,
     });

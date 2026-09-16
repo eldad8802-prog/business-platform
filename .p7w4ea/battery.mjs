@@ -244,7 +244,13 @@ async function main() {
   ok("PaymentProviderRouting is a NON-RLS bootstrap surface", routingRls.e === false && routingRls.f === false);
   const routingCols = (await owner.$queryRawUnsafe(
     `SELECT column_name FROM information_schema.columns WHERE table_name='PaymentProviderRouting' ORDER BY column_name`)).map((r) => r.column_name);
-  const allowedCols = ["businessId", "createdAt", "id", "paymentRequestId", "provider", "providerRequestId"];
+  // `callbackSecretHash` is the second ROUTE IN, for a provider that signs no
+  // callback and issues no session id: a SHA-256 of a secret held only by the
+  // provider. It carries no business or financial data, nothing recoverable,
+  // and nothing a leak of this table could replay — the same standing as
+  // `providerRequestId` beside it. The assertion below is still an EXACT set
+  // equality, so a real business column remains impossible to add quietly.
+  const allowedCols = ["businessId", "callbackSecretHash", "createdAt", "id", "paymentRequestId", "provider", "providerRequestId"];
   ok("routing table is routing-ONLY (no business/financial columns)",
     JSON.stringify(routingCols) === JSON.stringify(allowedCols), routingCols.join(","));
 

@@ -61,14 +61,28 @@ const ok = (label: string, condition: boolean) => {
 };
 
 async function main() {
-  // ── 1. the disabled set is exactly PayPal + Tranzila ─────────────────────
+  // ── 1. the disabled set is exactly the dormant + unproven providers ──────
+  //
+  // PayPal and Tranzila are DORMANT: live, unauthenticated webhook consumers
+  // with no verification path, disabled in CASA Wave E.
+  //
+  // SUMIT is disabled for a different reason, and keeping the two reasons
+  // distinct matters. Its adapter is complete and its authoritative lookup is
+  // real and proven against the sandbox, so it satisfies the capability
+  // invariant; it is disabled because no production connection exists and
+  // because Bit, which runs only through the Upay aggregator, could not be
+  // exercised in any sandbox.
+  //
+  // CardCom staying the only ENABLED provider is the assertion that actually
+  // protects production, and it is unchanged.
   {
     assert.deepEqual(
       [...DISABLED_PAYMENT_PROVIDERS].sort(),
-      ["PAYPAL", "TRANZILA"],
-      "only the two dormant providers are disabled"
+      ["PAYPAL", "SUMIT", "TRANZILA"],
+      "only the dormant and unproven providers are disabled"
     );
     ok("CardCom remains enabled", isPaymentProviderEnabled("CARDCOM"));
+    ok("SUMIT ships disabled", !isPaymentProviderEnabled("SUMIT"));
     pass += 1;
   }
 
@@ -159,7 +173,7 @@ async function main() {
     const all = listAllProviderDescriptors().map((d) => d.key).sort();
     assert.deepEqual(
       all,
-      ["CARDCOM", "PAYPAL", "TRANZILA"],
+      ["CARDCOM", "PAYPAL", "SUMIT", "TRANZILA"],
       "every descriptor is still resolvable for historical records"
     );
     for (const provider of DORMANT) {
