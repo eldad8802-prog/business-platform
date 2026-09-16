@@ -42,7 +42,8 @@ import {
   ANONYMIZE_MODELS,
   DELETE_MODELS,
   RETAIN_MODELS,
-  REVOKE_INTEGRATIONS,
+  REVOKE_ENTRIES,
+  revokesRow,
 } from "./account-erasure-manifest";
 import { COVERED_MODELS, DISPOSITIONS } from "./erasure-dispositions";
 import { COVERAGE_SOURCES, MODEL_COVERAGE } from "../../../scripts/ci/erasure/erasure-model-coverage";
@@ -168,16 +169,38 @@ function main(): number {
     }
   }
 
-  for (const entry of REVOKE_INTEGRATIONS) {
+  // ── C3 for Bucket C — each shape is held to its OWN promise ───────────────
+  //
+  // `deleteRow` and `clear` claim different things, so nothing that satisfies one
+  // may be accepted as satisfying the other.
+  //
+  // This block used to accept EITHER: a declared `clear` passed if the adapter wrote
+  // the column OR deleted the row. That escape is what let `OAuthToken` and
+  // `POSApiKey` be described as column clears while the adapter destroyed the whole
+  // row, and it hid the fact that the declared columns were not columns on those
+  // models at all. The escape is gone, in both directions.
+  for (const entry of REVOKE_ENTRIES) {
     const model = resolve(entry.model, "REVOKE_INTEGRATIONS");
-    const declared = [...entry.clear, ...Object.keys(entry.set)];
-    for (const field of declared) {
+    if (revokesRow(entry)) {
+      // The strong claim: the row goes. Only a delete keeps it. A write — even one
+      // that blanks every column the row has — leaves the row, and is therefore a
+      // different outcome, not a stronger way of reaching the same one.
+      if (model && !deleted.has(model.delegate)) {
+        report(
+          "C3-DECLARED-NOT-IMPLEMENTED",
+          `${model.name}.*`,
+          `the manifest declares ${model.name} rows are deleted on revoke; the adapter issues no delete on it`
+        );
+      }
+      continue;
+    }
+    for (const field of [...entry.clear, ...Object.keys(entry.set)]) {
       if (!requireScalar(model, field, "REVOKE_INTEGRATIONS")) continue;
-      if (!written.has(`${model!.delegate}.${field}`) && !deleted.has(model!.delegate)) {
+      if (!written.has(`${model!.delegate}.${field}`)) {
         report(
           "C3-DECLARED-NOT-IMPLEMENTED",
           `${model!.name}.${field}`,
-          `the manifest declares ${model!.name}.${field} is cleared; the adapter neither writes it nor deletes the row`
+          `the manifest declares ${model!.name}.${field} is cleared; the adapter never writes it`
         );
       }
     }
@@ -202,7 +225,10 @@ function main(): number {
   for (const e of ANONYMIZE_MODELS) {
     for (const f of Object.keys(e.fields)) manifestFields.add(`${e.model}.${f}`);
   }
-  for (const e of REVOKE_INTEGRATIONS) {
+  for (const e of REVOKE_ENTRIES) {
+    // A row-deletion entry declares no columns. It authorises the DELETE (below) and
+    // nothing else, so a field write on that same delegate stays undeclared.
+    if (revokesRow(e)) continue;
     for (const f of [...e.clear, ...Object.keys(e.set)]) manifestFields.add(`${e.model}.${f}`);
   }
 
@@ -241,9 +267,12 @@ function main(): number {
       );
       continue;
     }
+    // Only an explicit `deleteRow` authorises a row deletion. A Bucket-C entry that
+    // declares `clear` says the row survives, so a delete on that delegate contradicts
+    // its own declaration and must be reported rather than excused by membership.
     const delegateDeclared = new Set<string>([
       ...DELETE_MODELS.map((m) => m as string),
-      ...REVOKE_INTEGRATIONS.map((e) => e.model as string),
+      ...REVOKE_ENTRIES.filter(revokesRow).map((e) => e.model),
     ]);
     if (!delegateDeclared.has(model.delegate) && !delegateDeclared.has(model.name)) {
       report(

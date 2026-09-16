@@ -128,6 +128,63 @@ jobs:
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
 
+      # ── the DELETE ROW contract ────────────────────────────────────────────
+      # `deleteRow: true` claims the ROW goes; `clear` claims named columns are
+      # nulled and the row stays. They used to be interchangeable to the guard: a
+      # row deletion satisfied a `clear` declaration. That is how OAuthToken and
+      # POSApiKey came to be described as clears of columns they do not have, while
+      # the adapter destroyed the whole row. Four proofs hold the two apart.
+
+      - name: negative proof — D1 the adapter stops deleting a row the manifest says is deleted
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts D1
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an undelivered row deletion passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      # The one that earns the shape: the row deletion becomes a column clear that
+      # blanks the exact column the old manifest named. The old contract could not
+      # tell these apart. The row — businessId, label, source, lastUsedAt — survives.
+      - name: negative proof — D2 a column clear may not stand in for a row deletion
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts D2
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a clear satisfied a DELETE ROW declaration"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      # A typo in a deleteRow entry must not be inert the way `oauthToken` was.
+      - name: negative proof — D3 deleteRow declared for a delegate that does not exist
+        run: |
+          F="lib/services/account/account-erasure-manifest.ts"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts D3
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a deleteRow for no model passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      # The regression lock. Rewriting a deleteRow entry back into the clear shape is
+      # the cheaper fix this increment rejected; the guard must refuse it outright.
+      - name: negative proof — D4 a deleteRow entry cannot be downgraded back to a clear
+        run: |
+          F="lib/services/account/account-erasure-manifest.ts"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts D4
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a downgraded deleteRow passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
       # ── model-level coverage ───────────────────────────────────────────────
       # The failure these catch is not "this model holds personal data" — no guard
       # can know that — but "nobody said what happens to this model".
