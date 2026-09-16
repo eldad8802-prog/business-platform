@@ -219,7 +219,17 @@ async function downloadCase(browser, auth, { label, domains, format, viewport })
   await page.locator(`input[name="export-format"][value="${format}"]`).check();
 
   const button = cta(page);
-  await button.scrollIntoViewIfNeeded();
+  // Deliberately NOT scrolled into view first. Scrolling to the button before
+  // clicking it is how a download test passes on a screen where nobody could
+  // have found the button — the exact hole that let the desktop defect ship.
+  // The click below is what a person would do, from where the page loads.
+  const reachable = await visibleWithoutScrolling(page, button);
+  ok(
+    `${label}: the action is on screen at the moment of clicking`,
+    reachable.onScreen,
+    `top=${reachable.top}px viewport=${reachable.vh}px`
+  );
+
   const waitDownload = page.waitForEvent("download", { timeout: 90000 });
   await button.click();
 
@@ -284,6 +294,7 @@ async function main() {
     // it, and 1440x900 gives roughly 720-780. Testing the panel size instead of
     // the window is what let a 761px action pass as "desktop is fine".
     { label: "laptop 1366x768 (viewport 600)", size: { width: 1366, height: 600 } },
+    { label: "laptop panel (1366x768)", size: { width: 1366, height: 768 } },
     { label: "laptop 1440x900 (viewport 740)", size: { width: 1440, height: 740 } },
     { label: "desktop tall (1440x900)", size: DESKTOP },
   ];
@@ -344,6 +355,38 @@ async function main() {
 
   const mobileDl = await downloadCase(browser, auth, { label: "mobile one domain xlsx", domains: [0], format: "xlsx", viewport: MOBILE });
   ok("mobile -> a file arrives", mobileDl.size > 0 && mobileDl.isXlsx);
+
+  // The desktop windows that could not reach the action at all before this.
+  // Downloading from a viewport that USED to fail is the closure condition —
+  // a file arriving at 1440x900 says nothing about the window someone has open.
+  const laptopXlsx = await downloadCase(browser, auth, {
+    label: "laptop 1440x740 two domains xlsx",
+    domains: [0, 1],
+    format: "xlsx",
+    viewport: { width: 1440, height: 740 },
+  });
+  ok(
+    "laptop 1440x740 (failed before) -> a file arrives",
+    laptopXlsx.size > 0 && laptopXlsx.isXlsx,
+    laptopXlsx.suggested
+  );
+  ok(
+    "laptop 1440x740 -> and it refused a second press while busy",
+    laptopXlsx.lockedWhileBusy
+  );
+
+  const laptopCsv = await downloadCase(browser, auth, {
+    label: "laptop 1366x600 one domain csv",
+    domains: [0],
+    format: "csv",
+    viewport: { width: 1366, height: 600 },
+  });
+  ok(
+    "laptop 1366x600 (failed before) -> a CSV arrives",
+    laptopCsv.size > 0 && /\.csv$/i.test(laptopCsv.suggested),
+    laptopCsv.suggested
+  );
+  ok("laptop 1366x600 -> Hebrew survived", laptopCsv.hasHebrew, laptopCsv.text.slice(0, 60));
 
   await browser.close();
 
