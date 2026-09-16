@@ -61,11 +61,17 @@ export const RETAIN_MODELS = [
  *  columns did not even exist on them. */
 export const REVOKE_INTEGRATIONS = [
   { model: "billingAuthorityConnection", clear: ["accessTokenEncrypted", "accessTokenIv", "accessTokenTag", "refreshTokenEncrypted", "refreshTokenIv", "refreshTokenTag"], set: { revokedAt: "now" } },
-  { model: "emailConnection", clear: [], set: { status: "revoked" } },
-  { model: "oauthToken", clear: ["accessToken", "refreshToken"], set: {} },
-  { model: "whatsAppConnection", clear: [], set: { status: "REVOKED_BY_META" } },
-  { model: "businessPaymentConnection", clear: ["credentialEncrypted", "credentialIv", "credentialTag"], set: {} },
-  { model: "posApiKey", clear: ["hashedKey"], set: {} },
+  { model: "emailConnection", clear: ["lastSyncCursor"], set: { status: "revoked" } },
+  // Deleted, not cleared. The rows hang off EmailConnection and carry no fiscal FK,
+  // so the whole row goes — ciphertext, key id, expiry and all. The delegate is
+  // `oAuthToken`: Prisma Client uncapitalises only the FIRST character.
+  { model: "oAuthToken", deleteRow: true },
+  { model: "whatsAppConnection", clear: ["accessTokenEncrypted", "accessTokenIv", "accessTokenTag"], set: { status: "REVOKED_BY_META" } },
+  { model: "businessPaymentConnection", clear: ["credentialEncrypted", "credentialIv", "credentialTag"], set: { isActive: "false" } },
+  // Deleted for a reason a clear could not achieve: `keyHash` is globally @unique, so
+  // blanking it to a constant would collide across two account deletions. The delegate
+  // is `pOSApiKey`, and the column is `keyHash` — the old entry named neither.
+  { model: "pOSApiKey", deleteRow: true },
 ] as const;
 
 /** Bucket B.1 — anonymize in place (row kept, PII fields scrubbed). Customers are

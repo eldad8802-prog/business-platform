@@ -24,23 +24,18 @@
 
 export type DebtEntry = { code: string; key: string; why: string };
 
-/** Naming drift. Prisma Client uncapitalizes only the FIRST character, so the
- *  delegates are `oAuthToken` and `pOSApiKey`. The manifest guessed `oauthToken` and
- *  `posApiKey`, which are not the client's names for anything. Harmless at runtime
- *  today only because nothing ever resolved these strings against the client.
- *  → deferred to E2, because correcting them changes what `assertManifestSafe` and the
- *    I-8A firewall are comparing, and that deserves its own evidence. */
+/** Naming drift — CLOSED by E2 Wave 2.
+ *
+ *  Prisma Client uncapitalizes only the FIRST character, so the delegates are
+ *  `oAuthToken` and `pOSApiKey`; the manifest guessed `oauthToken` and `posApiKey`,
+ *  which were the client's names for nothing. Because `resolve()` returns null and the
+ *  field loop then skips, the wrong MODEL name was also hiding wrong COLUMN names
+ *  underneath it: correcting only the models surfaced three C2-NO-SUCH-FIELD findings
+ *  that had been invisible for months — `OAuthToken.accessToken`,
+ *  `OAuthToken.refreshToken` and `POSApiKey.hashedKey`, none of which is a column on
+ *  the model that named it. That is the M2 shape again, and it is why the fix is the
+ *  DELETE ROW shape rather than a rename. */
 const NAMING: DebtEntry[] = [
-  {
-    code: "C1-NO-SUCH-MODEL",
-    key: "REVOKE_INTEGRATIONS:oauthToken",
-    why: "manifest says `oauthToken`; the Prisma delegate is `oAuthToken`. E2.",
-  },
-  {
-    code: "C1-NO-SUCH-MODEL",
-    key: "REVOKE_INTEGRATIONS:posApiKey",
-    why: "manifest says `posApiKey`; the Prisma delegate is `pOSApiKey`. E2.",
-  },
 ];
 
 /** The finding the residual sweep was built around. The contract promises the lead's
@@ -51,52 +46,17 @@ const NAMING: DebtEntry[] = [
 const UNKEPT_PROMISE: DebtEntry[] = [
 ];
 
-/** Erasure the adapter performs that no contract represents. None of these is wrong
- *  behaviour — every one of them is a credential being destroyed, which is exactly what
- *  should happen. What is missing is the declaration, so the manifest under-describes
- *  what the deletion actually does.
- *  → deferred to E2: each needs a manifest entry, and `REVOKE_INTEGRATIONS` needs a
- *    shape that can express "delete the row" as well as "clear these columns". */
+/** Erasure the adapter performs that no contract represents — CLOSED by E2 Wave 2.
+ *
+ *  None of these was ever wrong behaviour: every one is a credential being destroyed,
+ *  which is exactly what should happen. What was missing was the declaration, so the
+ *  manifest under-described what the deletion actually did. The adapter was not
+ *  changed to close them; the manifest was changed to describe it truthfully.
+ *
+ *  `REVOKE_INTEGRATIONS` gained the shape this entry asked for — `deleteRow: true`
+ *  alongside `clear`/`set` — and the guard now refuses to let one stand in for the
+ *  other in either direction. Proofs D1…D4 in scripts/ci/erasure-mutate.ts. */
 const UNDECLARED: DebtEntry[] = [
-  {
-    code: "C4-UNDECLARED-DELETE",
-    key: "OAuthToken.*",
-    why:
-      "the adapter deletes the rows; the manifest describes clearing `accessToken` and " +
-      "`refreshToken` instead. Deleting is stronger, and undeclared. E2.",
-  },
-  {
-    code: "C4-UNDECLARED-DELETE",
-    key: "POSApiKey.*",
-    why:
-      "the adapter deletes the rows because `keyHash` is globally unique and a constant " +
-      "would collide across two deletions. Correct, and undeclared. E2.",
-  },
-  {
-    code: "C4-UNDECLARED-MUTATION",
-    key: "BusinessPaymentConnection.isActive",
-    why: "the adapter deactivates the connection; `set` in the manifest is empty. E2.",
-  },
-  {
-    code: "C4-UNDECLARED-MUTATION",
-    key: "WhatsAppConnection.accessTokenEncrypted",
-    why: "the token ciphertext IS destroyed; the manifest's `clear` list is empty. E2.",
-  },
-  {
-    code: "C4-UNDECLARED-MUTATION",
-    key: "WhatsAppConnection.accessTokenIv",
-    why: "as accessTokenEncrypted. E2.",
-  },
-  {
-    code: "C4-UNDECLARED-MUTATION",
-    key: "WhatsAppConnection.accessTokenTag",
-    why: "as accessTokenEncrypted. E2.",
-  },
-  {
-    code: "C4-UNDECLARED-MUTATION",
-    key: "EmailConnection.lastSyncCursor",
-    why: "the sync cursor is cleared; the manifest's `clear` list is empty. E2.",
-  },
 ];
 
 /** Columns with an explicit disposition that the adapter does not carry out. These are
