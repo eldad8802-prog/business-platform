@@ -37,6 +37,17 @@ export const PAYMENT_AUDIT_EVENT_TYPES = [
   "PAYMENT_SIGNAL_ONLY_NO_VERIFICATION",
   "PAYMENT_VERIFICATION_ERROR",
   "PAYMENT_VERIFICATION_UNAVAILABLE",
+  // M5 — Reversal. Four types, because a refund has four distinguishable ends
+  // and collapsing them would hide the one that matters most. REQUESTED is
+  // written BEFORE the provider is called, so an instruction that left Dubiz is
+  // on the record even if nothing after it survives. SETTLED is the provider's
+  // own establishment of the reversal. INDETERMINATE is the provider neither
+  // confirming nor refusing, which stays open rather than resolving itself in
+  // either direction. FAILED is a definite refusal, where no money moved.
+  "PAYMENT_REFUND_REQUESTED",
+  "PAYMENT_REFUND_SETTLED",
+  "PAYMENT_REFUND_INDETERMINATE",
+  "PAYMENT_REFUND_FAILED",
 ] as const;
 
 export type PaymentAuditEventType = (typeof PAYMENT_AUDIT_EVENT_TYPES)[number];

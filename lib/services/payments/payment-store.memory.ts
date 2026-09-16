@@ -364,6 +364,41 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
         .map((t) => ({ ...t }));
     },
 
+    // Mirrors the Prisma store, including the unique that settlement
+    // idempotency actually rests on: a reservation resolving to a provider id
+    // another row already holds must fail here exactly as the database would,
+    // or a double refund would look fine in every unit test.
+    async updateTransaction(id: number, patch) {
+      const record = transactions.find((t) => t.id === id);
+      if (!record) throw new Error(`No such transaction: ${id}`);
+
+      if (
+        patch.providerTransactionId !== undefined &&
+        patch.providerTransactionId !== null
+      ) {
+        const clash = transactions.find(
+          (t) =>
+            t.id !== id &&
+            t.provider === record.provider &&
+            t.providerTransactionId === patch.providerTransactionId
+        );
+        if (clash) {
+          const error = new Error(
+            "Unique constraint failed on the fields: (`provider`,`providerTransactionId`)"
+          ) as Error & { code: string };
+          error.code = "P2002";
+          throw error;
+        }
+      }
+
+      if (patch.status !== undefined) record.status = patch.status;
+      if (patch.providerTransactionId !== undefined) {
+        record.providerTransactionId = patch.providerTransactionId;
+      }
+      if (patch.rawPayload !== undefined) record.rawPayload = patch.rawPayload;
+      return { ...record };
+    },
+
     async insertWebhookEventIfNew(row: InsertWebhookEventRow) {
       if (row.providerEventId != null) {
         const existing = webhookEvents.find(

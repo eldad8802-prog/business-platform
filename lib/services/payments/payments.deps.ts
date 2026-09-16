@@ -19,6 +19,7 @@ import type { PaymentConnectionDeps } from "./payment-connection.service";
 import type {
   CreatePaymentRequestDeps,
 } from "./payment-request.service";
+import type { RefundPaymentRequestDeps } from "./payment-refund.service";
 import type { ProcessWebhookDeps } from "./payment-webhook.service";
 import type { PaymentConnectionRecord, PaymentProvider } from "./payments.types";
 import { resolvePaymentProvider } from "./providers/provider-registry";
@@ -86,6 +87,20 @@ export function paymentWebhookDeps(): ProcessWebhookDeps {
         console.error("onVerifiedPaid (FinancialEvent PAYMENT) error:", err);
       }
     },
+  };
+}
+
+/**
+ * Reversal wiring. Identical in shape to the request wiring, and deliberately
+ * so: a refund reaches the provider the same way a charge does, through the
+ * stored connection and its decrypted credential, never through anything a
+ * caller supplied.
+ */
+export function paymentRefundDeps(): RefundPaymentRequestDeps {
+  return {
+    store: createPaymentPrismaStore(),
+    resolveProvider: resolvePaymentProvider,
+    decryptConnectionCredential,
   };
 }
 

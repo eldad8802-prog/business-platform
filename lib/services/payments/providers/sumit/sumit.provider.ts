@@ -42,6 +42,8 @@ import {
   type ParsedWebhookEvent,
   type PaymentProviderAdapter,
   type ProviderPaymentStatus,
+  type RefundPaymentInput,
+  type RefundPaymentResult,
   type VerifyWebhookInput,
   type VerifyWebhookResult,
 } from "../payment-provider.types";
@@ -653,7 +655,71 @@ export function createSumitProvider(
         buildCorrelationValue(input.correlationValue)
       );
     },
+
+    /**
+     * The domain's reversal capability, wired to the mechanism below.
+     *
+     * The one thing SUMIT needs that the domain does not carry is its own
+     * CUSTOMER id — a credit is billed to the customer's stored payment method,
+     * so without it there is nothing to bill. Dubiz never stores that id in a
+     * column, and it must not be taken from a caller: a client-supplied customer
+     * id would let one business credit another's customer.
+     *
+     * It is recovered instead from the settlement Dubiz already persisted. The
+     * IPN body that established the payment carries `customerid`, and the
+     * domain hands that body back here untouched. So the identifier travels the
+     * whole way inside evidence we received from SUMIT and stored ourselves,
+     * which is the same standard the authoritative lookup is held to.
+     */
+    async refundPayment(input: RefundPaymentInput): Promise<RefundPaymentResult> {
+      const customerId = extractSettlementCustomerId(input.settlement.rawPayload);
+      if (customerId === null) {
+        throw new PaymentProviderError(
+          SUMIT_PROVIDER,
+          "NO_REFUND_TARGET",
+          "The stored SUMIT settlement carries no customer id, so there is " +
+            "no stored payment method to credit."
+        );
+      }
+
+      const result = await refundSumitPayment(options, {
+        merchantId: input.merchantId,
+        credential: input.credential,
+        customerId,
+        amount: input.amount,
+        currency: input.currency,
+        description: input.description ?? null,
+      });
+
+      return {
+        providerRefundId: result.refundPaymentId,
+        // `refundSumitPayment` reports a settled credit as PAID. Anything it
+        // could not establish stays UNKNOWN and is never upgraded here.
+        outcome: result.outcome === "PAID" ? "REFUNDED" : "UNKNOWN",
+      };
+    },
   };
+}
+
+/**
+ * Recover SUMIT's customer id from a stored settlement body.
+ *
+ * The body is whatever the webhook persisted: the raw form-encoded IPN string
+ * for a live settlement, or an already-parsed object if a future delivery
+ * arrives as honest JSON. Both are handled by the same parser the callback path
+ * uses, so there is one definition of how a SUMIT body is read.
+ */
+export function extractSettlementCustomerId(rawPayload: unknown): number | null {
+  if (rawPayload == null) return null;
+
+  const fields =
+    typeof rawPayload === "string"
+      ? extractSumitCallbackFields({ rawBody: rawPayload })
+      : extractSumitCallbackFields({ rawBody: "", parsedBody: rawPayload });
+
+  if (!fields.customerId) return null;
+  const n = Number(fields.customerId);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
 /**

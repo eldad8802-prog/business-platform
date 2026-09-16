@@ -188,6 +188,20 @@ export interface CreateTransactionRow {
   rawPayload: unknown;
 }
 
+/**
+ * The only fields a settlement row may change after it is written.
+ *
+ * A settlement is otherwise immutable: its request, provider, amount and
+ * currency are what happened, and nothing may rewrite them. What CAN change is
+ * a row written as a RESERVATION before the provider was called — it later
+ * learns its outcome and the provider's own id for it.
+ */
+export interface TransactionPatch {
+  status?: PaymentTransactionStatus;
+  providerTransactionId?: string | null;
+  rawPayload?: unknown;
+}
+
 export interface InsertWebhookEventRow {
   provider: PaymentProvider;
   eventType: string | null;
@@ -384,6 +398,19 @@ export interface PaymentStore {
   listTransactionsByRequest(
     paymentRequestId: number
   ): Promise<PaymentTransactionRecord[]>;
+
+  /**
+   * Resolve a settlement row that was written before its outcome was known.
+   *
+   * A refund is reserved as a PENDING row FIRST, so the amount is committed
+   * against the refundable balance before any money can move, and only then is
+   * the provider called. This is how that row learns what happened. Nothing
+   * else may use it: amount, currency, provider and parent are immutable.
+   */
+  updateTransaction(
+    id: number,
+    patch: TransactionPatch
+  ): Promise<PaymentTransactionRecord>;
 
   /**
    * Insert a webhook event, deduplicating on (provider, providerEventId).
