@@ -262,9 +262,48 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
             where: { businessId },
             data: { name: "לקוח שנמחק", phone: null, email: null, city: null, legalName: null, taxId: null, notes: null },
           });
+          // E2-W1. This statement used to clear two columns. The manifest
+          // declared `email` erased and the adapter never wrote it — the
+          // contract lie the whole residual sweep started from. The other three
+          // are the free text a salesperson types about a named person, which
+          // is the same class of content the conversation graph is anonymised
+          // for, sitting one table away.
+          //
+          // The analytics columns are deliberately NOT touched: source channel,
+          // stage, status, the price estimates and the timestamps describe the
+          // pipeline, not the person, and destroying them would be erasing the
+          // business's own history rather than its counterparty's identity.
           await tx.lead.updateMany({
             where: { businessId },
-            data: { customerName: null, phone: null },
+            data: {
+              customerName: null,
+              phone: null,
+              email: null,
+              intentSnapshot: null,
+              followUpNote: null,
+              lostReason: null,
+              customerId: null,
+            },
+          });
+
+          // E2-W1. Notifications are not an original surface — they are a COPY.
+          // `title` is built from the raw customer name, and `summary` is
+          // assembled from the last message snippet, the generated reply and the
+          // lead's follow-up note. All three are already required to be
+          // anonymised at their source, so a readable copy here would make that
+          // work pointless.
+          //
+          // ANONYMISED, NOT DELETED, and not by preference: the runtime holds
+          // SELECT, INSERT and UPDATE on this table and no DELETE. A
+          // `deleteMany` would match zero rows in Production and raise nothing —
+          // the exact silent-zero shape of Defect B.
+          //
+          // `reason` and `href` stay. One is a fixed policy string, the other an
+          // internal route; neither names anyone, and clearing them would be
+          // destroying operational state under cover of an erasure.
+          await tx.notification.updateMany({
+            where: { businessId },
+            data: { title: "", summary: null },
           });
 
           // B.2 delete pure communications PII with no fiscal linkage.

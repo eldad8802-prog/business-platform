@@ -162,17 +162,77 @@ check("both models are classified ERASURE_MANAGED", () => {
   }
 });
 
+/**
+ * The debt keys T1-ERASURE is entitled to remove, and the only ones. Named
+ * explicitly, because "how many debts are there" is not what this increment
+ * promises and cannot be what proves it.
+ */
+const REMOVED_BY_T1 = [
+  "C12-UNMANAGED-PERSONAL-DATA::InboundEmailAuthorizedSender",
+  "C12-UNMANAGED-PERSONAL-DATA::InboundEmailSenderChallenge",
+] as const;
+
 check("their accepted debt is gone, and only theirs", () => {
   const keys = new Set(ACCEPTED_DEBT.map((d) => debtKey(d)));
+
+  // A — the two keys this increment owns are gone, by key and not by count.
   for (const model of CLOSED) {
     const stale = [...keys].filter((k) => k.includes(model));
     assert.deepEqual(stale, [], `${model} still carries accepted debt it no longer owes`);
   }
+  for (const key of REMOVED_BY_T1) {
+    assert.ok(!keys.has(key), `${key} should have been removed by T1-ERASURE, and is still recorded`);
+  }
+
+  // B — nothing else in the ledger mentions either model, in any finding class.
+  // A second key appearing for one of them would mean this increment closed less
+  // than it claims, and the loop above only looks at accepted debt.
+  const strays = [...keys].filter((k) => CLOSED.some((m) => k.includes(m)));
+  assert.deepEqual(strays, [], `T1-ERASURE left debt behind: ${strays.join(", ")}`);
+});
+
+/**
+ * WHY THERE IS NO `ACCEPTED_DEBT.length === N` HERE.
+ *
+ * This assertion used to be `assert.equal(ACCEPTED_DEBT.length, 63)`. It was true
+ * on the day it was written and it failed on the first unrelated increment that
+ * legitimately resolved anything — E2 Wave 1, which removed eight Lead and
+ * Notification findings this file has no opinion about. The failure said "the
+ * ledger should hold exactly 63" while nothing T1-ERASURE promises had changed.
+ *
+ * A global total is a measurement of the whole programme, not of this increment.
+ * Pinning it here makes every future wave's success look like this file's
+ * regression, and the obvious repair — bump 63 to the new number — buys one
+ * release and rebuilds the same trap.
+ *
+ * What this increment actually promises is a DELTA: exactly two named keys leave
+ * the ledger, no third one leaves because of it, and none arrives. That is what
+ * the two checks around this comment assert, and they stay true no matter what
+ * unrelated debt is resolved later.
+ */
+check("T1-ERASURE removes exactly its own two keys and introduces none", () => {
+  const keys = new Set(ACCEPTED_DEBT.map((d) => debtKey(d)));
+
+  // C — the delta is exactly the two, so a third disappearance attributed to this
+  // increment is a failure even though the ledger merely got shorter.
   assert.equal(
-    ACCEPTED_DEBT.length,
-    63,
-    `the ledger should hold exactly the 63 debts that predate T1-DB; it holds ${ACCEPTED_DEBT.length}`
+    REMOVED_BY_T1.length,
+    2,
+    "T1-ERASURE closes two models; a change here means the increment's scope moved"
   );
+  assert.deepEqual(
+    REMOVED_BY_T1.filter((k) => keys.has(k)),
+    [],
+    "a key this increment claims to have removed is still in the ledger"
+  );
+
+  // D — no new debt. Every remaining key belongs to a model that still exists and
+  // is not one of the two this increment closed.
+  const introduced = [...keys].filter((k) => CLOSED.some((m) => k.endsWith(`::${m}`)));
+  assert.deepEqual(introduced, [], `T1-ERASURE introduced debt for a model it closed: ${introduced.join(", ")}`);
+
+  // E — deliberately NOT asserted: the size of the ledger. Unrelated increments
+  // are expected to change it, and this file must survive that.
 });
 
 // ── 4. Scope discipline: what this increment must NOT have closed ────────────

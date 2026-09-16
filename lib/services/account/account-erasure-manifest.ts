@@ -57,7 +57,28 @@ export const ANONYMIZE_MODELS = [
   { model: "user", fields: { email: "tombstone-email", name: "null", password: "unusable" } },
   { model: "businessProfile", fields: { billingLegalName: "null", billingTaxId: "null", billingVatNumber: "null", billingPhone: "null", billingEmail: "null", billingAddress: "null", city: "null", latitude: "null", longitude: "null", billingLogoDataUrl: "null", billingSignatureDataUrl: "null" } },
   { model: "customer", fields: { name: "anonymized-name", phone: "null", email: "null", city: "null", legalName: "null", taxId: "null", notes: "null" } },
-  { model: "lead", fields: { name: "anonymized-name", phone: "null", email: "null" } },
+  // E2-W1. The column is `customerName`, not `name` — this entry named a field
+  // that does not exist on Lead, and because nothing compared the manifest to
+  // the schema it passed for months. The four content fields and the customer
+  // pointer are declared now because the adapter now actually writes them. The
+  // analytics columns are deliberately absent: they are not erased.
+  {
+    model: "lead",
+    fields: {
+      customerName: "null",
+      phone: "null",
+      email: "null",
+      intentSnapshot: "null",
+      followUpNote: "null",
+      lostReason: "null",
+      customerId: "null",
+    },
+  },
+  // E2-W1. A denormalised COPY of counterparty identity and conversation
+  // content, anonymised rather than deleted because the runtime holds no DELETE
+  // on this table. `reason` and `href` are not declared because they are not
+  // erased — a fixed policy string and an internal route name nobody.
+  { model: "notification", fields: { title: "blank", summary: "null" } },
 
   // ── the conversation graph ────────────────────────────────────────────────
   //

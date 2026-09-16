@@ -53,6 +53,11 @@ import { KNOWN_DEFECTS, defectOf } from "./known-defects.mjs";
 const RT_ROLE = "ad2a_runtime";
 const RT_PW = "ad2a_ci_synthetic_runtime_pw";
 const MARK = "ad2a-";
+/** E2 Wave 1 uses its OWN sentinel, distinct from MARK. The Defect B sweep
+ *  already greps the whole conversation graph for MARK, and reusing it would
+ *  let a Wave-1 assertion pass because some OTHER model happened to be clean.
+ *  A separate marker makes "this specific value is unrecoverable" the claim. */
+const W1 = "ERASURE_W1_7c41af-";
 
 let pass = 0;
 let fail = 0;
@@ -178,6 +183,19 @@ async function main() {
   );
   await owner.$executeRawUnsafe(
     `REVOKE UPDATE, DELETE ON "HistoricalFiscalDocument" FROM ${RT_ROLE}`
+  );
+  // E2-W1. `scripts/security/notification-grants.sql` hands the runtime
+  // SELECT, INSERT and UPDATE here — and NOT DELETE. The lab matches that
+  // exactly rather than joining the blanket grant above, because the whole
+  // question for Notification is whether the erasure can reach it with the
+  // privileges it actually has. A lab DELETE the product does not hold would
+  // let a `deleteMany` fix pass here and fail in Production — which is the
+  // same falsely-green fixture shape that hid Defect B.
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT, INSERT, UPDATE ON "Notification","NotificationDelivery" TO ${RT_ROLE}`
+  );
+  await owner.$executeRawUnsafe(
+    `REVOKE DELETE ON "Notification","NotificationDelivery" FROM ${RT_ROLE}`
   );
   await owner.$executeRawUnsafe(
     `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT_ROLE}`
@@ -317,6 +335,66 @@ async function main() {
     });
     await owner.crmNote.create({
       data: { businessId: b.id, subjectType: "CUSTOMER", subjectId: c.id, body: `${MARK}note`, createdByUserId: u.id },
+    });
+
+    // ── E2-W1 — the two deterministic residual surfaces ─────────────────────
+    //
+    // A LEAD with the four fields the manifest and the dispositions already
+    // promise are erased, and the customer pointer they promise is unlinked.
+    // `email` is the one the whole residual sweep started from: the manifest
+    // declared it nulled and the adapter never wrote it.
+    const lead = await owner.lead.create({
+      data: {
+        businessId: b.id,
+        customerId: c.id,
+        customerName: `${MARK}lead-name-${tag}`,
+        phone: `${MARK}lead-phone`,
+        email: `${W1}lead-email-${tag}@example.test`,
+        intentSnapshot: `${W1}lead-intent`,
+        followUpNote: `${W1}lead-followup`,
+        lostReason: `${W1}lead-lost`,
+        sourceChannel: "whatsapp",
+        currentStage: "DISCOVERY",
+      },
+    });
+
+    // NOTIFICATIONS, which are a denormalised COPY of three surfaces the
+    // ratified design already requires to be anonymised: the counterparty name
+    // (title), the last message body (summary) and the generated reply text
+    // (summary). `reason` and `href` are NOT seeded with a marker because they
+    // are a fixed policy string and an internal route — they are not personal,
+    // and an erasure that cleared them would be over-deleting.
+    await owner.notification.create({
+      data: {
+        businessId: b.id,
+        dedupeKey: `b${b.id}:inbox:ACTION_REQUIRED:conversation:${conv.id}`,
+        domain: "inbox",
+        semanticCategory: "ACTION_REQUIRED",
+        severity: "HIGH",
+        entityType: "conversation",
+        entityId: conv.id,
+        title: `${W1}notif-title-${tag} ממתין למענה`,
+        summary: `הודעה אחרונה: ${W1}notif-snippet`,
+        href: "/inbox",
+        reason: "inbox waiting — standing state",
+        cooldownHours: 24,
+      },
+    });
+    await owner.notification.create({
+      data: {
+        businessId: b.id,
+        dedupeKey: `b${b.id}:leads:ACTION_REQUIRED:lead:${lead.id}`,
+        domain: "leads",
+        semanticCategory: "ACTION_REQUIRED",
+        severity: "MEDIUM",
+        entityType: "lead",
+        entityId: lead.id,
+        title: `${W1}notif-lead-${tag} — follow-up due`,
+        summary: `${W1}notif-followup-copy`,
+        href: `/leads/${lead.id}`,
+        reason: "lead follow-up due — owner-scheduled",
+        cooldownHours: 48,
+      },
     });
 
     // T1-ERASURE: the inbound-email sender authorisation list. Seeded for BOTH
@@ -703,6 +781,74 @@ async function main() {
   const userA = await owner.user.findUnique({ where: { id: A.user.id } });
   ok("A's user identity is tombstoned", userA.email.startsWith("deleted-biz-") && userA.name === null);
 
+  // ── E2 WAVE 1 — deterministic residual personal data ──────────────────────
+  //
+  // Both surfaces below are named, or are a copy of something named, in the
+  // ratified erasure design: `Customer`/`Lead`/`Deal` PII is anonymised, and so
+  // is the conversation graph. The Lead fields were additionally DECLARED erased
+  // by the manifest while the adapter never wrote them — the contract lie that
+  // E1 was built to make impossible, here proven at runtime instead.
+  //
+  // Read back through the OWNER client on purpose: the question is whether the
+  // value is still in the table at all, not whether some role can see it.
+  const leadRows = await owner.lead.findMany({ where: { businessId: A.biz.id } });
+  const w1a = ok(
+    "W1-A · NO lead contact identifier or free text survives",
+    leadRows.length > 0 &&
+      leadRows.every(
+        (l) =>
+          l.email === null &&
+          l.intentSnapshot === null &&
+          l.followUpNote === null &&
+          l.lostReason === null
+      ),
+    JSON.stringify(leadRows.map((l) => [l.email, l.intentSnapshot, l.followUpNote, l.lostReason]))
+  );
+  const w1b = ok(
+    "W1-B · NO participant linkage survives on the lead skeleton",
+    leadRows.every((l) => l.customerId === null),
+    JSON.stringify(leadRows.map((l) => l.customerId))
+  );
+  // The non-personal business state the contract does NOT ask to destroy. An
+  // erasure that cleared these too would be over-deleting, and this assertion
+  // is what stops a later "clear every string on Lead" shortcut.
+  const w1c = ok(
+    "W1-C · non-personal lead analytics are PRESERVED, not destroyed",
+    leadRows.every((l) => l.sourceChannel !== null && l.currentStage !== null && l.status !== null),
+    JSON.stringify(leadRows.map((l) => [l.sourceChannel, l.currentStage, l.status]))
+  );
+
+  const notifRows = await owner.notification.findMany({ where: { businessId: A.biz.id } });
+  const w1d = ok(
+    "W1-D · the notification skeleton survives (the runtime holds no DELETE here)",
+    notifRows.length > 0,
+    `notifications=${notifRows.length}`
+  );
+  const w1e = ok(
+    "W1-E · NO copied counterparty name or conversation content survives in a notification",
+    notifRows.every((n) => n.title === "" && n.summary === null),
+    JSON.stringify(notifRows.map((n) => [n.title, n.summary]))
+  );
+  const w1f = ok(
+    "W1-F · the notification's non-personal routing and policy fields are PRESERVED",
+    notifRows.every((n) => n.href !== "" && n.reason !== "" && n.entityId > 0),
+    JSON.stringify(notifRows.map((n) => [n.href, n.reason, n.entityId]))
+  );
+  // The sweep that catches a field nobody remembered. Every scalar column of
+  // both models, no `select`, so a column added later is covered the day it
+  // exists — and the marker is Wave 1's own, not the graph's.
+  const w1Rows = {
+    lead: await owner.lead.findMany({ where: { businessId: A.biz.id } }),
+    notification: await owner.notification.findMany({ where: { businessId: A.biz.id } }),
+    delivery: await owner.notificationDelivery.findMany({ where: { businessId: A.biz.id } }),
+  };
+  const w1g = ok(
+    "W1-G · the W1 sentinel is unrecoverable in ANY column of Lead, Notification or NotificationDelivery",
+    !JSON.stringify(w1Rows).includes(W1),
+    "a W1-marked value is still readable"
+  );
+  const PHASE_W1 = w1a && w1b && w1c && w1d && w1e && w1f && w1g;
+
   // ── FAILURE C — stage 3 deletion evidence and terminal state ──────────────
   console.log("--- phase 7c: stage-3 evidence + terminal state (postconditions) ---");
   const aAfter = await owner.business.findUnique({ where: { id: A.biz.id } });
@@ -723,6 +869,7 @@ async function main() {
   console.log(`PHASE 1 CREDENTIAL DESTRUCTION = ${PHASE1 ? "PASS" : "FAIL"}`);
   console.log(`PHASE 2 CONVERSATION CLEANUP   = ${PHASE2 ? "PASS" : "FAIL"}`);
   console.log(`PHASE 3 DELETION EVIDENCE      = ${PHASE3 ? "PASS" : "FAIL"}`);
+  console.log(`E2 WAVE 1 RESIDUAL PII        = ${PHASE_W1 ? "PASS" : "FAIL"}`);
   console.log("");
 
   // ── FALSE-SUCCESS LEDGER ──────────────────────────────────────────────────
@@ -844,6 +991,27 @@ async function main() {
       bSugg?.text === `${MARK}suggestion` &&
       bSugg?.toneLabel === `${MARK}tone`,
     JSON.stringify({ bAnalysis, bSugg })
+  );
+  // E2-W1 cross-tenant. Counting B's rows proves nothing once A is anonymised
+  // in place: an over-broad UPDATE with a missing `where` would leave B's counts
+  // intact while blanking its contents. So B's values are read back.
+  const bLead = await owner.lead.findFirst({ where: { businessId: B.biz.id } });
+  ok(
+    "B's lead contact fields and free text are untouched",
+    bLead?.email?.startsWith(W1) === true &&
+      bLead?.intentSnapshot?.startsWith(W1) === true &&
+      bLead?.followUpNote?.startsWith(W1) === true &&
+      bLead?.lostReason?.startsWith(W1) === true &&
+      bLead?.customerId !== null,
+    JSON.stringify(bLead)
+  );
+  const bNotifs = await owner.notification.findMany({ where: { businessId: B.biz.id } });
+  ok(
+    "B's notification titles and summaries are untouched",
+    bNotifs.length === 2 &&
+      bNotifs.every((n) => n.title.includes(W1)) &&
+      bNotifs.some((n) => n.summary?.includes(W1)),
+    JSON.stringify(bNotifs.map((n) => [n.title, n.summary]))
   );
   ok(
     "B's conversation snapshots and participant linkage are untouched",
