@@ -920,4 +920,88 @@ export const inventoryPrimitivesCss = `
     margin: 0 auto;
     box-sizing: border-box;
   }
+
+  /* ===== supplier combobox (components/inventory/supplier-field.tsx) =====
+     A listbox anchored under the input. It floats (absolute) so opening it never
+     reflows the fields below — on a 320px form, pushing the rest of the item
+     down every keystroke is worse than covering it. */
+  [data-inventory-module] .inv-sup {
+    position: relative;
+  }
+  [data-inventory-module] .inv-sup__list {
+    position: absolute;
+    z-index: 30;
+    inset-inline: 0;
+    top: calc(100% + 4px);
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    max-height: 46vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--inv-card-bg);
+    border: 1px solid var(--inv-border);
+    border-radius: var(--inv-radius-md, 12px);
+    box-shadow: var(--inv-shadow, 0 8px 24px rgba(0, 0, 0, 0.12));
+    box-sizing: border-box;
+  }
+  [data-inventory-module] .inv-sup__opt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* 44px so the row is a real touch target on a phone. */
+    min-height: 44px;
+    padding: 8px 10px;
+    border-radius: 9px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--inv-text);
+  }
+  /* Hover and keyboard share ONE highlight: the active option must look the same
+     however the owner got to it. */
+  [data-inventory-module] .inv-sup__opt.is-active {
+    background: var(--inv-surface-2);
+  }
+  [data-inventory-module] .inv-sup__opt-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    /* Same containment contract as the entity rows: wrap rather than escape, and
+       isolate so a Latin supplier name cannot reorder inside the RTL row. */
+    overflow-wrap: anywhere;
+    unicode-bidi: isolate;
+  }
+  [data-inventory-module] .inv-sup__tag {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--inv-surface-2);
+    color: var(--inv-text-muted);
+  }
+  [data-inventory-module] .inv-sup__opt--create {
+    font-weight: 600;
+    color: var(--inv-primary);
+  }
+  [data-inventory-module] .inv-sup__plus {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    background: var(--inv-primary);
+    color: var(--inv-on-accent);
+    font-size: 15px;
+    line-height: 1;
+  }
+  [data-inventory-module] .inv-sup__note {
+    padding: 10px;
+    font-size: 13px;
+    color: var(--inv-text-muted);
+  }
+  [data-inventory-module] .inv-sup__note--warn {
+    color: var(--inv-warning-ink);
+  }
 `;

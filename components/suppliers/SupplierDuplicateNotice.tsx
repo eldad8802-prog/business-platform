@@ -39,20 +39,118 @@ function describe(match: PossibleSupplierMatch): string {
   return match.reasons.map((r) => REASON_LABEL[r]).join(" · ");
 }
 
-export function SupplierDuplicateNotice({
+/**
+ * The advisory's CONTENT, without any dialog chrome of its own.
+ *
+ * Split out so a caller that is already inside a dialog can show the advisory by
+ * REPLACING its own content, instead of opening a second modal on top of the
+ * first. The inventory supplier quick-create does exactly that: stacking two
+ * backdrops would trap focus in the wrong layer and, on a phone, push the
+ * actions off-screen behind the bottom chrome.
+ *
+ * `onOpenExisting` deliberately says "open", not "merge": the supplier the owner
+ * just created has already been created and stays created. That is the ratified
+ * non-blocking policy, unchanged here — this component only renders what the
+ * server already decided.
+ */
+export function SupplierDuplicateBody({
   matches,
   createdName,
   onOpenExisting,
   onKeepNew,
+  openExistingLabel,
+  keepNewLabel,
 }: {
   matches: PossibleSupplierMatch[];
   createdName: string;
   onOpenExisting: (id: number) => void;
   onKeepNew: () => void;
+  /** Caller-specific wording for picking a match (defaults to the /suppliers copy). */
+  openExistingLabel?: (match: PossibleSupplierMatch) => string;
+  keepNewLabel?: string;
 }) {
   if (matches.length === 0) return null;
 
   const strong = matches.some(isStrong);
+
+  return (
+    <>
+      <h2 className="crm-modal__title">ייתכן שהספק כבר קיים</h2>
+
+      <p className="crm-panel__body">
+        {strong ? (
+          <>
+            קיים כבר ספק עם אותו מספר עסקי כמו <bdi>{createdName}</bdi>. סביר
+            מאוד שמדובר באותו עסק.
+          </>
+        ) : (
+          <>
+            מצאנו ספקים שנראים דומים ל<bdi>{createdName}</bdi>. אפשר להמשיך עם
+            הספק החדש או לעבור לקיים.
+          </>
+        )}
+      </p>
+
+      <div className="crm-rows" style={{ marginTop: 12 }}>
+        {matches.map((match) => (
+          <button
+            key={match.id}
+            type="button"
+            className="crm-row"
+            style={{ width: "100%", textAlign: "start", cursor: "pointer" }}
+            onClick={() => onOpenExisting(match.id)}
+            aria-label={openExistingLabel ? openExistingLabel(match) : undefined}
+          >
+            <span className="crm-row__body">
+              <span className="crm-row__name">
+                <bdi>{match.name}</bdi>
+              </span>
+              {/* Sibling of the name: the name is clamped to two lines, and a
+                  badge inside it would be clipped on long names. */}
+              {!match.isActive ? (
+                <span className="crm-row__badges">
+                  <span className="crm-badge">לא פעיל</span>
+                </span>
+              ) : null}
+              <CrmRowMeta
+                parts={[
+                  describe(match),
+                  match.phone ? formatPhoneForDisplay(match.phone) : null,
+                ]}
+              />
+            </span>
+            <span className="crm-row__chevron" aria-hidden>
+              ‹
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div className="crm-modal__actions">
+        <button
+          type="button"
+          className="crm-btn crm-btn--ghost crm-btn--full"
+          onClick={onKeepNew}
+        >
+          {keepNewLabel ?? "להמשיך עם הספק החדש"}
+        </button>
+      </div>
+    </>
+  );
+}
+
+/**
+ * The advisory as a standalone dialog — the /suppliers entry point, where there
+ * is no surrounding modal to replace. Chrome only; the content is the shared
+ * body above, so the two entry points can never drift apart.
+ */
+export function SupplierDuplicateNotice(props: {
+  matches: PossibleSupplierMatch[];
+  createdName: string;
+  onOpenExisting: (id: number) => void;
+  onKeepNew: () => void;
+}) {
+  if (props.matches.length === 0) return null;
 
   return (
     <div className="crm-modal__backdrop">
@@ -62,65 +160,7 @@ export function SupplierDuplicateNotice({
         aria-modal="true"
         aria-label="ייתכן שהספק כבר קיים"
       >
-        <h2 className="crm-modal__title">ייתכן שהספק כבר קיים</h2>
-
-        <p className="crm-panel__body">
-          {strong ? (
-            <>
-              קיים כבר ספק עם אותו מספר עסקי כמו <bdi>{createdName}</bdi>. סביר
-              מאוד שמדובר באותו עסק.
-            </>
-          ) : (
-            <>
-              מצאנו ספקים שנראים דומים ל<bdi>{createdName}</bdi>. אפשר להמשיך עם
-              הספק החדש או לעבור לקיים.
-            </>
-          )}
-        </p>
-
-        <div className="crm-rows" style={{ marginTop: 12 }}>
-          {matches.map((match) => (
-            <button
-              key={match.id}
-              type="button"
-              className="crm-row"
-              style={{ width: "100%", textAlign: "start", cursor: "pointer" }}
-              onClick={() => onOpenExisting(match.id)}
-            >
-              <span className="crm-row__body">
-                <span className="crm-row__name">
-                  <bdi>{match.name}</bdi>
-                </span>
-                {/* Sibling of the name: the name is clamped to two lines, and a
-                    badge inside it would be clipped on long names. */}
-                {!match.isActive ? (
-                  <span className="crm-row__badges">
-                    <span className="crm-badge">לא פעיל</span>
-                  </span>
-                ) : null}
-                <CrmRowMeta
-                  parts={[
-                    describe(match),
-                    match.phone ? formatPhoneForDisplay(match.phone) : null,
-                  ]}
-                />
-              </span>
-              <span className="crm-row__chevron" aria-hidden>
-                ‹
-              </span>
-            </button>
-          ))}
-        </div>
-
-        <div className="crm-modal__actions">
-          <button
-            type="button"
-            className="crm-btn crm-btn--ghost crm-btn--full"
-            onClick={onKeepNew}
-          >
-            להמשיך עם הספק החדש
-          </button>
-        </div>
+        <SupplierDuplicateBody {...props} />
       </div>
     </div>
   );

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { InventorySubPage } from "@/components/inventory/inventory-shell";
 import { SegmentedControl, SaveBar } from "@/components/inventory/inventory-design";
 import { IconScan } from "@/components/inventory/inventory-primitives";
+import { SupplierField } from "@/components/inventory/supplier-field";
 import BarcodeScanner from "@/components/inventory/barcode-scanner";
 import {
   createInventoryCategory,
@@ -92,8 +93,10 @@ export default function CreateInventoryItemPage() {
       try {
         const [result, items] = await Promise.all([
           getInventoryCategories(),
-          // Existing supplier names power the autocomplete so the same supplier
-          // is reused instead of re-typed into a near-duplicate. (audit P1 #5)
+          // Supplier names already on items. Since the picker searches the
+          // canonical Suppliers, these are only the SECONDARY choices — snapshot
+          // values with no supplier record behind them, kept so nothing already
+          // in use becomes unreachable.
           getInventoryItems().catch(() => []),
         ]);
         if (!isMounted) return;
@@ -285,12 +288,16 @@ export default function CreateInventoryItemPage() {
 
         <div className="inv-field">
           <div className="inv-field__lab">ספק</div>
-          <input className="inv-input" list="inv-suppliers" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} placeholder="בחר או הקלד שם ספק" />
-          <datalist id="inv-suppliers">
-            {supplierOptions.map((s) => (
-              <option key={s} value={s} />
-            ))}
-          </datalist>
+          {/* Searches the canonical Suppliers, and can create one without
+              leaving this form. `supplierOptions` are the snapshot names already
+              on items — kept as secondary choices so nothing already in use
+              becomes unreachable. The item is still saved only by Save below. */}
+          <SupplierField
+            value={supplierName}
+            onChange={setSupplierName}
+            orphanNames={supplierOptions}
+            idPrefix="inv-create-supplier"
+          />
         </div>
 
         <div className="inv-field">
