@@ -144,6 +144,33 @@ async function reachability(browser, label, viewport, auth) {
       : "no box"
   );
 
+  // The safe-area inset. A headless browser reports 0 for it, so asserting the
+  // resolved pixels would prove nothing about a notched phone — what can be
+  // checked is that the rule still yields the floor, and that the declaration
+  // asking for the inset is the one in force.
+  const padding = await page.evaluate(() => {
+    const bar = document.querySelector("[data-export-action-bar]");
+    if (!bar) return null;
+    const cs = getComputedStyle(bar);
+    return { position: cs.position, paddingBottom: cs.paddingBottom };
+  });
+  const floorPx = padding ? parseFloat(padding.paddingBottom) : -1;
+  if (viewport.width < 640) {
+    // Only where the bar is out of flow. In flow it is an ordinary block at the
+    // end of the page and the page's own padding is what keeps it off the edge.
+    ok(
+      `${label}: the out-of-flow bar keeps its bottom padding floor`,
+      padding !== null && floorPx >= 12,
+      JSON.stringify(padding)
+    );
+  }
+  ok(
+    `${label}: the bar is ${viewport.width < 640 ? "out of flow" : "in flow"} at this width`,
+    padding !== null &&
+      (viewport.width < 640 ? padding.position === "fixed" : padding.position === "static"),
+    JSON.stringify(padding)
+  );
+
   await context.close();
   return { before, after };
 }
@@ -162,11 +189,17 @@ async function downloadCase(browser, auth, { label, domains, format, viewport })
   const waitDownload = page.waitForEvent("download", { timeout: 90000 });
   await button.click();
 
-  // Double-submit guard: the button must go busy immediately.
+  // The busy state, and the guard that matters more: while it is busy the
+  // button must be DISABLED, so a second click cannot start a second export.
+  // "It said it was working" and "it refused the second press" are different
+  // claims, and only the second one prevents two files.
   let busy = false;
+  let lockedWhileBusy = false;
   try {
-    await page.getByRole("button", { name: /מכין את הקובץ/ }).waitFor({ timeout: 4000 });
+    const busyButton = page.getByRole("button", { name: /מכין את הקובץ/ });
+    await busyButton.waitFor({ timeout: 4000 });
     busy = true;
+    lockedWhileBusy = !(await busyButton.isEnabled());
   } catch {
     busy = false;
   }
@@ -189,7 +222,7 @@ async function downloadCase(browser, auth, { label, domains, format, viewport })
   );
 
   await context.close();
-  return { suggested, size, isXlsx, hasBom, hasHebrew, busy, text };
+  return { suggested, size, isXlsx, hasBom, hasHebrew, busy, lockedWhileBusy, text };
 }
 
 async function main() {
@@ -247,6 +280,7 @@ async function main() {
   ok("one domain -> a file arrives", one.size > 0);
   ok("one domain -> it is a real xlsx (zip header)", one.isXlsx, JSON.stringify(one.suggested));
   ok("one domain -> the button showed a busy state", one.busy);
+  ok("one domain -> and refused a second press while busy", one.lockedWhileBusy);
 
   const many = await downloadCase(browser, auth, { label: "two domains xlsx", domains: [0, 1], format: "xlsx", viewport: DESKTOP });
   ok("multiple domains -> a file arrives", many.size > 0 && many.isXlsx);

@@ -230,7 +230,10 @@ export function ExportScreen({ domains }: Props) {
        * breakpoint rather than a JS tier branch — a branch would remount the
        * screen, which is the mistake this repo already made once in Billing.
        */}
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--dz-border-subtle)] bg-[var(--dz-background)] px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:static sm:z-auto sm:mt-4 sm:border-0 sm:bg-transparent sm:p-0">
+      <div
+        data-export-action-bar
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--dz-border-subtle)] bg-[var(--dz-background)] px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:static sm:z-auto sm:mt-4 sm:border-0 sm:bg-transparent sm:p-0"
+      >
         <SettingsSection>
           <button
             type="button"
