@@ -459,20 +459,44 @@ export const inventoryPrimitivesCss = `
     box-sizing: border-box;
     flex-wrap: wrap;
   }
-  [data-inventory-module] .inv-oline__mid { flex: 1; min-width: 0; }
+  /*
+    __mid is a flex ITEM, so its min-width:0 works — but __nm and __sub are
+    <span> children of it, i.e. non-replaced INLINE boxes, where overflow and
+    text-overflow have no effect and only white-space:nowrap applied. A long
+    product name therefore ran straight out of the line instead of being
+    ellipsised. Making __mid a flex COLUMN blockifies both children so the
+    truncation is real; overflow-wrap:anywhere on the sub also drops its
+    min-content floor, so an unbroken SKU-like token cannot widen the row.
+    Same defect, same fix as .crm-row__name — see app/(shell)/customers/crm.css.
+  */
+  [data-inventory-module] .inv-oline__mid {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
   [data-inventory-module] .inv-oline__nm {
+    /* Two lines, not one ellipsised line: this is a cart / receiving row and the
+       product name is the only thing identifying what is being counted. */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
     font-size: 16px;
     font-weight: 600;
     color: var(--inv-text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    min-width: 0;
+    unicode-bidi: isolate;
   }
   [data-inventory-module] .inv-oline__sub {
     font-size: 12.5px;
     color: var(--inv-text-muted);
     font-weight: 600;
     margin-top: 2px;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   [data-inventory-module] .inv-oline__price {
     font-size: 16px;
@@ -589,6 +613,10 @@ export const inventoryPrimitivesCss = `
     color: var(--inv-text);
     max-width: var(--inv-content-max, 720px);
     margin: 0 auto;
+    /* A product name is free text: an unbroken 40-character code must break
+       rather than push the 390px card sideways. */
+    overflow-wrap: anywhere;
+    unicode-bidi: isolate;
   }
   [data-inventory-module] .inv-dtags {
     display: flex;
@@ -797,23 +825,46 @@ export const inventoryPrimitivesCss = `
     overflow: hidden;
   }
   [data-inventory-module] .inv-row__thumb img { width: 100%; height: 100%; object-fit: cover; }
-  [data-inventory-module] .inv-row__mid { flex: 1; min-width: 0; }
+  /*
+    The inventory list row — same defect, same fix as .inv-oline above and
+    .crm-row__name in app/(shell)/customers/crm.css. __mid is a flex ITEM so its
+    min-width:0 applies, but __nm and __meta are <span> children of it: inline
+    boxes, where overflow and text-overflow do nothing and only nowrap takes
+    effect. A long product name therefore left the row instead of being
+    ellipsised. Making __mid a flex COLUMN blockifies both so the truncation is
+    real; the name gets two lines rather than one, because a product name cut at
+    a dozen characters is a row the owner cannot identify, and overflow-wrap:
+    anywhere drops the min-content floor so an unbroken SKU-like token cannot
+    widen the row.
+  */
+  [data-inventory-module] .inv-row__mid {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
   [data-inventory-module] .inv-row__nm {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    min-width: 0;
     font-size: 16px;
     font-weight: 600;
     color: var(--inv-text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
   [data-inventory-module] .inv-row__meta {
     font-size: 12.5px;
     color: var(--inv-text-muted);
     font-weight: 500;
     margin-top: 1px;
-    white-space: nowrap;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+    unicode-bidi: isolate;
   }
   [data-inventory-module] .inv-row__barcap {
     font-size: 11.5px;

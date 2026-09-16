@@ -300,16 +300,11 @@ function CustomerCardView({
   return (
     <>
       <div className="crm-id">
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "space-between",
-            gap: 12,
-          }}
-        >
-          <h1 className="crm-id__name">{customer.name}</h1>
-          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+        <div className="crm-id__head">
+          <h1 className="crm-id__name">
+            <bdi>{customer.name}</bdi>
+          </h1>
+          <div className="crm-id__actions">
             <button type="button" className="crm-btn crm-btn--ghost" onClick={onEdit}>
               עריכה
             </button>
@@ -340,7 +335,11 @@ function CustomerCardView({
             {shownFields.map((f) => (
               <div className="crm-id__field" key={f.label}>
                 <div className="crm-id__label">{f.label}</div>
-                <div className="crm-id__value">{f.value}</div>
+                {/* `bdi` so a phone / email / tax id keeps its own direction
+                    inside the RTL card instead of reordering against the label. */}
+                <div className="crm-id__value">
+                  <bdi>{f.value}</bdi>
+                </div>
               </div>
             ))}
           </div>

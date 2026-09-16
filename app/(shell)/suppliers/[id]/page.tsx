@@ -225,15 +225,10 @@ function SupplierCardView({
   return (
     <>
       <div className="crm-id">
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "space-between",
-            gap: 12,
-          }}
-        >
-          <h1 className="crm-id__name">{supplier.name}</h1>
+        <div className="crm-id__head">
+          <h1 className="crm-id__name">
+            <bdi>{supplier.name}</bdi>
+          </h1>
           <button
             type="button"
             className="crm-btn crm-btn--ghost"
