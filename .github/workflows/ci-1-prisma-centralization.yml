@@ -1688,6 +1688,48 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
 
+      # ── PROVIDER ONBOARDING — the connection UI is descriptor-driven ────
+      # A provider was enabled server-side, published a complete descriptor,
+      # appeared in the catalogue, and could not be connected, because the
+      # settings card kept its own hard-coded provider universe and nothing
+      # failed. The invariant is now architectural: the UI names no provider.
+      # Local equivalent: npm run verify:connection-form
+      - name: Descriptor-driven connection form (fields, secrets, request body)
+        run: npx tsx lib/services/payments/connection-form.test.ts
+
+      - name: Connection UI negative proof (a hard-coded allowlist must be caught)
+        run: |
+          F="components/settings/PaymentConnectionCard.tsx"
+          cp "$F" "$F.bak"
+          # The exact defect this closed: a second, client-side list of who may
+          # be connected. It drifts from the server's the moment a provider is
+          # enabled, and the drift is silent.
+          perl -0pi -e 's/^const W = TOKEN\.warm;/const W = TOKEN.warm;\nconst SELECTABLE_PROVIDERS = ["CARDCOM"];/m' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/connection-form.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a hard-coded provider allowlist was accepted"; exit 1
+          fi
+          if npx tsx lib/services/payments/dormant-provider-closure.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the dormant guard missed the allowlist"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Connection UI negative proof (a per-provider submit branch must be caught)
+        run: |
+          F="components/settings/PaymentConnectionCard.tsx"
+          cp "$F" "$F.bak"
+          # The other half of the same defect: the card deciding for itself
+          # which endpoint a provider posts to, instead of the one generic,
+          # descriptor-validated connect route.
+          perl -0pi -e 's/"\/api\/payments\/connections", \{\n        method: "POST",/"\/api\/payments\/connections\/cardcom", {\n        method: "POST",/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/dormant-provider-closure.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a per-provider connect endpoint was accepted"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
       # WhatsApp webhook EVENT-CLASS boundary. A read-only audit found that
       # acceptance was decided by payload SHAPE, not event class: change.field
       # was never read, so any change carrying a value.messages[] array reached

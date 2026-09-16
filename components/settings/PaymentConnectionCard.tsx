@@ -1,7 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { TOKEN } from "@/lib/design/tokens";
+import {
+  buildConnectionRequestBody,
+  connectionFormFields,
+  emptyValuesFor,
+  missingRequiredFields,
+  selectableProviders,
+  type ProviderCatalogEntryWire,
+} from "@/lib/services/payments/providers/connection-form";
 import {
   WarmButton,
   WarmCard,
@@ -11,51 +19,41 @@ import {
 } from "@/components/ui/warm/warm-primitives";
 
 /**
- * Payment-provider connection UI (P1.3 + I4) — warm design language.
+ * Payment-provider connection UI — descriptor-driven.
  *
- * Connects a clearing provider (Tranzila or CardCom) from Settings → Connections
- * using the existing payments API:
- *   GET  /api/payments/connections           → connected state (no secrets)
- *   POST /api/payments/connections/tranzila  → save/update Tranzila
- *   POST /api/payments/connections/cardcom   → save/update CardCom
+ * WHAT THIS FILE DOES NOT KNOW
  *
- * This is the TECHNICAL settings screen — both providers stay visible here
- * (Tranzila is not hidden). The business-facing warm surfaces are CardCom-first
- * elsewhere. All secret fields are write-only; no live provider calls.
+ * Any provider's name. It previously held its own union of provider keys, its
+ * own selectable list, its own label map and a submit branch per provider, and
+ * the consequence was a real defect: a provider could be enabled server-side,
+ * appear in the catalogue with a complete descriptor, and still be impossible
+ * to connect, because this file had never heard of it. The catalogue endpoint
+ * promised that adding a provider needs no UI change; this file is what makes
+ * that true.
  *
- * States: connected · not-connected · error (error CTA doubles as reconnect).
- * Styling only — logic unchanged.
+ *   GET  /api/payments/providers    → which providers may be connected, and the
+ *                                     fields each one needs
+ *   GET  /api/payments/connections  → what is already connected (no secrets)
+ *   POST /api/payments/connections  → the one generic, descriptor-validated
+ *                                     connect path
+ *
+ * ENABLEMENT IS THE SERVER'S DECISION, and this component cannot second-guess
+ * it in either direction. It offers exactly what the catalogue returned. If the
+ * catalogue cannot be read the form refuses to render options at all rather
+ * than falling back to anything remembered — a stale list is how a provider
+ * whose webhook is switched off gets offered to a business.
+ *
+ * Secret fields are write-only: masked on input, cleared after a successful
+ * save, and never read back from the server.
  */
 
 const W = TOKEN.warm;
-
-type ProviderKey = "TRANZILA" | "CARDCOM" | "PAYPAL";
 
 type PublicConnection = {
   provider: string;
   merchantId: string | null;
   isActive: boolean;
   hasCredential: boolean;
-};
-
-/**
- * Providers a business may CONNECT. Deliberately narrower than ProviderKey:
- * Tranzila and PayPal remain in the union so an existing connection still
- * renders with its real name, but neither can be selected — their webhook
- * consumers were disabled in CASA Wave E, and offering a provider whose
- * callback is switched off would let a business take a payment that could
- * never be confirmed.
- *
- * Guarded by lib/services/payments/dormant-provider-closure.test.ts: this list
- * must equal the server's enabled set, so re-adding an option here without
- * re-enabling the capability fails CI.
- */
-const SELECTABLE_PROVIDERS: readonly ProviderKey[] = ["CARDCOM"] as const;
-
-const PROVIDER_LABEL: Record<ProviderKey, string> = {
-  TRANZILA: "Tranzila",
-  CARDCOM: "CardCom",
-  PAYPAL: "PayPal",
 };
 
 function getAuthToken(): string | null {
@@ -66,103 +64,135 @@ function getAuthToken(): string | null {
 export function PaymentConnectionCard() {
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState<PublicConnection[]>([]);
+  const [catalogue, setCatalogue] = useState<ProviderCatalogEntryWire[]>([]);
+  const [catalogueFailed, setCatalogueFailed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  // Form state
-  const [provider, setProvider] = useState<ProviderKey>("CARDCOM");
-  const [merchantId, setMerchantId] = useState("");
-  const [secret, setSecret] = useState(""); // Tranzila credential (write-only)
-  const [apiName, setApiName] = useState(""); // CardCom
-  const [apiPassword, setApiPassword] = useState(""); // CardCom (write-only)
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [values, setValues] = useState<Record<string, string>>({});
+
+  // ONLY THE NEWEST LOAD MAY WRITE STATE.
+  //
+  // This screen loads twice in development — React invokes effects twice on
+  // purpose — and a person can also save while a load is still in flight. Two
+  // overlapping loads then finish in an order nobody chose, and a late failure
+  // can overwrite an earlier success. That matters more here than it usually
+  // would: failing closed means the older, failed answer blanks the provider
+  // list, so the form goes empty for no reason the user can see.
+  const loadSeq = useRef(0);
 
   const load = useCallback(async () => {
+    const run = ++loadSeq.current;
+    const isCurrent = () => loadSeq.current === run;
+
     setLoading(true);
     setError(null);
+    const token = getAuthToken();
+    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+
+    // THE CATALOGUE IS THE AUTHORITY, so its failure is a hard state. Anything
+    // else would mean guessing which providers exist.
     try {
-      const token = getAuthToken();
+      const res = await fetch("/api/payments/providers", {
+        headers,
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      const data = await res.json();
+      const list = selectableProviders(data?.providers);
+      if (isCurrent()) {
+        setCatalogue(list);
+        setCatalogueFailed(false);
+        setSelectedKey((current) => {
+          if (current && list.some((p) => p.key === current)) return current;
+          return list.length > 0 ? list[0]!.key : null;
+        });
+      }
+    } catch {
+      if (isCurrent()) {
+        setCatalogue([]);
+        setSelectedKey(null);
+        setCatalogueFailed(true);
+      }
+    }
+
+    // The connected list is informational; failing to read it must not hide the
+    // form, which is the one thing a business can act on.
+    try {
       const res = await fetch("/api/payments/connections", {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        headers,
         cache: "no-store",
       });
       if (res.ok) {
         const data = await res.json();
-        const list: PublicConnection[] = Array.isArray(data?.connections)
-          ? data.connections
-          : [];
-        setConnections(list);
+        if (isCurrent()) {
+          setConnections(
+            Array.isArray(data?.connections) ? data.connections : []
+          );
+        }
       }
     } catch {
       // Soft-fail: show the form.
-    } finally {
-      setLoading(false);
     }
+
+    if (!isCurrent()) return;
+
+    setLoading(false);
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  const selected =
+    catalogue.find((entry) => entry.key === selectedKey) ?? null;
+
+  // Re-seed the form whenever the chosen provider changes, so no value ever
+  // survives from a provider whose fields are not even the same shape.
+  useEffect(() => {
+    setValues(selected ? emptyValuesFor(selected) : {});
+  }, [selected]);
+
   const activeConnections = connections.filter((c) => c.isActive);
   const anyConnected = activeConnections.length > 0;
 
-  function resetSecrets() {
-    setSecret("");
-    setApiPassword("");
+  function labelForProvider(key: string): string {
+    return catalogue.find((entry) => entry.key === key)?.label ?? key;
+  }
+
+  function clearSecrets(descriptor: ProviderCatalogEntryWire) {
+    setValues((current) => {
+      const next = { ...current };
+      for (const field of connectionFormFields(descriptor)) {
+        if (field.type === "secret") next[field.key] = "";
+      }
+      return next;
+    });
   }
 
   async function handleSubmit() {
-    if (submitting) return;
+    if (submitting || !selected) return;
     setError(null);
     setNotice(null);
 
-    if (!merchantId.trim()) {
-      setError("יש להזין מספר מסוף (Terminal / Merchant ID).");
+    const missing = missingRequiredFields(selected, values);
+    if (missing.length > 0) {
+      setError(`יש להזין ${missing.map((f) => f.label).join(", ")}.`);
       return;
-    }
-
-    let path: string;
-    let payload: Record<string, unknown>;
-    if (provider === "PAYPAL") {
-      // Sandbox: PayPal credentials come from server env; the connection is an
-      // activation flag. Uses the generic descriptor-driven connection route.
-      path = "/api/payments/connections";
-      payload = { provider: "PAYPAL", merchantId: merchantId.trim() };
-    } else if (provider === "TRANZILA") {
-      if (!secret) {
-        setError("יש להזין מפתח / Secret.");
-        return;
-      }
-      path = "/api/payments/connections/tranzila";
-      payload = { merchantId: merchantId.trim(), credential: secret };
-    } else {
-      if (!apiName.trim()) {
-        setError("יש להזין API Name.");
-        return;
-      }
-      if (!apiPassword) {
-        setError("יש להזין API Password.");
-        return;
-      }
-      path = "/api/payments/connections/cardcom";
-      payload = {
-        terminalNumber: merchantId.trim(),
-        apiName: apiName.trim(),
-        apiPassword,
-      };
     }
 
     setSubmitting(true);
     try {
       const token = getAuthToken();
-      const res = await fetch(path, {
+      const res = await fetch("/api/payments/connections", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(buildConnectionRequestBody(selected, values)),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
@@ -173,8 +203,8 @@ export function PaymentConnectionCard() {
         );
         return;
       }
-      resetSecrets(); // never retain secrets in memory longer than needed
-      setNotice(`${PROVIDER_LABEL[provider]} מחובר.`);
+      clearSecrets(selected);
+      setNotice(`${selected.label} מחובר.`);
       await load();
     } catch {
       setError("לא הצלחנו לשמור את החיבור.");
@@ -266,7 +296,7 @@ export function PaymentConnectionCard() {
                   }}
                 >
                   <div style={{ fontSize: 14, fontWeight: TOKEN.weight.semibold, color: W.ink }}>
-                    {PROVIDER_LABEL[c.provider as ProviderKey] ?? c.provider} מחובר
+                    {labelForProvider(c.provider)} מחובר
                   </div>
                   <div style={{ marginTop: 2, fontSize: 12, color: W.muted }}>
                     מספר מסוף: {c.merchantId ?? "—"}
@@ -276,112 +306,107 @@ export function PaymentConnectionCard() {
             </div>
           ) : null}
 
-          <div>
+          {catalogueFailed ? (
             <div
+              role="alert"
               style={{
+                borderRadius: W.radius.control,
+                border: `1px solid ${W.line}`,
+                background: W.surface2,
+                padding: "12px 14px",
                 fontSize: 12,
-                fontWeight: TOKEN.weight.semibold,
+                lineHeight: 1.55,
                 color: W.muted,
-                marginBottom: 12,
               }}
             >
-              {anyConnected ? "הוסף / עדכן חיבור" : "חבר ספק סליקה"}
+              לא הצלחנו לטעון את רשימת ספקי הסליקה. רענן את הדף ונסה שוב.
             </div>
-
-            <WarmField label="ספק">
-              <select
-                value={provider}
-                onChange={(e) => {
-                  setProvider(e.target.value as ProviderKey);
-                  resetSecrets();
-                  setError(null);
+          ) : catalogue.length === 0 ? (
+            <div
+              style={{
+                borderRadius: W.radius.control,
+                border: `1px solid ${W.line}`,
+                background: W.surface2,
+                padding: "12px 14px",
+                fontSize: 12,
+                lineHeight: 1.55,
+                color: W.muted,
+              }}
+            >
+              אין כרגע ספק סליקה זמין לחיבור.
+            </div>
+          ) : (
+            <div>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: TOKEN.weight.semibold,
+                  color: W.muted,
+                  marginBottom: 12,
                 }}
-                style={warmInputStyle()}
               >
-                {SELECTABLE_PROVIDERS.map((key) => (
-                  <option key={key} value={key}>
-                    {PROVIDER_LABEL[key]}
-                  </option>
-                ))}
-              </select>
-            </WarmField>
+                {anyConnected ? "הוסף / עדכן חיבור" : "חבר ספק סליקה"}
+              </div>
 
-            <WarmField
-              label={
-                provider === "CARDCOM"
-                  ? "מספר מסוף (Terminal Number)"
-                  : provider === "PAYPAL"
-                    ? "תווית הפעלה (sandbox)"
-                    : "מזהה מסוף (Merchant ID)"
-              }
-            >
-              <input
-                type="text"
-                value={merchantId}
-                onChange={(e) => setMerchantId(e.target.value)}
-                autoComplete="off"
-                style={warmInputStyle()}
-                placeholder={
-                  provider === "CARDCOM"
-                    ? "terminal number"
-                    : provider === "PAYPAL"
-                      ? "למשל: sandbox"
-                      : "terminal / merchant id"
-                }
-              />
-            </WarmField>
-
-            {provider === "PAYPAL" ? (
-              <p style={{ fontSize: 12, color: W.muted, lineHeight: 1.55, margin: "0 2px 4px" }}>
-                אישורי-הסליקה של PayPal מגיעים מהשרת (sandbox env). כאן רק מפעילים
-                את PayPal כספק פעיל לבדיקות.
-              </p>
-            ) : provider === "TRANZILA" ? (
-              <WarmField label="מפתח / Secret">
-                <input
-                  type="password"
-                  value={secret}
-                  onChange={(e) => setSecret(e.target.value)}
-                  autoComplete="new-password"
+              <WarmField label="ספק">
+                <select
+                  value={selectedKey ?? ""}
+                  onChange={(e) => {
+                    setSelectedKey(e.target.value);
+                    setError(null);
+                  }}
                   style={warmInputStyle()}
-                  placeholder="לא יוצג לאחר השמירה"
-                />
+                >
+                  {catalogue.map((entry) => (
+                    <option key={entry.key} value={entry.key}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </select>
               </WarmField>
-            ) : (
-              <>
-                <WarmField label="API Name">
-                  <input
-                    type="text"
-                    value={apiName}
-                    onChange={(e) => setApiName(e.target.value)}
-                    autoComplete="off"
-                    style={warmInputStyle()}
-                    placeholder="api name"
-                  />
-                </WarmField>
-                <WarmField label="API Password">
-                  <input
-                    type="password"
-                    value={apiPassword}
-                    onChange={(e) => setApiPassword(e.target.value)}
-                    autoComplete="new-password"
-                    style={warmInputStyle()}
-                    placeholder="לא יוצג לאחר השמירה"
-                  />
-                </WarmField>
-              </>
-            )}
 
-            <WarmButton
-              variant="primary"
-              fullWidth
-              height={48}
-              onClick={() => void handleSubmit()}
-              disabled={submitting}
-            >
-              {submitLabel}
-            </WarmButton>
-          </div>
+              {selected
+                ? connectionFormFields(selected).map((field) => (
+                    <WarmField
+                      key={field.key}
+                      label={
+                        field.required ? field.label : `${field.label} (רשות)`
+                      }
+                    >
+                      <input
+                        type={field.type === "secret" ? "password" : "text"}
+                        value={values[field.key] ?? ""}
+                        onChange={(e) =>
+                          setValues((current) => ({
+                            ...current,
+                            [field.key]: e.target.value,
+                          }))
+                        }
+                        autoComplete={
+                          field.type === "secret" ? "new-password" : "off"
+                        }
+                        style={warmInputStyle()}
+                        placeholder={
+                          field.type === "secret"
+                            ? "לא יוצג לאחר השמירה"
+                            : field.label
+                        }
+                      />
+                    </WarmField>
+                  ))
+                : null}
+
+              <WarmButton
+                variant="primary"
+                fullWidth
+                height={48}
+                onClick={() => void handleSubmit()}
+                disabled={submitting || !selected}
+              >
+                {submitLabel}
+              </WarmButton>
+            </div>
+          )}
         </div>
       )}
     </WarmCard>
