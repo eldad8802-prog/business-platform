@@ -74,9 +74,13 @@ console.log("\nT1-DB — inbound email authorised senders\n");
 
 check("an authorised sender is unique per tenant, not globally", () => {
   const m = model("InboundEmailAuthorizedSender");
+  // T4-DB moved this from the address column to a current-identity key, so a
+  // REVOKED sender stops occupying it and the address can be registered again.
+  // The invariant this check exists for is unchanged: one CURRENT claim per
+  // tenant, and never a global one.
   assert.ok(
-    m.includes("@@unique([businessId, normalizedEmail])"),
-    "a tenant may not list the same address twice"
+    m.includes("@@unique([businessId, activeEmailKey])"),
+    "a tenant may list the same address twice concurrently"
   );
   assert.ok(
     !/normalizedEmail\s+String\s+@unique/.test(m),
@@ -384,6 +388,7 @@ check("nothing but account erasure reads or writes the new models", () => {
       // names them in order to classify them. Neither holds a client.
       if (rel.endsWith("inbound-email-t1-db.verify.test.ts")) continue;
       if (rel.endsWith("inbound-email-erasure.verify.test.ts")) continue;
+      if (rel.endsWith("inbound-email-t4-db.verify.test.ts")) continue;
       const src = fs.readFileSync(path.join(ROOT, rel), "utf8");
       for (const m of NEW_TENANT_TABLES) {
         const delegate = m[0]!.toLowerCase() + m.slice(1);
@@ -429,7 +434,10 @@ check("exactly one new migration, and it sorts after every applied one", () => {
     .sort();
   const mine = MIGRATION_DIR.split("/").pop()!;
   assert.equal(dirs.filter((d) => d === mine).length, 1, "the migration directory is not unique");
-  assert.equal(dirs[dirs.length - 1], mine, "the migration does not sort last, so deploy order is ambiguous");
+  // NOT "sorts last": later increments add later migrations, and an assertion
+  // that the world stopped here would fail for every one of them. Deploy
+  // ordering is owned by whichever increment is currently newest. What stays
+  // true about THIS one is that it exists once and owns its timestamp.
   // Scoped to THIS timestamp. Two migrations dated 2026-07-16 already share one,
   // which predates this work by two months and is not T1-DB's to rewrite.
   const myStamp = mine.slice(0, 14);
