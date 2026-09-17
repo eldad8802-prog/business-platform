@@ -85,6 +85,14 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessBotKnowledge", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessObligation", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessService", why: "E2" },
+  // Payables Phase 1a. Commitment and Installment are what BusinessObligation
+  // becomes; they inherit its exact erasure position — same personal surface,
+  // same E2 target — and Payee sits beside Supplier for the same reason.
+  // Recorded here so the debt is accepted explicitly, rather than three new
+  // models quietly carrying personal data nobody declared.
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Commitment", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Installment", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Payee", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "CollaborationDeal", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Deal", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailAddress", why: "E2" },
