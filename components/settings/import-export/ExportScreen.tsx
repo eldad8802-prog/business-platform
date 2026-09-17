@@ -247,11 +247,26 @@ export function ExportScreen({ domains }: Props) {
       >
         <div className="mx-auto w-full max-w-md sm:max-w-2xl lg:max-w-4xl">
         <SettingsSection>
+          {/* The primary-action tokens, which is the contract the rest of the
+           *  product uses — the nav FAB is the same pair.
+           *
+           *  This asked for `--dz-accent`, and that property is not defined
+           *  anywhere in the repo. An undefined custom property makes the
+           *  declaration invalid, so the fill stayed transparent and white
+           *  label text sat on the near-white page at 1.03:1. The button was
+           *  present, positioned, enabled and clickable, and nobody could see
+           *  it. Measured in Production before this change.
+           *
+           *  The disabled state uses the disabled tokens rather than fading the
+           *  fill to 50%: half of nothing is still nothing, and an owner with
+           *  no domain ticked should see a control that is plainly there and
+           *  plainly not ready.
+           */}
           <button
             type="button"
             onClick={runExport}
             disabled={selected.length === 0 || working}
-            className="w-full rounded-2xl bg-[var(--dz-accent)] px-4 py-3 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full rounded-2xl bg-[var(--dz-action-primary)] px-4 py-3 text-sm font-bold text-[var(--dz-action-primary-text)] shadow-[var(--dz-action-primary-shadow)] transition hover:bg-[var(--dz-action-primary-hover)] disabled:cursor-not-allowed disabled:bg-[var(--dz-action-disabled-bg)] disabled:text-[var(--dz-action-disabled-text)] disabled:shadow-none"
           >
             {working ? "מכין את הקובץ…" : "הורד קובץ"}
           </button>
