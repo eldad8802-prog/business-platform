@@ -26,11 +26,28 @@ The raw party name (or identifier) captured **on the domain record itself**, fro
 - **Rule:** a historical snapshot, once written, is **never removed and never mutated**.
 
 ### Tier 2 — Entity-FK (Operational Relation)
-A nullable foreign key from the domain record to the **operational CRM entity** (`Supplier`, `Customer`), kept **alongside** the Tier-1 snapshot.
+A nullable foreign key from the domain record to an **operational CRM entity** — `Supplier`, `Customer`, or `Payee` — kept **alongside** the Tier-1 snapshot.
+
+The set of CRM entities is **closed**. An entity joins it only through §1.1.
 
 - **Purpose:** allow a capability to retrieve, count, aggregate, or relate records **by the entity's stable identity**, correctly across renames and duplicates.
 - **Example in code:** `BillingDocument.customerId → Customer` (with index `@@index([businessId, customerId])`), consumed by `lib/services/crm/customer-card.read-model.ts` (double-scoped by `businessId` AND `customerId`).
 - **Rules:** the FK is **nullable**; deletion of the entity uses `onDelete: SetNull` (history survives); the Tier-1 snapshot is always retained beside it.
+
+### 1.1 Admission of a CRM entity — Binding
+
+An entity may join the Tier-2 target set **only** when all four conditions hold, each demonstrated against merged code:
+
+1. **Operational ownership** — the entity is owner-managed with its own lifecycle (created, edited, deactivated), not a label derived from another record.
+2. **Plural entity-keyed reads** — at least two distinct capabilities query records *by the entity's stable key*, and cannot be served correctly by the Tier-1 string (§6.3).
+3. **Entity-owned data** — data exists that belongs to the entity itself rather than to any one record (e.g. payment destinations), and has nowhere else to live.
+4. **Distinct domain** — it is not an alias, a subtype, or a renaming of an existing CRM entity. If the same rows would serve, the existing entity is used instead.
+
+Convenience, search, or display grouping are **not** admission grounds. A text field that is merely repeated does not qualify — that is Tier 1 doing its job.
+
+**Admitted entities:** `Customer`, `Supplier`, `Payee`.
+
+> **`Payee` — admitted (Accounts Payable programme).** (1) owner-managed with its own `isActive` lifecycle; (2) seven entity-keyed reads — commitments by payee, scheduled amounts, payment history, balances, reconciliation candidate generation, payment destinations, future payment preparation — none expressible over `obligeeName` as a string; (3) `PaymentDestination` belongs to the payee, not to any one commitment; (4) `Supplier` is the procurement counterparty scoped to restocking, whereas `Payee` is the economic beneficiary — forcing authorities, landlords and employees into `Supplier` would contaminate the procurement entity set used by `/suppliers`, the purchase-order wizard and `SupplierField`.
 
 ### Tier 3 — Party Resolution (Cross-Domain Canonical Identity)
 The canonical `Party` (`prisma/schema.prisma model Party`) plus `PartyResolutionClaim`, which resolve **entities** (not raw records) to a single cross-domain party, evidence-based.
@@ -91,6 +108,8 @@ Raw representation  →  Entity-FK  →  Party
 
 Skipping or reversing tiers is prohibited (see §6).
 
+Where a single real-world party appears as both a `Supplier` and a `Payee`, each is resolved to the same `Party` at Tier 3. The two entities never reference each other (§6.6).
+
 ---
 
 ## 6. Prohibitions — Binding
@@ -100,6 +119,7 @@ Skipping or reversing tiers is prohibited (see §6).
 3. **String matching is never the basis for reliable aggregation.** Grouping records by a raw name (e.g., the way `reorder-suggestions` groups drafts by `supplierName`) is advisory only, never an authoritative rollup.
 4. **No foreign key is added between domains for identity resolution.** Cross-representation identity is Tier 3's job.
 5. **No Entity-FK is added before a real entity-centric read path exists.** Premature FKs are forbidden — Tier 1 is correct until the read exists.
+6. **No CRM entity carries a foreign key to another CRM entity to express sameness.** "This payee is that supplier" is cross-representation identity and is resolved at Tier 3 (`Party`), never by a foreign key. Specifically: **`Payee.supplierId` and `Supplier.payeeId` are prohibited.**
 
 ---
 
@@ -112,7 +132,10 @@ Classification of every party-facing surface currently in the system. All verifi
 | **BillingDocument** | Yes (invoice; legal) | Yes — customer card aggregates by `customerId` (`customer-card.read-model.ts`) | **T1 + T2** (`customerId` + `customerNameSnapshot` + `issuedSnapshot`) | ✅ |
 | **PurchaseOrder** | Yes (order; preserves supplier-at-time) | Yes — supplier-card purchase history (**S4**) | **T1 today → T1 + T2 via S4** | ✅ (the rule predicts S4) |
 | **Document / OCR** | Yes (financial-truth doc; `vendorName` / `vendorBelief` / `vendorFinal` preserved) | No — no "documents by supplier entity" capability; OCR is representation, resolution is downstream | **T1** (OCR is permanently T1) | ✅ (no premature FK) |
-| **BusinessObligation** | Yes (payable; `obligeeName` preserved) | No — no "payables by supplier entity" capability | **T1** | ✅ |
+| **BusinessObligation** *(legacy, retained read-only)* | Yes (payable; `obligeeName` preserved) | No — superseded by `Commitment` | **T1** | ✅ |
+| **Commitment** | Yes (payable; `payeeNameSnapshot` preserved) | Yes — commitments / balances / payment history aggregated by `payeeId` | **T1 + T2** | ✅ |
+| **Payment** | Yes (economic event; `payeeNameSnapshot` preserved) | Yes — payment history by payee | **T1 + T2** | ✅ |
+| **PaymentDestination** | No (meaningless outside its payee) | Yes — owned by the payee | **T2 only** (no snapshot) | ✅ |
 | **InventoryItem** | Partial (carries a default `supplierName`) | No — the order-wizard picker is *representation*, not entity aggregation | **T1** | ✅ |
 | **CrmNote** | No (born inside the subject; meaningless standalone) | Yes — notes centralized around a subject over time | **T2 only** (polymorphic `subjectId`, no snapshot) | ✅ |
 | **CrmAttachment** | No (born inside the subject) | Yes — files centralized around a subject over time | **T2 only** (polymorphic `subjectId`, no snapshot) | ✅ |
