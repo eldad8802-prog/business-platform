@@ -116,9 +116,15 @@ jobs:
       # datamodel (production's shape today), plus the three new migrations.
       - name: Build a second database the way production will get there
         run: |
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          if [ -z "$BASE_SHA" ]; then BASE_SHA="$(git rev-parse HEAD~1)"; fi
-          echo "baseline datamodel from $BASE_SHA"
+          # The baseline is main's datamodel, NOT the PR base's. Both triggers
+          # then behave the same — on a `push` event pull_request.base.sha is
+          # empty, and the HEAD~1 fallback this replaced picked up this PR's own
+          # previous commit, which already had the payables models in it.
+          # Correct for as long as it needs to be: PR-1 carries no schema
+          # change, so main stays pre-payables until this PR itself merges.
+          git fetch --no-tags origin main
+          echo "baseline datamodel from $(git rev-parse --short FETCH_HEAD) (origin/main)"
+          BASE_SHA=FETCH_HEAD
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE dubiz_payables_drift;'
           git show "$BASE_SHA:prisma/schema.prisma" > /tmp/base.prisma
           DATABASE_URL="$DRIFT_URL" DIRECT_URL="$DRIFT_URL" \
