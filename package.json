@@ -46,6 +46,8 @@
     "verify:writing-package": "npx tsx lib/features/content/writing-package/verify-writing-package-runtime.ts",
     "verify:obligations-state": "npx tsx lib/services/obligations/obligation-core.verify.test.ts",
     "verify:obligations-service": "npx tsx lib/services/obligations/obligation-service.verify.test.ts",
+    "verify:payables-core": "npx tsx lib/services/payables/payables-core.test.ts",
+    "verify:payables-db": "npx tsx lib/services/payables/payables.db.test.ts",
     "verify:prisma-centralization": "bash scripts/ci/prisma-centralization-guard.sh .",
     "verify:admin-boundary": "bash scripts/ci/admin-boundary-guard.sh .",
     "verify:authority-signed-state": "npx tsx lib/services/billing/authority/billing-authority-signed-state.verify.test.ts",

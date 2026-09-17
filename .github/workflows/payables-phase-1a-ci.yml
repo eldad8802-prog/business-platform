@@ -1,0 +1,155 @@
+name: payables phase 1a
+
+# Accounts Payable Phase 1a — the domain foundation.
+#
+# Two halves, deliberately separated:
+#
+#   core     the accounting arithmetic — schedules, derived balances, every
+#            allocation rule. No database, so it runs anywhere and fails fast.
+#
+#   db       the properties that ARE the database and cannot be simulated: the
+#            partial unique index, tenant isolation, concurrent over-allocation,
+#            idempotent retries, and the legacy backfill. These run against an
+#            ephemeral postgres:17 service container — the same pattern the D2
+#            RLS batteries use, and the only database this suite may ever touch.
+#
+# The DB suite is fail-closed on TEST_DATABASE_URL: without an explicitly named
+# test database it refuses to run rather than reaching for an ambient one.
+
+on:
+  push:
+    branches: [feat/payables-phase-1a]
+  pull_request:
+    paths:
+      - "prisma/schema.prisma"
+      - "prisma/migrations/**"
+      - "lib/services/payables/**"
+      - "scripts/ci/erasure/**"
+      - ".github/workflows/payables-phase-1a-ci.yml"
+
+jobs:
+  core:
+    name: payables core (no database)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Accounting invariants
+        run: npx tsx lib/services/payables/payables-core.test.ts
+      - name: Erasure coverage — every new model has a disposition
+        run: npm run verify:erasure-contract -- --baseline-check
+
+  db:
+    name: payables ledger (PG17)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: payables_owner
+          POSTGRES_PASSWORD: payables_ci_synthetic_pw
+          POSTGRES_DB: dubiz_payables
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U payables_owner -d dubiz_payables"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
+      # The datamodel declares `directUrl`, so Prisma refuses to load a schema
+      # without it — even for `db push` against a local container. Same value
+      # here: there is no pooler in front of the service container.
+      DIRECT_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
+      TEST_DATABASE_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
+      # A second, independent database on the same container, used only by the
+      # drift check below so it cannot disturb the ledger suite above.
+      DRIFT_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables_drift
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The drift check reads the base branch's datamodel.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Build the schema
+        run: npx prisma db push --skip-generate
+
+      - name: Generate the client
+        run: npx prisma generate
+
+      # `db push` applies the datamodel, which cannot express a partial unique
+      # index. The migration ships one, so the property it guarantees is proven
+      # here against the index the migration actually creates — the suite itself
+      # also creates it defensively, so a change to either is caught.
+      - name: Apply the migration's raw SQL objects
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c '
+            CREATE UNIQUE INDEX IF NOT EXISTS "PaymentAllocation_active_payment_installment_key"
+              ON "PaymentAllocation"("paymentId", "installmentId")
+              WHERE "reversedAt" IS NULL;'
+
+      - name: Ledger, tenancy, concurrency, idempotency and backfill
+        run: npx tsx lib/services/payables/payables.db.test.ts
+
+      # ── The drift check ──────────────────────────────────────────────────
+      #
+      # This is the proof that PR-1's migrations build exactly the shape this
+      # PR's Prisma client expects. It matters more than it looks: PR-1 is
+      # applied to production FIRST, so if the SQL and the datamodel disagree,
+      # production gets a shape the code does not expect — the 2026-09-02
+      # incident, arrived at from the other direction.
+      #
+      # It cannot be done with `--from-migrations`: replaying the whole tree
+      # from zero fails on 20260210120000_billing_invoice_profile_fields, whose
+      # BusinessProfile table is created by no migration. So the comparison is
+      # built the way production actually gets there — the base branch's
+      # datamodel (production's shape today), plus the three new migrations.
+      - name: Build a second database the way production will get there
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE_SHA" ]; then BASE_SHA="$(git rev-parse HEAD~1)"; fi
+          echo "baseline datamodel from $BASE_SHA"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE dubiz_payables_drift;'
+          git show "$BASE_SHA:prisma/schema.prisma" > /tmp/base.prisma
+          DATABASE_URL="$DRIFT_URL" DIRECT_URL="$DRIFT_URL" \
+            npx prisma db push --schema /tmp/base.prisma --skip-generate --accept-data-loss
+          for m in 20260917090000_payables_phase_1a_foundation \
+                   20260917090100_payables_phase_1a_tenant_rls \
+                   20260917090200_payables_phase_1a_obligation_backfill; do
+            echo "── applying $m"
+            psql "$DRIFT_URL" -v ON_ERROR_STOP=1 -q -f "prisma/migrations/$m/migration.sql"
+          done
+
+      # The partial index is the ONE thing the migrations create that the
+      # datamodel deliberately cannot describe, so it is asserted explicitly and
+      # then dropped — otherwise it would show up as drift forever and teach
+      # everyone to ignore this check. Anything else that differs is real drift.
+      - name: Migrations ↔ datamodel agree (modulo the one index Prisma cannot express)
+        run: |
+          psql "$DRIFT_URL" -v ON_ERROR_STOP=1 -t -A -c \
+            "SELECT indexdef FROM pg_indexes
+              WHERE indexname = 'PaymentAllocation_active_payment_installment_key';" > idx.txt
+          cat idx.txt
+          grep -q 'WHERE ("reversedAt" IS NULL)' idx.txt || { echo "FAIL: the migration's index is not partial on active allocations"; exit 1; }
+          psql "$DRIFT_URL" -v ON_ERROR_STOP=1 -q -c \
+            'DROP INDEX "PaymentAllocation_active_payment_installment_key";'
+          if npx prisma migrate diff \
+               --from-url "$DRIFT_URL" \
+               --to-schema-datamodel ./prisma/schema.prisma \
+               --exit-code; then
+            echo "OK - the migrations build exactly the shape this client expects."
+          else
+            echo "DRIFT - PR-1's SQL and this PR's prisma/schema.prisma disagree."
+            echo "Production would get a shape this code does not expect. Fix before merging PR-1."
+            exit 1
+          fi

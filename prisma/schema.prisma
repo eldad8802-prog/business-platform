@@ -230,6 +230,13 @@ model Business {
   paymentRequests               PaymentRequest[]
   businessObligations           BusinessObligation[]
   businessObligationOrientation BusinessObligationOrientation?
+  payees                        Payee[]
+  commitments                   Commitment[]
+  installments                  Installment[]
+  payments                      Payment[]
+  paymentAllocations            PaymentAllocation[]
+  paymentEvidences              PaymentEvidence[]
+  payablesAuditEvents           PayablesAuditEvent[]
   crmNotes                      CrmNote[]
   crmAttachments                CrmAttachment[]
   importRuns                    ImportRun[]
@@ -1316,7 +1323,7 @@ model LearningSignal {
 }
 
 model Document {
-  id                        Int                        @id @default(autoincrement())
+  id                        Int                           @id @default(autoincrement())
   businessId                Int
   fileUrl                   String
   source                    String
@@ -1335,8 +1342,8 @@ model Document {
   originalFilename          String?
   /// Original file size in bytes as validated at intake.
   sizeBytes                 Int?
-  createdAt                 DateTime                   @default(now())
-  business                  Business                   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt                 DateTime                      @default(now())
+  business                  Business                      @relation(fields: [businessId], references: [id], onDelete: Cascade)
   emailImport               EmailAttachmentImport?
   whatsappImport            WhatsAppAttachmentImport?
   inboundEmailImport        InboundEmailAttachmentImport?
@@ -2726,6 +2733,10 @@ enum BillingDocumentType {
   TAX_INVOICE_RECEIPT
 }
 
+/// Direction-neutral: it names a payment INSTRUMENT, not who collects. Reused
+/// by both the inbound (Billing receipts) and outbound (Payables) sides rather
+/// than forked — programme AD-4. `DIRECT_DEBIT` and `STANDING_ORDER` were added
+/// for payables, where they are genuinely distinct instruments.
 enum PaymentMethod {
   CASH
   BANK_TRANSFER
@@ -2733,6 +2744,8 @@ enum PaymentMethod {
   CREDIT_CARD
   BIT
   PAYBOX
+  DIRECT_DEBIT
+  STANDING_ORDER
   OTHER
 }
 
@@ -3483,7 +3496,7 @@ model ImportRun {
   /// treats NULLs as distinct: the unique index builds on any existing data,
   /// including whatever collisions F-01 already left, and needs no backfill.
   /// Every run written from here on carries a key.
-  retryKey                  String?                    @unique
+  retryKey String? @unique
 
   /// It survives the 30-day row cleanup, so a completed import can never become
   /// silently replayable once its retry scaffolding is gone.
@@ -3956,9 +3969,9 @@ model InboundEmailMessage {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  business    Business                       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  address     InboundEmailAddress            @relation(fields: [businessId, addressId], references: [businessId, id], onDelete: Cascade)
-  authorizedSender InboundEmailAuthorizedSender? @relation(fields: [authorizedSenderId], references: [id], onDelete: SetNull)
+  business         Business                       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  address          InboundEmailAddress            @relation(fields: [businessId, addressId], references: [businessId, id], onDelete: Cascade)
+  authorizedSender InboundEmailAuthorizedSender?  @relation(fields: [authorizedSenderId], references: [id], onDelete: SetNull)
   attachments      InboundEmailAttachmentImport[]
 
   @@unique([businessId, providerMessageId])
@@ -4191,4 +4204,287 @@ model InboundEmailSenderChallenge {
 
   @@index([businessId, authorizedSenderId])
   @@index([expiresAt])
+}
+
+/// ─────────────────────────────────────────────────────────────────────────
+/// ACCOUNTS PAYABLE — Phase 1a (domain foundation)
+///
+/// Architecture: docs/dubiz-accounts-payable-commitments-programme-v1.md
+/// Party tier:   docs/dubiz-party-identity-strategy-v1.md §1.1 (Payee admitted)
+///
+/// The single monetary source of truth for allocation is
+/// `PaymentAllocation.allocatedAmount`. There is deliberately NO cached balance
+/// column on Installment or Commitment — every paid/remaining figure is derived
+/// (AD-2). A cached total drifts the moment an allocation is reversed.
+/// ─────────────────────────────────────────────────────────────────────────
+
+/// The economic beneficiary the business owes or pays. A Tier-2 CRM entity,
+/// admitted by the party-identity strategy §1.1.
+///
+/// It MUST NOT carry `supplierId`: "this payee is that supplier" is
+/// cross-representation identity and belongs to Tier 3 (`Party`), never to a
+/// foreign key (§6.6).
+model Payee {
+  id          Int                @id @default(autoincrement())
+  businessId  Int
+  displayName String
+  kind        PayeeKind          @default(OTHER)
+  legalName   String?
+  taxId       String?
+  taxIdType   CustomerTaxIdType?
+  isActive    Boolean            @default(true)
+  note        String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  commitments Commitment[]
+  payments    Payment[]
+
+  @@index([businessId, isActive])
+  @@index([businessId, taxId])
+  @@index([businessId, displayName])
+}
+
+/// The agreement — never one payment.
+///
+/// `totalAmount` is the AGREED figure and an input to the finite-plan invariant
+/// (sum of installments == totalAmount). It is never a running balance, and it
+/// is NULL for open-ended RECURRING commitments, which have no total.
+model Commitment {
+  id                   Int                    @id @default(autoincrement())
+  businessId           Int
+  title                String
+  category             String?
+  /// Tier-2 entity key. Nullable: a commitment may name a payee we hold no
+  /// entity for, exactly as `obligeeName` allowed before.
+  payeeId              Int?
+  /// Tier-1 snapshot. Written once, never mutated.
+  payeeNameSnapshot    String
+  currency             String                 @default("ILS")
+  totalAmount          Decimal?               @db.Decimal(18, 2)
+  scheduleKind         CommitmentScheduleKind
+  recurrence           String                 @default("NONE")
+  recurrenceSeriesId   String?
+  startAt              DateTime?
+  endAt                DateTime?
+  defaultPaymentMethod PaymentMethod?
+  status               CommitmentStatus       @default(ACTIVE)
+  note                 String?
+  /// Provenance of the expand-only migration, never a functional link.
+  legacyObligationId   Int?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payee        Payee?        @relation(fields: [payeeId], references: [id], onDelete: SetNull)
+  installments Installment[]
+
+  @@index([businessId, status])
+  @@index([businessId, payeeId])
+  @@index([businessId, legacyObligationId])
+}
+
+/// One scheduled amount due on one date.
+///
+/// `status` persists ASSERTIONS ONLY. PAID / PARTIALLY_PAID / DUE / OVERDUE are
+/// derived from allocations and `dueAt` — never stored.
+model Installment {
+  id                         Int               @id @default(autoincrement())
+  businessId                 Int
+  commitmentId               Int
+  sequence                   Int
+  scheduledAmount            Decimal           @db.Decimal(18, 2)
+  currency                   String            @default("ILS")
+  dueAt                      DateTime
+  status                     InstallmentStatus @default(SCHEDULED)
+  cancelledAt                DateTime?
+  /// Legacy provenance: a pre-ledger owner assertion that the obligation was
+  /// handled. Carries NO economic meaning and contributes ZERO to paid amounts.
+  legacySettlementAssertedBy String?
+  legacyMetAt                DateTime?
+  note                       String?
+  createdAt                  DateTime          @default(now())
+  updatedAt                  DateTime          @updatedAt
+
+  business    Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  commitment  Commitment          @relation(fields: [commitmentId], references: [id], onDelete: Cascade)
+  allocations PaymentAllocation[]
+
+  @@unique([commitmentId, sequence])
+  @@index([businessId, dueAt])
+  @@index([businessId, status])
+  @@index([commitmentId])
+}
+
+/// The economic fact: money left the business.
+///
+/// NOT a receipt, NOT a bank line, NOT a document — those are evidence.
+/// `amount` is immutable once allocations exist; correction is VOID + re-record.
+model Payment {
+  id                Int           @id @default(autoincrement())
+  businessId        Int
+  payeeId           Int?
+  payeeNameSnapshot String
+  amount            Decimal       @db.Decimal(18, 2)
+  currency          String        @default("ILS")
+  paidAt            DateTime
+  method            PaymentMethod
+  externalReference String?
+  status            PaymentStatus @default(RECORDED)
+  /// Caller-supplied retry key: a network retry must not create a second
+  /// economic event.
+  idempotencyKey    String?
+  createdByUserId   Int?
+  voidedAt          DateTime?
+  voidedByUserId    Int?
+  voidReason        String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  business    Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payee       Payee?              @relation(fields: [payeeId], references: [id], onDelete: SetNull)
+  allocations PaymentAllocation[]
+  evidences   PaymentEvidence[]
+
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, paidAt])
+  @@index([businessId, payeeId])
+  @@index([businessId, status])
+}
+
+/// Which payment settles which installment, and by how much.
+///
+/// `allocatedAmount` is THE single persisted allocation figure. Reversal is
+/// non-destructive: a reversed row is retained and stops being active.
+///
+///   active(allocation) == reversedAt IS NULL AND payment.status = 'RECORDED'
+///
+/// Uniqueness is a PARTIAL unique index over the ACTIVE rows only
+/// (`WHERE "reversedAt" IS NULL`), created in raw SQL. Prisma cannot express a
+/// partial unique index, and a plain `@@unique([paymentId, installmentId])`
+/// here would forbid re-allocating a pair after a legitimate reversal. It must
+/// never be regenerated into one — `prisma db pull` would silently drop the
+/// predicate, same class of hazard as the `secretHash` CHECK constraint.
+model PaymentAllocation {
+  id               Int       @id @default(autoincrement())
+  businessId       Int
+  paymentId        Int
+  installmentId    Int
+  allocatedAmount  Decimal   @db.Decimal(18, 2)
+  currency         String    @default("ILS")
+  createdByUserId  Int?
+  createdAt        DateTime  @default(now())
+  reversedAt       DateTime?
+  reversedByUserId Int?
+  reversalReason   String?
+
+  business    Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payment     Payment     @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  installment Installment @relation(fields: [installmentId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, installmentId])
+  @@index([businessId, paymentId])
+  @@index([paymentId, installmentId])
+}
+
+/// Information proving or observing that a Payment happened.
+///
+/// MANY evidences may describe ONE Payment — the whole double-count defence: a
+/// receipt and a bank debit for the same amount are two evidences of one
+/// economic event, never two expenses.
+///
+/// Phase 1a constructs `MANUAL` only. The other kinds arrive with their phases,
+/// each bringing the columns and uniqueness keys it needs.
+model PaymentEvidence {
+  id               Int                 @id @default(autoincrement())
+  businessId       Int
+  paymentId        Int
+  kind             PaymentEvidenceKind
+  note             String?
+  assertedByUserId Int?
+  confirmedAt      DateTime            @default(now())
+  createdAt        DateTime            @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payment  Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, paymentId])
+  @@index([businessId, kind])
+}
+
+/// Append-only payables audit trail.
+///
+/// Mirrors `BillingAuditEvent` / `PaymentAuditEvent` field-for-field, including
+/// `eventHash` — the repo's established one-audit-model-per-domain pattern.
+/// `updatedAt` is not an audit trail, which is why this exists.
+model PayablesAuditEvent {
+  id            Int      @id @default(autoincrement())
+  businessId    Int
+  commitmentId  Int?
+  installmentId Int?
+  paymentId     Int?
+  allocationId  Int?
+  actorUserId   Int?
+  eventType     String
+  source        String   @default("USER")
+  summary       String
+  metadata      Json?
+  eventHash     String
+  occurredAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, occurredAt])
+  @@index([businessId, commitmentId, occurredAt])
+  @@index([businessId, paymentId, occurredAt])
+  @@index([eventType, occurredAt])
+}
+
+enum PayeeKind {
+  SUPPLIER
+  AUTHORITY
+  UTILITY
+  LANDLORD
+  EMPLOYEE
+  LENDER
+  INSURER
+  OTHER
+}
+
+enum CommitmentScheduleKind {
+  ONE_OFF
+  RECURRING
+  INSTALLMENT_PLAN
+}
+
+enum CommitmentStatus {
+  ACTIVE
+  CLOSED
+  RELEASED
+}
+
+/// Persisted ASSERTIONS only; every other installment state is derived.
+///
+/// `SETTLED_LEGACY` is migration-only. It records a pre-ledger owner assertion
+/// that an obligation was handled, WITHOUT claiming a payment was observed, and
+/// is unreachable from the API by design.
+enum InstallmentStatus {
+  SCHEDULED
+  CANCELLED
+  SETTLED_LEGACY
+}
+
+enum PaymentStatus {
+  RECORDED
+  VOID
+}
+
+enum PaymentEvidenceKind {
+  MANUAL
+  DOCUMENT
+  BANK_TRANSACTION
+  PAYMENT_PROVIDER
+  CHEQUE
 }

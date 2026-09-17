@@ -121,6 +121,22 @@ const RETAINED: Record<string, ModelCoverage> = {
     reason: "tamper-evident payment audit trail",
     basis: "SECURITY/AUDIT",
   },
+  // ── Payables, Phase 1a ────────────────────────────────────────────────────
+  // The outbound money family is classified like its inbound counterpart: a
+  // Payment is bookkeeping evidence that money LEFT the business, exactly as
+  // BillingReceiptPayment is evidence that money arrived, and it carries the
+  // same retention weight as the FinancialRecord declared FISCAL below.
+  // (Commitment / Installment / Payee are forward-looking or counterparty
+  // records, not realized fiscal facts, and are declared UNMANAGED alongside
+  // BusinessObligation and Supplier.)
+  Payment: FISCAL("bookkeeping evidence that money left the business"),
+  PaymentAllocation: FISCAL("which payment settled which installment"),
+  PaymentEvidence: FISCAL("what proves a retained payment happened"),
+  PayablesAuditEvent: {
+    disposition: "RETAINED_BY_DESIGN",
+    reason: "tamper-evident payables audit trail, including who acted",
+    basis: "SECURITY/AUDIT",
+  },
   FinancialEvent: FISCAL("the ledger event behind a fiscal document"),
   BillingAuthoritySubmission: FISCAL("proof of what was filed with the tax authority and when"),
   PaymentRequest: FISCAL("payment evidence referenced by issued receipts"),
@@ -176,6 +192,14 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   Appointment: unmanaged("notes and title as free text, plus customerId and leadId"),
   Task: unmanaged("title and description as free text"),
   BusinessObligation: unmanaged("obligeeName and note"),
+  // Payables, Phase 1a. A payee is the counterparty the business pays and may
+  // well be a person — a landlord, an employee — so it sits beside Supplier
+  // rather than being waved through as operational. Commitment and Installment
+  // are the forward-looking obligations that replaced BusinessObligation and
+  // inherit its classification.
+  Payee: unmanaged("displayName, legalName, taxId and note"),
+  Commitment: unmanaged("payeeNameSnapshot, title and note"),
+  Installment: unmanaged("note, plus the legacy settlement provenance"),
   Deal: unmanaged("lostReason, and leadId to a partially-scrubbed Lead"),
   CollaborationDeal: unmanaged("title, description, reasonText"),
   Recommendation: unmanaged("title and body, generated about the business"),

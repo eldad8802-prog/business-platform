@@ -184,6 +184,22 @@ export function validateAndParsePaymentLine(
     case PaymentMethod.OTHER:
       requireText(reference, "reference");
       break;
+    // DIRECT_DEBIT and STANDING_ORDER were added to the shared `PaymentMethod`
+    // enum for the outbound payables ledger, where they are ordinary
+    // instruments. They are deliberately NOT accepted on an issued document.
+    //
+    // The enum is not a label here: `uniform/uniform-file-builder.ts` maps it to
+    // the מבנה אחיד D120.1306 fiscal code, so admitting a value to a receipt is
+    // a tax-authority decision about which code it reports — governed by the
+    // billing compliance documents, not by a payables programme. Refusing them
+    // keeps issued-document behaviour identical to today. If receipts should
+    // accept them, that is a Billing change with its own review and its own
+    // 1306 mapping.
+    case PaymentMethod.DIRECT_DEBIT:
+    case PaymentMethod.STANDING_ORDER:
+      throw new ValidationError(
+        `Payment method ${method} is not supported on a billing document`,
+      );
     default: {
       const _exhaustive: never = method;
       throw new ValidationError(`Unsupported payment method: ${_exhaustive}`);
