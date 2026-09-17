@@ -50,6 +50,50 @@ export type ModelDisposition =
 
 export type RetentionBasis = "PRODUCT" | "LEGAL/FISCAL" | "SECURITY/AUDIT" | "UNPROVEN";
 
+/**
+ * Machine-enforced backing for a `NON_PERSONAL_OPERATIONAL` claim.
+ *
+ * Most entries in that category are counters and enums, and a stated `reason` is
+ * a fair way to record "no column here describes a person". A few are different:
+ * they hold free-text-shaped columns and the claim is not "there is no text" but
+ * "nothing in this product can put a person in that text". That claim is about
+ * the whole application, and it expires silently the moment somebody adds a
+ * writer — so where it is made, it is proven rather than asserted.
+ *
+ * Declaring evidence is optional. Declaring it and being wrong is a build failure.
+ */
+export type NonPersonalEvidence = {
+  /**
+   * Every non-`@id` String/Json column the model is allowed to have. The guard
+   * compares this to the schema in both directions, so a new `note` column fails
+   * the build instead of quietly inheriting a non-personal classification.
+   */
+  textualSurface: readonly string[];
+  /**
+   * Repository-relative files permitted to write this model. An EMPTY list is the
+   * strongest form: it asserts the product has no writer at all, and any write
+   * anywhere is then a finding.
+   *
+   * File-granular on purpose. A rule about which local variable a value came from
+   * breaks on the first rename and teaches people to edit the guard; "no new file
+   * may write this" survives refactors and fails on the event that matters.
+   */
+  writeSites: readonly string[];
+  /**
+   * Models written through a parent's nested `create`. `SupplierPurchaseDraftLine`
+   * has no delegate call of its own on the intake path — it is created inside
+   * `supplierPurchaseDraft.create({ data: { lines: { create: [...] } } })` — so the
+   * parent's writes count as writes to the child.
+   */
+  viaDelegates?: readonly string[];
+  /**
+   * When present, every write to a `textualSurface` column must be a literal, or a
+   * template whose interpolations terminate in one of these property names. This
+   * is what separates `` `low stock: ${item.name}` `` from `` `${customer.notes}` ``.
+   */
+  derivedFrom?: readonly string[];
+};
+
 export type ModelCoverage = {
   disposition: ModelDisposition;
   /** Required for RETAINED_BY_DESIGN, NON_PERSONAL_OPERATIONAL and SYSTEM_INTERNAL. */
@@ -62,6 +106,8 @@ export type ModelCoverage = {
   surface?: string;
   /** Required for NEEDS_OWNER_DECISION: the question that has to be answered. */
   question?: string;
+  /** Optional for NON_PERSONAL_OPERATIONAL: proof instead of a promise. */
+  evidence?: NonPersonalEvidence;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
