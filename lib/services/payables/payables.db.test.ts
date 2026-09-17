@@ -454,29 +454,128 @@ async function main(): Promise<void> {
       ),
     /Payee not found/i,
   );
+  // B's payment is created in B's OWN context, before A's context is entered.
+  // Nesting the two made runWithTenantContext refuse to switch tenant inside an
+  // established context — which is the correct behaviour, and it was the test
+  // that was wrong: it turned an isolation proof into a proof that nesting is
+  // rejected, and would have passed even if voidPayment ignored the tenant.
+  const paymentB = await asB(() =>
+    svc.recordManualPayment({
+      businessId: B,
+      commitmentId: commitmentB.id,
+      amount: "50.00",
+      paidAt: new Date(),
+      method: "CASH",
+    }),
+  );
   await rejects(
     "P. A cannot void B's payment",
-    () =>
-      asA(async () => {
-        const bp = await asB(() =>
-          svc.recordManualPayment({
-            businessId: B,
-            commitmentId: commitmentB.id,
-            amount: "50.00",
-            paidAt: new Date(),
-            method: "CASH",
-          }),
-        );
-        return svc.voidPayment({ businessId: A, paymentId: bp.payment.id });
-      }),
+    () => asA(() => svc.voidPayment({ businessId: A, paymentId: paymentB.payment.id })),
     /not found/i,
   );
-  const aSeesB = await asA(() => prisma.payee.findMany({ where: { id: payeeB.id } }));
-  check("P. A's tenant-scoped read cannot see B's payee", aSeesB.length === 0);
-  const aAudit = await asA(() =>
-    prisma.payablesAuditEvent.findMany({ where: { businessId: B } }),
+  const stillRecorded = await asB(() =>
+    prisma.payment.findFirst({ where: { id: paymentB.payment.id, businessId: B } }),
   );
-  check("P. A cannot read B's audit events", aAudit.length === 0);
+  check("P. and B's payment is still RECORDED", stillRecorded?.status === "RECORDED");
+  // ── RLS, proven against a role that cannot bypass it ──────────────────────
+  //
+  // The checks above prove the SERVICE scopes by tenant. They say nothing about
+  // the database, because this suite connects as the container's POSTGRES_USER
+  // — a SUPERUSER, and superusers bypass row-level security entirely, FORCE
+  // included. Asserting "A cannot see B's payee" on that connection was not a
+  // weak proof, it was no proof at all: it can only ever report whatever the
+  // query returns.
+  //
+  // So the policies are applied from the migration that ships them (`db push`
+  // creates tables from the datamodel and knows nothing about RLS), a
+  // least-privilege NOBYPASSRLS role is provisioned the way the D2 batteries
+  // do it, and the cross-tenant reads are re-run through it.
+  const rlsSql = readFileSync(
+    join(process.cwd(), "prisma", "migrations", "20260917090100_payables_phase_1a_tenant_rls", "migration.sql"),
+    "utf8",
+  );
+  for (const stmt of rlsSql
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n")
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean)) {
+    await prisma.$executeRawUnsafe(stmt);
+  }
+
+  const RUNTIME_PW = "payables_ci_synthetic_runtime_pw";
+  // A plain DROP ROLE fails once the role holds grants, so its privileges go
+  // first. Matters only when the suite is re-run against a surviving database.
+  await prisma.$executeRawUnsafe(`
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'payables_runtime') THEN
+        EXECUTE 'DROP OWNED BY payables_runtime';
+        EXECUTE 'DROP ROLE payables_runtime';
+      END IF;
+    END $$;
+  `);
+  await prisma.$executeRawUnsafe(
+    `CREATE ROLE payables_runtime LOGIN PASSWORD '${RUNTIME_PW}' ` +
+      `NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION NOINHERIT`,
+  );
+  for (const t of ["Payee", "Commitment", "Installment", "Payment",
+                   "PaymentAllocation", "PaymentEvidence", "PayablesAuditEvent"]) {
+    await prisma.$executeRawUnsafe(`GRANT SELECT ON "${t}" TO payables_runtime`);
+  }
+
+  const runtimeUrl = (() => {
+    const u = new URL(TEST_DB);
+    u.username = "payables_runtime";
+    u.password = RUNTIME_PW;
+    return u.toString();
+  })();
+  const { PrismaClient } = await import("@prisma/client");
+  const runtime = new PrismaClient({ datasources: { db: { url: runtimeUrl } } });
+
+  try {
+    // Without this, every assertion below is vacuous: a role that bypasses RLS
+    // returns rows no matter how good the policies are.
+    const posture = await runtime.$queryRawUnsafe<{ current_user: string; rolbypassrls: boolean }[]>(
+      `SELECT current_user, r.rolbypassrls FROM pg_roles r WHERE r.rolname = current_user`,
+    );
+    check(
+      "P. the proof runs as a role that CANNOT bypass RLS",
+      posture[0]?.current_user === "payables_runtime" && posture[0]?.rolbypassrls === false,
+      JSON.stringify(posture[0]),
+    );
+
+    // Fail-closed: no tenant context at all must yield NOTHING, not everything.
+    const noContext = await runtime.$queryRawUnsafe<{ n: bigint }[]>(
+      `SELECT count(*)::bigint AS n FROM "Payee"`,
+    );
+    check("P. with NO tenant context the runtime role sees zero payees",
+      Number(noContext[0].n) === 0, `saw ${noContext[0].n}`);
+
+    // Inside A's context, B's rows must be invisible — enforced by the database,
+    // not by the query's WHERE clause.
+    const crossTenant = await runtime.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SELECT set_config('app.current_business_id', '${A}', true)`);
+      const payees = await tx.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*)::bigint AS n FROM "Payee" WHERE "id" = ${payeeB.id}`,
+      );
+      const audits = await tx.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*)::bigint AS n FROM "PayablesAuditEvent" WHERE "businessId" = ${B}`,
+      );
+      const own = await tx.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*)::bigint AS n FROM "Payee" WHERE "id" = ${payee.id}`,
+      );
+      return { payees: Number(payees[0].n), audits: Number(audits[0].n), own: Number(own[0].n) };
+    });
+    check("P. RLS hides B's payee from A", crossTenant.payees === 0, `saw ${crossTenant.payees}`);
+    check("P. RLS hides B's audit events from A", crossTenant.audits === 0, `saw ${crossTenant.audits}`);
+    // The counterweight: if A could not see its OWN payee either, the three
+    // assertions above would be satisfied by a policy that simply hides
+    // everything, which would prove isolation and nothing else.
+    check("P. while A still sees its own payee", crossTenant.own === 1, `saw ${crossTenant.own}`);
+  } finally {
+    await runtime.$disconnect();
+  }
 
   /* ── Q. idempotency ─────────────────────────────────────────────────────── */
   console.log("\n[Q] idempotency");
@@ -540,8 +639,20 @@ async function main(): Promise<void> {
     join(process.cwd(), "prisma", "migrations", "20260917090200_payables_phase_1a_obligation_backfill", "migration.sql"),
     "utf8",
   );
+  // Strip comment LINES before splitting, not chunks that merely BEGIN with a
+  // comment. Every statement in the migration is preceded by a `--` header
+  // explaining it, so filtering chunks that start with `--` silently discarded
+  // all three INSERTs and left `migrated` empty — at which point
+  // `migrated.every(...)` passed vacuously and only the length check noticed.
+  // No `--` in that file appears inside a string literal.
   const runBackfill = async () => {
-    for (const stmt of backfillSql.split(/;\s*$/m).map((s) => s.trim()).filter((s) => s && !s.startsWith("--"))) {
+    const sql = backfillSql
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("--"))
+      .join("\n");
+    const statements = sql.split(";").map((s) => s.trim()).filter(Boolean);
+    check("backfill SQL parsed into every statement", statements.length === 3, `got ${statements.length}`);
+    for (const stmt of statements) {
       await prisma.$executeRawUnsafe(stmt);
     }
   };
