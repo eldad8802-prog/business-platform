@@ -563,6 +563,160 @@ async function main() {
     await ctx.close();
   }
 
+  // ---- click proof + chrome contrast -----------------------------------
+  // An href that resolves is not proof the owner can reach it: the control has
+  // to be the thing under the finger, and the click has to land. This walks
+  // every interactive element Home renders, hit-tests its centre against
+  // elementFromPoint (so a floating FAB covering a tile is caught), clicks it,
+  // and asserts the URL that results.
+  for (const width of WIDTHS) {
+    const ctx = await browser.newContext({
+      viewport: { width, height: 844 },
+      locale: "he-IL",
+      reducedMotion: "reduce",
+    });
+    const page = await ctx.newPage();
+    await installStubs(page, "critical");
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem("token", "qa-stub-token");
+      } catch {
+        /* ignore */
+      }
+    });
+    await page.goto(`${BASE}/app`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".dzhome .seccard", { state: "visible", timeout: 30000 });
+    await page.waitForTimeout(800);
+
+    // The global chrome that paints ON Home. `--dz-fab-trigger-*` used to be
+    // frozen here to a gradient that put the icon at 1.48:1; this keeps it
+    // honest. The bottom-bar "+" is a 30px glyph — large text, 3:1 floor.
+    const chrome = await page.evaluate(() => {
+      const parse = (c) => {
+        const m = String(c).match(/rgba?\(([^)]+)\)/);
+        if (!m) return null;
+        const p = m[1].split(/[,\s/]+/).filter(Boolean).map(Number);
+        return p.length < 3 || p.some(Number.isNaN)
+          ? null
+          : { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+      };
+      const lum = ({ r, g, b }) => {
+        const f = (v) => {
+          const s = v / 255;
+          return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+        };
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+      };
+      const ratio = (a, b) => {
+        const [hi, lo] = lum(a) > lum(b) ? [lum(a), lum(b)] : [lum(b), lum(a)];
+        return Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100;
+      };
+      const worstOf = (el) => {
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        const ink = parse(cs.color);
+        const stops = [...cs.backgroundImage.matchAll(/rgba?\([^)]+\)/g)]
+          .map((m) => parse(m[0]))
+          .filter((c) => c && c.a >= 0.9);
+        const bc = parse(cs.backgroundColor);
+        const grounds = stops.length ? stops : bc && bc.a >= 0.9 ? [bc] : [];
+        if (!ink || !grounds.length) return null;
+        return grounds.reduce((m, g) => Math.min(m, ratio(ink, g)), Infinity);
+      };
+      return {
+        a11yFab: worstOf(document.querySelector('[aria-label="פתח תפריט נגישות"]')),
+        navFab: worstOf(document.querySelector('[aria-label="פעולות מהירות"]')),
+      };
+    });
+    check(
+      `chrome @${width}: accessibility FAB icon clears 3:1`,
+      chrome.a11yFab !== null && chrome.a11yFab >= 3,
+      `${chrome.a11yFab}:1`
+    );
+    check(
+      `chrome @${width}: bottom-bar FAB glyph clears 3:1 (large text)`,
+      chrome.navFab !== null && chrome.navFab >= 3,
+      `${chrome.navFab}:1`
+    );
+
+    const targets = await page.evaluate(() =>
+      [...document.querySelectorAll(".dzhome a[href]")].map((el, i) => {
+        el.setAttribute("data-qa-idx", String(i));
+        return { idx: i, href: el.getAttribute("href"), label: (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 28) };
+      })
+    );
+    check(`click @${width}: Home renders interactive targets`, targets.length > 0, `${targets.length}`);
+
+    for (const t of targets) {
+      const sel = `.dzhome a[data-qa-idx="${t.idx}"]`;
+      await page.evaluate((s) => {
+        document.querySelector(s)?.scrollIntoView({ block: "center" });
+      }, sel);
+      await page.waitForTimeout(60);
+
+      // Is this control actually the thing under the finger?
+      const hit = await page.evaluate((s) => {
+        const el = document.querySelector(s);
+        if (!el) return { ok: false, why: "missing" };
+        const r = el.getBoundingClientRect();
+        if (r.width < 1 || r.height < 1) return { ok: false, why: "zero-size" };
+        const cx = r.x + r.width / 2;
+        const cy = r.y + r.height / 2;
+        const top = document.elementFromPoint(cx, cy);
+        if (!top) return { ok: false, why: "nothing-at-point" };
+        const ours = el.contains(top) || top.contains(el);
+        return {
+          ok: ours,
+          why: ours ? "" : `covered by ${top.tagName}.${String(top.className).slice(0, 40)}`,
+        };
+      }, sel);
+      check(`hit-test @${width}: ${t.label} (${t.href})`, hit.ok, hit.why);
+      if (!hit.ok) continue;
+
+      await page.click(sel);
+      await page.waitForTimeout(600);
+      const got = new URL(page.url());
+      const landed = got.pathname + got.search + got.hash;
+      check(
+        `click @${width}: ${t.label} lands on ${t.href}`,
+        landed === t.href,
+        `landed on ${landed}`
+      );
+
+      // An anchor href is only kept if the click also ARRIVES at the group.
+      // Direct-load scroll was already proven; this is the path from Home.
+      if (got.hash) {
+        const anchor = await page.evaluate((id) => {
+          const el = document.getElementById(id);
+          if (!el) return null;
+          const de = document.documentElement;
+          const maxScroll = Math.max(0, de.scrollHeight - de.clientHeight);
+          const margin = parseFloat(getComputedStyle(el).scrollMarginTop || "0") || 0;
+          const docTop = el.getBoundingClientRect().top + window.scrollY;
+          return {
+            scrollY: Math.round(window.scrollY),
+            expected: Math.round(Math.min(Math.max(0, docTop - margin), maxScroll)),
+          };
+        }, got.hash.slice(1));
+        check(
+          `click @${width}: ${t.label} arrives at ${got.hash}`,
+          anchor !== null && Math.abs(anchor.scrollY - anchor.expected) <= 4,
+          anchor ? `scrollY=${anchor.scrollY} expected=${anchor.expected}` : "anchor missing"
+        );
+      }
+
+      await page.goto(`${BASE}/app`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".dzhome .seccard", { state: "visible", timeout: 30000 });
+      await page.waitForTimeout(500);
+      await page.evaluate(() => {
+        [...document.querySelectorAll(".dzhome a[href]")].forEach((el, i) =>
+          el.setAttribute("data-qa-idx", String(i))
+        );
+      });
+    }
+    await ctx.close();
+  }
+
   // Every href the two screens actually rendered must resolve on the server.
   const page = await (await browser.newContext()).newPage();
   for (const href of [...collectedHrefs].sort()) {
