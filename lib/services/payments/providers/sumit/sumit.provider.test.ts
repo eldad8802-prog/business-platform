@@ -28,6 +28,7 @@ import {
   createSumitProvider,
   extractSumitCallbackFields,
   interpretClearingMatches,
+  interpretFolderMatches,
   interpretSumitPayment,
   refundSumitPayment,
   sumitDescriptor,
@@ -71,6 +72,87 @@ function recorder(...responses: unknown[]): {
     i++;
     return { ok: true, status: 200, json: async () => body };
   };
+  return { calls, fetchImpl };
+}
+
+/** The clearings folder as this company actually publishes it. */
+const CLEARINGS_FOLDER = { ID: 2345705517, Name: "סליקות אשראי" };
+
+/**
+ * A double that ENFORCES SUMIT's contract instead of accepting anything.
+ *
+ * The previous double replied to calls in order and never looked at what was
+ * sent, so an adapter that put the folder's NAME on the wire passed every
+ * assertion and failed on the first live call. This one answers by endpoint and
+ * refuses the same requests the live API refuses, with the same messages.
+ */
+function sumitDouble(options: {
+  folders?: unknown[];
+  foldersStatus?: number;
+  entities?: unknown[];
+  payment?: unknown;
+} = {}): { calls: Call[]; fetchImpl: SumitHttpClient } {
+  const calls: Call[] = [];
+  const folders = options.folders ?? [CLEARINGS_FOLDER];
+  const knownFolderIds = new Set(
+    folders
+      .map((f) => String((f as Record<string, unknown>).ID ?? ""))
+      .filter(Boolean)
+  );
+
+  const fetchImpl: SumitHttpClient = async (url, init) => {
+    calls.push({ url, headers: init.headers, body: init.body });
+    const body = JSON.parse(init.body) as Record<string, unknown>;
+    const reply = (payload: unknown) => ({
+      ok: true,
+      status: 200,
+      json: async () => payload,
+    });
+
+    if (url.endsWith("/crm/schema/listfolders/")) {
+      if (options.foldersStatus && options.foldersStatus !== 0) {
+        return reply({
+          Status: options.foldersStatus,
+          UserErrorMessage: "listfolders refused",
+        });
+      }
+      return reply({ Status: 0, Data: { Folders: folders } });
+    }
+
+    if (url.endsWith("/crm/data/listentities/")) {
+      const folder = String(body.Folder ?? "");
+      // THE REFUSAL THAT MATTERS. The live API rejects a display name here,
+      // and rejected it for every payment until the adapter stopped sending one.
+      if (!/^\d+$/.test(folder)) {
+        return reply({
+          Status: 1,
+          UserErrorMessage: `שגיאה בשדה "Schema": Invalid schema: ${folder}`,
+        });
+      }
+      if (!knownFolderIds.has(folder)) {
+        return reply({
+          Status: 1,
+          UserErrorMessage: `שגיאה בשדה "Schema": Invalid schema: ${folder}`,
+        });
+      }
+      const filters = (body.Filters ?? []) as Record<string, unknown>[];
+      // And the opposite rule on the filter: the property goes by NAME.
+      if (filters[0]?.Property !== "מזהה חיצוני") {
+        return reply({
+          Status: 1,
+          UserErrorMessage: `Filter property not found: ${String(filters[0]?.Property)}`,
+        });
+      }
+      return reply({ Status: 0, Data: { Entities: options.entities ?? [] } });
+    }
+
+    if (url.endsWith("/billing/payments/get/")) {
+      return reply(options.payment ?? { Status: 0, Data: {} });
+    }
+
+    return reply({ Status: 0, Data: {} });
+  };
+
   return { calls, fetchImpl };
 }
 
@@ -294,8 +376,15 @@ async function main() {
   }
 
   // ── AUTHORITATIVE RECONCILIATION ────────────────────────────────────────
+  //
+  // Three calls, not two, and the first one is the whole point. The folder is
+  // resolved by name to a numeric id before anything is queried, because the
+  // id is per-company and the name is refused on the wire.
   {
-    const { calls, fetchImpl } = recorder(ONE_CLEARING, PAID_PAYMENT);
+    const { calls, fetchImpl } = sumitDouble({
+      entities: [{ ID: 2363103378 }],
+      payment: PAID_PAYMENT,
+    });
     const status = await makeProvider(fetchImpl).getPaymentStatus!({
       providerRequestId: null,
       merchantId: COMPANY,
@@ -303,14 +392,26 @@ async function main() {
       correlationValue: "4242",
     });
 
-    ok("two calls: find the clearing, then read the payment", calls.length === 2);
+    ok("three calls: resolve the folder, find the clearing, read the payment", calls.length === 3);
     ok(
-      "the first call queries the clearings folder",
-      calls[0]!.url === `${BASE}/crm/data/listentities/`
+      "the first call asks which folders this company has",
+      calls[0]!.url === `${BASE}/crm/schema/listfolders/`
+    );
+    ok(
+      "the second queries the clearings folder",
+      calls[1]!.url === `${BASE}/crm/data/listentities/`
     );
 
-    const query = JSON.parse(calls[0]!.body) as Record<string, unknown>;
-    ok("it names the credit-card clearings folder", query.Folder === "סליקות אשראי");
+    const query = JSON.parse(calls[1]!.body) as Record<string, unknown>;
+    ok(
+      "it sends the folder as its NUMERIC ID, resolved at runtime",
+      String(query.Folder) === String(CLEARINGS_FOLDER.ID),
+      String(query.Folder)
+    );
+    ok(
+      "and never the display name, which the live API refuses",
+      String(query.Folder) !== "סליקות אשראי"
+    );
     const filters = query.Filters as Array<Record<string, unknown>>;
     ok(
       "it filters by the property NAME, which is the only form the live API accepts",
@@ -321,18 +422,38 @@ async function main() {
       filters[0]!.Value === "dubiz-4242"
     );
 
-    const lookup = JSON.parse(calls[1]!.body) as Record<string, unknown>;
+    const lookup = JSON.parse(calls[2]!.body) as Record<string, unknown>;
     ok(
-      "the second call reads the payment by the id the query produced",
-      calls[1]!.url === `${BASE}/billing/payments/get/` && lookup.PaymentID === 2363103378
+      "the third call reads the payment by the id the query produced",
+      calls[2]!.url === `${BASE}/billing/payments/get/` && lookup.PaymentID === 2363103378
     );
 
     ok("the outcome is PAID", status.outcome === "PAID");
     ok("and carries the provider payment id", status.providerTransactionId === "2363103378");
   }
   {
+    // THE REGRESSION THIS CLOSES, stated as a test. A double that accepts any
+    // folder value is how the display name reached production: it passed here
+    // and failed on the first live call. Sending the name must now be refused.
+    const { fetchImpl } = sumitDouble({ entities: [{ ID: 1 }] });
+    const refusal = await fetchImpl(`${BASE}/crm/data/listentities/`, {
+      method: "POST",
+      headers: {},
+      body: JSON.stringify({
+        Folder: "סליקות אשראי",
+        Filters: [{ Property: "מזהה חיצוני", Value: "dubiz-1" }],
+      }),
+    });
+    const payload = (await refusal.json()) as Record<string, unknown>;
+    ok("the double refuses a folder NAME exactly as SUMIT does", payload.Status === 1);
+    ok(
+      "with the live API's own message",
+      String(payload.UserErrorMessage).includes("Invalid schema")
+    );
+  }
+  {
     // Zero rows: created but not paid. Not a failure.
-    const { calls, fetchImpl } = recorder(NO_CLEARING);
+    const { calls, fetchImpl } = sumitDouble({ entities: [] });
     const status = await makeProvider(fetchImpl).getPaymentStatus!({
       providerRequestId: null,
       merchantId: COMPANY,
@@ -340,11 +461,11 @@ async function main() {
       correlationValue: "4242",
     });
     ok("no clearing yet yields UNKNOWN, never FAILED", status.outcome === "UNKNOWN");
-    ok("and the payment lookup is not attempted", calls.length === 1);
+    ok("and the payment lookup is not attempted", calls.length === 2);
   }
   {
     // More than one row: ambiguous. Choosing one could settle the wrong request.
-    const { calls, fetchImpl } = recorder(TWO_CLEARINGS);
+    const { calls, fetchImpl } = sumitDouble({ entities: [{ ID: 1 }, { ID: 2 }] });
     await assert.rejects(
       () =>
         makeProvider(fetchImpl).getPaymentStatus!({
@@ -355,10 +476,98 @@ async function main() {
         }),
       /refusing to choose/
     );
-    ok("two clearings for one correlation fail closed", calls.length === 1);
+    ok("two clearings for one correlation fail closed", calls.length === 2);
+  }
+
+  // ── FOLDER RESOLUTION FAILS CLOSED ──────────────────────────────────────
+  //
+  // None of these has a safe fallback. The one thing that must never happen is
+  // quietly sending the name instead, which is what left every payment
+  // unverified before.
+  {
+    const { calls, fetchImpl } = sumitDouble({ folders: [] });
+    await assert.rejects(
+      () =>
+        makeProvider(fetchImpl).getPaymentStatus!({
+          providerRequestId: null,
+          merchantId: COMPANY,
+          credential: CREDENTIAL,
+          correlationValue: "4242",
+        }),
+      /no CRM folder named/
+    );
+    ok("a company with no clearings folder fails closed", calls.length === 1);
   }
   {
-    const { fetchImpl } = recorder(ONE_CLEARING, PAID_PAYMENT);
+    const { fetchImpl } = sumitDouble({
+      folders: [CLEARINGS_FOLDER, { ID: 999, Name: "סליקות אשראי" }],
+    });
+    await assert.rejects(
+      () =>
+        makeProvider(fetchImpl).getPaymentStatus!({
+          providerRequestId: null,
+          merchantId: COMPANY,
+          credential: CREDENTIAL,
+          correlationValue: "4242",
+        }),
+      /refusing to choose/
+    );
+    ok("two folders sharing the name fail closed", true);
+  }
+  {
+    const { fetchImpl } = sumitDouble({
+      folders: [{ ID: "not-a-number", Name: "סליקות אשראי" }],
+    });
+    await assert.rejects(
+      () =>
+        makeProvider(fetchImpl).getPaymentStatus!({
+          providerRequestId: null,
+          merchantId: COMPANY,
+          credential: CREDENTIAL,
+          correlationValue: "4242",
+        }),
+      /no usable numeric id/
+    );
+    ok("a folder whose id is not numeric fails closed", true);
+  }
+  {
+    const { calls, fetchImpl } = sumitDouble({ foldersStatus: 1 });
+    await assert.rejects(
+      () =>
+        makeProvider(fetchImpl).getPaymentStatus!({
+          providerRequestId: null,
+          merchantId: COMPANY,
+          credential: CREDENTIAL,
+          correlationValue: "4242",
+        }),
+      /SUMIT refused the request/
+    );
+    ok("a listfolders refusal fails closed before anything is queried", calls.length === 1);
+  }
+  {
+    // A near-miss name is not a match. This company has four folders whose
+    // names contain "אשראי", and one of them has no external-identifier
+    // property at all — resolving to it would look like "no payment found".
+    const { fetchImpl } = sumitDouble({
+      folders: [
+        { ID: 2345702630, Name: "הפקדות אשראי" },
+        { ID: 2345702619, Name: "סליקות אשראי (חיצוניות)" },
+      ],
+    });
+    await assert.rejects(
+      () =>
+        makeProvider(fetchImpl).getPaymentStatus!({
+          providerRequestId: null,
+          merchantId: COMPANY,
+          credential: CREDENTIAL,
+          correlationValue: "4242",
+        }),
+      /no CRM folder named/
+    );
+    ok("a similarly-named folder is not accepted as the clearings folder", true);
+  }
+  {
+    const { fetchImpl } = sumitDouble({ entities: [{ ID: 1 }], payment: PAID_PAYMENT });
     await assert.rejects(
       () =>
         makeProvider(fetchImpl).getPaymentStatus!({
@@ -372,6 +581,31 @@ async function main() {
     ok("without a correlation value the query refuses rather than guessing", true);
   }
 
+  // ── FOLDER INTERPRETATION ───────────────────────────────────────────────
+  {
+    const one = interpretFolderMatches({ Data: { Folders: [CLEARINGS_FOLDER] } });
+    ok("an exact name match resolves to its id", one.outcome === "ONE" && one.folderId === "2345705517");
+    ok(
+      "no match resolves to NONE",
+      interpretFolderMatches({ Data: { Folders: [{ ID: 1, Name: "אחר" }] } }).outcome === "NONE"
+    );
+    ok(
+      "two matches resolve to AMBIGUOUS",
+      interpretFolderMatches({
+        Data: { Folders: [CLEARINGS_FOLDER, { ID: 2, Name: "סליקות אשראי" }] },
+      }).outcome === "AMBIGUOUS"
+    );
+    ok(
+      "a non-numeric id resolves to MALFORMED",
+      interpretFolderMatches({
+        Data: { Folders: [{ ID: "abc", Name: "סליקות אשראי" }] },
+      }).outcome === "MALFORMED"
+    );
+    ok(
+      "a malformed result is NONE rather than a crash",
+      interpretFolderMatches("nope").outcome === "NONE"
+    );
+  }
   // ── PAYMENT INTERPRETATION ──────────────────────────────────────────────
   {
     ok(

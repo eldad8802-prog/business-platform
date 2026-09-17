@@ -1591,6 +1591,37 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
 
+      - name: SUMIT negative proof (the clearings folder must go by id, not name)
+        run: |
+          F="lib/services/payments/providers/sumit/sumit.provider.ts"
+          cp "$F" "$F.bak"
+          # The defect this closed. SUMIT's listentities takes the folder's
+          # numeric id and refuses its display name outright, so sending the
+          # name left every payment unverified while the suite stayed green —
+          # the old double accepted any folder value.
+          perl -0pi -e 's/      Folder: folderId,/      Folder: CLEARINGS_FOLDER_NAME,/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/providers/sumit/sumit.provider.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a folder name on the wire was accepted"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: SUMIT negative proof (folder resolution must fail closed)
+        run: |
+          F="lib/services/payments/providers/sumit/sumit.provider.ts"
+          cp "$F" "$F.bak"
+          # Fall back to the name when the folder cannot be resolved. That is the
+          # single most tempting wrong answer here, and it reproduces the defect
+          # exactly for any company whose folder lookup is unusual.
+          perl -0pi -e 's/    if \(found\.outcome === "ONE"\) return found\.folderId!;/    return found.folderId ?? CLEARINGS_FOLDER_NAME;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/payments/providers/sumit/sumit.provider.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unresolved folder fell back to the name"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
       - name: SUMIT negative proof (silently enabling it must be caught)
         run: |
           F="lib/services/payments/providers/provider-availability.ts"
