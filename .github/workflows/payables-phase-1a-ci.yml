@@ -114,6 +114,12 @@ jobs:
       # BusinessProfile table is created by no migration. So the comparison is
       # built the way production actually gets there — the base branch's
       # datamodel (production's shape today), plus the three new migrations.
+      #
+      # REPRODUCTION COMMIT — this comment is the whole change. It exists to run
+      # the job below, unmodified, against a main that already contains payables,
+      # on a branch that has nothing to do with #457. If the next run is red on
+      # `type "PayeeKind" already exists`, the defect is this workflow's baseline
+      # assumption and nothing else. The following commit repairs it.
       - name: Build a second database the way production will get there
         run: |
           # The baseline is main's datamodel, NOT the PR base's. Both triggers
