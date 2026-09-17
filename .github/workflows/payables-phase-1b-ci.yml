@@ -1,0 +1,90 @@
+name: payables phase 1b
+
+# Accounts Payable Phase 1b — the owner-facing product over the 1a ledger.
+#
+# NO schema change and NO migration: this phase adds screens, routes and a read
+# module over tables that are already in Production. The migration-first guard
+# therefore has nothing to say about it, and there is no drift check to run.
+#
+# The suite here proves the property that a UI phase can actually break: that
+# the SCREEN cannot disagree with the ledger. A list and a detail must derive
+# the same balances from the same rows, one payment spread over four
+# instalments must present as one economic event, a legacy assertion must never
+# be counted as paid, and editing a commitment must not move money.
+
+on:
+  push:
+    branches: [feat/payables-phase-1b]
+  pull_request:
+    paths:
+      - "lib/services/payables/**"
+      - "lib/payables/**"
+      - "app/api/payables/**"
+      - "app/(shell)/payables/**"
+      - ".github/workflows/payables-phase-1b-ci.yml"
+
+jobs:
+  core:
+    name: payables core (no database)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Accounting invariants (1a, still true)
+        run: npx tsx lib/services/payables/payables-core.test.ts
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Lint the payables scope
+        run: npx eslint lib/services/payables lib/payables app/api/payables "app/(shell)/payables"
+
+  db:
+    name: payables product (PG17)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: payables_owner
+          POSTGRES_PASSWORD: payables_ci_synthetic_pw
+          POSTGRES_DB: dubiz_payables
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U payables_owner -d dubiz_payables"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
+      DIRECT_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
+      TEST_DATABASE_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Build the schema
+        run: npx prisma db push --skip-generate
+
+      - name: Generate the client
+        run: npx prisma generate
+
+      - name: Apply the partial index the datamodel cannot express
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c '
+            CREATE UNIQUE INDEX IF NOT EXISTS "PaymentAllocation_active_payment_installment_key"
+              ON "PaymentAllocation"("paymentId", "installmentId")
+              WHERE "reversedAt" IS NULL;'
+
+      - name: 1a ledger suite (regression — the foundation still holds)
+        run: npx tsx lib/services/payables/payables.db.test.ts
+
+      - name: 1b product suite (the screen cannot disagree with the ledger)
+        run: npx tsx lib/services/payables/payables-1b.db.test.ts

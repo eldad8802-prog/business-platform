@@ -42,6 +42,10 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   { key: "payments", label: "גבייה", href: "/payments", icon: IconPayments },
   { key: "billing", label: "חשבוניות", href: "/billing", icon: IconInvoice },
   { key: "secretary", label: "מזכירה", href: "/secretary", icon: IconSecretary },
+  // Beside the Secretary on purpose: the Secretary REMINDS about what is owed,
+  // this is where the money against it is tracked. Deliberately not primary —
+  // the mobile bottom bar stays at four tabs.
+  { key: "payables", label: "התחייבויות", href: "/payables", icon: IconPayables },
   { key: "settings", label: "הגדרות", href: "/settings", icon: IconSettings },
 ];
 
@@ -146,6 +150,17 @@ function IconSettings({ active }: { active: boolean }) {
     <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
       <circle cx="12" cy="12" r="3.2" stroke="currentColor" strokeWidth={w} />
       <path d="M12 2.5v2.2M12 19.3v2.2M21.5 12h-2.2M4.7 12H2.5M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6M18.7 18.7l-1.6-1.6M6.9 6.9 5.3 5.3" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconPayables({ active }: { active: boolean }) {
+  const w = active ? 2.05 : 1.8;
+  return (
+    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5v-11z" stroke="currentColor" strokeWidth={w} strokeLinejoin="round" />
+      <path d="M8 9h8M8 12.5h5" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
+      <path d="M13.5 16.5l1.6 1.6 3-3.2" stroke="currentColor" strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

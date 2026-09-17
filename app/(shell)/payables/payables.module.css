@@ -1,0 +1,512 @@
+/*
+ * Payables — commitments and their installments.
+ *
+ * RTL-first and mobile-first. Everything below reads `--pay-*` custom
+ * properties injected once by the page from `lib/design/tokens`, which is the
+ * house var-driven theming rule: no hand-authored colour lives in this file.
+ *
+ * The overflow discipline here is deliberate and hard-won. Payee names, notes
+ * and references are arbitrary user text, frequently Hebrew mixed with Latin
+ * account numbers, and the CRM list already shipped a bug where exactly that
+ * escaped its card. So: every dynamic value sits in a BLOCK box (overflow and
+ * text-overflow do nothing on an inline box), wraps with `overflow-wrap:
+ * anywhere` (which lowers min-content width, unlike `break-word`), and every
+ * bidi-mixed value is isolated so a Latin reference cannot reorder the Hebrew
+ * around it.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  max-width: 880px;
+  margin-inline: auto;
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--pay-ink);
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--pay-muted);
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.card {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  text-align: start;
+  background: var(--pay-card);
+  border: 1px solid var(--pay-line);
+  border-radius: 14px;
+  padding: 14px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  box-shadow: var(--pay-shadow);
+}
+
+.card:hover {
+  border-color: var(--pay-accent-border);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--pay-accent);
+  outline-offset: 2px;
+}
+
+.cardTop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+/* Block, not inline — clamping an inline box does nothing at all. */
+.cardTitle {
+  display: block;
+  min-width: 0;
+  flex: 1 1 12ch;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--pay-ink);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.payee {
+  display: block;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--pay-muted);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+  unicode-bidi: isolate;
+}
+
+/* A sibling of the clamped title, never a child — a badge inside a clamped
+   box gets clipped away entirely, which is how it silently disappears. */
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.badgeOverdue {
+  background: var(--pay-error-bg);
+  color: var(--pay-error);
+  border-color: var(--pay-error-border);
+}
+.badgeDue {
+  background: var(--pay-warning-bg);
+  color: var(--pay-warning-ink);
+  border-color: var(--pay-warning-border);
+}
+.badgePartial {
+  background: var(--pay-info-bg);
+  color: var(--pay-info-ink);
+  border-color: var(--pay-info-border);
+}
+.badgePaid {
+  background: var(--pay-success-bg);
+  color: var(--pay-success);
+  border-color: var(--pay-success-border);
+}
+.badgeQuiet {
+  background: var(--pay-surface2);
+  color: var(--pay-muted);
+  border-color: var(--pay-line);
+}
+
+.figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 10px;
+  min-width: 0;
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.figureLabel {
+  font-size: 11px;
+  color: var(--pay-tertiary);
+}
+
+.figureValue {
+  display: block;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--pay-ink);
+  overflow-wrap: anywhere;
+  unicode-bidi: isolate;
+}
+
+.figureValueMuted {
+  composes: figureValue;
+  font-weight: 500;
+  color: var(--pay-muted);
+}
+
+.nextLine {
+  display: block;
+  min-width: 0;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--pay-muted);
+  overflow-wrap: anywhere;
+}
+
+/* ─────────────────────────────── controls ──────────────────────────────── */
+
+.button {
+  appearance: none;
+  border: 1px solid var(--pay-line);
+  background: var(--pay-surface2);
+  color: var(--pay-ink);
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--pay-accent);
+  outline-offset: 2px;
+}
+
+.buttonPrimary {
+  composes: button;
+  background: var(--pay-action);
+  color: var(--pay-on-action);
+  border-color: transparent;
+}
+
+.buttonPrimary:disabled,
+.button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.buttonQuiet {
+  composes: button;
+  background: transparent;
+  min-height: 44px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pay-muted);
+}
+
+.input,
+.select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 16px; /* iOS zooms a focused input below 16px */
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--pay-line);
+  background: var(--pay-surface2);
+  color: var(--pay-ink);
+  min-height: 44px;
+}
+
+.input:focus-visible,
+.select:focus-visible {
+  outline: 2px solid var(--pay-accent);
+  outline-offset: 1px;
+}
+
+.form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  background: var(--pay-card);
+  border: 1px solid var(--pay-line);
+  border-radius: 14px;
+  padding: 14px;
+  min-width: 0;
+}
+
+@media (min-width: 620px) {
+  .formRow2 {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+}
+
+.formActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.error {
+  background: var(--pay-error-bg);
+  color: var(--pay-error);
+  border: 1px solid var(--pay-error-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.notice {
+  background: var(--pay-info-bg);
+  color: var(--pay-info-ink);
+  border: 1px solid var(--pay-info-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.empty {
+  text-align: center;
+  color: var(--pay-muted);
+  padding: 32px 16px;
+  font-size: 14px;
+}
+
+/* ─────────────────────── schedule preview + timeline ───────────────────── */
+
+.preview {
+  border: 1px dashed var(--pay-line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--pay-surface2);
+  min-width: 0;
+}
+
+.previewHead {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pay-muted);
+  margin-bottom: 6px;
+}
+
+/* Wide content scrolls INSIDE its own box; the page body never scrolls
+   sideways, which in RTL would clip on the left and look like nothing. */
+.previewScroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.previewRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  padding: 3px 0;
+  color: var(--pay-ink);
+  min-width: 0;
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.installment {
+  border: 1px solid var(--pay-line);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--pay-card);
+  min-width: 0;
+}
+
+.installmentHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 10px;
+  min-width: 0;
+}
+
+.installmentSeq {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pay-ink);
+}
+
+.allocation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 10px;
+  border-top: 1px solid var(--pay-line-subtle);
+  margin-top: 8px;
+  padding-top: 8px;
+  font-size: 12px;
+  color: var(--pay-muted);
+  min-width: 0;
+}
+
+.allocationReversed {
+  composes: allocation;
+  text-decoration: line-through;
+  color: var(--pay-tertiary);
+}
+
+.legacyNote {
+  background: var(--pay-surface2);
+  border: 1px solid var(--pay-line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--pay-muted);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.auditList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--pay-muted);
+  min-width: 0;
+}
+
+.auditRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  justify-content: space-between;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sectionTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--pay-ink);
+  margin: 4px 0 0;
+}
+
+.backLink {
+  font-size: 13px;
+  color: var(--pay-accent);
+  background: none;
+  border: none;
+  padding: 6px 0;
+  cursor: pointer;
+  text-align: start;
+  min-height: 44px;
+}
+
+/* The tap target is the whole LABEL, not the 20px box. A checkbox drawn at 44px
+   looks wrong; a 20px hit area on a phone IS wrong. The label is clickable by
+   definition, so it carries the target and the box stays the size it should be. */
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--pay-ink);
+  min-width: 0;
+  padding: 4px 0;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.checkbox {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  accent-color: var(--pay-accent);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

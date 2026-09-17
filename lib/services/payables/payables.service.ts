@@ -24,6 +24,7 @@ import {
   fromMinorUnits,
   generateInstallmentPlan,
   nextOccurrence,
+  PayablesNotFoundError,
   PayablesValidationError,
   planAllocation,
   sumActiveAllocations,
@@ -36,12 +37,10 @@ import {
 
 type Tx = Prisma.TransactionClient;
 
-export class PayablesNotFoundError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PayablesNotFoundError";
-  }
-}
+// Re-exported, not redeclared. Two classes of the same name in two modules look
+// identical and silently fail `instanceof` against each other, so the read side
+// and the write side share the single definition in `payables-core`.
+export { PayablesNotFoundError } from "@/lib/services/payables/payables-core";
 
 /* ────────────────────────────────── audit ────────────────────────────────── */
 
@@ -61,6 +60,7 @@ function hashAuditEvent(input: Record<string, unknown>): string {
 
 export type PayablesAuditType =
   | "COMMITMENT_CREATED"
+  | "COMMITMENT_UPDATED"
   | "COMMITMENT_RELEASED"
   | "COMMITMENT_CLOSED"
   | "INSTALLMENT_CREATED"
@@ -398,6 +398,99 @@ export async function getCommitmentBalance(input: {
   });
 }
 
+/**
+ * Edit a commitment — its DESCRIPTION, never its money.
+ *
+ * Title, note, category and the payee it names can all change: they describe
+ * the commitment and correcting them corrects a mistake. The total, the
+ * schedule kind, the cadence and the installment amounts deliberately cannot.
+ * Installments already exist, payments may already be allocated against them,
+ * and every balance on screen is derived from those rows — so "just" editing a
+ * total would silently make a settled plan disagree with its own arithmetic.
+ * Changing what is owed is a new commitment, or a cancellation and a
+ * replacement, both of which stay visible in the ledger.
+ *
+ * Re-pointing the payee re-resolves the Tier-1 snapshot from the entity, and
+ * free text remains legal: a commitment may name a payee that is not an entity
+ * at all.
+ */
+export async function updateCommitment(input: {
+  businessId: number;
+  commitmentId: number;
+  actorUserId?: number | null;
+  title?: string;
+  note?: string | null;
+  category?: string | null;
+  payeeId?: number | null;
+  payeeNameSnapshot?: string | null;
+}) {
+  return withTenantTransaction(async (tx) => {
+    const existing = await tx.commitment.findFirst({
+      where: { id: input.commitmentId, businessId: input.businessId },
+      select: { id: true, title: true, payeeId: true, payeeNameSnapshot: true },
+    });
+    if (!existing) throw new PayablesNotFoundError("Commitment not found");
+
+    const data: Prisma.CommitmentUpdateInput = {};
+
+    if (input.title !== undefined) {
+      const title = input.title.trim();
+      if (!title) throw new PayablesValidationError("Commitment title is required");
+      data.title = title;
+    }
+    if (input.note !== undefined) data.note = input.note?.trim() || null;
+    if (input.category !== undefined) data.category = input.category?.trim() || null;
+
+    if (input.payeeId !== undefined) {
+      if (input.payeeId === null) {
+        // Detaching keeps the NAME. A commitment must never become anonymous,
+        // so an explicit free-text name is required to replace the entity's.
+        const snapshot = input.payeeNameSnapshot?.trim();
+        if (!snapshot) {
+          throw new PayablesValidationError(
+            "A payee name is required when no payee entity is linked",
+          );
+        }
+        data.payee = { disconnect: true };
+        data.payeeNameSnapshot = snapshot;
+      } else {
+        const payee = await tx.payee.findFirst({
+          where: { id: input.payeeId, businessId: input.businessId },
+          select: { id: true, displayName: true },
+        });
+        // Cross-tenant guard: another business's payee is simply not found.
+        if (!payee) throw new PayablesNotFoundError("Payee not found");
+        data.payee = { connect: { id: payee.id } };
+        data.payeeNameSnapshot = payee.displayName;
+      }
+    } else if (input.payeeNameSnapshot !== undefined && existing.payeeId === null) {
+      const snapshot = input.payeeNameSnapshot?.trim();
+      if (!snapshot) throw new PayablesValidationError("A payee name is required");
+      data.payeeNameSnapshot = snapshot;
+    }
+
+    const updated = await tx.commitment.update({
+      where: { id: existing.id },
+      data,
+    });
+
+    await writeAudit(tx, {
+      businessId: input.businessId,
+      actorUserId: input.actorUserId,
+      commitmentId: existing.id,
+      eventType: "COMMITMENT_UPDATED",
+      summary: `Commitment "${updated.title}" updated`,
+      metadata: {
+        changed: Object.keys(data),
+        titleBefore: existing.title,
+        payeeIdBefore: existing.payeeId,
+      },
+    });
+
+    return updated;
+  });
+}
+
 /* ─────────────────────────────── manual payment ──────────────────────────── */
 
 export type RecordManualPaymentInput = {
@@ -679,6 +772,12 @@ export async function cancelInstallment(input: {
   businessId: number;
   installmentId: number;
   actorUserId?: number | null;
+  /**
+   * Why the owner cancelled it. Optional, and deliberately audited rather than
+   * stored on the installment: the row records WHAT it is now, the audit trail
+   * records who decided that and why.
+   */
+  reason?: string | null;
 }) {
   return withTenantTransaction(async (tx) => {
     const installment = await tx.installment.findFirst({
@@ -708,6 +807,7 @@ export async function cancelInstallment(input: {
       installmentId: installment.id,
       eventType: "INSTALLMENT_CANCELLED",
       summary: `Installment #${installment.sequence} cancelled`,
+      metadata: input.reason?.trim() ? { reason: input.reason.trim() } : null,
     });
 
     return cancelled;
