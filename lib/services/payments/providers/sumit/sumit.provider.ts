@@ -71,26 +71,68 @@ const BEGIN_REDIRECT_PATH = "/billing/payments/beginredirect/";
 const PAYMENTS_GET_PATH = "/billing/payments/get/";
 const PAYMENTS_CHARGE_PATH = "/billing/payments/charge/";
 const LIST_ENTITIES_PATH = "/crm/data/listentities/";
+const LIST_FOLDERS_PATH = "/crm/schema/listfolders/";
 
 /**
  * The CRM folder that holds completed credit-card clearings, and the property on
  * it that carries the external identifier we set at checkout.
  *
- * ⚠️ BOTH ARE PER-COMPANY VALUES, discovered by calling `/crm/schema/listfolders/`
- * and `/crm/schema/getfolder/`. The ids below are from the Dubiz test company and
- * are NOT portable. The folder is resolved by NAME at runtime for that reason;
- * the id is kept only to document what was observed.
+ * TWO FIELDS, TWO OPPOSITE RULES, AND THAT IS THE WHOLE TRAP.
  *
- * ⚠️ AND THE FILTER TAKES THE PROPERTY NAME, NOT ITS ID. The spec says the filter
+ * ⚠️ THE FOLDER TAKES ITS NUMERIC ID, NEVER ITS NAME. Sending the name is
+ * refused outright with `שגיאה בשדה "Schema": Invalid schema: <name>`. The id is
+ * a PER-COMPANY value, so it cannot be a constant either — it is resolved at
+ * runtime from `/crm/schema/listfolders/` by matching this name exactly.
+ *
+ * ⚠️ THE FILTER TAKES THE PROPERTY NAME, NOT ITS ID. The spec says the filter
  * accepts "either property identifier (numeric) or property name". Filtering by
- * the numeric id returned by `getfolder` fails in the live API with
- * `Filter property not found`. Only the name works. This cost a round trip to
- * discover and is the single most surprising thing in the integration.
+ * the numeric id returned by `getfolder` fails with `Filter property not found`.
+ * Only the name works.
+ *
+ * An earlier version of this adapter sent the name for BOTH, which the live API
+ * rejects on the first call — so every SUMIT payment stayed unverified. The
+ * unit tests passed because the double accepted any folder value; the double
+ * now models the refusal, which is what makes that mistake impossible to repeat.
  */
 const CLEARINGS_FOLDER_NAME = "סליקות אשראי";
 const EXTERNAL_IDENTIFIER_PROPERTY = "מזהה חיצוני";
 /** Observed on the Dubiz test company. Documentation only; never sent. */
 export const OBSERVED_TEST_CLEARINGS_FOLDER_ID = "2345705517";
+
+/**
+ * Pick the clearings folder out of a `listfolders` result.
+ *
+ * Exact name equality, deliberately: this company has four folders whose names
+ * contain "אשראי", and a looser match resolved to the wrong one — a deposits
+ * folder that has no external-identifier property at all. Near enough is not
+ * good enough when the answer decides which record a payment settles against.
+ */
+export function interpretFolderMatches(result: unknown): {
+  outcome: "ONE" | "NONE" | "AMBIGUOUS" | "MALFORMED";
+  folderId: string | null;
+  count: number;
+} {
+  const data = get(result, "Data");
+  const raw = get(data, "Folders") ?? get(data, "Entities");
+  const list = Array.isArray(raw) ? raw : [];
+
+  const matches = list.filter(
+    (folder) => asString(get(folder, "Name")) === CLEARINGS_FOLDER_NAME
+  );
+  if (matches.length === 0) {
+    return { outcome: "NONE", folderId: null, count: 0 };
+  }
+  if (matches.length > 1) {
+    return { outcome: "AMBIGUOUS", folderId: null, count: matches.length };
+  }
+
+  const id = asString(get(matches[0], "ID"));
+  // A folder id that is not a plain number is not something to send anywhere.
+  if (!id || !/^\d{1,20}$/.test(id)) {
+    return { outcome: "MALFORMED", folderId: null, count: 1 };
+  }
+  return { outcome: "ONE", folderId: id, count: 1 };
+}
 
 /** Shva success code, as returned in `Payment.Status`. */
 const SUCCESS_STATUS_CODE = "000";
@@ -471,12 +513,49 @@ export function createSumitProvider(
    * The authoritative chain, in full. Both steps are server-to-server and
    * neither reads anything a browser touched.
    */
+  /**
+   * Find this company's clearings folder id.
+   *
+   * A round trip per verification, and worth it. The id is per-company, so a
+   * cached or configured one would be a value that is right for whoever set it
+   * and silently wrong for the next merchant — the failure mode being a payment
+   * settled against another company's record, which is the worst outcome this
+   * adapter can produce. Asking every time costs one call and cannot be stale.
+   */
+  async function resolveClearingsFolderId(auth: {
+    companyId: number;
+    apiKey: string;
+  }): Promise<string> {
+    const folders = await post(LIST_FOLDERS_PATH, auth, {});
+    const found = interpretFolderMatches(folders);
+
+    if (found.outcome === "ONE") return found.folderId!;
+
+    // Every other answer fails closed. None of them has a safe fallback: the
+    // one thing that must never happen is sending the NAME instead, which is
+    // what the live API refuses and what left every payment unverified before.
+    const reason =
+      found.outcome === "NONE"
+        ? `no CRM folder named ${CLEARINGS_FOLDER_NAME} exists on this SUMIT company`
+        : found.outcome === "AMBIGUOUS"
+          ? `${found.count} CRM folders share the name ${CLEARINGS_FOLDER_NAME}; refusing to choose`
+          : `the CRM folder named ${CLEARINGS_FOLDER_NAME} has no usable numeric id`;
+    throw new PaymentProviderError(
+      SUMIT_PROVIDER,
+      "CLEARINGS_FOLDER_UNRESOLVED",
+      `SUMIT clearing lookup cannot proceed: ${reason}.`
+    );
+  }
+
   async function resolveAuthoritativePayment(
     auth: { companyId: number; apiKey: string },
     correlation: string
   ): Promise<ProviderPaymentStatus> {
+    const folderId = await resolveClearingsFolderId(auth);
+
     const matches = await post(LIST_ENTITIES_PATH, auth, {
-      Folder: CLEARINGS_FOLDER_NAME,
+      // Folder ID, not its name. The name is refused as an invalid schema.
+      Folder: folderId,
       // Property NAME, not id. The numeric id is rejected by the live API.
       Filters: [
         { Property: EXTERNAL_IDENTIFIER_PROPERTY, Value: correlation },
