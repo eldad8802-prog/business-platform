@@ -19,7 +19,7 @@ import path from "node:path";
 
 const ROOT = path.resolve(__dirname, "../..");
 const MIGRATION_DIR =
-  "prisma/migrations/20260917090000_inbound_address_retirement_and_sender_reregistration";
+  "prisma/migrations/20260917100000_inbound_address_retirement_and_sender_reregistration";
 
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 const schema = read("prisma/schema.prisma");
