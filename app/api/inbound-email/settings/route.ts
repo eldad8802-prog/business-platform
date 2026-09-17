@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { handleError } from "@/lib/handle-error";
-import { guardInboundManagement } from "@/lib/services/inbound-email/inbound-email-management-guard";
+import {
+  guardInboundManagement,
+  inboundManagementDisabled,
+} from "@/lib/services/inbound-email/inbound-email-management-guard";
 import { getInboundEmailSettings } from "@/lib/services/inbound-email/inbound-email-management.service";
 
 /**
@@ -14,6 +17,11 @@ import { getInboundEmailSettings } from "@/lib/services/inbound-email/inbound-em
  * an address" mean somebody decided to have one.
  */
 export async function GET(req: Request) {
+  // Before the body is read, before the session, before the limiter: while the
+  // feature is off every shape of request gets the same answer.
+  const off = inboundManagementDisabled();
+  if (off) return off;
+
   try {
     const guard = await guardInboundManagement(req);
     if (!guard.ok) return guard.response;

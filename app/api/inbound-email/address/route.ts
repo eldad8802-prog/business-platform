@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 
 import { handleError } from "@/lib/handle-error";
 import {
-  guardInboundManagement,
   INBOUND_MANAGEMENT_LIMITS,
+  guardInboundManagement,
+  inboundManagementDisabled,
 } from "@/lib/services/inbound-email/inbound-email-management-guard";
 import {
   initializeInboundAddress,
@@ -21,6 +22,11 @@ import {
  * id belonging to another business matches no row rather than somebody else's.
  */
 export async function POST(req: Request) {
+  // Before the body is read, before the session, before the limiter: while the
+  // feature is off every shape of request gets the same answer.
+  const off = inboundManagementDisabled();
+  if (off) return off;
+
   try {
     const body = (await req.json().catch(() => ({}))) as {
       action?: unknown;

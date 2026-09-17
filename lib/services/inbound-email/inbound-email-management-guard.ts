@@ -16,6 +16,15 @@ import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
  * authentication, before rate limiting, before any read: while it is off these
  * routes do not exist as far as a caller can tell.
  *
+ * That claim was true of ACCESS but false of EXISTENCE, and the difference is
+ * the reason `inboundManagementDisabled` exists. The POST routes have to read
+ * the body to learn which action is being asked for, and they were reaching the
+ * flag only inside each action branch — so a request naming no known action
+ * fell through to a 400 while the feature was off. Nothing was reachable, but
+ * 400-versus-404 is still an answer, and it distinguishes a deployed-and-
+ * disabled surface from one that was never shipped. The gate below runs before
+ * the body is read at all, so every shape of request gets the same 404.
+ *
  * # Order, and why it is this order
  *
  * Flag, then authentication, then rate limit. Checking the flag first means a
@@ -33,6 +42,19 @@ export type GuardResult =
 /** Indistinguishable from a route that was never deployed. */
 function notFound(): NextResponse {
   return NextResponse.json({ error: "Not found" }, { status: 404 });
+}
+
+/**
+ * The first line of every inbound-email management handler.
+ *
+ * Returns a 404 while the feature is off and `null` when it is on, so a route
+ * reads as: stop here, or carry on. It deliberately takes no request and does
+ * no I/O — it must be callable before the body is parsed, which is the whole
+ * point, and anything it touched would be something an anonymous caller could
+ * make the server do while the feature is disabled.
+ */
+export function inboundManagementDisabled(): NextResponse | null {
+  return isInboundEmailEnabled() ? null : notFound();
 }
 
 export async function guardInboundManagement(
