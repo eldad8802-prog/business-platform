@@ -92,6 +92,85 @@ async function openExport(browser, viewport, auth) {
 
 const cta = (page) => page.getByRole("button", { name: /הורד קובץ|מכין את הקובץ/ });
 
+/**
+ * Can a person SEE it.
+ *
+ * Every earlier check here asked where the button was and whether a click
+ * landed on it. All of them passed while the button was painting nothing: its
+ * background referenced a custom property that is not defined anywhere, so the
+ * declaration was invalid, the fill stayed transparent, and white text sat on a
+ * near-white page at about 1.03:1. Present, positioned, clickable, invisible.
+ *
+ * So this reads what the browser actually computed: the button must paint a
+ * fill of its own, and that fill must carry its label.
+ */
+async function ctaPaint(page) {
+  return page.evaluate(() => {
+    const btn = [...document.querySelectorAll("button")].find((b) =>
+      /הורד קובץ|מכין את הקובץ/.test(b.textContent ?? "")
+    );
+    if (!btn) return null;
+
+    const parse = (c) => {
+      const m = /rgba?\(([^)]+)\)/.exec(c);
+      if (!m) return null;
+      const p = m[1].split(",").map((x) => parseFloat(x));
+      return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+    };
+    // The colour actually behind the element: walk up until something paints.
+    const behind = (el) => {
+      let node = el.parentElement;
+      while (node) {
+        const c = parse(getComputedStyle(node).backgroundColor);
+        if (c && c.a > 0) return c;
+        node = node.parentElement;
+      }
+      return { r: 255, g: 255, b: 255, a: 1 };
+    };
+    const over = (fg, bg) => {
+      const a = fg.a;
+      return {
+        r: fg.r * a + bg.r * (1 - a),
+        g: fg.g * a + bg.g * (1 - a),
+        b: fg.b * a + bg.b * (1 - a),
+        a: 1,
+      };
+    };
+    const lum = (c) => {
+      const f = (v) => {
+        const s = v / 255;
+        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+      };
+      return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
+    };
+    const ratio = (x, y) => {
+      const a = lum(x);
+      const b = lum(y);
+      return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    };
+
+    const cs = getComputedStyle(btn);
+    const own = parse(cs.backgroundColor) ?? { r: 0, g: 0, b: 0, a: 0 };
+    const page_ = behind(btn);
+    const effective = own.a > 0 ? over(own, page_) : page_;
+    const text = over(parse(cs.color) ?? { r: 0, g: 0, b: 0, a: 1 }, effective);
+
+    return {
+      disabled: btn.disabled,
+      ownBackground: cs.backgroundColor,
+      ownBackgroundAlpha: own.a,
+      backgroundImage: cs.backgroundImage,
+      color: cs.color,
+      opacity: cs.opacity,
+      borderWidth: cs.borderTopWidth,
+      effective: `rgb(${Math.round(effective.r)}, ${Math.round(effective.g)}, ${Math.round(effective.b)})`,
+      contrast: Math.round(ratio(text, effective) * 100) / 100,
+      // Does the button separate itself from the page at all?
+      separationFromPage: Math.round(ratio(effective, page_) * 100) / 100,
+    };
+  });
+}
+
 /** Is the element inside the viewport WITHOUT scrolling? */
 async function visibleWithoutScrolling(page, locator) {
   const box = await locator.boundingBox();
@@ -301,6 +380,52 @@ async function main() {
   const reach = [];
   for (const v of VIEWPORTS) {
     reach.push({ label: v.label, ...(await reachability(browser, v.label, v.size, auth)) });
+  }
+
+  console.log("\nis it visible to a person");
+  for (const [label, size] of [
+    ["desktop", DESKTOP],
+    ["mobile", MOBILE],
+  ]) {
+    const { context, page } = await openExport(browser, size, auth);
+    await cta(page).waitFor({ state: "attached" });
+
+    const off = await ctaPaint(page);
+    ok(
+      `${label}, nothing selected: the action is recognisable rather than blank`,
+      off !== null && (off.ownBackgroundAlpha > 0 || off.borderWidth !== "0px"),
+      JSON.stringify(off)
+    );
+    ok(
+      `${label}, nothing selected: and it reads as disabled`,
+      off !== null && off.disabled === true,
+      JSON.stringify(off?.disabled)
+    );
+
+    await page.locator('input[type="checkbox"]').first().check();
+    // The button carries a CSS transition; measuring mid-animation reads a
+    // colour nobody ever sees. Settle first.
+    await page.waitForTimeout(400);
+    const on = await ctaPaint(page);
+    ok(
+      `${label}, enabled: the action paints a fill of its own`,
+      on !== null && on.ownBackgroundAlpha > 0,
+      JSON.stringify(on)
+    );
+    ok(
+      `${label}, enabled: the label is legible on that fill (AA, 4.5:1)`,
+      on !== null && on.contrast >= 4.5,
+      JSON.stringify(on)
+    );
+    ok(
+      `${label}, enabled: the action stands out from the page behind it`,
+      on !== null && on.separationFromPage >= 1.5,
+      JSON.stringify(on)
+    );
+    console.log(
+      `    ${label}: bg=${on?.ownBackground} text=${on?.color} contrast=${on?.contrast}:1 separation=${on?.separationFromPage}:1`
+    );
+    await context.close();
   }
 
   if (REACHABILITY_ONLY) {
