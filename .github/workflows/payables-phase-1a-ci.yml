@@ -114,20 +114,32 @@ jobs:
       # BusinessProfile table is created by no migration. So the comparison is
       # built the way production actually gets there — the base branch's
       # datamodel (production's shape today), plus the three new migrations.
-      #
-      # REPRODUCTION COMMIT — this comment is the whole change. It exists to run
-      # the job below, unmodified, against a main that already contains payables,
-      # on a branch that has nothing to do with #457. If the next run is red on
-      # `type "PayeeKind" already exists`, the defect is this workflow's baseline
-      # assumption and nothing else. The following commit repairs it.
       - name: Build a second database the way production will get there
         run: |
-          # The baseline is main's datamodel, NOT the PR base's. Both triggers
-          # then behave the same — on a `push` event pull_request.base.sha is
-          # empty, and the HEAD~1 fallback this replaced picked up this PR's own
-          # previous commit, which already had the payables models in it.
-          # Correct for as long as it needs to be: PR-1 carries no schema
-          # change, so main stays pre-payables until this PR itself merges.
+          # The baseline is main's datamodel, and it has to be: it is the only
+          # description of production's shape that stays current as the rest of
+          # the schema grows. What changed is that it is no longer PRE-payables.
+          #
+          # This step used to say "main stays pre-payables until this PR itself
+          # merges". #450 merged, and from that moment `db push` of main's
+          # datamodel materialised the payables objects — so the first migration's
+          # `CREATE TYPE "PayeeKind"` collided with a type the baseline had
+          # already created, and the job went red on every pull request.
+          #
+          # The repair keeps the proof instead of avoiding it. Production's shape
+          # BEFORE these migrations is main's datamodel MINUS exactly what they
+          # create, so the baseline is built that way: push main's datamodel, then
+          # drop the objects these migrations are responsible for, then let them
+          # create those objects for real. Everything they do not create — every
+          # other table in the schema, and BusinessObligation which the backfill
+          # reads — stays exactly as production has it.
+          #
+          # The drop list is DERIVED FROM THE MIGRATIONS, never hand-kept, so it
+          # cannot drift away from them. And it is fail-closed: if a migration
+          # creates an object the derivation misses, that object survives the drop
+          # and the migration dies on "already exists", which is this same failure
+          # telling us the derivation is wrong. Nothing here swallows an error —
+          # ON_ERROR_STOP stays on and every migration must still apply cleanly.
           git fetch --no-tags origin main
           echo "baseline datamodel from $(git rev-parse --short FETCH_HEAD) (origin/main)"
           BASE_SHA=FETCH_HEAD
@@ -135,9 +147,33 @@ jobs:
           git show "$BASE_SHA:prisma/schema.prisma" > /tmp/base.prisma
           DATABASE_URL="$DRIFT_URL" DIRECT_URL="$DRIFT_URL" \
             npx prisma db push --schema /tmp/base.prisma --skip-generate --accept-data-loss
-          for m in 20260917090000_payables_phase_1a_foundation \
-                   20260917090100_payables_phase_1a_tenant_rls \
-                   20260917090200_payables_phase_1a_obligation_backfill; do
+
+          MIGRATIONS="20260917090000_payables_phase_1a_foundation
+                      20260917090100_payables_phase_1a_tenant_rls
+                      20260917090200_payables_phase_1a_obligation_backfill"
+
+          : > /tmp/payables-migrations.sql
+          for m in $MIGRATIONS; do
+            cat "prisma/migrations/$m/migration.sql" >> /tmp/payables-migrations.sql
+          done
+
+          TABLES=$(grep -oP 'CREATE TABLE "\K[^"]+' /tmp/payables-migrations.sql | sort -u)
+          TYPES=$(grep -oP 'CREATE TYPE "\K[^"]+' /tmp/payables-migrations.sql | sort -u)
+          if [ -z "$TABLES" ] || [ -z "$TYPES" ]; then
+            echo "FAIL: derived no tables or no types from the Phase-1a migrations."
+            echo "The derivation, not the schema, is what broke. Fix it here rather than"
+            echo "hand-listing objects, or this step stops meaning anything."
+            exit 1
+          fi
+          echo "rewinding the baseline past: $(echo $TABLES | tr '\n' ' ')"
+          for t in $TABLES; do
+            psql "$DRIFT_URL" -v ON_ERROR_STOP=1 -q -c "DROP TABLE IF EXISTS \"$t\" CASCADE;"
+          done
+          for y in $TYPES; do
+            psql "$DRIFT_URL" -v ON_ERROR_STOP=1 -q -c "DROP TYPE IF EXISTS \"$y\" CASCADE;"
+          done
+
+          for m in $MIGRATIONS; do
             echo "── applying $m"
             psql "$DRIFT_URL" -v ON_ERROR_STOP=1 -q -f "prisma/migrations/$m/migration.sql"
           done
@@ -159,9 +195,51 @@ jobs:
                --from-url "$DRIFT_URL" \
                --to-schema-datamodel ./prisma/schema.prisma \
                --exit-code; then
-            echo "OK - the migrations build exactly the shape this client expects."
+            echo "OK — the migrations build exactly the shape this client expects."
           else
             echo "DRIFT - PR-1's SQL and this PR's prisma/schema.prisma disagree."
             echo "Production would get a shape this code does not expect. Fix before merging PR-1."
             exit 1
           fi
+
+      # ── the proof about the proof ────────────────────────────────────────
+      #
+      # The step above now passes. So did a version of it that would have passed
+      # on anything, right up until it started failing on everything — and a
+      # check nobody can see fail is a check nobody should trust. This one breaks
+      # it on purpose.
+      #
+      # The mutation is semantic, not a thrown error: `Payee.displayName` becomes
+      # optional in the datamodel while the migration still creates it NOT NULL.
+      # That is precisely the disagreement this job exists to catch — the shape
+      # the code expects drifting from the shape production gets — and it must
+      # turn the drift check red. The datamodel is restored byte-for-byte
+      # afterwards and `git diff --exit-code` proves it.
+      - name: negative proof — the drift check still catches a real disagreement
+        run: |
+          F="prisma/schema.prisma"
+          cp "$F" "$F.bak"
+          node -e '
+            const fs = require("fs");
+            const f = process.argv[1];
+            const t = fs.readFileSync(f, "utf8");
+            const m = /^model Payee \{[\s\S]*?^\}/m.exec(t);
+            if (!m) { console.error("MUTATION NOT APPLIED: no Payee model"); process.exit(1); }
+            const before = m[0];
+            const after = before.replace(/^(\s*displayName\s+String)(\s)/m, "$1?$2");
+            if (after === before) { console.error("MUTATION NOT APPLIED: displayName unchanged"); process.exit(1); }
+            fs.writeFileSync(f, t.replace(before, after));
+          ' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx prisma migrate diff \
+               --from-url "$DRIFT_URL" \
+               --to-schema-datamodel ./prisma/schema.prisma \
+               --exit-code; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: the drift check accepted a datamodel that disagrees"
+            echo "with the migration on whether Payee.displayName may be null."
+            exit 1
+          fi
+          mv "$F.bak" "$F"
+          git diff --exit-code -- "$F"
+          echo "NEGATIVE-PROOF PASS"
