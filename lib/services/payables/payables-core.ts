@@ -40,6 +40,13 @@ export type DerivedInstallmentState =
   | "CANCELLED"
   | "SETTLED_LEGACY";
 
+export class PayablesNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PayablesNotFoundError";
+  }
+}
+
 export class PayablesValidationError extends Error {
   constructor(message: string) {
     super(message);
