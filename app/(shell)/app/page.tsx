@@ -1,15 +1,28 @@
 "use client";
-import { PageContainer } from "@/components/ui/page-container";
 
-import {
-  useEffect,
-  useState,
-} from "react";
+import { useCallback, useEffect, useState } from "react";
+
+import { PageContainer } from "@/components/ui/page-container";
 import { DubizIntroOverlay } from "@/components/brand/dubiz-intro-overlay";
 import {
   HomeScreen,
+  buildGroupViews,
+  type HomeCounter,
   type HomeView,
 } from "@/features/home/components/home-screen";
+import {
+  buildTodayRows,
+  buildVerdict,
+  countObligationsDue,
+  greetingForHour,
+  groupStatus,
+  type GroupStatus,
+  type TodayRow,
+  type VerdictView,
+} from "@/features/home/lib/home-model";
+import { HOME_ROUTES, TOOL_GROUPS } from "@/lib/navigation/home-routes";
+import type { BusinessStatusItem } from "@/lib/business-status/types";
+import type { BriefingApi } from "@/lib/obligations/secretary-client";
 
 // The canonical shape, imported rather than re-declared. A local copy of this
 // type had already drifted from the server contract once — it was missing a
@@ -18,53 +31,69 @@ import {
 import type { HomeResponse } from "@/features/home/types/home.types";
 
 /**
- * Time-of-day greeting, computed client-side from the user's own clock (a
- * server hour would be the wrong timezone). Feeds "בוקר טוב, {name}".
+ * Home (`/app`) — the session/auth boundary and the data orchestration for
+ * HOME 2B. The screen itself is presentational; everything that decides what
+ * is TRUE lives here and in `features/home/lib/home-model.ts`.
+ *
+ * Six independent read-only requests, none of which is new backend:
+ *   /api/home                            owner + business name
+ *   /api/notifications/unread-count      the bell
+ *   /api/obligations/briefing            the verdict, and "היום שלך"
+ *   /api/business-status                 the three group status labels
+ *   /api/payments/collection-workspace   two of the four counters
+ *   /api/documents/inbox?summaryOnly=1   the documents counter
+ *
+ * They are deliberately NOT one combined call and NOT all-or-nothing: each
+ * settles on its own, and a source that fails leaves its own element saying so
+ * rather than costing the owner the whole screen or, worse, being replaced by
+ * a plausible-looking number.
  */
-function greetingForHour(hour: number): string {
-  if (hour >= 5 && hour < 12) return "בוקר טוב";
-  if (hour >= 12 && hour < 17) return "צהריים טובים";
-  if (hour >= 17 && hour < 22) return "ערב טוב";
-  return "לילה טוב";
-}
 
-/**
- * Builds the home view-model from the authenticated /api/home payload. Only the
- * data we genuinely have is wired (owner/business name, greeting, navigation);
- * the engine-backed sections (day-state, insights) are passed as null so the
- * HomeScreen renders its honest empty states rather than fabricated numbers.
- */
-function buildHomeView(data: HomeResponse, unreadCount: number): HomeView {
-  const ownerName =
-    data.businessSnapshot.ownerName?.trim().split(/\s+/)[0] ||
-    data.businessSnapshot.businessName?.trim().split(/\s+/)[0] ||
-    "";
-  const greeting = greetingForHour(new Date().getHours());
+const HOME_FETCH_TIMEOUT_MS = 28_000;
 
-  return {
-    secretary: {
-      label: "המזכירה שלך",
-      greeting: ownerName ? `${greeting}, ${ownerName}` : greeting,
-      message:
-        "אני עוקבת אחרי העסק בשבילך. כשיצוץ משהו שדורש תשומת לב — הוא יחכה לך כאן.",
-      ctaLabel: "למזכירה שלך",
-      ctaHref: "/secretary",
-    },
-    // No approved day-state / insights engine yet → honest empty states.
-    dayState: null,
-    insights: null,
-    leadsAttention: data.leadsAttention,
-    // The bell now reflects the persisted notification layer rather than a
-    // stand-in derived from the leads count. `/attention` is still the live
-    // business-status view; this points at the notification centre, which is
-    // the history of what the owner was actually told.
-    notifications: {
-      href: "/notifications",
-      hasUnread: unreadCount > 0,
-    },
-    settingsHref: "/settings",
+/* ------------------------------------------------------------ wire types -- */
+
+type CollectionWorkspaceSummary = {
+  summary: {
+    pending: { amount: string; count: number };
+    collectedThisMonth: { amount: string; count: number };
+    expired: { amount: string; count: number };
   };
+};
+
+type DocumentsInboxSummary = {
+  financialPulse?: {
+    inboxDocumentCounts?: {
+      totalPendingReview?: number;
+    };
+  };
+};
+
+/** Loaded / failed, kept apart so "failed" is never rendered as a zero. */
+type Loaded<T> = { state: "loading" } | { state: "ready"; value: T } | { state: "failed" };
+
+const LOADING = { state: "loading" } as const;
+const FAILED = { state: "failed" } as const;
+
+function ready<T>(value: T): Loaded<T> {
+  return { state: "ready", value };
 }
+
+function valueOrNull<T>(loaded: Loaded<T>): T | null {
+  return loaded.state === "ready" ? loaded.value : null;
+}
+
+/** Transport only — no state, so it is safe to start from inside an effect. */
+async function fetchBriefing(token: string): Promise<BriefingApi> {
+  const res = await fetch("/api/obligations/briefing", {
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(String(res.status));
+  return (await res.json()) as BriefingApi;
+}
+
+/* ----------------------------------------------------------- auth states -- */
 
 // The pre-session bootstrap paint. Rendered as the intro's cream ground (no
 // text) so the brand entry never shows a "טוען…" flash — even for a frame,
@@ -83,35 +112,40 @@ function HomeAuthBootstrap() {
   );
 }
 
+/**
+ * The first-paint skeleton. Its blocks are the size of the things they stand
+ * in for — the secretary card, the 2×2 counters, the 2×2 feature tiles, two
+ * "היום שלך" rows — and it uses the SAME width authority as the loaded Home
+ * (content intent), so nothing jumps when the data lands.
+ */
 function HomeLoadingState() {
   return (
     <main className="min-h-screen bg-[#f8f6f1] text-[#1f2937]">
-      {/*
-        The skeleton uses the SAME width authority as the loaded Home
-        (content intent) so there is no width jump when the data lands.
-        It replaces a 448/672/896 Tailwind ladder — one of the three
-        competing ladders the audit found.
-      */}
       <PageContainer
         intent="content"
         as="div"
         className="flex min-h-screen w-full flex-col pb-8 pt-4"
       >
-        <div className="mb-6 h-16 animate-pulse rounded-2xl bg-white/80" />
+        <div className="mb-4 h-11 animate-pulse rounded-2xl bg-white/80" />
+        <div className="mb-5 h-14 w-3/5 animate-pulse rounded-2xl bg-white/80" />
 
-        <div className="mb-4 h-48 animate-pulse rounded-3xl bg-white/80" />
+        <div className="mb-7 h-52 animate-pulse rounded-[26px] bg-white/80" />
 
-        <div className="mb-3 h-6 w-32 animate-pulse rounded-xl bg-white/80" />
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="h-32 animate-pulse rounded-3xl bg-white/80" />
-          <div className="h-32 animate-pulse rounded-3xl bg-white/80" />
-          <div className="h-32 animate-pulse rounded-3xl bg-white/80" />
-          <div className="h-32 animate-pulse rounded-3xl bg-white/80" />
+        <div className="mb-3 h-5 w-28 animate-pulse rounded-xl bg-white/80" />
+        <div className="mb-6 grid grid-cols-2 gap-2.5">
+          <div className="h-[88px] animate-pulse rounded-[18px] bg-white/80" />
+          <div className="h-[88px] animate-pulse rounded-[18px] bg-white/80" />
+          <div className="h-[88px] animate-pulse rounded-[18px] bg-white/80" />
+          <div className="h-[88px] animate-pulse rounded-[18px] bg-white/80" />
         </div>
 
-        <div className="mt-4 h-20 animate-pulse rounded-3xl bg-white/80" />
-        <div className="mt-4 h-20 animate-pulse rounded-3xl bg-white/80" />
+        <div className="mb-3 h-5 w-28 animate-pulse rounded-xl bg-white/80" />
+        <div className="grid grid-cols-2 gap-2.5">
+          <div className="h-[116px] animate-pulse rounded-[20px] bg-white/80" />
+          <div className="h-[116px] animate-pulse rounded-[20px] bg-white/80" />
+          <div className="h-[116px] animate-pulse rounded-[20px] bg-white/80" />
+          <div className="h-[116px] animate-pulse rounded-[20px] bg-white/80" />
+        </div>
       </PageContainer>
     </main>
   );
@@ -157,7 +191,7 @@ function HomeErrorState({
   );
 }
 
-const HOME_FETCH_TIMEOUT_MS = 28_000;
+/* ------------------------------------------------------------------ page -- */
 
 function HomePage() {
   const [data, setData] = useState<HomeResponse | null>(null);
@@ -165,6 +199,11 @@ function HomePage() {
   // when the owner reads something, which has nothing to do with the home
   // payload, and a failure here must not cost them the whole screen.
   const [unreadCount, setUnreadCount] = useState(0);
+  const [briefing, setBriefing] = useState<Loaded<BriefingApi>>(LOADING);
+  const [status, setStatus] = useState<Loaded<BusinessStatusItem[]>>(LOADING);
+  const [collection, setCollection] = useState<Loaded<CollectionWorkspaceSummary>>(LOADING);
+  const [docsPending, setDocsPending] = useState<Loaded<number>>(LOADING);
+
   /** Start true so we never flash HomeErrorState before the first /api/home attempt (token path). */
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -172,15 +211,26 @@ function HomePage() {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
 
+  useEffect(() => {
+    let t: string | null = null;
+    let err: string | null = null;
+    try {
+      t = localStorage.getItem("token");
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+      t = null;
+    }
+    setStorageError(err);
+    setSessionToken(t);
+    setSessionReady(true);
+  }, []);
+
   // Read once the session exists. No polling: the badge is refreshed by the
   // centre itself after the owner reads something, and anything they have not
   // opened the app to see is what push is for, later.
   useEffect(() => {
     if (!sessionReady || !sessionToken) return;
     let cancelled = false;
-    // Same token the rest of this screen already sends. Without one the bell
-    // simply stays quiet rather than issuing a credential-less request.
-    if (!sessionToken) return;
     fetch("/api/notifications/unread-count", {
       cache: "no-store",
       headers: { Authorization: `Bearer ${sessionToken}` },
@@ -198,19 +248,67 @@ function HomePage() {
       cancelled = true;
     };
   }, [sessionReady, sessionToken]);
+
+  /**
+   * The verdict can be retried on its own: a briefing that failed is a loading
+   * failure, not a calm business, and the card says exactly that instead of
+   * showing a state we did not derive.
+   */
+  const retryVerdict = useCallback(() => {
+    if (!sessionToken) return;
+    setBriefing(LOADING);
+    fetchBriefing(sessionToken)
+      .then((json) => setBriefing(ready(json)))
+      .catch(() => setBriefing(FAILED));
+  }, [sessionToken]);
+
+  /** The four secondary sources. Independent; none can break the screen. */
   useEffect(() => {
-    let t: string | null = null;
-    let err: string | null = null;
-    try {
-      t = localStorage.getItem("token");
-    } catch (e) {
-      err = e instanceof Error ? e.message : String(e);
-      t = null;
-    }
-    setStorageError(err);
-    setSessionToken(t);
-    setSessionReady(true);
-  }, []);
+    if (!sessionReady || !sessionToken) return;
+    let cancelled = false;
+    const auth = { Authorization: `Bearer ${sessionToken}` };
+
+    fetchBriefing(sessionToken)
+      .then((json) => {
+        if (!cancelled) setBriefing(ready(json));
+      })
+      .catch(() => {
+        if (!cancelled) setBriefing(FAILED);
+      });
+
+    fetch("/api/business-status", { cache: "no-store", headers: auth })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((json: { items?: BusinessStatusItem[] }) => {
+        if (!cancelled) setStatus(ready(json.items ?? []));
+      })
+      .catch(() => {
+        if (!cancelled) setStatus(FAILED);
+      });
+
+    fetch("/api/payments/collection-workspace", { cache: "no-store", headers: auth })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((json: CollectionWorkspaceSummary) => {
+        if (!cancelled) setCollection(ready(json));
+      })
+      .catch(() => {
+        if (!cancelled) setCollection(FAILED);
+      });
+
+    fetch("/api/documents/inbox?summaryOnly=1", { cache: "no-store", headers: auth })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((json: DocumentsInboxSummary) => {
+        const total = json.financialPulse?.inboxDocumentCounts?.totalPendingReview;
+        if (cancelled) return;
+        setDocsPending(typeof total === "number" ? ready(total) : FAILED);
+      })
+      .catch(() => {
+        if (!cancelled) setDocsPending(FAILED);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionReady, sessionToken]);
 
   const loadHome = async () => {
     const ctrl = new AbortController();
@@ -298,8 +396,7 @@ function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionReady, sessionToken, storageError]);
 
-  const showLoginGate =
-    sessionReady && (!sessionToken || storageError !== null);
+  const showLoginGate = sessionReady && (!sessionToken || storageError !== null);
 
   const goLoginManual = () => {
     window.location.href = `${window.location.origin}/login`;
@@ -358,11 +455,21 @@ function HomePage() {
   } else if (loading) {
     body = <HomeLoadingState />;
   } else if (error || !data) {
-    body = (
-      <HomeErrorState onRetry={loadHome} onReLogin={goReLogin} />
-    );
+    body = <HomeErrorState onRetry={loadHome} onReLogin={goReLogin} />;
   } else {
-    body = <HomeScreen view={buildHomeView(data, unreadCount)} />;
+    body = (
+      <HomeScreen
+        view={buildHomeView({
+          data,
+          unreadCount,
+          briefing,
+          status,
+          collection,
+          docsPending,
+        })}
+        onRetryVerdict={retryVerdict}
+      />
+    );
   }
 
   // The brand intro overlay REPLACES the old skeleton on first authenticated
@@ -375,6 +482,115 @@ function HomePage() {
       {body}
     </>
   );
+}
+
+/* ------------------------------------------------------------ view model -- */
+
+/**
+ * Assembles the home view-model. Every figure here traces to one of the six
+ * requests above; a source still loading or failed passes `null` through, and
+ * the screen renders that as "לא נטען" rather than as a number.
+ */
+function buildHomeView({
+  data,
+  unreadCount,
+  briefing,
+  status,
+  collection,
+  docsPending,
+}: {
+  data: HomeResponse;
+  unreadCount: number;
+  briefing: Loaded<BriefingApi>;
+  status: Loaded<BusinessStatusItem[]>;
+  collection: Loaded<CollectionWorkspaceSummary>;
+  docsPending: Loaded<number>;
+}): HomeView {
+  const ownerFullName = data.businessSnapshot.ownerName?.trim() || "";
+  const businessName = data.businessSnapshot.businessName?.trim() || "";
+  const firstName =
+    ownerFullName.split(/\s+/)[0] || businessName.split(/\s+/)[0] || "";
+  const greeting = greetingForHour(new Date().getHours());
+
+  const now = new Date();
+  const briefingValue = valueOrNull(briefing);
+
+  const verdict: VerdictView | null = briefingValue
+    ? buildVerdict(briefingValue)
+    : null;
+
+  // A failed briefing is NOT an empty day. `today` stays null and the section
+  // says it could not check, rather than claiming nothing is due.
+  const today: TodayRow[] | null = briefingValue
+    ? buildTodayRows(briefingValue, now)
+    : null;
+
+  const statusItems = valueOrNull(status);
+  const groups = buildGroupViews((key) => {
+    if (!statusItems) return null;
+    const group = TOOL_GROUPS.find((g) => g.key === key);
+    if (!group) return null;
+    return groupStatus(statusItems, group.domains) satisfies GroupStatus;
+  });
+
+  const collectionValue = valueOrNull(collection);
+
+  const counters: HomeCounter[] = [
+    {
+      key: "collected",
+      // NOT "today": the only exact source for verified collection is
+      // `sumPaidBetween` over the calendar month (`collectedThisMonth`). The
+      // per-day figure would have to come from the capped, createdAt-ordered
+      // history page, which can silently miss a payment collected today on an
+      // older request — so the window is named instead of being guessed.
+      label: "נגבה ואומת",
+      note: "בחודש הנוכחי",
+      value: collectionValue
+        ? collectionValue.summary.collectedThisMonth.count
+        : null,
+      href: HOME_ROUTES.collectionCenter,
+    },
+    {
+      key: "pending",
+      label: "ממתינים לגבייה",
+      value: collectionValue ? collectionValue.summary.pending.count : null,
+      href: HOME_ROUTES.collectionCenter,
+    },
+    {
+      key: "documents",
+      label: "מסמכים לבדיקה",
+      value: valueOrNull(docsPending),
+      href: HOME_ROUTES.documentsReview,
+    },
+    {
+      key: "obligations",
+      label: "תשלומים למועד",
+      value: briefingValue ? countObligationsDue(briefingValue, now) : null,
+      href: HOME_ROUTES.secretaryToday,
+    },
+  ];
+
+  return {
+    greeting: firstName ? `${greeting}, ${firstName}` : greeting,
+    subGreeting: "הנה מה שחשוב בעסק שלך היום",
+    initial: (firstName || businessName).charAt(0),
+    secretary: {
+      label: "המזכירה שלך",
+      verdict,
+      failed: briefing.state === "failed",
+    },
+    counters,
+    groups,
+    today,
+    todayFailed: briefing.state === "failed",
+    notifications: {
+      // The bell points at the notification centre — the history of what the
+      // owner was actually told. The live exception engine is `/attention`,
+      // which the secretary card above reaches in one tap, in every state.
+      href: HOME_ROUTES.notifications,
+      hasUnread: unreadCount > 0,
+    },
+  };
 }
 
 export default HomePage;

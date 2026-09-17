@@ -4,201 +4,104 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 
+import { DubizLogo } from "@/components/ui/dubiz-logo";
+import {
+  HOME_ROUTES,
+  TOOL_GROUPS,
+  groupHref,
+  obligationHref,
+  type ToolColor,
+  type ToolGroupKey,
+} from "@/lib/navigation/home-routes";
+import { TOOL_TINT_CSS } from "@/features/home/lib/tool-tints";
+import {
+  DUE_BADGE_LABEL,
+  formatAmount,
+  formatDueDate,
+  type GroupStatus,
+  type TodayRow,
+  type VerdictView,
+} from "@/features/home/lib/home-model";
+
 /**
- * Dubiz home screen — faithful implementation of the approved home mockup
- * (docs/… `dubiz-home-brief.html`). This is the presentational layer only: it
- * renders whatever view-model it is handed and owns none of the auth/session
- * logic (that stays in app/(shell)/app/page.tsx).
+ * Dubiz home screen (HOME 2B).
  *
- * Fidelity notes, per the brief's "iron rules":
- *  - The two soft zones (secretary, day-state) are borderless — no card, no
- *    fill, no shadow. They sit directly on the cream canvas with only a radial
- *    "halo" so the texture hierarchy reads: secretary (soft) → day-state (soft)
- *    → tools (round tiles) → insights (the single deep/dark surface).
- *  - The mockup's own status bar and its own bottom nav are intentionally NOT
- *    rendered here: the real app supplies the top-safe area and the global
- *    ShellChrome bottom bar. Everything between them matches the mockup.
- *  - Colors keep their roles: teal = the voice of Dubiz; green/terracotta =
- *    money only; amber/cream = the canvas.
+ * The presentational layer only: it renders the view-model it is handed and
+ * owns none of the auth/session/fetch logic (that stays in
+ * `app/(shell)/app/page.tsx`).
  *
- * Honesty ("מוקאפ כן"): no invented business numbers. Sections whose engine is
- * not yet live (day-state financials, Dubiz insights, secretary activity) fall
- * back to honest empty/neutral states rather than fabricated data. When those
- * engines come online they populate the same typed props with no layout change.
+ * THE RULE THIS SCREEN IS BUILT ON — every element on it is backed by a source
+ * that already exists on main:
+ *   - the secretary's verdict          GET /api/obligations/briefing
+ *   - the four counters                collection-workspace · documents inbox
+ *                                      summary · the same briefing
+ *   - the three group status labels    GET /api/business-status
+ *   - "היום שלך"                       the briefing's attention obligations
+ * Nothing here has a default value. A source that fails to load says so; it
+ * never falls back to a plausible number, and the screen shows no percentages,
+ * no charts and no aggregate ("הוצאות היום") that the product cannot compute.
+ *
+ * NAVIGATION — every destination comes from `lib/navigation/home-routes.ts` and
+ * is proven to resolve by `npm run verify:home-routes`. There is no `href="#"`
+ * and no empty handler on this screen. A counter reading 0 stays a link: it
+ * opens the (empty) list, which is an answer.
+ *
+ * COLOUR — the `.dzhome` custom properties and the five tool tints below are
+ * carried over from main unchanged, including the `--brand` value. The audit
+ * found that it differs from the platform `--dz-brand`; reconciling the two is
+ * explicitly out of scope here, and is reported rather than fixed.
  */
 
-export type HomeInsightTone = "brand" | "amber";
+/* --------------------------------------------------------------- types -- */
 
-export type HomeInsight = {
-  id: string;
-  /** The insight itself, e.g. "יוסי לוי נראה ליד חם…". */
-  text: string;
-  /** The <small> line that explains WHY this insight is here. */
-  reason: string;
-  ctaLabel: string;
-  href?: string;
-  tone?: HomeInsightTone;
+/** `null` = the source for this figure did not load. Never a stand-in zero. */
+export type CounterValue = number | null;
+
+export type HomeCounter = {
+  key: string;
+  label: string;
+  value: CounterValue;
+  href: string;
+  /** Qualifier under the figure, when the figure's window needs naming. */
+  note?: string;
 };
 
-export type HomeDayState = {
-  /** e.g. "עודכן ב-13:40". */
-  updatedAtLabel: string;
-  headline: {
-    prefix: string;
-    /** The figure rendered inside <em>, e.g. "₪1,590". */
-    amount: string;
-    suffix: string;
-    tone: "pos" | "neg";
-  };
-  sub?: string;
-  moneyIn: string;
-  moneyOut: string;
-};
-
-export type HomeInsights = {
-  headline: string;
-  basis: string;
-  count?: number;
-  items: HomeInsight[];
+export type HomeGroupView = {
+  key: ToolGroupKey;
+  label: string;
+  href: string;
+  status: GroupStatus | null;
 };
 
 export type HomeSecretaryView = {
   label: string;
-  greeting: string;
-  message?: ReactNode;
-  ctaLabel: string;
-  ctaHref: string;
+  /** The verdict, or `null` while it is loading. */
+  verdict: VerdictView | null;
+  /** True when the briefing request failed — shows the retry, not a guess. */
+  failed: boolean;
 };
 
 export type HomeView = {
+  greeting: string;
+  subGreeting: string;
+  /** First letter of the owner's (or business's) name, for the top bar. */
+  initial: string;
   secretary: HomeSecretaryView;
+  counters: HomeCounter[];
+  groups: HomeGroupView[];
+  /** `null` while loading. Never `[]` unless the day genuinely has no dates. */
+  today: TodayRow[] | null;
   /**
-   * Open leads asking for the owner right now. Rendered as a count on the
-   * לידים tile — one number, not a panel: Home points at work, it does not
-   * become the place the work is done.
+   * The briefing failed, so we do NOT know whether the day is empty. Kept
+   * apart from `today: []` on purpose: "nothing is due" and "I could not find
+   * out what is due" are different claims, and only one of them is ours to
+   * make when the request failed.
    */
-  leadsAttention?: { count: number; href: string };
-  /** null → engine has nothing to show yet (honest empty state). */
-  dayState: HomeDayState | null;
-  /** null → insights engine not producing yet (honest empty state). */
-  insights: HomeInsights | null;
+  todayFailed: boolean;
   notifications: { href: string; hasUnread: boolean };
-  settingsHref: string;
 };
 
-type Tool = {
-  key: string;
-  label: string;
-  href: string;
-  color: "teal" | "sage" | "amber" | "clay" | "slate";
-  icon: ReactNode;
-};
-
-// Exactly 5 coordinated tints rotated across the 10 tools — do not add hues.
-// Order matches the approved mockup. Each href targets the tool's LIVE route on
-// main (verified 200): several concepts live inside a hub on main — suppliers
-// under /inventory/supplier-purchases, WhatsApp in /inbox, coupons in /revenue,
-// the bot at /business/bot, and scheduling via the Secretary. When dedicated
-// top-level routes (/coupons, /suppliers, /whatsapp, /bot, /appointments) land
-// on main, re-point the matching tiles.
-const TOOLS: Tool[] = [
-  {
-    key: "leads",
-    label: "לידים",
-    href: "/leads",
-    color: "slate",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 5h18M6 12h12M10 19h4" /></svg>
-    ),
-  },
-  {
-    key: "calendar",
-    label: "יומן",
-    href: "/secretary",
-    color: "amber",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="17" rx="2.5" /><path d="M3 9h18M8 2v4M16 2v4" /></svg>
-    ),
-  },
-  {
-    key: "invoices",
-    label: "חשבוניות",
-    href: "/billing",
-    color: "sage",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6M9 13h6M9 17h4" /></svg>
-    ),
-  },
-  {
-    key: "collection",
-    label: "גבייה",
-    href: "/payments",
-    color: "teal",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="13" rx="2.5" /><circle cx="12" cy="12.5" r="2.6" /><path d="M6 9.5h.01M18 15.5h.01" /></svg>
-    ),
-  },
-  {
-    key: "inventory",
-    label: "מלאי",
-    href: "/inventory",
-    color: "slate",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M4 7.5l8 4.5 8-4.5M12 12v9" /></svg>
-    ),
-  },
-  {
-    key: "coupons",
-    label: "קופונים",
-    href: "/revenue",
-    color: "clay",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M20 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v3a2 2 0 0 1 0 6v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3a2 2 0 0 1 0-6z" /><path d="M9 9v6" strokeDasharray="1.5 2.5" /></svg>
-    ),
-  },
-  {
-    key: "documents",
-    label: "מסמכים",
-    href: "/documents",
-    color: "teal",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4z" /></svg>
-    ),
-  },
-  {
-    key: "suppliers",
-    label: "ספקים",
-    href: "/inventory/supplier-purchases",
-    color: "amber",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5h11v10H2zM13 8h4l4 3v4h-8z" /><circle cx="6" cy="18" r="1.8" /><circle cx="17.5" cy="18" r="1.8" /></svg>
-    ),
-  },
-  {
-    key: "whatsapp",
-    label: "וואטסאפ",
-    href: "/inbox",
-    color: "sage",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-12.2 7.6L3 21l1.9-5.8A8.5 8.5 0 1 1 21 11.5z" /><path d="M8.6 9.2c-.3 1.5 1 3.4 2 4.4s2.9 2.3 4.4 2c.6-.1 1.2-.9 1.3-1.4.1-.3-.1-.5-.3-.6l-1.6-.8c-.2-.1-.5-.1-.7.2l-.4.5c-.9-.4-1.9-1.4-2.3-2.3l.5-.4c.3-.2.3-.5.2-.7l-.8-1.6c-.1-.2-.3-.4-.6-.3-.5.1-1.3.7-1.4 1.3z" /></svg>
-    ),
-  },
-  {
-    key: "bot",
-    label: "בוט",
-    href: "/business/bot",
-    color: "clay",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="8" width="16" height="11" rx="3" /><path d="M12 4v4M8.5 13h.01M15.5 13h.01M2 12v3M22 12v3" /></svg>
-    ),
-  },
-];
-
-function IconGear() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" /></svg>
-  );
-}
+/* --------------------------------------------------------------- icons -- */
 
 function IconBell() {
   return (
@@ -212,235 +115,342 @@ function IconChevron() {
   );
 }
 
-function IconSpark() {
+function IconPerson() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.7 4.6L18 9l-4.3 1.4L12 15l-1.7-4.6L6 9l4.3-1.4z" /><circle cx="18.6" cy="17.6" r="1.3" /><circle cx="6" cy="16" r="1" /></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8.5" r="3.6" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></svg>
   );
 }
 
-function DayState({ dayState }: { dayState: HomeDayState | null }) {
+/** Group glyphs — reused, unchanged, from the tool strip that shipped on main. */
+function IconInvoice() {
   return (
-    <section className="state anim d1">
-      <div className="shead">
-        <span className="st">מצב היום</span>
-        {dayState ? <span className="sm">{dayState.updatedAtLabel}</span> : null}
-      </div>
-
-      {dayState ? (
-        <>
-          <div className="line">
-            {dayState.headline.prefix}{" "}
-            <em className={dayState.headline.tone === "neg" ? "neg" : ""}>
-              {dayState.headline.amount}
-            </em>{" "}
-            {dayState.headline.suffix}
-          </div>
-          {dayState.sub ? <div className="sub">{dayState.sub}</div> : null}
-          <div className="figs">
-            <div className="fig">
-              <div className="fl">
-                <span className="dot" style={{ background: "var(--pos)" }} />
-                נכנס היום
-              </div>
-              <div className="fv">{dayState.moneyIn}</div>
-            </div>
-            <span className="vr" />
-            <div className="fig">
-              <div className="fl">
-                <span className="dot" style={{ background: "var(--neg)" }} />
-                יצא היום
-              </div>
-              <div className="fv">{dayState.moneyOut}</div>
-            </div>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="line">אוספת את התמונה של היום…</div>
-          <div className="sub">
-            כשיהיו הכנסות והוצאות מהיום, המצב המלא של העסק יופיע כאן.
-          </div>
-        </>
-      )}
-    </section>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6M9 13h6M9 17h4" /></svg>
   );
 }
 
-function Insights({ insights }: { insights: HomeInsights | null }) {
-  const hasItems = !!insights && insights.items.length > 0;
-
+function IconChat() {
   return (
-    <div className="anim d3">
-      <div className="sh">
-        <span className="ttl">התובנות של דוביז</span>
-        {hasItems ? (
-          <Link href="/attention" className="lnk">
-            הכול ›
-          </Link>
-        ) : null}
-      </div>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-12.2 7.6L3 21l1.9-5.8A8.5 8.5 0 1 1 21 11.5z" /></svg>
+  );
+}
 
-      <div className="ins">
-        <div className="ih">
-          <span className="ic">
-            <IconSpark />
+function IconBox() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M4 7.5l8 4.5 8-4.5M12 12v9" /></svg>
+  );
+}
+
+function IconGrid() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="2" /><rect x="13.5" y="3" width="7.5" height="7.5" rx="2" /><rect x="3" y="13.5" width="7.5" height="7.5" rx="2" /><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2" /></svg>
+  );
+}
+
+const GROUP_ICON: Record<ToolGroupKey, () => ReactNode> = {
+  money: IconInvoice,
+  customers: IconChat,
+  operations: IconBox,
+};
+
+/** Group tints, drawn from the same five that already colour the tools. */
+const GROUP_TINT: Record<ToolGroupKey, ToolColor> = {
+  money: "teal",
+  customers: "sage",
+  operations: "slate",
+};
+
+/* ------------------------------------------------------------ sections -- */
+
+function SectionTitle({ children }: { children: ReactNode }) {
+  return <h2 className="sttl">{children}</h2>;
+}
+
+/**
+ * The secretary — the loudest element on the screen, and the only one that
+ * states a conclusion. The whole card is the link to `/attention`, so the
+ * exception engine is one tap from Home in every state. The CTA inside is a
+ * span rather than a nested button for exactly that reason; it carries the
+ * platform's own primary-action tokens, not a new button variant.
+ */
+function SecretaryCard({
+  secretary,
+  onRetry,
+}: {
+  secretary: HomeSecretaryView;
+  onRetry: () => void;
+}) {
+  if (secretary.failed) {
+    return (
+      <section className="seccard sec-failed" aria-live="polite">
+        <div className="srow">
+          <span className="sav">
+            <Image src="/secretary-avatar.jpg" alt="" width={64} height={64} priority />
           </span>
-          <div className="iht">
-            <b>{hasItems ? insights!.headline : "אין תובנות חדשות כרגע"}</b>
-            <span>
-              {hasItems
-                ? insights!.basis
-                : "אני עוקבת אחרי העסק — אעדכן אותך כשאזהה הזדמנות"}
-            </span>
+          <div className="stx">
+            <div className="lb">{secretary.label}</div>
+            <div className="hi">לא הצלחתי לטעון את מצב היום</div>
           </div>
-          {hasItems && insights!.count != null ? (
-            <span className="cnt">{insights!.count}</span>
-          ) : null}
         </div>
+        <p className="smsg">
+          זו תקלת טעינה אצלי, לא מצב של העסק. לא אנחש לך ורדיקט.
+        </p>
+        <div className="sfoot">
+          <button type="button" className="dzcta dzcta-quiet" onClick={onRetry}>
+            נסה שוב
+          </button>
+        </div>
+      </section>
+    );
+  }
 
-        {hasItems ? (
-          insights!.items.map((item) => (
-            <div className="ir" key={item.id}>
-              <span className={`ipin${item.tone === "amber" ? " amber" : ""}`} />
-              <div className="it">
-                {item.text}
-                <small>{item.reason}</small>
-              </div>
-              {item.href ? (
-                <Link
-                  href={item.href}
-                  className={`ib2${item.tone === "amber" ? "" : " go"}`}
-                >
-                  {item.ctaLabel}
-                </Link>
-              ) : (
-                <button
-                  type="button"
-                  className={`ib2${item.tone === "amber" ? "" : " go"}`}
-                >
-                  {item.ctaLabel}
-                </button>
-              )}
-            </div>
-          ))
-        ) : (
-          <div className="ir">
-            <span className="ipin" />
-            <div className="it">
-              לא מצאתי כרגע משהו — הכול זורם.
-              <small>ברגע שתהיה הזדמנות ששווה את תשומת הלב שלך, היא תופיע כאן</small>
-            </div>
+  if (!secretary.verdict) {
+    return (
+      <section className="seccard" aria-busy="true">
+        <div className="srow">
+          <span className="sav sav-sk" />
+          <div className="stx" style={{ flex: 1 }}>
+            <span className="sk sk-lb" />
+            <span className="sk sk-hi" />
           </div>
-        )}
+        </div>
+        <span className="sk sk-msg" />
+        <div className="sfoot">
+          <span className="sk sk-cta" />
+        </div>
+      </section>
+    );
+  }
+
+  const { badge, sentence, ctaLabel, tone } = secretary.verdict;
+
+  return (
+    <Link
+      href={HOME_ROUTES.attention}
+      className={`seccard seccard-link tone-${tone}`}
+      aria-label={`${badge}. ${sentence} ${ctaLabel}`}
+    >
+      <div className="srow">
+        <span className="sav">
+          <Image src="/secretary-avatar.jpg" alt="" width={64} height={64} priority />
+        </span>
+        <div className="stx">
+          <div className="lb">{secretary.label}</div>
+          <span className={`sbadge sbadge-${tone}`}>{badge}</span>
+        </div>
       </div>
-    </div>
+
+      <p className="smsg">{sentence}</p>
+
+      <div className="sfoot">
+        <span className="dzcta">
+          {ctaLabel}
+          <span className="dzcta-arrow" aria-hidden>
+            <IconChevron />
+          </span>
+        </span>
+      </div>
+    </Link>
   );
 }
 
-export function HomeScreen({ view }: { view: HomeView }) {
-  const leadsAttention = view.leadsAttention;
-  const { secretary, dayState, insights, notifications, settingsHref } = view;
+/** One counter. A value of 0 is still a link — the empty list is an answer. */
+function CounterTile({ counter }: { counter: HomeCounter }) {
+  const unavailable = counter.value === null;
+  return (
+    <Link href={counter.href} className="ntile" aria-label={counter.label}>
+      <span className={`nval${unavailable ? " nval-off" : ""}`}>
+        {unavailable ? "לא נטען" : counter.value}
+      </span>
+      <span className="nlab">{counter.label}</span>
+      {counter.note ? <span className="nnote">{counter.note}</span> : null}
+    </Link>
+  );
+}
+
+function GroupTile({ group }: { group: HomeGroupView }) {
+  const Icon = GROUP_ICON[group.key];
+  const tint = GROUP_TINT[group.key];
+  const status = group.status;
+  return (
+    <Link href={group.href} className="ftile" aria-label={group.label}>
+      <span className={`fc dz-tint c-${tint}`}>
+        <Icon />
+      </span>
+      <span className="flab">{group.label}</span>
+      {status ? (
+        <span className={`fstat fstat-${status.tone}`}>{status.label}</span>
+      ) : (
+        <span className="fstat fstat-loading">&nbsp;</span>
+      )}
+    </Link>
+  );
+}
+
+function AllToolsTile() {
+  return (
+    <Link href={HOME_ROUTES.tools} className="ftile" aria-label="כל הכלים">
+      <span className="fc dz-tint c-clay">
+        <IconGrid />
+      </span>
+      <span className="flab">כל הכלים</span>
+      <span className="fstat fstat-quiet">כל היכולות במקום אחד</span>
+    </Link>
+  );
+}
+
+function TodaySection({
+  rows,
+  failed,
+}: {
+  rows: TodayRow[] | null;
+  failed: boolean;
+}) {
+  if (failed) {
+    return (
+      <p className="tempty tempty-failed">
+        לא הצלחתי לבדוק אילו מועדים פתוחים היום.
+      </p>
+    );
+  }
+
+  if (rows === null) {
+    return (
+      <div className="tlist" aria-busy="true">
+        <span className="sk sk-row" />
+        <span className="sk sk-row" />
+      </div>
+    );
+  }
+
+  if (rows.length === 0) {
+    return <p className="tempty">אין היום מועדים פתוחים. אני ממשיכה להשגיח.</p>;
+  }
+
+  return (
+    <ul className="tlist">
+      {rows.map((row) => (
+        <li key={row.obligationId}>
+          <Link href={obligationHref(row.obligationId)} className="trow">
+            <span className={`tbadge tbadge-${row.badge}`}>
+              {DUE_BADGE_LABEL[row.badge]}
+            </span>
+            <span className="ttx">
+              <span className="tname">{row.title}</span>
+              <span className="tmeta">{formatDueDate(row.dueAtIso)}</span>
+            </span>
+            <span className="tamt">{formatAmount(row.amount, row.currency)}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/* --------------------------------------------------------------- screen -- */
+
+export function HomeScreen({
+  view,
+  onRetryVerdict,
+}: {
+  view: HomeView;
+  onRetryVerdict: () => void;
+}) {
+  const {
+    greeting,
+    subGreeting,
+    initial,
+    secretary,
+    counters,
+    groups,
+    today,
+    todayFailed,
+    notifications,
+  } = view;
 
   return (
     <main className="dzhome" dir="rtl" data-page-intent="content">
+      <style>{TOOL_TINT_CSS}</style>
       <style>{HOME_CSS}</style>
       <div className="wrap">
-        {/* top icon row — settings + notifications (structure/CSS verbatim from the mockup) */}
-        <div className="top anim d0">
-          <Link href={settingsHref} className="ib" aria-label="הגדרות">
-            <IconGear />
+        <header className="top">
+          <Link href={HOME_ROUTES.profile} className="ib avatar" aria-label="החשבון שלי">
+            {initial ? <span className="avin">{initial}</span> : <IconPerson />}
           </Link>
+
+          <span className="brandmark">
+            <DubizLogo height={22} />
+          </span>
+
           <Link
             href={notifications.href}
             className={`ib bell${notifications.hasUnread ? " has-unread" : ""}`}
-            aria-label="התראות"
+            aria-label={notifications.hasUnread ? "התראות — יש חדשות" : "התראות"}
           >
             <IconBell />
           </Link>
+        </header>
+
+        <div className="greet">
+          <h1 className="ghi">{greeting}</h1>
+          <p className="gsub">{subGreeting}</p>
         </div>
 
-        {/* secretary — borderless, embedded in the canvas */}
-        <div className="seccard anim d0">
-          <div className="srow">
-            <span className="sav">
-              <Image
-                src="/secretary-avatar.jpg"
-                alt="המזכירה של דוביז"
-                width={56}
-                height={56}
-                priority
-              />
-            </span>
-            <div className="stx">
-              <div className="lb">{secretary.label}</div>
-              <div className="hi">{secretary.greeting}</div>
-            </div>
-          </div>
-          {secretary.message ? (
-            <div className="smsg">{secretary.message}</div>
-          ) : null}
-          <div className="sfoot">
-            <Link href={secretary.ctaHref} className="sbtn">
-              {secretary.ctaLabel} <IconChevron />
-            </Link>
-          </div>
-        </div>
+        <SecretaryCard secretary={secretary} onRetry={onRetryVerdict} />
 
-        {/* מצב היום — one honest sentence, no chart, borderless */}
-        <DayState dayState={dayState} />
-
-        {/* tools — colorful round tiles, horizontal scroll (the only intended sideways scroll) */}
-        <div className="anim d2">
-          <div className="sh">
-            <span className="ttl">הכלים שלך</span>
-            <Link href="/tools" className="lnk">
-              הכול ›
-            </Link>
+        <section className="sect">
+          <SectionTitle>היום במספרים</SectionTitle>
+          <div className="ngrid">
+            {counters.map((counter) => (
+              <CounterTile key={counter.key} counter={counter} />
+            ))}
           </div>
-          <div className="feats">
-            {TOOLS.map((tool) => {
-              // The one tile that carries live state. When leads are waiting the
-              // tile links straight to THOSE rows, so the number and the screen
-              // it opens can never disagree.
-              const pending =
-                tool.key === "leads" && leadsAttention && leadsAttention.count > 0
-                  ? leadsAttention
-                  : null;
-              return (
-                <Link
-                  href={pending ? pending.href : tool.href}
-                  className="ft"
-                  key={tool.key}
-                  style={pending ? { position: "relative" } : undefined}
-                  aria-label={
-                    pending
-                      ? `${tool.label} — ${pending.count} דורשים טיפול`
-                      : undefined
-                  }
-                >
-                  <span className={`fc c-${tool.color}`}>{tool.icon}</span>
-                  {pending ? <span className="ftb" aria-hidden>{pending.count}</span> : null}
-                  <span>{tool.label}</span>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
+        </section>
 
-        {/* התובנות של דוביז — the single deep/dark surface */}
-        <Insights insights={insights} />
+        <section className="sect">
+          <SectionTitle>הפיצ׳רים שלך</SectionTitle>
+          <div className="fgrid">
+            {groups.map((group) => (
+              <GroupTile key={group.key} group={group} />
+            ))}
+            <AllToolsTile />
+          </div>
+        </section>
+
+        <section className="sect">
+          <SectionTitle>היום שלך</SectionTitle>
+          <TodaySection rows={today} failed={todayFailed} />
+        </section>
       </div>
     </main>
   );
 }
 
+/** The groups, in map order, with their status resolved by the page. */
+export function buildGroupViews(
+  resolve: (key: ToolGroupKey) => GroupStatus | null
+): HomeGroupView[] {
+  return TOOL_GROUPS.map((group) => ({
+    key: group.key,
+    label: group.label,
+    href: groupHref(group),
+    status: resolve(group.key),
+  }));
+}
+
 /**
- * Scoped copy of the mockup's CSS. Every selector is namespaced under `.dzhome`
- * so nothing leaks into the rest of the app, and the design-token custom
- * properties live on the root instead of `:root`. Values are copied verbatim
- * from `dubiz-home-brief.html` — colors, spacing, radii, shadows, font sizes.
- * Fonts come from the app's next/font vars (--font-heebo body, --font-rubik
- * numerals/headings) rather than a webfont @import.
+ * Scoped styles, namespaced under `.dzhome`.
+ *
+ * The custom-property block and the five `.c-*` tool tints are carried over
+ * from the screen that shipped on main WITHOUT edits — same values, same
+ * names — so this change introduces no new colour and does not touch the
+ * `--brand` / `--dz-brand` discrepancy the audit recorded. Everything the new
+ * sections paint is composed from those existing variables plus the platform's
+ * own `--dz-action-*` role tokens for the primary CTA.
+ *
+ * The staged entrance animation that used to play here is gone: the ratified
+ * design language (`docs/dubiz-design-language-v1.md` §4, principle 10) bans
+ * entrance animations outright, and these sections are new markup rather than
+ * markup being preserved.
  */
 const HOME_CSS = `
 .dzhome{
@@ -456,167 +466,152 @@ const HOME_CSS = `
   font-family:var(--font-heebo),'Heebo','Assistant',system-ui,sans-serif;
   background:radial-gradient(120% 38% at 78% 0%,#F3EFE3,transparent 58%),var(--bg);
   /* Safe-area contract (Spec v1 §12): the top inset comes ONLY from the
-     shell-published var, never a raw env(). Without it the icon row sits
-     under the status bar in the native shell — Home was one of the screens
-     the audit flagged for the missing top inset. */
-  padding:calc(6px + var(--dz-safe-top,0px)) 24px 18px;
+     shell-published var, never a raw env(). */
+  padding:calc(6px + var(--dz-safe-top,0px)) 20px 18px;
   -webkit-font-smoothing:antialiased;
 }
 .dzhome .wrap{max-width:480px;margin:0 auto}
+.dzhome a{text-decoration:none;color:inherit;-webkit-tap-highlight-color:transparent}
 
-/* top bar */
-.dzhome .top{display:flex;align-items:center;justify-content:space-between;padding:6px 0 14px}
-.dzhome .ib{width:44px;height:44px;border-radius:15px;background:rgba(255,255,255,.8);border:1px solid rgba(120,98,64,.12);display:flex;align-items:center;justify-content:center;color:#5c5344;box-shadow:0 6px 14px -10px rgba(90,66,30,.5),var(--hl);cursor:pointer}
+/* --- top bar -------------------------------------------------------- */
+.dzhome .top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0 16px}
+.dzhome .ib{width:44px;height:44px;min-width:44px;border-radius:15px;background:rgba(255,255,255,.8);border:1px solid rgba(120,98,64,.12);display:flex;align-items:center;justify-content:center;color:#5c5344;box-shadow:0 6px 14px -10px rgba(90,66,30,.5),var(--hl);flex:0 0 auto}
 .dzhome .ib svg{width:21px;height:21px}
+.dzhome .ib.avatar{background:var(--brand-t);border-color:var(--brand-t2);color:var(--brand-d)}
+.dzhome .avin{font-size:17px;font-weight:700;line-height:1}
+.dzhome .brandmark{display:flex;align-items:center;justify-content:center;flex:1 1 auto;min-width:0}
 .dzhome .ib.bell{position:relative}
 .dzhome .ib.bell.has-unread::after{content:"";position:absolute;top:10px;right:11px;width:8px;height:8px;border-radius:50%;background:var(--neg);border:2px solid #fff}
 
-/* secretary — no card at all: sits directly on the canvas */
-.dzhome .seccard{position:relative;padding:12px 8px 4px;margin-bottom:28px}
-.dzhome .seccard::before{content:"";position:absolute;inset:-10px -14px -6px;z-index:0;background:radial-gradient(74% 116% at 76% 30%,rgba(46,124,110,.13),rgba(46,124,110,.04) 50%,transparent 74%);pointer-events:none}
-.dzhome .seccard>*{position:relative;z-index:1}
-.dzhome .seccard .srow{display:flex;align-items:center;gap:14px}
-.dzhome .seccard .sav{width:56px;height:56px;border-radius:50%;overflow:hidden;flex:0 0 auto;box-shadow:0 8px 20px -14px rgba(27,74,69,.55)}
-.dzhome .seccard .sav img{width:100%;height:100%;display:block;object-fit:cover}
-.dzhome .seccard .stx .lb{font-size:12px;color:var(--brand);font-weight:700}
-.dzhome .seccard .stx .hi{font-family:var(--font-rubik),'Rubik',sans-serif;font-weight:700;font-size:23px;letter-spacing:-.015em;line-height:1.1;margin-top:2px;color:var(--brand-d)}
-.dzhome .seccard .smsg{font-size:13.5px;color:#67857F;line-height:1.55;margin-top:14px}
-.dzhome .seccard .smsg b{color:var(--brand-d);font-weight:700}
-.dzhome .seccard .sfoot{display:flex;justify-content:flex-end;margin-top:14px}
-.dzhome .seccard .sbtn{display:inline-flex;align-items:center;gap:6px;background:none;color:var(--brand);border:none;font-family:inherit;font-weight:700;font-size:13.5px;padding:6px 2px;cursor:pointer;transition:opacity .14s;text-decoration:none}
-.dzhome .seccard .sbtn:hover{opacity:.7}
-.dzhome .seccard .sbtn svg{width:14px;height:14px}
+/* --- greeting ------------------------------------------------------- */
+.dzhome .greet{padding:0 2px;margin-bottom:16px}
+.dzhome .ghi{font-family:var(--font-rubik),'Rubik',sans-serif;font-weight:700;font-size:23px;letter-spacing:-.015em;line-height:1.2;margin:0;color:var(--brand-d)}
+.dzhome .gsub{font-size:13.5px;color:#6b6353;margin:5px 0 0;line-height:1.5}
 
-/* מצב היום — one honest sentence, borderless */
-.dzhome .state{position:relative;padding:12px 8px 6px;margin-bottom:30px}
-.dzhome .state::before{content:"";position:absolute;inset:-10px -14px -6px;z-index:0;background:radial-gradient(76% 118% at 24% 34%,rgba(62,154,107,.15),rgba(62,154,107,.04) 48%,transparent 74%);pointer-events:none}
-.dzhome .state>*{position:relative;z-index:1}
-.dzhome .state .shead{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px}
-.dzhome .state .shead .st{font-size:15px;font-weight:700}
-.dzhome .state .shead .sm{font-size:11.5px;color:var(--ink2);font-weight:500}
-.dzhome .state .line{font-family:var(--font-rubik),'Rubik',sans-serif;font-weight:700;font-size:25px;line-height:1.32;letter-spacing:-.015em;color:var(--ink)}
-.dzhome .state .line em{font-style:normal;color:var(--pos)}
-.dzhome .state .line em.neg{color:var(--neg)}
-.dzhome .state .sub{font-size:13px;color:#7a7466;margin-top:9px;line-height:1.5}
-.dzhome .state .figs{display:flex;align-items:center;gap:0;margin-top:18px}
-.dzhome .state .fig{flex:1;min-width:0}
-.dzhome .state .fig .fl{font-size:11.5px;color:var(--ink2);font-weight:500;display:flex;align-items:center;gap:6px}
-.dzhome .state .fig .fl .dot{width:8px;height:8px;border-radius:3px}
-.dzhome .state .fig .fv{font-family:var(--font-rubik),'Rubik',sans-serif;font-weight:700;font-size:19px;letter-spacing:-.02em;margin-top:5px}
-.dzhome .state .vr{width:1px;height:34px;background:#E3DFD2;margin:0 18px;flex:0 0 auto}
-
-/* section head */
-.dzhome .sh{display:flex;align-items:center;justify-content:space-between;margin:0 4px 12px}
-.dzhome .sh .ttl{font-size:14.5px;font-weight:700}
-.dzhome .sh .lnk{font-size:12px;color:var(--brand);font-weight:600;cursor:pointer;text-decoration:none}
-
-/* the pending-count pip on a tool tile — semantic red, not the tile tint, so
-   "needs you" never reads as decoration */
-.ftb{
-  position:absolute; top:-2px; inset-inline-end:6px;
-  min-width:20px; height:20px; padding:0 5px;
-  display:inline-flex; align-items:center; justify-content:center;
-  border-radius:999px; background:#B3261E; color:#fff;
-  font-size:11px; font-weight:700; line-height:1;
-  box-shadow:0 0 0 2px var(--home-bg, #FDFBF6);
-}
-
-/* tools — colorful round tiles, horizontal scroll */
-.dzhome .feats{display:flex;gap:15px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;padding:2px 0 8px;margin-bottom:22px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
-.dzhome .feats::-webkit-scrollbar{display:none}
-.dzhome .ft{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:9px;width:62px;cursor:pointer;scroll-snap-align:start;text-decoration:none}
-.dzhome .ft .fc{width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 18px -12px rgba(80,60,30,.4),var(--hl)}
-.dzhome .ft .fc svg{width:27px;height:27px}
-.dzhome .ft span{font-size:11px;color:#6b6353;font-weight:600;text-align:center;white-space:nowrap}
-.dzhome .c-teal{background:#E3F0EC;color:#2E7C6E}
-.dzhome .c-sage{background:#E7EFE0;color:#4F7A52}
-.dzhome .c-amber{background:#F8EBD2;color:#B8801F}
-.dzhome .c-clay{background:#F8E7DE;color:#B0654A}
-.dzhome .c-slate{background:#E7EDF1;color:#4E6C7E}
-
-/* התובנות של דוביז — deep card, the only dark surface */
-.dzhome .ins{position:relative;border-radius:26px;padding:19px 20px 17px;overflow:hidden;
+/* --- secretary: the loudest element on the screen -------------------- */
+.dzhome .seccard{position:relative;display:block;padding:18px 18px 16px;margin-bottom:28px;border-radius:26px;
   background:linear-gradient(155deg,#22544E 0%,#1A4340 55%,#153A3A 100%);
-  box-shadow:0 22px 44px -22px rgba(18,52,52,.75),inset 0 1px 0 rgba(255,255,255,.09)}
-.dzhome .ins::before{content:"";position:absolute;top:-70px;left:-50px;width:210px;height:210px;border-radius:50%;
+  box-shadow:0 22px 44px -22px rgba(18,52,52,.75),inset 0 1px 0 rgba(255,255,255,.09);
+  overflow:hidden;color:#EAF7F2}
+.dzhome .seccard::before{content:"";position:absolute;top:-70px;left:-50px;width:210px;height:210px;border-radius:50%;
   background:radial-gradient(circle,rgba(95,206,176,.26),transparent 68%);pointer-events:none}
-.dzhome .ins::after{content:"";position:absolute;right:-40px;bottom:-80px;width:190px;height:190px;border-radius:50%;
-  background:radial-gradient(circle,rgba(200,150,70,.12),transparent 70%);pointer-events:none}
-.dzhome .ins>*{position:relative;z-index:1}
-.dzhome .ins .ih{display:flex;align-items:center;gap:11px;margin-bottom:6px}
-.dzhome .ins .ih .ic{width:36px;height:36px;border-radius:12px;background:linear-gradient(150deg,#5FCEB0,#2E9A85);
-  display:flex;align-items:center;justify-content:center;flex:0 0 auto;
-  box-shadow:0 8px 20px -6px rgba(46,154,133,.5),inset 0 1px 0 rgba(255,255,255,.4)}
-.dzhome .ins .ih .ic svg{width:19px;height:19px;color:#0F3A34}
-.dzhome .ins .ih .iht{flex:1;min-width:0}
-.dzhome .ins .ih b{font-size:15px;font-weight:700;color:#EAF7F2;display:block;letter-spacing:-.01em}
-.dzhome .ins .ih span{font-size:11px;color:#7FA9A4;display:block;margin-top:1px}
-.dzhome .ins .ih .cnt{font-size:11px;font-weight:700;color:#7FDCC2;background:rgba(95,206,176,.12);
-  border:1px solid rgba(95,206,176,.22);padding:4px 9px;border-radius:999px;flex:0 0 auto}
-.dzhome .ins .ir{display:flex;align-items:center;gap:13px;padding:14px 0;border-bottom:1px solid rgba(255,255,255,.07)}
-.dzhome .ins .ir:last-child{border-bottom:none;padding-bottom:3px}
-.dzhome .ins .ir .ipin{width:6px;height:6px;border-radius:50%;background:#5FCEB0;flex:0 0 auto;
-  box-shadow:0 0 0 4px rgba(95,206,176,.13)}
-.dzhome .ins .ir .ipin.amber{background:#DCAA5E;box-shadow:0 0 0 4px rgba(200,150,70,.13)}
-.dzhome .ins .ir .it{flex:1;min-width:0;font-size:13.5px;font-weight:600;color:#E4F1EC;line-height:1.4}
-.dzhome .ins .ir .it small{display:block;font-weight:500;color:#7FA9A4;font-size:11.5px;margin-top:3px}
-.dzhome .ins .ir .ib2{background:rgba(255,255,255,.1);color:#EAF7F2;border:1px solid rgba(255,255,255,.16);
-  font-family:inherit;font-weight:700;font-size:12.5px;padding:9px 15px;border-radius:12px;cursor:pointer;flex:0 0 auto;
-  transition:background .15s;text-decoration:none;display:inline-block}
-.dzhome .ins .ir .ib2:hover{background:rgba(255,255,255,.17)}
-.dzhome .ins .ir .ib2.go{background:linear-gradient(150deg,#5FCEB0,#2E9A85);color:#0F3A34;border:none;
-  box-shadow:0 8px 18px -8px rgba(46,154,133,.6)}
+.dzhome .seccard>*{position:relative;z-index:1}
+.dzhome .seccard-link{transition:transform .14s ease}
+.dzhome .seccard-link:active{transform:scale(.995)}
+.dzhome .seccard .srow{display:flex;align-items:center;gap:14px}
+.dzhome .seccard .sav{width:64px;height:64px;border-radius:50%;overflow:hidden;flex:0 0 auto;box-shadow:0 8px 20px -14px rgba(0,0,0,.6);background:rgba(255,255,255,.08)}
+.dzhome .seccard .sav img{width:100%;height:100%;display:block;object-fit:cover}
+.dzhome .seccard .stx{min-width:0}
+.dzhome .seccard .stx .lb{font-size:12px;color:#7FDCC2;font-weight:600}
+.dzhome .seccard .stx .hi{font-family:var(--font-rubik),'Rubik',sans-serif;font-weight:700;font-size:19px;line-height:1.25;margin-top:4px;color:#EAF7F2}
+.dzhome .seccard .smsg{font-family:var(--font-rubik),'Rubik',sans-serif;font-size:19px;font-weight:700;line-height:1.42;letter-spacing:-.015em;color:#EAF7F2;margin:16px 0 0}
+.dzhome .seccard .sfoot{display:flex;justify-content:flex-start;margin-top:18px}
 
-/* entrance */
-.dzhome .anim{opacity:0;animation:dzhome-rise .55s cubic-bezier(.2,.75,.25,1) forwards}
-@keyframes dzhome-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-.dzhome .d0{animation-delay:.05s}
-.dzhome .d1{animation-delay:.14s}
-.dzhome .d2{animation-delay:.23s}
-.dzhome .d3{animation-delay:.32s}
-@media (prefers-reduced-motion:reduce){.dzhome .anim{animation:none;opacity:1}}
+/* State chip — colour is information: it says which of the four states we are
+   in, and nothing on this screen is tinted to look interesting.
+   The ink/ground pairs are the platform's SEMANTIC Mist tokens, not the home's
+   own tints: those tints are ICON colours (#B8801F on #F8EBD2 is ~3.3:1) and
+   would fail AA as 11.5px text. The QA pass measures the rendered contrast
+   rather than trusting this comment. */
+.dzhome .sbadge{display:inline-flex;align-items:center;margin-top:6px;font-size:11.5px;font-weight:700;padding:3px 10px;border-radius:999px;border:1px solid transparent}
+.dzhome .sbadge-calm{background:var(--dz-success-bg);color:var(--dz-success);border-color:var(--dz-success-border)}
+.dzhome .sbadge-busy{background:var(--dz-warning-bg);color:var(--dz-warning);border-color:var(--dz-warning-border)}
+.dzhome .sbadge-critical{background:var(--dz-danger-bg);color:var(--dz-danger);border-color:var(--dz-danger-border)}
+.dzhome .sbadge-settling{background:var(--brand-t);color:var(--brand-d);border-color:var(--brand-t2)}
+
+/* Primary action — the platform's own role tokens, not a new variant.
+   Rendered as a span because the whole card is the link (one tap target).
+   No hex fallback: these are declared on :root in app/dubiz-mist.css, which is
+   loaded app-wide. A fallback is a second copy of a colour that can drift —
+   which is how a CTA once ended up painting nothing at 1.03:1. */
+.dzhome .dzcta{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 20px;border-radius:14px;
+  background:var(--dz-action-primary);color:var(--dz-action-primary-text);
+  box-shadow:var(--dz-action-primary-shadow);
+  font-family:inherit;font-size:15px;font-weight:600;border:none;cursor:pointer;line-height:1.15}
+.dzhome .dzcta-arrow{display:inline-flex;width:14px;height:14px}
+.dzhome .dzcta-arrow svg{width:14px;height:14px}
+.dzhome .dzcta-quiet{background:rgba(255,255,255,.12);color:#EAF7F2;box-shadow:none;border:1px solid rgba(255,255,255,.2)}
+.dzhome .sec-failed .smsg{font-family:inherit;font-size:13.5px;font-weight:500;color:#7FDCC2;margin-top:12px}
+
+/* --- section heads --------------------------------------------------- */
+.dzhome .sect{margin-bottom:26px}
+.dzhome .sttl{font-size:14.5px;font-weight:700;margin:0 2px 12px;color:var(--ink)}
+
+/* --- היום במספרים: four counters, no percentages, no money aggregate -- */
+.dzhome .ngrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.dzhome .ntile{display:flex;flex-direction:column;gap:3px;min-height:88px;padding:14px;border-radius:18px;
+  background:var(--card);border:1px solid var(--hair);box-shadow:var(--sh);transition:transform .14s ease}
+.dzhome .ntile:active{transform:scale(.99)}
+.dzhome .nval{font-family:var(--font-rubik),'Rubik',sans-serif;font-size:26px;font-weight:700;line-height:1.05;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums}
+.dzhome .nval-off{font-family:inherit;font-size:13px;font-weight:600;color:#6b6353;line-height:1.6}
+.dzhome .nlab{font-size:12.5px;font-weight:600;color:#6b6353;line-height:1.35}
+.dzhome .nnote{font-size:11px;color:#6b6353;line-height:1.35}
+
+/* --- הפיצ'רים שלך: 2x2 ---------------------------------------------- */
+.dzhome .fgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.dzhome .ftile{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-height:116px;padding:14px;
+  border-radius:20px;background:var(--card);border:1px solid var(--hair);box-shadow:var(--sh);transition:transform .14s ease}
+.dzhome .ftile:active{transform:scale(.99)}
+.dzhome .ftile .fc{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 18px -12px rgba(80,60,30,.4),var(--hl)}
+.dzhome .ftile .fc svg{width:22px;height:22px}
+.dzhome .flab{font-size:14px;font-weight:700;color:var(--ink);line-height:1.3}
+.dzhome .fstat{font-size:11.5px;font-weight:600;line-height:1.35;margin-top:auto}
+.dzhome .fstat-clear{color:#6b6353}
+.dzhome .fstat-review{color:var(--dz-warning)}
+.dzhome .fstat-urgent{color:var(--dz-danger)}
+.dzhome .fstat-quiet{color:#6b6353;font-weight:500}
+.dzhome .fstat-loading{color:transparent}
+
+/* the five tool tints live in features/home/lib/tool-tints.ts and are injected
+   alongside this block — declared once, shared with "כל הכלים" */
+
+/* --- היום שלך -------------------------------------------------------- */
+.dzhome .tlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.dzhome .trow{display:flex;align-items:center;gap:11px;min-height:60px;padding:11px 14px;border-radius:16px;
+  background:var(--card);border:1px solid var(--hair);box-shadow:var(--sh)}
+.dzhome .trow:active{transform:scale(.995)}
+.dzhome .tbadge{flex:0 0 auto;font-size:11px;font-weight:700;padding:4px 9px;border-radius:999px}
+.dzhome .tbadge-late{background:var(--dz-danger-bg);color:var(--dz-danger)}
+.dzhome .tbadge-today{background:var(--dz-warning-bg);color:var(--dz-warning)}
+.dzhome .tbadge-tomorrow{background:var(--brand-t);color:var(--brand-d)}
+.dzhome .ttx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.dzhome .tname{font-size:14px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dzhome .tmeta{font-size:11.5px;color:#6b6353}
+.dzhome .tamt{flex:0 0 auto;font-family:var(--font-rubik),'Rubik',sans-serif;font-size:15px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+.dzhome .tempty{font-size:13.5px;color:#6b6353;line-height:1.6;margin:0;padding:2px}
+.dzhome .tempty-failed{color:#6b6353}
+
+/* --- skeletons: the size of the thing they stand in for --------------- */
+.dzhome .sk{display:block;border-radius:10px;background:rgba(255,255,255,.14)}
+.dzhome .sav-sk{width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.14);flex:0 0 auto}
+.dzhome .sk-lb{width:88px;height:12px;margin-bottom:8px}
+.dzhome .sk-hi{width:120px;height:20px}
+.dzhome .sk-msg{width:100%;height:46px;margin-top:16px}
+.dzhome .sk-cta{width:150px;height:44px;border-radius:14px}
+.dzhome .sk-row{height:60px;border-radius:16px;background:rgba(0,0,0,.05)}
 
 /* ============================================================
-   Adaptive recomposition (Adaptive+Native Spec v1 §22, owner-approved).
-   Home is the "content" intent (960). The 480 column is the MOBILE
-   composition and stays byte-identical below 768 — everything here is
+   Adaptive recomposition (Adaptive + Native Spec v1 §22). The 480 column is
+   the MOBILE composition and is unchanged below 768; everything here is
    additive, at the canonical tiers only (LAYOUT.bp 768 / 1024).
-
-   medium (768-1023): same single column, just room to breathe (600).
-     The tools strip (10 tiles ~= 755px) also stops needing a sideways
-     scroll around here, which removes the one intentional horizontal
-     scroll from the desktop experience without changing the component.
-
-   expanded (>=1024): a two-column STATUS BAND — the secretary and the
-     day state are both "where the business stands right now" surfaces,
-     short, and read together; pairing them removes a full screen of
-     scrolling. In RTL the first grid item takes the inline-start (right)
-     edge, so the reading order stays secretary -> day state, exactly as
-     on mobile. Tools and insights stay full width: a tile strip and a
-     list of insight rows both use width better than a narrow column.
-     No new sections, no reordering of business priority.
    ============================================================ */
 @media (min-width:768px){
   .dzhome .wrap{max-width:600px}
-  /* The shell already reserves 32px below the content from this tier up, so a
-     full 100dvh here guarantees a ~32px scroll on a page that otherwise fits.
-     Mobile keeps 100dvh: there the shell pad clears the fixed bottom bar. */
+  /* The shell reserves 32px below the content from this tier up. */
   .dzhome{min-height:calc(100dvh - 32px)}
+  .dzhome .ngrid{grid-template-columns:repeat(4,minmax(0,1fr))}
 }
 @media (min-width:1024px){
   .dzhome{padding:calc(6px + var(--dz-safe-top,0px)) 32px 24px}
-  .dzhome .wrap{
-    max-width:960px;
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    column-gap:32px;
-    row-gap:8px;
-    align-items:start;
-  }
-  /* every section is full width unless explicitly paired below */
+  .dzhome .wrap{max-width:960px;display:grid;grid-template-columns:1fr 1fr;column-gap:32px;row-gap:0;align-items:start}
   .dzhome .wrap>*{grid-column:1 / -1;min-width:0}
-  .dzhome .wrap>.top{grid-row:1}
-  .dzhome .wrap>.seccard{grid-column:1;grid-row:2;margin-bottom:18px}
-  .dzhome .wrap>.state{grid-column:2;grid-row:2;margin-bottom:18px}
+  /* The secretary and the day's numbers are both "where the business stands
+     right now" and read together; pairing them removes a screen of scrolling.
+     In RTL the first grid item takes the inline-start (right) edge, so the
+     reading order stays secretary -> numbers, exactly as on mobile. */
+  .dzhome .wrap>.seccard{grid-column:1;margin-bottom:26px}
+  .dzhome .wrap>.sect:first-of-type{grid-column:2}
+  .dzhome .ngrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .dzhome .fgrid{grid-template-columns:repeat(4,minmax(0,1fr))}
 }
 `;
