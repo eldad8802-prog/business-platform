@@ -377,6 +377,28 @@ export type AddSenderResult =
   | { ok: false; reason: "INVALID_EMAIL" };
 
 /**
+ * Is this the unique index on (businessId, activeEmailKey) refusing a duplicate?
+ *
+ * Prisma wraps the driver error, so the SQLSTATE and the constraint's own
+ * fields are the only reliable evidence; matching on message text would break
+ * the first time a locale or a Prisma version changes the wording. Narrowed to
+ * this one index on purpose — any other unique violation is a real bug and must
+ * keep propagating rather than being retried into a different wrong answer.
+ */
+function isActiveSenderKeyConflict(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as { code?: unknown; meta?: { target?: unknown } };
+  if (e.code !== "P2002") return false;
+  const target = e.meta?.target;
+  const fields = Array.isArray(target)
+    ? target.map(String)
+    : typeof target === "string"
+      ? [target]
+      : [];
+  return fields.includes("activeEmailKey");
+}
+
+/**
  * Record an address the owner is willing to accept forwarded mail from.
  *
  * It starts PENDING_VERIFICATION and nothing here can make it anything else.
@@ -392,30 +414,48 @@ export async function addAuthorizedSender(
   const email = normalizeEmail(String(rawEmail ?? ""));
   if (!isPlausibleEmail(email)) return { ok: false, reason: "INVALID_EMAIL" };
 
-  const result = await tenantTx(businessId, async (tx) => {
-    // A current identity already exists: return it rather than creating a
-    // second. The unique index would refuse the insert anyway; answering
-    // idempotently means a double-click is not an error the owner has to read.
-    const current = await tx.inboundEmailAuthorizedSender.findFirst({
-      where: { businessId, activeEmailKey: email },
-      select: { id: true, status: true },
-    });
-    if (current) return { row: current, created: false };
+  const attempt = () =>
+    tenantTx(businessId, async (tx) => {
+      // A current identity already exists: return it rather than creating a
+      // second, so a double click is not an error the owner has to read.
+      const current = await tx.inboundEmailAuthorizedSender.findFirst({
+        where: { businessId, activeEmailKey: email },
+        select: { id: true, status: true },
+      });
+      if (current) return { row: current, created: false };
 
-    // Only revoked history exists, or nothing at all. Either way this is a NEW
-    // identity that must verify again; the revoked row is left exactly as it is.
-    const row = await tx.inboundEmailAuthorizedSender.create({
-      data: {
-        businessId,
-        normalizedEmail: email,
-        activeEmailKey: email,
-        status: "PENDING_VERIFICATION",
-        createdByUserId: userId,
-      },
-      select: { id: true, status: true },
+      // Only revoked history exists, or nothing at all. Either way this is a NEW
+      // identity that must verify again; the revoked row is left exactly as it is.
+      const row = await tx.inboundEmailAuthorizedSender.create({
+        data: {
+          businessId,
+          normalizedEmail: email,
+          activeEmailKey: email,
+          status: "PENDING_VERIFICATION",
+          createdByUserId: userId,
+        },
+        select: { id: true, status: true },
+      });
+      return { row, created: true };
     });
-    return { row, created: true };
-  });
+
+  // The read above and the insert below are not one atomic step: two requests
+  // for the same address can both find nothing and both try to create. The
+  // unique index on (businessId, activeEmailKey) is what actually decides, and
+  // it raises P2002 on the loser — which would surface to an owner who merely
+  // double-clicked as a failure, even though their sender is now configured.
+  //
+  // So the loser re-reads and returns what the winner committed. The retry is a
+  // fresh transaction because PostgreSQL has already aborted the first one, and
+  // it runs once: a second P2002 cannot be the same race, since the row the
+  // index is complaining about is by then committed and the re-read finds it.
+  let result: Awaited<ReturnType<typeof attempt>>;
+  try {
+    result = await attempt();
+  } catch (error) {
+    if (!isActiveSenderKeyConflict(error)) throw error;
+    result = await attempt();
+  }
 
   if (result.created) {
     await logAuditEvent({

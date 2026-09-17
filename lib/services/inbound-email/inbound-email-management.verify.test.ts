@@ -449,15 +449,43 @@ check("every mutation is rate limited, and the limits are named", () => {
   );
 });
 
+check("the add-sender race is recovered, not raised at the owner", () => {
+  const start = service.indexOf("export async function addAuthorizedSender(");
+  const body = service.slice(start, service.indexOf("\n}\n", start));
+  assert.ok(
+    body.includes("isActiveSenderKeyConflict"),
+    "addAuthorizedSender does not handle the unique-index conflict at all"
+  );
+  assert.ok(
+    (body.match(/await attempt\(\)/g) ?? []).length === 2,
+    "the conflict is not retried in a fresh transaction"
+  );
+
+  const cStart = service.indexOf("function isActiveSenderKeyConflict(");
+  assert.ok(cStart > -1, "the conflict classifier is gone");
+  const classifier = service.slice(cStart, service.indexOf("\n}\n", cStart));
+  assert.ok(
+    classifier.includes('"P2002"') && classifier.includes('"activeEmailKey"'),
+    "the classifier is not narrowed to the activeEmailKey index"
+  );
+  assert.ok(
+    !/\.message|toString\(\)/.test(classifier),
+    "the classifier reads error TEXT, which a Prisma or locale change breaks"
+  );
+});
+
 /**
  * NOT PROVEN HERE, and not implied to be.
  *
- * A7 to A10 are proven STRUCTURALLY: the lock exists, it is taken before the
- * read it protects, and every query carries its tenant. Proving them by racing
- * two real requests needs PostgreSQL, which this file does not open. The
- * database half of A10 — a revoked sender plus a fresh add producing a second
- * row — was executed against PostgreSQL 17 during the T4-DB migration
- * rehearsal, where it is recorded as D3.
+ * A7 to A10 are proven STRUCTURALLY here: the lock exists, it is taken before
+ * the read it protects, and every query carries its tenant. Racing two real
+ * requests needs PostgreSQL, which this file does not open.
+ *
+ * They were raced, on PostgreSQL 17, in the T4 concurrency rehearsal — and that
+ * is where the add-sender conflict checked above was FOUND rather than reasoned
+ * about: two genuine callers both found nothing, both inserted, and the loser
+ * met the unique index as an error. What this file can keep afterwards is the
+ * shape of the fix. Only a database can re-run the race itself.
  *
  * B4's cryptographic detail is likewise structural: that a wrong key yields no
  * plaintext is a property of AES-GCM and of the crypto module's own tests, not
