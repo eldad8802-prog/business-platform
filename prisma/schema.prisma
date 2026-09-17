@@ -3756,6 +3756,8 @@ model AuthSessionSecret {
 /// forwarding, revoke the old one" — which is why several may coexist.
 enum InboundEmailAddressStatus {
   ACTIVE
+  /// Superseded by a rotation and still routable until `graceUntil`.
+  RETIRING
   REVOKED
 }
 
@@ -3850,6 +3852,18 @@ model InboundEmailAddress {
   /// InboundEmailAuthorizedSender and is evaluated per message. The old name
   /// `verifiedAt` read as though arrival verified somebody, which it does not.
   firstMessageAt DateTime?
+
+  /// When a RETIRING address stops being routable.
+  ///
+  /// THE TIMESTAMP IS AUTHORITATIVE, not a job that rewrites the row. Routing
+  /// compares the clock to this value, so an address whose grace has elapsed is
+  /// already ineligible even if nothing has yet moved it to REVOKED. Making
+  /// correctness depend on a sweep running on time would mean a late sweep is a
+  /// security hole.
+  ///
+  /// NULL on ACTIVE and on REVOKED. It is not a revocation date: `revokedAt`
+  /// records that, and REVOKED is terminal regardless of what this says.
+  graceUntil DateTime?
 
   revokedAt      DateTime?
   lastReceivedAt DateTime?
@@ -4076,6 +4090,31 @@ model InboundEmailAuthorizedSender {
   /// case-sensitively or with display formatting.
   normalizedEmail String
 
+  /// The CURRENT-identity key: the same value as `normalizedEmail` while this
+  /// row is current, and NULL once it is REVOKED.
+  ///
+  /// # Why a column rather than a partial index
+  ///
+  /// The rule is: at most one NON-REVOKED sender per business and address, and
+  /// any number of revoked ones. PostgreSQL expresses that natively as a
+  /// partial unique index, and Prisma has no syntax for one, so it would exist
+  /// only in migration SQL. Several CI batteries build their database with
+  /// `prisma db push` FROM THIS DATAMODEL rather than from the migrations, so
+  /// an index living only in SQL would be missing there and the lab would stop
+  /// reproducing Production on a constraint that decides who may send mail.
+  ///
+  /// A nullable column reaches the same guarantee through a plain unique index,
+  /// because PostgreSQL treats NULLs as distinct: many revoked rows coexist,
+  /// exactly one current row is allowed. Being in the datamodel, it appears in
+  /// every database built from it.
+  ///
+  /// A CHECK constraint in the migration ties it to `status`, so a migrated
+  /// database enforces the coupling rather than trusting whoever writes the
+  /// row. That CHECK is itself invisible to `db push`, so in those labs the
+  /// coupling rests on the writing code alone. Said plainly here rather than
+  /// described as more than it is.
+  activeEmailKey String?
+
   status InboundEmailSenderStatus @default(PENDING_VERIFICATION)
 
   /// When the challenge for this address was answered correctly.
@@ -4094,10 +4133,19 @@ model InboundEmailAuthorizedSender {
   challenges InboundEmailSenderChallenge[]
   messages   InboundEmailMessage[]
 
-  /// One claim per address per tenant. The SAME address may be listed by two
-  /// different businesses — a bookkeeper forwards for several clients — so this
-  /// is deliberately not globally unique.
-  @@unique([businessId, normalizedEmail])
+  /// One CURRENT claim per address per tenant, and any number of revoked ones.
+  ///
+  /// A revoked sender keeps its history and stops occupying the key, so the
+  /// same address can be registered again later as a NEW row that must verify
+  /// again. Reviving the old row would hand back an authorisation the business
+  /// had already withdrawn.
+  ///
+  /// Still per tenant: the SAME address may be listed by two different
+  /// businesses, because a bookkeeper forwards for several clients.
+  @@unique([businessId, activeEmailKey])
+
+  /// Lookup by address, which is no longer covered by a unique index.
+  @@index([businessId, normalizedEmail])
 
   /// Composite so a child row cannot reference a sender across tenants.
   @@unique([businessId, id])
