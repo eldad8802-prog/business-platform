@@ -84,7 +84,6 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "AuthSessionSecret", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessBotKnowledge", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessObligation", why: "E2" },
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessService", why: "E2" },
   // Payables Phase 1a. Commitment and Installment are what BusinessObligation
   // becomes; they inherit its exact erasure position — same personal surface,
   // same E2 target — and Payee sits beside Supplier for the same reason.
@@ -93,12 +92,10 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Commitment", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Installment", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Payee", why: "E2" },
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "CollaborationDeal", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Deal", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailAddress", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailAttachmentImport", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailMessage", why: "E2" },
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryAlert", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryDraft", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryItem", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InventoryMovement", why: "E2" },
@@ -109,7 +106,6 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "RecommendationOutcome", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Supplier", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "SupplierPurchaseDraft", why: "E2" },
-  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "SupplierPurchaseDraftLine", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Task", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "VendorLearning", why: "E2" },
   { code: "C13-NEEDS-OWNER-DECISION", key: "Business", why: "E2" },

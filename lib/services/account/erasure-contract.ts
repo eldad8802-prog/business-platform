@@ -462,7 +462,9 @@ export function scanCodebaseWrites(
 export function isSystemDerived(value: ts.Expression | null, allowed: ReadonlySet<string>): boolean {
   if (value === null) return false;
   if (value.kind === ts.SyntaxKind.NullKeyword) return true;
-  if (ts.isIdentifier(value) && value.text === "undefined") return true;
+  if (value.kind === ts.SyntaxKind.Identifier && (value as ts.Identifier).text === "undefined") {
+    return true;
+  }
   if (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) return true;
   if (ts.isTemplateExpression(value)) {
     return value.templateSpans.every((span) => terminalNamesAllowed(span.expression, allowed));
@@ -470,9 +472,16 @@ export function isSystemDerived(value: ts.Expression | null, allowed: ReadonlySe
   return false;
 }
 
-/** Every leaf name an expression ultimately reads, checked against the allowlist. */
+/** Every leaf name an expression ultimately reads, checked against the allowlist.
+ *
+ *  A bare identifier counts the same as a property access: the allowlist names the
+ *  DATA a value may be built from, and `externalSaleId` is the same approved datum
+ *  whether it arrives as a local or as `sale.externalSaleId`. Requiring a property
+ *  access would only reward wrapping the value in an object. `notes` stays refused
+ *  either way, which is the property that matters. */
 function terminalNamesAllowed(expr: ts.Expression, allowed: ReadonlySet<string>): boolean {
   if (ts.isStringLiteral(expr) || ts.isNumericLiteral(expr)) return true;
+  if (ts.isIdentifier(expr)) return allowed.has(expr.text);
   if (ts.isPropertyAccessExpression(expr)) return allowed.has(expr.name.text);
   if (ts.isBinaryExpression(expr)) {
     return (
