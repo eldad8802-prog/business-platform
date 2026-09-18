@@ -49,6 +49,8 @@
     "verify:payables-core": "npx tsx lib/services/payables/payables-core.test.ts",
     "verify:payables-db": "npx tsx lib/services/payables/payables.db.test.ts",
     "verify:payables-product": "npx tsx lib/services/payables/payables-1b.db.test.ts",
+    "verify:payables-matching": "npx tsx lib/services/payables/payables-matching.test.ts",
+    "verify:payables-reconciliation": "npx tsx lib/services/payables/payables-2.db.test.ts",
     "verify:prisma-centralization": "bash scripts/ci/prisma-centralization-guard.sh .",
     "verify:admin-boundary": "bash scripts/ci/admin-boundary-guard.sh .",
     "verify:authority-signed-state": "npx tsx lib/services/billing/authority/billing-authority-signed-state.verify.test.ts",

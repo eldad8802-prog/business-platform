@@ -246,6 +246,11 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   Payee: unmanaged("displayName, legalName, taxId and note"),
   Commitment: unmanaged("payeeNameSnapshot, title and note"),
   Installment: unmanaged("note, plus the legacy settlement provenance"),
+  // Payables, Phase 2. A rejected match is a decision record, but `reason` is
+  // owner-written free text and can name a person as readily as any other note
+  // field, so it inherits the same classification rather than being waved
+  // through as operational telemetry.
+  PayablesMatchRejection: unmanaged("reason, the owner's free-text note on a rejected match"),
   Deal: unmanaged("lostReason, and leadId to a partially-scrubbed Lead"),
   Recommendation: unmanaged("title and body, generated about the business"),
   RecommendationOutcome: unmanaged("notes"),
