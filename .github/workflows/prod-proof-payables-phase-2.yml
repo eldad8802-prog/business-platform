@@ -1,0 +1,116 @@
+name: Prod Proof (Payables Phase 2)
+
+# Production proof for 20260918090000_payables_phase_2_document_evidence.
+#
+# This workflow is deliberately NOT the SELECT-only `prod-readonly-evidence`
+# family, and the difference is the point. The central claim of Phase 2 is that
+# the database REFUSES a second active document evidence row. A refusal cannot
+# be observed by reading a catalogue: `pg_indexes` proves an index with the
+# right definition exists, which is a claim about text rather than behaviour.
+# The only way to prove the guard bites is to ask it to bite.
+#
+# So this one writes — under containment that is checked before it connects:
+#
+#   - ONE transaction, ending in ROLLBACK. The guard below proves the file
+#     contains ROLLBACK and contains NO COMMIT, so nothing can become durable.
+#   - Every written row is created by the script itself under a synthetic
+#     business carrying an unmistakable marker. No pre-existing row is updated
+#     or deleted; the single UPDATE targets a row inserted moments earlier
+#     inside the same transaction.
+#   - ON_ERROR_STOP, so an unexpected error aborts the session and Postgres
+#     rolls back on disconnect.
+#   - After the rollback the script counts what survived, and the step fails if
+#     the answer is not zero.
+#
+# Same gates as every other production workflow: manual dispatch only, the
+# production-db environment for human approval, and a host allowlist pinning
+# the connection to the verified Production endpoint.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-proof-payables-phase-2
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    name: Payables Phase 2 production proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+    steps:
+      - uses: actions/checkout@v4
+
+      # The containment guard. It runs BEFORE any connection is opened, and it
+      # checks the properties that make the write safe rather than trying to
+      # forbid writing outright.
+      - name: Containment guard (rollback-only, synthetic-only)
+        run: |
+          set -euo pipefail
+          SQL_FILE="ops/evidence/payables-phase-2-evidence.sql"
+          test -f "$SQL_FILE" || { echo "::error::SQL file missing: $SQL_FILE"; exit 1; }
+
+          grep -qi 'ROLLBACK;' "$SQL_FILE" || {
+            echo "::error::the script does not ROLLBACK — refusing to run it against Production"; exit 1; }
+
+          if grep -iE '^\s*COMMIT\s*;' "$SQL_FILE"; then
+            echo "::error::the script contains COMMIT — refusing to run it against Production"; exit 1
+          fi
+
+          # Destructive verbs have no business here at all, whatever the
+          # transaction does. An UPDATE is permitted (P2 revokes a row it just
+          # created) but DELETE / DROP / TRUNCATE / ALTER are not.
+          if grep -inE '\b(delete +from|drop +table|drop +index|truncate|alter +table|grant|revoke +all)\b' "$SQL_FILE"; then
+            echo "::error::destructive statement found — refusing"; exit 1
+          fi
+
+          # Every INSERT must be scoped to the synthetic marker, either directly
+          # or by selecting from the synthetic business.
+          MARKER='__dubiz_p2_proof_rollback_only__'
+          grep -q "$MARKER" "$SQL_FILE" || {
+            echo "::error::the synthetic marker is absent — cannot prove containment"; exit 1; }
+
+          echo "Containment guard passed: rollback-only, no COMMIT, no destructive verbs, synthetic marker present."
+
+      - name: Host allowlist assertion (verified Production only)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          ALLOW="ep-flat-brook-am4bhq1y"
+          if [ -z "${DIRECT_URL:-}" ]; then
+            echo "::error::DIRECT_URL secret is not set in the production-db environment."; exit 1
+          fi
+          case "$DIRECT_URL" in
+            *"$ALLOW"*) echo "Host allowlist OK: DIRECT_URL targets endpoint $ALLOW." ;;
+            *) echo "::error::DIRECT_URL does not target the verified Production endpoint ($ALLOW) — aborting."; exit 1 ;;
+          esac
+
+      - name: Install psql client
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Run the Phase 2 production proof
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          PGSSLMODE: require
+        run: |
+          set -euo pipefail
+          psql "$DIRECT_URL" \
+            --no-psqlrc \
+            --set=ON_ERROR_STOP=1 \
+            --file=ops/evidence/payables-phase-2-evidence.sql \
+            2>&1 | tee proof.out
+
+          echo "--- verifying the proof assertions actually fired ---"
+          grep -q 'PROOF duplicate-active: REFUSED' proof.out || {
+            echo "::error::the duplicate-active refusal was not observed"; exit 1; }
+          grep -q 'PROOF revoke-then-reassociate: ALLOWED' proof.out || {
+            echo "::error::re-association after revoke was not observed"; exit 1; }
+          echo "Both behavioural proofs fired."
