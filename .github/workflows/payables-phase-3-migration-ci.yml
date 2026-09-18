@@ -1,0 +1,173 @@
+name: payables phase 3 migration
+
+# PR-1 of the migration-first rule for Phase 3: the cheque / bank-account
+# migration and nothing else. No prisma/schema.prisma, no application code.
+#
+# As with every payables migration, the tree cannot be replayed from zero in
+# this repo, so the baseline is built from main's datamodel — production's shape
+# today — and this migration is applied on top, exactly as release-migrate will.
+#
+# The job does not merely apply the SQL. Every guard it ships is made to refuse:
+# a duplicate bank fingerprint, a second active default, a duplicate live cheque
+# number, and a forked replacement chain. An index whose definition is correct
+# but whose behaviour is untested is a claim about text.
+
+on:
+  push:
+    branches: [feat/payables-phase-3-migration]
+  pull_request:
+    paths:
+      - "prisma/migrations/20260918120000_payables_phase_3_cheques_and_bank_accounts/**"
+      - ".github/workflows/payables-phase-3-migration-ci.yml"
+
+jobs:
+  migration:
+    name: payables p3 migration apply (PG17)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: payables_owner
+          POSTGRES_PASSWORD: payables_ci_synthetic_pw
+          POSTGRES_DB: dubiz_payables_shadow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U payables_owner -d dubiz_payables_shadow"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables_shadow
+      DIRECT_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables_shadow
+      MIG: prisma/migrations/20260918120000_payables_phase_3_cheques_and_bank_accounts/migration.sql
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Build the baseline (production's current shape)
+        run: npx prisma db push --skip-generate --accept-data-loss
+
+      - name: Apply the Phase 3 migration
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$MIG"
+          echo "applied cleanly"
+
+      - name: RLS is enabled and FORCED on both new tables
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -t -A -c \
+            "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+              WHERE n.nspname='public' AND c.relrowsecurity AND c.relforcerowsecurity
+                AND c.relname IN ('BusinessBankAccount','Cheque');" > rls.txt
+          [ "$(cat rls.txt)" = "2" ] || { echo "FAIL: expected 2 forced tables, got $(cat rls.txt)"; exit 1; }
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -t -A -c \
+            "SELECT count(*) FROM pg_policies WHERE policyname='payables_p3_tenant';" > pol.txt
+          [ "$(cat pol.txt)" = "2" ] || { echo "FAIL: expected 2 tenant policies"; exit 1; }
+          echo "OK - both tables forced, both policies present"
+
+      - name: The cheque-number index is PARTIAL on not-cancelled
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -t -A -c \
+            "SELECT indexdef FROM pg_indexes WHERE indexname='Cheque_active_number_key';" > idx.txt
+          cat idx.txt
+          grep -q 'UNIQUE INDEX' idx.txt || { echo "FAIL: not unique"; exit 1; }
+          grep -q '"cancelledAt" IS NULL' idx.txt || { echo "FAIL: not partial on live cheques"; exit 1; }
+          echo "OK - one LIVE cheque per number per chequebook"
+
+      - name: No bank coordinate column is stored in the clear
+        run: |
+          # The schema must not grow a plaintext account-number column by
+          # accident. Only the encrypted trio, the last four, and the keyed
+          # fingerprint are allowed to exist.
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -t -A -c \
+            "SELECT string_agg(column_name, ',' ORDER BY column_name)
+               FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='BusinessBankAccount';" > cols.txt
+          cat cols.txt
+          if grep -qiE '(^|,)(accountNumber|bankCode|branchCode|iban|swift)(,|$)' cols.txt; then
+            echo "FAIL: a bank coordinate is stored in the clear"; exit 1
+          fi
+          grep -q 'coordinatesEncrypted' cols.txt || { echo "FAIL: no ciphertext column"; exit 1; }
+          grep -q 'fingerprint' cols.txt || { echo "FAIL: no fingerprint column"; exit 1; }
+          echo "OK - coordinates exist only as ciphertext, last4 and a keyed fingerprint"
+
+      - name: Every guard actually refuses
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
+            INSERT INTO \"Business\" (\"name\",\"updatedAt\") VALUES ('p3-ci', NOW());"
+          BID=$(psql "$DATABASE_URL" -t -A -c "SELECT id FROM \"Business\" WHERE \"name\"='p3-ci';")
+
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
+            INSERT INTO \"BusinessBankAccount\"
+              (\"businessId\",\"label\",\"coordinatesEncrypted\",\"coordinatesIv\",\"coordinatesTag\",
+               \"encryptionKeyId\",\"accountLast4\",\"fingerprint\",\"isDefault\",\"updatedAt\")
+            VALUES ($BID,'main','c','i','t','payables-bank-v1','8901','fp-aaa',true,NOW());"
+
+          # 1. the same account twice is one account
+          if psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
+               INSERT INTO \"BusinessBankAccount\"
+                 (\"businessId\",\"label\",\"coordinatesEncrypted\",\"coordinatesIv\",\"coordinatesTag\",
+                  \"encryptionKeyId\",\"accountLast4\",\"fingerprint\",\"updatedAt\")
+               VALUES ($BID,'dup','c','i','t','payables-bank-v1','8901','fp-aaa',NOW());" 2>/dev/null; then
+            echo "FAIL: a duplicate fingerprint was accepted"; exit 1
+          fi
+          echo "OK - a duplicate bank fingerprint is refused"
+
+          # 2. only one active default
+          if psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
+               INSERT INTO \"BusinessBankAccount\"
+                 (\"businessId\",\"label\",\"coordinatesEncrypted\",\"coordinatesIv\",\"coordinatesTag\",
+                  \"encryptionKeyId\",\"accountLast4\",\"fingerprint\",\"isDefault\",\"updatedAt\")
+               VALUES ($BID,'second','c','i','t','payables-bank-v1','7777','fp-bbb',true,NOW());" 2>/dev/null; then
+            echo "FAIL: a second active default was accepted"; exit 1
+          fi
+          echo "OK - only one active default account"
+
+          ACC=$(psql "$DATABASE_URL" -t -A -c "SELECT id FROM \"BusinessBankAccount\" WHERE \"businessId\"=$BID LIMIT 1;")
+
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
+            INSERT INTO \"Cheque\"
+              (\"businessId\",\"payeeNameSnapshot\",\"amount\",\"chequeNumber\",\"issueDate\",\"dueDate\",
+               \"sourceBankAccountId\",\"updatedAt\")
+            VALUES ($BID,'payee',1000,'500105',NOW(),NOW(),$ACC,NOW());"
+
+          # 3. one LIVE cheque per number
+          if psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
+               INSERT INTO \"Cheque\"
+                 (\"businessId\",\"payeeNameSnapshot\",\"amount\",\"chequeNumber\",\"issueDate\",\"dueDate\",
+                  \"sourceBankAccountId\",\"updatedAt\")
+               VALUES ($BID,'payee',1000,'500105',NOW(),NOW(),$ACC,NOW());" 2>/dev/null; then
+            echo "FAIL: a duplicate live cheque number was accepted"; exit 1
+          fi
+          echo "OK - a duplicate LIVE cheque number is refused"
+
+          # 4. after cancelling, the number may be recorded again
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
+            UPDATE \"Cheque\" SET \"cancelledAt\"=NOW(), \"status\"='CANCELLED' WHERE \"businessId\"=$BID;"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
+            INSERT INTO \"Cheque\"
+              (\"businessId\",\"payeeNameSnapshot\",\"amount\",\"chequeNumber\",\"issueDate\",\"dueDate\",
+               \"sourceBankAccountId\",\"updatedAt\")
+            VALUES ($BID,'payee',1000,'500105',NOW(),NOW(),$ACC,NOW());"
+          echo "OK - a cancelled number can be recorded again"
+
+          # 5. the replacement chain cannot fork
+          OLD=$(psql "$DATABASE_URL" -t -A -c "SELECT min(id) FROM \"Cheque\" WHERE \"businessId\"=$BID;")
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
+            INSERT INTO \"Cheque\"
+              (\"businessId\",\"payeeNameSnapshot\",\"amount\",\"chequeNumber\",\"issueDate\",\"dueDate\",
+               \"sourceBankAccountId\",\"replacesChequeId\",\"updatedAt\")
+            VALUES ($BID,'payee',1000,'500220',NOW(),NOW(),$ACC,$OLD,NOW());"
+          if psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
+               INSERT INTO \"Cheque\"
+                 (\"businessId\",\"payeeNameSnapshot\",\"amount\",\"chequeNumber\",\"issueDate\",\"dueDate\",
+                  \"sourceBankAccountId\",\"replacesChequeId\",\"updatedAt\")
+               VALUES ($BID,'payee',1000,'500221',NOW(),NOW(),$ACC,$OLD,NOW());" 2>/dev/null; then
+            echo "FAIL: two cheques claimed the same predecessor"; exit 1
+          fi
+          echo "OK - a replacement chain cannot fork"
