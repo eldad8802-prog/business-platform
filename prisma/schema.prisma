@@ -4086,6 +4086,19 @@ enum InboundEmailAuthorizationOutcome {
   INDETERMINATE
 }
 
+/// What a challenge is asking somebody to prove.
+///
+/// One member today, and an enum rather than a String because THIS schema owns
+/// the vocabulary — unlike `Notification.domain`, which is a String precisely so
+/// it does not become a second copy of a vocabulary another module owns.
+///
+/// A future member costs two migrations, not one: PostgreSQL refuses to use a
+/// value added by `ALTER TYPE ... ADD VALUE` inside the same transaction that
+/// added it, and the coherence CHECK below names this type.
+enum InboundEmailChallengePurpose {
+  SENDER_OWNERSHIP_VERIFICATION
+}
+
 /// An address the owner has asked to be able to forward FROM, beyond whatever
 /// the runtime later decides about the business own users.
 ///
@@ -4195,8 +4208,35 @@ model InboundEmailSenderChallenge {
   /// security event, and the lookup is always by sender rather than by hash.
   challengeHash String
 
+  /// What this challenge proves. NOT NULL with no default, which is affordable
+  /// because the table is empty and nothing writes to it yet: a default would let
+  /// a future writer omit the field and silently inherit a purpose it never chose.
+  purpose InboundEmailChallengePurpose
+
+  /// The LIVE slot. Equal to `purpose` while this challenge is the authoritative
+  /// one for its sender, and NULL once it is terminal.
+  ///
+  /// This is the T4 `activeEmailKey` pattern, and it is here for the same reason:
+  /// PostgreSQL treats NULLs as distinct in a unique index, so ONE live row and
+  /// unlimited dead ones fall out of a PLAIN unique constraint — one Prisma can
+  /// see, and therefore one a `db push` security lab reproduces. A partial unique
+  /// index would express the same rule and be invisible to those labs.
+  ///
+  /// Cleared ONLY by consumption or supersession. An expired or burned challenge
+  /// keeps its key and stays authoritative until something replaces it: expiry and
+  /// the attempt ceiling are read from the clock and the counter at decision time,
+  /// never written in by a sweep that might run late.
+  activeChallengeKey InboundEmailChallengePurpose?
+
   expiresAt  DateTime
   consumedAt DateTime?
+
+  /// Replaced by a regeneration, or abandoned because delivery definitively
+  /// failed. Deliberately not distinguished from each other HERE: both mean the
+  /// secret was never used and is now dead, which is the whole authorization
+  /// fact. Which of the two happened is operational, and belongs in the audit
+  /// events rather than in a column that exists only to tell them apart.
+  supersededAt DateTime?
 
   failedAttempts Int @default(0)
 
@@ -4205,7 +4245,15 @@ model InboundEmailSenderChallenge {
   business         Business                     @relation(fields: [businessId], references: [id], onDelete: Cascade)
   authorizedSender InboundEmailAuthorizedSender @relation(fields: [businessId, authorizedSenderId], references: [businessId, id], onDelete: Cascade)
 
+  /// At most one live challenge per business, sender and purpose. Dead rows carry
+  /// NULL here and so never collide with each other.
+  @@unique([businessId, authorizedSenderId, activeChallengeKey])
+
   @@index([businessId, authorizedSenderId])
+  /// Serves the regeneration ceiling: how many challenges this sender has been
+  /// issued in the last rolling 24 hours. Counted from rows rather than from a
+  /// rate-limit bucket because the limiter has no per-sender scope.
+  @@index([businessId, authorizedSenderId, createdAt])
   @@index([expiresAt])
 }
 

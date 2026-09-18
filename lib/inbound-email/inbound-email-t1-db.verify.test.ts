@@ -137,8 +137,18 @@ check("the challenge is stored ONLY as a hash — no plaintext column, by any na
       `InboundEmailSenderChallenge appears to hold a plaintext challenge: "${forbidden}"`
     );
   }
-  const hashy = columns.filter((c) => /challenge/i.test(c));
-  assert.deepEqual(hashy, ["challengeHash"], "the only challenge column may be the hash");
+  // An ALLOW-list, not a loosened pattern. Two columns may carry the word:
+  // the hash, and T5-DB's live slot, which holds an enum purpose and cannot
+  // hold a secret because its type has exactly one member. Anything else —
+  // a challengePlaintext, a challengeValue — still fails here as well as in
+  // the deny-list above.
+  const ALLOWED_CHALLENGE_COLUMNS = ["challengeHash", "activeChallengeKey"];
+  const hashy = columns.filter((c) => /challenge/i.test(c)).sort();
+  assert.deepEqual(
+    hashy,
+    [...ALLOWED_CHALLENGE_COLUMNS].sort(),
+    `an unexpected challenge-named column appeared: ${hashy.join(", ")}`
+  );
 });
 
 check("the challenge persists expiry, single use and failed attempts", () => {
@@ -396,6 +406,7 @@ check("only erasure and the management plane touch the new models", () => {
       if (rel.endsWith("inbound-email-t1-db.verify.test.ts")) continue;
       if (rel.endsWith("inbound-email-erasure.verify.test.ts")) continue;
       if (rel.endsWith("inbound-email-t4-db.verify.test.ts")) continue;
+      if (rel.endsWith("inbound-email-t5-db.verify.test.ts")) continue;
       const src = fs.readFileSync(path.join(ROOT, rel), "utf8");
       for (const m of NEW_TENANT_TABLES) {
         const delegate = m[0]!.toLowerCase() + m.slice(1);

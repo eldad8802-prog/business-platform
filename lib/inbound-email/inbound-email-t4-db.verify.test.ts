@@ -261,13 +261,23 @@ check("the inbound feature is still off and still fails closed", () => {
   assert.ok(/=== "true"/.test(flag), "the flag no longer requires the exact string true");
 });
 
-check("exactly one new migration, and it sorts after every applied one", () => {
+// This used to assert that the migration sorted LAST in the whole repository,
+// which is a claim about the future rather than about this migration: it held
+// only until the next one merged, and payables Phase 2 falsified it on main
+// before T5-DB existed. What it was protecting is kept — the migration is
+// present exactly once, and nothing else claimed its timestamp, which is the
+// collision that would make deploy order ambiguous.
+check("the migration exists exactly once, and owns its timestamp", () => {
   const dirs = fs
     .readdirSync(path.join(ROOT, "prisma/migrations"))
     .filter((d) => /^\d{14}_/.test(d))
     .sort();
   const mine = MIGRATION_DIR.split("/").pop()!;
-  assert.equal(dirs[dirs.length - 1], mine, "the migration does not sort last");
+  assert.equal(
+    dirs.filter((d) => d === mine).length,
+    1,
+    "the migration directory is missing or duplicated"
+  );
   assert.equal(
     dirs.filter((d) => d.startsWith(mine.slice(0, 14))).length,
     1,
