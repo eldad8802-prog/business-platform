@@ -54,7 +54,7 @@ function stableStringify(value: unknown): string {
 }
 
 /** Mirrors the billing audit hasher: stable JSON, then sha256. */
-function hashAuditEvent(input: Record<string, unknown>): string {
+export function hashAuditEvent(input: Record<string, unknown>): string {
   return createHash("sha256").update(stableStringify(input), "utf8").digest("hex");
 }
 

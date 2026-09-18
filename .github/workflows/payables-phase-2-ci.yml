@@ -1,0 +1,99 @@
+name: payables phase 2
+
+# Accounts Payable Phase 2 — document reconciliation.
+#
+# PR-2 of the migration-first rule: the datamodel and the code that reads it.
+# The migration itself is PR-1 and must be applied to Production before this
+# merges.
+#
+# The suite that matters here is the double-count invariant, proven in BOTH
+# directions against a real database — and proven again with the service
+# bypassed entirely, because an application-level check is only as good as the
+# code path that reaches it.
+
+on:
+  push:
+    branches: [feat/payables-phase-2]
+  pull_request:
+    paths:
+      - "prisma/schema.prisma"
+      - "lib/services/payables/**"
+      - "app/api/payables/**"
+      - "app/(shell)/payables/**"
+      - ".github/workflows/payables-phase-2-ci.yml"
+
+jobs:
+  core:
+    name: payables matching (no database)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Matching rules — amount alone is never identity
+        run: npx tsx lib/services/payables/payables-matching.test.ts
+      - name: Accounting invariants (1a, still true)
+        run: npx tsx lib/services/payables/payables-core.test.ts
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Lint the payables scope
+        run: npx eslint lib/services/payables lib/payables app/api/payables "app/(shell)/payables"
+
+  db:
+    name: payables reconciliation (PG17)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: payables_owner
+          POSTGRES_PASSWORD: payables_ci_synthetic_pw
+          POSTGRES_DB: dubiz_payables
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U payables_owner -d dubiz_payables"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
+      DIRECT_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
+      TEST_DATABASE_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Build the schema
+        run: npx prisma db push --skip-generate
+
+      - name: Generate the client
+        run: npx prisma generate
+
+      # Both partial unique indexes. `db push` cannot express either, so without
+      # this the guard tests would pass against a database that has no guards.
+      - name: Apply the indexes the datamodel cannot express
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c '
+            CREATE UNIQUE INDEX IF NOT EXISTS "PaymentAllocation_active_payment_installment_key"
+              ON "PaymentAllocation"("paymentId", "installmentId")
+              WHERE "reversedAt" IS NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS "PaymentEvidence_active_document_key"
+              ON "PaymentEvidence"("businessId", "documentId")
+              WHERE "revokedAt" IS NULL AND "documentId" IS NOT NULL;'
+
+      - name: 1a ledger suite (regression — the foundation still holds)
+        run: npx tsx lib/services/payables/payables.db.test.ts
+
+      - name: 1b product suite (regression — the screen still agrees)
+        run: npx tsx lib/services/payables/payables-1b.db.test.ts
+
+      - name: 2 reconciliation suite (the double count, both directions)
+        run: npx tsx lib/services/payables/payables-2.db.test.ts
