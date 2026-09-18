@@ -67,14 +67,8 @@ jobs:
       # here: there is no pooler in front of the service container.
       DIRECT_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
       TEST_DATABASE_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
-      # A second, independent database on the same container, used only by the
-      # drift check below so it cannot disturb the ledger suite above.
-      DRIFT_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables_drift
     steps:
       - uses: actions/checkout@v4
-        with:
-          # The drift check reads the base branch's datamodel.
-          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -101,61 +95,20 @@ jobs:
       - name: Ledger, tenancy, concurrency, idempotency and backfill
         run: npx tsx lib/services/payables/payables.db.test.ts
 
-      # ── The drift check ──────────────────────────────────────────────────
+      # ── The drift check was RETIRED here, deliberately ────────────────────
       #
-      # This is the proof that PR-1's migrations build exactly the shape this
-      # PR's Prisma client expects. It matters more than it looks: PR-1 is
-      # applied to production FIRST, so if the SQL and the datamodel disagree,
-      # production gets a shape the code does not expect — the 2026-09-02
-      # incident, arrived at from the other direction.
+      # It proved that the Phase 1a migrations build exactly the shape the
+      # Prisma client expects, and it did its job: it ran green on #450 before
+      # #452's migrations were applied to Production, which was the one moment
+      # the answer could still change anything.
       #
-      # It cannot be done with `--from-migrations`: replaying the whole tree
-      # from zero fails on 20260210120000_billing_invoice_profile_fields, whose
-      # BusinessProfile table is created by no migration. So the comparison is
-      # built the way production actually gets there — the base branch's
-      # datamodel (production's shape today), plus the three new migrations.
-      - name: Build a second database the way production will get there
-        run: |
-          # The baseline is main's datamodel, NOT the PR base's. Both triggers
-          # then behave the same — on a `push` event pull_request.base.sha is
-          # empty, and the HEAD~1 fallback this replaced picked up this PR's own
-          # previous commit, which already had the payables models in it.
-          # Correct for as long as it needs to be: PR-1 carries no schema
-          # change, so main stays pre-payables until this PR itself merges.
-          git fetch --no-tags origin main
-          echo "baseline datamodel from $(git rev-parse --short FETCH_HEAD) (origin/main)"
-          BASE_SHA=FETCH_HEAD
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE dubiz_payables_drift;'
-          git show "$BASE_SHA:prisma/schema.prisma" > /tmp/base.prisma
-          DATABASE_URL="$DRIFT_URL" DIRECT_URL="$DRIFT_URL" \
-            npx prisma db push --schema /tmp/base.prisma --skip-generate --accept-data-loss
-          for m in 20260917090000_payables_phase_1a_foundation \
-                   20260917090100_payables_phase_1a_tenant_rls \
-                   20260917090200_payables_phase_1a_obligation_backfill; do
-            echo "── applying $m"
-            psql "$DRIFT_URL" -v ON_ERROR_STOP=1 -q -f "prisma/migrations/$m/migration.sql"
-          done
-
-      # The partial index is the ONE thing the migrations create that the
-      # datamodel deliberately cannot describe, so it is asserted explicitly and
-      # then dropped — otherwise it would show up as drift forever and teach
-      # everyone to ignore this check. Anything else that differs is real drift.
-      - name: Migrations ↔ datamodel agree (modulo the one index Prisma cannot express)
-        run: |
-          psql "$DRIFT_URL" -v ON_ERROR_STOP=1 -t -A -c \
-            "SELECT indexdef FROM pg_indexes
-              WHERE indexname = 'PaymentAllocation_active_payment_installment_key';" > idx.txt
-          cat idx.txt
-          grep -q 'WHERE ("reversedAt" IS NULL)' idx.txt || { echo "FAIL: the migration's index is not partial on active allocations"; exit 1; }
-          psql "$DRIFT_URL" -v ON_ERROR_STOP=1 -q -c \
-            'DROP INDEX "PaymentAllocation_active_payment_installment_key";'
-          if npx prisma migrate diff \
-               --from-url "$DRIFT_URL" \
-               --to-schema-datamodel ./prisma/schema.prisma \
-               --exit-code; then
-            echo "OK - the migrations build exactly the shape this client expects."
-          else
-            echo "DRIFT - PR-1's SQL and this PR's prisma/schema.prisma disagree."
-            echo "Production would get a shape this code does not expect. Fix before merging PR-1."
-            exit 1
-          fi
+      # Its premise has now expired. The check built its baseline from
+      # `origin/main`'s datamodel and applied the three migrations on top —
+      # correct only while main was still pre-payables. #450 merged, so main
+      # now CONTAINS those models, and replaying the migrations onto it fails
+      # with `type "PayeeKind" already exists`. It cannot pass again.
+      #
+      # A check that can never pass is worse than no check: it trains everyone
+      # reading this workflow to ignore a red job. Migration-to-datamodel
+      # agreement for any FUTURE payables migration belongs to that migration's
+      # own PR, built against the baseline that is pre-migration for it.

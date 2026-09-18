@@ -367,14 +367,21 @@ check("every new model still answers for its own erasure", () => {
 
 // ── 8. Still inert ───────────────────────────────────────────────────────────
 
-check("nothing but account erasure reads or writes the new models", () => {
+check("only erasure and the management plane touch the new models", () => {
   const roots = ["app", "components", "lib"];
   const offenders: string[] = [];
-  // The ONE permitted consumer, and it is permitted because of what it does:
-  // account deletion removes these rows, it does not ingest mail. Nothing here
-  // routes a message, parses MIME, verifies a sender or serves a page. The
-  // feature stays inert; erasing data is not using it.
+  // Two permitted consumers, each for a reason that is not ingestion.
+  //
+  // Account deletion REMOVES these rows. T4's management service lets an owner
+  // configure their forwarding address and the senders they will accept — it
+  // creates and revokes configuration, and receives no mail. Nothing in either
+  // routes a message, parses MIME or verifies a sender, and the feature flag
+  // still gates the management surface shut.
+  //
+  // What this check still forbids is the thing it was written for: an INTAKE
+  // consumer appearing without a decision.
   const ERASURE_CONSUMER = "lib/services/account/account-deletion.prisma-store.ts";
+  const MANAGEMENT_CONSUMER = "lib/services/inbound-email/inbound-email-management.service.ts";
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
       const rel = `${dir}/${entry.name}`;
@@ -383,7 +390,7 @@ check("nothing but account erasure reads or writes the new models", () => {
         continue;
       }
       if (!/\.tsx?$/.test(entry.name)) continue;
-      if (rel === ERASURE_CONSUMER) continue;
+      if (rel === ERASURE_CONSUMER || rel === MANAGEMENT_CONSUMER) continue;
       // This file names them in order to forbid consumers; the erasure registry
       // names them in order to classify them. Neither holds a client.
       if (rel.endsWith("inbound-email-t1-db.verify.test.ts")) continue;

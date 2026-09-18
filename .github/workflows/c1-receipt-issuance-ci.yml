@@ -1,0 +1,116 @@
+# C1 — receipt issuance correctness, on an ephemeral PG17.
+#
+# A pure RECEIPT could not be issued: the generic issuance guard counted goods
+# lines, and a receipt has none because its money is its payment lines. The
+# shape rule is unit tested without a database; this battery proves the part a
+# fake cannot — that the whole transaction reaches ISSUED, keeps its number,
+# its payment line and its allocation, and that invoice validation did not move.
+#
+# Synthetic CI-only credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: c1 — receipt issuance (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/billing/billing-issue.service.ts"
+      - "lib/services/billing/billing-issuable-shape.rules.ts"
+      - "lib/services/billing/billing-draft.service.ts"
+      - "lib/services/billing/receipt/**"
+      - ".c1receipt/**"
+      - ".github/workflows/c1-receipt-issuance-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  c1-receipt-battery:
+    name: C1 receipt issuance (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: c1_owner
+          POSTGRES_PASSWORD: c1_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_c1
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U c1_owner -d dubiz_c1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Issuable-shape rule (pure, no database)
+        run: npx tsx lib/services/billing/billing-issuable-shape.test.ts
+
+      - name: Push schema (lab)
+        env:
+          DATABASE_URL: postgresql://c1_owner:c1_ci_synthetic_owner_pw@localhost:5432/dubiz_c1
+          DIRECT_URL: postgresql://c1_owner:c1_ci_synthetic_owner_pw@localhost:5432/dubiz_c1
+        run: npx prisma db push --skip-generate
+
+      - name: C1 receipt issuance battery
+        env:
+          DATABASE_URL: postgresql://c1_owner:c1_ci_synthetic_owner_pw@localhost:5432/dubiz_c1
+          DIRECT_URL: postgresql://c1_owner:c1_ci_synthetic_owner_pw@localhost:5432/dubiz_c1
+          AUTH_TOKEN_SECRET: c1_ci_auth_secret_synthetic
+        run: npx tsx .c1receipt/battery.mts
+
+      - name: Negative proof (deleting the guard must break invoices)
+        env:
+          DATABASE_URL: postgresql://c1_owner:c1_ci_synthetic_owner_pw@localhost:5432/dubiz_c1
+          DIRECT_URL: postgresql://c1_owner:c1_ci_synthetic_owner_pw@localhost:5432/dubiz_c1
+          AUTH_TOKEN_SECRET: c1_ci_auth_secret_synthetic
+        run: |
+          F="lib/services/billing/billing-issuable-shape.rules.ts"
+          cp "$F" "$F.bak"
+          # The cheap "fix": stop requiring lines at all. It makes receipts
+          # issuable and quietly makes an empty invoice issuable too.
+          perl -0pi -e 's/  if \(doc\.lineCount === 0\) \{\n    throw new ValidationError\("Cannot issue a document with no lines"\);\n  \}//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/billing/billing-issuable-shape.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an empty invoice became issuable"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Negative proof (a receipt must prove it holds money)
+        run: |
+          F="lib/services/billing/billing-issuable-shape.rules.ts"
+          cp "$F" "$F.bak"
+          # Accept a receipt whose payment lines do not add up to its total.
+          perl -0pi -e 's/    if \(!paymentsTotal\.equals\(doc\.stored\.totalAmount\)\) \{/    if (false) {/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/billing/billing-issuable-shape.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a receipt was issued for an amount it does not hold"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Negative proof (the customer snapshot must come from the shared resolver)
+        run: |
+          F="lib/services/billing/receipt/billing-receipt-draft.service.ts"
+          cp "$F" "$F.bak"
+          # Snapshot straight from unvalidated input — a second idea of who a
+          # customer is, and no tenant check on the way in.
+          perl -pi -e 's/await resolveCustomerForCreate\(/await ((b: number, c?: number | null, s?: string | null) => ({ customerId: c ?? null, customerNameSnapshot: s ?? null }))(/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx lib/services/billing/billing-issuable-shape.test.ts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unvalidated snapshot was accepted"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
