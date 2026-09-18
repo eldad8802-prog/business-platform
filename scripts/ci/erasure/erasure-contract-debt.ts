@@ -93,6 +93,11 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Commitment", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Installment", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Payee", why: "E2" },
+  // Payables Phase 2. A rejected match carries the owner's free-text `reason`,
+  // which can name a person as readily as any other note field, so it takes the
+  // same E2 position as the models above rather than being waved through as a
+  // decision record with no personal surface.
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "PayablesMatchRejection", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "CollaborationDeal", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Deal", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailAddress", why: "E2" },
