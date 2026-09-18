@@ -285,3 +285,107 @@ export function formatDate(iso: string): string {
     year: "numeric",
   }).format(d);
 }
+
+/* ──────────────────────── phase 2: reconciliation ────────────────────────── */
+
+export type MatchSignal = "AMOUNT" | "VENDOR" | "DATE" | "PAYEE_LINK";
+export type Confidence = "STRONG" | "POSSIBLE" | "WEAK";
+
+export type CandidateApi = {
+  target:
+    | {
+        kind: "PAYMENT";
+        paymentId: number;
+        commitmentId: number;
+        commitmentTitle: string;
+        payeeNameSnapshot: string;
+        amountMinor: number;
+        paidAt: string;
+        hasDocumentEvidence: boolean;
+      }
+    | {
+        kind: "INSTALLMENT";
+        installmentId: number;
+        commitmentId: number;
+        commitmentTitle: string;
+        payeeNameSnapshot: string;
+        remainingMinor: number;
+        dueAt: string;
+      };
+  score: number;
+  signals: MatchSignal[];
+  reasons: string[];
+  dayGap: number;
+  confidence: Confidence;
+};
+
+export type SuggestionApi = {
+  document: {
+    id: number;
+    amount: string;
+    date: string;
+    vendorName: string;
+    direction: string;
+  };
+  candidates: CandidateApi[];
+  ambiguous: boolean;
+  attachedTo: { paymentId: number; evidenceId: number } | null;
+};
+
+export function fetchSuggestions(documentId: number) {
+  return call<SuggestionApi>(`/api/payables/documents/${documentId}/suggestions`);
+}
+
+/** Confirms the document EVIDENCES an existing payment. Moves no money. */
+export function attachEvidence(documentId: number, paymentId: number) {
+  return call<{ evidence: { id: number } }>(
+    `/api/payables/documents/${documentId}/attach`,
+    { method: "POST", body: JSON.stringify({ paymentId }) },
+  );
+}
+
+/** Confirms the document IS a payment not yet recorded. Creates one. */
+export function recordPaymentFromDocument(
+  documentId: number,
+  body: { commitmentId: number; installmentIds?: number[] | null; method?: string },
+) {
+  return call<RecordPaymentResult>(
+    `/api/payables/documents/${documentId}/record-payment`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+export function rejectMatch(
+  documentId: number,
+  body: {
+    commitmentId?: number | null;
+    installmentId?: number | null;
+    paymentId?: number | null;
+    reason?: string | null;
+  },
+) {
+  return call<{ rejection: { id: number } }>(
+    `/api/payables/documents/${documentId}/reject`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+export function revokeEvidence(evidenceId: number, reason?: string) {
+  return call<{ evidence: unknown }>(`/api/payables/evidence/${evidenceId}/revoke`, {
+    method: "POST",
+    body: JSON.stringify({ reason: reason ?? null }),
+  });
+}
+
+export const CONFIDENCE_LABEL: Record<Confidence, string> = {
+  // Never "certain" and never "matched" — the engine narrows the field, the
+  // owner settles identity.
+  STRONG: "התאמה חזקה",
+  POSSIBLE: "ייתכן",
+  WEAK: "התאמה חלשה",
+};
+
+/** Minor units → a display string. Formatting only; the value is not recomputed. */
+export function minorToDisplay(minor: number, currency = "ILS"): string {
+  return formatMoney((minor / 100).toFixed(2), currency);
+}

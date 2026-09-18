@@ -243,6 +243,7 @@ model Business {
   historicalFiscalDocuments     HistoricalFiscalDocument[]
 
   @@index([archivedAt])
+  payablesMatchRejections PayablesMatchRejection[]
 }
 
 model User {
@@ -1358,6 +1359,8 @@ model Document {
   @@index([businessId, createdAt])
   @@index([businessId, status, createdAt])
   @@index([businessId, contentHashSha256])
+  paymentEvidences        PaymentEvidence[]
+  payablesMatchRejections PayablesMatchRejection[]
 }
 
 model WhatsAppAttachmentImport {
@@ -4283,6 +4286,7 @@ model Commitment {
   @@index([businessId, status])
   @@index([businessId, payeeId])
   @@index([businessId, legacyObligationId])
+  matchRejections PayablesMatchRejection[]
 }
 
 /// One scheduled amount due on one date.
@@ -4315,6 +4319,7 @@ model Installment {
   @@index([businessId, dueAt])
   @@index([businessId, status])
   @@index([commitmentId])
+  matchRejections PayablesMatchRejection[]
 }
 
 /// The economic fact: money left the business.
@@ -4351,6 +4356,7 @@ model Payment {
   @@index([businessId, paidAt])
   @@index([businessId, payeeId])
   @@index([businessId, status])
+  matchRejections PayablesMatchRejection[]
 }
 
 /// Which payment settles which installment, and by how much.
@@ -4406,11 +4412,66 @@ model PaymentEvidence {
   confirmedAt      DateTime            @default(now())
   createdAt        DateTime            @default(now())
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  payment  Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  /// Which document evidences this payment. A receipt is EVIDENCE that a
+  /// payment happened — it is never a second payment.
+  documentId        Int?
+  /// The approved reading of that document, kept so a later audit can see the
+  /// figures the match was judged on without re-running extraction.
+  financialRecordId Int?
 
+  /// Revocation, recorded rather than deleted — the same contract as an
+  /// allocation reversal. A revoked row keeps its history and stops counting.
+  revokedAt        DateTime?
+  revokedByUserId  Int?
+  revocationReason String?
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payment  Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  document Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  /// DO NOT regenerate this model's indexes from the datamodel.
+  ///
+  /// The migration ships a PARTIAL unique index Prisma cannot express:
+  ///   UNIQUE ("businessId","documentId")
+  ///     WHERE "revokedAt" IS NULL AND "documentId" IS NOT NULL
+  /// It is the double-count guard — one document may evidence at most one
+  /// payment AT A TIME. A plain @@unique([businessId, documentId]) would also
+  /// forbid re-attaching after a legitimate, audited revocation, which would
+  /// make reconciliation a one-way door. Same hazard class as the
+  /// PaymentAllocation active-allocation index.
   @@index([businessId, paymentId])
   @@index([businessId, kind])
+  @@index([businessId, documentId])
+}
+
+/// The owner said NO to a specific pairing, so it stops being suggested.
+///
+/// Scoped to the pairing rather than to the document: rejecting a receipt
+/// against the electricity bill must not suppress a correct suggestion against
+/// a different commitment. Match CANDIDATES are never stored — they are derived
+/// at read time from facts that already exist, exactly as balances are derived
+/// from allocations. Only the owner's DECISION is persisted.
+model PayablesMatchRejection {
+  id               Int      @id @default(autoincrement())
+  businessId       Int
+  documentId       Int
+  commitmentId     Int?
+  installmentId    Int?
+  paymentId        Int?
+  reason           String?
+  rejectedByUserId Int?
+  createdAt        DateTime @default(now())
+
+  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  document    Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  commitment  Commitment?  @relation(fields: [commitmentId], references: [id], onDelete: Cascade)
+  installment Installment? @relation(fields: [installmentId], references: [id], onDelete: Cascade)
+  payment     Payment?     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  /// The migration ships a unique index over COALESCEd nullable columns, which
+  /// Prisma cannot express, so re-rejecting the same pairing is refused there
+  /// rather than duplicated here.
+  @@index([businessId, documentId])
 }
 
 /// Append-only payables audit trail.
