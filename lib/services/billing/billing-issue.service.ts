@@ -35,6 +35,7 @@ import {
   assertCanReferenceSourceInvoice,
   assertCreditAmountWithinRemaining,
 } from "@/lib/services/billing/billing-credit-reversal.service";
+import { assertIssuableShape } from "@/lib/services/billing/billing-issuable-shape.rules";
 import { recomputeAll } from "@/lib/services/billing/totals/billing-totals.service";
 import { ensureBillingInvoicePostedEvent } from "@/lib/services/financial-events/financial-event.service";
 import { assertBillingIdentityReadyForTaxInvoice } from "@/lib/billing/business-identity";
@@ -449,7 +450,11 @@ export async function issueBillingDocument(
         id: input.billingDocumentId,
         businessId: input.businessId,
       },
-      include: { lines: { orderBy: { lineIndex: "asc" } } },
+      include: {
+        lines: { orderBy: { lineIndex: "asc" } },
+        // A receipt states its money here, not in goods lines.
+        receiptPayments: { orderBy: { lineIndex: "asc" } },
+      },
     });
 
     if (!doc) {
@@ -476,12 +481,18 @@ export async function issueBillingDocument(
       );
     }
 
-    if (doc.lines.length === 0) {
-      throw new ValidationError(
-        "Cannot issue a document with no lines"
-      );
-    }
-
+    // WHAT A DOCUMENT'S MONEY IS MADE OF DEPENDS ON THE DOCUMENT.
+    //
+    // Every type but one states its money in goods lines, and this guard was
+    // written for those: no lines, nothing to issue. A pure RECEIPT is the
+    // exception and always was — it has no goods, because it is not a claim for
+    // anything. Its money IS its payment lines, so the generic rule rejected
+    // every legitimate receipt and no receipt could ever be issued.
+    //
+    // The fix is to ask the question per type rather than to stop asking it.
+    // A receipt must still prove it has money and that its stated total is that
+    // money; an invoice's requirements are untouched, and the branch below is
+    // the only place the two differ.
     const recomputed = recomputeAll(
       doc.lines.map((line) => ({
         description: line.description,
@@ -492,15 +503,20 @@ export async function issueBillingDocument(
       }))
     );
 
-    if (
-      !recomputed.totals.subtotalAmount.equals(doc.subtotalAmount) ||
-      !recomputed.totals.vatAmount.equals(doc.vatAmount) ||
-      !recomputed.totals.totalAmount.equals(doc.totalAmount)
-    ) {
-      throw new ValidationError(
-        "Document totals are inconsistent with line items"
-      );
-    }
+    // The totals that belong on the legal snapshot and the audit record. The
+    // rule itself is pure and lives beside this service so it can be tested
+    // without a database; here we only supply the shape.
+    const issuedTotals = assertIssuableShape({
+      documentType: doc.documentType,
+      lineCount: doc.lines.length,
+      paymentAmounts: doc.receiptPayments.map((payment) => payment.amount),
+      stored: {
+        subtotalAmount: doc.subtotalAmount,
+        vatAmount: doc.vatAmount,
+        totalAmount: doc.totalAmount,
+      },
+      recomputed: recomputed.totals,
+    });
 
     if (doc.documentType === BillingDocumentType.CREDIT_NOTE) {
       if (doc.referenceDocumentId === null) {
@@ -516,7 +532,7 @@ export async function issueBillingDocument(
       await assertCreditAmountWithinRemaining(tx, {
         businessId: input.businessId,
         sourceBillingDocumentId: doc.referenceDocumentId,
-        creditTotalAmount: recomputed.totals.totalAmount,
+        creditTotalAmount: issuedTotals.totalAmount,
         currency: doc.currency,
       });
     }
@@ -612,7 +628,7 @@ export async function issueBillingDocument(
       documentNumberFormatted,
       issuedAt,
       actorUserId: input.actorUserId,
-      totals: recomputed.totals,
+      totals: issuedTotals,
     });
     const legalSnapshotHash = hashIssuedSnapshot(snapshot);
 
@@ -671,9 +687,9 @@ export async function issueBillingDocument(
         customerId: issued.customerId,
         referenceDocumentId: issued.referenceDocumentId,
         sourceInvoiceId: issued.referenceDocumentId,
-        subtotalAmount: recomputed.totals.subtotalAmount.toString(),
-        vatAmount: recomputed.totals.vatAmount.toString(),
-        totalAmount: recomputed.totals.totalAmount.toString(),
+        subtotalAmount: issuedTotals.subtotalAmount.toString(),
+        vatAmount: issuedTotals.vatAmount.toString(),
+        totalAmount: issuedTotals.totalAmount.toString(),
         currency: issued.currency,
         lineCount: issued.lines.length,
         snapshotSchemaVersion: SNAPSHOT_SCHEMA_VERSION,
@@ -694,8 +710,8 @@ export async function issueBillingDocument(
         actorUserId: input.actorUserId,
         documentType: issued.documentType,
         legalSnapshotHash,
-        vatAmount: recomputed.totals.vatAmount,
-        subtotalAmount: recomputed.totals.subtotalAmount,
+        vatAmount: issuedTotals.vatAmount,
+        subtotalAmount: issuedTotals.subtotalAmount,
         currency: issued.currency,
         customerTaxId: customerData?.taxId ?? null,
         customerTaxIdType: customerData?.taxIdType ?? null,
@@ -707,7 +723,7 @@ export async function issueBillingDocument(
       issued,
       documentNumber,
       documentNumberFormatted,
-      totals: recomputed.totals,
+      totals: issuedTotals,
       authoritySubmission,
     };
   });

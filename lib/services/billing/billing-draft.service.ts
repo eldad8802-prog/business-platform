@@ -61,7 +61,22 @@ function assertBusinessId(businessId: number): void {
   }
 }
 
-async function resolveCustomerForCreate(
+/**
+ * Resolve the customer a new document is for, and snapshot the name it will
+ * carry for ever.
+ *
+ * EXPORTED so receipts use this one, rather than growing a second idea of who a
+ * customer is. The snapshot is not a convenience copy: issuance refuses a
+ * document without one, and once issued the name must not follow later edits to
+ * the customer record. Two implementations of that rule would eventually
+ * disagree, and the disagreement would be a legal document naming the wrong
+ * party.
+ *
+ * Tenant isolation lives here too — the customer is read inside the business's
+ * own tenant transaction, so an id belonging to another business resolves to
+ * nothing and is refused rather than quietly snapshotted.
+ */
+export async function resolveCustomerForCreate(
   businessId: number,
   customerId?: number | null,
   customerNameSnapshot?: string | null

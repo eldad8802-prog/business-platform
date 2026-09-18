@@ -13,6 +13,7 @@ import {
   ValidationError,
 } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
+import { resolveCustomerForCreate } from "@/lib/services/billing/billing-draft.service";
 import { assertBillingDocumentLinesMutable } from "@/lib/services/billing/domain/billing-immutability.guard";
 import { recomputeAll } from "@/lib/services/billing/totals/billing-totals.service";
 import { validateAndParseLineInput } from "@/lib/services/billing/validation/billing-line.validation";
@@ -140,6 +141,17 @@ export async function createReceiptDraft(
     paymentsTotal,
   });
 
+  // The same customer resolution every other document uses, for the same
+  // reason: issuance requires an immutable name snapshot, so a receipt created
+  // with a customer and without one could never be issued — which is precisely
+  // the defect this replaces. Resolving here also keeps the tenant check on the
+  // single path that knows how to make it.
+  const { customerId, customerNameSnapshot } = await resolveCustomerForCreate(
+    input.businessId,
+    input.customerId,
+    input.customerNameSnapshot
+  );
+
   const result = await billingTenantTx(input.businessId, async (tx) => {
     const created = await tx.billingDocument.create({
       data: {
@@ -147,8 +159,8 @@ export async function createReceiptDraft(
         documentType: input.documentType,
         status: BillingDocumentStatus.DRAFT,
         currency,
-        customerId: input.customerId ?? null,
-        customerNameSnapshot: input.customerNameSnapshot ?? null,
+        customerId,
+        customerNameSnapshot,
         subtotalAmount,
         vatAmount,
         totalAmount,
