@@ -415,6 +415,11 @@ async function main() {
         businessId: b.id,
         authorizedSenderId: inboundSender.id,
         challengeHash: `${MARK}challenge-hash`,
+          // T5-DB: purpose is NOT NULL, and a LIVE row must carry the key that
+          // says so. Seeded live on purpose — a terminal row would not exercise
+          // the unique constraint the erasure delete has to step around.
+          purpose: "SENDER_OWNERSHIP_VERIFICATION",
+          activeChallengeKey: "SENDER_OWNERSHIP_VERIFICATION",
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       },
     });

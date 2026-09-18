@@ -149,6 +149,7 @@
     "verify:inbound-email-foundation": "npx tsx lib/inbound-email/inbound-email-foundation.verify.test.ts",
     "verify:inbound-email-t1-db": "npx tsx lib/inbound-email/inbound-email-t1-db.verify.test.ts",
     "verify:inbound-email-t4-db": "npx tsx lib/inbound-email/inbound-email-t4-db.verify.test.ts",
+    "verify:inbound-email-t5-db": "npx tsx lib/inbound-email/inbound-email-t5-db.verify.test.ts",
     "verify:inbound-email-management": "npx tsx lib/services/inbound-email/inbound-email-management.verify.test.ts",
     "verify:inbound-email-feature-gate": "npx tsx lib/services/inbound-email/inbound-email-feature-gate.verify.test.ts",
     "verify:inbound-mime": "npx tsx lib/inbound-email/mime/parse-inbound-mime.verify.test.ts",
