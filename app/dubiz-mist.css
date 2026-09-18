@@ -247,9 +247,9 @@
   --dz-nav-fab-shadow-pressed: 0 4px 14px -6px rgba(47, 97, 92, 0.36);
   --dz-nav-fab-hover: var(--dz-action-primary-hover);
 
-  /* Accessibility FAB trigger — global chrome, frozen on Home.
-   * Outside Home it speaks the new primary-action language; on /app the
-   * [data-dz-home] block below restores its pre-change appearance. */
+  /* Accessibility FAB trigger — global chrome. Since HOME 2B these resolve
+   * the same on every route including Home; the [data-dz-home] block below
+   * repeats them rather than overriding them (see the note there). */
   --dz-fab-trigger-bg: var(--dz-action-primary);
   --dz-fab-trigger-ink: var(--dz-action-primary-text);
   --dz-fab-trigger-border: transparent;
@@ -258,19 +258,25 @@
 }
 
 /* --------------------------------------------------------------------------
- * Home exclusion (owner requirement §12): `/app` — the authenticated Dubiz
- * home — must show ZERO visual diff under Dubiz Mist.
+ * Home chrome overrides — originally the §12 "Home shows ZERO visual diff
+ * under Dubiz Mist" exclusion.
  *
- * The home screen itself (`features/home/components/home-screen.tsx`) is fully
- * self-scoped under `.dzhome`, declares its own custom properties and reads no
- * platform token, so it is unaffected by construction. The only SHARED
- * surfaces that paint on the home route are the global nav chrome and the
- * accessibility FAB — those read the `--dz-nav-*` / `--dz-fab-*` vars above,
- * and this block restores their exact pre-Mist values for that route only.
+ * STATUS AFTER HOME 2B: that premise is partly spent. HOME 2B redesigns `/app`
+ * on purpose, so "pixel-identical Home" is no longer a goal, and a literal kept
+ * here is no longer self-justifying — it now has to earn its place like any
+ * other value.
  *
- * The literals below are verbatim the pre-Mist values (DS v1 warm for the
- * sidebar, the bottom bar's own glass constants for mobile). Do not "tidy"
- * them — they exist to guarantee a pixel-identical Home.
+ * What was audited on the rendered page during the HOME 2B closure:
+ *  - the accessibility FAB overrides were the sole cause of a reachable
+ *    contrast failure (1.48:1) and have been UNFROZEN — see the note below;
+ *  - the `--dz-nav-*` values still apply to the bottom bar / sidebar on Home
+ *    and were measured PASSING there (tab labels 4.76–5.53:1, the FAB "+" at
+ *    3.27:1 against the 3:1 large-text floor), so they are left untouched;
+ *  - the bottom navigation is a separate, deferred product decision.
+ *
+ * So: still a deliberate override block, no longer a blanket freeze. Changing a
+ * value here repaints Home only (`[data-dz-home="1"]` is set exclusively when
+ * the path is `/app`) — but measure it on the page first.
  * ---------------------------------------------------------------------- */
 [data-dz-home="1"] {
   --dz-shell-ground: #ffffff;
@@ -299,17 +305,34 @@
   --dz-nav-fab-shadow-pressed: 0 4px 14px rgba(36, 105, 102, 0.35);
   --dz-nav-fab-hover: var(--dz-nav-fab);
 
-  --dz-fab-trigger-bg: linear-gradient(
-    90deg,
-    #0f6f68 0%,
-    #2eaaa2 55%,
-    #8fe3da 100%
-  );
-  --dz-fab-trigger-ink: #ffffff;
-  --dz-fab-trigger-border: rgba(255, 255, 255, 0.3);
-  --dz-fab-trigger-shadow: 0 18px 38px rgba(46, 170, 162, 0.35);
-  /* Frozen equal to rest: Home must not gain a hover it never had. */
-  --dz-fab-trigger-bg-hover: var(--dz-fab-trigger-bg);
+  /* --- accessibility FAB: UNFROZEN (HOME 2B) --------------------------
+   * These five used to hold the pre-Mist trigger skin, a
+   * `linear-gradient(90deg, #0f6f68, #2eaaa2 55%, #8fe3da)` under a white
+   * glyph. Measured on the rendered page that gradient puts the icon at
+   * 2.84:1 over its middle stop and 1.48:1 over its light end — far under
+   * the 3:1 floor for a non-text control, and the ONLY place in the product
+   * where this trigger fails, because everywhere else it already resolves to
+   * the flat primary-action role below.
+   *
+   * It survived only to keep the §12 promise that Home shows zero visual
+   * diff. HOME 2B redesigns Home deliberately, so that promise no longer
+   * holds and the freeze was the sole cause of a reachable defect.
+   *
+   * The declarations stay (the token gate requires every chrome variable to
+   * appear in this block) but now resolve to exactly what `:root` gives
+   * every other route. Scope is provably Home-only: `--dz-fab-trigger-*` is
+   * read by `components/ui/accessibility/accessibility-fab.tsx` and nothing
+   * else, and `[data-dz-home="1"]` is set only when the path is `/app`.
+   *
+   * The bottom-bar FAB above is deliberately NOT touched: its "+" is a 30px
+   * glyph, which is large text, and its worst stop measures 3.27:1 against
+   * the 3:1 large-text floor — no defect to fix, and the bottom navigation
+   * is out of scope. */
+  --dz-fab-trigger-bg: var(--dz-action-primary);
+  --dz-fab-trigger-ink: var(--dz-action-primary-text);
+  --dz-fab-trigger-border: transparent;
+  --dz-fab-trigger-shadow: 0 10px 28px -10px rgba(47, 97, 92, 0.4);
+  --dz-fab-trigger-bg-hover: var(--dz-action-primary-hover);
 }
 
 /* --------------------------------------------------------------------------
@@ -340,8 +363,8 @@
    * as `var(--dz-action-primary)` on :root. Custom properties are substituted
    * where they are DECLARED, so rebinding `--dz-action-primary` on this element
    * never reaches through that extra hop — the FAB token has to be rebound too.
-   * On Home `--dz-fab-trigger-bg-hover` is frozen equal to the rest value, so
-   * the excluded route gains no hover it never had. */
+   * Since HOME 2B unfroze the trigger, Home resolves this the same as every
+   * other route: hover deepens, never brightens. */
   --dz-fab-trigger-bg: var(--dz-fab-trigger-bg-hover);
 }
 [data-dz-action="primary"]:active:not(:disabled):not([aria-disabled="true"]) {
