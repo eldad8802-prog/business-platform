@@ -91,8 +91,8 @@ jobs:
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
             INSERT INTO \"Business\" (\"name\", \"createdAt\", \"updatedAt\") VALUES ('p2-ci', NOW(), NOW());
-            INSERT INTO \"Document\" (\"businessId\",\"fileUrl\",\"source\",\"mimeType\",\"status\",\"createdAt\",\"updatedAt\")
-              SELECT id,'x','ci','application/pdf','APPROVED',NOW(),NOW() FROM \"Business\" WHERE \"name\"='p2-ci';"
+            INSERT INTO \"Document\" (\"businessId\",\"fileUrl\",\"source\",\"mimeType\",\"status\")
+              SELECT id,'x','ci','application/pdf','APPROVED' FROM \"Business\" WHERE \"name\"='p2-ci';"
 
           BID=$(psql "$DATABASE_URL" -t -A -c "SELECT id FROM \"Business\" WHERE \"name\"='p2-ci';")
           DID=$(psql "$DATABASE_URL" -t -A -c "SELECT id FROM \"Document\" WHERE \"businessId\"=$BID;")
