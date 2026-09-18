@@ -2,6 +2,7 @@ import { BillingDocumentType, Prisma } from "@prisma/client";
 import { NotFoundError, UnauthorizedError, ValidationError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
+import { authoritativeAllocationWhere } from "@/lib/services/billing/domain/billing-allocation-authority";
 import { billingDbStep } from "../billing-db-step";
 
 /**
@@ -9,6 +10,10 @@ import { billingDbStep } from "../billing-db-step";
  * BillingPaymentAllocation rows — the invoice itself is NEVER mutated and there
  * is no paidAt/paymentStatus column. Mirrors the credit-state aggregation
  * pattern (getBillingCreditState).
+ *
+ * C2 — only the allocations of an ISSUED receipt are counted, through Billing's
+ * shared authority filter. An invoice does not become PAID because someone
+ * prepared a receipt that was never issued.
  */
 
 export type SettlementStatus = "UNPAID" | "PARTIALLY_PAID" | "PAID";
@@ -74,6 +79,7 @@ export async function getInvoiceSettlementState(args: {
     where: {
       businessId: args.businessId,
       invoiceDocumentId: args.invoiceDocumentId,
+      ...authoritativeAllocationWhere(args.businessId),
     },
     _sum: { allocatedAmount: true },
     _count: { _all: true },
