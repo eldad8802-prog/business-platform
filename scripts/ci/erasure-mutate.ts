@@ -1,7 +1,8 @@
 /**
  * ERASURE CONTRACT — the mutation driver for the negative proofs.
  *
- * Usage:  npx tsx scripts/ci/erasure-mutate.ts <M1|M2|M3|M4|M5|M6|D1|D2|D3|D4|N2|N3|N4|N5>
+ * Usage:  npx tsx scripts/ci/erasure-mutate.ts
+ *           <M1|M2|M3|M4|M5|M6|D1|D2|D3|D4|N2|N3|N4|N5|R1|R2|R3|R4>
  *
  * WHY THIS REPLACED THE REGEXES
  *
@@ -37,6 +38,13 @@ const DISPOSITIONS = path.join(ROOT, "lib/services/account/erasure-dispositions.
 // Relocated out of lib/ by PR #434, together with the debt registry. This follows
 // the canonical path; no compatibility copy is left behind at the old one.
 const COVERAGE = path.join(ROOT, "scripts/ci/erasure/erasure-model-coverage.ts");
+// C12-R. The reclassification proofs reach outside the erasure module, because the
+// claim they guard is about the whole application: "no code here can write a person".
+// A proof of that has to be able to add a writer where a writer would really go.
+const SCHEMA = path.join(ROOT, "prisma/schema.prisma");
+const BOT_KNOWLEDGE_ROUTE = path.join(ROOT, "app/api/business/bot/knowledge/route.ts");
+const DEALS_LIST_ROUTE = path.join(ROOT, "app/api/deals/route.ts");
+const INVENTORY_SERVICE = path.join(ROOT, "lib/services/inventory/inventory.service.ts");
 
 function parse(file: string): ts.SourceFile {
   return ts.createSourceFile(
@@ -153,6 +161,27 @@ function namedArray(src: ts.SourceFile, name: string): ts.ArrayLiteralExpression
 /** Replace a node's text in place. */
 function replaceNode(source: string, src: ts.SourceFile, node: ts.Node, text: string): string {
   return source.slice(0, node.getStart(src)) + text + source.slice(node.getEnd());
+}
+
+/** Splice a statement in immediately after an existing one, at its indentation. */
+function insertAfterStatement(source: string, src: ts.SourceFile, stmt: ts.Statement, text: string): string {
+  const col = ts.getLineAndCharacterOfPosition(src, stmt.getStart(src)).character;
+  const nl = source.includes("\r\n") ? "\r\n" : "\n";
+  const indent = " ".repeat(col);
+  const at = stmt.getEnd();
+  return source.slice(0, at) + nl + indent + text + source.slice(at);
+}
+
+/** Insert a field line into a Prisma model block, right after its opening line.
+ *  Prisma has no TypeScript AST to anchor on; a model declaration is structure
+ *  rather than formatting, so this is the same class of anchor as N1's append. */
+function insertPrismaField(source: string, model: string, field: string): string {
+  const open = new RegExp("^model[ ]+" + model + "[ ]*\\{[ ]*$", "m");
+  const m = open.exec(source);
+  if (!m) throw new Error(`no model block for "${model}"`);
+  const at = m.index + m[0].length;
+  const nl = source.includes("\r\n") ? "\r\n" : "\n";
+  return source.slice(0, at) + nl + "  " + field + source.slice(at);
 }
 
 /** Remove a whole statement, and the newline it sat on. */
@@ -304,6 +333,61 @@ const MUTATIONS: Record<string, Mutation> = {
         manifestEntry(src, "oAuthToken"),
         `{ model: "oAuthToken", clear: ["accessTokenEncrypted", "refreshTokenEncrypted"], set: {} }`
       ),
+  },
+  // ── R1…R4: the reclassification contract ────────────────────────────────
+  //
+  // Four models moved out of UNMANAGED_PERSONAL_DATA because nothing in the
+  // product can put a person in them. Each of those four claims rests on a fact
+  // about the CODE, not about the schema, and a fact about code expires quietly.
+  // These four prove the claims are held rather than recorded.
+
+  // BusinessService is non-personal because the product has no writer for it at
+  // all. A writer appearing anywhere is the whole risk, so the proof adds one
+  // where one would plausibly go: the route that already counts services.
+  R1: {
+    file: BOT_KNOWLEDGE_ROUTE,
+    what: "give BusinessService an application writer",
+    apply: (src, text) =>
+      insertAfterStatement(
+        text,
+        src,
+        prismaStatement(src, "businessService", "count"),
+        `await db.businessService.update({ where: { id: 1 }, data: { name: "x" } });`
+      ),
+  },
+  // CollaborationDeal is non-personal because its text comes from a fixed rule
+  // table and the only route touching it writes `status`. A NEW endpoint writing
+  // request text is the realistic way that stops being true.
+  R2: {
+    file: DEALS_LIST_ROUTE,
+    what: "write CollaborationDeal text from a new, undeclared route",
+    apply: (src, text) =>
+      insertAfterStatement(
+        text,
+        src,
+        prismaStatement(src, "collaborationDeal", "findMany"),
+        `await prisma.collaborationDeal.updateMany({ where: { businessId: 1 }, data: { title: "x" } });`
+      ),
+  },
+  // InventoryAlert.message is non-personal because it interpolates product
+  // identity and nothing else. This repoints it at a counterparty's free text
+  // INSIDE an already-approved file, so only the value rule can catch it.
+  R3: {
+    file: INVENTORY_SERVICE,
+    what: "source InventoryAlert.message from counterparty free text",
+    apply: (src, text) => {
+      const data = prismaData(src, "inventoryAlert", "create");
+      const p = propertyNamed(data, "message");
+      if (!p) throw new Error("the inventoryAlert.create data has no `message` property");
+      return replaceNode(text, src, p.initializer, "`${customer.notes}`");
+    },
+  },
+  // SupplierPurchaseDraftLine is non-personal because `rawName` is its only text
+  // column and it holds a product name. A new text column must not inherit that.
+  R4: {
+    file: SCHEMA,
+    what: "add an unclassified text column to SupplierPurchaseDraftLine",
+    apply: (_src, text) => insertPrismaField(text, "SupplierPurchaseDraftLine", "note String?"),
   },
   // A disposition for a model that is not in the schema.
   N2: {

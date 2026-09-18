@@ -48,7 +48,13 @@ import {
 import { COVERED_MODELS, DISPOSITIONS } from "./erasure-dispositions";
 import { COVERAGE_SOURCES, MODEL_COVERAGE } from "../../../scripts/ci/erasure/erasure-model-coverage";
 import { ACCEPTED_DEBT, debtKey } from "../../../scripts/ci/erasure/erasure-contract-debt";
-import { delegateName, parseAdapter, parsePrismaSchema } from "./erasure-contract";
+import {
+  delegateName,
+  isSystemDerived,
+  parseAdapter,
+  parsePrismaSchema,
+  scanCodebaseWrites,
+} from "./erasure-contract";
 
 const ROOT = path.resolve(__dirname, "../../..");
 const SCHEMA = path.join(ROOT, "prisma", "schema.prisma");
@@ -461,6 +467,110 @@ function main(): number {
         report("C11-DECISION-WITHOUT-QUESTION", name, `${name} needs a decision but no question is stated`);
       } else {
         report("C13-NEEDS-OWNER-DECISION", name, `${name}: ${cov.question}`);
+      }
+    }
+  }
+
+  // ── C14…C16 — NON_PERSONAL_OPERATIONAL, proven instead of promised ─────────
+  //
+  // Four models were classified UNMANAGED_PERSONAL_DATA on the assumption that a
+  // text column is personal data. Three of them cannot receive a person at all —
+  // one has no writer in the product, one is filled from a fixed rule table, one
+  // interpolates a stock item's name — and the fourth's only text column is a
+  // product name. Reclassifying them is a correction, not an erasure.
+  //
+  // But a correction that rests on "no writer exists today" expires the first time
+  // somebody writes one, and nothing would say so. These three checks are what
+  // stop the correction from rotting into a false green.
+  const evidenced = Object.entries(MODEL_COVERAGE).filter(
+    ([, cov]) => cov.disposition === "NON_PERSONAL_OPERATIONAL" && cov.evidence
+  );
+
+  if (evidenced.length > 0) {
+    const watched = new Set<string>();
+    for (const [name, cov] of evidenced) {
+      const model = models.get(name);
+      if (model) watched.add(model.delegate);
+      for (const via of cov.evidence!.viaDelegates ?? []) watched.add(via);
+    }
+
+    const scan = scanCodebaseWrites(ROOT, ["app", "lib", "scripts"], watched);
+
+    // Fail closed. A file the scanner could not read is not evidence of absence —
+    // it is the absence of evidence, and E1's whole premise is that those are not
+    // the same thing.
+    for (const u of scan.unreadable) {
+      report("C0-UNREADABLE", `scan:${u.file}`, `${u.file}: ${u.detail}`);
+    }
+
+    for (const [name, cov] of evidenced) {
+      const ev = cov.evidence!;
+      const model = models.get(name);
+      if (!model) continue; // C9 already reported it.
+
+      // ── C14 — the schema may not grow a text column behind the claim ───────
+      const actual = model.fields
+        .filter((f) => f.isScalar && !f.isId && (f.type === "String" || f.type === "Json"))
+        .map((f) => f.name);
+      const declared = new Set(ev.textualSurface);
+      for (const col of actual) {
+        if (!declared.has(col)) {
+          report(
+            "C14-TEXTUAL-SURFACE-DRIFT",
+            `${name}.${col}`,
+            `${name}.${col} is a text column that ${name}'s non-personal evidence does not account for — ` +
+              `classify it or add it to textualSurface`
+          );
+        }
+      }
+      for (const col of ev.textualSurface) {
+        if (!actual.includes(col)) {
+          report(
+            "C14-STALE-TEXTUAL-SURFACE",
+            `${name}.${col}`,
+            `${name}'s evidence names ${col}, which is no longer a text column on that model`
+          );
+        }
+      }
+
+      // ── C15 — only declared files may write it ─────────────────────────────
+      const own = model.delegate;
+      const via = new Set(ev.viaDelegates ?? []);
+      const allowed = new Set(ev.writeSites);
+      const surface = new Set(ev.textualSurface);
+      for (const w of scan.writes) {
+        // A via-delegate counts in full. It is declared precisely because this
+        // model is created through it, so every file that writes the parent is a
+        // file that can write the child — narrowing that would reintroduce the
+        // guess the declaration exists to remove.
+        if (w.delegate !== own && !via.has(w.delegate)) continue;
+        if (!allowed.has(w.file)) {
+          report(
+            "C15-UNDECLARED-WRITE-SITE",
+            `${name}@${w.file}`,
+            `${w.file} writes ${name} via ${w.delegate}.${w.method}() (line ${w.line}) and is not a declared ` +
+              `write site for a model classified NON_PERSONAL_OPERATIONAL`
+          );
+        }
+      }
+
+      // ── C16 — the written value must be system-derived ─────────────────────
+      if (ev.derivedFrom) {
+        const ok = new Set(ev.derivedFrom);
+        for (const w of scan.writes) {
+          if (w.delegate !== own) continue;
+          for (const f of w.fields) {
+            if (!surface.has(f.name)) continue;
+            if (!isSystemDerived(f.value, ok)) {
+              report(
+                "C16-NON-DERIVED-VALUE",
+                `${name}.${f.name}@${w.file}:${f.line}`,
+                `${w.file} writes ${name}.${f.name} (line ${f.line}) from something other than a literal or a ` +
+                  `template over [${ev.derivedFrom.join(", ")}] — the non-personal claim does not cover it`
+              );
+            }
+          }
+        }
       }
     }
   }

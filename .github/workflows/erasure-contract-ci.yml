@@ -185,6 +185,58 @@ jobs:
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
 
+      # ── the reclassification contract ──────────────────────────────────────
+      # Four models left UNMANAGED_PERSONAL_DATA because nothing in the product can
+      # put a person in them. Each of those claims is a fact about the CODE, and a
+      # fact about code expires without announcing it. These four are what keeps
+      # "this is not personal data" from decaying into a false green.
+
+      - name: negative proof — R1 BusinessService gains an application writer
+        run: |
+          F="app/api/business/bot/knowledge/route.ts"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts R1
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a new writer kept the non-personal claim"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — R2 CollaborationDeal written from an undeclared route
+        run: |
+          F="app/api/deals/route.ts"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts R2
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an undeclared write site passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      # The one that needs the VALUE rule rather than the site rule: this mutation
+      # lands inside a file that IS allowed to write the column.
+      - name: negative proof — R3 InventoryAlert.message sourced from free text
+        run: |
+          F="lib/services/inventory/inventory.service.ts"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts R3
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a non-derived message value passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — R4 a new text column on SupplierPurchaseDraftLine
+        run: |
+          F="prisma/schema.prisma"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts R4
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unclassified text column inherited the claim"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
       # ── model-level coverage ───────────────────────────────────────────────
       # The failure these catch is not "this model holds personal data" — no guard
       # can know that — but "nobody said what happens to this model".

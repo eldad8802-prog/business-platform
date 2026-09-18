@@ -50,6 +50,50 @@ export type ModelDisposition =
 
 export type RetentionBasis = "PRODUCT" | "LEGAL/FISCAL" | "SECURITY/AUDIT" | "UNPROVEN";
 
+/**
+ * Machine-enforced backing for a `NON_PERSONAL_OPERATIONAL` claim.
+ *
+ * Most entries in that category are counters and enums, and a stated `reason` is
+ * a fair way to record "no column here describes a person". A few are different:
+ * they hold free-text-shaped columns and the claim is not "there is no text" but
+ * "nothing in this product can put a person in that text". That claim is about
+ * the whole application, and it expires silently the moment somebody adds a
+ * writer — so where it is made, it is proven rather than asserted.
+ *
+ * Declaring evidence is optional. Declaring it and being wrong is a build failure.
+ */
+export type NonPersonalEvidence = {
+  /**
+   * Every non-`@id` String/Json column the model is allowed to have. The guard
+   * compares this to the schema in both directions, so a new `note` column fails
+   * the build instead of quietly inheriting a non-personal classification.
+   */
+  textualSurface: readonly string[];
+  /**
+   * Repository-relative files permitted to write this model. An EMPTY list is the
+   * strongest form: it asserts the product has no writer at all, and any write
+   * anywhere is then a finding.
+   *
+   * File-granular on purpose. A rule about which local variable a value came from
+   * breaks on the first rename and teaches people to edit the guard; "no new file
+   * may write this" survives refactors and fails on the event that matters.
+   */
+  writeSites: readonly string[];
+  /**
+   * Models written through a parent's nested `create`. `SupplierPurchaseDraftLine`
+   * has no delegate call of its own on the intake path — it is created inside
+   * `supplierPurchaseDraft.create({ data: { lines: { create: [...] } } })` — so the
+   * parent's writes count as writes to the child.
+   */
+  viaDelegates?: readonly string[];
+  /**
+   * When present, every write to a `textualSurface` column must be a literal, or a
+   * template whose interpolations terminate in one of these property names. This
+   * is what separates `` `low stock: ${item.name}` `` from `` `${customer.notes}` ``.
+   */
+  derivedFrom?: readonly string[];
+};
+
 export type ModelCoverage = {
   disposition: ModelDisposition;
   /** Required for RETAINED_BY_DESIGN, NON_PERSONAL_OPERATIONAL and SYSTEM_INTERNAL. */
@@ -62,6 +106,8 @@ export type ModelCoverage = {
   surface?: string;
   /** Required for NEEDS_OWNER_DECISION: the question that has to be answered. */
   question?: string;
+  /** Optional for NON_PERSONAL_OPERATIONAL: proof instead of a promise. */
+  evidence?: NonPersonalEvidence;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -206,21 +252,17 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   // through as operational telemetry.
   PayablesMatchRejection: unmanaged("reason, the owner's free-text note on a rejected match"),
   Deal: unmanaged("lostReason, and leadId to a partially-scrubbed Lead"),
-  CollaborationDeal: unmanaged("title, description, reasonText"),
   Recommendation: unmanaged("title and body, generated about the business"),
   RecommendationOutcome: unmanaged("notes"),
   InventoryItem: unmanaged("supplierName, a denormalised copy of a Supplier name"),
   InventoryMovement: unmanaged("note, plus createdByUserId"),
   InventoryDraft: unmanaged("detectedName and imageUrl"),
-  InventoryAlert: unmanaged("message, generated text about stock"),
   PurchaseOrder: unmanaged("supplierName and supplierId"),
   PurchaseOrderLine: unmanaged("rawName as typed, and remainingDecisionNote"),
   SupplierPurchaseDraft: unmanaged("supplierName and supplierId"),
-  SupplierPurchaseDraftLine: unmanaged("rawName as typed"),
   ReceivingSession: unmanaged("note, plus createdByUserId"),
   VendorLearning: unmanaged("vendorName and its normalised form"),
   BusinessBotKnowledge: unmanaged("address and notes, entered by the owner"),
-  BusinessService: unmanaged("name and description of what the business sells"),
   AuthSession: unmanaged("userId and userAgent survive; sessions are refused by the lifecycle gate, not invalidated"),
   AuthSessionSecret: unmanaged("session secrets hang off AuthSession and are not removed with it"),
   InboundEmailMessage: unmanaged(
@@ -267,6 +309,85 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   ImportRunRow: operational("per-row import status and hashes"),
   DerivedClaimCandidate: operational("candidate bookkeeping in the inert claim substrate"),
   DerivedClaimEvidenceLink: operational("link rows in the inert claim substrate"),
+
+  // ── C12-R: four corrections, each with its evidence attached ──────────────
+  //
+  // These four were classified UNMANAGED_PERSONAL_DATA on the assumption that a
+  // text column is a personal-data surface. Read against the code, none of them
+  // is: the correction is that the original classification was wrong, not that
+  // the data stopped mattering. Nothing is erased to earn any of them, and every
+  // claim below is checked by C14/C15/C16 rather than taken on trust.
+
+  // Not "the service catalogue is impersonal" — that would be an opinion. The
+  // product has NO writer for this model at all: zero create, update or upsert
+  // anywhere outside tests. The only reference in the codebase is a `count()`.
+  // An empty writeSites list is what says so, and what fails if one appears.
+  BusinessService: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason: "the product has no writer for it: a service catalogue nothing in the app fills",
+    evidence: { textualSurface: ["name", "description"], writeSites: [] },
+  },
+
+  // Every content field comes from a fixed rule table in the matching engine —
+  // `title: "שיתוף פעולה עם קוסמטיקאית"`, `partnerType: "Cosmetician"` — and the
+  // one route that writes the model writes `status`, an enum. `partnerType` is a
+  // closed professional label, not a person. There is no path from request text
+  // to any column here, which is precisely what the write sites pin down.
+  CollaborationDeal: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason: "generated partnership suggestions from a fixed rule table; the API writes only status",
+    evidence: {
+      textualSurface: ["title", "description", "partnerType", "reasonText", "sourceType"],
+      writeSites: ["app/api/deals/[id]/route.ts", "lib/collaboration/matchingEngine.ts"],
+    },
+  },
+
+  // `message` is derived, not authored. Three of seven write sites touch it and
+  // all three interpolate stock identity: `מלאי קריטי: ${item.name}`,
+  // `מלאי נמוך: ${item.name}`, `מוצר מהקופה לא זוהה: ${metadata.name || sku || barcode}`.
+  // The other four set isResolved/resolvedAt. Product names are
+  // NON_PERSONAL_OPERATIONAL by ratified decision, so a string built only out of
+  // them is too — and `derivedFrom` is what keeps it built only out of them.
+  InventoryAlert: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason: "stock alerts whose message interpolates product identity and nothing else",
+    evidence: {
+      textualSurface: ["message"],
+      // The resolve route writes `isResolved` and no text. It is listed because the
+      // site rule is delegate-granular on purpose — "who may write this model" is a
+      // cheaper question to keep honest than "who may write this column", and it was
+      // this scan that found the route at all: the call is split across two lines
+      // (`tx.inventoryAlert` then `.updateMany(`), so every grep-based inventory of
+      // write sites in the preceding audits missed it.
+      writeSites: [
+        "app/(shell)/inventory/alerts/[id]/resolve/route.ts",
+        "lib/services/inventory/inventory.service.ts",
+        "lib/services/inventory/pending-match.service.ts",
+      ],
+      derivedFrom: ["name", "sku", "barcode", "externalSaleId"],
+    },
+  },
+
+  // `rawName` is the only text column on the model, and it is a PRODUCT name:
+  // the CSV connector maps it to `productName`, the adapter falls back to
+  // `line.productName`, the document service prints `rawName || "מוצר ללא שם"`,
+  // and intake copies it straight into `InventoryDraft.detectedName`. It sits
+  // beside `sku` and `barcode` in the line's identity check. The via-delegate is
+  // not an optimisation: on the intake path these rows only ever exist inside
+  // `supplierPurchaseDraft.create({ data: { lines: { create: [...] } } })`.
+  SupplierPurchaseDraftLine: {
+    disposition: "NON_PERSONAL_OPERATIONAL",
+    reason: "purchase-draft lines; rawName is a product name, alongside sku and barcode",
+    evidence: {
+      textualSurface: ["rawName", "sku", "barcode"],
+      writeSites: [
+        "app/api/inventory/supplier-purchases/[id]/reject/route.ts",
+        "lib/services/inventory/supplier-purchase-approval.service.ts",
+        "lib/services/inventory/supplier-purchase-intake.service.ts",
+      ],
+      viaDelegates: ["supplierPurchaseDraft"],
+    },
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
