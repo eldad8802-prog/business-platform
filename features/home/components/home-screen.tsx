@@ -18,6 +18,7 @@ import {
   DUE_BADGE_LABEL,
   formatAmount,
   formatDueDate,
+  type CounterValue,
   type GroupStatus,
   type TodayRow,
   type VerdictView,
@@ -53,9 +54,6 @@ import {
  */
 
 /* --------------------------------------------------------------- types -- */
-
-/** `null` = the source for this figure did not load. Never a stand-in zero. */
-export type CounterValue = number | null;
 
 export type HomeCounter = {
   key: string;
@@ -253,14 +251,35 @@ function SecretaryCard({
   );
 }
 
-/** One counter. A value of 0 is still a link — the empty list is an answer. */
+/**
+ * One counter, in exactly one of three honest states.
+ *
+ *   loading → a skeleton the size of the figure. NOT the failure wording: a
+ *             request still in flight has not failed, and saying so would be
+ *             a claim we have not earned.
+ *   ready   → the figure, including a legitimate 0. Zero is an answer.
+ *   failed  → "לא נטען", and only then.
+ *
+ * A value of 0 keeps its link — the empty list is an answer too.
+ */
 function CounterTile({ counter }: { counter: HomeCounter }) {
-  const unavailable = counter.value === null;
+  const v = counter.value;
   return (
-    <Link href={counter.href} className="ntile" aria-label={counter.label}>
-      <span className={`nval${unavailable ? " nval-off" : ""}`}>
-        {unavailable ? "לא נטען" : counter.value}
-      </span>
+    <Link
+      href={counter.href}
+      className="ntile"
+      aria-label={counter.label}
+      aria-busy={v.state === "loading" || undefined}
+    >
+      {v.state === "loading" ? (
+        <span className="nval nval-loading">
+          <span className="sk sk-num" aria-hidden />
+        </span>
+      ) : v.state === "failed" ? (
+        <span className="nval nval-off">לא נטען</span>
+      ) : (
+        <span className="nval">{v.value}</span>
+      )}
       <span className="nlab">{counter.label}</span>
       {counter.note ? <span className="nnote">{counter.note}</span> : null}
     </Link>
@@ -544,6 +563,8 @@ const HOME_CSS = `
 .dzhome .ntile:active{transform:scale(.99)}
 .dzhome .nval{font-family:var(--font-rubik),'Rubik',sans-serif;font-size:26px;font-weight:700;line-height:1.05;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums}
 .dzhome .nval-off{font-family:inherit;font-size:13px;font-weight:600;color:#6b6353;line-height:1.6}
+.dzhome .nval-loading{display:flex;align-items:center;height:27px}
+.dzhome .sk-num{width:46px;height:22px;border-radius:8px;background:rgba(0,0,0,.06)}
 .dzhome .nlab{font-size:12.5px;font-weight:600;color:#6b6353;line-height:1.35}
 .dzhome .nnote{font-size:11px;color:#6b6353;line-height:1.35}
 

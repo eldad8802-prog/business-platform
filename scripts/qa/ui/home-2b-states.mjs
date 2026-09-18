@@ -177,11 +177,23 @@ const STATES = {
 /** A fourth capture: the briefing failed. The card must say so, not guess. */
 const VERDICT_FAILS = "verdict-error";
 
+/**
+ * Two more, for the counter state model. LOADING ≠ FAILED ≠ SUCCESS(0), and
+ * the only way to prove that is to render all three:
+ *   counters-loading → the four secondary sources never answer
+ *   counters-failed  → they answer 500
+ * The zero case is already covered by the `calm` fixture, whose counts are 0.
+ */
+const COUNTERS_LOADING = "counters-loading";
+const COUNTERS_FAILED = "counters-failed";
+
 /* --------------------------------------------------------------- stubs -- */
 
 async function installStubs(page, stateKey) {
   const fixture = STATES[stateKey] ?? STATES.calm;
   const briefingFails = stateKey === VERDICT_FAILS;
+  const countersLoading = stateKey === COUNTERS_LOADING;
+  const countersFailed = stateKey === COUNTERS_FAILED;
 
   const json = (route, body, status = 200) =>
     route.fulfill({
@@ -189,20 +201,30 @@ async function installStubs(page, stateKey) {
       contentType: "application/json",
       body: JSON.stringify(body),
     });
+  /** Never settles — the request stays genuinely in flight. */
+  const hang = () => new Promise(() => {});
+  /** How a counter source should behave in this mode. */
+  const source = (route, body) => {
+    if (countersLoading) return hang();
+    if (countersFailed) return json(route, { error: "boom" }, 500);
+    return json(route, body);
+  };
 
+  // /api/home is never hung: without it the page stays on its own skeleton and
+  // the counters would not be on screen to assert against.
   await page.route("**/api/home", (route) => json(route, HOME));
   await page.route("**/api/notifications/unread-count", (route) =>
     json(route, { unreadCount: 2 })
   );
   await page.route("**/api/obligations/briefing", (route) =>
-    briefingFails ? json(route, { error: "boom" }, 500) : json(route, fixture.briefing)
+    briefingFails ? json(route, { error: "boom" }, 500) : source(route, fixture.briefing)
   );
-  await page.route("**/api/business-status", (route) => json(route, fixture.status));
+  await page.route("**/api/business-status", (route) => source(route, fixture.status));
   await page.route("**/api/payments/collection-workspace", (route) =>
-    json(route, fixture.collection)
+    source(route, fixture.collection)
   );
   await page.route("**/api/documents/inbox**", (route) =>
-    json(route, {
+    source(route, {
       success: true,
       financialPulse: { inboxDocumentCounts: { totalPendingReview: fixture.docs } },
       items: [],
@@ -256,6 +278,10 @@ async function audit(page, rootSelector) {
         label: el.querySelector(".nlab")?.textContent?.trim(),
         href: el.getAttribute("href"),
         x: Math.round(el.getBoundingClientRect().x),
+        // The three states, read from the DOM rather than from the text alone.
+        loading: !!el.querySelector(".nval-loading .sk-num"),
+        failed: !!el.querySelector(".nval-off"),
+        busy: el.getAttribute("aria-busy") === "true",
       })),
       // Reading order, measured rather than eyeballed: in RTL the first item
       // of a row must sit further right than the second.
@@ -382,7 +408,14 @@ async function main() {
   const collectedHrefs = new Set();
   const snapshots = {};
 
-  for (const stateKey of ["calm", "busy", "critical", VERDICT_FAILS]) {
+  for (const stateKey of [
+    "calm",
+    "busy",
+    "critical",
+    VERDICT_FAILS,
+    COUNTERS_LOADING,
+    COUNTERS_FAILED,
+  ]) {
     for (const width of WIDTHS) {
       const ctx = await browser.newContext({
         viewport: { width, height: 900 },
@@ -452,7 +485,67 @@ async function main() {
         );
       }
 
-      if (stateKey !== VERDICT_FAILS) {
+      // --- the counter state model: LOADING ≠ FAILED ≠ SUCCESS(0) ---------
+      if (stateKey === COUNTERS_LOADING) {
+        check(
+          `${stateKey} @${width}: LOADING shows a skeleton on every counter`,
+          m.counters.length === 4 && m.counters.every((c) => c.loading),
+          m.counters.map((c) => `${c.label}:${c.loading ? "skeleton" : "none"}`).join(" | ")
+        );
+        check(
+          `${stateKey} @${width}: LOADING never says "לא נטען"`,
+          m.counters.every((c) => c.value !== "לא נטען" && !c.failed),
+          m.counters.map((c) => `${c.label}="${c.value}"`).join(" | ")
+        );
+        check(
+          `${stateKey} @${width}: LOADING renders no figure at all`,
+          m.counters.every((c) => !/\d/.test(c.value ?? "")),
+          m.counters.map((c) => `${c.label}="${c.value}"`).join(" | ")
+        );
+        check(
+          `${stateKey} @${width}: LOADING is announced as busy`,
+          m.counters.every((c) => c.busy),
+          m.counters.map((c) => `${c.label}:${c.busy}`).join(" | ")
+        );
+      } else if (stateKey === COUNTERS_FAILED) {
+        check(
+          `${stateKey} @${width}: FAILED says "לא נטען" on every counter`,
+          m.counters.length === 4 && m.counters.every((c) => c.failed && c.value === "לא נטען"),
+          m.counters.map((c) => `${c.label}="${c.value}"`).join(" | ")
+        );
+        check(
+          `${stateKey} @${width}: FAILED shows no skeleton and is not busy`,
+          m.counters.every((c) => !c.loading && !c.busy),
+          m.counters.map((c) => `${c.label}:loading=${c.loading} busy=${c.busy}`).join(" | ")
+        );
+        check(
+          `${stateKey} @${width}: FAILED never renders a stand-in zero`,
+          m.counters.every((c) => c.value !== "0"),
+          m.counters.map((c) => `${c.label}="${c.value}"`).join(" | ")
+        );
+      } else if (stateKey === "calm") {
+        // The calm fixture's counts are genuinely 0 — the SUCCESS(0) case.
+        const zeros = m.counters.filter((c) => c.value === "0");
+        check(
+          `${stateKey} @${width}: SUCCESS(0) renders "0", not a failure`,
+          zeros.length > 0 && zeros.every((c) => !c.failed && !c.loading && !c.busy),
+          m.counters.map((c) => `${c.label}="${c.value}"`).join(" | ")
+        );
+        check(
+          `${stateKey} @${width}: SUCCESS(0) keeps its link`,
+          zeros.every((c) => c.href && c.href.startsWith("/")),
+          zeros.map((c) => `${c.label}→${c.href}`).join(" | ")
+        );
+      }
+
+      if (stateKey === COUNTERS_LOADING) {
+        // The briefing is hanging too, so the card is in its own skeleton.
+        check(
+          `${stateKey} @${width}: assistant shows its skeleton, not a verdict`,
+          m.verdictBadge === null && m.retry === null,
+          `badge=${m.verdictBadge} retry=${m.retry}`
+        );
+      } else if (stateKey !== VERDICT_FAILS && stateKey !== COUNTERS_FAILED) {
         check(
           `${stateKey} @${width}: secretary card links to /attention`,
           m.secretaryHref === "/attention",

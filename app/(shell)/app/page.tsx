@@ -14,9 +14,11 @@ import {
   buildTodayRows,
   buildVerdict,
   countObligationsDue,
+  counterFrom,
   greetingForHour,
   groupStatus,
   type GroupStatus,
+  type LoadState,
   type TodayRow,
   type VerdictView,
 } from "@/features/home/lib/home-model";
@@ -69,8 +71,13 @@ type DocumentsInboxSummary = {
   };
 };
 
-/** Loaded / failed, kept apart so "failed" is never rendered as a zero. */
-type Loaded<T> = { state: "loading" } | { state: "ready"; value: T } | { state: "failed" };
+/**
+ * Loading / ready / failed, kept apart so "failed" is never rendered as a zero
+ * — and, since the real-data run, so "loading" is never rendered as "failed"
+ * either. The type is shared with the view-model, which owns the mapping onto
+ * what a counter may claim.
+ */
+type Loaded<T> = LoadState<T>;
 
 const LOADING = { state: "loading" } as const;
 const FAILED = { state: "failed" } as const;
@@ -79,6 +86,7 @@ function ready<T>(value: T): Loaded<T> {
   return { state: "ready", value };
 }
 
+/** For sections that only distinguish "have it" from "don't". */
 function valueOrNull<T>(loaded: Loaded<T>): T | null {
   return loaded.state === "ready" ? loaded.value : null;
 }
@@ -533,8 +541,8 @@ function buildHomeView({
     return groupStatus(statusItems, group.domains) satisfies GroupStatus;
   });
 
-  const collectionValue = valueOrNull(collection);
-
+  // Each counter carries its source's load state, not a flattened number. A
+  // request still in flight renders a skeleton; only a real failure says so.
   const counters: HomeCounter[] = [
     {
       key: "collected",
@@ -545,27 +553,25 @@ function buildHomeView({
       // older request — so the window is named instead of being guessed.
       label: "נגבה ואומת",
       note: "בחודש הנוכחי",
-      value: collectionValue
-        ? collectionValue.summary.collectedThisMonth.count
-        : null,
+      value: counterFrom(collection, (c) => c.summary.collectedThisMonth.count),
       href: HOME_ROUTES.collectionCenter,
     },
     {
       key: "pending",
       label: "ממתינים לגבייה",
-      value: collectionValue ? collectionValue.summary.pending.count : null,
+      value: counterFrom(collection, (c) => c.summary.pending.count),
       href: HOME_ROUTES.collectionCenter,
     },
     {
       key: "documents",
       label: "מסמכים לבדיקה",
-      value: valueOrNull(docsPending),
+      value: counterFrom(docsPending, (n) => n),
       href: HOME_ROUTES.documentsReview,
     },
     {
       key: "obligations",
       label: "תשלומים למועד",
-      value: briefingValue ? countObligationsDue(briefingValue, now) : null,
+      value: counterFrom(briefing, (b) => countObligationsDue(b, now)),
       href: HOME_ROUTES.secretaryToday,
     },
   ];

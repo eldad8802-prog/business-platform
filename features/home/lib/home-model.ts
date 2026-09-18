@@ -21,6 +21,45 @@ import type {
 } from "@/lib/obligations/secretary-client";
 import type { StatusDomain, ToolGroup } from "@/lib/navigation/home-routes";
 
+/* -------------------------------------------------------- load states -- */
+
+/** How a source Home depends on is doing. One of exactly three things. */
+export type LoadState<T> =
+  | { state: "loading" }
+  | { state: "ready"; value: T }
+  | { state: "failed" };
+
+/**
+ * What a counter can truthfully say — and the reason this is a union rather
+ * than `number | null`.
+ *
+ * Those two used to collapse: a still-in-flight request and a failed one both
+ * became `null`, and `null` rendered as "לא נטען". So during the window between
+ * the skeleton clearing and the secondary sources answering, four counters
+ * announced a failure that had not happened. A real-data run against a cold
+ * serverless function is what made that window long enough to see.
+ *
+ * LOADING ≠ FAILED ≠ SUCCESS(0). A legitimate zero is an answer and must render
+ * as `0`; only an actual failure may say it did not load.
+ */
+export type CounterValue =
+  | { state: "loading" }
+  | { state: "ready"; value: number }
+  | { state: "failed" };
+
+/**
+ * Maps a source's load state onto what its counter may claim. `pick` is a thunk
+ * so the figure is only read when there genuinely is one.
+ */
+export function counterFrom<T>(
+  loaded: LoadState<T>,
+  pick: (value: T) => number
+): CounterValue {
+  if (loaded.state === "failed") return { state: "failed" };
+  if (loaded.state === "ready") return { state: "ready", value: pick(loaded.value) };
+  return { state: "loading" };
+}
+
 /* ----------------------------------------------------------- greeting -- */
 
 /**

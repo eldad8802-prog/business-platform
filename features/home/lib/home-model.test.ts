@@ -20,6 +20,7 @@ import {
   buildTodayRows,
   buildVerdict,
   countObligationsDue,
+  counterFrom,
   dueBadgeFor,
   formatAmount,
   greetingForHour,
@@ -282,6 +283,47 @@ eq(dueBadgeFor("not-a-date", NOW), null, "an unparseable date has no badge");
 }
 
 eq(countObligationsDue(briefing({ attention: [] }), NOW), 0, "no obligations counts zero");
+
+/* --------------------------------------------- counter state semantics --- */
+
+/**
+ * LOADING ≠ FAILED ≠ SUCCESS(0).
+ *
+ * These three used to collapse into `number | null`, so a request still in
+ * flight rendered the failure wording. The union exists to keep them apart,
+ * and this locks that they never merge again.
+ */
+{
+  const loading = counterFrom<{ n: number }>({ state: "loading" }, (v) => v.n);
+  eq(loading.state, "loading", "a source still loading yields the loading state");
+  check(!("value" in loading), "a loading counter carries no figure to render");
+
+  const failed = counterFrom<{ n: number }>({ state: "failed" }, (v) => v.n);
+  eq(failed.state, "failed", "a failed source yields the failed state");
+  check(!("value" in failed), "a failed counter carries no figure to render");
+
+  const zero = counterFrom({ state: "ready", value: { n: 0 } }, (v) => v.n);
+  eq(zero.state, "ready", "a real zero is READY, not failed and not loading");
+  check(zero.state === "ready" && zero.value === 0, "a real zero renders as 0");
+
+  const some = counterFrom({ state: "ready", value: { n: 37 } }, (v) => v.n);
+  check(some.state === "ready" && some.value === 37, "a real figure passes through");
+
+  // The three states are mutually exclusive — no two ever share a shape.
+  const states = [loading.state, failed.state, zero.state];
+  eq(new Set(states).size, 3, "loading, failed and ready are three distinct states");
+
+  // The figure is only read when there is one: a throwing reader must never be
+  // invoked for loading or failed.
+  let called = 0;
+  const reader = (v: { n: number }) => {
+    called += 1;
+    return v.n;
+  };
+  counterFrom<{ n: number }>({ state: "loading" }, reader);
+  counterFrom<{ n: number }>({ state: "failed" }, reader);
+  eq(called, 0, "the figure is not read unless the source is ready");
+}
 
 /* ------------------------------------------------------ group status --- */
 
