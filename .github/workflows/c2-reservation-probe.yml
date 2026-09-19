@@ -11,6 +11,13 @@
 name: c2 — reservation probe (investigation)
 
 on:
+  # Investigation only. A PR trigger is the only way this repository can
+  # reach an isolated PostgreSQL; the PR exists to run this job and nothing else.
+  pull_request:
+    branches: [main]
+    paths:
+      - ".c2reserve/**"
+      - ".github/workflows/c2-reservation-probe.yml"
   workflow_dispatch:
 
 permissions:
