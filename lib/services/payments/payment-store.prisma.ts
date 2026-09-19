@@ -6,13 +6,13 @@
  * values by construction) and serializes Decimal amounts as strings.
  */
 
-import {
-  BillingDocumentStatus,
-  BillingDocumentType,
-  Prisma,
-} from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { computeOutstanding } from "@/lib/services/billing/collection/awaiting-payment.rules";
+import {
+  authoritativeAllocationWhere,
+  authoritativeCreditNoteWhere,
+} from "@/lib/services/billing/domain/billing-allocation-authority";
 import { getTenantContext, runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { assertBusinessAcceptsWritesTx, readBusinessLifecycle } from "@/lib/tenant/business-lifecycle";
@@ -400,9 +400,11 @@ export function createPaymentPrismaStore(): PaymentStore {
     //     boundary.
     //
     // The balance rule is BILLING's, imported rather than restated: total, less
-    // receipt allocations, less ISSUED credit notes, floored at zero. Only an
-    // ISSUED credit note reduces a balance — a draft is an intention, not a
-    // reversal — so the relation filter matches the collection loader exactly.
+    // the allocations of ISSUED receipts, less ISSUED credit notes, floored at
+    // zero. Only an issued document reduces a balance — an unissued one is an
+    // intention, not a settlement or a reversal — and both relation filters now
+    // come from Billing's shared authority module, so this reader and the
+    // collection loader cannot drift apart.
     async findPayableDocument(businessId: number, billingDocumentId: number) {
       const doc = await dbStep((db) =>
         db.billingDocument.findFirst({
@@ -414,12 +416,12 @@ export function createPaymentPrismaStore(): PaymentStore {
             status: true,
             currency: true,
             totalAmount: true,
-            paymentAllocationsAsInvoice: { select: { allocatedAmount: true } },
+            paymentAllocationsAsInvoice: {
+              where: authoritativeAllocationWhere(businessId),
+              select: { allocatedAmount: true },
+            },
             creditNotes: {
-              where: {
-                documentType: BillingDocumentType.CREDIT_NOTE,
-                status: BillingDocumentStatus.ISSUED,
-              },
+              where: authoritativeCreditNoteWhere(),
               select: { totalAmount: true },
             },
           },

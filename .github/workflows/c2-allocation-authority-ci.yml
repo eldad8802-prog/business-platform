@@ -1,0 +1,193 @@
+# C2 — issued-allocation authority, on an ephemeral PG17.
+#
+# An allocation reduced an invoice's balance from the moment it was written,
+# which is while its receipt is still a DRAFT. The same codebase already applied
+# the opposite rule to credit notes, so the system held two contradictory
+# theories of when a document becomes accounting-authoritative.
+#
+# The rule is now one shared Prisma `where` fragment. That is exactly why this
+# battery exists: the money is summed in the database, so a fake proves nothing.
+# The only way to know a balance stops moving is to write the rows and ask the
+# three real readers.
+#
+# Synthetic CI-only credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: c2 — allocation authority (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/billing/domain/billing-allocation-authority.ts"
+      - "lib/services/billing/domain/billing-allocation-authority.test.ts"
+      - "lib/services/billing/collection/awaiting-payment.loader.ts"
+      - "lib/services/billing/receipt/billing-settlement-state.service.ts"
+      - "lib/services/payments/payment-store.prisma.ts"
+      - ".c2authority/**"
+      - ".github/workflows/c2-allocation-authority-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PGURL: postgresql://c2_owner:c2_ci_synthetic_owner_pw@localhost:5432/dubiz_c2
+
+jobs:
+  c2-allocation-authority:
+    name: C2 allocation authority (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: c2_owner
+          POSTGRES_PASSWORD: c2_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_c2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U c2_owner -d dubiz_c2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Authority rule + every reader goes through it (pure, no database)
+        run: npm run verify:allocation-authority
+
+      - name: Push schema (lab)
+        env:
+          DATABASE_URL: ${{ env.PGURL }}
+          DIRECT_URL: ${{ env.PGURL }}
+        run: npx prisma db push --skip-generate
+
+      - name: C2 allocation authority battery
+        env:
+          DATABASE_URL: ${{ env.PGURL }}
+          DIRECT_URL: ${{ env.PGURL }}
+          AUTH_TOKEN_SECRET: c2_ci_auth_secret_synthetic
+        run: npx tsx .c2authority/battery.mts
+
+      # ── C1 must not have moved ──────────────────────────────────────────
+      #
+      # C2 changes how allocations are READ. C1's guarantee is that a pure
+      # receipt can be ISSUED at all, and everything here stands on it.
+      - name: C1 regression — receipt issuance still correct
+        env:
+          DATABASE_URL: ${{ env.PGURL }}
+          DIRECT_URL: ${{ env.PGURL }}
+          AUTH_TOKEN_SECRET: c2_ci_auth_secret_synthetic
+        run: |
+          npx tsx lib/services/billing/billing-issuable-shape.test.ts
+          npx tsx .c1receipt/battery.mts
+
+      # ── NEGATIVE PROOFS ─────────────────────────────────────────────────
+      #
+      # Each re-plants the real defect in one reader and requires the battery to
+      # catch it. A suite that passes against the bug proves nothing, and the
+      # bug here is per-reader: fixing two screens and missing the third is the
+      # exact failure this phase exists to prevent, so all three are planted
+      # separately.
+      - name: Negative proof (collection loader stops qualifying allocations)
+        env:
+          DATABASE_URL: ${{ env.PGURL }}
+          DIRECT_URL: ${{ env.PGURL }}
+          AUTH_TOKEN_SECRET: c2_ci_auth_secret_synthetic
+        run: |
+          F="lib/services/billing/collection/awaiting-payment.loader.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/        where: authoritativeAllocationWhere\(businessId\),\n//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .c2authority/battery.mts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a draft receipt settled a debt on the collection list"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Negative proof (settlement state stops qualifying allocations)
+        env:
+          DATABASE_URL: ${{ env.PGURL }}
+          DIRECT_URL: ${{ env.PGURL }}
+          AUTH_TOKEN_SECRET: c2_ci_auth_secret_synthetic
+        run: |
+          F="lib/services/billing/receipt/billing-settlement-state.service.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/      \.\.\.authoritativeAllocationWhere\(args\.businessId\),\n//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .c2authority/battery.mts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an invoice became PAID from an unissued receipt"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Negative proof (payments store stops qualifying allocations)
+        env:
+          DATABASE_URL: ${{ env.PGURL }}
+          DIRECT_URL: ${{ env.PGURL }}
+          AUTH_TOKEN_SECRET: c2_ci_auth_secret_synthetic
+        run: |
+          F="lib/services/payments/payment-store.prisma.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/              where: authoritativeAllocationWhere\(businessId\),\n//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .c2authority/battery.mts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a customer could underpay against a phantom settlement"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      # The new filter joins an allocation to the document that produced it, and
+      # a foreign key knows nothing about tenants. Drop the business predicate
+      # from that join and another business's ISSUED receipt starts settling
+      # this one's invoice.
+      - name: Negative proof (the join loses its tenant predicate)
+        env:
+          DATABASE_URL: ${{ env.PGURL }}
+          DIRECT_URL: ${{ env.PGURL }}
+          AUTH_TOKEN_SECRET: c2_ci_auth_secret_synthetic
+        run: |
+          F="lib/services/billing/domain/billing-allocation-authority.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/      businessId,\n      status: AUTHORITATIVE_DOCUMENT_STATUS,/      status: AUTHORITATIVE_DOCUMENT_STATUS,/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .c2authority/battery.mts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: another tenant's receipt settled this tenant's invoice"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      # C2 aligned receipts TO the credit-note rule. If the credit-note
+      # assertions did not bite, that alignment would be unverified.
+      - name: Negative proof (the credit-note rule stops requiring ISSUED)
+        env:
+          DATABASE_URL: ${{ env.PGURL }}
+          DIRECT_URL: ${{ env.PGURL }}
+          AUTH_TOKEN_SECRET: c2_ci_auth_secret_synthetic
+        run: |
+          F="lib/services/billing/domain/billing-allocation-authority.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    status: AUTHORITATIVE_DOCUMENT_STATUS,\n  \};/    status: BillingDocumentStatus.DRAFT,\n  };/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .c2authority/battery.mts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a draft credit note reduced a real debt"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Worktree unchanged by the negative proofs
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain
+            echo "A negative proof left the worktree dirty"; exit 1
+          fi
+          echo "WORKTREE CLEAN"

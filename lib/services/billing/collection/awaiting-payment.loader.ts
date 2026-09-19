@@ -17,6 +17,10 @@ import { BillingDocumentStatus, BillingDocumentType, Prisma } from "@prisma/clie
 
 import { prisma } from "@/lib/prisma";
 import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
+import {
+  authoritativeAllocationWhere,
+  authoritativeCreditNoteWhere,
+} from "@/lib/services/billing/domain/billing-allocation-authority";
 
 import {
   buildAwaitingPaymentList,
@@ -85,14 +89,19 @@ export async function loadAwaitingPaymentList(
       customerNameSnapshot: true,
       customer: { select: { name: true, phone: true, email: true } },
       // What has been paid against this invoice.
-      paymentAllocationsAsInvoice: { select: { allocatedAmount: true } },
+      //
+      // C2 — only an ISSUED receipt's allocations count. This is the very rule
+      // D3 applies to credit notes three lines below, and the two now come from
+      // one shared module rather than agreeing by coincidence: an unissued
+      // document is an intention, and an intention does not move a real debt.
+      paymentAllocationsAsInvoice: {
+        where: authoritativeAllocationWhere(businessId),
+        select: { allocatedAmount: true },
+      },
       // D3 — only an ISSUED credit note reduces the balance. A draft credit
       // note is an intention, not a reversal, and must not remove a real debt.
       creditNotes: {
-        where: {
-          documentType: BillingDocumentType.CREDIT_NOTE,
-          status: BillingDocumentStatus.ISSUED,
-        },
+        where: authoritativeCreditNoteWhere(),
         select: { totalAmount: true },
       },
     },
