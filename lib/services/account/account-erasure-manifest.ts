@@ -117,6 +117,18 @@ export const ANONYMIZE_MODELS = [
   // adapter writes it. A model-level entry could not express this: "delete the
   // conversation" was a single claim, and what replaced it is twenty-four
   // separate ones, each of which has to be true.
+  // C12-E1. Two free-text notes, and nothing else on either model. Receiving a
+  // delivery, and deciding what to do with an undelivered remainder, are operational
+  // facts the business keeps; what somebody typed beside them is not, because nothing
+  // constrains what goes in it.
+  //
+  // What is kept is declared in erasure-dispositions.ts rather than left unsaid: the
+  // product columns (`rawName`, `sku`, `barcode`) under the ratified S-7C
+  // product-identity decision, and the three provenance pointers on a dependency the
+  // guard checks — they are ids into a `User` row this same erasure anonymises.
+  { model: "receivingSession", fields: { note: "null" } },
+  { model: "purchaseOrderLine", fields: { remainingDecisionNote: "null" } },
+
   { model: "messageAnalysis", fields: { intent: "blank", stage: "blank" } },
   { model: "replySuggestion", fields: { text: "blank", toneLabel: "null", strategyLabel: "null" } },
   {

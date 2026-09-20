@@ -237,6 +237,49 @@ jobs:
           fi
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
 
+      # ── C12-E1: two notes cleared, and what was deliberately kept ──────────
+      # E3 and E4 are NOT here. They are runtime properties — a tenant filter that
+      # actually scopes, and a laboratory that actually reproduces Production's RLS —
+      # and a static contract cannot tell a correct `where` from a widened one. They
+      # run against the AD-2A battery in d2-ad2a-ci.yml, where another tenant's row
+      # is present to be wrongly cleared.
+
+      - name: negative proof — E1 the adapter stops clearing ReceivingSession.note
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts E1
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an uncleared note passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — E2 the adapter stops clearing the purchase-line note
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts E2
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an uncleared note passed"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      # The provenance pointers are retained ONLY because the User row they name is
+      # anonymised. Take that away and three identifying pointers are left standing
+      # behind a classification nobody rechecked — so the contract has to notice.
+      - name: negative proof — E5 the retained-pointer premise is invalidated
+        run: |
+          F="lib/services/account/erasure-dispositions.ts"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts E5
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a retention outlived its own basis"; exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
       # ── model-level coverage ───────────────────────────────────────────────
       # The failure these catch is not "this model holds personal data" — no guard
       # can know that — but "nobody said what happens to this model".

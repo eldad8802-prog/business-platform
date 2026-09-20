@@ -306,6 +306,32 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
             data: { title: "", summary: null },
           });
 
+          // ── C12-E1 — the two procurement notes ─────────────────────────────
+          //
+          // Free text, and nothing else on either model. The receiving session keeps
+          // which order it received and when; the purchase-order line keeps the
+          // product it names, the quantity and the decision. Both keep WHO acted, as
+          // an id into a User row this same transaction has already anonymised.
+          // Only the sentence somebody typed goes.
+          //
+          // Anonymised rather than deleted for the same reason as everything above:
+          // the runtime holds SELECT, INSERT and UPDATE on both tables and NO DELETE,
+          // so a `deleteMany` here would match zero rows, raise nothing and report
+          // success — the shape of Defect B.
+          await tx.receivingSession.updateMany({
+            where: { businessId },
+            data: { note: null },
+          });
+          // `PurchaseOrderLine` has NO businessId. It owns through its parent, and its
+          // RLS policy is an EXISTS over `PurchaseOrder`, so this relation filter IS
+          // the tenant boundary — the same shape stage 1 uses to reach OAuthToken
+          // through EmailConnection. A `where: {}` would clear every tenant's notes
+          // and look identical to this one in any test that checks only this tenant.
+          await tx.purchaseOrderLine.updateMany({
+            where: { purchaseOrder: { businessId } },
+            data: { remainingDecisionNote: null },
+          });
+
           // B.2 delete pure communications PII with no fiscal linkage.
           await tx.crmAttachment.deleteMany({ where: { businessId } });
           await tx.crmNote.deleteMany({ where: { businessId } });

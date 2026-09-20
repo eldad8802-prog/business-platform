@@ -45,6 +45,11 @@ const SCHEMA = path.join(ROOT, "prisma/schema.prisma");
 const BOT_KNOWLEDGE_ROUTE = path.join(ROOT, "app/api/business/bot/knowledge/route.ts");
 const DEALS_LIST_ROUTE = path.join(ROOT, "app/api/deals/route.ts");
 const INVENTORY_SERVICE = path.join(ROOT, "lib/services/inventory/inventory.service.ts");
+// C12-E1. Two of the five assumptions are RUNTIME properties — a tenant filter that
+// actually scopes, and a laboratory that actually reproduces Production's RLS — so
+// their proofs mutate these and require the AD-2A battery to fail, not the static
+// contract. A static guard cannot tell a correct `where` from a widened one.
+const AD2A_CONTRACT = path.join(ROOT, ".ad2a/production-contract.mjs");
 
 function parse(file: string): ts.SourceFile {
   return ts.createSourceFile(
@@ -170,6 +175,49 @@ function insertAfterStatement(source: string, src: ts.SourceFile, stmt: ts.State
   const indent = " ".repeat(col);
   const at = stmt.getEnd();
   return source.slice(0, at) + nl + indent + text + source.slice(at);
+}
+
+/** The first argument object of a Prisma call, located by delegate and method. */
+function prismaCallArgument(
+  src: ts.SourceFile,
+  delegate: string,
+  method: string
+): ts.ObjectLiteralExpression {
+  let found: ts.ObjectLiteralExpression | null = null;
+  const walk = (n: ts.Node) => {
+    if (
+      !found &&
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      n.expression.name.text === method &&
+      ts.isPropertyAccessExpression(n.expression.expression) &&
+      n.expression.expression.name.text === delegate
+    ) {
+      const arg = n.arguments[0];
+      if (arg && ts.isObjectLiteralExpression(arg)) found = arg;
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(src);
+  if (!found) throw new Error(`no ${delegate}.${method}() with an inline argument object`);
+  return found;
+}
+
+/** An entry of the AD-2A production contract, located by its `table` value. */
+function contractEntry(src: ts.SourceFile, table: string): ts.ObjectLiteralExpression {
+  for (const obj of objectLiterals(src)) {
+    const t = propertyNamed(obj, "table");
+    if (t && ts.isStringLiteral(t.initializer) && t.initializer.text === table) return obj;
+  }
+  throw new Error(`no contract entry for table "${table}"`);
+}
+
+/** Remove one element of an array literal, and the comma that follows it. */
+function removeArrayElement(source: string, src: ts.SourceFile, node: ts.Node): string {
+  let end = node.getEnd();
+  while (end < source.length && /\s/.test(source[end])) end += 1;
+  if (source[end] === ",") end += 1;
+  return source.slice(0, node.getStart(src)) + source.slice(end);
 }
 
 /** Insert a field line into a Prisma model block, right after its opening line.
@@ -388,6 +436,78 @@ const MUTATIONS: Record<string, Mutation> = {
     file: SCHEMA,
     what: "add an unclassified text column to SupplierPurchaseDraftLine",
     apply: (_src, text) => insertPrismaField(text, "SupplierPurchaseDraftLine", "note String?"),
+  },
+
+  // ── E1…E5: the C12-E1 assumptions ───────────────────────────────────────
+  //
+  // Two notes are cleared; three provenance pointers and three product columns are
+  // deliberately kept. Each of those is an assumption, and these are the ones that
+  // would rot without saying so.
+
+  // The contract promises the note is cleared; the adapter stops doing it.
+  E1: {
+    file: ADAPTER,
+    what: "stop clearing ReceivingSession.note",
+    apply: (src, text) => {
+      const data = prismaData(src, "receivingSession", "updateMany");
+      const p = propertyNamed(data, "note");
+      if (!p) throw new Error("the receivingSession data has no `note` property");
+      return removeProperty(text, src, p);
+    },
+  },
+  // The same for the line, which also exercises the relation path: there is no
+  // other way to reach that row.
+  E2: {
+    file: ADAPTER,
+    what: "stop clearing PurchaseOrderLine.remainingDecisionNote",
+    apply: (src, text) => {
+      const data = prismaData(src, "purchaseOrderLine", "updateMany");
+      const p = propertyNamed(data, "remainingDecisionNote");
+      if (!p) throw new Error("the purchaseOrderLine data has no `remainingDecisionNote` property");
+      return removeProperty(text, src, p);
+    },
+  },
+  // RUNTIME. The tenant filter itself. PurchaseOrderLine carries no businessId, so
+  // the only thing between this statement and another tenant's rows is the relation
+  // predicate — and widening it is invisible to any check that only asks whether
+  // A's note was cleared. Proved against the battery, where B's row is watching.
+  E3: {
+    file: ADAPTER,
+    what: "widen the PurchaseOrderLine tenant filter to every tenant",
+    apply: (src, text) => {
+      const arg = prismaCallArgument(src, "purchaseOrderLine", "updateMany");
+      const where = propertyNamed(arg, "where");
+      if (!where) throw new Error("the purchaseOrderLine updateMany has no `where`");
+      return replaceNode(text, src, where.initializer, "{}");
+    },
+  },
+  // RUNTIME. Laboratory fidelity. A table the fixture does not model is a table the
+  // lab leaves without row-level security, and an erasure proved against an
+  // unprotected table is proved against a database Production does not have. That is
+  // Defect B's shape, so the battery has to refuse to be reassuring without it.
+  E4: {
+    file: AD2A_CONTRACT,
+    what: "drop PurchaseOrderLine from the AD-2A production contract",
+    apply: (src, text) => removeArrayElement(text, src, contractEntry(src, "PurchaseOrderLine")),
+  },
+  // The conditional retention. The provenance pointers are kept ONLY because the
+  // User row they name is anonymised. Reclassifying that anonymisation away has to
+  // make the contract red, rather than leaving three identifying pointers behind a
+  // classification nobody rechecked.
+  E5: {
+    file: DISPOSITIONS,
+    what: "reclassify User.email as retained, invalidating the pointer retention",
+    apply: (src, text) => {
+      const user = objectAt(namedObject(src, "DISPOSITIONS"), "User");
+      const p = propertyNamed(user, "email");
+      if (!p) throw new Error("User has no `email` disposition");
+      return replaceNode(
+        text,
+        src,
+        p.initializer,
+        `{ disposition: "RETAIN_BY_DESIGN", purpose: "mutation", basis: "UNPROVEN" }`
+      );
+    },
   },
   // A disposition for a model that is not in the schema.
   N2: {

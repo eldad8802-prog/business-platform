@@ -471,6 +471,63 @@ function main(): number {
     }
   }
 
+  // ── C17 — a conditional retention, held to its condition ──────────────────
+  //
+  // Some columns are retained BECAUSE something else is erased. The provenance
+  // pointers on ReceivingSession and PurchaseOrderLine are kept on exactly that
+  // basis: they name a `User` row whose email, name and password this same erasure
+  // destroys, so they are ids rather than identities.
+  //
+  // That is a defensible retention and a fragile one. It stops being true the moment
+  // `User.email` is reclassified as retained, or the adapter quietly stops writing
+  // it — and nothing would announce either. So the condition is declared beside the
+  // retention and checked here, in both halves: the dependency must still be
+  // dispositioned as destruction, AND the adapter must still carry it out.
+  for (const [modelName, table] of Object.entries(DISPOSITIONS)) {
+    for (const [fieldName, d] of Object.entries(table)) {
+      if (!d.dependsOn) continue;
+      const dep = d.dependsOn;
+      const key = `${modelName}.${fieldName}`;
+      const depModel = models.get(dep.model);
+      if (!depModel) {
+        report(
+          "C17-RETENTION-DEPENDENCY-BROKEN",
+          key,
+          `${key} is retained because ${dep.model} is erased, and ${dep.model} is not a model in the schema`
+        );
+        continue;
+      }
+      for (const depField of dep.fields) {
+        const depDisp = DISPOSITIONS[dep.model]?.[depField];
+        const depKey = `${key} -> ${dep.model}.${depField}`;
+        if (!depDisp) {
+          report(
+            "C17-RETENTION-DEPENDENCY-BROKEN",
+            depKey,
+            `${key} is retained because ${dep.model}.${depField} is destroyed, but that column has no disposition`
+          );
+          continue;
+        }
+        if (!["ERASE", "ANONYMISE"].includes(depDisp.disposition)) {
+          report(
+            "C17-RETENTION-DEPENDENCY-BROKEN",
+            depKey,
+            `${key} is retained because ${dep.model}.${depField} is destroyed, but that column is now ` +
+              `dispositioned ${depDisp.disposition} — the pointer identifies a person again`
+          );
+          continue;
+        }
+        if (!written.has(`${depModel.delegate}.${depField}`) && !deleted.has(depModel.delegate)) {
+          report(
+            "C17-RETENTION-DEPENDENCY-BROKEN",
+            depKey,
+            `${key} is retained because ${dep.model}.${depField} is destroyed, and the adapter no longer writes it`
+          );
+        }
+      }
+    }
+  }
+
   // ── C14…C16 — NON_PERSONAL_OPERATIONAL, proven instead of promised ─────────
   //
   // Four models were classified UNMANAGED_PERSONAL_DATA on the assumption that a

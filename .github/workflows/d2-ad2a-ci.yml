@@ -119,6 +119,62 @@ jobs:
           AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
         run: npx tsx .ad2a/battery.mjs --baseline-check
 
+      # ── C12-E1 — the two proofs a static contract cannot make ──────────────
+      #
+      # E1, E2 and E5 live in the erasure-contract workflow, where reading the code is
+      # enough. These two do not. One is about a tenant filter that must actually
+      # scope; the other about a laboratory that must actually reproduce Production's
+      # row-level security. Both need a second tenant present, a real database, and
+      # the erasure genuinely run — which is what this battery is.
+      #
+      # They cost a battery run each. That is the price of the difference between
+      # "the code says it scopes" and "it scoped".
+
+      # PurchaseOrderLine has no businessId, so the relation filter IS the tenant
+      # boundary. Widening it clears every tenant's notes while leaving THIS tenant's
+      # assertions perfectly green — only the control tenant can catch it.
+      - name: negative proof — E3 the purchase-line tenant filter is widened
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts E3
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .ad2a/battery.mjs --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: the erasure cleared every tenant's purchase-line"
+            echo "notes and the battery still passed — the cross-tenant assertion is not biting."
+            exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      # A table the fixture does not model is a table the lab leaves WITHOUT
+      # row-level security, and an erasure proved there is proved against a database
+      # Production does not have. Defect B's shape exactly.
+      - name: negative proof — E4 the lab stops reproducing the line's tenant RLS
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
+        run: |
+          F=".ad2a/production-contract.mjs"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts E4
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .ad2a/battery.mjs --baseline-check >/dev/null 2>&1; then
+            mv "$F.bak" "$F"
+            echo "NEGATIVE-PROOF FAIL: the battery passed against a lab that no longer"
+            echo "reproduces PurchaseOrderLine's Production row-level security."
+            exit 1
+          fi
+          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+
+      - name: Confirm the tree is byte-identical after the C12-E1 mutations
+        run: git diff --exit-code
+
       # ── I-8A.1 — fiscal history through the erasure lifecycle ───────────────
       - name: I-8A structural firewall (no database)
         run: npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts
