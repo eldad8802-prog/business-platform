@@ -27,6 +27,7 @@ import {
   assertReceiptTotalsReconcile,
   sumPaymentLineAmounts,
 } from "@/lib/services/billing/receipt/billing-receipt-allocation.rules";
+import { lockBillingDocumentRowsTx } from "@/lib/services/billing/receipt/billing-receipt-issuance-integrity";
 import { billingTenantTx } from "../billing-tenant-tx";
 
 export type ReceiptDocumentType =
@@ -213,6 +214,13 @@ export async function replaceReceiptPaymentLines(
   const paymentsTotal = sumPaymentLineAmounts(parsedPayments);
 
   return billingTenantTx(input.businessId, async (tx) => {
+    // C2.5 — a receipt's total is what issuance checks its allocations
+    // against, so changing it must serialise with issuance of the same
+    // receipt: one of the two reads the other's committed result.
+    await lockBillingDocumentRowsTx(tx, input.businessId, [
+      input.billingDocumentId,
+    ]);
+
     const doc = await tx.billingDocument.findFirst({
       where: { id: input.billingDocumentId, businessId: input.businessId },
       select: { id: true, documentType: true, status: true, totalAmount: true },

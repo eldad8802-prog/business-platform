@@ -10,6 +10,7 @@
     "lint": "eslint",
     "verify:collection": "npm run verify:collection-terms && npm run verify:collection-awaiting && npm run verify:collection-message && npm run verify:collection-display && npm run verify:collection-serializer",
     "verify:allocation-authority": "npx tsx lib/services/billing/domain/billing-allocation-authority.test.ts",
+    "verify:receipt-issuance-integrity": "npx tsx lib/services/billing/receipt/billing-receipt-issuance-integrity.test.ts",
     "verify:collection-terms": "npx tsx lib/services/billing/collection/payment-terms.test.ts",
     "verify:collection-awaiting": "npx tsx lib/services/billing/collection/awaiting-payment.rules.test.ts",
     "verify:collection-message": "npx tsx lib/services/billing/collection/collection-message.test.ts",
