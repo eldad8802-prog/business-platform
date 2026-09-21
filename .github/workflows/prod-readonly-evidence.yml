@@ -31,6 +31,7 @@ on:
           - 'ops/evidence/c2-draft-allocation-evidence.sql'
           - 'ops/evidence/c25-allocation-integrity-evidence.sql'
           - 'ops/evidence/c3-billing-runtime-privilege-evidence.sql'
+          - 'ops/evidence/payables-runtime-grants-evidence.sql'
 
 permissions:
   contents: read
