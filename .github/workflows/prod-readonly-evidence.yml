@@ -29,6 +29,7 @@ on:
           - 'ops/evidence/i8a-historical-fiscal-evidence.sql'
           - 'ops/evidence/i8a-runtime-role-evidence.sql'
           - 'ops/evidence/c2-draft-allocation-evidence.sql'
+          - 'ops/evidence/c25-allocation-integrity-evidence.sql'
 
 permissions:
   contents: read
