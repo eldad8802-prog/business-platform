@@ -22,13 +22,22 @@ import { CorporateContainer } from "./CorporateContainer";
  * inside `CorporateContainer`, which is why the wrapper is the Section and not
  * the other way round.
  */
-type Tone = "base" | "warm" | "paper";
+type Tone = "base" | "sand" | "stage" | "paper";
 
+/**
+ * Tone carries meaning, not alternation (Sage & Sand + Forest Stage):
+ * sage (`base`) is the product / control ground; `sand` is the owner's own
+ * world — reserved for sections that set no muted text (AA, see
+ * marketing-tokens); `stage` is the ONE dark band on the page, where the
+ * product itself is shown.
+ */
 const TONE: Record<Tone, string> = {
-  /** The page ground. */
+  /** The page ground — Mist sage. */
   base: "bg-[var(--mkt-page)]",
-  /** Inset surface — for sections that should sit back. */
-  warm: "bg-[var(--mkt-soft)]",
+  /** Warm sand — the human sections. */
+  sand: "bg-[var(--mkt-sand)]",
+  /** Forest stage — the product proof, and nothing else. */
+  stage: "bg-[var(--mkt-stage)] text-[var(--mkt-on-stage)]",
   /** Mist paper — the diffusion treatment, never a raw white. */
   paper: "dz-mist",
 };

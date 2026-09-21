@@ -38,8 +38,8 @@ const OUT =
   process.env.AUDIT_OUT_DIR ||
   path.join(process.cwd(), `.homepage-qa-${EXPECT_SIGNUP}`);
 
-/** The five widths in the brief. 360 is the primary target. */
-const WIDTHS = [360, 390, 768, 1024, 1440];
+/** The widths in the brief (+1536). 360 is the primary target. */
+const WIDTHS = [360, 390, 768, 1024, 1440, 1536];
 
 /** Below the `sm` breakpoint, where the drawer exists. */
 const MOBILE = 390;
@@ -219,6 +219,104 @@ async function run() {
     });
     check(`${width} · no broken images`, brokenImages.length === 0, brokenImages.join(", "));
 
+    /* --- colour system: ONE forest stage, and no muted text on sand ---------- */
+    const tones = await page.evaluate(() => {
+      const probe = (v) => {
+        const el = document.createElement("div");
+        el.style.background = `var(${v})`;
+        document.querySelector("main").appendChild(el);
+        const c = getComputedStyle(el).backgroundColor;
+        el.remove();
+        return c;
+      };
+      const stage = probe("--mkt-stage");
+      const sand = probe("--mkt-sand");
+      const muted = (() => {
+        const el = document.createElement("span");
+        el.style.color = "var(--dz-text-muted)";
+        document.querySelector("main").appendChild(el);
+        const c = getComputedStyle(el).color;
+        el.remove();
+        return c;
+      })();
+      const sections = [...document.querySelectorAll("main section")];
+      const stageCount = sections.filter((s) => getComputedStyle(s).backgroundColor === stage).length;
+      const mutedOnSand = [];
+      for (const s of sections.filter((x) => getComputedStyle(x).backgroundColor === sand)) {
+        for (const el of s.querySelectorAll("*")) {
+          const own = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+          if (own && getComputedStyle(el).color === muted) mutedOnSand.push(el.textContent.trim().slice(0, 24));
+        }
+      }
+      return { stageCount, sandCount: sections.filter((s) => getComputedStyle(s).backgroundColor === sand).length, mutedOnSand };
+    });
+    check(`${width} · exactly one forest stage band`, tones.stageCount === 1, tones.stageCount);
+    check(`${width} · sand sections present`, tones.sandCount >= 1, tones.sandCount);
+    check(`${width} · no muted text on sand (AA)`, tones.mutedOnSand.length === 0, tones.mutedOnSand.join(" | "));
+
+    /* --- product proof selector: one intentional row on phones, ≥3:1 selection */
+    const selector = await page.evaluate(() => {
+      const parse = (c) => {
+        let m = c.match(/rgba?\(([^)]+)\)/);
+        if (m) return m[1].split(/[ ,/]+/).filter(Boolean).slice(0, 3).map(Number);
+        m = c.match(/color\(srgb ([^)]+)\)/);
+        if (m) return m[1].split(/\s+/).slice(0, 3).map((v) => Math.round(parseFloat(v) * 255));
+        return null;
+      };
+      const lum = (rgb) => {
+        const [r, g, b] = rgb.map((v) => v / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const ratio = (a, b) => {
+        const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+        return (x + 0.05) / (y + 0.05);
+      };
+      const list = document.querySelector('[role="tablist"]');
+      const tabs = [...list.querySelectorAll('[role="tab"]')];
+      const sel = tabs.find((t) => t.getAttribute("aria-selected") === "true");
+      const tops = new Set(tabs.map((t) => Math.round(t.getBoundingClientRect().top)));
+      const lr = list.getBoundingClientRect();
+      const stageBg = parse(getComputedStyle(list.closest("section")).backgroundColor);
+      const listBg = parse(getComputedStyle(list).backgroundColor);
+      const selBg = parse(getComputedStyle(sel).backgroundColor);
+      const cs = getComputedStyle(sel);
+      const markerWidth = parseFloat(cs.borderInlineEndWidth || cs.borderLeftWidth);
+      const marker = parse(cs.borderLeftColor);
+      // Phone: the filled segment against the track. Desktop: the marker
+      // against the stage. Whichever this layout uses is the indicator.
+      const trackVisible = listBg && getComputedStyle(list).backgroundColor !== "rgba(0, 0, 0, 0)";
+      const indicator = trackVisible ? ratio(selBg, listBg) : markerWidth >= 3 ? ratio(marker, stageBg) : 0;
+      return {
+        rows: tops.size,
+        withinViewport: lr.left >= 0 && lr.right <= document.documentElement.clientWidth,
+        indicator: Math.round(indicator * 100) / 100,
+        mode: trackVisible ? "segment" : "marker",
+        markerWidth,
+      };
+    });
+    if (width <= 768) {
+      check(`${width} · proof selector is ONE row of 4 (no 3+1)`, selector.rows === 1 && selector.withinViewport, JSON.stringify(selector));
+    } else if (width >= 1024) {
+      check(`${width} · proof index is a column with a ≥3px marker`, selector.rows === 4 && selector.markerWidth >= 3, JSON.stringify(selector));
+    }
+    check(`${width} · proof selection indicator ≥ 3:1`, selector.indicator >= 3, `${selector.mode} ${selector.indicator}:1`);
+
+    /* --- the stage: sharp (≥2× device px per CSS px) and never oversized ----- */
+    const stageImg = await page.evaluate(async () => {
+      const img = [...document.querySelectorAll('[role="tabpanel"]')].find((p) => !p.hidden)?.querySelector("img");
+      if (!img) return null;
+      img.scrollIntoView({ block: "center" });
+      const deadline = Date.now() + 8000;
+      while (!img.complete && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+      const r = img.getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height), density: Math.round((img.naturalWidth / r.width) * 100) / 100 };
+    });
+    check(
+      `${width} · proof stage ≥2× density and ≤ 800px tall`,
+      stageImg && stageImg.density >= 2 && stageImg.h <= 800,
+      JSON.stringify(stageImg)
+    );
+
     /* --- before→after must stay compact on phones (V2.1 was ~1,316px at 390) --- */
     if (width <= MOBILE) {
       const baHeight = await page.evaluate(() =>
@@ -252,7 +350,7 @@ async function run() {
     /* --- touch targets --- */
     const smallTargets = await page.evaluate(() => {
       const out = [];
-      for (const el of document.querySelectorAll("main a, main button, header a, header button")) {
+      for (const el of document.querySelectorAll("main a, main button, main summary, header a, header button")) {
         const r = el.getBoundingClientRect();
         if (r.width === 0 && r.height === 0) continue; // hidden panel
         if (Math.min(r.width, r.height) < 44) {
@@ -342,12 +440,14 @@ async function run() {
           visible: Boolean(panel && !panel.hidden),
           loaded: Boolean(img && img.complete && img.naturalWidth > 0),
           renderedWidth: Math.round(img?.getBoundingClientRect().width ?? 0),
+          // device pixels available per CSS pixel — ≥ 2 is sharp on a DPR-2 screen
+          density: img ? Math.round((img.naturalWidth / img.getBoundingClientRect().width) * 100) / 100 : 0,
           src: img?.getAttribute("src"),
         };
       }, i);
       check(
-        `a11y · proof panel ${i + 1} image loaded and shown`,
-        panelImage.visible && panelImage.loaded && panelImage.renderedWidth >= 300,
+        `a11y · proof panel ${i + 1} image loaded, readable width, ≥2× density`,
+        panelImage.visible && panelImage.loaded && panelImage.renderedWidth >= 300 && panelImage.density >= 2,
         JSON.stringify(panelImage)
       );
     }

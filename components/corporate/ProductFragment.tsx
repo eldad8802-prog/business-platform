@@ -1,96 +1,53 @@
 import Image from "next/image";
 
 /**
- * ProductFragment — a semantic crop of a real Dubiz screen.
+ * ProductFragment — one real Dubiz screen, shown at a size that can be read.
  *
- * ## Why this exists
+ * The rule this component serves: **product UI is readable, or it is not
+ * shown**, and a fragment ends on a component boundary — never through a line
+ * of text or an amount row, and never behind a fade.
  *
- * Both previous homepages showed product screenshots that could not be read.
- * `/home` rendered whole 780×1688 phone screens at 220 CSS px, so every label
- * inside them was roughly five pixels tall: the image stopped functioning as
- * evidence and became texture — under a heading that claims "this is not a
- * presentation, it already works". V2.1 improved on it with a crop, but the crop
- * was a fixed `h-[196px]` box, which at its render width landed mid-way through
- * the collection screen's amount row and read as a rendering bug.
+ * The assets under `public/landing/proof/` are ALREADY semantic crops, cut by
+ * `scripts/qa/ui/homepage-proof-capture.mjs` at gaps it measures in the rendered
+ * DOM, captured at 390 CSS px × DPR 3 (1170 px wide). So this component does no
+ * cropping of its own: it renders the file at its true intrinsic size, and the
+ * browser scales it down only — at the ≤520 px stage that is ≥2.25 device
+ * pixels per CSS pixel, sharp on a DPR-2 screen.
  *
- * The rule this component enforces: **product UI is readable, or it is not
- * shown**, and a crop ends on a component boundary — never through a line of
- * text, never through an amount row, and never hidden behind a fade.
+ * Served `unoptimized`: the files are already WebP q85 at 32–50 KB, and Next
+ * 16 only allows quality 75 by default — re-encoding would soften exactly the
+ * small UI text this exists to show. (No global images config is changed.)
  *
- * ## How the crop works
- *
- * A crop is declared in SOURCE pixels (what you measure on the asset itself),
- * not in CSS pixels, so it stays correct at every render width.
- *
- *   - The box takes `aspect-ratio: SOURCE_WIDTH / cropHeight`, so its height
- *     always tracks its width. That also reserves the space before the image
- *     loads, so there is no layout shift.
- *   - The image fills the box with `object-fit: cover`. Because the box is much
- *     wider-per-height than the tall source, `cover` scales on WIDTH, and the
- *     surplus height is what gets clipped.
- *   - `object-position: center Y%` picks which slice survives. The browser reads
- *     Y% as "align the point Y% down the image with the point Y% down the box",
- *     which resolves to an offset of `(imageHeight - boxHeight) × Y%`. Setting
- *     that offset equal to `cropTop` gives:
- *
- *         Y% = cropTop / (SOURCE_HEIGHT - cropHeight) × 100
- *
- *     Both sides scale with the render width, so the identity holds at any size.
+ * `width`/`height` are the asset's real pixel dimensions (they differ per
+ * asset). They reserve the box before the image decodes, so there is no layout
+ * shift, and they are never stretched: the image is `w-full h-auto`.
  */
-
-/** Intrinsic size of every asset in `public/landing` (verified, not assumed). */
-const SOURCE = { width: 780, height: 1688 } as const;
-
-export type FragmentCrop = {
-  /** First visible SOURCE row. Must sit in a gap between components. */
-  top: number;
-  /** First row BELOW the fragment. Must sit in a gap between components. */
-  bottom: number;
-};
-
 export function ProductFragment({
   src,
   alt,
-  crop,
+  width,
+  height,
   sizes,
   priority = false,
 }: {
   src: string;
   alt: string;
-  crop: FragmentCrop;
+  width: number;
+  height: number;
   sizes: string;
   priority?: boolean;
 }) {
-  const cropHeight = crop.bottom - crop.top;
-
-  // Guard the maths rather than trusting call sites: a full-height crop would
-  // divide by zero, and an inverted one would silently render the wrong slice.
-  const slack = SOURCE.height - cropHeight;
-  const objectPositionY = slack > 0 ? (crop.top / slack) * 100 : 0;
-
   return (
-    <div
-      className="overflow-hidden rounded-[20px] border border-[var(--mkt-soft-border)]"
-      style={{
-        aspectRatio: `${SOURCE.width} / ${cropHeight}`,
-        // A calm Mist ground behind the image while it decodes — never a flash
-        // of white, which would not belong to the palette.
-        background: "var(--dz-surface-muted)",
-      }}
-    >
+    <div className="overflow-hidden rounded-[var(--mkt-radius-object)] bg-[var(--dz-background)] ring-1 ring-[var(--mkt-stage-line)]">
       <Image
         src={src}
         alt={alt}
-        width={SOURCE.width}
-        height={SOURCE.height}
+        width={width}
+        height={height}
         sizes={sizes}
         priority={priority}
-        loading={priority ? undefined : "lazy"}
-        className="h-full w-full"
-        style={{
-          objectFit: "cover",
-          objectPosition: `center ${objectPositionY}%`,
-        }}
+        unoptimized
+        className="block h-auto w-full"
       />
     </div>
   );
