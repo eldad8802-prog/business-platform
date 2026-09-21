@@ -202,7 +202,8 @@ const GROUP_CARD: Record<
   },
   operations: {
     title: "ניהול העסק",
-    blurb: "מלאי, ספקים, מזכירת תשלומים וחיבורים",
+    // U+00A0 binds "מזכירת תשלומים" so it never breaks across lines.
+    blurb: "מלאי, ספקים, מזכירת\u00a0תשלומים וחיבורים",
     Icon: IconBox,
     Art: ArtOperations,
   },
@@ -655,7 +656,7 @@ const HOME_CSS = `
 .dzhome .fic svg{width:23px;height:23px}
 .dzhome .ftx{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0}
 .dzhome .flab{font-family:var(--font-rubik),'Rubik',sans-serif;font-size:17px;font-weight:700;line-height:1.25;letter-spacing:-.01em;color:#fff}
-.dzhome .fdesc{font-size:12.5px;font-weight:500;line-height:1.45;color:rgba(255,255,255,.8)}
+.dzhome .fdesc{font-size:12.5px;font-weight:500;line-height:1.45;color:rgba(255,255,255,.8);text-wrap:balance}
 .dzhome .fstat{display:inline-flex;align-items:center;gap:6px;margin-top:7px;padding:3px 9px 3px 10px;border-radius:999px;
   font-size:11.5px;font-weight:600;line-height:1.35;color:rgba(255,255,255,.92);background:rgba(255,255,255,.1)}
 .dzhome .fdot{width:6px;height:6px;border-radius:50%;flex:0 0 auto}

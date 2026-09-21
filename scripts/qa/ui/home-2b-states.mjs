@@ -345,7 +345,36 @@ async function audit(page, rootSelector) {
           href: el.getAttribute("href"),
           cls: el.className,
           title: el.querySelector(".flab")?.textContent?.trim() ?? null,
-          desc: el.querySelector(".fdesc")?.textContent?.trim() ?? null,
+          // Whitespace-normalised: the copy binds a phrase with U+00A0.
+          desc: el.querySelector(".fdesc")?.textContent?.replace(/\s+/g, " ").trim() ?? null,
+          // The rendered lines of the description, word by word.
+          descLines: (() => {
+            const d = el.querySelector(".fdesc");
+            if (!d) return [];
+            const rows = [];
+            const walker = document.createTreeWalker(d, NodeFilter.SHOW_TEXT);
+            let n;
+            while ((n = walker.nextNode())) {
+              const re = /[^\s]+/g; // splits on regular spaces only; U+00A0 keeps a phrase whole
+              const text = n.data.replace(/\u00a0/g, "\u0001");
+              let mm;
+              while ((mm = re.exec(text))) {
+                const rg = document.createRange();
+                rg.setStart(n, mm.index);
+                rg.setEnd(n, mm.index + mm[0].length);
+                const rects = [...rg.getClientRects()];
+                const top = Math.round(rects[0]?.top ?? 0);
+                const word = mm[0].replace(/\u0001/g, " ");
+                // A bound phrase that renders on two rows shows up as two rect tops.
+                const split = new Set(rects.map((r) => Math.round(r.top))).size > 1;
+                const row = rows.find((r) => Math.abs(r.top - top) < 4);
+                const entry = split ? `${word}⟂` : word;
+                if (row) row.words.push(entry);
+                else rows.push({ top, words: [entry] });
+              }
+            }
+            return rows.sort((a, b) => a.top - b.top).map((r) => r.words.join(" "));
+          })(),
           status: el.querySelector(".fstat:not(.fstat-loading)")?.textContent?.trim() ?? null,
           statusLoading: !!el.querySelector(".fstat-loading .sk-stat"),
           iconSig: firstPath
@@ -550,6 +579,20 @@ function checkFeatureCards(stateKey, width, m) {
     check(`${tag} every part hit-tests to the card link`, c.hitMiss.length === 0, c.hitMiss.join(","));
     check(`${tag} title not clipped`, !c.clippedTitle);
     check(`${tag} copy not clipped`, !c.clippedDesc);
+    // Composed wrapping: a two-line description never ends on a lone word,
+    // and "מזכירת תשלומים" is never split across lines.
+    const lines = c.descLines;
+    check(
+      `${tag} no orphan word on the last line`,
+      lines.length <= 1 || lines[lines.length - 1].split(" ").length > 1,
+      lines.join(" / ")
+    );
+    check(
+      `${tag} "מזכירת תשלומים" kept on one line`,
+      !lines.some((l) => l.includes("⟂")) &&
+        (!spec.desc.includes("מזכירת תשלומים") || lines.some((l) => l.includes("מזכירת תשלומים"))),
+      lines.join(" / ")
+    );
     check(`${tag} low, wide card (≥ 88px, ≤ 150px)`, c.h >= 88 && c.h <= 150, `${c.h}px`);
     // Narrow phones give the space to the words; the art returns when it fits.
     check(
