@@ -36,6 +36,10 @@ import {
   assertCreditAmountWithinRemaining,
 } from "@/lib/services/billing/billing-credit-reversal.service";
 import { assertIssuableShape } from "@/lib/services/billing/billing-issuable-shape.rules";
+import {
+  assertReceiptAllocationIntegrityTx,
+  lockBillingDocumentRowsTx,
+} from "@/lib/services/billing/receipt/billing-receipt-issuance-integrity";
 import { recomputeAll } from "@/lib/services/billing/totals/billing-totals.service";
 import { ensureBillingInvoicePostedEvent } from "@/lib/services/financial-events/financial-event.service";
 import { assertBillingIdentityReadyForTaxInvoice } from "@/lib/billing/business-identity";
@@ -445,6 +449,15 @@ export async function issueBillingDocument(
   const issuedAt = new Date();
 
   const result = await billingTenantTx(input.businessId, async (tx) => {
+    // C2.5 — hold the document being issued before reading it. Everything that
+    // can still change a draft receipt's money (its payment lines, its
+    // allocations) takes this same lock, so what is validated below is what
+    // becomes the legal record, and a second issuance of the same document
+    // waits here and then reads it as already ISSUED.
+    await lockBillingDocumentRowsTx(tx, input.businessId, [
+      input.billingDocumentId,
+    ]);
+
     const doc = await tx.billingDocument.findFirst({
       where: {
         id: input.billingDocumentId,
@@ -517,6 +530,19 @@ export async function issueBillingDocument(
       },
       recomputed: recomputed.totals,
     });
+
+    // C2.5 — a receipt's allocations become authoritative in this transaction,
+    // so this is where they must be true: equal to the money received, and
+    // within what each invoice still has left to settle, read under the
+    // invoices' own locks.
+    if (doc.documentType === BillingDocumentType.RECEIPT) {
+      await assertReceiptAllocationIntegrityTx(tx, {
+        businessId: input.businessId,
+        receiptDocumentId: doc.id,
+        receiptCurrency: doc.currency,
+        receiptTotal: issuedTotals.totalAmount,
+      });
+    }
 
     if (doc.documentType === BillingDocumentType.CREDIT_NOTE) {
       if (doc.referenceDocumentId === null) {

@@ -1,0 +1,138 @@
+# C2.5 — issuance-time allocation integrity, on an ephemeral PG17.
+#
+# C2 made only an ISSUED receipt's allocations reduce a debt. The write side
+# still disagreed: the capacity check ran at DRAFT time, counted every other
+# draft as if it had settled something, and held nothing between reading the
+# balance and writing the row. So an abandoned draft blocked real payments,
+# two concurrent receipts could both settle one invoice (19/20 in the pre-C3
+# runtime), and a receipt whose payment lines changed after allocation could
+# settle more than it received.
+#
+# The binding check now runs inside issuance, under ascending-id row locks on
+# the target invoices. A race and a transaction boundary cannot be proven with
+# a fake, so the battery runs against real PostgreSQL — and each negative proof
+# re-plants one defect and requires the battery to catch it.
+#
+# Synthetic CI-only credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: c2.5 — issuance-time allocation integrity (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/billing/billing-issue.service.ts"
+      - "lib/services/billing/receipt/**"
+      - "lib/services/billing/domain/billing-allocation-authority.ts"
+      - "lib/services/billing/collection/awaiting-payment.loader.ts"
+      - "lib/services/payments/payment-store.prisma.ts"
+      - ".c25integrity/**"
+      - ".c2authority/**"
+      - ".c1receipt/**"
+      - ".github/workflows/c25-issuance-integrity-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  c25-issuance-integrity:
+    name: C2.5 issuance integrity (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: c25_owner
+          POSTGRES_PASSWORD: c25_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_c25
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U c25_owner -d dubiz_c25"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://c25_owner:c25_ci_synthetic_owner_pw@localhost:5432/dubiz_c25
+      DIRECT_URL: postgresql://c25_owner:c25_ci_synthetic_owner_pw@localhost:5432/dubiz_c25
+      AUTH_TOKEN_SECRET: c25_ci_auth_secret_synthetic
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Rule, lock order and wiring (pure, no database)
+        run: |
+          npm run verify:receipt-issuance-integrity
+          npm run verify:allocation-authority
+
+      - name: Push schema (lab)
+        run: npx prisma db push --skip-generate
+
+      - name: C2.5 battery
+        run: npx tsx .c25integrity/battery.mts
+
+      # ── C1 and C2 must not have moved ───────────────────────────────────
+      - name: C1 regression — receipt issuance still correct
+        run: |
+          npx tsx lib/services/billing/billing-issuable-shape.test.ts
+          npx tsx .c1receipt/battery.mts
+
+      - name: C2 regression — only ISSUED allocations reduce outstanding
+        run: npx tsx .c2authority/battery.mts
+
+      # ── NEGATIVE PROOFS ─────────────────────────────────────────────────
+      #
+      # A suite that passes against the bug proves nothing. Each step re-plants
+      # one real defect and requires the battery to fail.
+      - name: Negative proof (issuance stops locking the invoices)
+        run: |
+          F="lib/services/billing/receipt/billing-receipt-issuance-integrity.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  await lockBillingDocumentRowsTx\(\n    tx,\n    args\.businessId,\n    allocations\.map\(\(a\) => a\.invoiceDocumentId\)\n  \);\n//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .c25integrity/battery.mts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: two concurrent receipts settled one invoice and the battery did not notice"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Negative proof (issuance stops checking allocations against the receipt total)
+        run: |
+          F="lib/services/billing/receipt/billing-receipt-issuance-integrity.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  assertReceiptAllocationsMatchTotal\(allocations, args\.receiptTotal\);\n//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .c25integrity/battery.mts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a 300 receipt settled 1,000 and the battery did not notice"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Negative proof (drafts reserve capacity again)
+        run: |
+          F="lib/services/billing/receipt/billing-payment-allocation.service.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/          \.\.\.authoritativeAllocationWhere\(input\.businessId\),\n//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if npx tsx .c25integrity/battery.mts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an abandoned draft blocked a real payment and the battery did not notice"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Worktree unchanged by the negative proofs
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain
+            echo "A negative proof left the worktree dirty"; exit 1
+          fi
+          echo "WORKTREE CLEAN"
