@@ -124,6 +124,17 @@ async function main() {
   // unprotected tables would prove nothing, and proving it against a MORE PERMISSIVE
   // fixture than Production is worse than proving nothing — that is what happened here
   // before J-0.
+  //
+  // C12-E1. The lab database outlives a run, and the contract only ever TURNS RLS ON.
+  // So a table dropped from the contract kept the protection an earlier run gave it,
+  // and a proof that the lab stops reproducing Production (E4) passed on leftovers.
+  // For the three tables this increment relies on, start from nothing — no RLS, no
+  // policy — so whatever protection they end up with is the contract's, this run.
+  for (const t of ["ReceivingSession", "PurchaseOrderLine", "PurchaseOrder"]) {
+    await owner.$executeRawUnsafe(`ALTER TABLE "${t}" NO FORCE ROW LEVEL SECURITY`);
+    await owner.$executeRawUnsafe(`ALTER TABLE "${t}" DISABLE ROW LEVEL SECURITY`);
+    await owner.$executeRawUnsafe(`DROP POLICY IF EXISTS p7w3_tenant ON "${t}"`);
+  }
   await applyProductionContract(owner);
 
   // Fidelity is MEASURED, not declared. Read the policies back out of the catalog and
@@ -196,6 +207,21 @@ async function main() {
   );
   await owner.$executeRawUnsafe(
     `REVOKE DELETE ON "Notification","NotificationDelivery" FROM ${RT_ROLE}`
+  );
+  // C12-E1. `scripts/security/d2-p7-wave3-grants.sql` hands the runtime SELECT,
+  // INSERT and UPDATE on these three — and NOT DELETE. Mirrored exactly, for the
+  // same reason as Notification above: the question is whether a CLEAR can reach
+  // these rows with the privileges the product actually holds, and a lab DELETE
+  // would answer a question nobody asked.
+  //
+  // PurchaseOrder carries nothing that is erased. It is here because
+  // PurchaseOrderLine's tenant predicate reads it, and a row the runtime cannot
+  // SELECT is a row the EXISTS cannot confirm.
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT, INSERT, UPDATE ON "ReceivingSession","PurchaseOrderLine","PurchaseOrder" TO ${RT_ROLE}`
+  );
+  await owner.$executeRawUnsafe(
+    `REVOKE DELETE ON "ReceivingSession","PurchaseOrderLine","PurchaseOrder" FROM ${RT_ROLE}`
   );
   await owner.$executeRawUnsafe(
     `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT_ROLE}`
@@ -424,6 +450,51 @@ async function main() {
       },
     });
 
+    // C12-E1: a purchase order, one line and a receiving session. Seeded for BOTH
+    // businesses, because the interesting half of this proof is the control tenant:
+    // PurchaseOrderLine has no businessId of its own, so the erasure must reach it
+    // through the PurchaseOrder relation, and an over-broad filter would clear B's
+    // note as readily as A's.
+    //
+    // The free text carries the sentinel. The product columns deliberately do NOT —
+    // `rawName`, `sku` and `barcode` are ratified product identity, and an erasure
+    // that touched them would be over-deleting, which the assertions check for as
+    // carefully as they check for under-deleting.
+    const po = await owner.purchaseOrder.create({
+      data: {
+        businessId: b.id,
+        supplierName: `${tag}-supplier`,
+        status: "AWAITING_DELIVERY",
+        createdByUserId: u.id,
+      },
+    });
+    const poLine = await owner.purchaseOrderLine.create({
+      data: {
+        purchaseOrderId: po.id,
+        rawName: `${tag}-coffee-beans-1kg`,
+        sku: `SKU-${tag}-001`,
+        barcode: `BC-${tag}-001`,
+        orderedQty: 10,
+        remainingDecision: "CLOSED_SHORT",
+        remainingDecisionQty: 3,
+        remainingDecisionNote: `${W1}line-remainder-note-${tag}`,
+        remainingDecidedAt: new Date(),
+        remainingDecidedByUserId: u.id,
+      },
+    });
+    const recv = await owner.receivingSession.create({
+      data: {
+        businessId: b.id,
+        purchaseOrderId: po.id,
+        status: "POSTED",
+        receivedAt: new Date(),
+        postedAt: new Date(),
+        note: `${W1}receiving-note-${tag}`,
+        createdByUserId: u.id,
+        postedByUserId: u.id,
+      },
+    });
+
     // J-0: the integration credentials stage 1 claims to destroy. The old fixture
     // created NONE of these, so "credentials were revoked" was never asserted at all —
     // there was nothing there to survive. Every secret below is a recognisable marker,
@@ -531,7 +602,7 @@ async function main() {
 
     return {
       biz: b, user: u, customer: c, conversation: conv, doc, run, historical, reversal,
-      emailConn, authorityConn, payConn, waConn, posKey,
+      emailConn, authorityConn, payConn, waConn, posKey, po, poLine, recv,
     };
   };
 
@@ -585,6 +656,117 @@ async function main() {
     )
   );
   ok("GUC=A cannot mutate B's conversations", crossWrite.count === 0, `count=${crossWrite.count}`);
+
+  // ── C12-E1 — the lab's RLS and privileges, measured by behaviour ──────────
+  //
+  // "contract applied" above reads the catalog for the tables the contract NAMES. It
+  // cannot notice a table that is missing from the contract: that table is simply left
+  // without row-level security, and the erasure still clears A's note and still leaves
+  // B's alone — because the adapter's own filter scopes it. A green that survives the
+  // loss of the very protection it claims to be proved under is Defect B's shape.
+  //
+  // So the property is asked of the database directly, with the adapter's filter taken
+  // out of the question: under A's context, name B's rows EXPLICITLY. Only row-level
+  // security can make that return nothing.
+  console.log("--- phase 5b: C12-E1 tenant RLS + privilege fidelity ---");
+  const e1Probe = await runTenantJob({ businessId: A.biz.id }, () =>
+    withTenantTransaction(async (tx) => ({
+      ownLines: await tx.purchaseOrderLine.count({ where: { purchaseOrderId: A.po.id } }),
+      ownRecv: await tx.receivingSession.count({ where: { id: A.recv.id } }),
+      bLines: await tx.purchaseOrderLine.count({ where: { purchaseOrderId: B.po.id } }),
+      bRecv: await tx.receivingSession.count({ where: { id: B.recv.id } }),
+      bPo: await tx.purchaseOrder.count({ where: { id: B.po.id } }),
+      bLineWrite: (
+        await tx.purchaseOrderLine.updateMany({
+          where: { id: B.poLine.id },
+          data: { remainingDecisionNote: null },
+        })
+      ).count,
+      bRecvWrite: (
+        await tx.receivingSession.updateMany({ where: { id: B.recv.id }, data: { note: null } })
+      ).count,
+    }))
+  );
+  // The positive control: without it, every zero below could be a broken query.
+  ok(
+    "E1-R0 · GUC=A sees its OWN purchase line and receiving session (control)",
+    e1Probe.ownLines === 1 && e1Probe.ownRecv === 1,
+    JSON.stringify(e1Probe)
+  );
+  ok(
+    "E1-R1 · GUC=A cannot see B's purchase line even by naming it — RLS through the PurchaseOrder relation",
+    e1Probe.bLines === 0 && e1Probe.bPo === 0,
+    JSON.stringify(e1Probe)
+  );
+  ok(
+    "E1-R2 · GUC=A cannot see B's receiving session even by naming it",
+    e1Probe.bRecv === 0,
+    JSON.stringify(e1Probe)
+  );
+  ok(
+    "E1-R3 · GUC=A cannot clear B's notes even by naming the rows",
+    e1Probe.bLineWrite === 0 && e1Probe.bRecvWrite === 0,
+    JSON.stringify(e1Probe)
+  );
+  // A MISSING context must not be a way through either. Outside any tenant
+  // transaction the GUC is unset, the predicate is NULL, and nothing is visible.
+  const e1NoCtx = {
+    lines: await rt.purchaseOrderLine.count(),
+    recv: await rt.receivingSession.count(),
+    po: await rt.purchaseOrder.count(),
+  };
+  ok(
+    "E1-R4 · with NO tenant context the runtime sees no purchase line, receiving session or order",
+    e1NoCtx.lines === 0 && e1NoCtx.recv === 0 && e1NoCtx.po === 0,
+    JSON.stringify(e1NoCtx)
+  );
+  const e1BIntact = await owner.purchaseOrderLine.findUnique({ where: { id: B.poLine.id } });
+  ok(
+    "E1-R5 · and B's line note is still there after being targeted",
+    e1BIntact?.remainingDecisionNote === B.poLine.remainingDecisionNote,
+    JSON.stringify(e1BIntact?.remainingDecisionNote ?? null)
+  );
+
+  // Privileges, a separate gate from policy. A `FOR ALL` policy GOVERNS DELETE; it
+  // does not GRANT it. What the runtime may do is the table privilege, and the lab's
+  // must be Production's — not written twice by hand, but read from the artifact
+  // Production is granted from, so the two cannot drift apart quietly.
+  const { readFileSync: readGrants } = await import("node:fs");
+  const grantsSql = readGrants(
+    new URL("../scripts/security/d2-p7-wave3-grants.sql", import.meta.url),
+    "utf8"
+  );
+  for (const table of ["ReceivingSession", "PurchaseOrderLine", "PurchaseOrder"]) {
+    const lines = grantsSql
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("--") && l.includes(`ON "${table}" `));
+    const granted = new Set();
+    let parsed = lines.length > 0;
+    for (const l of lines) {
+      const m = /^\s*GRANT\s+([A-Z ,]+?)\s+ON\s+"(\w+)"\s+TO\s+:ROLE;\s*$/.exec(l);
+      if (!m) parsed = false;
+      else for (const v of m[1].split(",")) granted.add(v.trim());
+    }
+    const live = (
+      await owner.$queryRawUnsafe(
+        `SELECT has_table_privilege('${RT_ROLE}', '"${table}"', 'SELECT')   AS "SELECT",
+                has_table_privilege('${RT_ROLE}', '"${table}"', 'INSERT')   AS "INSERT",
+                has_table_privilege('${RT_ROLE}', '"${table}"', 'UPDATE')   AS "UPDATE",
+                has_table_privilege('${RT_ROLE}', '"${table}"', 'DELETE')   AS "DELETE",
+                has_table_privilege('${RT_ROLE}', '"${table}"', 'TRUNCATE') AS "TRUNCATE"`
+      )
+    )[0];
+    const mismatch = ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"].filter(
+      (v) => live[v] !== granted.has(v)
+    );
+    ok(
+      `E1-P · ${table}: lab runtime privileges = d2-p7-wave3-grants.sql exactly (DELETE ${
+        granted.has("DELETE") ? "granted" : "absent"
+      })`,
+      parsed && mismatch.length === 0 && !granted.has("DELETE") && live.DELETE === false,
+      `artifact=[${[...granted].sort().join(",")}] live=${JSON.stringify(live)} mismatch=[${mismatch.join(",")}]`
+    );
+  }
 
   // ── Phase 6: session closure ──────────────────────────────────────────────
   console.log("--- phase 6: session ---");
@@ -854,6 +1036,71 @@ async function main() {
   );
   const PHASE_W1 = w1a && w1b && w1c && w1d && w1e && w1f && w1g;
 
+  // ── C12-E1 — the two notes, and everything beside them that must survive ──
+  //
+  // Read back through the OWNER client, because the question is whether the value
+  // is still in the table, not whether some role can see it.
+  console.log("--- phase 7b.2: C12-E1 receiving / purchase-line notes ---");
+  const aRecv = await owner.receivingSession.findMany({ where: { businessId: A.biz.id } });
+  const aLines = await owner.purchaseOrderLine.findMany({
+    where: { purchaseOrder: { businessId: A.biz.id } },
+  });
+
+  const e1a = ok(
+    "E1-A · ReceivingSession.note is cleared",
+    aRecv.length > 0 && aRecv.every((r) => r.note === null),
+    JSON.stringify(aRecv.map((r) => r.note))
+  );
+  const e1b = ok(
+    "E1-B · PurchaseOrderLine.remainingDecisionNote is cleared, reached through the PurchaseOrder relation",
+    aLines.length > 0 && aLines.every((l) => l.remainingDecisionNote === null),
+    JSON.stringify(aLines.map((l) => l.remainingDecisionNote))
+  );
+  // Anti-over-deletion. Product identity is ratified NON_PERSONAL under S-7C, and an
+  // erasure that took it would be destroying the business's own catalogue.
+  // Compared with the seeded row value for value — "not null" would accept a
+  // placeholder, and a placeholder is an erasure of the product identity.
+  const e1c = ok(
+    "E1-C · product identity is PRESERVED — rawName, sku and barcode equal their seeded values",
+    aLines.length === 1 &&
+      aLines[0].rawName === A.poLine.rawName &&
+      aLines[0].sku === A.poLine.sku &&
+      aLines[0].barcode === A.poLine.barcode,
+    JSON.stringify(aLines.map((l) => [l.rawName, l.sku, l.barcode]))
+  );
+  // The other half of G0-2: the provenance pointers are retained ON PURPOSE, and
+  // this is what proves the increment did not quietly null them instead.
+  const e1d = ok(
+    "E1-D · the three provenance pointers are PRESERVED",
+    aRecv.length === 1 &&
+      aRecv[0].createdByUserId === A.recv.createdByUserId &&
+      aRecv[0].postedByUserId === A.recv.postedByUserId &&
+      aLines.length === 1 &&
+      aLines[0].remainingDecidedByUserId === A.poLine.remainingDecidedByUserId &&
+      A.recv.createdByUserId === A.user.id,
+    JSON.stringify([
+      aRecv.map((r) => [r.createdByUserId, r.postedByUserId]),
+      aLines.map((l) => l.remainingDecidedByUserId),
+    ])
+  );
+  // And the retention only holds because the row they point at was anonymised.
+  // Asserting the pointer survives without asserting that would be asserting the
+  // comfortable half.
+  const aUsers = await owner.user.findMany({ where: { businessId: A.biz.id } });
+  const e1e = ok(
+    "E1-E · the User rows those pointers name ARE anonymised — the retention's own premise",
+    aUsers.length > 0 && aUsers.every((x) => x.name === null && !x.email.includes("@ad2a.test")),
+    JSON.stringify(aUsers.map((x) => [x.email, x.name]))
+  );
+  // The sweep: no `select`, so a column added later is covered the day it exists.
+  const e1Rows = { receiving: aRecv, lines: aLines };
+  const e1f = ok(
+    "E1-F · the sentinel is unrecoverable in ANY column of ReceivingSession or PurchaseOrderLine",
+    !JSON.stringify(e1Rows).includes(W1),
+    "a W1-marked value is still readable"
+  );
+  const PHASE_E1 = e1a && e1b && e1c && e1d && e1e && e1f;
+
   // ── FAILURE C — stage 3 deletion evidence and terminal state ──────────────
   console.log("--- phase 7c: stage-3 evidence + terminal state (postconditions) ---");
   const aAfter = await owner.business.findUnique({ where: { id: A.biz.id } });
@@ -875,6 +1122,7 @@ async function main() {
   console.log(`PHASE 2 CONVERSATION CLEANUP   = ${PHASE2 ? "PASS" : "FAIL"}`);
   console.log(`PHASE 3 DELETION EVIDENCE      = ${PHASE3 ? "PASS" : "FAIL"}`);
   console.log(`E2 WAVE 1 RESIDUAL PII        = ${PHASE_W1 ? "PASS" : "FAIL"}`);
+  console.log(`C12-E1 RECEIVING/LINE NOTES   = ${PHASE_E1 ? "PASS" : "FAIL"}`);
   console.log("");
 
   // ── FALSE-SUCCESS LEDGER ──────────────────────────────────────────────────
@@ -957,6 +1205,37 @@ async function main() {
     (await owner.inboundEmailAuthorizedSender.count({ where: { businessId: B.biz.id } })) === 1);
   ok("B's inbound sender challenge survives",
     (await owner.inboundEmailSenderChallenge.count({ where: { businessId: B.biz.id } })) === 1);
+
+  // C12-E1 cross-tenant. The line is the one that can actually go wrong: it has no
+  // businessId, so it is reached through the PurchaseOrder relation, and a filter
+  // that lost the relation would clear B's note while leaving B's row count exactly
+  // as it was. Counting proves nothing here; the content is read back.
+  const bRecvNote = await owner.receivingSession.findFirst({ where: { businessId: B.biz.id } });
+  const bLineNote = await owner.purchaseOrderLine.findFirst({
+    where: { purchaseOrder: { businessId: B.biz.id } },
+  });
+  const e1x1 = ok(
+    "E1-X1 · B's ReceivingSession.note is untouched",
+    typeof bRecvNote?.note === "string" && bRecvNote.note.includes(W1),
+    JSON.stringify(bRecvNote?.note ?? null)
+  );
+  const e1x2 = ok(
+    "E1-X2 · B's PurchaseOrderLine.remainingDecisionNote is untouched — the tenant scope held",
+    typeof bLineNote?.remainingDecisionNote === "string" &&
+      bLineNote.remainingDecisionNote.includes(W1),
+    JSON.stringify(bLineNote?.remainingDecisionNote ?? null)
+  );
+  // The whole row, not just the note: an over-broad statement that blanked any other
+  // column, or merely touched B's rows, would show here as a changed value or updatedAt.
+  const bRecvRow = await owner.receivingSession.findUnique({ where: { id: B.recv.id } });
+  const bLineRow = await owner.purchaseOrderLine.findUnique({ where: { id: B.poLine.id } });
+  const e1x3 = ok(
+    "E1-X3 · B's ReceivingSession and PurchaseOrderLine rows are identical to their seeded state",
+    JSON.stringify(bRecvRow) === JSON.stringify(B.recv) &&
+      JSON.stringify(bLineRow) === JSON.stringify(B.poLine),
+    JSON.stringify({ bRecvRow, bLineRow })
+  );
+  console.log(`  C12-E1 CROSS-TENANT           = ${e1x1 && e1x2 && e1x3 ? "PASS" : "FAIL"}`);
 
   // Counting B's rows is not enough now that A's are anonymised IN PLACE rather
   // than deleted: an over-broad UPDATE would leave B's row count untouched while

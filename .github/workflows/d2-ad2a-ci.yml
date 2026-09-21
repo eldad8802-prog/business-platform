@@ -119,6 +119,59 @@ jobs:
           AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
         run: npx tsx .ad2a/battery.mjs --baseline-check
 
+      # ── C12-E1 — laboratory fidelity, the half a static contract cannot prove ──
+      #
+      # Two gates, proved separately because they ARE separate: row-level security
+      # (which rows a statement can reach) and table privilege (which verbs the role
+      # may use at all). A `FOR ALL` policy governs DELETE; it does not grant it.
+      #
+      # The tenant FILTER is not proved here (E3/E3B are in erasure-contract-ci.yml):
+      # under FORCE RLS a widened `where` clears exactly the same rows, so this battery
+      # cannot tell the difference — that was measured, not assumed.
+
+      # A table the fixture does not model is a table the lab leaves WITHOUT
+      # row-level security, and an erasure proved there is proved against a database
+      # Production does not have. Defect B's shape exactly. The battery resets the
+      # three tables before applying the contract, so leftovers from the green run
+      # above cannot keep this passing.
+      - name: negative proof — E4 the lab stops reproducing the line's tenant RLS
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
+        run: |
+          F=".ad2a/production-contract.mjs"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts E4
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npx tsx .ad2a/battery.mjs --baseline-check > "$RUNNER_TEMP/E4.out" 2>&1; rc=$?; set -e
+          mv "$F.bak" "$F"
+          if [ $rc -eq 0 ]; then echo "NEGATIVE-PROOF FAIL: the battery stayed green"; exit 1; fi
+          grep -qF "[FAIL] E1-R1 · GUC=A cannot see B's purchase line" "$RUNNER_TEMP/E4.out" || { tail -60 "$RUNNER_TEMP/E4.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      # Production's runtime holds SELECT, INSERT and UPDATE on these three and no
+      # DELETE (scripts/security/d2-p7-wave3-grants.sql). A lab that granted DELETE
+      # would be proving against a capability the product does not have.
+      - name: negative proof — E4P the lab runtime is granted DELETE Production does not hold
+        env:
+          DATABASE_URL: ${{ env.OWNER_URL }}
+          DIRECT_URL: ${{ env.OWNER_URL }}
+          AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
+        run: |
+          F=".ad2a/battery.mjs"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts E4P
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npx tsx .ad2a/battery.mjs --baseline-check > "$RUNNER_TEMP/E4P.out" 2>&1; rc=$?; set -e
+          mv "$F.bak" "$F"
+          if [ $rc -eq 0 ]; then echo "NEGATIVE-PROOF FAIL: the battery stayed green"; exit 1; fi
+          grep -qF "[FAIL] E1-P · PurchaseOrderLine: lab runtime privileges" "$RUNNER_TEMP/E4P.out" || { tail -60 "$RUNNER_TEMP/E4P.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Confirm the tree is byte-identical after the C12-E1 mutations
+        run: git diff --exit-code
+
       # ── I-8A.1 — fiscal history through the erasure lifecycle ───────────────
       - name: I-8A structural firewall (no database)
         run: npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts

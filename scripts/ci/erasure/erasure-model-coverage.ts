@@ -138,6 +138,13 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   BusinessPaymentConnection: { disposition: "ERASURE_MANAGED" },
   InboundEmailAuthorizedSender: { disposition: "ERASURE_MANAGED" },
   InboundEmailSenderChallenge: { disposition: "ERASURE_MANAGED" },
+  // C12-E1. Moved out of UNMANAGED_PERSONAL_DATA because the adapter now clears
+  // their one free-text column each, not because the finding was inconvenient:
+  // every other column on both models carries an explicit disposition in
+  // erasure-dispositions.ts, and the AD-2A battery proves the notes are gone, the
+  // product identity survives and the other tenant is untouched.
+  ReceivingSession: { disposition: "ERASURE_MANAGED" },
+  PurchaseOrderLine: { disposition: "ERASURE_MANAGED" },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -258,9 +265,7 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   InventoryMovement: unmanaged("note, plus createdByUserId"),
   InventoryDraft: unmanaged("detectedName and imageUrl"),
   PurchaseOrder: unmanaged("supplierName and supplierId"),
-  PurchaseOrderLine: unmanaged("rawName as typed, and remainingDecisionNote"),
   SupplierPurchaseDraft: unmanaged("supplierName and supplierId"),
-  ReceivingSession: unmanaged("note, plus createdByUserId"),
   VendorLearning: unmanaged("vendorName and its normalised form"),
   BusinessBotKnowledge: unmanaged("address and notes, entered by the owner"),
   AuthSession: unmanaged("userId and userAgent survive; sessions are refused by the lifecycle gate, not invalidated"),

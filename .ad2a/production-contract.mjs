@@ -54,6 +54,16 @@ const OAUTH_VIA_PARENT =
  * RELATION filter, and a simplified tenant predicate would let that statement
  * succeed in the lab for a reason Production does not share.
  */
+/**
+ * `PurchaseOrderLine` owns through `PurchaseOrder` for the same reason and is
+ * reproduced the same way. It matters here because stage 2 reaches it with a Prisma
+ * RELATION filter, and a simplified tenant predicate would let that statement
+ * succeed in the lab for a reason Production does not share.
+ */
+const LINE_VIA_PURCHASE_ORDER =
+  `EXISTS (SELECT 1 FROM "PurchaseOrder" p WHERE p."id" = "PurchaseOrderLine"."purchaseOrderId" ` +
+  `AND p."businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)`;
+
 const ANALYSIS_VIA_MESSAGE =
   `EXISTS (SELECT 1 FROM "Message" p WHERE p."id" = "MessageAnalysis"."messageId" ` +
   `AND p."businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)`;
@@ -239,6 +249,48 @@ export const PRODUCTION_RLS_CONTRACT = [
       { name: "i8a_hist_tenant_read", command: "SELECT", using: TENANT },
       { name: "i8a_hist_tenant_insert", command: "INSERT", check: TENANT },
     ],
+  },
+
+  // ── C12-E1. Stage 2 now clears one note on each of these. ────────────────
+  //
+  // Absent from this file until now, which matters more than it looks: a table the
+  // fixture does not model is a table the lab leaves WITHOUT row-level security,
+  // and an erasure proved against an unprotected table is proved against a database
+  // Production does not have. That is Defect B's shape. Adding them is what lets
+  // this increment claim a runtime proof at all.
+  //
+  // Copied from the migration, not invented: FORCE RLS, one FOR ALL policy each.
+  {
+    table: "ReceivingSession",
+    migration: "20260825200000_d2_p7_wave3_tenant_rls",
+    why: "stage 2 clears `note` here, under a direct businessId predicate",
+    policies: [{ name: "p7w3_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
+  {
+    // Owns through its parent instead of carrying a businessId, exactly like
+    // OAuthToken — and reproduced exactly for the same reason: the erasure reaches
+    // this table through a Prisma RELATION filter, and a simplified predicate would
+    // let the statement succeed in the lab for a reason Production does not share.
+    table: "PurchaseOrderLine",
+    migration: "20260825200000_d2_p7_wave3_tenant_rls",
+    why: "stage 2 clears `remainingDecisionNote` through the PurchaseOrder relation",
+    policies: [
+      {
+        name: "p7w3_tenant",
+        command: "ALL",
+        using: LINE_VIA_PURCHASE_ORDER,
+        check: LINE_VIA_PURCHASE_ORDER,
+      },
+    ],
+  },
+  {
+    // Not erased, and not optional either: it is the table PurchaseOrderLine's
+    // predicate reads. Without it under the same contract, the EXISTS above proves
+    // nothing about tenancy.
+    table: "PurchaseOrder",
+    migration: "20260825200000_d2_p7_wave3_tenant_rls",
+    why: "the parent PurchaseOrderLine's tenant predicate joins to; nothing on it is erased",
+    policies: [{ name: "p7w3_tenant", command: "ALL", using: TENANT, check: TENANT }],
   },
 ];
 

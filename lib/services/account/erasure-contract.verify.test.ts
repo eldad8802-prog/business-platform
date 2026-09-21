@@ -38,6 +38,7 @@
  */
 import path from "node:path";
 import fs from "node:fs";
+import ts from "typescript";
 import {
   ANONYMIZE_MODELS,
   DELETE_MODELS,
@@ -469,6 +470,154 @@ function main(): number {
         report("C13-NEEDS-OWNER-DECISION", name, `${name}: ${cov.question}`);
       }
     }
+  }
+
+  // ── C17 — a conditional retention, held to its condition ──────────────────
+  //
+  // Some columns are retained BECAUSE something else is erased. The provenance
+  // pointers on ReceivingSession and PurchaseOrderLine are kept on exactly that
+  // basis: they name a `User` row whose email, name and password this same erasure
+  // destroys, so they are ids rather than identities.
+  //
+  // That is a defensible retention and a fragile one. It stops being true the moment
+  // `User.email` is reclassified as retained, or the adapter quietly stops writing
+  // it — and nothing would announce either. So the condition is declared beside the
+  // retention and checked here, in both halves: the dependency must still be
+  // dispositioned as destruction, AND the adapter must still carry it out.
+  for (const [modelName, table] of Object.entries(DISPOSITIONS)) {
+    for (const [fieldName, d] of Object.entries(table)) {
+      if (!d.dependsOn) continue;
+      const dep = d.dependsOn;
+      const key = `${modelName}.${fieldName}`;
+      const depModel = models.get(dep.model);
+      if (!depModel) {
+        report(
+          "C17-RETENTION-DEPENDENCY-BROKEN",
+          key,
+          `${key} is retained because ${dep.model} is erased, and ${dep.model} is not a model in the schema`
+        );
+        continue;
+      }
+      for (const depField of dep.fields) {
+        const depDisp = DISPOSITIONS[dep.model]?.[depField];
+        const depKey = `${key} -> ${dep.model}.${depField}`;
+        if (!depDisp) {
+          report(
+            "C17-RETENTION-DEPENDENCY-BROKEN",
+            depKey,
+            `${key} is retained because ${dep.model}.${depField} is destroyed, but that column has no disposition`
+          );
+          continue;
+        }
+        if (!["ERASE", "ANONYMISE"].includes(depDisp.disposition)) {
+          report(
+            "C17-RETENTION-DEPENDENCY-BROKEN",
+            depKey,
+            `${key} is retained because ${dep.model}.${depField} is destroyed, but that column is now ` +
+              `dispositioned ${depDisp.disposition} — the pointer identifies a person again`
+          );
+          continue;
+        }
+        if (!written.has(`${depModel.delegate}.${depField}`) && !deleted.has(depModel.delegate)) {
+          report(
+            "C17-RETENTION-DEPENDENCY-BROKEN",
+            depKey,
+            `${key} is retained because ${dep.model}.${depField} is destroyed, and the adapter no longer writes it`
+          );
+        }
+      }
+    }
+  }
+
+  // ── C18 — every erasure statement on a covered model is tenant-scoped ──────
+  //
+  // Row-level security is the enforcing boundary, and the AD-2A battery proves it
+  // holds. But under RLS a widened `where` is INVISIBLE: `where: {}` clears the same
+  // rows as `where: { businessId }`, because the policy narrows it back. So no runtime
+  // test can notice the adapter losing its own scope — and the day the statement runs
+  // on a connection that bypasses RLS, it clears every tenant.
+  //
+  // The shape is therefore held statically, and only two shapes are accepted: a
+  // model with a `businessId` column is reached by `{ businessId }`; a model without
+  // one (PurchaseOrderLine, which owns through PurchaseOrder) by `{ <relation>:
+  // { businessId } }`, where the relation leads to a model that carries it.
+  {
+    const src = ts.createSourceFile(
+      path.basename(ADAPTER),
+      fs.readFileSync(ADAPTER, "utf8"),
+      ts.ScriptTarget.Latest,
+      true
+    );
+    const covered = new Map(
+      COVERED_MODELS.map((n) => models.get(n))
+        .filter((m): m is NonNullable<typeof m> => !!m)
+        .map((m) => [m.delegate, m])
+    );
+    const METHODS = new Set(["update", "updateMany", "updateManyAndReturn", "upsert", "delete", "deleteMany"]);
+    const hasBusinessId = (m: { fields: { name: string; isScalar: boolean }[] }) =>
+      m.fields.some((f) => f.name === "businessId" && f.isScalar);
+    /** `{ businessId }` or `{ businessId: businessId }` — exactly that, nothing else. */
+    const isBusinessIdOnly = (e: ts.Expression): boolean => {
+      if (!ts.isObjectLiteralExpression(e) || e.properties.length !== 1) return false;
+      const p = e.properties[0];
+      if (ts.isShorthandPropertyAssignment(p)) return p.name.text === "businessId";
+      return (
+        ts.isPropertyAssignment(p) &&
+        ts.isIdentifier(p.name) &&
+        p.name.text === "businessId" &&
+        ts.isIdentifier(p.initializer) &&
+        p.initializer.text === "businessId"
+      );
+    };
+
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        METHODS.has(node.expression.name.text) &&
+        ts.isPropertyAccessExpression(node.expression.expression) &&
+        covered.has(node.expression.expression.name.text)
+      ) {
+        const model = covered.get(node.expression.expression.name.text)!;
+        const line = src.getLineAndCharacterOfPosition(node.getStart(src)).line + 1;
+        const arg = node.arguments[0];
+        const where =
+          arg && ts.isObjectLiteralExpression(arg)
+            ? arg.properties.find(
+                (p): p is ts.PropertyAssignment =>
+                  ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "where"
+              )
+            : undefined;
+        let scoped = false;
+        if (where && hasBusinessId(model)) {
+          scoped = isBusinessIdOnly(where.initializer);
+        } else if (
+          where &&
+          ts.isObjectLiteralExpression(where.initializer) &&
+          where.initializer.properties.length === 1
+        ) {
+          const rel = where.initializer.properties[0];
+          if (ts.isPropertyAssignment(rel) && ts.isIdentifier(rel.name)) {
+            const relField = model.fields.find(
+              (f) => f.name === (rel.name as ts.Identifier).text && !f.isScalar && !f.isList
+            );
+            const parent = relField ? models.get(relField.type) : undefined;
+            scoped = !!parent && hasBusinessId(parent) && isBusinessIdOnly(rel.initializer);
+          }
+        }
+        if (!scoped) {
+          report(
+            "C18-UNSCOPED-ERASURE-WRITE",
+            `${model.name}@adapter`,
+            `${model.name}.${node.expression.name.text}() at adapter line ${line} is not scoped to the tenant: ` +
+              `expected ${hasBusinessId(model) ? "`where: { businessId }`" : "`where: { <relation>: { businessId } }`"}, ` +
+              `found ${where ? where.initializer.getText(src) : "no `where`"}`
+          );
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(src);
   }
 
   // ── C14…C16 — NON_PERSONAL_OPERATIONAL, proven instead of promised ─────────

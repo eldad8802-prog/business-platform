@@ -2,7 +2,7 @@
  * ERASURE CONTRACT — the mutation driver for the negative proofs.
  *
  * Usage:  npx tsx scripts/ci/erasure-mutate.ts
- *           <M1|M2|M3|M4|M5|M6|D1|D2|D3|D4|N2|N3|N4|N5|R1|R2|R3|R4>
+ *           <M1|M2|M3|M4|M5|M6|D1|D2|D3|D4|N2|N3|N4|N5|R1|R2|R3|R4|E1|E2|E3|E3B|E4|E4P|E5|E5B|E6>
  *
  * WHY THIS REPLACED THE REGEXES
  *
@@ -45,6 +45,12 @@ const SCHEMA = path.join(ROOT, "prisma/schema.prisma");
 const BOT_KNOWLEDGE_ROUTE = path.join(ROOT, "app/api/business/bot/knowledge/route.ts");
 const DEALS_LIST_ROUTE = path.join(ROOT, "app/api/deals/route.ts");
 const INVENTORY_SERVICE = path.join(ROOT, "lib/services/inventory/inventory.service.ts");
+// C12-E1. Laboratory fidelity is a RUNTIME property — the lab must reproduce
+// Production's RLS and privileges — so E4 and E4P mutate the lab and require the AD-2A
+// battery to fail. E3 is deliberately NOT runtime: under FORCE RLS a widened `where`
+// clears exactly the same rows, so no battery can see it; C18 holds the shape instead.
+const AD2A_CONTRACT = path.join(ROOT, ".ad2a/production-contract.mjs");
+const AD2A_BATTERY = path.join(ROOT, ".ad2a/battery.mjs");
 
 function parse(file: string): ts.SourceFile {
   return ts.createSourceFile(
@@ -170,6 +176,49 @@ function insertAfterStatement(source: string, src: ts.SourceFile, stmt: ts.State
   const indent = " ".repeat(col);
   const at = stmt.getEnd();
   return source.slice(0, at) + nl + indent + text + source.slice(at);
+}
+
+/** The first argument object of a Prisma call, located by delegate and method. */
+function prismaCallArgument(
+  src: ts.SourceFile,
+  delegate: string,
+  method: string
+): ts.ObjectLiteralExpression {
+  let found: ts.ObjectLiteralExpression | null = null;
+  const walk = (n: ts.Node) => {
+    if (
+      !found &&
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      n.expression.name.text === method &&
+      ts.isPropertyAccessExpression(n.expression.expression) &&
+      n.expression.expression.name.text === delegate
+    ) {
+      const arg = n.arguments[0];
+      if (arg && ts.isObjectLiteralExpression(arg)) found = arg;
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(src);
+  if (!found) throw new Error(`no ${delegate}.${method}() with an inline argument object`);
+  return found;
+}
+
+/** An entry of the AD-2A production contract, located by its `table` value. */
+function contractEntry(src: ts.SourceFile, table: string): ts.ObjectLiteralExpression {
+  for (const obj of objectLiterals(src)) {
+    const t = propertyNamed(obj, "table");
+    if (t && ts.isStringLiteral(t.initializer) && t.initializer.text === table) return obj;
+  }
+  throw new Error(`no contract entry for table "${table}"`);
+}
+
+/** Remove one element of an array literal, and the comma that follows it. */
+function removeArrayElement(source: string, src: ts.SourceFile, node: ts.Node): string {
+  let end = node.getEnd();
+  while (end < source.length && /\s/.test(source[end])) end += 1;
+  if (source[end] === ",") end += 1;
+  return source.slice(0, node.getStart(src)) + source.slice(end);
 }
 
 /** Insert a field line into a Prisma model block, right after its opening line.
@@ -388,6 +437,142 @@ const MUTATIONS: Record<string, Mutation> = {
     file: SCHEMA,
     what: "add an unclassified text column to SupplierPurchaseDraftLine",
     apply: (_src, text) => insertPrismaField(text, "SupplierPurchaseDraftLine", "note String?"),
+  },
+
+  // ── E1…E5: the C12-E1 assumptions ───────────────────────────────────────
+  //
+  // Two notes are cleared; three provenance pointers and three product columns are
+  // deliberately kept. Each of those is an assumption, and these are the ones that
+  // would rot without saying so.
+
+  // The contract promises the note is cleared; the adapter stops doing it.
+  E1: {
+    file: ADAPTER,
+    what: "stop clearing ReceivingSession.note",
+    apply: (src, text) => {
+      const data = prismaData(src, "receivingSession", "updateMany");
+      const p = propertyNamed(data, "note");
+      if (!p) throw new Error("the receivingSession data has no `note` property");
+      return removeProperty(text, src, p);
+    },
+  },
+  // The same for the line, which also exercises the relation path: there is no
+  // other way to reach that row.
+  E2: {
+    file: ADAPTER,
+    what: "stop clearing PurchaseOrderLine.remainingDecisionNote",
+    apply: (src, text) => {
+      const data = prismaData(src, "purchaseOrderLine", "updateMany");
+      const p = propertyNamed(data, "remainingDecisionNote");
+      if (!p) throw new Error("the purchaseOrderLine data has no `remainingDecisionNote` property");
+      return removeProperty(text, src, p);
+    },
+  },
+  // STATIC (C18). The tenant filter itself. PurchaseOrderLine carries no businessId,
+  // so the adapter reaches it through the PurchaseOrder relation. Under FORCE RLS a
+  // widened filter clears exactly the same rows — the policy narrows it back — so the
+  // battery CANNOT see this; it was tried, and it stays green. The shape is held by
+  // the contract instead. E3 removes the filter; E3B keeps the relation and drops the
+  // tenant from inside it, which reads as scoped and is not.
+  E3: {
+    file: ADAPTER,
+    what: "widen the PurchaseOrderLine tenant filter to every tenant",
+    apply: (src, text) => {
+      const arg = prismaCallArgument(src, "purchaseOrderLine", "updateMany");
+      const where = propertyNamed(arg, "where");
+      if (!where) throw new Error("the purchaseOrderLine updateMany has no `where`");
+      return replaceNode(text, src, where.initializer, "{}");
+    },
+  },
+  E3B: {
+    file: ADAPTER,
+    what: "keep the PurchaseOrder relation but drop businessId from inside it",
+    apply: (src, text) => {
+      const arg = prismaCallArgument(src, "purchaseOrderLine", "updateMany");
+      const where = propertyNamed(arg, "where");
+      if (!where) throw new Error("the purchaseOrderLine updateMany has no `where`");
+      return replaceNode(text, src, where.initializer, "{ purchaseOrder: {} }");
+    },
+  },
+  // RUNTIME. Laboratory fidelity. A table the fixture does not model is a table the
+  // lab leaves without row-level security, and an erasure proved against an
+  // unprotected table is proved against a database Production does not have. That is
+  // Defect B's shape, so the battery has to refuse to be reassuring without it. What
+  // bites is E1-R1: under A's context, B's line named by id must stay invisible.
+  E4: {
+    file: AD2A_CONTRACT,
+    what: "drop PurchaseOrderLine from the AD-2A production contract",
+    apply: (src, text) => removeArrayElement(text, src, contractEntry(src, "PurchaseOrderLine")),
+  },
+  // RUNTIME. Privilege fidelity — the other gate. A `FOR ALL` policy governs DELETE
+  // but does not grant it; the table privilege does, and Production's runtime holds
+  // none on these three. A lab that granted it would be proving against a capability
+  // the product does not have. What bites is E1-P, read from the grants artifact.
+  E4P: {
+    file: AD2A_BATTERY,
+    what: "grant the lab runtime DELETE on the three C12-E1 tables instead of revoking it",
+    apply: (src, text) => {
+      let found: ts.TemplateExpression | null = null;
+      const walk = (n: ts.Node) => {
+        if (
+          !found &&
+          ts.isTemplateExpression(n) &&
+          n.head.text.startsWith('REVOKE DELETE ON "ReceivingSession","PurchaseOrderLine","PurchaseOrder"')
+        ) {
+          found = n;
+        }
+        ts.forEachChild(n, walk);
+      };
+      walk(src);
+      if (!found) throw new Error("no REVOKE DELETE statement for the C12-E1 tables");
+      const node = found as ts.TemplateExpression;
+      const next = node
+        .getText(src)
+        .replace("REVOKE DELETE ON", "GRANT DELETE ON")
+        .replace(" FROM ", " TO ");
+      return replaceNode(text, src, node, next);
+    },
+  },
+  // The conditional retention. The provenance pointers are kept ONLY because the
+  // User row they name is anonymised. Reclassifying that anonymisation away has to
+  // make the contract red, rather than leaving three identifying pointers behind a
+  // classification nobody rechecked.
+  E5: {
+    file: DISPOSITIONS,
+    what: "reclassify User.email as retained, invalidating the pointer retention",
+    apply: (src, text) => {
+      const user = objectAt(namedObject(src, "DISPOSITIONS"), "User");
+      const p = propertyNamed(user, "email");
+      if (!p) throw new Error("User has no `email` disposition");
+      return replaceNode(
+        text,
+        src,
+        p.initializer,
+        `{ disposition: "RETAIN_BY_DESIGN", purpose: "mutation", basis: "UNPROVEN" }`
+      );
+    },
+  },
+  // The other half of the same premise: the classification still says User.email is
+  // destroyed, but the adapter has quietly stopped destroying it.
+  E5B: {
+    file: ADAPTER,
+    what: "stop anonymising User.email in the adapter, invalidating the pointer retention",
+    apply: (src, text) => {
+      const data = prismaData(src, "user", "updateMany");
+      const p = propertyNamed(data, "email");
+      if (!p) throw new Error("the user updateMany data has no `email` property");
+      return removeProperty(text, src, p);
+    },
+  },
+  // The product-identity surface. rawName, sku and barcode were written down as
+  // product identity precisely so the classification could not rest on inference —
+  // which is only worth something if a NEW text column cannot slip in beside them
+  // and inherit it. PurchaseOrderLine joined COVERED_MODELS for exactly that reason:
+  // every column must answer for itself. This proves it does.
+  E6: {
+    file: SCHEMA,
+    what: "add an unclassified text column beside the product identity on PurchaseOrderLine",
+    apply: (_src, text) => insertPrismaField(text, "PurchaseOrderLine", "supplierContactNote String?"),
   },
   // A disposition for a model that is not in the schema.
   N2: {

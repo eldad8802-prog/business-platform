@@ -36,12 +36,38 @@ export type Disposition = "ERASE" | "ANONYMISE" | "UNLINK" | "RETAIN_BY_DESIGN" 
 
 export type RetentionBasis = "PRODUCT" | "LEGAL/FISCAL" | "SECURITY/AUDIT" | "UNPROVEN";
 
+/**
+ * A retention that is only safe because SOMETHING ELSE is erased.
+ *
+ * `ReceivingSession.createdByUserId` is kept as provenance — who received the goods —
+ * and that is defensible for exactly one reason: by the time anyone could follow the
+ * pointer, the `User` row it names has had its email, name and password destroyed. It
+ * is an id, not an identity.
+ *
+ * Which makes the retention CONDITIONAL, and a condition nobody checks is a condition
+ * that expires quietly. If `User.email` were reclassified as retained, or the adapter
+ * simply stopped writing it, these pointers would become identifying again and nothing
+ * in the contract would say so.
+ *
+ * So the condition is declared and the guard proves it: every named column must still
+ * be dispositioned ERASE or ANONYMISE **and** still be written by the adapter. Break
+ * either half and the build goes red instead of the classification going stale.
+ */
+export type RetentionDependency = {
+  /** The model whose erasure is what makes this retention safe. */
+  model: string;
+  /** The columns on it that must actually be destroyed. */
+  fields: readonly string[];
+};
+
 export type FieldDisposition = {
   disposition: Disposition;
   /** Required for RETAIN_BY_DESIGN. Why this value is allowed to survive. */
   purpose?: string;
   /** Required for RETAIN_BY_DESIGN. Never asserted without evidence. */
   basis?: RetentionBasis;
+  /** Optional for RETAIN_BY_DESIGN: the erasure this retention leans on. */
+  dependsOn?: RetentionDependency;
 };
 
 /**
@@ -54,8 +80,24 @@ export type FieldDisposition = {
  * increment, and is deliberately NOT done here: adding them would either mean fixing
  * the product in this increment, or listing personal data as RETAIN_BY_DESIGN with a
  * basis nobody has agreed to. Both are worse than an honest boundary.
+ *
+ * C12-E1 adds `ReceivingSession` and `PurchaseOrderLine` on those terms and no others:
+ * the product IS fixed in the same increment, and nothing personal is retained without
+ * a basis. Joining this list is also what makes the two decisions behind them checkable
+ * rather than remembered — the provenance pointers carry a declared dependency on the
+ * `User` anonymisation, and the product-identity columns are written down as such, so a
+ * new text column on either model fails the build instead of inheriting a classification
+ * nobody gave it.
  */
-export const COVERED_MODELS = ["User", "BusinessProfile", "Customer", "Lead", "Notification"] as const;
+export const COVERED_MODELS = [
+  "User",
+  "BusinessProfile",
+  "Customer",
+  "Lead",
+  "Notification",
+  "ReceivingSession",
+  "PurchaseOrderLine",
+] as const;
 
 export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
   User: {
@@ -236,6 +278,90 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
     readAt: { disposition: "STRUCTURAL" },
     dismissedAt: { disposition: "STRUCTURAL" },
     resolvedAt: { disposition: "STRUCTURAL" },
+    createdAt: { disposition: "STRUCTURAL" },
+    updatedAt: { disposition: "STRUCTURAL" },
+  },
+
+  // ── C12-E1 ────────────────────────────────────────────────────────────────
+  //
+  // Two models whose only personal surface is a note somebody typed. Receiving a
+  // delivery and deciding what to do with an undelivered remainder are operational
+  // facts about the business; the free text beside them is not, because nothing
+  // constrains what goes in it.
+  //
+  // What is NOT erased here is the point of writing it all down. The provenance
+  // pointers stay, on a declared and checked dependency. The product columns stay,
+  // said out loud rather than inferred.
+
+  ReceivingSession: {
+    id: { disposition: "STRUCTURAL" },
+    businessId: { disposition: "STRUCTURAL" },
+    purchaseOrderId: { disposition: "STRUCTURAL" },
+    status: { disposition: "STRUCTURAL" },
+    receivedAt: { disposition: "STRUCTURAL" },
+    postedAt: { disposition: "STRUCTURAL" },
+    // The one free-text column, and the whole reason this model was ever a finding.
+    note: { disposition: "ERASE" },
+    createdByUserId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose:
+        "provenance: which user received the goods. An id into a User row whose email, " +
+        "name and password the same erasure destroys — a pointer, not an identity",
+      basis: "SECURITY/AUDIT",
+      dependsOn: { model: "User", fields: ["email", "name", "password"] },
+    },
+    postedByUserId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "provenance: which user posted the session to stock. Same pointer, same erasure",
+      basis: "SECURITY/AUDIT",
+      dependsOn: { model: "User", fields: ["email", "name", "password"] },
+    },
+    createdAt: { disposition: "STRUCTURAL" },
+    updatedAt: { disposition: "STRUCTURAL" },
+  },
+
+  PurchaseOrderLine: {
+    id: { disposition: "STRUCTURAL" },
+    purchaseOrderId: { disposition: "STRUCTURAL" },
+    itemId: { disposition: "STRUCTURAL" },
+    // Product identity, ratified under S-7C. `rawName` is what a supplier's feed or a
+    // CSV called the product — the connector maps it to `productName`, intake copies it
+    // into `InventoryDraft.detectedName`, and the document service prints it as
+    // "מוצר ללא שם" when it is missing. It sits beside sku and barcode in the line's own
+    // identity check, and all three are written from the same normaliser in the same
+    // call. Recorded rather than inferred, so the classification cannot rest on somebody
+    // remembering why.
+    rawName: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "the product's name as the supplier's feed or the owner's CSV gave it",
+      basis: "PRODUCT",
+    },
+    sku: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "the product's stock-keeping unit, alongside rawName and barcode",
+      basis: "PRODUCT",
+    },
+    barcode: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "the product's barcode, alongside rawName and sku",
+      basis: "PRODUCT",
+    },
+    orderedQty: { disposition: "STRUCTURAL" },
+    unitCost: { disposition: "STRUCTURAL" },
+    unitType: { disposition: "STRUCTURAL" },
+    status: { disposition: "STRUCTURAL" },
+    remainingDecision: { disposition: "STRUCTURAL" },
+    remainingDecisionQty: { disposition: "STRUCTURAL" },
+    expectedAt: { disposition: "STRUCTURAL" },
+    // Free text from the request body: whatever the owner wrote about the remainder.
+    remainingDecisionNote: { disposition: "ERASE" },
+    remainingDecidedAt: { disposition: "STRUCTURAL" },
+    remainingDecidedByUserId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "provenance: which user decided the remainder. Same pointer, same erasure",
+      basis: "SECURITY/AUDIT",
+      dependsOn: { model: "User", fields: ["email", "name", "password"] },
+    },
     createdAt: { disposition: "STRUCTURAL" },
     updatedAt: { disposition: "STRUCTURAL" },
   },
