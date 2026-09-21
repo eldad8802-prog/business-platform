@@ -91,6 +91,10 @@ async function overflowOffenders(page) {
         const style = getComputedStyle(el);
         // A deliberate scroll container is not a defect.
         if (style.overflowX === "auto" || style.overflowX === "scroll") continue;
+        // The visually-hidden (sr-only) pattern — a 1×1 clipped box, used by the
+        // SkipLink until it is focused — clips its content ON PURPOSE. Only that
+        // exact shape is exempt; any other clipped box is still reported.
+        if (el.clientWidth <= 1 && el.clientHeight <= 1 && style.overflow === "hidden") continue;
         out.push({
           tag: el.tagName.toLowerCase(),
           cls: (el.className || "").toString().slice(0, 80),
@@ -190,13 +194,38 @@ async function run() {
       );
     }
 
-    /* --- imagery actually loaded: "proof" that did not load proves nothing --- */
-    const brokenImages = await page.evaluate(() =>
-      [...document.querySelectorAll("img")]
+    /* --- imagery actually loaded: "proof" that did not load proves nothing ---
+     * Lazy images only load once they approach the viewport, so walk the page
+     * first — otherwise a not-yet-requested image is indistinguishable from a
+     * broken one. Images inside an inactive tab panel (`hidden`) are never
+     * requested; every panel is proven separately in the keyboard block below. */
+    await page.evaluate(async () => {
+      const step = Math.max(200, Math.floor(window.innerHeight * 0.8));
+      for (let y = 0; y < document.documentElement.scrollHeight; y += step) {
+        window.scrollTo(0, y);
+        await new Promise((r) => setTimeout(r, 60));
+      }
+      window.scrollTo(0, 0);
+    });
+    const brokenImages = await page.evaluate(async () => {
+      const visible = [...document.querySelectorAll("img")].filter((img) => !img.closest("[hidden]"));
+      const deadline = Date.now() + 8000;
+      while (Date.now() < deadline && visible.some((img) => !img.complete)) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return visible
         .filter((img) => !img.complete || img.naturalWidth === 0)
-        .map((img) => img.getAttribute("src"))
-    );
+        .map((img) => img.getAttribute("src"));
+    });
     check(`${width} · no broken images`, brokenImages.length === 0, brokenImages.join(", "));
+
+    /* --- before→after must stay compact on phones (V2.1 was ~1,316px at 390) --- */
+    if (width <= MOBILE) {
+      const baHeight = await page.evaluate(() =>
+        Math.round(document.getElementById("s-before-after")?.closest("section")?.getBoundingClientRect().height ?? -1)
+      );
+      check(`${width} · before→after section ≤ 1100px`, baHeight > 0 && baHeight <= 1100, `${baHeight}px`);
+    }
 
     /* --- no decorative emoji in the marketing body --- */
     const emoji = await page.evaluate(() => {
@@ -289,14 +318,39 @@ async function run() {
     );
     check("a11y · End selects the last proof tab", Boolean(atEnd) && atEnd !== after, atEnd);
 
-    // The panel that is now selected must show a loaded image.
-    await page.waitForTimeout(600);
-    const panelImageOk = await page.evaluate(() => {
-      const panel = [...document.querySelectorAll('[role="tabpanel"]')].find((p) => !p.hidden);
-      const img = panel?.querySelector("img");
-      return Boolean(img && img.complete && img.naturalWidth > 0);
-    });
-    check("a11y · the selected proof panel's image is loaded", panelImageOk);
+    // Desktop renders the tabs as a vertical list: Up/Down must work too.
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowDown");
+    const afterDown = await page.evaluate(() =>
+      document.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim()
+    );
+    check("a11y · ArrowDown moves the selected proof tab", afterDown === after, `${before} -> ${afterDown}`);
+
+    // EVERY area must show a loaded, readable-size image when selected — not
+    // just whichever one happens to be active.
+    for (let i = 0; i < tabCount; i++) {
+      await page.locator('[role="tab"]').nth(i).click();
+      const panelImage = await page.evaluate(async (idx) => {
+        const panel = document.getElementById(`proof-panel-${idx}`);
+        const img = panel?.querySelector("img");
+        img?.scrollIntoView({ block: "center" });
+        const deadline = Date.now() + 8000;
+        while (img && !img.complete && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        return {
+          visible: Boolean(panel && !panel.hidden),
+          loaded: Boolean(img && img.complete && img.naturalWidth > 0),
+          renderedWidth: Math.round(img?.getBoundingClientRect().width ?? 0),
+          src: img?.getAttribute("src"),
+        };
+      }, i);
+      check(
+        `a11y · proof panel ${i + 1} image loaded and shown`,
+        panelImage.visible && panelImage.loaded && panelImage.renderedWidth >= 300,
+        JSON.stringify(panelImage)
+      );
+    }
 
     await ctx.close();
   }

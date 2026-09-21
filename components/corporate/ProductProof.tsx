@@ -66,6 +66,17 @@ export function ProductProof({ areas }: { areas: ProofArea[] }) {
         event.preventDefault();
         focusTab(active - 1);
         break;
+      // From `lg` up the tabs are a vertical list, where Up/Down is the expected
+      // pair. Both pairs are accepted at every width rather than switching on a
+      // breakpoint the keyboard user cannot see.
+      case "ArrowDown":
+        event.preventDefault();
+        focusTab(active + 1);
+        break;
+      case "ArrowUp":
+        event.preventDefault();
+        focusTab(active - 1);
+        break;
       case "Home":
         event.preventDefault();
         focusTab(0);
@@ -93,7 +104,6 @@ export function ProductProof({ areas }: { areas: ProofArea[] }) {
         <div
           role="tablist"
           aria-label="אזורים במערכת"
-          aria-orientation="horizontal"
           onKeyDown={onKeyDown}
           className="flex flex-wrap gap-2 lg:w-52 lg:shrink-0 lg:flex-col lg:gap-1.5"
         >

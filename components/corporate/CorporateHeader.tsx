@@ -47,7 +47,7 @@ export function CorporateHeader() {
         <Link
           href="/home"
           onClick={close}
-          className="flex items-center gap-2 text-[var(--dz-text-primary)]"
+          className="flex min-h-[44px] items-center gap-2 text-[var(--dz-text-primary)]"
         >
           <Image
             src="/dubiz-logo.png"
