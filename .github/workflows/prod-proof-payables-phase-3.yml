@@ -96,7 +96,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client
 
-      - name: Run the Phase 2 production proof
+      - name: Run the Phase 3 production proof
         env:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           PGSSLMODE: require
@@ -109,21 +109,27 @@ jobs:
             2>&1 | tee proof.out
 
           echo "--- verifying every proof assertion actually fired ---"
-          # Nine assertions, named individually. A proof that silently did not
-          # run must never be mistaken for a proof that passed, so the absence
-          # of any one line fails the step.
+          # Thirteen assertions, named individually. A proof that silently did
+          # not run must never be mistaken for a proof that passed, so the
+          # absence of any one line fails the step. The structural, survivor
+          # and real-totals checks RAISE on failure (ON_ERROR_STOP), so their
+          # line can only appear if the condition actually held.
           for claim in \
+            'PROOF structural: PASS' \
             'PROOF cross-tenant-fingerprint: ALLOWED' \
             'PROOF duplicate-fingerprint-same-tenant: REFUSED' \
             'PROOF second-active-default: REFUSED' \
             'PROOF non-sequential-numbers: ACCEPTED' \
             'PROOF duplicate-live-cheque-number: REFUSED' \
+            'PROOF cancelled-number-reusable: ALLOWED' \
             'PROOF cancel-then-replace: ALLOWED' \
             'PROOF replacement-chain-fork: REFUSED' \
             'PROOF cleared-owner-asserted: RECORDED' \
-            'PROOF cleared-not-bank-verified: REFUSED' ; do
+            'PROOF cleared-not-bank-verified: REFUSED' \
+            'PROOF zero-survivors: CONFIRMED' \
+            'PROOF real-totals-unchanged: CONFIRMED' ; do
             grep -q "$claim" proof.out || {
               echo "::error::assertion never fired: $claim"; exit 1; }
             echo "  fired: $claim"
           done
-          echo "All nine behavioural proofs fired."
+          echo "All thirteen proofs fired."
