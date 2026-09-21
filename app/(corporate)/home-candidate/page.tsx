@@ -449,14 +449,20 @@ export default function HomeCandidatePage() {
           </Heading>
         </div>
 
-        <div className="mt-10 space-y-6 sm:mt-12 sm:space-y-8">
+        {/*
+          Mobile: the arrow is NOT its own row. Stacked as box → arrow row → box,
+          three pairs grew this section to ~1.3k px at 360. The arrow instead
+          sits on the seam between the two halves of a pair, so each pair reads as
+          one unit and the page loses a row per pair without losing the "became".
+        */}
+        <div className="mt-10 space-y-5 sm:mt-12 sm:space-y-8">
           {TRANSFORMATIONS.map((t) => (
             <article
               key={t.had}
               className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:gap-5"
             >
               {/* HAD — dashed: unresolved. Deliberately plainer than the result. */}
-              <div className="flex-1 rounded-[22px] border border-dashed border-[var(--mkt-soft-border)] px-5 py-5">
+              <div className="flex-1 rounded-[22px] border border-dashed border-[var(--mkt-soft-border)] px-4 py-4 sm:px-5 sm:py-5">
                 <p className="text-[15px] font-semibold leading-6 text-[var(--dz-text-secondary)]">
                   {t.had}
                 </p>
@@ -465,15 +471,23 @@ export default function HomeCandidatePage() {
                 </p>
               </div>
 
+              {/* Desktop connector: its own column, pointing right-to-left. */}
               <div
                 aria-hidden
-                className="self-center text-xl text-[var(--dz-text-muted)] max-sm:-rotate-90"
+                className="hidden self-center text-xl text-[var(--dz-text-muted)] sm:block"
               >
                 ←
               </div>
 
               {/* DID — solid paper: resolved. Carries the weight of the pair. */}
-              <div className="flex-1 rounded-[22px] dz-mist px-5 py-5">
+              <div className="relative flex-1 rounded-[22px] dz-mist px-4 py-4 sm:px-5 sm:py-5">
+                {/* Mobile connector: straddles the 12px seam between the halves. */}
+                <span
+                  aria-hidden
+                  className="absolute -top-[18px] right-5 flex h-6 w-6 items-center justify-center rounded-full bg-[var(--mkt-page)] text-sm text-[var(--dz-text-muted)] sm:hidden"
+                >
+                  ↓
+                </span>
                 <p className="text-[15px] font-semibold leading-6 text-[var(--mkt-ink)]">
                   {t.did}
                 </p>
@@ -525,7 +539,7 @@ export default function HomeCandidatePage() {
           <p className="mt-10">
             <Link
               href="/register"
-              className="text-[15px] font-semibold text-[var(--mkt-link)] underline underline-offset-4"
+              className="inline-flex min-h-[44px] items-center text-[15px] font-semibold text-[var(--mkt-link)] underline underline-offset-4"
             >
               לראות את זה על העסק שלך
             </Link>
