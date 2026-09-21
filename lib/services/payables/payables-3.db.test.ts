@@ -207,7 +207,7 @@ async function main(): Promise<void> {
       totalAmount: "3000.00",
       installmentCount: 3,
       recurrence: "MONTHLY",
-      firstDueAt: D("2027-02-10T09:00:00.000Z"),
+      firstDueAt: D("2025-02-10T09:00:00.000Z"),
     }),
   );
   const insts = await prisma.installment.findMany({ where: { commitmentId: plan.id }, orderBy: { sequence: "asc" } });
@@ -217,8 +217,8 @@ async function main(): Promise<void> {
       businessId: A,
       chequeNumber: "000123",
       amount: "1000.00",
-      issueDate: D("2027-02-01T09:00:00.000Z"),
-      dueDate: D("2027-02-10T09:00:00.000Z"),
+      issueDate: D("2025-02-01T09:00:00.000Z"),
+      dueDate: D("2025-02-10T09:00:00.000Z"),
       sourceBankAccountId: acc1.id,
       installmentId: insts[0].id,
     }),
@@ -234,8 +234,8 @@ async function main(): Promise<void> {
       businessId: A,
       chequeNumber: "A-7788/ג",
       amount: "50.00",
-      issueDate: D("2027-02-01T09:00:00.000Z"),
-      dueDate: D("2027-02-01T09:00:00.000Z"),
+      issueDate: D("2025-02-01T09:00:00.000Z"),
+      dueDate: D("2025-02-01T09:00:00.000Z"),
       sourceBankAccountId: acc1.id,
       payeeName: "קיוסק",
     }),
@@ -250,8 +250,8 @@ async function main(): Promise<void> {
           businessId: A,
           chequeNumber: "000123",
           amount: "1.00",
-          issueDate: D("2027-02-01T09:00:00.000Z"),
-          dueDate: D("2027-02-01T09:00:00.000Z"),
+          issueDate: D("2025-02-01T09:00:00.000Z"),
+          dueDate: D("2025-02-01T09:00:00.000Z"),
           sourceBankAccountId: acc1.id,
           payeeName: "x",
         }),
@@ -263,8 +263,8 @@ async function main(): Promise<void> {
       businessId: A,
       chequeNumber: "000123",
       amount: "1.00",
-      issueDate: D("2027-02-01T09:00:00.000Z"),
-      dueDate: D("2027-02-01T09:00:00.000Z"),
+      issueDate: D("2025-02-01T09:00:00.000Z"),
+      dueDate: D("2025-02-01T09:00:00.000Z"),
       sourceBankAccountId: restored.account.id,
       payeeName: "x",
     }),
@@ -276,8 +276,8 @@ async function main(): Promise<void> {
       businessId: A,
       chequeNumber: "000123",
       amount: "1.00",
-      issueDate: D("2027-02-01T09:00:00.000Z"),
-      dueDate: D("2027-02-01T09:00:00.000Z"),
+      issueDate: D("2025-02-01T09:00:00.000Z"),
+      dueDate: D("2025-02-01T09:00:00.000Z"),
       sourceBankAccountId: restored.account.id,
       payeeName: "x",
     }),
@@ -289,15 +289,15 @@ async function main(): Promise<void> {
     "3.10 an installment of ANOTHER commitment is refused",
     async () => {
       const other = await asA(() =>
-        svc.createCommitment({ businessId: A, title: "other", payeeNameSnapshot: "o", scheduleKind: "ONE_OFF", totalAmount: "10.00", firstDueAt: D("2027-03-01T09:00:00.000Z") }),
+        svc.createCommitment({ businessId: A, title: "other", payeeNameSnapshot: "o", scheduleKind: "ONE_OFF", totalAmount: "10.00", firstDueAt: D("2025-03-01T09:00:00.000Z") }),
       );
       await asA(() =>
         cheques.createCheque({
           businessId: A,
           chequeNumber: "999",
           amount: "10.00",
-          issueDate: D("2027-02-01T09:00:00.000Z"),
-          dueDate: D("2027-02-01T09:00:00.000Z"),
+          issueDate: D("2025-02-01T09:00:00.000Z"),
+          dueDate: D("2025-02-01T09:00:00.000Z"),
           sourceBankAccountId: acc1.id,
           commitmentId: other.id,
           installmentId: insts[0].id,
@@ -312,15 +312,25 @@ async function main(): Promise<void> {
 
   await rejects(
     "4.1 a PLANNED cheque cannot have cleared",
-    () => asA(() => cheques.clearCheque({ businessId: A, chequeId: c1.id, clearedAt: D("2027-02-11T09:00:00.000Z") })),
+    () => asA(() => cheques.clearCheque({ businessId: A, chequeId: c1.id, clearedAt: D("2025-02-11T09:00:00.000Z") })),
     "has not been written",
   );
   await asA(() => cheques.advanceCheque({ businessId: A, chequeId: c1.id, to: "ISSUED" }));
   await asA(() => cheques.advanceCheque({ businessId: A, chequeId: c1.id, to: "DELIVERED" }));
 
+  await rejects(
+    "4.1b a cheque cannot have cleared before it was written",
+    () => asA(() => cheques.clearCheque({ businessId: A, chequeId: c1.id, clearedAt: D("2025-01-15T09:00:00.000Z") })),
+    "before it was written",
+  );
+  await rejects(
+    "4.1c a cheque cannot have cleared in the future",
+    () => asA(() => cheques.clearCheque({ businessId: A, chequeId: c1.id, clearedAt: new Date(Date.now() + 86400000) })),
+    "in the future",
+  );
   const paymentsBefore = await prisma.payment.count({ where: { businessId: A } });
   const cleared = await asA(() =>
-    cheques.clearCheque({ businessId: A, chequeId: c1.id, clearedAt: D("2027-02-11T09:00:00.000Z") }),
+    cheques.clearCheque({ businessId: A, chequeId: c1.id, clearedAt: D("2025-02-11T09:00:00.000Z") }),
   );
   const payRow = await prisma.payment.findFirst({
     where: { businessId: A, idempotencyKey: `cheque:${c1.id}` },
@@ -339,7 +349,7 @@ async function main(): Promise<void> {
   check("4.9 the installment is now PAID through the ledger", bal.installments[0].state === "PAID" && bal.paid === "1000.00");
 
   const replay = await asA(() =>
-    cheques.clearCheque({ businessId: A, chequeId: c1.id, clearedAt: D("2027-02-12T09:00:00.000Z") }),
+    cheques.clearCheque({ businessId: A, chequeId: c1.id, clearedAt: D("2025-02-12T09:00:00.000Z") }),
   );
   check("4.10 clearing again is a replay", replay.replayed === true);
   check("4.11 …and creates NO second Payment", (await prisma.payment.count({ where: { businessId: A } })) === paymentsBefore + 1);
@@ -350,15 +360,15 @@ async function main(): Promise<void> {
       businessId: A,
       chequeNumber: "000124",
       amount: "1500.00",
-      issueDate: D("2027-03-01T09:00:00.000Z"),
-      dueDate: D("2027-03-10T09:00:00.000Z"),
+      issueDate: D("2025-03-01T09:00:00.000Z"),
+      dueDate: D("2025-03-10T09:00:00.000Z"),
       sourceBankAccountId: acc1.id,
       installmentId: insts[1].id,
       status: "ISSUED",
     }),
   );
   const bigCleared = await asA(() =>
-    cheques.clearCheque({ businessId: A, chequeId: big.id, clearedAt: D("2027-03-11T09:00:00.000Z") }),
+    cheques.clearCheque({ businessId: A, chequeId: big.id, clearedAt: D("2025-03-11T09:00:00.000Z") }),
   );
   const bigPay = await prisma.payment.findFirstOrThrow({
     where: { businessId: A, idempotencyKey: `cheque:${big.id}` },
@@ -381,7 +391,7 @@ async function main(): Promise<void> {
   await rejects("5.4 a CLEARED cheque cannot be cancelled", () => asA(() => cheques.cancelCheque({ businessId: A, chequeId: c1.id })), "cannot be cancelled");
   await rejects(
     "5.5 a CLEARED cheque cannot be replaced",
-    () => asA(() => cheques.replaceCheque({ businessId: A, chequeId: c1.id, chequeNumber: "777", issueDate: D("2027-03-01T09:00:00.000Z"), dueDate: D("2027-03-01T09:00:00.000Z") })),
+    () => asA(() => cheques.replaceCheque({ businessId: A, chequeId: c1.id, chequeNumber: "777", issueDate: D("2025-03-01T09:00:00.000Z"), dueDate: D("2025-03-01T09:00:00.000Z") })),
     "cannot be replaced",
   );
 
@@ -390,8 +400,8 @@ async function main(): Promise<void> {
       businessId: A,
       chequeId: big.id,
       chequeNumber: "000220",
-      issueDate: D("2027-03-15T09:00:00.000Z"),
-      dueDate: D("2027-03-20T09:00:00.000Z"),
+      issueDate: D("2025-03-15T09:00:00.000Z"),
+      dueDate: D("2025-03-20T09:00:00.000Z"),
       reason: "חזר, הוחלף",
     }),
   );
@@ -400,7 +410,7 @@ async function main(): Promise<void> {
   check("5.8 the replacement inherits what it is FOR", rep.replacement.installment?.id === insts[1].id && rep.replacement.amount === "1500.00");
   await rejects(
     "5.9 a second replacement of the same cheque is refused (no fork)",
-    () => asA(() => cheques.replaceCheque({ businessId: A, chequeId: big.id, chequeNumber: "000221", issueDate: D("2027-03-15T09:00:00.000Z"), dueDate: D("2027-03-20T09:00:00.000Z") })),
+    () => asA(() => cheques.replaceCheque({ businessId: A, chequeId: big.id, chequeNumber: "000221", issueDate: D("2025-03-15T09:00:00.000Z"), dueDate: D("2025-03-20T09:00:00.000Z") })),
   );
   await rejects(
     "5.10 the DB refuses a fork even with the service bypassed",
@@ -429,8 +439,8 @@ async function main(): Promise<void> {
           businessId: A,
           chequeNumber: "5001",
           amount: "1.00",
-          issueDate: D("2027-02-01T09:00:00.000Z"),
-          dueDate: D("2027-02-01T09:00:00.000Z"),
+          issueDate: D("2025-02-01T09:00:00.000Z"),
+          dueDate: D("2025-02-01T09:00:00.000Z"),
           sourceBankAccountId: restored.account.id,
           payeeName: "x",
         }),
@@ -442,7 +452,7 @@ async function main(): Promise<void> {
   console.log("\n[6] edges");
 
   await asA(() => cheques.advanceCheque({ businessId: A, chequeId: odd.id, to: "ISSUED" }));
-  const loose = await asA(() => cheques.clearCheque({ businessId: A, chequeId: odd.id, clearedAt: D("2027-02-02T09:00:00.000Z") }));
+  const loose = await asA(() => cheques.clearCheque({ businessId: A, chequeId: odd.id, clearedAt: D("2025-02-02T09:00:00.000Z") }));
   const loosePay = await prisma.payment.findFirstOrThrow({
     where: { businessId: A, idempotencyKey: `cheque:${odd.id}` },
     include: { allocations: true, evidences: true },
@@ -451,15 +461,15 @@ async function main(): Promise<void> {
   check("6.2 …entirely unallocated", loose.unallocated === "50.00");
 
   const closing = await asA(() =>
-    svc.createCommitment({ businessId: A, title: "closing", payeeNameSnapshot: "c", scheduleKind: "ONE_OFF", totalAmount: "300.00", firstDueAt: D("2027-04-01T09:00:00.000Z") }),
+    svc.createCommitment({ businessId: A, title: "closing", payeeNameSnapshot: "c", scheduleKind: "ONE_OFF", totalAmount: "300.00", firstDueAt: D("2025-04-01T09:00:00.000Z") }),
   );
   const closingCheque = await asA(() =>
     cheques.createCheque({
       businessId: A,
       chequeNumber: "8001",
       amount: "300.00",
-      issueDate: D("2027-03-25T09:00:00.000Z"),
-      dueDate: D("2027-04-01T09:00:00.000Z"),
+      issueDate: D("2025-03-25T09:00:00.000Z"),
+      dueDate: D("2025-04-01T09:00:00.000Z"),
       sourceBankAccountId: acc1.id,
       commitmentId: closing.id,
       status: "ISSUED",
@@ -467,7 +477,7 @@ async function main(): Promise<void> {
   );
   await prisma.commitment.update({ where: { id: closing.id }, data: { status: "CLOSED" } });
   const closedClear = await asA(() =>
-    cheques.clearCheque({ businessId: A, chequeId: closingCheque.id, clearedAt: D("2027-04-02T09:00:00.000Z") }),
+    cheques.clearCheque({ businessId: A, chequeId: closingCheque.id, clearedAt: D("2025-04-02T09:00:00.000Z") }),
   );
   check("6.3 a cheque on a since-CLOSED commitment still clears — money left", closedClear.cheque.status === "CLEARED");
   check("6.4 …as an unallocated Payment rather than a refused one", closedClear.unallocated === "300.00");
@@ -477,16 +487,16 @@ async function main(): Promise<void> {
       businessId: A,
       chequeNumber: "9001",
       amount: "1000.00",
-      issueDate: D("2027-04-01T09:00:00.000Z"),
-      dueDate: D("2027-04-10T09:00:00.000Z"),
+      issueDate: D("2025-04-01T09:00:00.000Z"),
+      dueDate: D("2025-04-10T09:00:00.000Z"),
       sourceBankAccountId: acc1.id,
       installmentId: insts[2].id,
       status: "ISSUED",
     }),
   );
   const results = await Promise.allSettled([
-    asA(() => cheques.clearCheque({ businessId: A, chequeId: raceTarget.id, clearedAt: D("2027-04-11T09:00:00.000Z") })),
-    asA(() => cheques.clearCheque({ businessId: A, chequeId: raceTarget.id, clearedAt: D("2027-04-11T09:00:00.000Z") })),
+    asA(() => cheques.clearCheque({ businessId: A, chequeId: raceTarget.id, clearedAt: D("2025-04-11T09:00:00.000Z") })),
+    asA(() => cheques.clearCheque({ businessId: A, chequeId: raceTarget.id, clearedAt: D("2025-04-11T09:00:00.000Z") })),
   ]);
   const racePayments = await prisma.payment.count({ where: { businessId: A, idempotencyKey: `cheque:${raceTarget.id}` } });
   check("6.5 two concurrent clears produce exactly ONE Payment", racePayments === 1, `saw ${racePayments}`);

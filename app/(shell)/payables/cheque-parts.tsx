@@ -671,6 +671,7 @@ export function ChequeCard({
               className={styles.input}
               type="date"
               value={clearedAt}
+              min={cheque.issueDate.slice(0, 10)}
               max={todayISO()}
               onChange={(e) => setClearedAt(e.target.value)}
               required

@@ -238,6 +238,7 @@ async function lockCheque(tx: Tx, businessId: number, chequeId: number) {
       installmentId: true,
       sourceBankAccountId: true,
       cancelledAt: true,
+      issueDate: true,
     },
   });
   if (!row) throw new PayablesNotFoundError("Cheque not found");
@@ -509,6 +510,11 @@ export async function clearCheque(input: {
     assertChequeClearable(cheque.status);
     if (input.clearedAt.getTime() > Date.now() + 5 * 60 * 1000) {
       throw new PayablesValidationError("A cheque cannot have cleared in the future");
+    }
+    // Day granularity: the form sends noon of the chosen day, so a same-day
+    // clearing must not be refused over the hour it was written.
+    if (input.clearedAt.toISOString().slice(0, 10) < cheque.issueDate.toISOString().slice(0, 10)) {
+      throw new PayablesValidationError("A cheque cannot have cleared before it was written");
     }
 
     // A Payment under this key without a CLEARED cheque would mean a second
