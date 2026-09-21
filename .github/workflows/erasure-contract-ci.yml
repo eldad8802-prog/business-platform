@@ -238,11 +238,11 @@ jobs:
           mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
 
       # ── C12-E1: two notes cleared, and what was deliberately kept ──────────
-      # E3 and E4 are NOT here. They are runtime properties — a tenant filter that
-      # actually scopes, and a laboratory that actually reproduces Production's RLS —
-      # and a static contract cannot tell a correct `where` from a widened one. They
-      # run against the AD-2A battery in d2-ad2a-ci.yml, where another tenant's row
-      # is present to be wrongly cleared.
+      # Each proof must go red FOR THE REASON UNDER TEST: the named finding has to
+      # appear, not merely a non-zero exit. E3/E3B live here, not in the AD-2A
+      # battery: under FORCE RLS a widened `where` clears exactly the same rows, so
+      # the battery cannot see it (measured — it stays green). C18 holds the shape.
+      # E4/E4P are the runtime half, in d2-ad2a-ci.yml.
 
       - name: negative proof — E1 the adapter stops clearing ReceivingSession.note
         run: |
@@ -250,10 +250,11 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts E1
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an uncleared note passed"; exit 1
-          fi
-          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/E1.out" 2>&1; rc=$?; set -e
+          mv "$F.bak" "$F"
+          if [ $rc -eq 0 ]; then echo "NEGATIVE-PROOF FAIL: the contract stayed green"; exit 1; fi
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  ReceivingSession.note" "$RUNNER_TEMP/E1.out" || { cat "$RUNNER_TEMP/E1.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
 
       - name: negative proof — E2 the adapter stops clearing the purchase-line note
         run: |
@@ -261,24 +262,77 @@ jobs:
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts E2
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an uncleared note passed"; exit 1
-          fi
-          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/E2.out" 2>&1; rc=$?; set -e
+          mv "$F.bak" "$F"
+          if [ $rc -eq 0 ]; then echo "NEGATIVE-PROOF FAIL: the contract stayed green"; exit 1; fi
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  PurchaseOrderLine.remainingDecisionNote" "$RUNNER_TEMP/E2.out" || { cat "$RUNNER_TEMP/E2.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — E3 the purchase-line tenant filter is removed
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts E3
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/E3.out" 2>&1; rc=$?; set -e
+          mv "$F.bak" "$F"
+          if [ $rc -eq 0 ]; then echo "NEGATIVE-PROOF FAIL: the contract stayed green"; exit 1; fi
+          grep -qF "C18-UNSCOPED-ERASURE-WRITE  PurchaseOrderLine.updateMany()" "$RUNNER_TEMP/E3.out" || { cat "$RUNNER_TEMP/E3.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — E3B the purchase-line relation keeps its name but loses the tenant
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts E3B
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/E3B.out" 2>&1; rc=$?; set -e
+          mv "$F.bak" "$F"
+          if [ $rc -eq 0 ]; then echo "NEGATIVE-PROOF FAIL: the contract stayed green"; exit 1; fi
+          grep -qF "C18-UNSCOPED-ERASURE-WRITE  PurchaseOrderLine.updateMany()" "$RUNNER_TEMP/E3B.out" || { cat "$RUNNER_TEMP/E3B.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
 
       # The provenance pointers are retained ONLY because the User row they name is
-      # anonymised. Take that away and three identifying pointers are left standing
-      # behind a classification nobody rechecked — so the contract has to notice.
-      - name: negative proof — E5 the retained-pointer premise is invalidated
+      # anonymised. Both halves of that premise are proved: the classification (E5)
+      # and the adapter actually doing it (E5B).
+      - name: negative proof — E5 User.email is reclassified as retained
         run: |
           F="lib/services/account/erasure-dispositions.ts"
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts E5
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:erasure-contract -- --baseline-check >/dev/null 2>&1; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a retention outlived its own basis"; exit 1
-          fi
-          mv "$F.bak" "$F"; echo "NEGATIVE-PROOF PASS"
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/E5.out" 2>&1; rc=$?; set -e
+          mv "$F.bak" "$F"
+          if [ $rc -eq 0 ]; then echo "NEGATIVE-PROOF FAIL: the contract stayed green"; exit 1; fi
+          grep -qF "C17-RETENTION-DEPENDENCY-BROKEN  PurchaseOrderLine.remainingDecidedByUserId" "$RUNNER_TEMP/E5.out" || { cat "$RUNNER_TEMP/E5.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — E5B the adapter stops anonymising User.email
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts E5B
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/E5B.out" 2>&1; rc=$?; set -e
+          mv "$F.bak" "$F"
+          if [ $rc -eq 0 ]; then echo "NEGATIVE-PROOF FAIL: the contract stayed green"; exit 1; fi
+          grep -qF "and the adapter no longer writes it" "$RUNNER_TEMP/E5B.out" || { cat "$RUNNER_TEMP/E5B.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      # rawName, sku and barcode were written down as product identity so the
+      # classification would not rest on inference. That is only worth something if
+      # a NEW text column cannot appear beside them and quietly inherit it.
+      - name: negative proof — E6 a new text column beside the product identity
+        run: |
+          F="prisma/schema.prisma"
+          cp "$F" "$F.bak"
+          npx tsx scripts/ci/erasure-mutate.ts E6
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/E6.out" 2>&1; rc=$?; set -e
+          mv "$F.bak" "$F"
+          if [ $rc -eq 0 ]; then echo "NEGATIVE-PROOF FAIL: the contract stayed green"; exit 1; fi
+          grep -qF "C6-NO-DISPOSITION  PurchaseOrderLine.supplierContactNote" "$RUNNER_TEMP/E6.out" || { cat "$RUNNER_TEMP/E6.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
 
       # ── model-level coverage ───────────────────────────────────────────────
       # The failure these catch is not "this model holds personal data" — no guard

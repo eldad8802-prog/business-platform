@@ -38,6 +38,7 @@
  */
 import path from "node:path";
 import fs from "node:fs";
+import ts from "typescript";
 import {
   ANONYMIZE_MODELS,
   DELETE_MODELS,
@@ -526,6 +527,97 @@ function main(): number {
         }
       }
     }
+  }
+
+  // ── C18 — every erasure statement on a covered model is tenant-scoped ──────
+  //
+  // Row-level security is the enforcing boundary, and the AD-2A battery proves it
+  // holds. But under RLS a widened `where` is INVISIBLE: `where: {}` clears the same
+  // rows as `where: { businessId }`, because the policy narrows it back. So no runtime
+  // test can notice the adapter losing its own scope — and the day the statement runs
+  // on a connection that bypasses RLS, it clears every tenant.
+  //
+  // The shape is therefore held statically, and only two shapes are accepted: a
+  // model with a `businessId` column is reached by `{ businessId }`; a model without
+  // one (PurchaseOrderLine, which owns through PurchaseOrder) by `{ <relation>:
+  // { businessId } }`, where the relation leads to a model that carries it.
+  {
+    const src = ts.createSourceFile(
+      path.basename(ADAPTER),
+      fs.readFileSync(ADAPTER, "utf8"),
+      ts.ScriptTarget.Latest,
+      true
+    );
+    const covered = new Map(
+      COVERED_MODELS.map((n) => models.get(n))
+        .filter((m): m is NonNullable<typeof m> => !!m)
+        .map((m) => [m.delegate, m])
+    );
+    const METHODS = new Set(["update", "updateMany", "updateManyAndReturn", "upsert", "delete", "deleteMany"]);
+    const hasBusinessId = (m: { fields: { name: string; isScalar: boolean }[] }) =>
+      m.fields.some((f) => f.name === "businessId" && f.isScalar);
+    /** `{ businessId }` or `{ businessId: businessId }` — exactly that, nothing else. */
+    const isBusinessIdOnly = (e: ts.Expression): boolean => {
+      if (!ts.isObjectLiteralExpression(e) || e.properties.length !== 1) return false;
+      const p = e.properties[0];
+      if (ts.isShorthandPropertyAssignment(p)) return p.name.text === "businessId";
+      return (
+        ts.isPropertyAssignment(p) &&
+        ts.isIdentifier(p.name) &&
+        p.name.text === "businessId" &&
+        ts.isIdentifier(p.initializer) &&
+        p.initializer.text === "businessId"
+      );
+    };
+
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        METHODS.has(node.expression.name.text) &&
+        ts.isPropertyAccessExpression(node.expression.expression) &&
+        covered.has(node.expression.expression.name.text)
+      ) {
+        const model = covered.get(node.expression.expression.name.text)!;
+        const line = src.getLineAndCharacterOfPosition(node.getStart(src)).line + 1;
+        const arg = node.arguments[0];
+        const where =
+          arg && ts.isObjectLiteralExpression(arg)
+            ? arg.properties.find(
+                (p): p is ts.PropertyAssignment =>
+                  ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "where"
+              )
+            : undefined;
+        let scoped = false;
+        if (where && hasBusinessId(model)) {
+          scoped = isBusinessIdOnly(where.initializer);
+        } else if (
+          where &&
+          ts.isObjectLiteralExpression(where.initializer) &&
+          where.initializer.properties.length === 1
+        ) {
+          const rel = where.initializer.properties[0];
+          if (ts.isPropertyAssignment(rel) && ts.isIdentifier(rel.name)) {
+            const relField = model.fields.find(
+              (f) => f.name === (rel.name as ts.Identifier).text && !f.isScalar && !f.isList
+            );
+            const parent = relField ? models.get(relField.type) : undefined;
+            scoped = !!parent && hasBusinessId(parent) && isBusinessIdOnly(rel.initializer);
+          }
+        }
+        if (!scoped) {
+          report(
+            "C18-UNSCOPED-ERASURE-WRITE",
+            `${model.name}@adapter`,
+            `${model.name}.${node.expression.name.text}() at adapter line ${line} is not scoped to the tenant: ` +
+              `expected ${hasBusinessId(model) ? "`where: { businessId }`" : "`where: { <relation>: { businessId } }`"}, ` +
+              `found ${where ? where.initializer.getText(src) : "no `where`"}`
+          );
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(src);
   }
 
   // ── C14…C16 — NON_PERSONAL_OPERATIONAL, proven instead of promised ─────────
