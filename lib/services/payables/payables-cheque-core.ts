@@ -104,7 +104,6 @@ export function normalizeChequeNumber(value: unknown): string {
       `chequeNumber must be at most ${CHEQUE_NUMBER_MAX_LENGTH} characters`,
     );
   }
-  // eslint-disable-next-line no-control-regex -- refusing control characters is the point
   if (/[\x00-\x1f\x7f]/.test(trimmed)) {
     throw new PayablesValidationError("chequeNumber contains control characters");
   }
