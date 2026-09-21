@@ -110,9 +110,9 @@ function groupStatusLabel(items, domains) {
   return "יש מה לבדוק";
 }
 const GROUPS = [
-  { key: "money", label: "כסף ומסמכים", anchor: "group-money", domains: ["billing", "documents"] },
-  { key: "customers", label: "לקוחות ושיחות", anchor: "group-customers", domains: ["inbox", "leads"] },
-  { key: "operations", label: "מלאי וספקים", anchor: "group-operations", domains: ["inventory", "supplier"] },
+  { key: "money", label: "כסף וחשבוניות", anchor: "group-money", domains: ["billing", "documents"] },
+  { key: "customers", label: "לקוחות ומכירות", anchor: "group-customers", domains: ["inbox", "leads"] },
+  { key: "operations", label: "ניהול העסק", anchor: "group-operations", domains: ["inventory", "supplier"] },
 ];
 const ALL_DOMAINS = ["inbox", "documents", "inventory", "billing", "supplier", "leads"];
 

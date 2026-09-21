@@ -292,6 +292,108 @@ async function audit(page, rootSelector) {
       groupStats: [...document.querySelectorAll(`${sel} .fstat`)].map((el) =>
         el.textContent.trim()
       ),
+      // The three group cards: content, geometry and hit-testing, measured.
+      featureHeading: [...document.querySelectorAll(`${sel} .sttl`)].some((h) =>
+        /הפיצ.רים שלך/.test(h.textContent)
+      ),
+      allToolsLink: !!document.querySelector(`${sel} a[href="/tools"]`),
+      cardsGapAbove: (() => {
+        const cards = document.querySelector(`${sel} .fcards`);
+        const prev = cards?.closest(".sect")?.previousElementSibling;
+        if (!cards || !prev) return null;
+        return Math.round(cards.getBoundingClientRect().top - prev.getBoundingClientRect().bottom);
+      })(),
+      cards: [...document.querySelectorAll(`${sel} .fcards > .ftile`)].map((el) => {
+        const rect = (node) => {
+          if (!node || getComputedStyle(node).display === "none") return null;
+          const r = node.getBoundingClientRect();
+          return { x: r.x, y: r.y, r: r.right, b: r.bottom, w: r.width, h: r.height };
+        };
+        const clipped = (node) =>
+          !!node && (node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1);
+        const box = rect(el);
+        const parts = {
+          icon: rect(el.querySelector(".fic")),
+          text: rect(el.querySelector(".ftx")),
+          art: rect(el.querySelector(".fart")),
+          chev: rect(el.querySelector(".fchev")),
+        };
+        const present = Object.entries(parts).filter(([, r]) => r);
+        const overlaps = [];
+        for (let i = 0; i < present.length; i++)
+          for (let j = i + 1; j < present.length; j++) {
+            const [an, a] = present[i];
+            const [bn, b] = present[j];
+            if (a.x < b.r - 0.5 && b.x < a.r - 0.5 && a.y < b.b - 0.5 && b.y < a.b - 0.5)
+              overlaps.push(`${an}×${bn}`);
+          }
+        const outside = present
+          .filter(([, r]) => r.x < box.x - 0.5 || r.r > box.r + 0.5 || r.y < box.y - 0.5 || r.b > box.b + 0.5)
+          .map(([n]) => n);
+        // Every visible part must hit-test to the card's own link. Parts that
+        // are scrolled out of the viewport cannot be hit-tested, so skip them.
+        const hitMiss = present
+          .filter(([, r]) => r.y >= 0 && r.b <= window.innerHeight)
+          .filter(([, r]) => {
+            const t = document.elementFromPoint(r.x + r.w / 2, r.y + r.h / 2);
+            return !t || !el.contains(t);
+          })
+          .map(([n]) => n);
+        const firstPath = el.querySelector(".fic svg path, .fic svg circle");
+        const bg = getComputedStyle(el).backgroundImage;
+        return {
+          href: el.getAttribute("href"),
+          cls: el.className,
+          title: el.querySelector(".flab")?.textContent?.trim() ?? null,
+          // Whitespace-normalised: the copy binds a phrase with U+00A0.
+          desc: el.querySelector(".fdesc")?.textContent?.replace(/\s+/g, " ").trim() ?? null,
+          // The rendered lines of the description, word by word.
+          descLines: (() => {
+            const d = el.querySelector(".fdesc");
+            if (!d) return [];
+            const rows = [];
+            const walker = document.createTreeWalker(d, NodeFilter.SHOW_TEXT);
+            let n;
+            while ((n = walker.nextNode())) {
+              const re = /[^\s]+/g; // splits on regular spaces only; U+00A0 keeps a phrase whole
+              const text = n.data.replace(/\u00a0/g, "\u0001");
+              let mm;
+              while ((mm = re.exec(text))) {
+                const rg = document.createRange();
+                rg.setStart(n, mm.index);
+                rg.setEnd(n, mm.index + mm[0].length);
+                const rects = [...rg.getClientRects()];
+                const top = Math.round(rects[0]?.top ?? 0);
+                const word = mm[0].replace(/\u0001/g, " ");
+                // A bound phrase that renders on two rows shows up as two rect tops.
+                const split = new Set(rects.map((r) => Math.round(r.top))).size > 1;
+                const row = rows.find((r) => Math.abs(r.top - top) < 4);
+                const entry = split ? `${word}⟂` : word;
+                if (row) row.words.push(entry);
+                else rows.push({ top, words: [entry] });
+              }
+            }
+            return rows.sort((a, b) => a.top - b.top).map((r) => r.words.join(" "));
+          })(),
+          status: el.querySelector(".fstat:not(.fstat-loading)")?.textContent?.trim() ?? null,
+          statusLoading: !!el.querySelector(".fstat-loading .sk-stat"),
+          iconSig: firstPath
+            ? `${firstPath.tagName}:${firstPath.getAttribute("d") ?? `cx=${firstPath.getAttribute("cx")}`}`.slice(0, 16)
+            : null,
+          nestedInteractive: el.querySelectorAll("a, button, [tabindex]").length,
+          bgStops: [...bg.matchAll(/rgba?\([^)]+\)/g)].map((m) => m[0]),
+          h: Math.round(box.h),
+          artShown: !!parts.art,
+          overlaps,
+          outside,
+          hitMiss,
+          clippedTitle: clipped(el.querySelector(".flab")),
+          clippedDesc: clipped(el.querySelector(".fdesc")),
+          rtl: parts.icon && parts.text && parts.chev
+            ? parts.icon.x > parts.text.x && parts.text.x > parts.chev.x
+            : false,
+        };
+      }),
       todayRows: [...document.querySelectorAll(`${sel} .trow`)].map((el) => ({
         badge: el.querySelector(".tbadge")?.textContent?.trim(),
         name: el.querySelector(".tname")?.textContent?.trim(),
@@ -385,7 +487,7 @@ async function audit(page, rootSelector) {
         const MEASURED = [
           ".sbadge", ".dzcta", ".tbadge", ".fstat", ".nval", ".nlab", ".nnote",
           ".tname", ".tmeta", ".tamt", ".tempty", ".sttl", ".ghi", ".gsub",
-          ".smsg", ".lb", ".hi", ".flab", ".tgroup-stat", ".tcell-label",
+          ".smsg", ".lb", ".hi", ".flab", ".fdesc", ".tgroup-stat", ".tcell-label",
         ];
         for (const s of MEASURED) {
           for (const el of document.querySelectorAll(`${sel} ${s}`)) {
@@ -398,6 +500,107 @@ async function audit(page, rootSelector) {
       })(),
     };
   }, rootSelector);
+}
+
+/* ------------------------------------------------------- feature cards -- */
+
+/** The approved order, Home titles, the copy that names only real tools. */
+const FEATURE_CARDS = [
+  { key: "money", title: "כסף וחשבוניות", desc: "חשבוניות, גבייה, מסמכים והצעות מחיר", href: "/tools#group-money", icon: "path:M14 3H6a2 2" },
+  { key: "customers", title: "לקוחות ומכירות", desc: "לקוחות, לידים, שיחות וקופונים", href: "/tools#group-customers", icon: "circle:cx=9" },
+  { key: "operations", title: "ניהול העסק", desc: "מלאי, ספקים, מזכירת תשלומים וחיבורים", href: "/tools#group-operations", icon: "path:M12 3l8 4.5" },
+];
+
+/**
+ * What /api/business-status makes each card say, per fixture — derived by
+ * hand from the fixture items and the group domains, so a card that shows the
+ * wrong group's status fails. `null` = the source never answered (loading) or
+ * answered 500: the chip slot must hold a skeleton and no words.
+ */
+const CLEAR = "הכול מטופל";
+const REVIEW = "יש מה לבדוק";
+const URGENT_LABEL = "דורש טיפול עכשיו";
+const EXPECTED_STATUS = {
+  calm: [CLEAR, CLEAR, CLEAR],
+  busy: [REVIEW, CLEAR, REVIEW],
+  critical: [URGENT_LABEL, URGENT_LABEL, REVIEW],
+  [VERDICT_FAILS]: [CLEAR, CLEAR, CLEAR],
+  [COUNTERS_LOADING]: [null, null, null],
+  [COUNTERS_FAILED]: [null, null, null],
+};
+
+/** Deep tones only — no gradient stop may be light (no mint, pink, baby blue). */
+function isDeep(rgb) {
+  const m = String(rgb).match(/rgba?\(([^)]+)\)/);
+  if (!m) return false;
+  const [r, g, b, a = 1] = m[1].split(/[,\s/]+/).filter(Boolean).map(Number);
+  if (a < 0.9) return true; // translucent glow layer, not a ground
+  const f = (v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b) < 0.1;
+}
+
+function checkFeatureCards(stateKey, width, m) {
+  const at = `${stateKey} @${width}`;
+  check(`${at}: "הפיצ׳רים שלך" heading is gone`, !m.featureHeading);
+  check(`${at}: no "כל הכלים" tile on Home`, !m.allToolsLink);
+  check(
+    `${at}: cards sit one normal section gap below the counters (no heading hole)`,
+    m.cardsGapAbove !== null && m.cardsGapAbove >= 16 && m.cardsGapAbove <= 32,
+    `${m.cardsGapAbove}px`
+  );
+  check(
+    `${at}: exactly three cards, in order`,
+    m.cards.length === 3 && FEATURE_CARDS.every((c, i) => m.cards[i]?.title === c.title),
+    m.cards.map((c) => c.title).join(" | ")
+  );
+  const want = EXPECTED_STATUS[stateKey];
+  FEATURE_CARDS.forEach((spec, i) => {
+    const c = m.cards[i];
+    if (!c) return;
+    const tag = `${at}: «${spec.title}»`;
+    check(`${tag} copy`, c.desc === spec.desc, String(c.desc));
+    check(`${tag} → ${spec.href}`, c.href === spec.href, String(c.href));
+    check(`${tag} icon`, c.iconSig === spec.icon, String(c.iconSig));
+    check(`${tag} tone class`, c.cls.includes(`fcard-${spec.key}`), c.cls);
+    check(`${tag} deep tone (every opaque stop dark)`, c.bgStops.length >= 2 && c.bgStops.every(isDeep), c.bgStops.join(" "));
+    check(`${tag} no nested interactive element`, c.nestedInteractive === 0, String(c.nestedInteractive));
+    if (want[i] === null) {
+      check(`${tag} status slot is a wordless skeleton`, c.status === null && c.statusLoading, `status=${c.status}`);
+    } else {
+      check(`${tag} status = ${want[i]}`, c.status === want[i], String(c.status));
+      check(`${tag} status carries no number`, !/\d/.test(c.status ?? ""), String(c.status));
+    }
+    check(`${tag} RTL: icon → text → chevron`, c.rtl);
+    check(`${tag} no part collides`, c.overlaps.length === 0, c.overlaps.join(","));
+    check(`${tag} no part leaves the card`, c.outside.length === 0, c.outside.join(","));
+    check(`${tag} every part hit-tests to the card link`, c.hitMiss.length === 0, c.hitMiss.join(","));
+    check(`${tag} title not clipped`, !c.clippedTitle);
+    check(`${tag} copy not clipped`, !c.clippedDesc);
+    // Composed wrapping: a two-line description never ends on a lone word,
+    // and "מזכירת תשלומים" is never split across lines.
+    const lines = c.descLines;
+    check(
+      `${tag} no orphan word on the last line`,
+      lines.length <= 1 || lines[lines.length - 1].split(" ").length > 1,
+      lines.join(" / ")
+    );
+    check(
+      `${tag} "מזכירת תשלומים" kept on one line`,
+      !lines.some((l) => l.includes("⟂")) &&
+        (!spec.desc.includes("מזכירת תשלומים") || lines.some((l) => l.includes("מזכירת תשלומים"))),
+      lines.join(" / ")
+    );
+    check(`${tag} low, wide card (≥ 88px, ≤ 150px)`, c.h >= 88 && c.h <= 150, `${c.h}px`);
+    // Narrow phones give the space to the words; the art returns when it fits.
+    check(
+      `${tag} decorative art ${width <= 360 ? "yields at 360" : "shown at 430"}`,
+      width <= 360 ? !c.artShown : c.artShown,
+      String(c.artShown)
+    );
+  });
 }
 
 /* ---------------------------------------------------------------- main -- */
@@ -442,8 +645,14 @@ async function main() {
       // Let the four independent loaders settle.
       await page.waitForTimeout(700);
 
+      // Bring the group cards on screen so every part of them can be hit-tested.
+      await page.evaluate(() =>
+        document.querySelector(".dzhome .fcards")?.scrollIntoView({ block: "center" })
+      );
+      await page.waitForTimeout(80);
       const m = await audit(page, ".dzhome");
       m.hrefs.forEach((h) => collectedHrefs.add(h));
+      checkFeatureCards(stateKey, width, m);
       if (width === 360) snapshots[stateKey] = m;
 
       check(
@@ -578,6 +787,57 @@ async function main() {
       });
       await ctx.close();
     }
+  }
+
+  // Keyboard: Tab must reach each group card, in order, with a visible ring.
+  for (const width of WIDTHS) {
+    const ctx = await browser.newContext({
+      viewport: { width, height: 900 },
+      locale: "he-IL",
+      reducedMotion: "reduce",
+    });
+    const page = await ctx.newPage();
+    await installStubs(page, "busy");
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem("token", "qa-stub-token");
+      } catch {
+        /* ignore */
+      }
+    });
+    await page.goto(`${BASE}/app`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".dzhome .fcards .ftile", { state: "visible", timeout: 30000 });
+    await page.waitForTimeout(700);
+    const reached = [];
+    for (let i = 0; i < 60 && reached.length < 3; i++) {
+      await page.keyboard.press("Tab");
+      const f = await page.evaluate(() => {
+        const el = document.activeElement;
+        if (!el?.matches?.(".dzhome .fcards .ftile")) return null;
+        const cs = getComputedStyle(el);
+        return {
+          href: el.getAttribute("href"),
+          ring: cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) >= 2,
+          visible: el.matches(":focus-visible"),
+        };
+      });
+      if (f && !reached.some((r) => r.href === f.href)) reached.push(f);
+    }
+    check(
+      `keyboard @${width}: Tab reaches the three cards in order`,
+      reached.map((r) => r.href).join(",") === FEATURE_CARDS.map((c) => c.href).join(","),
+      reached.map((r) => r.href).join(",")
+    );
+    check(
+      `keyboard @${width}: every card shows a focus ring`,
+      reached.length === 3 && reached.every((r) => r.ring && r.visible),
+      JSON.stringify(reached.map((r) => [r.ring, r.visible]))
+    );
+    if (width === 430) {
+      await page.evaluate(() => document.activeElement?.scrollIntoView({ block: "center" }));
+      await page.screenshot({ path: path.join(OUT, "shots", `home-cards-focus-${width}.png`) });
+    }
+    await ctx.close();
   }
 
   // "כל הכלים" — same two widths, with a status snapshot loaded.

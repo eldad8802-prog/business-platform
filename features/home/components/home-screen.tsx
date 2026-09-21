@@ -10,10 +10,8 @@ import {
   TOOL_GROUPS,
   groupHref,
   obligationHref,
-  type ToolColor,
   type ToolGroupKey,
 } from "@/lib/navigation/home-routes";
-import { TOOL_TINT_CSS } from "@/features/home/lib/tool-tints";
 import {
   DUE_BADGE_LABEL,
   formatAmount,
@@ -47,8 +45,9 @@ import {
  * and no empty handler on this screen. A counter reading 0 stays a link: it
  * opens the (empty) list, which is an answer.
  *
- * COLOUR — the `.dzhome` custom properties and the five tool tints below are
- * carried over from main unchanged, including the `--brand` value. The audit
+ * COLOUR — the `.dzhome` custom properties below are carried over from main
+ * unchanged, including the `--brand` value. The three group cards carry their
+ * own deep tones (teal · wine · navy), scoped to the cards. The audit
  * found that it differs from the platform `--dz-brand`; reconciling the two is
  * explicitly out of scope here, and is reported rather than fixed.
  */
@@ -119,16 +118,16 @@ function IconPerson() {
   );
 }
 
-/** Group glyphs — reused, unchanged, from the tool strip that shipped on main. */
+/** Group glyphs — invoice and box reused, unchanged, from the tool strip. */
 function IconInvoice() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6M9 13h6M9 17h4" /></svg>
   );
 }
 
-function IconChat() {
+function IconPeople() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-12.2 7.6L3 21l1.9-5.8A8.5 8.5 0 1 1 21 11.5z" /></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="8.5" r="3.3" /><path d="M3 19.5a6 6 0 0 1 12 0" /><path d="M15.5 5.4a3.3 3.3 0 0 1 0 6.2M17.5 14.2a6 6 0 0 1 3.5 5.3" /></svg>
   );
 }
 
@@ -138,23 +137,76 @@ function IconBox() {
   );
 }
 
-function IconGrid() {
+/*
+ * Decorative line drawings, one per group. Pure SVG, no raster assets; they
+ * are aria-hidden and the first thing to go when the card gets narrow.
+ */
+function ArtMoney() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="2" /><rect x="13.5" y="3" width="7.5" height="7.5" rx="2" /><rect x="3" y="13.5" width="7.5" height="7.5" rx="2" /><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2" /></svg>
+    <svg viewBox="0 0 96 68" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 6h30l10 10v44a3 3 0 0 1-3 3H22a3 3 0 0 1-3-3V9a3 3 0 0 1 3-3z" />
+      <path d="M52 6v10h10M27 26h20M27 34h26M27 42h14" />
+      <circle cx="68" cy="48" r="13" />
+      <path d="M62.5 48.5l4 4 7.5-8" />
+    </svg>
   );
 }
 
-const GROUP_ICON: Record<ToolGroupKey, () => ReactNode> = {
-  money: IconInvoice,
-  customers: IconChat,
-  operations: IconBox,
-};
+function ArtCustomers() {
+  return (
+    <svg viewBox="0 0 96 68" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="30" y="6" width="54" height="34" rx="6" />
+      <circle cx="44" cy="20" r="5" />
+      <path d="M55 17h20M55 25h13" />
+      <rect x="12" y="26" width="54" height="34" rx="6" />
+      <circle cx="26" cy="40" r="5" />
+      <path d="M18 53a8 8 0 0 1 16 0M40 37h18M40 45h12" />
+    </svg>
+  );
+}
 
-/** Group tints, drawn from the same five that already colour the tools. */
-const GROUP_TINT: Record<ToolGroupKey, ToolColor> = {
-  money: "teal",
-  customers: "sage",
-  operations: "slate",
+function ArtOperations() {
+  return (
+    <svg viewBox="0 0 96 68" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M30 34l14 8v16l-14 8-14-8V42z" />
+      <path d="M16 42l14 8 14-8M30 50v16" />
+      <path d="M58 34l14 8v16l-14 8-14-8" />
+      <path d="M44 42l14 8 14-8M58 50v16" />
+      <path d="M44 10l14 8v16l-14 8-14-8V18z" />
+      <path d="M30 18l14 8 14-8M44 26v16" />
+    </svg>
+  );
+}
+
+/**
+ * Home-only presentation of the three groups. The titles are the Home card
+ * names; /tools keeps its own group headings (`TOOL_GROUPS[].label`). Each
+ * line names only tools that really live in that group on /tools — nothing
+ * without a route ("הוצאות", "יומן") and nothing from another group.
+ */
+const GROUP_CARD: Record<
+  ToolGroupKey,
+  { title: string; blurb: string; Icon: () => ReactNode; Art: () => ReactNode }
+> = {
+  money: {
+    title: "כסף וחשבוניות",
+    blurb: "חשבוניות, גבייה, מסמכים והצעות מחיר",
+    Icon: IconInvoice,
+    Art: ArtMoney,
+  },
+  customers: {
+    title: "לקוחות ומכירות",
+    blurb: "לקוחות, לידים, שיחות וקופונים",
+    Icon: IconPeople,
+    Art: ArtCustomers,
+  },
+  operations: {
+    title: "ניהול העסק",
+    // U+00A0 binds "מזכירת תשלומים" so it never breaks across lines.
+    blurb: "מלאי, ספקים, מזכירת\u00a0תשלומים וחיבורים",
+    Icon: IconBox,
+    Art: ArtOperations,
+  },
 };
 
 /* ------------------------------------------------------------ sections -- */
@@ -286,33 +338,46 @@ function CounterTile({ counter }: { counter: HomeCounter }) {
   );
 }
 
-function GroupTile({ group }: { group: HomeGroupView }) {
-  const Icon = GROUP_ICON[group.key];
-  const tint = GROUP_TINT[group.key];
+/**
+ * One group card. The whole card is the link (no nested controls); the status
+ * label from /api/business-status is kept, as a quiet chip under the copy.
+ * While that source is loading — or failed — the chip slot holds a skeleton
+ * and no words, exactly as the tile it replaces did.
+ */
+function GroupCard({ group }: { group: HomeGroupView }) {
+  const { title, blurb, Icon, Art } = GROUP_CARD[group.key];
   const status = group.status;
   return (
-    <Link href={group.href} className="ftile" aria-label={group.label}>
-      <span className={`fc dz-tint c-${tint}`}>
-        <Icon />
+    <Link
+      href={group.href}
+      className={`ftile fcard-${group.key}`}
+      aria-label={status ? `${title}. ${blurb}. ${status.label}` : `${title}. ${blurb}`}
+    >
+      <span className="fin">
+        <span className="fic" aria-hidden>
+          <Icon />
+        </span>
+        <span className="ftx">
+          <span className="flab">{title}</span>
+          <span className="fdesc">{blurb}</span>
+          {status ? (
+            <span className={`fstat fstat-${status.tone}`}>
+              <span className="fdot" aria-hidden />
+              {status.label}
+            </span>
+          ) : (
+            <span className="fstat fstat-loading" aria-hidden>
+              <span className="sk sk-stat" />
+            </span>
+          )}
+        </span>
+        <span className="fart" aria-hidden>
+          <Art />
+        </span>
+        <span className="fchev" aria-hidden>
+          <IconChevron />
+        </span>
       </span>
-      <span className="flab">{group.label}</span>
-      {status ? (
-        <span className={`fstat fstat-${status.tone}`}>{status.label}</span>
-      ) : (
-        <span className="fstat fstat-loading">&nbsp;</span>
-      )}
-    </Link>
-  );
-}
-
-function AllToolsTile() {
-  return (
-    <Link href={HOME_ROUTES.tools} className="ftile" aria-label="כל הכלים">
-      <span className="fc dz-tint c-clay">
-        <IconGrid />
-      </span>
-      <span className="flab">כל הכלים</span>
-      <span className="fstat fstat-quiet">כל היכולות במקום אחד</span>
     </Link>
   );
 }
@@ -388,7 +453,6 @@ export function HomeScreen({
 
   return (
     <main className="dzhome" dir="rtl" data-page-intent="content">
-      <style>{TOOL_TINT_CSS}</style>
       <style>{HOME_CSS}</style>
       <div className="wrap">
         <header className="top">
@@ -425,13 +489,11 @@ export function HomeScreen({
           </div>
         </section>
 
-        <section className="sect">
-          <SectionTitle>הפיצ׳רים שלך</SectionTitle>
-          <div className="fgrid">
+        <section className="sect" aria-label="אזורי העבודה">
+          <div className="fcards">
             {groups.map((group) => (
-              <GroupTile key={group.key} group={group} />
+              <GroupCard key={group.key} group={group} />
             ))}
-            <AllToolsTile />
           </div>
         </section>
 
@@ -459,9 +521,8 @@ export function buildGroupViews(
 /**
  * Scoped styles, namespaced under `.dzhome`.
  *
- * The custom-property block and the five `.c-*` tool tints are carried over
- * from the screen that shipped on main WITHOUT edits — same values, same
- * names — so this change introduces no new colour and does not touch the
+ * The custom-property block is carried over from the screen that shipped on
+ * main WITHOUT edits — same values, same names — and does not touch the
  * `--brand` / `--dz-brand` discrepancy the audit recorded. Everything the new
  * sections paint is composed from those existing variables plus the platform's
  * own `--dz-action-*` role tokens for the primary CTA.
@@ -568,23 +629,53 @@ const HOME_CSS = `
 .dzhome .nlab{font-size:12.5px;font-weight:600;color:#6b6353;line-height:1.35}
 .dzhome .nnote{font-size:11px;color:#6b6353;line-height:1.35}
 
-/* --- הפיצ'רים שלך: 2x2 ---------------------------------------------- */
-.dzhome .fgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.dzhome .ftile{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-height:116px;padding:14px;
-  border-radius:20px;background:var(--card);border:1px solid var(--hair);box-shadow:var(--sh);transition:transform .14s ease}
+/* --- group cards: three wide cards, each with its own deep tone -------- */
+/* Each card sets four local properties and the shared rules paint from them,
+   so the three tones stay one family: same geometry, same light, same depth.
+   All text on them is near-white; the QA pass measures it against every
+   gradient stop rather than trusting this comment. */
+.dzhome .fcards{display:flex;flex-direction:column;gap:10px}
+.dzhome .fcard-money{--fc-a:#1E5A4D;--fc-b:#113A32;--fc-glow:rgba(118,214,178,.24);--fc-ink:#CDEFE1}
+.dzhome .fcard-customers{--fc-a:#6A2B3A;--fc-b:#431A25;--fc-glow:rgba(236,152,170,.22);--fc-ink:#F4D4DB}
+.dzhome .fcard-operations{--fc-a:#2A4562;--fc-b:#172A40;--fc-glow:rgba(142,178,224,.24);--fc-ink:#D2E0F1}
+.dzhome .ftile{position:relative;display:block;container-type:inline-size;border-radius:22px;overflow:hidden;
+  color:#fff;border:1px solid rgba(255,255,255,.07);
+  background:radial-gradient(90% 130% at 0% 0%,var(--fc-glow),transparent 60%),linear-gradient(135deg,var(--fc-a) 0%,var(--fc-b) 100%);
+  box-shadow:0 16px 30px -22px rgba(22,30,40,.6),inset 0 1px 0 rgba(255,255,255,.09);
+  transition:transform .14s ease,box-shadow .14s ease}
 .dzhome .ftile:active{transform:scale(.99)}
-.dzhome .ftile .fc{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 18px -12px rgba(80,60,30,.4),var(--hl)}
-.dzhome .ftile .fc svg{width:22px;height:22px}
-.dzhome .flab{font-size:14px;font-weight:700;color:var(--ink);line-height:1.3}
-.dzhome .fstat{font-size:11.5px;font-weight:600;line-height:1.35;margin-top:auto}
-.dzhome .fstat-clear{color:#6b6353}
-.dzhome .fstat-review{color:var(--dz-warning)}
-.dzhome .fstat-urgent{color:var(--dz-danger)}
-.dzhome .fstat-quiet{color:#6b6353;font-weight:500}
-.dzhome .fstat-loading{color:transparent}
-
-/* the five tool tints live in features/home/lib/tool-tints.ts and are injected
-   alongside this block — declared once, shared with "כל הכלים" */
+.dzhome .ftile:focus-visible{outline:3px solid var(--brand);outline-offset:3px}
+@media (hover:hover){
+  .dzhome .ftile:hover{transform:translateY(-1px);box-shadow:0 20px 34px -22px rgba(22,30,40,.7),inset 0 1px 0 rgba(255,255,255,.09)}
+}
+/* RTL grid: icon (right) · text · art · chevron (left). The art column is
+   auto-sized, so hiding the art gives its width straight back to the text. */
+.dzhome .fin{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;column-gap:14px;min-height:98px;padding:16px 16px 16px 14px}
+.dzhome .fic{width:46px;height:46px;border-radius:15px;display:flex;align-items:center;justify-content:center;color:var(--fc-ink);
+  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
+.dzhome .fic svg{width:23px;height:23px}
+.dzhome .ftx{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0}
+.dzhome .flab{font-family:var(--font-rubik),'Rubik',sans-serif;font-size:17px;font-weight:700;line-height:1.25;letter-spacing:-.01em;color:#fff}
+.dzhome .fdesc{font-size:12.5px;font-weight:500;line-height:1.45;color:rgba(255,255,255,.8);text-wrap:balance}
+.dzhome .fstat{display:inline-flex;align-items:center;gap:6px;margin-top:7px;padding:3px 9px 3px 10px;border-radius:999px;
+  font-size:11.5px;font-weight:600;line-height:1.35;color:rgba(255,255,255,.92);background:rgba(255,255,255,.1)}
+.dzhome .fdot{width:6px;height:6px;border-radius:50%;flex:0 0 auto}
+.dzhome .fstat-clear .fdot{background:#8EDDB9}
+.dzhome .fstat-review .fdot{background:#F3C46A}
+.dzhome .fstat-urgent{background:rgba(255,255,255,.16)}
+.dzhome .fstat-urgent .fdot{background:#FF9C86;box-shadow:0 0 0 3px rgba(255,156,134,.22)}
+.dzhome .fstat-loading{background:none;padding:0}
+.dzhome .sk-stat{width:74px;height:20px;border-radius:999px;background:rgba(255,255,255,.1)}
+.dzhome .fart{display:none;width:84px;color:var(--fc-ink);opacity:.34}
+.dzhome .fart svg{display:block;width:84px;height:60px}
+.dzhome .fchev{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  color:rgba(255,255,255,.9);background:rgba(255,255,255,.1)}
+.dzhome .fchev svg{width:15px;height:15px}
+/* The art only appears when the card itself has room for it — a container
+   query, so it holds at any viewport and in the desktop three-up row. */
+@container (min-width:360px){
+  .dzhome .fart{display:block}
+}
 
 /* --- היום שלך -------------------------------------------------------- */
 .dzhome .tlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
@@ -633,6 +724,6 @@ const HOME_CSS = `
   .dzhome .wrap>.seccard{grid-column:1;margin-bottom:26px}
   .dzhome .wrap>.sect:first-of-type{grid-column:2}
   .dzhome .ngrid{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .dzhome .fgrid{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .dzhome .fcards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 `;
