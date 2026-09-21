@@ -68,9 +68,22 @@ export type PayablesAuditType =
   | "PAYMENT_RECORDED"
   | "PAYMENT_VOIDED"
   | "ALLOCATION_CREATED"
-  | "ALLOCATION_REVERSED";
+  | "ALLOCATION_REVERSED"
+  // Phase 3. PayablesAuditEvent has no cheque or bank-account column, so the
+  // ids travel in `metadata` — ids and last4 only, never coordinates.
+  | "BANK_ACCOUNT_CREATED"
+  | "BANK_ACCOUNT_RESTORED"
+  | "BANK_ACCOUNT_UPDATED"
+  | "BANK_ACCOUNT_DEFAULT_SET"
+  | "BANK_ACCOUNT_ARCHIVED"
+  | "CHEQUE_CREATED"
+  | "CHEQUE_ADVANCED"
+  | "CHEQUE_CLEARED_OWNER_ASSERTED"
+  | "CHEQUE_BOUNCED"
+  | "CHEQUE_CANCELLED"
+  | "CHEQUE_REPLACED";
 
-async function writeAudit(
+export async function writeAudit(
   tx: Tx,
   input: {
     businessId: number;
@@ -516,10 +529,38 @@ export type RecordManualPaymentInput = {
  * settle is returned as `unallocated` and surfaced, never applied elsewhere.
  */
 export async function recordManualPayment(input: RecordManualPaymentInput) {
+  // Validated before a transaction is opened, so a malformed amount costs no
+  // round trip. `recordPaymentInTx` validates again for its other callers.
+  assertPositiveAmount(toMinorUnits(input.amount), "payment amount");
+  return withTenantTransaction((tx) => recordPaymentInTx(tx, input));
+}
+
+/** Runs `fn` on a transaction the CALLER already opened (no nesting). */
+function runInCallerTx<T>(tx: Tx, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  return fn(tx);
+}
+
+/**
+ * The body of `recordManualPayment`, runnable inside a caller's transaction.
+ *
+ * Exists so that a cleared cheque becomes a Payment through EXACTLY the same
+ * allocation rules — the same lock, the same overpayment refusal, the same
+ * idempotency — atomically with the cheque's own status change. A second copy
+ * of this logic for cheques would be a second accounting universe.
+ *
+ * `evidence` defaults to MANUAL, which is what every Phase 1b caller meant.
+ */
+export async function recordPaymentInTx(
+  outerTx: Tx,
+  input: RecordManualPaymentInput & {
+    evidence?: { kind: "MANUAL" | "CHEQUE"; note?: string | null };
+    auditSummary?: string;
+  },
+) {
   const amountMinor = toMinorUnits(input.amount);
   assertPositiveAmount(amountMinor, "payment amount");
 
-  return withTenantTransaction(async (tx) => {
+  return runInCallerTx(outerTx, async (tx) => {
     // Idempotency first: a retry returns the original economic event rather
     // than creating a second one. Checked inside the transaction so two
     // simultaneous retries cannot both pass it.
@@ -615,8 +656,8 @@ export async function recordManualPayment(input: RecordManualPaymentInput) {
       data: {
         businessId: input.businessId,
         paymentId: payment.id,
-        kind: "MANUAL" as never,
-        note: input.note?.trim() || null,
+        kind: (input.evidence?.kind ?? "MANUAL") as never,
+        note: (input.evidence ? input.evidence.note?.trim() : input.note?.trim()) || null,
         assertedByUserId: input.actorUserId ?? null,
       },
     });
@@ -667,7 +708,9 @@ export async function recordManualPayment(input: RecordManualPaymentInput) {
       commitmentId: commitment.id,
       paymentId: payment.id,
       eventType: "PAYMENT_RECORDED",
-      summary: `Manual payment of ${fromMinorUnits(amountMinor)} ${commitment.currency} recorded`,
+      summary:
+        input.auditSummary ??
+        `Manual payment of ${fromMinorUnits(amountMinor)} ${commitment.currency} recorded`,
       metadata: {
         amount: fromMinorUnits(amountMinor),
         unallocated: fromMinorUnits(unallocatedMinor),

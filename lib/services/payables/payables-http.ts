@@ -10,9 +10,13 @@
  *
  * So the translation happens here, once, at the edge:
  *
- *   PayablesNotFoundError   → 404
- *   PayablesValidationError → 400
- *   anything else           → untouched, and `handleError` still reports 500
+ *   PayablesNotFoundError          → 404
+ *   PayablesValidationError        → 400
+ *   BankCoordinatesInvalidError    → 400  (names the field, never the value)
+ *   PayablesConflictError          → 409
+ *   PayablesBankCryptoConfigError  → 503  (generic text: a missing key is an
+ *                                          operator problem, not the owner's)
+ *   anything else                  → untouched, and `handleError` still reports 500
  *
  * A cross-tenant reference is deliberately a 404 rather than a 403: the service
  * finds nothing under the caller's tenant context, and answering "forbidden"
@@ -20,19 +24,39 @@
  */
 
 import { NextResponse } from "next/server";
-import { NotFoundError, ValidationError } from "@/lib/errors";
+import {
+  ConflictError,
+  NotFoundError,
+  ServiceUnavailableError,
+  ValidationError,
+} from "@/lib/errors";
 import { handleError } from "@/lib/handle-error";
 import {
+  PayablesConflictError,
   PayablesNotFoundError,
   PayablesValidationError,
 } from "@/lib/services/payables/payables-core";
+import {
+  BankCoordinatesInvalidError,
+  PayablesBankCryptoConfigError,
+} from "@/lib/services/payables/payables-bank-crypto";
+
+export const BANK_STORAGE_UNAVAILABLE = "Bank account storage is not configured";
 
 export function handlePayablesError(error: unknown): NextResponse {
   if (error instanceof PayablesNotFoundError) {
     return handleError(new NotFoundError(error.message));
   }
-  if (error instanceof PayablesValidationError) {
+  if (error instanceof PayablesValidationError || error instanceof BankCoordinatesInvalidError) {
     return handleError(new ValidationError(error.message));
+  }
+  if (error instanceof PayablesConflictError) {
+    return handleError(new ConflictError("PAYABLES_CONFLICT", error.message));
+  }
+  if (error instanceof PayablesBankCryptoConfigError) {
+    // The operator needs to know; the log line names the class only.
+    console.error("payables: bank crypto is not configured (PayablesBankCryptoConfigError)");
+    return handleError(new ServiceUnavailableError(BANK_STORAGE_UNAVAILABLE));
   }
   return handleError(error);
 }

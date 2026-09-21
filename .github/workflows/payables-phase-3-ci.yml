@@ -1,0 +1,206 @@
+name: payables phase 3
+
+# Accounts Payable Phase 3 — cheques and the business's bank accounts.
+#
+# PR-2 of the migration-first rule: the datamodel and the code that reads it.
+# The migration (#465) is already applied to Production and its behaviour was
+# proven there (run 35640744734). This workflow proves the CODE:
+#
+#   core    the pure rules — bank crypto (fail-closed keys, tenant/purpose AAD,
+#           keyed fingerprint, leading zeros) and the cheque lifecycle table
+#   db      the service against a real database: nothing stored in the clear,
+#           a cleared cheque is exactly ONE canonical Payment (retry and race),
+#           replacement cannot fork, tenant B sees nothing — plus the 1a / 1b / 2
+#           suites, because this PR refactors the payment path they depend on
+#   drift   the datamodel and the Production migration describe the SAME two
+#           tables. Built twice in one database server — once from
+#           `schema.prisma`, once by the migration SQL — and the catalogues are
+#           compared. Independent of git history, so it cannot go stale the way
+#           the Phase 1a drift check did once its baseline merged.
+
+on:
+  push:
+    branches: [feat/payables-phase-3-code]
+  pull_request:
+    paths:
+      - "prisma/schema.prisma"
+      - "lib/services/payables/**"
+      - "lib/payables/**"
+      - "app/api/payables/**"
+      - "app/(shell)/payables/**"
+      - "scripts/ci/erasure/**"
+      - ".github/workflows/payables-phase-3-ci.yml"
+
+jobs:
+  core:
+    name: payables p3 core (no database)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Bank crypto — fail closed, tenant/purpose-bound, keyed
+        run: npx tsx lib/services/payables/payables-bank-crypto.test.ts
+      - name: Cheque lifecycle table
+        run: npx tsx lib/services/payables/payables-cheque-core.test.ts
+      - name: Accounting invariants (1a, still true)
+        run: npx tsx lib/services/payables/payables-core.test.ts
+      - name: Matching rules (2, still true)
+        run: npx tsx lib/services/payables/payables-matching.test.ts
+      - name: Erasure coverage — both new models have a disposition
+        run: npm run verify:erasure-contract -- --baseline-check
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Lint the payables scope
+        run: npx eslint lib/services/payables lib/payables app/api/payables "app/(shell)/payables"
+      # A guard, not a test: no response type in the Phase 3 routes may name a
+      # ciphertext or fingerprint column. The service's single masked projection
+      # is what makes this hold; this makes a regression visible in review.
+      - name: No bank-account route selects ciphertext or fingerprint
+        run: |
+          set -euo pipefail
+          if grep -rnE "coordinatesEncrypted|coordinatesIv|coordinatesTag|fingerprint" \
+               app/api/payables "app/(shell)/payables" lib/payables; then
+            echo "::error::a route, page or client file names a sealed bank column"; exit 1
+          fi
+          echo "OK — no route, page or client file names a sealed bank column"
+
+  db:
+    name: payables p3 service (PG17)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: payables_owner
+          POSTGRES_PASSWORD: payables_ci_synthetic_pw
+          POSTGRES_DB: dubiz_payables
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U payables_owner -d dubiz_payables"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
+      DIRECT_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
+      TEST_DATABASE_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Build the schema
+        run: npx prisma db push --skip-generate
+
+      - name: Generate the client
+        run: npx prisma generate
+
+      - name: Apply the indexes the datamodel cannot express
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c '
+            CREATE UNIQUE INDEX IF NOT EXISTS "PaymentAllocation_active_payment_installment_key"
+              ON "PaymentAllocation"("paymentId", "installmentId")
+              WHERE "reversedAt" IS NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS "PaymentEvidence_active_document_key"
+              ON "PaymentEvidence"("businessId", "documentId")
+              WHERE "revokedAt" IS NULL AND "documentId" IS NOT NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS "BusinessBankAccount_one_active_default"
+              ON "BusinessBankAccount"("businessId")
+              WHERE "isDefault" = true AND "isActive" = true;
+            CREATE UNIQUE INDEX IF NOT EXISTS "Cheque_active_number_key"
+              ON "Cheque"("businessId", "sourceBankAccountId", "chequeNumber")
+              WHERE "cancelledAt" IS NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS "Cheque_replaces_key"
+              ON "Cheque"("replacesChequeId")
+              WHERE "replacesChequeId" IS NOT NULL;'
+
+      - name: 1a ledger suite (regression — the payment path was refactored)
+        run: npx tsx lib/services/payables/payables.db.test.ts
+
+      - name: 1b product suite (regression)
+        run: npx tsx lib/services/payables/payables-1b.db.test.ts
+
+      - name: 2 reconciliation suite (regression)
+        run: npx tsx lib/services/payables/payables-2.db.test.ts
+
+      - name: 3 cheques and bank accounts
+        run: npx tsx lib/services/payables/payables-3.db.test.ts
+
+  drift:
+    name: payables p3 datamodel ↔ migration (PG17)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: payables_owner
+          POSTGRES_PASSWORD: payables_ci_synthetic_pw
+          POSTGRES_DB: p3_datamodel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U payables_owner -d p3_datamodel"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      BASE: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432
+      MIG: prisma/migrations/20260918120000_payables_phase_3_cheques_and_bank_accounts/migration.sql
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Build twice — from the datamodel, and by the migration
+        run: |
+          set -euo pipefail
+          psql "$BASE/p3_datamodel" -v ON_ERROR_STOP=1 -q -c 'CREATE DATABASE p3_migration;'
+          DATABASE_URL="$BASE/p3_datamodel" DIRECT_URL="$BASE/p3_datamodel" \
+            npx prisma db push --skip-generate
+          DATABASE_URL="$BASE/p3_migration" DIRECT_URL="$BASE/p3_migration" \
+            npx prisma db push --skip-generate
+          # Remove what the datamodel created for Phase 3, then let the
+          # Production migration build it instead.
+          psql "$BASE/p3_migration" -v ON_ERROR_STOP=1 -q -c '
+            DROP TABLE "Cheque"; DROP TABLE "BusinessBankAccount";
+            DROP TYPE "ChequeStatus"; DROP TYPE "ChequeClearedSource";'
+          psql "$BASE/p3_migration" -v ON_ERROR_STOP=1 -q -f "$MIG"
+
+      - name: Columns, enums, foreign keys and plain indexes agree
+        run: |
+          set -euo pipefail
+          Q_COLS="SELECT table_name, column_name, data_type, udt_name, is_nullable,
+                         coalesce(numeric_precision::text,''), coalesce(numeric_scale::text,''),
+                         coalesce(column_default,'')
+                    FROM information_schema.columns
+                   WHERE table_schema='public' AND table_name IN ('BusinessBankAccount','Cheque')
+                   ORDER BY 1,2;"
+          Q_ENUMS="SELECT t.typname, string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder)
+                     FROM pg_type t JOIN pg_enum e ON e.enumtypid=t.oid
+                    WHERE t.typname IN ('ChequeStatus','ChequeClearedSource') GROUP BY 1 ORDER BY 1;"
+          Q_FKS="SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
+                  WHERE contype IN ('f','p') AND conrelid::regclass::text IN ('\"BusinessBankAccount\"','\"Cheque\"')
+                  ORDER BY 1;"
+          Q_IDX="SELECT indexname, indexdef FROM pg_indexes
+                  WHERE schemaname='public' AND tablename IN ('BusinessBankAccount','Cheque')
+                    AND indexdef NOT LIKE '%WHERE%' ORDER BY 1;"
+          for q in COLS ENUMS FKS IDX; do
+            eval "SQL=\$Q_$q"
+            psql "$BASE/p3_datamodel" -At -v ON_ERROR_STOP=1 -c "$SQL" > "dm_$q.txt"
+            psql "$BASE/p3_migration" -At -v ON_ERROR_STOP=1 -c "$SQL" > "mg_$q.txt"
+            if ! diff -u "dm_$q.txt" "mg_$q.txt"; then
+              echo "::error::$q differs between schema.prisma and the Production migration"; exit 1
+            fi
+            echo "OK — $q agree ($(wc -l < "dm_$q.txt") rows)"
+          done
