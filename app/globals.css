@@ -209,3 +209,72 @@ select {
   cursor: not-allowed;
   transform: none;
 }
+/*
+ * Secondary / ghost public action — the counterpart to `.dz-btn-primary`.
+ *
+ * Exists because the public chrome had exactly one button skin, so the header's
+ * "כניסה למערכת" rendered as a FILLED primary sitting in the same viewport as the
+ * page's own primary CTA — two identical teal slabs pointing at different
+ * destinations. This is the quiet variant: same geometry and the same shared Mist
+ * focus ring, but a bordered surface instead of the brand fill, so only ONE action
+ * per screen carries the saturated colour.
+ *
+ * Built from the existing `--dz-action-secondary-*` interaction tokens. It defines
+ * no colour of its own and is additive — no existing selector changes.
+ */
+.dz-btn-ghost.dz-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  /* 44px: the minimum comfortable touch target, and deliberately lighter than
+   * the primary's 52px so the hierarchy reads by weight, not only by colour. */
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid var(--dz-action-secondary-border);
+  border-radius: 14px;
+  background: var(--dz-action-secondary-bg);
+  color: var(--dz-action-secondary-text);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.15;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.dz-btn-ghost--block {
+  width: 100%;
+}
+.dz-btn-ghost:hover {
+  background: var(--dz-action-secondary-hover);
+}
+.dz-btn-ghost:focus-visible {
+  outline: var(--dz-focus-ring-width) solid var(--dz-focus-ring-color);
+  outline-offset: var(--dz-focus-ring-offset);
+}
+
+/*
+ * Reduced motion — the OS-level contract.
+ *
+ * The app already honours a USER-level toggle (`.a11y-reduce-motion`, set by the
+ * AccessibilityFab), but nothing honoured the platform setting, so a visitor who
+ * had asked their OS for reduced motion still got every transition. This is the
+ * same rule the FAB applies, keyed off the media query instead of a class.
+ *
+ * Durations are near-zero rather than `none` so `transitionend`/`animationend`
+ * listeners still fire and no state machine stalls waiting for an event.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
