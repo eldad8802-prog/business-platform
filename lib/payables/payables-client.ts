@@ -389,3 +389,187 @@ export const CONFIDENCE_LABEL: Record<Confidence, string> = {
 export function minorToDisplay(minor: number, currency = "ILS"): string {
   return formatMoney((minor / 100).toFixed(2), currency);
 }
+
+/* ─────────────────────── phase 3: cheques and bank accounts ──────────────── */
+
+/**
+ * The only shape a bank account ever has in the browser: a label and the last
+ * four digits. There is no endpoint that returns more, so there is nothing
+ * here that could render more.
+ */
+export type BankAccountApi = {
+  id: number;
+  label: string;
+  last4: string;
+  masked: string;
+  isActive: boolean;
+  isDefault: boolean;
+  note: string | null;
+  createdAt: string;
+};
+
+export type ChequeStatus =
+  | "PLANNED"
+  | "ISSUED"
+  | "DELIVERED"
+  | "PRESENTED"
+  | "CLEARED"
+  | "BOUNCED"
+  | "CANCELLED"
+  | "REPLACED";
+
+export type ChequeApi = {
+  id: number;
+  chequeNumber: string;
+  payeeId: number | null;
+  payeeNameSnapshot: string;
+  amount: string;
+  currency: string;
+  issueDate: string;
+  dueDate: string;
+  status: ChequeStatus;
+  sourceBankAccount: { id: number; label: string; masked: string; isActive: boolean };
+  commitment: { id: number; title: string } | null;
+  installment: { id: number; sequence: number; dueAt: string } | null;
+  cleared: { assertedAt: string | null; source: "OWNER_ASSERTED" } | null;
+  cancelledAt: string | null;
+  cancellationReason: string | null;
+  replaces: { id: number; chequeNumber: string } | null;
+  replacedBy: { id: number; chequeNumber: string } | null;
+  payment: { id: number; status: string; allocated: string; unallocated: string } | null;
+  note: string | null;
+  createdAt: string;
+  actions: {
+    advance: ChequeStatus[];
+    clear: boolean;
+    bounce: boolean;
+    cancel: boolean;
+    replace: boolean;
+  };
+};
+
+export function fetchBankAccounts(includeArchived = false) {
+  return call<{ accounts: BankAccountApi[]; configured: boolean }>(
+    `/api/payables/bank-accounts${includeArchived ? "?archived=1" : ""}`,
+  );
+}
+
+export function createBankAccount(body: {
+  label: string;
+  bankCode: string;
+  branchCode: string;
+  accountNumber: string;
+  isDefault?: boolean;
+  note?: string | null;
+}) {
+  return call<{ account: BankAccountApi; restored: boolean }>("/api/payables/bank-accounts", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function setDefaultBankAccount(id: number) {
+  return call<{ account: BankAccountApi }>(`/api/payables/bank-accounts/${id}/default`, {
+    method: "POST",
+  });
+}
+
+export function archiveBankAccount(id: number) {
+  return call<{ account: BankAccountApi }>(`/api/payables/bank-accounts/${id}/archive`, {
+    method: "POST",
+  });
+}
+
+export function fetchCheques(opts: { scope?: "open" | "all"; commitmentId?: number } = {}) {
+  const params = new URLSearchParams();
+  params.set("scope", opts.scope ?? "open");
+  if (opts.commitmentId) params.set("commitmentId", String(opts.commitmentId));
+  return call<{ cheques: ChequeApi[] }>(`/api/payables/cheques?${params}`).then((r) => r.cheques);
+}
+
+export type CreateChequeBody = {
+  chequeNumber: string;
+  amount: string;
+  issueDate: string;
+  dueDate: string;
+  sourceBankAccountId: number;
+  commitmentId?: number | null;
+  installmentId?: number | null;
+  payeeId?: number | null;
+  payeeName?: string | null;
+  status?: "PLANNED" | "ISSUED";
+  note?: string | null;
+};
+
+export function createCheque(body: CreateChequeBody) {
+  return call<{ cheque: ChequeApi }>("/api/payables/cheques", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }).then((r) => r.cheque);
+}
+
+export function advanceCheque(id: number, to: ChequeStatus) {
+  return call<{ cheque: ChequeApi }>(`/api/payables/cheques/${id}/advance`, {
+    method: "POST",
+    body: JSON.stringify({ to }),
+  }).then((r) => r.cheque);
+}
+
+export function clearCheque(id: number, clearedAt: string) {
+  return call<{ cheque: ChequeApi; unallocated: string; replayed: boolean }>(
+    `/api/payables/cheques/${id}/clear`,
+    { method: "POST", body: JSON.stringify({ clearedAt }) },
+  );
+}
+
+export function bounceCheque(id: number, reason?: string) {
+  return call<{ cheque: ChequeApi }>(`/api/payables/cheques/${id}/bounce`, {
+    method: "POST",
+    body: JSON.stringify({ reason: reason ?? null }),
+  }).then((r) => r.cheque);
+}
+
+export function cancelCheque(id: number, reason?: string) {
+  return call<{ cheque: ChequeApi }>(`/api/payables/cheques/${id}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ reason: reason ?? null }),
+  }).then((r) => r.cheque);
+}
+
+export function replaceCheque(
+  id: number,
+  body: {
+    chequeNumber: string;
+    amount?: string | null;
+    issueDate: string;
+    dueDate: string;
+    sourceBankAccountId?: number | null;
+    reason?: string | null;
+  },
+) {
+  return call<{ replaced: ChequeApi; replacement: ChequeApi }>(
+    `/api/payables/cheques/${id}/replace`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+/**
+ * CLEARED reads as the owner's statement, because that is all it is. The
+ * label must never say "confirmed" or "verified" — there is no bank feed.
+ */
+export const CHEQUE_STATUS_LABEL: Record<ChequeStatus, string> = {
+  PLANNED: "מתוכנן",
+  ISSUED: "נכתב",
+  DELIVERED: "נמסר",
+  PRESENTED: "הופקד",
+  CLEARED: "נפרע (לפי דיווחך)",
+  BOUNCED: "חזר",
+  CANCELLED: "בוטל",
+  REPLACED: "הוחלף",
+};
+
+export const CHEQUE_ADVANCE_LABEL: Partial<Record<ChequeStatus, string>> = {
+  ISSUED: "סמן כנכתב",
+  DELIVERED: "סמן כנמסר",
+  PRESENTED: "סמן כהופקד",
+};

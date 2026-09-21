@@ -244,6 +244,8 @@ model Business {
 
   @@index([archivedAt])
   payablesMatchRejections PayablesMatchRejection[]
+  businessBankAccounts    BusinessBankAccount[]
+  cheques                 Cheque[]
 }
 
 model User {
@@ -4291,6 +4293,7 @@ model Payee {
   business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
   commitments Commitment[]
   payments    Payment[]
+  cheques     Cheque[]
 
   @@index([businessId, isActive])
   @@index([businessId, taxId])
@@ -4335,6 +4338,7 @@ model Commitment {
   @@index([businessId, payeeId])
   @@index([businessId, legacyObligationId])
   matchRejections PayablesMatchRejection[]
+  cheques         Cheque[]
 }
 
 /// One scheduled amount due on one date.
@@ -4368,6 +4372,7 @@ model Installment {
   @@index([businessId, status])
   @@index([commitmentId])
   matchRejections PayablesMatchRejection[]
+  cheques         Cheque[]
 }
 
 /// The economic fact: money left the business.
@@ -4549,6 +4554,113 @@ model PayablesAuditEvent {
   @@index([businessId, commitmentId, occurredAt])
   @@index([businessId, paymentId, occurredAt])
   @@index([eventType, occurredAt])
+}
+
+/// An account money leaves FROM (Phase 3). Never where it goes — that is a
+/// payment destination, a different concept with a different purpose binding.
+///
+/// Bank coordinates are NEVER stored in the clear: only AES-256-GCM ciphertext
+/// (+ IV, tag, key id), the last four digits for display, and a KEYED
+/// HMAC-SHA-256 fingerprint. See `payables-bank-crypto.ts`.
+///
+/// DO NOT regenerate this model's indexes from the datamodel. The migration
+/// ships a PARTIAL unique index Prisma cannot express:
+///   UNIQUE ("businessId") WHERE "isDefault" AND "isActive"
+/// — at most one active default account per business.
+model BusinessBankAccount {
+  id                   Int      @id @default(autoincrement())
+  businessId           Int
+  label                String
+  coordinatesEncrypted String
+  coordinatesIv        String
+  coordinatesTag       String
+  encryptionKeyId      String
+  accountLast4         String
+  fingerprint          String
+  isActive             Boolean  @default(true)
+  isDefault            Boolean  @default(false)
+  note                 String?
+  createdByUserId      Int?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  cheques  Cheque[]
+
+  @@unique([businessId, fingerprint])
+  @@index([businessId, isActive])
+}
+
+/// A cheque the business writes (Phase 3). First-class: planned, issued,
+/// delivered, presented, then CLEARED / BOUNCED / CANCELLED / REPLACED.
+///
+/// `chequeNumber` is TEXT and never assumed sequential or numeric. Replacement
+/// is a LINK (`replacesChequeId`), never an edit of the old row.
+///
+/// CLEARED is OWNER-ASSERTED and says so: `clearedSource` has one legal value,
+/// OWNER_ASSERTED. A future bank-observed source is a new enum value, never a
+/// reinterpretation of these rows.
+///
+/// A cleared cheque becomes a canonical `Payment` (method CHECK) whose
+/// `idempotencyKey` is `cheque:<id>` — the ledger link, unique per business.
+///
+/// DO NOT regenerate this model's indexes from the datamodel. The migration
+/// ships two PARTIAL unique indexes Prisma cannot express:
+///   UNIQUE ("businessId","sourceBankAccountId","chequeNumber") WHERE "cancelledAt" IS NULL
+///   UNIQUE ("replacesChequeId") WHERE "replacesChequeId" IS NOT NULL
+model Cheque {
+  id                  Int                  @id @default(autoincrement())
+  businessId          Int
+  payeeId             Int?
+  payeeNameSnapshot   String
+  amount              Decimal              @db.Decimal(18, 2)
+  currency            String               @default("ILS")
+  chequeNumber        String
+  issueDate           DateTime
+  dueDate             DateTime
+  sourceBankAccountId Int
+  installmentId       Int?
+  commitmentId        Int?
+  status              ChequeStatus         @default(PLANNED)
+  clearedAssertedAt   DateTime?
+  clearedSource       ChequeClearedSource?
+  clearedAssertedBy   Int?
+  cancelledAt         DateTime?
+  cancellationReason  String?
+  replacesChequeId    Int?
+  note                String?
+  createdByUserId     Int?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  business          Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payee             Payee?              @relation(fields: [payeeId], references: [id], onDelete: SetNull)
+  sourceBankAccount BusinessBankAccount @relation(fields: [sourceBankAccountId], references: [id], onDelete: Restrict)
+  installment       Installment?        @relation(fields: [installmentId], references: [id], onDelete: SetNull)
+  commitment        Commitment?         @relation(fields: [commitmentId], references: [id], onDelete: SetNull)
+  replaces          Cheque?             @relation("ChequeReplacement", fields: [replacesChequeId], references: [id], onDelete: SetNull)
+  replacedBy        Cheque[]            @relation("ChequeReplacement")
+
+  @@index([businessId, dueDate])
+  @@index([businessId, status])
+  @@index([businessId, installmentId], map: "Cheque_businessId_installment_idx")
+}
+
+enum ChequeStatus {
+  PLANNED
+  ISSUED
+  DELIVERED
+  PRESENTED
+  CLEARED
+  BOUNCED
+  CANCELLED
+  REPLACED
+}
+
+/// Exactly one value today. There is no bank feed, so nothing but the owner's
+/// assertion can be represented — deliberately.
+enum ChequeClearedSource {
+  OWNER_ASSERTED
 }
 
 enum PayeeKind {

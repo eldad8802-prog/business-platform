@@ -97,6 +97,11 @@ const MODEL_LEVEL: DebtEntry[] = [
   // same E2 position as the models above rather than being waved through as a
   // decision record with no personal surface.
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "PayablesMatchRejection", why: "E2" },
+  // Payables Phase 3. The business's own bank account (personal for a sole
+  // trader, even though it is stored only as ciphertext + last4 + a keyed
+  // fingerprint) and the cheques written from it take the same E2 position.
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessBankAccount", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Cheque", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Deal", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailAddress", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailAttachmentImport", why: "E2" },

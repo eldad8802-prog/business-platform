@@ -251,6 +251,12 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   // field, so it inherits the same classification rather than being waved
   // through as operational telemetry.
   PayablesMatchRejection: unmanaged("reason, the owner's free-text note on a rejected match"),
+  // Payables, Phase 3. A sole trader's business account IS their personal bank
+  // account, so the coordinates are personal data even though they are only
+  // ever stored as AES-256-GCM ciphertext, last4 and a keyed fingerprint. A
+  // cheque names its payee as written and carries free-text notes and reasons.
+  BusinessBankAccount: unmanaged("encrypted bank coordinates, last4, label and note"),
+  Cheque: unmanaged("payeeNameSnapshot, note and cancellationReason"),
   Deal: unmanaged("lostReason, and leadId to a partially-scrubbed Lead"),
   Recommendation: unmanaged("title and body, generated about the business"),
   RecommendationOutcome: unmanaged("notes"),

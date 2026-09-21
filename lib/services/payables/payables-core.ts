@@ -54,6 +54,14 @@ export class PayablesValidationError extends Error {
   }
 }
 
+/** A uniqueness rule refused the write — a duplicate the owner can act on (409). */
+export class PayablesConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PayablesConflictError";
+  }
+}
+
 /* ─────────────────────────── money (minor units) ─────────────────────────── */
 
 /**

@@ -7,17 +7,22 @@ import {
   SCHEDULE_LABEL,
   STATE_LABEL,
   cancelInstallment,
+  fetchBankAccounts,
+  fetchCheques,
   fetchCommitment,
   formatDate,
   formatMoney,
   recordPayment,
   reverseAllocation,
   voidPayment,
+  type BankAccountApi,
+  type ChequeApi,
   type CommitmentDetailApi,
   type DerivedState,
   type InstallmentApi,
 } from "@/lib/payables/payables-client";
 import { PAYABLES_THEME } from "../payables-theme";
+import { ChequeCard, ChequeForm } from "../cheque-parts";
 import styles from "../payables.module.css";
 
 const BADGE_CLASS: Record<DerivedState, string> = {
@@ -54,6 +59,9 @@ export default function CommitmentDetailPage({
   const [detail, setDetail] = useState<CommitmentDetailApi | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [cheques, setCheques] = useState<ChequeApi[]>([]);
+  const [accounts, setAccounts] = useState<BankAccountApi[]>([]);
+  const [showChequeForm, setShowChequeForm] = useState(false);
 
   // Every setState for the fetch lives inside the effect, so a response for a
   // commitment the owner has already navigated away from cannot land on the
@@ -63,10 +71,20 @@ export default function CommitmentDetailPage({
 
   useEffect(() => {
     let cancelled = false;
-    fetchCommitment(commitmentId)
-      .then((d) => {
+    // Cheques are secondary to the ledger: if they fail to load, the
+    // commitment still renders and the cheque section simply stays empty.
+    Promise.all([
+      fetchCommitment(commitmentId),
+      fetchCheques({ scope: "all", commitmentId }).catch(() => [] as ChequeApi[]),
+      fetchBankAccounts()
+        .then((r) => r.accounts)
+        .catch(() => [] as BankAccountApi[]),
+    ])
+      .then(([d, list, bank]) => {
         if (cancelled) return;
         setDetail(d);
+        setCheques(list);
+        setAccounts(bank);
         setError(null);
       })
       .catch((e) => {
@@ -200,6 +218,54 @@ export default function CommitmentDetailPage({
           reload();
         }}
       />
+
+      <div className={styles.header}>
+        <h2 className={styles.sectionTitle}>צ׳קים</h2>
+        {detail.status === "ACTIVE" && (
+          <div className={styles.toolbar}>
+            <button
+              type="button"
+              className={styles.buttonQuiet}
+              onClick={() => setShowChequeForm((v) => !v)}
+              aria-expanded={showChequeForm}
+            >
+              {showChequeForm ? "סגור" : "רשום צ׳ק"}
+            </button>
+          </div>
+        )}
+      </div>
+      {showChequeForm && (
+        <ChequeForm
+          accounts={accounts}
+          commitmentId={detail.id}
+          installments={detail.installments}
+          onCreated={(c) => {
+            setShowChequeForm(false);
+            setNotice(`צ׳ק #${c.chequeNumber} נרשם. הוא ייספר כתשלום כשתסמן שנפרע.`);
+            reload();
+          }}
+        />
+      )}
+      {cheques.length === 0 ? (
+        !showChequeForm && (
+          <div className={styles.empty}>לא נרשמו צ׳קים להתחייבות הזו.</div>
+        )
+      ) : (
+        <div className={styles.timeline}>
+          {cheques.map((c) => (
+            <ChequeCard
+              key={c.id}
+              cheque={c}
+              accounts={accounts}
+              showCommitment={false}
+              onChanged={(message) => {
+                setNotice(message);
+                reload();
+              }}
+            />
+          ))}
+        </div>
+      )}
 
       <h2 className={styles.sectionTitle}>לוח התשלומים</h2>
       <div className={styles.timeline}>
