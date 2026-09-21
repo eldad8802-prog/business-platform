@@ -83,6 +83,34 @@ export function assertAllocationWithinRemaining(
   }
 }
 
+/**
+ * C2.5 — what an issued receipt may claim to have settled.
+ *
+ * A receipt with no allocation is an ad-hoc receipt: money received and
+ * documented, owed against nothing. That is legitimate and stays legal.
+ *
+ * A receipt WITH allocations says exactly where its money went, so the
+ * allocations must account for all of it — no more (it would settle debt with
+ * money it never received) and no less (the remainder would be silently
+ * unassigned while the receipt claims to settle specific invoices). The draft
+ * write path already demands this, but a receipt's payment lines can be
+ * replaced afterwards without touching its allocations, so it is asserted again
+ * at the only moment it becomes a legal record.
+ */
+export function assertReceiptAllocationsMatchTotal(
+  allocations: { allocatedAmount: Prisma.Decimal }[],
+  receiptTotal: Prisma.Decimal
+): void {
+  if (allocations.length === 0) {
+    return;
+  }
+  if (!sumAllocationAmounts(allocations).equals(receiptTotal)) {
+    throw new ValidationError(
+      "Receipt allocations must equal the receipt total before it can be issued"
+    );
+  }
+}
+
 export function sumPaymentLineAmounts(
   lines: { amount: Prisma.Decimal }[]
 ): Prisma.Decimal {

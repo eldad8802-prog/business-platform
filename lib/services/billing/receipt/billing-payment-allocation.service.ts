@@ -20,6 +20,8 @@ import {
   computeRemainingAllocatable,
   sumAllocationAmounts,
 } from "@/lib/services/billing/receipt/billing-receipt-allocation.rules";
+import { authoritativeAllocationWhere } from "@/lib/services/billing/domain/billing-allocation-authority";
+import { lockBillingDocumentRowsTx } from "@/lib/services/billing/receipt/billing-receipt-issuance-integrity";
 import { billingTenantTx } from "../billing-tenant-tx";
 
 const ALLOCATION_MAX_VALUE = "9999999999999999";
@@ -84,7 +86,8 @@ function parseAllocations(raw: ReceiptAllocationInputRaw[]): ParsedAllocation[] 
 /**
  * Replaces the allocations of a DRAFT pure-RECEIPT against ISSUED invoices.
  * Enforces: ISSUED TAX_INVOICE only, same business, same currency, no
- * over-allocation per invoice, and full allocation of the receipt amount.
+ * over-allocation per invoice against ISSUED settlements, and full allocation
+ * of the receipt amount. The binding checks repeat at issuance (C2.5).
  */
 export async function setReceiptAllocations(
   input: SetReceiptAllocationsInput
@@ -93,6 +96,14 @@ export async function setReceiptAllocations(
   const parsed = parseAllocations(input.allocations);
 
   return billingTenantTx(input.businessId, async (tx) => {
+    // C2.5 — serialise with issuance of this same receipt. Without the lock,
+    // allocations could be rewritten between issuance validating them and
+    // issuance committing; with it, whichever runs second reads the other's
+    // result (and this path then sees ISSUED and refuses).
+    await lockBillingDocumentRowsTx(tx, input.businessId, [
+      input.receiptDocumentId,
+    ]);
+
     const receipt = await tx.billingDocument.findFirst({
       where: { id: input.receiptDocumentId, businessId: input.businessId },
       select: {
@@ -148,12 +159,17 @@ export async function setReceiptAllocations(
       assertSameBusiness(receipt.businessId, invoice.businessId);
       assertSameCurrency(receipt.currency, invoice.currency);
 
-      // Remaining = invoice total − allocations from OTHER receipts.
+      // Remaining = invoice total − allocations from OTHER receipts that have
+      // actually settled something. C2.5: an unissued receipt's allocation is
+      // a plan, so it reserves nothing — an abandoned draft must not block a
+      // real payment. This is early feedback only; the binding check runs at
+      // issuance, under the invoice's lock.
       const others = await tx.billingPaymentAllocation.aggregate({
         where: {
           businessId: input.businessId,
           invoiceDocumentId: invoice.id,
           receiptDocumentId: { not: receipt.id },
+          ...authoritativeAllocationWhere(input.businessId),
         },
         _sum: { allocatedAmount: true },
       });
