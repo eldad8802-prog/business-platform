@@ -132,52 +132,56 @@ const TRANSFORMATIONS = [
 ];
 
 /* ───────────────────────── PRODUCT PROOF · four real areas ────────────────────
- * Crops are measured in SOURCE pixels of the 780×1688 assets and each boundary
- * sits in the GAP between two components — never through text, never through an
- * amount row. See `ProductFragment` for the arithmetic.
+ * Current Dubiz (Mist) screens, re-captured 2026-09-21 by
+ * `scripts/qa/ui/homepage-proof-capture.mjs` — the real app and components with
+ * synthetic data at the network layer (no database, no real customer). Each
+ * file is already a semantic crop at 390 CSS × DPR 3; `width`/`height` are the
+ * files' true sizes. Captions: copy record §S6 (V2).
  *
- * `conversations.webp` is deliberately NOT used: it was captured before the Mist
- * migration (#311) and still carries the old white/cyan palette, so next to three
- * warm screens it would read as a different product. Re-capturing it is tracked
- * as a follow-up; the breadth line still names השיחות, because that is a verified
- * capability and does not depend on having a current screenshot of it.
+ *   גבייה      /payments worklist — amounts, the payment action, what needs care.
+ *   מסמכים     /documents — the month's pulse and manual capture. The crop ends
+ *              above the automatic-import row: no Gmail on the public page until
+ *              Google verification is closed (owner decision).
+ *   חשבוניות   /billing/[id] — an ISSUED tax invoice with its open balance and
+ *              the send-for-payment action. No business identifier in frame.
+ *   לידים      /leads — the work queue, ranked by follow-ups the owner set.
+ *              Nothing that depends on CONVERSATION_STATE_WRITER_ENABLED.
  * ---------------------------------------------------------------------------- */
 const PROOF_AREAS: ProofArea[] = [
   {
     label: "גבייה",
-    src: "/landing/collection.webp",
-    alt: "מרכז הגבייה של Dubiz — כמה גביות פתוחות, סכום שפג תוקפו, סכום שנגבה החודש וסכום ממתין, ולצידם פעולת קבלת תשלום",
-    // Title → summary sentence → the three amounts → the payment action.
-    // Ends in the gap below the button, above "דורש טיפול".
-    crop: { top: 0, bottom: 700 },
+    src: "/landing/proof/collection.webp",
+    width: 1170,
+    height: 1722,
+    alt: "מרכז הגבייה של Dubiz — חמש גביות פתוחות, סכום ממתין, סכום שנגבה החודש וסכום שפג תוקפו, פעולת קבלת תשלום, ושתי גביות שדורשות טיפול",
     caption:
       "רואים מה שולם ומה עדיין פתוח, ושולחים ללקוח קישור לתשלום בלחיצה.",
   },
   {
     label: "מסמכים",
-    src: "/landing/documents-home.webp",
-    alt: "קליטת מסמך ב-Dubiz — צילום או העלאת קובץ, והמערכת מזהה ספק, סכום ותאריך",
-    // The complete intake card, gap to gap.
-    crop: { top: 395, bottom: 1120 },
+    src: "/landing/proof/documents.webp",
+    width: 1170,
+    height: 1251,
+    alt: "מסך המסמכים של Dubiz — תזרים נטו לחודש עם הכנסות והוצאות, וקליטת מסמך חדש בהעלאת קובץ או בצילום",
     caption: "מצלמים חשבונית — Dubiz מזהה ספק, סכום ותאריך לבד.",
   },
   {
     label: "חשבוניות",
-    src: "/landing/billing.webp",
-    alt: "מסך החיוב של Dubiz — יצירת חשבונית או הצעת מחיר, וטיוטה שממתינה להמשך עבודה",
-    // Heading → the two create actions → the draft that waits for you.
-    crop: { top: 140, bottom: 1040 },
+    src: "/landing/proof/billing.webp",
+    width: 1170,
+    height: 1605,
+    alt: "חשבונית מס שהופקה ב-Dubiz — מספר המסמך ותאריך ההפקה, יתרה פתוחה ופעולת שליחה לתשלום, ובדיקה קצרה של הלקוח, הפריטים והסכום",
     caption:
-      "חשבונית או הצעת מחיר נפתחות מכאן, וכל טיוטה ממתינה במקום שבו עצרת.",
+      "מפיקים חשבונית מס, ומאותו מסך רואים מה פתוח ושולחים אותה לתשלום.",
   },
   {
-    label: "לקוחות",
-    src: "/landing/customer-card.webp",
-    alt: "כרטיס לקוח ב-Dubiz — פרטי קשר, שם משפטי, מספר עוסק וסטטוס פעילות",
-    // The customer card itself, whole.
-    crop: { top: 100, bottom: 830 },
+    label: "לידים",
+    src: "/landing/proof/leads.webp",
+    width: 1170,
+    height: 1494,
+    alt: "רשימת הלידים של Dubiz — פניות פתוחות מסודרות לפי מעקב שעבר מועדו ומעקב להיום, עם פעולות טופל ודחייה בכל שורה",
     caption:
-      "כל לקוח במקום אחד — פרטים, מסמכים, תשלומים ושיחות. תמיד תדע איפה אתה עומד מולו.",
+      "Dubiz מסדרת את הפניות לפי מי שצריך לחזור אליו קודם — ומסמנים שטופל בלחיצה.",
   },
 ];
 
@@ -214,15 +218,20 @@ function Heading({
   id,
   children,
   className = "",
+  onStage = false,
 }: {
   id?: string;
   children: React.ReactNode;
   className?: string;
+  /** On the forest stage the ink inverts to paper. */
+  onStage?: boolean;
 }) {
   return (
     <h2
       id={id}
-      className={`text-2xl font-semibold leading-snug text-[var(--mkt-ink)] sm:text-3xl ${className}`}
+      className={`text-2xl font-semibold leading-snug sm:text-3xl ${
+        onStage ? "text-[var(--mkt-on-stage)]" : "text-[var(--mkt-ink)]"
+      } ${className}`}
     >
       {children}
     </h2>
@@ -306,24 +315,24 @@ export default function HomeCandidatePage() {
             where it can actually be read.
           */}
           <div className="sm:flex-1">
-            <div className="rounded-[26px] border border-[var(--mkt-soft-border)] dz-mist p-5 sm:p-6">
-              <p className="text-[12px] font-semibold tracking-wide text-[var(--dz-text-muted)]">
+            {/*
+              A record, not a marketing card: a header row, hairline-separated
+              rows, each an object and its state on two levels — the way Dubiz
+              itself lists things. No dots, no icons, no invented timestamp.
+            */}
+            <div className="overflow-hidden rounded-[var(--mkt-radius-object)] border border-[var(--mkt-border)] bg-[var(--dz-surface-flat)] shadow-[var(--dz-shadow-card)]">
+              <p className="border-b border-[var(--mkt-border)] px-5 py-3 text-[13px] font-semibold text-[var(--dz-text-secondary)] sm:px-6">
                 מה כבר מסודר
               </p>
-              <ul className="mt-4 space-y-4">
+              <ul className="divide-y divide-[var(--dz-border-subtle)]">
                 {IN_ORDER.map(([what, state]) => (
-                  <li key={what} className="flex items-baseline gap-3">
-                    <span
-                      aria-hidden
-                      className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--mkt-link)]"
-                    />
-                    <span className="text-[15px] leading-6 text-[var(--mkt-ink)]">
-                      <span className="font-semibold">{what}</span>
-                      <span className="text-[var(--dz-text-secondary)]">
-                        {" "}
-                        — {state}
-                      </span>
-                    </span>
+                  <li key={what} className="px-5 py-4 sm:px-6">
+                    <p className="text-[15px] font-semibold leading-6 text-[var(--mkt-ink)]">
+                      {what}
+                    </p>
+                    <p className="mt-0.5 text-[14px] leading-6 text-[var(--dz-text-secondary)]">
+                      {state}
+                    </p>
                   </li>
                 ))}
               </ul>
@@ -335,11 +344,12 @@ export default function HomeCandidatePage() {
       {/* ================================================================= */}
       {/* S2 · MIRROR — the accumulation, and a turn that opens S3           */}
       {/* ================================================================= */}
-      <Section tone="warm" pad="lg" labelledById="s-mirror">
+      {/* Sand: the owner's own world. (No muted text in this section — AA.) */}
+      <Section tone="sand" pad="lg" labelledById="s-mirror">
         <div className="max-w-2xl">
           <Heading id="s-mirror">וזה לא רגע אחד ביום.</Heading>
 
-          <ul className="mt-8 space-y-5 border-r-2 border-[var(--mkt-soft-border)] pr-5 sm:space-y-6 sm:pr-7">
+          <ul className="mt-8 space-y-5 border-r-2 border-[var(--dz-border-strong)] pr-5 sm:space-y-6 sm:pr-7">
             {ACCUMULATION.map((line) => (
               <li
                 key={line}
@@ -373,7 +383,7 @@ export default function HomeCandidatePage() {
       {/* ================================================================= */}
       {/* S3 · MECHANISM — it starts where the business already is           */}
       {/* ================================================================= */}
-      <Section tone="base" pad="md" labelledById="s-mechanism">
+      <Section tone="base" pad="md" padB="sm" labelledById="s-mechanism">
         <div className="max-w-2xl">
           <Heading id="s-mechanism">
             זה מתחיל מהמקום שבו העסק שלך כבר נמצא
@@ -384,58 +394,65 @@ export default function HomeCandidatePage() {
           </p>
         </div>
 
-        <div className="mt-9 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-6">
-          {/* Source chips: shape carrying meaning — these name the actual
-              intake channels. No icons, and certainly no emoji. */}
-          <div className="grid w-full grid-cols-3 gap-3 sm:w-auto">
-            {["וואטסאפ", "מייל", "צילום מסמך"].map((src) => (
-              <div
-                key={src}
-                className="rounded-2xl border border-[var(--mkt-soft-border)] dz-mist px-3 py-5 text-center text-sm font-semibold text-[var(--mkt-ink)]"
-              >
+        {/*
+          Typography, not boxes. The old three-equal-chips → arrow → result-box
+          row was the most template-looking thing on the page. Here the places
+          the business already lives are one quiet line, and what Dubiz makes of
+          them is the line that carries the weight.
+        */}
+        <div className="mt-10 max-w-2xl">
+          <p className="text-2xl leading-snug text-[var(--dz-text-secondary)] sm:text-[32px]">
+            {["וואטסאפ", "מייל", "צילום מסמך"].map((src, i) => (
+              <span key={src}>
+                {i > 0 ? (
+                  <>
+                    <span className="sr-only">, </span>
+                    <span aria-hidden className="mx-3 text-[var(--dz-border-strong)]">
+                      /
+                    </span>
+                  </>
+                ) : null}
                 {src}
-              </div>
+              </span>
             ))}
-          </div>
-
-          {/* RTL: points right-to-left on desktop, downward on mobile. */}
-          <div
-            aria-hidden
-            className="self-center text-2xl text-[var(--dz-text-muted)] max-sm:-rotate-90 sm:self-auto"
-          >
-            ←
-          </div>
-
-          <div className="w-full rounded-2xl bg-[var(--mkt-soft)] px-5 py-5 text-center sm:w-auto sm:px-8">
-            <p className="text-sm font-semibold text-[var(--mkt-ink)] sm:text-base">
-              מסודר, בלי שהזנת כלום
-            </p>
-          </div>
+          </p>
+          <p className="mt-3 flex items-baseline gap-3 text-2xl font-semibold leading-snug text-[var(--mkt-ink)] sm:text-[32px]">
+            {/* RTL: ← reads as "and then". */}
+            <span aria-hidden className="text-[var(--mkt-link)]">
+              ←
+            </span>
+            מסודר, בלי שהזנת כלום
+          </p>
         </div>
       </Section>
 
       {/* ================================================================= */}
-      {/* S4 · SAFETY — adjacent to the mechanism, by law                    */}
+      {/* S4 · CONTROL — adjacent to the mechanism, by law                   */}
       {/* ================================================================= */}
-      <Section tone="warm" pad="sm" labelledById="s-safety">
-        <h3
-          id="s-safety"
-          className="text-lg font-semibold text-[var(--mkt-ink)] sm:text-xl"
-        >
-          שום דבר לא יוצא בלעדיך
-        </h3>
+      {/*
+        Editorial, not a 2×2 of equal cells: the promise leads at heading size,
+        and the four facts under it read as principles — a ruled list, head and
+        explanation on one line where there is room.
+      */}
+      <Section tone="base" pad="sm" padB="md" labelledById="s-safety">
+        <div className="border-t border-[var(--mkt-border)] pt-10 sm:pt-12 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] lg:gap-16">
+          <Heading id="s-safety">שום דבר לא יוצא בלעדיך</Heading>
 
-        <div className="mt-6 grid gap-5 sm:grid-cols-2 sm:gap-x-10">
-          {SAFETY.map(([head, sub]) => (
-            <div key={head}>
-              <p className="text-[15px] font-semibold text-[var(--mkt-ink)]">
-                {head}
-              </p>
-              <p className="mt-1 text-[14px] leading-6 text-[var(--dz-text-secondary)]">
-                {sub}
-              </p>
-            </div>
-          ))}
+          <ul className="mt-6 divide-y divide-[var(--mkt-border)] lg:mt-1">
+            {SAFETY.map(([head, sub]) => (
+              <li
+                key={head}
+                className="py-4 first:pt-0 sm:flex sm:items-baseline sm:gap-6"
+              >
+                <p className="text-base font-semibold leading-7 text-[var(--mkt-ink)] sm:w-48 sm:shrink-0">
+                  {head}
+                </p>
+                <p className="text-[15px] leading-7 text-[var(--dz-text-secondary)]">
+                  {sub}
+                </p>
+              </li>
+            ))}
+          </ul>
         </div>
       </Section>
 
@@ -462,7 +479,7 @@ export default function HomeCandidatePage() {
               className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:gap-5"
             >
               {/* HAD — dashed: unresolved. Deliberately plainer than the result. */}
-              <div className="flex-1 rounded-[22px] border border-dashed border-[var(--mkt-soft-border)] px-4 py-4 sm:px-5 sm:py-5">
+              <div className="flex-1 rounded-[var(--mkt-radius-object)] border border-dashed border-[var(--mkt-soft-border)] px-4 py-4 sm:px-5 sm:py-5">
                 <p className="text-[15px] font-semibold leading-6 text-[var(--dz-text-secondary)]">
                   {t.had}
                 </p>
@@ -480,7 +497,7 @@ export default function HomeCandidatePage() {
               </div>
 
               {/* DID — solid paper: resolved. Carries the weight of the pair. */}
-              <div className="relative flex-1 rounded-[22px] dz-mist px-4 py-4 sm:px-5 sm:py-5">
+              <div className="relative flex-1 rounded-[var(--mkt-radius-object)] dz-mist px-4 py-4 sm:px-5 sm:py-5">
                 {/* Mobile connector: straddles the 12px seam between the halves. */}
                 <span
                   aria-hidden
@@ -521,10 +538,14 @@ export default function HomeCandidatePage() {
       {/* ================================================================= */}
       {/* S6 · PRODUCT PROOF  (CHANGE 3: four areas, each one readable)      */}
       {/* ================================================================= */}
-      <Section tone="warm" pad="lg" labelledById="s-proof">
+      {/* Forest stage: the ONE dark band on the page. The product is the only
+          thing lit here — nowhere else on the page may use this tone. */}
+      <Section tone="stage" pad="xl" labelledById="s-proof">
         <div className="max-w-2xl">
-          <Heading id="s-proof">זה לא מצגת. זה כבר עובד.</Heading>
-          <p className="mt-3 text-base leading-7 text-[var(--dz-text-secondary)]">
+          <Heading id="s-proof" onStage>
+            זה לא מצגת. זה כבר עובד.
+          </Heading>
+          <p className="mt-3 text-base leading-7 text-[var(--mkt-on-stage-muted)]">
             אלה מסכים אמיתיים מ-Dubiz — לא חזון ולא רשימת המתנה.
           </p>
         </div>
@@ -539,7 +560,7 @@ export default function HomeCandidatePage() {
           <p className="mt-10">
             <Link
               href="/register"
-              className="inline-flex min-h-[44px] items-center text-[15px] font-semibold text-[var(--mkt-link)] underline underline-offset-4"
+              className="inline-flex min-h-[44px] items-center text-[15px] font-semibold text-[var(--mkt-on-stage)] underline decoration-[var(--mkt-stage-marker)] underline-offset-4"
             >
               לראות את זה על העסק שלך
             </Link>
@@ -568,7 +589,8 @@ export default function HomeCandidatePage() {
       {/* ================================================================= */}
       {/* S8 · THE ASK — every part of it derived from the signup gate       */}
       {/* ================================================================= */}
-      <Section tone="warm" pad="lg" labelledById="s-ask">
+      {/* Sand again: the page closes in the owner's world, as it opened. */}
+      <Section tone="sand" pad="lg" labelledById="s-ask">
         <div className="max-w-md">
           {signupOpen ? (
             <>
@@ -642,16 +664,18 @@ export default function HomeCandidatePage() {
           <div className="mt-7 divide-y divide-[var(--mkt-soft-border)]">
             {FAQ.map((item) => (
               <details key={item.q} className="group py-4">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[15px] font-semibold text-[var(--mkt-ink)]">
-                  {item.q}
+                {/* The disclosure mark sits at the START of the question, not
+                    pushed to the far edge of a wide row where it detaches. */}
+                <summary className="flex min-h-[44px] cursor-pointer list-none items-center gap-3 text-[15px] font-semibold text-[var(--mkt-ink)]">
                   <span
                     aria-hidden
-                    className="shrink-0 text-lg text-[var(--mkt-link)] transition-transform group-open:rotate-45"
+                    className="w-4 shrink-0 text-center text-lg leading-none text-[var(--mkt-link)] transition-transform group-open:rotate-45"
                   >
                     +
                   </span>
+                  {item.q}
                 </summary>
-                <p className="mt-3 text-[15px] leading-7 text-[var(--dz-text-secondary)]">
+                <p className="mt-2 pr-7 text-[15px] leading-7 text-[var(--dz-text-secondary)]">
                   {item.a}
                 </p>
               </details>

@@ -48,4 +48,37 @@ export const marketingVars = {
   "--mkt-border": TOKEN.dsv1.line,
   /** Page canvas — DS v1 warm cream. */
   "--mkt-page": TOKEN.dsv1.canvas,
+
+  /*
+   * ── Homepage rhythm (Sage & Sand) and the product stage (Forest) ──────────
+   * Consumed only by the homepage candidate; declaring them here changes
+   * nothing on /about, /contact or the legal pages. Every value is DERIVED from
+   * Dubiz Mist — no new hue enters the system:
+   *
+   *   cream pigment  the opaque colour behind `--dz-mist-cream*`
+   *                  (rgba(206,178,134,·) in dubiz-mist.css). color-mix in srgb
+   *                  of two opaque colours equals alpha-compositing, so
+   *   sand           = that pigment at 15% over the Mist ground → ≈ #eeebe0,
+   *                  the same strength as `--dz-mist-cream-strong`.
+   *   stage          = `--dz-app-chrome` (#23302b), Mist's own deep forest ink.
+   *
+   * Measured: ink on sand 11.5:1, secondary 5.4:1 (AA). `--dz-text-muted` on
+   * sand is 4.37:1 — so sand is only for sections that do not set muted text.
+   * On the stage: paper 13.1:1, muted-on-stage 7.2:1, the cream marker 6.8:1
+   * (≥ 3:1 non-text, WCAG 1.4.11).
+   */
+  "--mkt-cream-pigment": "rgb(206 178 134)",
+  "--mkt-sand": "color-mix(in srgb, var(--mkt-cream-pigment) 15%, var(--dz-background))",
+  "--mkt-stage": "var(--dz-app-chrome)",
+  "--mkt-on-stage": "var(--dz-text-on-brand)",
+  "--mkt-on-stage-muted": "color-mix(in srgb, var(--dz-text-on-brand) 70%, var(--dz-app-chrome))",
+  /** Hairlines and the resting segmented track on the stage. */
+  "--mkt-stage-line": "color-mix(in srgb, var(--dz-text-on-brand) 16%, var(--dz-app-chrome))",
+  "--mkt-stage-track": "color-mix(in srgb, var(--dz-text-on-brand) 8%, var(--dz-app-chrome))",
+  /** The selection marker on the stage — warm, never the action teal. */
+  "--mkt-stage-marker": "var(--mkt-cream-pigment)",
+
+  /** Two radius levels for marketing surfaces: an object, and a control on it. */
+  "--mkt-radius-object": "20px",
+  "--mkt-radius-control": "12px",
 } as CSSProperties;
