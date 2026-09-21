@@ -132,11 +132,66 @@ SELECT (SELECT count(*) FROM "BusinessBankAccount")     AS bank_accounts,
        (SELECT count(*) FROM "PaymentAllocation")       AS allocations,
        (SELECT count(*) FROM "PaymentEvidence")         AS evidence,
        (SELECT count(*) FROM "PayablesMatchRejection")  AS rejections;
+-- Payment / allocation / evidence counts are REAL owner data since Phase 1b/2
+-- went live, so a non-zero value here is not a migration side effect. They are
+-- captured only as the baseline P9 compares against after the rollback.
+SELECT (SELECT count(*) FROM "Payment")           AS q15_payments,
+       (SELECT count(*) FROM "PaymentAllocation") AS q15_allocations,
+       (SELECT count(*) FROM "PaymentEvidence")   AS q15_evidence
+\gset
 
 \echo '== Q16: Phase 1a/1b data survived =='
 SELECT (SELECT count(*) FROM "BusinessObligation")                                AS legacy_obligations,
        (SELECT count(*) FROM "Commitment" WHERE "legacyObligationId" IS NOT NULL) AS migrated_commitments,
        (SELECT count(*) FROM "Installment")                                       AS installments;
+
+\echo '== Q17: the structural claims above, ASSERTED (a printed table cannot fail a step) =='
+DO $proof$
+DECLARE n int;
+BEGIN
+  SELECT count(*) INTO n FROM _prisma_migrations
+   WHERE migration_name = '20260918120000_payables_phase_3_cheques_and_bank_accounts'
+     AND finished_at IS NOT NULL AND rolled_back_at IS NULL;
+  IF n <> 1 THEN RAISE EXCEPTION 'PROOF structural: migration not finished exactly once (%)', n; END IF;
+
+  SELECT count(*) INTO n FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name IN ('BusinessBankAccount','Cheque')
+     AND lower(column_name) IN ('accountnumber','bankcode','branchcode','iban','swift','bic');
+  IF n <> 0 THEN RAISE EXCEPTION 'PROOF structural: % plaintext coordinate column(s) exist', n; END IF;
+
+  SELECT count(*) INTO n FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'Cheque'
+     AND column_name = 'chequeNumber' AND data_type = 'text';
+  IF n <> 1 THEN RAISE EXCEPTION 'PROOF structural: chequeNumber is not TEXT'; END IF;
+
+  SELECT count(*) INTO n FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid
+   WHERE t.typname = 'ChequeClearedSource' AND e.enumlabel <> 'OWNER_ASSERTED';
+  IF n <> 0 THEN RAISE EXCEPTION 'PROOF structural: ChequeClearedSource has a non-owner value'; END IF;
+
+  SELECT count(*) INTO n FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+   WHERE ns.nspname = 'public' AND c.relrowsecurity AND c.relforcerowsecurity
+     AND c.relname IN ('BusinessBankAccount','Cheque');
+  IF n <> 2 THEN RAISE EXCEPTION 'PROOF structural: RLS enabled+forced on % of 2 tables', n; END IF;
+
+  SELECT count(*) INTO n FROM pg_policies
+   WHERE policyname = 'payables_p3_tenant' AND tablename IN ('BusinessBankAccount','Cheque');
+  IF n <> 2 THEN RAISE EXCEPTION 'PROOF structural: % of 2 payables_p3_tenant policies', n; END IF;
+
+  SELECT count(*) INTO n FROM pg_indexes
+   WHERE schemaname = 'public' AND indexdef LIKE '%UNIQUE%' AND indexdef LIKE '%WHERE%'
+     AND indexname IN ('BusinessBankAccount_one_active_default','Cheque_active_number_key','Cheque_replaces_key');
+  IF n <> 3 THEN RAISE EXCEPTION 'PROOF structural: % of 3 partial unique indexes', n; END IF;
+
+  -- No application code can write these tables yet, so any row here is not
+  -- ours and not the migration's to have made.
+  SELECT count(*) INTO n FROM "BusinessBankAccount";
+  IF n <> 0 THEN RAISE EXCEPTION 'PROOF structural: % bank account(s) exist before any code can write one', n; END IF;
+  SELECT count(*) INTO n FROM "Cheque";
+  IF n <> 0 THEN RAISE EXCEPTION 'PROOF structural: % cheque(s) exist before any code can write one', n; END IF;
+
+  RAISE NOTICE 'PROOF structural: PASS';
+END
+$proof$;
 
 \echo '========== PART 2 — BEHAVIOURAL PROOF (synthetic, rolled back) =========='
 
@@ -241,8 +296,14 @@ BEGIN
   ELSE RAISE EXCEPTION 'PROOF duplicate-live-cheque-number: ACCEPTED — the guard is not working';
   END IF;
 
-  -- Cancel, then the same number may be recorded again.
+  -- Cancel, then the SAME number may be recorded again. This is the partial
+  -- predicate (WHERE "cancelledAt" IS NULL) being asked to let go, not assumed.
   UPDATE "Cheque" SET "cancelledAt" = NOW(), "status" = 'CANCELLED' WHERE id = first_id;
+  INSERT INTO "Cheque" ("businessId","payeeNameSnapshot","amount","chequeNumber",
+                        "issueDate","dueDate","sourceBankAccountId","updatedAt")
+  VALUES (bid,'proof payee',1000,'500105',NOW(),NOW(),acc,NOW());
+  RAISE NOTICE 'PROOF cancelled-number-reusable: ALLOWED — #500105 recorded again after its cancellation';
+
   INSERT INTO "Cheque" ("businessId","payeeNameSnapshot","amount","chequeNumber",
                         "issueDate","dueDate","sourceBankAccountId","replacesChequeId","updatedAt")
   VALUES (bid,'proof payee',1000,'500220',NOW(),NOW(),acc,first_id,NOW());
@@ -266,7 +327,8 @@ DO $proof$
 DECLARE bid int; cid int; refused boolean := false;
 BEGIN
   SELECT id INTO bid FROM "Business" WHERE "name" = '__dubiz_p3_proof_rollback_only__A';
-  SELECT min(id) INTO cid FROM "Cheque" WHERE "businessId" = bid;
+  -- A LIVE cheque: asserting that a cancelled one cleared would prove nothing.
+  SELECT id INTO cid FROM "Cheque" WHERE "businessId" = bid AND "chequeNumber" = 'A-7788/ג';
 
   UPDATE "Cheque"
      SET "status" = 'CLEARED', "clearedAssertedAt" = NOW(), "clearedSource" = 'OWNER_ASSERTED'
@@ -302,3 +364,33 @@ SELECT (SELECT count(*) FROM "Business"
 SELECT (SELECT count(*) FROM "Payment")            AS payments_total,
        (SELECT count(*) FROM "PaymentAllocation")  AS allocations_total,
        (SELECT count(*) FROM "PaymentEvidence")    AS evidence_total;
+
+\echo '== P8/P9 ASSERTED: a survivor or a changed real total fails the run =='
+DO $proof$
+DECLARE n int;
+BEGIN
+  SELECT count(*) INTO n FROM "Business"
+   WHERE "name" IN ('__dubiz_p3_proof_rollback_only__A','__dubiz_p3_proof_rollback_only__B');
+  IF n <> 0 THEN RAISE EXCEPTION 'PROOF zero-survivors: % synthetic business(es) survived', n; END IF;
+  -- Q17 asserted both tables were empty before the transaction, so any row now is a survivor.
+  SELECT count(*) INTO n FROM "BusinessBankAccount";
+  IF n <> 0 THEN RAISE EXCEPTION 'PROOF zero-survivors: % bank account(s) survived', n; END IF;
+  SELECT count(*) INTO n FROM "Cheque";
+  IF n <> 0 THEN RAISE EXCEPTION 'PROOF zero-survivors: % cheque(s) survived', n; END IF;
+  RAISE NOTICE 'PROOF zero-survivors: CONFIRMED';
+END
+$proof$;
+
+-- psql variables do not interpolate inside a dollar-quoted DO body, so the
+-- comparison with the Q15 baseline is made here and branched on with \if.
+-- (A real owner recording a payment in the seconds between Q15 and here would
+-- fail this closed, never open; re-dispatch in that case.)
+SELECT ((SELECT count(*) FROM "Payment")           = :q15_payments
+    AND (SELECT count(*) FROM "PaymentAllocation") = :q15_allocations
+    AND (SELECT count(*) FROM "PaymentEvidence")   = :q15_evidence) AS p9_ok
+\gset
+\if :p9_ok
+  \echo 'PROOF real-totals-unchanged: CONFIRMED'
+\else
+  DO $proof$ BEGIN RAISE EXCEPTION 'PROOF real-totals-unchanged: a real Payment/allocation/evidence total moved'; END $proof$;
+\endif
