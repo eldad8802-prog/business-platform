@@ -49,9 +49,22 @@ import {
   POLCMD,
 } from "./production-contract.mjs";
 import { KNOWN_DEFECTS, defectOf } from "./known-defects.mjs";
+import {
+  freshLabIdentity,
+  measureCleanPrecondition,
+  readLiveState,
+  expectedState,
+  diffExactSet,
+} from "./lab-state.mjs";
+import { crossCheckContract } from "./contract-crosscheck.mjs";
+import { PRODUCTION_NO_RLS } from "./production-contract.mjs";
 
-const RT_ROLE = "ad2a_runtime";
-const RT_PW = "ad2a_ci_synthetic_runtime_pw";
+/** The fresh lab this proof was given — null when run outside the harness (refused in main). */
+const LAB = freshLabIdentity();
+const RT_ROLE = LAB?.role ?? "ad2a_runtime_unset";
+const RT_PW = LAB?.pw ?? "";
+/** Stop after the substrate is built and verified: contract, exact-set, cross-check. */
+const CONTRACT_ONLY = process.argv.includes("--contract-only");
 const MARK = "ad2a-";
 /** E2 Wave 1 uses its OWN sentinel, distinct from MARK. The Defect B sweep
  *  already greps the whole conversation graph for MARK, and reusing it would
@@ -108,15 +121,27 @@ async function main() {
 
   // ── Phase 1: lab substrate ────────────────────────────────────────────────
   console.log("--- phase 1: lab substrate ---");
-  const roleExists = Number(
-    (await owner.$queryRawUnsafe(
-      `SELECT count(*)::int AS c FROM pg_roles WHERE rolname='${RT_ROLE}'`
-    ))[0].c
-  );
-  if (roleExists === 0) {
-    await owner.$executeRawUnsafe(
-      `CREATE ROLE ${RT_ROLE} LOGIN PASSWORD '${RT_PW}' NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION INHERIT`
-    );
+
+  // LAB ISOLATION HARDENING. The database and the runtime role are made for THIS
+  // proof by `.ad2a/fresh-lab.mjs`, and this battery refuses to run anywhere else.
+  // It used to create the role if it was missing and otherwise reuse whatever it
+  // found, together with every grant, policy and RLS flag an earlier run had left —
+  // which is how two negative proofs passed on leftovers.
+  //
+  // The precondition is MEASURED and never repaired. A battery that tidied a dirty
+  // database and carried on could no longer say whether what it proved came from the
+  // contract or from what was already there.
+  if (!LAB) {
+    console.log("[battery] FAIL: not a fresh lab. Run through `node .ad2a/fresh-lab.mjs <label> -- …`,");
+    console.log("          which creates a new database and runtime role for this proof alone.");
+    process.exit(1);
+  }
+  console.log("--- phase 1a: clean precondition (measured, not repaired) ---");
+  const pre = await measureCleanPrecondition(owner, LAB);
+  for (const c of pre) ok(`PRE · ${c.name}`, c.ok, c.detail);
+  if (pre.some((c) => !c.ok)) {
+    console.log("[battery] PRECONDITION DIRTY — refusing to apply the contract to a database it did not come from.");
+    process.exit(1);
   }
   await owner.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO ${RT_ROLE}`);
 
@@ -226,6 +251,80 @@ async function main() {
   await owner.$executeRawUnsafe(
     `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT_ROLE}`
   );
+
+  // ── Phase 1c: LIVE = EXPECTED, and the contract against the migrations ─────
+  //
+  // "contract applied" above reads back only the tables the contract names, and only
+  // their policy COMMANDS. That cannot see a table left out, an extra grant, a policy
+  // no entry declares, or a predicate that changed. So the whole schema is read back
+  // and compared, dimension by dimension, for equality — missing AND extra both fail.
+  console.log("--- phase 1c: exact-set (live = declared) ---");
+  const liveState = await readLiveState(owner, RT_ROLE);
+  const wantState = await expectedState(owner, liveState.sequences);
+  const exact = diffExactSet(liveState, wantState);
+  for (const d of exact) {
+    ok(
+      `EXACT · ${d.dimension}`,
+      d.missing.length === 0 && d.extra.length === 0,
+      [d.missing.length ? `missing=[${d.missing.join(" | ")}]` : "", d.extra.length ? `extra=[${d.extra.join(" | ")}]` : ""]
+        .filter(Boolean)
+        .join(" ")
+    );
+  }
+
+  // The contract is a hand-written claim about Production; this checks it against
+  // the migrations, replayed independently. The tables compared come from the erasure
+  // adapter's AST and the migrations' own predicates — not from the contract — so a
+  // table the contract forgot is still compared.
+  console.log("--- phase 1d: contract ↔ migrations (independent replay) ---");
+  const { parseAdapter, parsePrismaSchema } = await import("@/lib/services/account/erasure-contract");
+  const schemaModels = parsePrismaSchema("prisma/schema.prisma");
+  const byDelegate = new Map([...schemaModels.values()].map((m) => [m.delegate, m]));
+  const adapterFacts = parseAdapter("lib/services/account/account-deletion.prisma-store.ts");
+  const flowTables = [
+    ...new Set(
+      [...adapterFacts.writes.map((w) => w.delegate), ...adapterFacts.deletes.map((d) => d.delegate)].map((d) => {
+        const m = byDelegate.get(d);
+        return m ? (m.dbName ?? m.name) : `?${d}`;
+      })
+    ),
+  ].sort();
+  ok(
+    "XC · every delegate the adapter touches resolves to a table",
+    flowTables.every((t) => !t.startsWith("?")),
+    flowTables.filter((t) => t.startsWith("?")).join(",")
+  );
+  const xc = await crossCheckContract(
+    owner,
+    { rls: PRODUCTION_RLS_CONTRACT, noRls: PRODUCTION_NO_RLS },
+    flowTables,
+    process.cwd()
+  );
+  console.log(`  [xc] ${xc.migrations} migrations replayed; ${xc.compared.length} tables compared`);
+  const XC_DIMS = [
+    "TABLE MEMBERSHIP",
+    "RLS ENABLED",
+    "RLS FORCE",
+    "POLICY MEMBERSHIP",
+    "POLICY COMMAND",
+    "POLICY ROLES",
+    "POLICY PERMISSIVE",
+    "POLICY USING",
+    "POLICY WITH CHECK",
+    "UNINTERPRETABLE MIGRATION",
+  ];
+  for (const dim of XC_DIMS) {
+    const hits = xc.findings.filter((f) => f.dimension === dim);
+    ok(`XC · ${dim}`, hits.length === 0, hits.map((f) => `${f.table}: ${f.detail}`).join(" | "));
+  }
+  for (const u of xc.unproven) console.log(`  [UNPROVEN] XC · ${u.dimension} — ${u.detail}`);
+
+  if (CONTRACT_ONLY) {
+    console.log(`\n[battery] CONTRACT PHASE PASS=${pass} FAIL=${fail}`);
+    console.log(fail === 0 ? "CONTRACT PHASE = PASS" : `CONTRACT PHASE = FAIL (${failures.join(" ; ")})`);
+    await owner.$disconnect();
+    process.exit(fail === 0 ? 0 : 1);
+  }
   const posture = (
     await owner.$queryRawUnsafe(
       `SELECT rolsuper, rolbypassrls, rolcanlogin FROM pg_roles WHERE rolname='${RT_ROLE}'`
@@ -609,6 +708,111 @@ async function main() {
   const A = await mkBiz("A");
   const B = await mkBiz("B");
   console.log(`[fixtures] A=${A.biz.id} B=${B.biz.id}`);
+
+  // ── Phase 3b: FISCAL CLAIM B — the foreign key itself, isolated ────────────
+  //
+  // The CI proof "erasure deleting the artifact fiscal history cites" used to be read
+  // as evidence that a RESTRICT foreign key protects the Document a historical record
+  // cites. It never reached the key: the runtime holds no privilege on Document, so the
+  // mutated erasure stopped at 42501. That proves the PRIVILEGE boundary (Claim A) and
+  // says nothing about the key.
+  //
+  // This proves the key alone. The delete is issued as the lab OWNER — a superuser, so
+  // neither a privilege nor a row-level policy can refuse it — against the Document
+  // A's historical record cites. The only thing left that can stop it is a constraint,
+  // and the assertion requires the refusal to be a foreign-key violation naming exactly
+  // that constraint. A control delete of an uncited Document, same owner, same transaction
+  // shape, must succeed — so the refusal is about the citation, not about deleting
+  // Documents. Both run in transactions that are rolled back. The runtime role's
+  // privileges are not touched.
+  console.log("--- phase 3b: fiscal Claim B (RESTRICT foreign key, isolated) ---");
+  const FISCAL_FK = "HistoricalFiscalDocument_businessId_documentId_fkey";
+  const ROLLBACK_FK = Symbol("rollback");
+  const fkDef = await owner.$queryRawUnsafe(
+    `SELECT confdeltype::text AS del, conrelid::regclass::text AS child, confrelid::regclass::text AS parent
+       FROM pg_constraint WHERE conname = $1`,
+    FISCAL_FK
+  );
+  ok(
+    `FISCAL-B · ${FISCAL_FK} exists and is ON DELETE RESTRICT`,
+    fkDef.length === 1 && fkDef[0].del === "r" && fkDef[0].parent === '"Document"',
+    JSON.stringify(fkDef)
+  );
+  // The lab's schema comes from `db push`, i.e. from schema.prisma. Production's comes
+  // from the migrations. The key must be RESTRICT in the one Production actually ran.
+  const { readdirSync: rdMig, readFileSync: rfMig } = await import("node:fs");
+  const migDefines = rdMig("prisma/migrations").filter((d) => {
+    try {
+      const sql = rfMig(`prisma/migrations/${d}/migration.sql`, "utf8").replace(/\s+/g, " ");
+      return sql.includes(
+        `ADD CONSTRAINT "${FISCAL_FK}" FOREIGN KEY ("businessId", "documentId") REFERENCES "Document"("businessId", "id") ON DELETE RESTRICT`
+      );
+    } catch {
+      return false;
+    }
+  });
+  ok(
+    "FISCAL-B · a migration creates exactly this key as ON DELETE RESTRICT (Production has it, not just the lab)",
+    migDefines.length === 1,
+    `migrations=${migDefines.join(",") || "none"}`
+  );
+  ok(
+    "FISCAL-B · A's historical record cites A's Document (the fixture exercises the key)",
+    A.historical.documentId === A.doc.id,
+    `documentId=${A.historical.documentId} doc=${A.doc.id}`
+  );
+  // The SQLSTATE and constraint name are read from PostgreSQL itself (GET STACKED
+  // DIAGNOSTICS), not parsed out of a client library's error text.
+  let fkOutcome = null;
+  try {
+    await owner.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`
+        CREATE FUNCTION pg_temp.ad2a_try_delete_document(target int) RETURNS text LANGUAGE plpgsql AS $f$
+        DECLARE st text; cn text;
+        BEGIN
+          DELETE FROM "Document" WHERE "id" = target;
+          RETURN 'DELETED';
+        EXCEPTION WHEN others THEN
+          GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, cn = CONSTRAINT_NAME;
+          RETURN st || ':' || COALESCE(cn, '');
+        END $f$`);
+      fkOutcome = (await tx.$queryRawUnsafe(`SELECT pg_temp.ad2a_try_delete_document(${A.doc.id}) AS r`))[0].r;
+      throw ROLLBACK_FK;
+    });
+  } catch (e) {
+    if (e !== ROLLBACK_FK) fkOutcome = `harness error: ${String(e.message).split("\n").slice(-1)[0]}`;
+  }
+  // The SQLSTATE depends on the server version: PostgreSQL 17 reports a RESTRICT
+  // violation as 23503 (the same code as NO ACTION), PostgreSQL 18 as 23001
+  // restrict_violation. So the SQLSTATE proves "a foreign-key violation", the
+  // constraint name proves WHICH key, and that the key is RESTRICT rather than NO
+  // ACTION is proved separately — from the catalog (confdeltype) and the migration.
+  ok(
+    "FISCAL-B · deleting the cited Document fails with a foreign-key violation on exactly that key",
+    fkOutcome === `23503:${FISCAL_FK}` || fkOutcome === `23001:${FISCAL_FK}`,
+    `outcome=${fkOutcome}`
+  );
+  let controlDeleted = -1;
+  try {
+    await owner.$transaction(async (tx) => {
+      const spare = await tx.document.create({
+        data: { ...Object.fromEntries(Object.entries(A.doc).filter(([k]) => !["id", "createdAt", "updatedAt"].includes(k))) },
+      });
+      controlDeleted = await tx.$executeRawUnsafe(`DELETE FROM "Document" WHERE "id" = ${spare.id}`);
+      throw ROLLBACK_FK;
+    });
+  } catch (e) {
+    if (e !== ROLLBACK_FK) controlDeleted = `error: ${String(e.message).split("\n").slice(-1)[0]}`;
+  }
+  ok(
+    "FISCAL-B · control: an UNCITED Document is deleted by the same owner (the refusal is the citation)",
+    controlDeleted === 1,
+    `deleted=${controlDeleted}`
+  );
+  ok(
+    "FISCAL-B · the cited Document is still there after both attempts",
+    (await owner.document.count({ where: { id: A.doc.id } })) === 1
+  );
 
   // ── Phase 4: lifecycle derivation ─────────────────────────────────────────
   console.log("--- phase 4: lifecycle ---");
@@ -1524,6 +1728,14 @@ async function main() {
   await owner.$executeRawUnsafe(
     `ALTER TABLE "Message" DROP CONSTRAINT IF EXISTS "Message_conversationId_businessId_fkey"`
   );
+  // LAB ISOLATION HARDENING — a deliberate crash, for the proof that a killed run
+  // cannot poison the next one. The FK is gone at this instant and nothing below will
+  // put it back; SIGKILL bypasses every finally block. The next proof must still start
+  // from a fresh database with the constraint present (its precondition checks).
+  if (process.env.AD2A_CRASH_AFTER_FK_DROP === "1") {
+    console.log("[battery] AD2A_CRASH_AFTER_FK_DROP: killing the process with the composite FK dropped");
+    process.kill(process.pid, "SIGKILL");
+  }
   await owner.$executeRawUnsafe(
     `UPDATE "Message" SET "businessId" = ${G.biz.id} WHERE "conversationId" = ${fConv.id}`
   );

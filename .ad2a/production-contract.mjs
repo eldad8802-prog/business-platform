@@ -69,7 +69,14 @@ const ANALYSIS_VIA_MESSAGE =
   `AND p."businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)`;
 
 /**
- * @typedef {{name: string, command: 'SELECT'|'INSERT'|'UPDATE'|'ALL', using?: string, check?: string}} PolicySpec
+ * The platform-admin read path. `TO app_admin`, `USING (true)`: it never applies to
+ * the tenant runtime, and the lab creates `app_admin` (NOLOGIN, no privileges) only
+ * so the policy can exist exactly as it does in Production.
+ */
+const ADMIN_READ = { name: "p7adm_read", command: "SELECT", roles: ["app_admin"], using: "true" };
+
+/**
+ * @typedef {{name: string, command: 'SELECT'|'INSERT'|'UPDATE'|'ALL', roles?: string[], using?: string, check?: string}} PolicySpec
  * @typedef {{table: string, policies: PolicySpec[], migration: string, why: string}} TableSpec
  */
 
@@ -93,6 +100,11 @@ export const PRODUCTION_RLS_CONTRACT = [
       { name: "p7pilot_tenant_read", command: "SELECT", using: TENANT },
       { name: "p7pilot_tenant_insert", command: "INSERT", check: TENANT },
       { name: "p7pilot_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+      // Migration 20260825090000. Scoped TO app_admin, so it never applies to the
+      // runtime role — but it IS on the table in Production, and a contract that
+      // leaves out a policy it has decided is irrelevant is a contract nobody can
+      // check. Declared, applied, and compared like every other.
+      ADMIN_READ,
     ],
   },
   {
@@ -123,6 +135,7 @@ export const PRODUCTION_RLS_CONTRACT = [
       { name: "p7pilot_tenant_read", command: "SELECT", using: TENANT },
       { name: "p7pilot_tenant_insert", command: "INSERT", check: TENANT },
       { name: "p7pilot_tenant_update", command: "UPDATE", using: TENANT, check: TENANT },
+      ADMIN_READ, // migration 20260825090000, as on Conversation
     ],
   },
   {
@@ -145,7 +158,10 @@ export const PRODUCTION_RLS_CONTRACT = [
     table: "EmailConnection",
     migration: "20260826200000_d2_p7_w4c_gmail_tenant_rls",
     why: "stage 1 revokes the Gmail connection with an UPDATE carrying no tenant context",
-    policies: [{ name: "p7w4c_tenant", command: "ALL", using: TENANT, check: TENANT }],
+    policies: [
+      { name: "p7w4c_tenant", command: "ALL", using: TENANT, check: TENANT },
+      ADMIN_READ, // created by the same migration, TO app_admin
+    ],
   },
   {
     table: "OAuthToken",
@@ -292,6 +308,26 @@ export const PRODUCTION_RLS_CONTRACT = [
     why: "the parent PurchaseOrderLine's tenant predicate joins to; nothing on it is erased",
     policies: [{ name: "p7w3_tenant", command: "ALL", using: TENANT, check: TENANT }],
   },
+
+  // ── Lab isolation hardening. Found by the contract ↔ migration cross-check. ──
+  //
+  // Stage 2 has DELETED the inbound sender authorisation list since T1-ERASURE,
+  // and both tables have been FORCE-RLS'd in Production since the migration that
+  // created them. Neither was ever in this contract, so the laboratory ran that
+  // delete against tables with NO row-level security. Nothing here was noticed by
+  // reading; it was found by comparing this file with what the migrations do.
+  {
+    table: "InboundEmailAuthorizedSender",
+    migration: "20260916090000_inbound_email_authorized_senders",
+    why: "stage 2 deletes the sender authorisation list under a tenant context",
+    policies: [{ name: "inbound_sender_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
+  {
+    table: "InboundEmailSenderChallenge",
+    migration: "20260916090000_inbound_email_authorized_senders",
+    why: "stage 2 deletes pending sender challenges under a tenant context",
+    policies: [{ name: "inbound_challenge_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
 ];
 
 /**
@@ -325,10 +361,11 @@ export async function applyProductionContract(owner) {
     for (const p of spec.policies) {
       await owner.$executeRawUnsafe(`DROP POLICY IF EXISTS ${p.name} ON "${spec.table}"`);
       const forClause = p.command === "ALL" ? "" : ` FOR ${p.command}`;
+      const toClause = p.roles ? ` TO ${p.roles.join(", ")}` : "";
       const using = p.using ? ` USING (${p.using})` : "";
       const check = p.check ? ` WITH CHECK (${p.check})` : "";
       await owner.$executeRawUnsafe(
-        `CREATE POLICY ${p.name} ON "${spec.table}"${forClause}${using}${check}`
+        `CREATE POLICY ${p.name} ON "${spec.table}"${forClause}${toClause}${using}${check}`
       );
     }
   }
@@ -419,3 +456,57 @@ export function contractTables() {
     ...PRODUCTION_NO_RLS.map((s) => s.table),
   ];
 }
+
+/**
+ * LAB ISOLATION HARDENING — the runtime's table privileges, DECLARED.
+ *
+ * The battery grants these with imperative statements, and it used to be the only
+ * record of them. So nothing could notice a GRANT that went missing (the lab kept the
+ * one an earlier run had made) or one that should not be there. This is the
+ * declaration those statements are checked against: after the contract is applied,
+ * the runtime role's live privileges on EVERY table in the schema must equal this map
+ * exactly — a table absent from it must carry no privilege at all.
+ *
+ * Each entry names its basis. `LAB` marks a grant the laboratory makes so the real
+ * code path can run; it is a statement about the lab, not a claim about Production.
+ * Production's own runtime grants come partly from per-environment scripts applied by
+ * hand and partly from default privileges (see migration 20260922090000), and are NOT
+ * derivable from the repository — so this map is never presented as Production truth.
+ *
+ * @type {Record<string, {verbs: string[], basis: string}>}
+ */
+const SIUD = ["SELECT", "INSERT", "UPDATE", "DELETE"];
+const SIU = ["SELECT", "INSERT", "UPDATE"];
+const LAB_BROAD = "LAB: the erasure code path; Production holds DELETE here through historical broad grants";
+export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
+  Conversation: { verbs: SIUD, basis: LAB_BROAD },
+  Message: { verbs: SIUD, basis: LAB_BROAD },
+  MessageAnalysis: { verbs: SIUD, basis: LAB_BROAD },
+  ReplySuggestion: { verbs: SIUD, basis: LAB_BROAD },
+  Customer: { verbs: SIUD, basis: LAB_BROAD },
+  CrmNote: { verbs: SIUD, basis: LAB_BROAD },
+  CrmAttachment: { verbs: SIUD, basis: LAB_BROAD },
+  BusinessProfile: { verbs: SIUD, basis: LAB_BROAD },
+  User: { verbs: SIUD, basis: LAB_BROAD },
+  Business: { verbs: SIUD, basis: LAB_BROAD },
+  Lead: { verbs: SIUD, basis: LAB_BROAD },
+  POSApiKey: { verbs: SIUD, basis: LAB_BROAD },
+  OAuthToken: { verbs: SIUD, basis: LAB_BROAD },
+  EmailConnection: { verbs: SIUD, basis: LAB_BROAD },
+  WhatsAppConnection: { verbs: SIUD, basis: LAB_BROAD },
+  BusinessPaymentConnection: { verbs: SIUD, basis: LAB_BROAD },
+  BillingAuthorityConnection: { verbs: SIUD, basis: LAB_BROAD },
+  LearningEvent: { verbs: SIUD, basis: LAB_BROAD },
+  Appointment: { verbs: SIUD, basis: LAB_BROAD },
+  InboundEmailAuthorizedSender: { verbs: SIUD, basis: "migration 20260916090000 grants app_runtime all four" },
+  InboundEmailSenderChallenge: { verbs: SIUD, basis: "migration 20260916090000 grants app_runtime all four" },
+  HistoricalFiscalDocument: { verbs: ["SELECT", "INSERT"], basis: "I-8A: SELECT and INSERT only" },
+  Notification: { verbs: SIU, basis: "scripts/security/notification-grants.sql — no DELETE" },
+  NotificationDelivery: { verbs: SIU, basis: "scripts/security/notification-grants.sql — no DELETE" },
+  ReceivingSession: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },
+  PurchaseOrderLine: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },
+  PurchaseOrder: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },
+};
+
+/** Every sequence in the schema: USAGE and SELECT, nothing else. */
+export const EXPECTED_RUNTIME_SEQUENCE_PRIVILEGES = ["SELECT", "USAGE"];

@@ -22,6 +22,12 @@ on:
       - "scripts/security/conversation-integrity-scan.mjs"
       - "scripts/ci/account-deletion-guard.sh"
       - ".ad2a/**"
+      # The contract is cross-checked against the migrations, and the lab's schema
+      # and grants come from these — a change to any of them can change the proof.
+      - "prisma/migrations/**"
+      - "prisma/schema.prisma"
+      - "scripts/security/**"
+      - "scripts/ci/erasure-mutate.ts"
       - "lib/data-transfer/historical/**"
   workflow_dispatch:
 
@@ -32,7 +38,9 @@ jobs:
   ad2a-battery:
     name: AD-2A battery (PG17)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Every DB proof now gets its own database and role (lab isolation hardening),
+    # which costs a schema push each. Correctness over a faster green.
+    timeout-minutes: 45
 
     services:
       postgres:
@@ -51,6 +59,9 @@ jobs:
 
     env:
       OWNER_URL: postgresql://ad2a_owner:ad2a_ci_synthetic_owner_pw@localhost:5432/dubiz_ad2a
+      # fresh-lab.mjs creates one database + one runtime role per proof on this cluster.
+      AD2A_ADMIN_URL: postgresql://ad2a_owner:ad2a_ci_synthetic_owner_pw@localhost:5432/postgres
+      AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
 
     steps:
       - uses: actions/checkout@v4
@@ -63,6 +74,7 @@ jobs:
           node --check .ad2a/battery.mjs
           node --check .ad2a/production-contract.mjs
           node --check .ad2a/known-defects.mjs
+          for f in fresh-lab lab-state migration-state contract-crosscheck pg-deparse mutate; do node --check .ad2a/$f.mjs; done
           node --check scripts/security/conversation-integrity-scan.mjs
 
       - name: CI-AD guards + negative self-proofs (blocking)
@@ -88,12 +100,6 @@ jobs:
           npx tsx lib/tenant/context.test.ts
           npx tsx lib/tenant/job.test.ts
 
-      - name: Push schema (lab; migrate-from-zero is a known separate defect)
-        env:
-          DATABASE_URL: ${{ env.OWNER_URL }}
-          DIRECT_URL: ${{ env.OWNER_URL }}
-        run: npx prisma db push --skip-generate
-
       # THE BATTERY IS HONESTLY RED ON MAIN TODAY, and that is the point.
       #
       # It now applies the PRODUCTION policy contract — per-command pilot
@@ -112,12 +118,12 @@ jobs:
       # There is one harness, measuring the same properties before and after. The
       # product fix empties that list, and this step then means exactly what the
       # default mode means.
+      #
+      # LAB ISOLATION HARDENING: this runs in a database and runtime role made for it
+      # alone (fresh-lab.mjs), and every DB proof below gets its own. The schema is
+      # pushed per proof; there is no shared lab state for a later step to inherit.
       - name: AD-2A battery — Production-faithful contract (known-defect ratchet)
-        env:
-          DATABASE_URL: ${{ env.OWNER_URL }}
-          DIRECT_URL: ${{ env.OWNER_URL }}
-          AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
-        run: npx tsx .ad2a/battery.mjs --baseline-check
+        run: node .ad2a/fresh-lab.mjs green -- npx tsx .ad2a/battery.mjs --baseline-check
 
       # ── C12-E1 — laboratory fidelity, the half a static contract cannot prove ──
       #
@@ -131,20 +137,15 @@ jobs:
 
       # A table the fixture does not model is a table the lab leaves WITHOUT
       # row-level security, and an erasure proved there is proved against a database
-      # Production does not have. Defect B's shape exactly. The battery resets the
-      # three tables before applying the contract, so leftovers from the green run
-      # above cannot keep this passing.
+      # Production does not have. Defect B's shape exactly. It runs in its own fresh
+      # lab, so nothing the green run above left behind can keep it passing.
       - name: negative proof — E4 the lab stops reproducing the line's tenant RLS
-        env:
-          DATABASE_URL: ${{ env.OWNER_URL }}
-          DIRECT_URL: ${{ env.OWNER_URL }}
-          AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
         run: |
           F=".ad2a/production-contract.mjs"
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts E4
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          set +e; npx tsx .ad2a/battery.mjs --baseline-check > "$RUNNER_TEMP/E4.out" 2>&1; rc=$?; set -e
+          set +e; node .ad2a/fresh-lab.mjs E4 -- npx tsx .ad2a/battery.mjs --baseline-check > "$RUNNER_TEMP/E4.out" 2>&1; rc=$?; set -e
           mv "$F.bak" "$F"
           if [ $rc -eq 0 ]; then echo "NEGATIVE-PROOF FAIL: the battery stayed green"; exit 1; fi
           grep -qF "[FAIL] E1-R1 · GUC=A cannot see B's purchase line" "$RUNNER_TEMP/E4.out" || { tail -60 "$RUNNER_TEMP/E4.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
@@ -154,16 +155,12 @@ jobs:
       # DELETE (scripts/security/d2-p7-wave3-grants.sql). A lab that granted DELETE
       # would be proving against a capability the product does not have.
       - name: negative proof — E4P the lab runtime is granted DELETE Production does not hold
-        env:
-          DATABASE_URL: ${{ env.OWNER_URL }}
-          DIRECT_URL: ${{ env.OWNER_URL }}
-          AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
         run: |
           F=".ad2a/battery.mjs"
           cp "$F" "$F.bak"
           npx tsx scripts/ci/erasure-mutate.ts E4P
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          set +e; npx tsx .ad2a/battery.mjs --baseline-check > "$RUNNER_TEMP/E4P.out" 2>&1; rc=$?; set -e
+          set +e; node .ad2a/fresh-lab.mjs E4P -- npx tsx .ad2a/battery.mjs --baseline-check > "$RUNNER_TEMP/E4P.out" 2>&1; rc=$?; set -e
           mv "$F.bak" "$F"
           if [ $rc -eq 0 ]; then echo "NEGATIVE-PROOF FAIL: the battery stayed green"; exit 1; fi
           grep -qF "[FAIL] E1-P · PurchaseOrderLine: lab runtime privileges" "$RUNNER_TEMP/E4P.out" || { tail -60 "$RUNNER_TEMP/E4P.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
@@ -245,29 +242,217 @@ jobs:
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"
 
-      - name: negative proof — erasure deleting the artifact fiscal history cites
-        env:
-          DATABASE_URL: ${{ env.OWNER_URL }}
-          DIRECT_URL: ${{ env.OWNER_URL }}
-          AUTH_TOKEN_SECRET: ad2a_ci_auth_secret_synthetic
+      # FISCAL CLAIM A — and only Claim A. This step was read as evidence that a
+      # RESTRICT foreign key protects the Document fiscal history cites. It never
+      # reached the key: the mutated erasure stops at 42501, "permission denied for
+      # table Document", because the lab runtime role holds NO privilege on Document
+      # (EXPECTED_RUNTIME_TABLE_PRIVILEGES declares none). So what this proves is
+      # exactly that, and it is scoped to the LAB role: Production's privileges on
+      # Document are not derivable from the repository and are NOT claimed here.
+      # The foreign key is Claim B, proved in the battery's phase 3b and falsified
+      # by the FB proof below.
+      - name: fiscal Claim A — the lab runtime role is refused deleting the cited Document (42501)
         run: |
           F="lib/services/account/account-deletion.prisma-store.ts"
-          cp "$F" "$F.bak"
-          # Documents are retained, and a historical record cites one through a
-          # RESTRICT foreign key. An erasure that started deleting them would
-          # fail on that key rather than quietly destroying fiscal evidence.
+          cp "$F" "$RUNNER_TEMP/claimA.orig"
           perl -0pi -e 's/          await tx\.messageAnalysis\.updateMany\(\{/          await tx.document.deleteMany({ where: { businessId } });\n          await tx.messageAnalysis.updateMany({/' "$F"
-          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          # --baseline-check, NOT the default mode. The battery is legitimately red
-          # on main today, so "did it fail?" would now be true no matter what this
-          # mutation did, and the proof would quietly stop discriminating. The
-          # ratchet still does: it fails only when the failure set CHANGES, which
-          # is exactly what deleting a cited artifact would do.
-          if npx tsx .ad2a/battery.mjs --baseline-check >/dev/null 2>&1; then
-            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: deleting the cited artifact passed"; exit 1
-          fi
-          mv "$F.bak" "$F"
+          if cmp -s "$F" "$RUNNER_TEMP/claimA.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; node .ad2a/fresh-lab.mjs claim_a -- npx tsx .ad2a/battery.mjs --baseline-check > "$RUNNER_TEMP/claimA.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/claimA.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/claimA.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          if [ $rc -eq 0 ]; then echo "NEGATIVE-PROOF FAIL: deleting the cited artifact passed"; exit 1; fi
+          grep -qF "permission denied for table Document" "$RUNNER_TEMP/claimA.out" || { tail -60 "$RUNNER_TEMP/claimA.out"; echo "NEGATIVE-PROOF FAIL: red, but not on the privilege boundary"; exit 1; }
+          echo "NEGATIVE-PROOF PASS (Claim A: lab privilege boundary)"
+
+      # ── LAB ISOLATION HARDENING — the I-series ──────────────────────────────
+      #
+      # Every proof below runs in a laboratory of its OWN: `fresh-lab.mjs` makes a
+      # new database and a new runtime role for it, and the battery measures that
+      # they are clean before it applies anything. Nothing a previous step did can
+      # be inherited, which is the defect these exist to prove fixed: the green run
+      # used to leave its RLS, policies and grants behind for the next proof, and a
+      # proof that REMOVED something passed on the leftovers.
+      #
+      # Each must fail for the reason under test — the named check — not merely exit
+      # non-zero. `--contract-only` stops after the substrate is built and verified,
+      # so the reason is the invariant and never a later, unrelated failure.
+      #
+      # I9 and I10 are the two false greens Gate-0 reproduced, replayed here.
+
+      - name: negative proof — I1 a non-E1 table the erasure touches is dropped from the contract
+        run: |
+          F=".ad2a/production-contract.mjs"
+          cp "$F" "$RUNNER_TEMP/I1.orig"
+          node .ad2a/mutate.mjs I1
+          if cmp -s "$F" "$RUNNER_TEMP/I1.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; node .ad2a/fresh-lab.mjs I1 -- npx tsx .ad2a/battery.mjs --baseline-check --contract-only > "$RUNNER_TEMP/I1.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/I1.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/I1.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          if [ $rc -eq 0 ]; then tail -40 "$RUNNER_TEMP/I1.out"; echo "NEGATIVE-PROOF FAIL: stayed green"; exit 1; fi
+          grep -qF -- "[FAIL] XC · TABLE MEMBERSHIP" "$RUNNER_TEMP/I1.out" || { tail -60 "$RUNNER_TEMP/I1.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
           echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — I2 a required runtime GRANT is removed
+        run: |
+          F=".ad2a/battery.mjs"
+          cp "$F" "$RUNNER_TEMP/I2.orig"
+          node .ad2a/mutate.mjs I2
+          if cmp -s "$F" "$RUNNER_TEMP/I2.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; node .ad2a/fresh-lab.mjs I2 -- npx tsx .ad2a/battery.mjs --baseline-check --contract-only > "$RUNNER_TEMP/I2.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/I2.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/I2.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          if [ $rc -eq 0 ]; then tail -40 "$RUNNER_TEMP/I2.out"; echo "NEGATIVE-PROOF FAIL: stayed green"; exit 1; fi
+          grep -qF -- "[FAIL] EXACT · RUNTIME TABLE PRIVILEGES" "$RUNNER_TEMP/I2.out" || { tail -60 "$RUNNER_TEMP/I2.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — I3 an undeclared runtime GRANT appears
+        run: |
+          F=".ad2a/battery.mjs"
+          cp "$F" "$RUNNER_TEMP/I3.orig"
+          node .ad2a/mutate.mjs I3
+          if cmp -s "$F" "$RUNNER_TEMP/I3.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; node .ad2a/fresh-lab.mjs I3 -- npx tsx .ad2a/battery.mjs --baseline-check --contract-only > "$RUNNER_TEMP/I3.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/I3.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/I3.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          if [ $rc -eq 0 ]; then tail -40 "$RUNNER_TEMP/I3.out"; echo "NEGATIVE-PROOF FAIL: stayed green"; exit 1; fi
+          grep -qF -- "[FAIL] EXACT · RUNTIME TABLE PRIVILEGES" "$RUNNER_TEMP/I3.out" || { tail -60 "$RUNNER_TEMP/I3.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — I4 an undeclared DELETE policy appears
+        run: |
+          F=".ad2a/battery.mjs"
+          cp "$F" "$RUNNER_TEMP/I4.orig"
+          node .ad2a/mutate.mjs I4
+          if cmp -s "$F" "$RUNNER_TEMP/I4.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; node .ad2a/fresh-lab.mjs I4 -- npx tsx .ad2a/battery.mjs --baseline-check --contract-only > "$RUNNER_TEMP/I4.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/I4.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/I4.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          if [ $rc -eq 0 ]; then tail -40 "$RUNNER_TEMP/I4.out"; echo "NEGATIVE-PROOF FAIL: stayed green"; exit 1; fi
+          grep -qF -- "[FAIL] EXACT · POLICY MEMBERSHIP" "$RUNNER_TEMP/I4.out" || { tail -60 "$RUNNER_TEMP/I4.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — I5 a policy command changes in the contract
+        run: |
+          F=".ad2a/production-contract.mjs"
+          cp "$F" "$RUNNER_TEMP/I5.orig"
+          node .ad2a/mutate.mjs I5
+          if cmp -s "$F" "$RUNNER_TEMP/I5.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; node .ad2a/fresh-lab.mjs I5 -- npx tsx .ad2a/battery.mjs --baseline-check --contract-only > "$RUNNER_TEMP/I5.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/I5.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/I5.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          if [ $rc -eq 0 ]; then tail -40 "$RUNNER_TEMP/I5.out"; echo "NEGATIVE-PROOF FAIL: stayed green"; exit 1; fi
+          grep -qF -- "[FAIL] XC · POLICY COMMAND" "$RUNNER_TEMP/I5.out" || { tail -60 "$RUNNER_TEMP/I5.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — I6 a policy predicate changes in the contract
+        run: |
+          F=".ad2a/production-contract.mjs"
+          cp "$F" "$RUNNER_TEMP/I6.orig"
+          node .ad2a/mutate.mjs I6
+          if cmp -s "$F" "$RUNNER_TEMP/I6.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; node .ad2a/fresh-lab.mjs I6 -- npx tsx .ad2a/battery.mjs --baseline-check --contract-only > "$RUNNER_TEMP/I6.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/I6.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/I6.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          if [ $rc -eq 0 ]; then tail -40 "$RUNNER_TEMP/I6.out"; echo "NEGATIVE-PROOF FAIL: stayed green"; exit 1; fi
+          grep -qF -- "[FAIL] XC · POLICY USING" "$RUNNER_TEMP/I6.out" || { tail -60 "$RUNNER_TEMP/I6.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — I7 FORCE RLS is dropped on a table
+        run: |
+          F=".ad2a/battery.mjs"
+          cp "$F" "$RUNNER_TEMP/I7.orig"
+          node .ad2a/mutate.mjs I7
+          if cmp -s "$F" "$RUNNER_TEMP/I7.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; node .ad2a/fresh-lab.mjs I7 -- npx tsx .ad2a/battery.mjs --baseline-check --contract-only > "$RUNNER_TEMP/I7.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/I7.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/I7.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          if [ $rc -eq 0 ]; then tail -40 "$RUNNER_TEMP/I7.out"; echo "NEGATIVE-PROOF FAIL: stayed green"; exit 1; fi
+          grep -qF -- "[FAIL] EXACT · RLS FORCE" "$RUNNER_TEMP/I7.out" || { tail -60 "$RUNNER_TEMP/I7.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — I9 the Conversation false green (contract entry removed)
+        run: |
+          F=".ad2a/production-contract.mjs"
+          cp "$F" "$RUNNER_TEMP/I9.orig"
+          node .ad2a/mutate.mjs I9
+          if cmp -s "$F" "$RUNNER_TEMP/I9.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; node .ad2a/fresh-lab.mjs I9 -- npx tsx .ad2a/battery.mjs --baseline-check --contract-only > "$RUNNER_TEMP/I9.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/I9.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/I9.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          if [ $rc -eq 0 ]; then tail -40 "$RUNNER_TEMP/I9.out"; echo "NEGATIVE-PROOF FAIL: stayed green"; exit 1; fi
+          grep -qF -- "Conversation: migrations: rls=true" "$RUNNER_TEMP/I9.out" || { tail -60 "$RUNNER_TEMP/I9.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — I10 the Notification false green (GRANT removed)
+        run: |
+          F=".ad2a/battery.mjs"
+          cp "$F" "$RUNNER_TEMP/I10.orig"
+          node .ad2a/mutate.mjs I10
+          if cmp -s "$F" "$RUNNER_TEMP/I10.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; node .ad2a/fresh-lab.mjs I10 -- npx tsx .ad2a/battery.mjs --baseline-check --contract-only > "$RUNNER_TEMP/I10.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/I10.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/I10.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          if [ $rc -eq 0 ]; then tail -40 "$RUNNER_TEMP/I10.out"; echo "NEGATIVE-PROOF FAIL: stayed green"; exit 1; fi
+          grep -qF -- "missing=[Notification:" "$RUNNER_TEMP/I10.out" || { tail -60 "$RUNNER_TEMP/I10.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      # Fiscal Claim B: the RESTRICT key alone. If the citing key stops being
+      # RESTRICT, the constraint-level proof (issued as the lab superuser, so no
+      # privilege or policy can be what refuses) must go red. Schema text only;
+      # restored byte-identically and never shipped.
+      - name: negative proof — FB the citing foreign key stops being RESTRICT
+        run: |
+          F="prisma/schema.prisma"
+          cp "$F" "$RUNNER_TEMP/FB.orig"
+          node .ad2a/mutate.mjs FB
+          if cmp -s "$F" "$RUNNER_TEMP/FB.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; node .ad2a/fresh-lab.mjs FB -- npx tsx .ad2a/battery.mjs --baseline-check > "$RUNNER_TEMP/FB.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/FB.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/FB.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          if [ $rc -eq 0 ]; then tail -40 "$RUNNER_TEMP/FB.out"; echo "NEGATIVE-PROOF FAIL: stayed green"; exit 1; fi
+          grep -qF -- "[FAIL] FISCAL-B · deleting the cited Document fails with a foreign-key violation" "$RUNNER_TEMP/FB.out" || { tail -60 "$RUNNER_TEMP/FB.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      # I8 — two DB proofs in a row cannot share state. The first leaves an
+      # undeclared DELETE policy and a dropped FORCE behind and is KEPT (no
+      # teardown), exactly as a killed harness would leave it. The next proof gets
+      # a new database and must be green; and pointing the battery back at the
+      # poisoned database must be REFUSED by the precondition, not tidied up.
+      - name: I8 — a poisoned proof cannot poison the next one
+        run: |
+          B=".ad2a/battery.mjs"
+          cp "$B" "$RUNNER_TEMP/poison.orig"
+          node .ad2a/mutate.mjs POISON
+          if cmp -s "$B" "$RUNNER_TEMP/poison.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; node .ad2a/fresh-lab.mjs poison --keep -- npx tsx .ad2a/battery.mjs --baseline-check --contract-only > "$RUNNER_TEMP/poison.out" 2>&1; prc=$?; set -e
+          cp "$RUNNER_TEMP/poison.orig" "$B"
+          cmp -s "$B" "$RUNNER_TEMP/poison.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $prc -ne 0 ] || { echo "the poisoned proof itself should be red"; exit 1; }
+          PDB=$(grep -oE 'database ad2a_[a-z0-9_]+' "$RUNNER_TEMP/poison.out" | head -1 | cut -d' ' -f2)
+          node .ad2a/fresh-lab.mjs after_poison -- npx tsx .ad2a/battery.mjs --baseline-check --contract-only
+          PN=${PDB#ad2a_}; U="postgresql://ad2a_owner:ad2a_ci_synthetic_owner_pw@localhost:5432/$PDB"
+          set +e; DIRECT_URL="$U" DATABASE_URL="$U" AD2A_FRESH_DB="$PDB" AD2A_FRESH_NONCE="$PN" AD2A_RT_ROLE="ad2a_rt_$PN" AD2A_RT_PW=unused \
+            npx tsx .ad2a/battery.mjs --baseline-check --contract-only > "$RUNNER_TEMP/reuse.out" 2>&1; rrc=$?; set -e
+          grep '\[FAIL\] PRE' "$RUNNER_TEMP/reuse.out" || true
+          [ $rrc -ne 0 ] && grep -q "PRECONDITION DIRTY" "$RUNNER_TEMP/reuse.out" || { echo "reusing the poisoned database was NOT refused"; exit 1; }
+          echo "I8 PASS"
+
+      # Interrupted-run resilience. Phase 12 drops the AD-2A.3 composite FK to plant
+      # historical corruption for the scanner and puts it back afterwards. A proof
+      # killed in between (SIGKILL: no finally block runs) leaves a database WITHOUT
+      # the constraint. The next proof must not care: it gets a new database, and its
+      # precondition checks the constraint is present.
+      - name: crash resilience — a proof killed with the FK dropped cannot poison the next
+        run: |
+          set +e; AD2A_CRASH_AFTER_FK_DROP=1 node .ad2a/fresh-lab.mjs crash --keep -- npx tsx .ad2a/battery.mjs --baseline-check > "$RUNNER_TEMP/crash.out" 2>&1; crc=$?; set -e
+          grep -q "killing the process with the composite FK dropped" "$RUNNER_TEMP/crash.out" || { tail -40 "$RUNNER_TEMP/crash.out"; echo "the crash was never reached"; exit 1; }
+          [ $crc -ne 0 ] || { echo "a killed proof reported success"; exit 1; }
+          CDB=$(grep -oE 'database ad2a_[a-z0-9_]+' "$RUNNER_TEMP/crash.out" | head -1 | cut -d' ' -f2)
+          command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; }
+          n=$(psql "postgresql://ad2a_owner:ad2a_ci_synthetic_owner_pw@localhost:5432/$CDB" -tAc "SELECT count(*) FROM pg_constraint WHERE conname='Message_conversationId_businessId_fkey'")
+          [ "$n" = "0" ] || { echo "the crashed database still has the FK — the crash did not happen where claimed"; exit 1; }
+          node .ad2a/fresh-lab.mjs after_crash -- npx tsx .ad2a/battery.mjs --baseline-check
+          echo "CRASH RESILIENCE PASS"
 
       - name: Confirm the tree is byte-identical after every mutation
         run: git diff --exit-code
