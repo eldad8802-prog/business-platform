@@ -227,6 +227,10 @@ model Business {
   riaCanonicalReferents         RiaCanonicalReferent[]
   riaPolicyLineages             RiaPolicyLineage[]
   derivedClaimProjections       DerivedClaimProjection[]
+  derivedClaimEvidenceLinks     DerivedClaimEvidenceLink[]
+  knowledgeMeasures             KnowledgeMeasure[]
+  knowledgeMeasureEvidenceLinks KnowledgeMeasureEvidenceLink[]
+  businessInsights              BusinessInsight[]
   paymentConnections            BusinessPaymentConnection[]
   paymentRequests               PaymentRequest[]
   businessObligations           BusinessObligation[]
@@ -3222,6 +3226,7 @@ model DerivationPolicyVersion {
   /// version is never cascade-deleted by a derived materialization (the Projection FK is RESTRICT) —
   /// policy history outlives its materializations. This is a virtual relation (no column, no behavior).
   claimProjections DerivedClaimProjection[]
+  knowledgeMeasures KnowledgeMeasure[]
 
   /// Identity uniqueness ONLY: one row per (policy, version). This is the version's IDENTITY (a version IS
   /// (policy, version)); it does NOT imply order, currentness, precedence, or "one active version".
@@ -3296,10 +3301,14 @@ model DerivedClaimCandidate {
 /// candidate — the explainability anchor (INV-10). It stores a store-agnostic logical reference
 /// (`evidenceKind` + `evidenceRecordId`), NEVER copied raw evidence (INV-13), and has NO FK to
 /// ReviewEvent: the Evidence Adapter remains the only evidence-store seam, so dropping a Claim can never
-/// affect canonical evidence and no unified log is implied. `businessId` is carried for tenant
-/// query-filtering and future composite-FK hardening; in v1 (no writer) same-tenant consistency between a
-/// link and its projection is a WRITER-TIME invariant, not a DB guarantee (pre-impl v2 §18). Deleting the
-/// candidate cascade-drops its links (all derived).
+/// affect canonical evidence and no unified log is implied. Deleting the candidate cascade-drops its
+/// links (all derived).
+///
+/// M0 — `businessId` now carries a real FK to Business. It is the column this table's RLS policy
+/// evaluates, so leaving it unconstrained meant a writer defect could stamp a non-existent or foreign
+/// tenant and the row would still satisfy the policy for whoever that id belonged to. Same-tenant
+/// consistency between a link and its projection remains a writer-time invariant (`claim-writer.validate`),
+/// but tenant EXISTENCE is now a database guarantee rather than a hope.
 model DerivedClaimEvidenceLink {
   id               Int    @id @default(autoincrement())
   candidateId      Int
@@ -3311,6 +3320,7 @@ model DerivedClaimEvidenceLink {
   evidenceRecordId Int
 
   candidate DerivedClaimCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  business  Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   /// One link per (candidate, evidence record). Identity only.
   @@unique([candidateId, evidenceKind, evidenceRecordId])
@@ -5021,4 +5031,177 @@ model PaymentAccountingSettlement {
   paymentTransaction PaymentTransaction @relation(fields: [paymentTransactionId], references: [id], onDelete: Restrict)
 
   @@index([businessId, status, nextAttemptAt])
+}
+
+/// M2 · Business Memory — the quantitative half of derived knowledge.
+///
+/// WHY A SECOND ARTIFACT RATHER THAN A WIDER CLAIM
+/// `DerivedClaimProjection` + `DerivedClaimCandidate` can express exactly one thing: a subject, and a
+/// SET OF VALUES claimed about it. That is the right shape for a categorical claim derived from owner
+/// decisions ("this vendor is an office expense"), where two co-existing values genuinely ARE a
+/// conflict and where a confidence number would be a lie.
+///
+/// It is the wrong shape for "the owner files paperwork a median of 12 days late, from 18 observations,
+/// over the last 180 days, and that is getting worse". Two windows are not a conflict, an observation
+/// count is not a candidate, and encoding all of it into `propositionValue` would destroy both the
+/// conflict semantics and any ability to query it. So MEASURE is its own artifact — sharing the
+/// governance (versioned rule, evidence fingerprint, tenant scope, rebuildability) and not the table.
+///
+/// Rule versioning deliberately REUSES `DerivationPolicyVersion`: a measure is derived by a versioned
+/// rule exactly as a claim is, and a second registry would be two sources of truth for the same idea.
+///
+/// Derived, disposable, rebuildable. Never authoritative, and never a substitute for the evidence.
+model KnowledgeMeasure {
+  id         Int     @id @default(autoincrement())
+  businessId Int
+  /// Governed identity of the rule's output, e.g. "documents.paperwork_lag". A String, not an enum:
+  /// the catalogue grows per milestone and a migration per rule would be friction with no safety gain.
+  measureKey String
+  /// What the measure is ABOUT. Null = the business itself (e.g. overall paperwork lag); otherwise the
+  /// entity kind and id (e.g. "supplier" 42). Deliberately NOT a foreign key: measures span domains,
+  /// and a polymorphic FK would either fail or force one table per entity kind.
+  entityType String?
+  entityId   Int?
+
+  /// The headline number, kept OUT of Json so the Brain can filter and order without parsing payloads.
+  valueNumeric Decimal @db.Decimal(18, 4)
+  /// What the number means: "days" | "count" | "ratio" | "currency". Governed String.
+  valueUnit    String
+  /// Measure-specific extras (percentiles, distributions, comparison values). Optional by design —
+  /// a measure must be useful from `valueNumeric` alone.
+  detail       Json?
+
+  /// How many observations the number rests on. A first-class column, not a detail: a median of two
+  /// is not a habit, and a consumer must be able to refuse a measure without opening a payload.
+  observationCount Int
+  windowStart      DateTime
+  windowEnd        DateTime
+  /// Direction of travel across the window, when the rule computes one. Null = the rule does not.
+  trend            KnowledgeTrend?
+
+  /// ACTIVE is the only status a reasoning layer may consume. The others exist so that "I do not know"
+  /// is a value the system can hold and explain, rather than a silence indistinguishable from zero.
+  status KnowledgeStatus
+
+  rulePolicyVersionId Int
+  /// Identity of the evidence set this was derived from — the same staleness aid Claims use.
+  evidenceFingerprint String
+  materializedAt      DateTime @default(now())
+
+  business      Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  policyVersion DerivationPolicyVersion @relation(fields: [rulePolicyVersionId], references: [id], onDelete: Restrict)
+  evidenceLinks KnowledgeMeasureEvidenceLink[]
+
+  /// One live measure per (tenant, key, subject, rule version). Uniqueness over the nullable subject is
+  /// enforced by a COALESCE expression index in the migration, because Postgres treats NULLs as
+  /// distinct and would otherwise allow unlimited duplicate business-level measures.
+  @@index([businessId, measureKey])
+  @@index([businessId, entityType, entityId])
+  @@index([rulePolicyVersionId])
+}
+
+/// The explainability anchor for a measure: which evidence records the number was computed from.
+/// Same contract as `DerivedClaimEvidenceLink` — a logical reference, never copied evidence — so
+/// "why does Dubiz think this?" can be answered by walking to the source rather than by trusting a blob.
+model KnowledgeMeasureEvidenceLink {
+  id               Int    @id @default(autoincrement())
+  measureId        Int
+  businessId       Int
+  evidenceKind     String
+  evidenceRecordId Int
+
+  measure  KnowledgeMeasure @relation(fields: [measureId], references: [id], onDelete: Cascade)
+  business Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([measureId, evidenceKind, evidenceRecordId])
+  @@index([measureId])
+  @@index([businessId, evidenceKind, evidenceRecordId])
+}
+
+/// Whether a piece of derived knowledge may be used, and if not, why not.
+enum KnowledgeStatus {
+  /// Enough evidence, fresh enough, no unresolved conflict. The ONLY status a consumer may act on.
+  ACTIVE
+  /// The rule ran and deliberately declined: below minimum support, or below its consistency floor.
+  /// This is a RESULT, not a failure — it is how the system says "I do not know yet".
+  INSUFFICIENT_EVIDENCE
+  /// Was ACTIVE, but the evidence has moved on and it has not been recomputed.
+  STALE
+  /// Replaced by a newer derivation (typically a newer rule version).
+  SUPERSEDED
+}
+
+/// Direction of travel across a measure's window. Deliberately coarse: with the observation counts a
+/// small business produces, a percentage change would imply a precision the data cannot support.
+enum KnowledgeTrend {
+  IMPROVING
+  STABLE
+  WORSENING
+}
+
+/// M3 · A Dubiz Insight — what the system noticed, why it matters, and what the owner decided.
+///
+/// WHY NOT `BusinessBotLearningSuggestion`
+/// The plan said to reuse it if it fit. It does not. It is keyed on `botId`, carries no `businessId`,
+/// and exactly ONE of thirty businesses in Production has a bot — so twenty-nine could never receive an
+/// insight through it. It also means something else: the bot proposing a change to ITSELF. An insight
+/// about an overdue supplier payment is not a bot-settings proposal, and forcing the two together would
+/// have made the tenancy indirect through a row that mostly does not exist.
+///
+/// WHAT IT MUST BE ABLE TO ANSWER
+/// "Why is Dubiz telling me this?" — answerable from the row alone. `factLines` are things that are
+/// TRUE, each pointing at the fact or measure it came from. `interpretation` is what Dubiz makes of
+/// them, kept structurally separate so the two can never be read as the same kind of statement.
+/// `contributingRules` names every rule and version that participated. There is no confidence score:
+/// uncertainty is stated in words or not at all, because a number here would be decoration.
+///
+/// The insight is a SNAPSHOT of what was shown. It is not recomputed, because the owner's decision has
+/// to remain attached to the thing they actually saw — that is the whole basis of outcome learning later.
+model BusinessInsight {
+  id         Int    @id @default(autoincrement())
+  businessId Int
+  /// Governed identity of the composition, e.g. "payables.pressure_with_paperwork_backlog".
+  insightKey String
+  /// One LIVE insight per (business, dedupeKey). Re-running the composer refreshes rather than repeats;
+  /// an owner who dismissed something must not be shown it again tomorrow by a fresh row.
+  dedupeKey  String
+
+  severity String
+  title    String
+
+  /// Statements that are TRUE, each with the artifact it came from. Never interpretation.
+  factLines Json
+  /// What Dubiz makes of the facts. Null when the composition is purely factual — which is the honest
+  /// state for most early insights, and saying nothing is better than manufacturing a narrative.
+  interpretation String?
+  /// What we are NOT sure of, in words. Deliberately not a score.
+  uncertainty    String?
+  /// Every rule/artifact that participated: [{ ruleId, ruleVersion, artifactKind, artifactRef }].
+  contributingRules Json
+  /// What the owner could do. Suggestions, never actions taken on their behalf.
+  suggestedActions  Json?
+
+  status              InsightStatus @default(OPEN)
+  ownerDecisionAt     DateTime?
+  ownerDecisionByUserId Int?
+  /// Free-text reason when the owner dismisses. The WHY that most of this codebase does not capture.
+  ownerDecisionNote   String?
+
+  generatedAt      DateTime @default(now())
+  /// Version of the composer that produced this, so a later change is attributable.
+  composerVersion  String
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, dedupeKey])
+  @@index([businessId, status])
+}
+
+/// OPEN until the owner says otherwise. ADOPTED and DISMISSED are both DECISIONS and both durable —
+/// a dismissal is as much a signal as an adoption, and a system that only records agreement learns
+/// only half of what the owner is telling it.
+enum InsightStatus {
+  OPEN
+  ADOPTED
+  DISMISSED
 }
