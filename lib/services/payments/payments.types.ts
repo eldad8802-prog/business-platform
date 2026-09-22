@@ -186,6 +186,13 @@ export interface CreateTransactionRow {
   currency: string;
   status: PaymentTransactionStatus;
   rawPayload: unknown;
+  /**
+   * C3 — open the accounting settlement for this row, in the SAME database
+   * transaction that records it. Set only for a provider-verified PAID
+   * incoming payment (positive amount). Its existence is the forward-only
+   * boundary: a transaction written without it is never settled automatically.
+   */
+  openAccountingSettlement?: { businessId: number };
 }
 
 /**

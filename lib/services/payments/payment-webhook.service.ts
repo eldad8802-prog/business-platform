@@ -76,6 +76,15 @@ export interface ProcessWebhookDeps {
    * Its failure must never break the payment flow — the request is already PAID.
    */
   onVerifiedPaid?: (event: VerifiedPaidEvent) => Promise<void>;
+  /**
+   * C3 — finish the accounting for a verified incoming payment: one receipt,
+   * allocated to its invoice. Called with the PaymentTransaction id after it is
+   * durably recorded (with its PENDING settlement), and again when a provider
+   * redelivers the same settlement. Best-effort here by design: the money is
+   * already PAID and the settlement row is durable, so a failure is retried
+   * from local state — it must never turn a verified payment into a failure.
+   */
+  settleAccounting?: (event: { businessId: number; paymentTransactionId: number }) => Promise<void>;
   now?: () => Date;
 }
 
@@ -160,6 +169,23 @@ function verifiedOutcomeAuditType(
       return "PAYMENT_VERIFIED_CANCELLED";
     default:
       return null;
+  }
+}
+
+async function settleAccountingBestEffort(
+  deps: ProcessWebhookDeps,
+  businessId: number,
+  transaction: { id: number; status: string; amount: string }
+): Promise<void> {
+  if (!deps.settleAccounting) return;
+  if (transaction.status !== "PAID" || !(Number(transaction.amount) > 0)) return;
+  try {
+    await deps.settleAccounting({ businessId, paymentTransactionId: transaction.id });
+  } catch (err) {
+    console.error("settleAccounting hook error:", {
+      paymentTransactionId: transaction.id,
+      error: err instanceof Error ? err.name : "unknown",
+    });
   }
 }
 
@@ -498,6 +524,10 @@ export async function processPaymentWebhook(
           authoritativeTransactionId
         );
       if (existingTx) {
+        // Redelivery of a settlement already recorded: the money is not
+        // recorded twice, but accounting that did not finish the first time is
+        // finished now (idempotent — a settled payment is a no-op).
+        await settleAccountingBestEffort(deps, request.businessId, existingTx);
         await deps.store.updateWebhookEvent(event.id, {
           processingStatus: "PROCESSED",
           processedAt: now(),
@@ -532,6 +562,13 @@ export async function processPaymentWebhook(
         currency: parsed.currency ?? request.currency,
         status: outcomeToTransactionStatus(authoritativeOutcome),
         rawPayload: input.parsedBody ?? input.rawBody,
+        // C3: a verified incoming payment opens its accounting settlement in
+        // the same database transaction. Only PAID money IN — never a failure,
+        // a cancellation, or a pending outcome.
+        ...(authoritativeOutcome === "PAID" &&
+        Number(parsed.amount ?? request.amount) > 0
+          ? { openAccountingSettlement: { businessId: request.businessId } }
+          : {}),
       });
     } catch (error) {
       // P2002 alone is not enough: swallowing ANY unique violation here would
@@ -552,6 +589,7 @@ export async function processPaymentWebhook(
           )
         : null;
       if (!winner) throw error;
+      await settleAccountingBestEffort(deps, request.businessId, winner);
       await deps.store.updateWebhookEvent(event.id, {
         processingStatus: "PROCESSED",
         processedAt: now(),
@@ -612,12 +650,14 @@ export async function processPaymentWebhook(
       } catch (err) {
         console.error("onVerifiedPaid hook error:", err);
       }
+      // C3 fast path: settle now. If this fails or the process dies, the
+      // PENDING settlement row is still there for recovery — no resend needed.
+      await settleAccountingBestEffort(deps, request.businessId, transaction);
     }
   }
 
-  // Billing/Receipt hand-off is intentionally NOT auto-fired here. A verified
-  // PAID transition is the integration point; wiring it to a Receipt requires
-  // the receipt engine and is a separate step.
+  // Billing/Receipt hand-off: see settleAccounting above (C3). Billing decides
+  // closure; Payments only signals the verified settlement.
 
   await deps.store.updateWebhookEvent(event.id, {
     processingStatus: "PROCESSED",

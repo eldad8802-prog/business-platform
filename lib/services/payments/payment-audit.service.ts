@@ -48,6 +48,13 @@ export const PAYMENT_AUDIT_EVENT_TYPES = [
   "PAYMENT_REFUND_SETTLED",
   "PAYMENT_REFUND_INDETERMINATE",
   "PAYMENT_REFUND_FAILED",
+  // C3 — Accounting settlement of a verified payment (SYSTEM-sourced). SETTLED:
+  // one receipt issued and allocated. REQUIRES_ATTENTION: paused on a cause a
+  // person must resolve (the money stays PAID). RETRY_SCHEDULED: a transient
+  // failure rolled the attempt back and the next one is due.
+  "PAYMENT_ACCOUNTING_SETTLED",
+  "PAYMENT_ACCOUNTING_REQUIRES_ATTENTION",
+  "PAYMENT_ACCOUNTING_RETRY_SCHEDULED",
 ] as const;
 
 export type PaymentAuditEventType = (typeof PAYMENT_AUDIT_EVENT_TYPES)[number];
