@@ -147,12 +147,36 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C13-NEEDS-OWNER-DECISION", key: "SliceDecision", why: "E2" },
 ];
 
+/**
+ * S8 — objects the erasure does not delete. A SEPARATE dimension from the model-level
+ * debt above: every entry names a SURFACE (`Model.field`), and none of them can be
+ * closed by a model's C12 being resolved. `CrmAttachment.storageKey` is deliberately
+ * absent — that object is deleted now, and its absence from this list is the claim.
+ *
+ * Their arrival makes total visible debt go UP. That is the point: these objects were
+ * always unerased, and until now there was nowhere to say so.
+ */
+const EXTERNAL_OBJECTS: DebtEntry[] = [
+  // Public-URL images: the column holds a URL, and neither a URL→key inverse nor a
+  // public-asset delete exists, so the bytes are unreachable from a database erasure.
+  { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "InventoryItem.imageUrl", why: "S8-IMAGES" },
+  { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "InventoryDraft.imageUrl", why: "S8-IMAGES" },
+  // Objects on models whose own classification is still NEEDS_OWNER_DECISION.
+  { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "Offer.imageUrl", why: "C13-OFFER" },
+  { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "ContentRender.outputUrl", why: "C13-CONTENT" },
+  { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "ContentRender.thumbnailUrl", why: "C13-CONTENT" },
+  // Schema-capable but inert: nothing writes it, so no object can exist yet. Recorded
+  // now so the first writer cannot arrive unnoticed — C23 falsifies the inertness.
+  { code: "C19-EXTERNAL-OBJECT-UNERASED", key: "InboundEmailMessage.rawObjectKey", why: "S5-INBOUND" },
+];
+
 export const ACCEPTED_DEBT: DebtEntry[] = [
   ...NAMING,
   ...UNKEPT_PROMISE,
   ...UNDECLARED,
   ...LEAD_RESIDUALS,
   ...MODEL_LEVEL,
+  ...EXTERNAL_OBJECTS,
 ];
 
 /** Findings and debt entries are matched on code + key, never on the prose detail, so

@@ -48,6 +48,11 @@ import {
 } from "./account-erasure-manifest";
 import { COVERED_MODELS, DISPOSITIONS } from "./erasure-dispositions";
 import { COVERAGE_SOURCES, MODEL_COVERAGE } from "../../../scripts/ci/erasure/erasure-model-coverage";
+import {
+  NOT_OWNED_POINTERS,
+  OBJECT_SURFACES,
+  POINTER_NAME_PATTERN,
+} from "../../../scripts/ci/erasure/erasure-object-surfaces";
 import { ACCEPTED_DEBT, debtKey } from "../../../scripts/ci/erasure/erasure-contract-debt";
 import {
   delegateName,
@@ -618,6 +623,168 @@ function main(): number {
       ts.forEachChild(node, visit);
     };
     visit(src);
+  }
+
+  // ── C19…C23 — S8: the objects, which are not the rows ─────────────────────
+  //
+  // A model-level disposition answers "does the erasure touch this table". It cannot
+  // answer "and the bytes the row points at?", and that silence had a cost:
+  // `CrmAttachment` is ERASURE_MANAGED, the erasure deleted the row, the object stayed
+  // in storage — and the `storageKey` went with the row, so nothing could even find it
+  // afterwards. No finding existed that could say so.
+  //
+  // These five codes are a SECOND dimension, keyed by surface. They do not weaken or
+  // replace C12: a model can be fully ERASURE_MANAGED and still carry an OPEN object
+  // surface, and resolving the model-level finding cannot make this one disappear.
+  {
+    const surfaceKey = (s: { model: string; field: string }) => `${s.model}.${s.field}`;
+    const declared = new Map(OBJECT_SURFACES.map((s) => [surfaceKey(s), s]));
+    const notOwned = new Map(NOT_OWNED_POINTERS.map((p) => [surfaceKey(p), p]));
+
+    // C21 — a declaration that no longer describes the schema, or that does not carry
+    // what its own state requires, is not a classification. It is a leftover.
+    for (const [key, s] of [
+      ...[...declared.entries()],
+      ...[...notOwned.entries()],
+    ] as [string, { model: string; field: string; reason: string }][]) {
+      const model = models.get(s.model);
+      const field = model?.fields.find((f) => f.name === s.field && f.isScalar);
+      if (!model) report("C21-OBJECT-SURFACE-INVALID", key, `declares ${s.model}, which is not a model in the schema`);
+      else if (!field) report("C21-OBJECT-SURFACE-INVALID", key, `declares ${s.model}.${s.field}, which is not a column on it`);
+      if (!s.reason) report("C21-OBJECT-SURFACE-INVALID", key, "no reason is stated");
+      const surface = declared.get(key);
+      if (!surface) continue;
+      if (surface.state === "RETAINED" && !surface.basis) {
+        report("C21-OBJECT-SURFACE-INVALID", key, "RETAINED without a basis");
+      }
+      if (surface.state === "ERASED" && !surface.erasedBy) {
+        report("C21-OBJECT-SURFACE-INVALID", key, "ERASED without naming the function that deletes the object");
+      }
+      if ((surface.state === "OPEN" || surface.state === "OPEN_INERT") && !surface.target) {
+        report("C21-OBJECT-SURFACE-INVALID", key, `${surface.state} without a target increment`);
+      }
+    }
+
+    // C20 — completeness. Every pointer-shaped column in the schema must have an
+    // answer: an owned object surface, or a stated reason why it is not one.
+    for (const model of models.values()) {
+      for (const f of model.fields) {
+        if (!f.isScalar || f.isId || f.type !== "String") continue;
+        if (!POINTER_NAME_PATTERN.test(f.name)) continue;
+        const key = `${model.name}.${f.name}`;
+        if (!declared.has(key) && !notOwned.has(key)) {
+          report(
+            "C20-UNDECLARED-OBJECT-POINTER",
+            key,
+            `${key} looks like a pointer to stored bytes and is declared neither as an object surface nor as not-owned`
+          );
+        }
+      }
+    }
+
+    // C22 — an ERASED claim has to be carried out, and in the right ORDER. Deleting
+    // the row first destroys the only key the application has; after that no retry can
+    // find the object. So the named deleter must appear in the adapter, and it must
+    // appear BEFORE the write or delete on the delegate that holds the pointer.
+    {
+      const src = ts.createSourceFile(
+        path.basename(ADAPTER),
+        fs.readFileSync(ADAPTER, "utf8"),
+        ts.ScriptTarget.Latest,
+        true
+      );
+      const callLines = (predicate: (n: ts.CallExpression) => boolean) => {
+        const out: number[] = [];
+        const walk = (n: ts.Node) => {
+          if (ts.isCallExpression(n) && predicate(n)) {
+            out.push(src.getLineAndCharacterOfPosition(n.getStart(src)).line + 1);
+          }
+          ts.forEachChild(n, walk);
+        };
+        walk(src);
+        return out;
+      };
+      for (const s of OBJECT_SURFACES) {
+        if (s.state !== "ERASED" || !s.erasedBy) continue;
+        const key = surfaceKey(s);
+        const fnName = s.erasedBy.fn;
+        const delegate = s.erasedBy.beforeDelegate;
+        const eraser = callLines(
+          (n) =>
+            (ts.isIdentifier(n.expression) && n.expression.text === fnName) ||
+            (ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === fnName)
+        );
+        const rowWrite = callLines(
+          (n) =>
+            ts.isPropertyAccessExpression(n.expression) &&
+            ts.isPropertyAccessExpression(n.expression.expression) &&
+            n.expression.expression.name.text === delegate &&
+            /^(delete|deleteMany|update|updateMany|upsert)$/.test(n.expression.name.text)
+        );
+        if (eraser.length === 0) {
+          report(
+            "C22-OBJECT-ERASURE-NOT-IMPLEMENTED",
+            key,
+            `${key} is declared ERASED, but the adapter never calls ${fnName}()`
+          );
+          continue;
+        }
+        if (rowWrite.length === 0) {
+          report(
+            "C22-OBJECT-ERASURE-NOT-IMPLEMENTED",
+            key,
+            `${key} is declared ERASED before the ${delegate} row write, and the adapter performs none`
+          );
+          continue;
+        }
+        if (Math.min(...eraser) > Math.min(...rowWrite)) {
+          report(
+            "C22-OBJECT-ERASURE-NOT-IMPLEMENTED",
+            key,
+            `the adapter writes ${delegate} at line ${Math.min(...rowWrite)} before calling ${fnName}() at line ${Math.min(
+              ...eraser
+            )} — the key is destroyed before the object`
+          );
+        }
+      }
+    }
+
+    // C23 — "nothing can create such an object yet" is a claim about the product, and
+    // it expires the moment somebody writes the column. Proven, not asserted.
+    const inert = OBJECT_SURFACES.filter((s) => s.state === "OPEN_INERT");
+    if (inert.length > 0) {
+      const delegates = new Set(
+        inert.map((s) => models.get(s.model)?.delegate).filter((d): d is string => !!d)
+      );
+      const scan = scanCodebaseWrites(ROOT, ["app", "lib"], delegates);
+      for (const s of inert) {
+        const delegate = models.get(s.model)?.delegate;
+        const writers = scan.writes.filter(
+          (w) => w.delegate === delegate && w.fields.some((f) => f.name === s.field)
+        );
+        if (writers.length > 0) {
+          report(
+            "C23-INERT-OBJECT-SURFACE-HAS-WRITER",
+            surfaceKey(s),
+            `${surfaceKey(s)} is declared OPEN_INERT, but ${writers
+              .map((w) => `${w.file}:${w.line}`)
+              .join(", ")} writes it`
+          );
+        }
+      }
+      for (const u of scan.unreadable) report("C0-UNREADABLE", u.file, u.detail);
+    }
+
+    // C19 — the debt itself. One finding per surface the erasure does not reach. This
+    // is what survives a model's C12 being resolved.
+    for (const s of OBJECT_SURFACES) {
+      if (s.state !== "OPEN" && s.state !== "OPEN_INERT") continue;
+      report(
+        "C19-EXTERNAL-OBJECT-UNERASED",
+        surfaceKey(s),
+        `${surfaceKey(s)} points at stored bytes the erasure does not delete (${s.state}) — ${s.reason} [target ${s.target}]`
+      );
+    }
   }
 
   // ── C14…C16 — NON_PERSONAL_OPERATIONAL, proven instead of promised ─────────

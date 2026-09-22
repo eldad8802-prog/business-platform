@@ -58,6 +58,46 @@ function afterContractApply(sqlExpr) {
 /** A plain SQL string as JavaScript source. */
 const js = (s) => JSON.stringify(s);
 
+// S8 — the files the object-surface proofs falsify.
+const ADAPTER = "lib/services/account/account-deletion.prisma-store.ts";
+const COVERAGE = "scripts/ci/erasure/erasure-model-coverage.ts";
+const SURFACES = "scripts/ci/erasure/erasure-object-surfaces.ts";
+
+/** Remove one declared object surface, braces matched, trailing comma included. */
+function dropObjectSurface(model, field) {
+  const text = fs.readFileSync(SURFACES, "utf8");
+  const anchor = `model: "${model}",`;
+  let at = -1;
+  for (let i = text.indexOf(anchor); i >= 0; i = text.indexOf(anchor, i + 1)) {
+    const fieldAt = text.indexOf(`field: "${field}"`, i);
+    const nextModel = text.indexOf(anchor, i + 1);
+    if (fieldAt > i && (nextModel < 0 || fieldAt < nextModel)) {
+      at = i;
+      break;
+    }
+  }
+  if (at < 0) throw new Error(`no declared surface for ${model}.${field}`);
+  const start = text.lastIndexOf("{", at);
+  let depth = 0;
+  let i = start;
+  for (; i < text.length; i++) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}" && --depth === 0) break;
+  }
+  let end = i + 1;
+  while (/\s/.test(text[end])) end++;
+  if (text[end] === ",") end++;
+  fs.writeFileSync(SURFACES, text.slice(0, start) + text.slice(end));
+}
+
+/** Add a column to a Prisma model, right after its opening line. */
+function insertPrismaField(model, line) {
+  const text = fs.readFileSync(SCHEMA, "utf8");
+  const re = new RegExp(`(^model ${model} \\{\\r?\\n)`, "m");
+  if (!re.test(text)) throw new Error(`no model ${model} in the schema`);
+  fs.writeFileSync(SCHEMA, text.replace(re, `$1  ${line}\n`));
+}
+
 const MUTATIONS = {
   // A non-E1 table the erasure touches, dropped from the RLS contract.
   I1: () => dropContractEntry("Lead"),
@@ -109,6 +149,47 @@ const MUTATIONS = {
       "document  Document?  @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)",
       "document  Document?  @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Cascade)"
     ),
+
+  // ── S8: the external-object dimension ───────────────────────────────────
+  //
+  // Each of these falsifies one thing the object contract claims. The point of the
+  // contract is that an object surface cannot go quiet — not by being undeclared, not
+  // by the model becoming ERASURE_MANAGED, and not by a model-level finding resolving.
+
+  /** S1 — the CrmAttachment surface declaration disappears while the column still exists. */
+  S1: () => dropObjectSurface("CrmAttachment", "storageKey"),
+
+  /** S2 — the adapter stops deleting the object and goes back to deleting only the row. */
+  S2: () => {
+    const text = fs.readFileSync(ADAPTER, "utf8");
+    // Everything from the S8 block's own header up to the transaction that follows it:
+    // two anchors that each occur once, so line endings and reflowing cannot break it.
+    const start = text.indexOf("        // ── S8. THE OBJECTS GO FIRST");
+    const end = text.indexOf("        return withTenantTransaction(", start + 1);
+    if (start < 0 || end < 0) throw new Error("the S8 object-first block is not where it was");
+    fs.writeFileSync(ADAPTER, text.slice(0, start) + text.slice(end));
+  },
+
+  /** S3 — InventoryItem's MODEL-level C12 is resolved. Its image surface must survive that. */
+  S3: () => {
+    replaceOnce(
+      ADAPTER,
+      "          await tx.crmAttachment.deleteMany({ where: { businessId } });",
+      '          await tx.inventoryItem.updateMany({ where: { businessId }, data: { supplierName: null } });\n' +
+        "          await tx.crmAttachment.deleteMany({ where: { businessId } });"
+    );
+    replaceOnce(
+      COVERAGE,
+      '  InventoryItem: unmanaged("supplierName, a denormalised copy of a Supplier name"),',
+      '  InventoryItem: { disposition: "ERASURE_MANAGED" },'
+    );
+  },
+
+  /** S4 — the InventoryItem image surface declaration is removed. */
+  S4: () => dropObjectSurface("InventoryItem", "imageUrl"),
+
+  /** S5 — a new owned-object pointer column arrives with no declaration at all. */
+  S5: () => insertPrismaField("CrmNote", "receiptImageUrl String?"),
 };
 
 const id = process.argv[2];
