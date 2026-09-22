@@ -185,7 +185,10 @@
     "verify:connection-form": "npx tsx lib/services/payments/connection-form.test.ts",
     "verify:sumit": "npm run verify:callback-secret && npm run verify:optional-provider-id && npm run verify:sumit-adapter && npm run verify:payments-refund && npm run verify:dormant-providers",
     "verify:payments-foundation": "npm run verify:payments-currency-authority && npm run verify:payments-document-authority && npm run verify:payments-tenant-ownership && npm run verify:payments-provider-seam && npm run verify:payments-async-webhook && npm run verify:payments-provider-authority && npm run verify:cardcom-webhook-hardening && npm run verify:payment-webhook && npm run verify:payment-webhook-quarantine && npm run verify:payments-refund && npm run verify:connection-form && npm run verify:dormant-providers",
-    "qa:homepage-candidate": "node scripts/qa/ui/homepage-candidate.mjs"
+    "qa:homepage-candidate": "node scripts/qa/ui/homepage-candidate.mjs",
+    "verify:home-day": "npx tsx lib/services/home/home-day.verify.test.ts",
+    "qa:home-final": "node scripts/qa/ui/home-final-states.mjs",
+    "qa:home-day-real": "npx tsx scripts/qa/home-day-real-data.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",

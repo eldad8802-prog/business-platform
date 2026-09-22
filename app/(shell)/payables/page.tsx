@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   CADENCE_LABEL,
   SCHEDULE_LABEL,
@@ -44,10 +44,12 @@ function todayISO(): string {
 
 export default function PayablesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [rows, setRows] = useState<CommitmentListApi[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scope, setScope] = useState<"open" | "all">("open");
-  const [showForm, setShowForm] = useState(false);
+  // Arriving from "+" opens the form the label promised.
+  const [showForm, setShowForm] = useState(searchParams.get("new") === "1");
 
   // Bumped to ask for a reload; the effect below owns every setState, so a
   // response for a scope the owner has already switched away from is discarded

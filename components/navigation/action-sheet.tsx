@@ -15,27 +15,40 @@ const TRANS_MS = 240;
 const EASE_OUT = "cubic-bezier(0.32, 0.72, 0, 1)";
 const EASE_IN = "cubic-bezier(0.4, 0, 1, 1)";
 
+/**
+ * "+" OWNS CREATION, and every entry here must START something.
+ *
+ * The rule this list now keeps: a label that says "new" opens a create flow,
+ * full stop. It used to be broken in both directions — "ליד חדש" opened the
+ * lead LIST, "חשבונית חדשה" opened the invoice list, and "שיחה חדשה" opened
+ * an inbox that cannot start a conversation at all (conversations arrive from
+ * the customer). Meanwhile "המזכירה", "גבייה" and "מלאי" were navigation
+ * wearing a creation button's clothes, and the one creation the owner asks for
+ * most — a payment request — was missing.
+ *
+ * So: navigation moved out (the three families own it), the conversation entry
+ * is gone because the product cannot honour it, and each remaining action
+ * carries a deep link that opens the real create flow on arrival.
+ */
 const QUICK_ACTIONS: {
   label: string;
   href: string;
   icon:
     | "upload"
     | "invoice"
-    | "chat"
     | "content"
     | "inventory"
     | "secretary"
     | "payments"
     | "lead";
 }[] = [
-  { label: "ליד חדש", href: "/leads", icon: "lead" },
-  { label: "המזכירה", href: "/secretary", icon: "secretary" },
-  { label: "גבייה", href: "/collection", icon: "payments" },
+  { label: "חשבונית חדשה", href: "/billing?create=1", icon: "invoice" },
+  { label: "בקשת תשלום", href: "/collection/new", icon: "payments" },
+  { label: "ליד חדש", href: "/leads?new=1", icon: "lead" },
   { label: "העלאת מסמך", href: "/documents/upload", icon: "upload" },
-  { label: "חשבונית חדשה", href: "/billing", icon: "invoice" },
-  { label: "שיחה חדשה", href: "/inbox", icon: "chat" },
-  { label: "יצירת תוכן", href: "/content", icon: "content" },
-  { label: "מלאי", href: "/inventory", icon: "inventory" },
+  { label: "התחייבות חדשה", href: "/payables?new=1", icon: "secretary" },
+  { label: "מוצר חדש", href: "/inventory/items/create", icon: "inventory" },
+  { label: "יצירת תוכן", href: "/content/create", icon: "content" },
 ];
 
 /**

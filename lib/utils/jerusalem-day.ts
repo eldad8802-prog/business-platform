@@ -130,3 +130,57 @@ export function dayKeyIsBefore(
   // Fixed-width `YYYY-MM-DD` sorts in calendar order, so this is exact.
   return a < b;
 }
+
+/**
+ * The UTC instants that bound an Israeli calendar day, half-open: `[from, toExclusive)`.
+ *
+ * WHY THIS IS NOT `dayKeyOrdinal(key) ± offset`: the offset itself depends on
+ * which side of a DST change the instant falls on, so a single-pass conversion
+ * is wrong on exactly the two days a year it matters most. The two-pass
+ * resolution below reads the zone offset AT the candidate instant and corrects
+ * once, which is enough because Israel's shifts are one hour and always occur
+ * at 02:00 local — never within an hour of midnight.
+ *
+ * The result is a real range for a database `createdAt` / `issuedAt` filter:
+ * `{ gte: from, lt: toExclusive }`. A day is therefore 23, 24 or 25 hours long,
+ * which is exactly how the business lived it.
+ */
+export function jerusalemDayUtcHalfOpen(key: JerusalemDayKey): {
+  from: Date;
+  toExclusive: Date;
+} {
+  return {
+    from: startOfJerusalemDayUtc(key),
+    toExclusive: startOfJerusalemDayUtc(addCalendarDays(key, 1)),
+  };
+}
+
+/** The exact UTC instant at which an Israeli calendar day begins. */
+export function startOfJerusalemDayUtc(key: JerusalemDayKey): Date {
+  const wallClockAsUtc = dayKeyOrdinal(key);
+  // Pass 1 uses the offset around the wall-clock moment; pass 2 re-reads it at
+  // the candidate instant, which is what fixes a DST boundary.
+  let instant = wallClockAsUtc - offsetMsAt(new Date(wallClockAsUtc));
+  instant = wallClockAsUtc - offsetMsAt(new Date(instant));
+  return new Date(instant);
+}
+
+/** How far ahead of UTC Israel is at a given instant, in milliseconds. */
+function offsetMsAt(instant: Date): number {
+  const parts = OFFSET_FORMATTER.formatToParts(instant);
+  const at = (type: Intl.DateTimeFormatPartTypes): number =>
+    Number(parts.find((p) => p.type === type)?.value);
+  const asUtc = Date.UTC(at("year"), at("month") - 1, at("day"), at("hour"), at("minute"), at("second"));
+  return asUtc - instant.getTime();
+}
+
+const OFFSET_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  timeZone: ISRAEL_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
