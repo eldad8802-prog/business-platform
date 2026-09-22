@@ -53,6 +53,7 @@ import {
   assertCreatableStatus,
   availableChequeActions,
   chequePaymentKey,
+  isClearingDateAllowed,
   normalizeChequeNumber,
   type ChequeStatusValue,
 } from "@/lib/services/payables/payables-cheque-core";
@@ -508,7 +509,7 @@ export async function clearCheque(input: {
       return { cheque: view, unallocated: view.payment?.unallocated ?? "0.00", replayed: true };
     }
     assertChequeClearable(cheque.status);
-    if (input.clearedAt.getTime() > Date.now() + 5 * 60 * 1000) {
+    if (!isClearingDateAllowed(input.clearedAt, new Date())) {
       throw new PayablesValidationError("A cheque cannot have cleared in the future");
     }
     // Day granularity: the form sends noon of the chosen day, so a same-day

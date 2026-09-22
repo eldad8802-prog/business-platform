@@ -187,6 +187,20 @@ export function availableChequeActions(status: ChequeStatusValue): {
   };
 }
 
+/**
+ * Whether a clearing date is plausible NOW. A clearing is a calendar DAY the
+ * owner picks, and the form sends noon of that day in the owner's own time zone
+ * — so "today" can be a timestamp hours ahead of the server clock. Comparing
+ * instants refused a same-day clearing every morning in Israel (found in the
+ * Phase 3 Production E2E). Allowed: anything up to the end of the current UTC
+ * day plus the widest real time-zone offset (UTC+14). A later day is refused.
+ */
+export function isClearingDateAllowed(clearedAt: Date, now: Date): boolean {
+  if (Number.isNaN(clearedAt.getTime())) return false;
+  const endOfUtcDay = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999);
+  return clearedAt.getTime() <= endOfUtcDay + 14 * 60 * 60 * 1000;
+}
+
 /** The ledger key tying a cleared cheque to its one canonical Payment. */
 export function chequePaymentKey(chequeId: number): string {
   if (!Number.isInteger(chequeId) || chequeId <= 0) {

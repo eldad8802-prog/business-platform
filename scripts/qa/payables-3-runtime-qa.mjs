@@ -243,11 +243,20 @@ export async function shots(dir) {
   await browser.close();
 }
 
+const seenAuth = [];
+
 async function main() {
   const browser = await chromium.launch();
 
   async function contextWith({ configured = true, accounts = ACCOUNTS } = {}) {
     const context = await browser.newContext({ locale: "he-IL" });
+    // A signed-in browser. Every payables request must carry this token — the
+    // check this harness originally lacked, which let a client that sent no
+    // Authorization at all reach Production (every /api/payables call a 401).
+    await context.addInitScript(() => localStorage.setItem("token", "qa-runtime-token"));
+    context.on("request", (r) => {
+      if (r.url().includes("/api/payables")) seenAuth.push(r.headers()["authorization"] ?? null);
+    });
     const posted = [];
     await context.route("**/api/payables/bank-accounts*", async (route) => {
       const req = route.request();
@@ -422,6 +431,11 @@ async function main() {
   );
   await off.context.close();
 
+  check(
+    "every payables request carried Authorization: Bearer <session>",
+    seenAuth.length > 0 && seenAuth.every((h) => h === "Bearer qa-runtime-token"),
+    `${seenAuth.filter((h) => h !== "Bearer qa-runtime-token").length} of ${seenAuth.length} without it`,
+  );
   await browser.close();
   console.log(`\n${failures === 0 ? "PASS" : "FAIL"} — ${total - failures}/${total} checks passed`);
   process.exit(failures === 0 ? 0 : 1);

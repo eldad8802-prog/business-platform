@@ -13,6 +13,7 @@ import {
   availableChequeActions,
   chequePaymentKey,
   holdsItsNumber,
+  isClearingDateAllowed,
   normalizeChequeNumber,
   type ChequeStatusValue,
 } from "./payables-cheque-core";
@@ -85,6 +86,19 @@ check("every other status holds it", (["PLANNED", "ISSUED", "DELIVERED", "PRESEN
 const acts = availableChequeActions("ISSUED");
 check("screen actions derive from the same table", acts.clear && acts.bounce && acts.cancel && acts.replace && acts.advance.join() === "DELIVERED,PRESENTED");
 check("a CLEARED cheque offers only bounce", JSON.stringify(availableChequeActions("CLEARED")) === JSON.stringify({ advance: [], clear: false, bounce: true, cancel: false, replace: false }));
+
+/* ── B2. clearing date is a DAY, not an instant ──────────────────────── */
+console.log("\n[B2] clearing date");
+{
+  // 06:00 Israel (03:00Z): the owner clears "today"; the form sends local noon (09:00Z).
+  const morning = new Date("2026-09-22T03:00:00.000Z");
+  check("same-day local noon is allowed early in the morning", isClearingDateAllowed(new Date("2026-09-22T09:00:00.000Z"), morning));
+  check("same-day UTC noon (6h+ ahead) is allowed", isClearingDateAllowed(new Date("2026-09-22T12:00:00.000Z"), morning));
+  check("today in UTC+14 is allowed", isClearingDateAllowed(new Date("2026-09-23T09:00:00.000Z"), new Date("2026-09-22T23:00:00.000Z")));
+  check("the day after tomorrow is refused", !isClearingDateAllowed(new Date("2026-09-24T12:00:00.000Z"), morning));
+  check("a past day is allowed", isClearingDateAllowed(new Date("2026-09-01T12:00:00.000Z"), morning));
+  check("an invalid date is refused", !isClearingDateAllowed(new Date("nope"), morning));
+}
 
 /* ── C. the ledger key ───────────────────────────────────────────────── */
 console.log("\n[C] ledger key");

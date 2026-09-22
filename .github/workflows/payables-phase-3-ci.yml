@@ -46,6 +46,8 @@ jobs:
         run: npx tsx lib/services/payables/payables-bank-crypto.test.ts
       - name: Cheque lifecycle table
         run: npx tsx lib/services/payables/payables-cheque-core.test.ts
+      - name: The screens send the session (every payables request carries Bearer)
+        run: npx tsx lib/payables/payables-client.test.ts
       - name: Accounting invariants (1a, still true)
         run: npx tsx lib/services/payables/payables-core.test.ts
       - name: Matching rules (2, still true)
