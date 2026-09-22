@@ -92,12 +92,21 @@ function ok(name: string, cond: boolean, detail = "") {
  * both the safer mechanism and the portable one, and it means this rehearsal
  * exercises the same path Production will.
  */
-function psql(file: string, hash: string): string {
+function psql(
+  file: string,
+  hash: string,
+  ids: { userId?: number; businessId?: number } = {}
+): string {
   const preamble = [
     `\\set qa_email '${EMAIL}'`,
     `\\set qa_business_name '${BUSINESS_NAME}'`,
     `\\set qa_user_name '${USER_NAME}'`,
     `\\set qa_password_hash '${hash}'`,
+    // The repair statement pins its target by id. Production binds the ids the
+    // identity file records; the lab binds the ids this lab actually created,
+    // which is the same statement proving the same thing against real rows.
+    `\\set qa_user_id ${ids.userId ?? 0}`,
+    `\\set qa_business_id ${ids.businessId ?? 0}`,
     "",
   ].join("\n");
 
@@ -206,6 +215,74 @@ async function main() {
   ok("L8 the QA tenant's row carries its own businessId", qaCustomer.businessId === business.id);
   ok("L8 it is not visible under another tenant's id",
     (await prisma.customer.count({ where: { businessId: other.id } })) === 0);
+
+  // --- R: the password repair, on the row this lab just created ------------
+  //
+  // The repair exists because a credential can be written that the login FORM
+  // can never submit. So the proof is not "the UPDATE ran": it is that the new
+  // password logs in through the real route, the old one stops working, and
+  // nothing else about the account — or about anyone else's account — moved.
+  const bystander = await prisma.business.create({ data: { name: `lab-bystander-${Date.now()}` } });
+  const bystanderUser = await prisma.user.create({
+    data: {
+      email: `lab-bystander-${Date.now()}@example.test`,
+      password: await bcrypt.hash("bystander-password", 10),
+      name: "Bystander",
+      businessId: bystander.id,
+    },
+  });
+
+  const NEW_PASSWORD = "lab-only-repaired-qa-password";
+  const newHash = await bcrypt.hash(NEW_PASSWORD, 10);
+  ok("R0 the replacement hash has the shape the workflow enforces", BCRYPT_COST_10_SHAPE.test(newHash));
+
+  const repair = psql("ops/tenant/collection-qa-tenant-password.sql", newHash, {
+    userId: user.id,
+    businessId: business.id,
+  });
+  ok("R1 the repair reports exactly one updated row", /UPDATE 1/.test(repair), repair.trim());
+  ok("R1 the repair returns the row it changed", /REPAIR/.test(repair));
+
+  const repaired = await prisma.user.findUnique({ where: { email: EMAIL } });
+  ok("R2 the stored credential is the new hash", repaired?.password === newHash);
+  ok("R2 role is unchanged", repaired?.role === "USER");
+  ok("R2 token generation is unchanged", repaired?.tokenVersion === 0);
+  ok("R2 display name is unchanged", repaired?.name === USER_NAME);
+  ok("R2 the tenant link is unchanged", repaired?.businessId === business.id);
+  ok(
+    "R2 no other account's credential moved",
+    (await prisma.user.findUnique({ where: { id: bystanderUser.id } }))?.password ===
+      bystanderUser.password
+  );
+  ok(
+    "R2 the business row is untouched",
+    (await prisma.business.findUnique({ where: { id: business.id } }))?.name === BUSINESS_NAME
+  );
+
+  const oldLogin = await loginRoute.POST(
+    new Request("http://localhost/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+    })
+  );
+  ok("R3 the replaced password no longer logs in", oldLogin.status === 401, `status ${oldLogin.status}`);
+
+  const newLogin = await loginRoute.POST(
+    new Request("http://localhost/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: EMAIL, password: NEW_PASSWORD }),
+    })
+  );
+  const newBody = (await newLogin.json()) as Record<string, unknown>;
+  ok("R4 the new password logs in through the real route", newLogin.status === 200, `status ${newLogin.status}`);
+  ok("R4 it resolves to this tenant", (newBody.user as { businessId?: number })?.businessId === business.id);
+  ok("R4 it mints a token", typeof newBody.token === "string" && (newBody.token as string).length > 0);
+  // The whole point of the repair: a password the FORM can submit. The form
+  // disables its button while `password.trim()` is empty, which is what the
+  // byte-order-mark credential fell foul of.
+  ok("R4 the new password survives the form's own precondition", NEW_PASSWORD.trim().length > 0);
 
   // --- L4: the half-state, tested against the REAL name --------------------
   // Last, because it is destructive to the lab fixture. The dangerous state is

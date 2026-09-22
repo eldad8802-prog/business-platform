@@ -1,729 +1,696 @@
 "use client";
 
-import type { ReactNode } from "react";
-import Link from "next/link";
+import { useMemo, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 
 import { DubizLogo } from "@/components/ui/dubiz-logo";
+import { EntityIcon } from "@/components/ui/entity/entity-icon";
+import { toneOfEntity, URGENT } from "@/lib/design/entity-tones";
+import { formatAmount } from "@/features/home/lib/home-model";
+import type { AttentionObject } from "@/features/home/lib/home-attention";
 import {
+  categoryHref,
   HOME_ROUTES,
   TOOL_GROUPS,
-  groupHref,
-  obligationHref,
-  type ToolGroupKey,
+  type ToolGroup,
 } from "@/lib/navigation/home-routes";
-import {
-  DUE_BADGE_LABEL,
-  formatAmount,
-  formatDueDate,
-  type CounterValue,
-  type GroupStatus,
-  type TodayRow,
-  type VerdictView,
-} from "@/features/home/lib/home-model";
+import { dayLabel, type DayNavigation, type HomeDayView } from "@/features/home/lib/home-day-view";
 
 /**
- * Dubiz home screen (HOME 2B).
+ * HOME.
  *
- * The presentational layer only: it renders the view-model it is handed and
- * owns none of the auth/session/fetch logic (that stays in
- * `app/(shell)/app/page.tsx`).
+ * One screen, three layers, in the order the owner's attention actually moves:
  *
- * THE RULE THIS SCREEN IS BUILT ON — every element on it is backed by a source
- * that already exists on main:
- *   - the secretary's verdict          GET /api/obligations/briefing
- *   - the four counters                collection-workspace · documents inbox
- *                                      summary · the same briefing
- *   - the three group status labels    GET /api/business-status
- *   - "היום שלך"                       the briefing's attention obligations
- * Nothing here has a default value. A source that fails to load says so; it
- * never falls back to a plausible number, and the screen shows no percentages,
- * no charts and no aggregate ("הוצאות היום") that the product cannot compute.
+ *   THE DAY        what came in through Dubiz today, hour by hour, and the
+ *                  month it sits inside. The business's own voice.
+ *   THE SECRETARY  what needs the owner. Her own slot, her own objects.
+ *   DUBIZ          the three families — quiet, last, never competing with the
+ *                  live state above them.
  *
- * NAVIGATION — every destination comes from `lib/navigation/home-routes.ts` and
- * is proven to resolve by `npm run verify:home-routes`. There is no `href="#"`
- * and no empty handler on this screen. A counter reading 0 stays a link: it
- * opens the (empty) list, which is an answer.
+ * WHAT HOME IS NOT: a dashboard. There is no counter grid, no feature banner,
+ * no fixed quick action ("+" owns creation), no "all tools" gateway, and no
+ * fact stated four times. Each fact appears once, at the level where it means
+ * something.
  *
- * COLOUR — the `.dzhome` custom properties below are carried over from main
- * unchanged, including the `--brand` value. The three group cards carry their
- * own deep tones (teal · wine · navy), scoped to the cards. The audit
- * found that it differs from the platform `--dz-brand`; reconciling the two is
- * explicitly out of scope here, and is reported rather than fixed.
+ * TRUTH: every figure carries its own load state. LOADING ≠ FAILED ≠ ZERO — a
+ * source that failed says so and never renders as ₪0, and a real zero renders
+ * as a real zero.
  */
 
-/* --------------------------------------------------------------- types -- */
+export type HomeIdentity = "dubiz" | "business";
 
-export type HomeCounter = {
-  key: string;
-  label: string;
-  value: CounterValue;
-  href: string;
-  /** Qualifier under the figure, when the figure's window needs naming. */
-  note?: string;
-};
-
-export type HomeGroupView = {
-  key: ToolGroupKey;
-  label: string;
-  href: string;
-  status: GroupStatus | null;
-};
-
-export type HomeSecretaryView = {
-  label: string;
-  /** The verdict, or `null` while it is loading. */
-  verdict: VerdictView | null;
-  /** True when the briefing request failed — shows the retry, not a guess. */
-  failed: boolean;
-};
+export type HomeOverdueView =
+  | { state: "loading" }
+  | { state: "failed" }
+  | { state: "ready"; amount: number; customers: number };
 
 export type HomeView = {
-  greeting: string;
-  subGreeting: string;
-  /** First letter of the owner's (or business's) name, for the top bar. */
-  initial: string;
-  secretary: HomeSecretaryView;
-  counters: HomeCounter[];
-  groups: HomeGroupView[];
-  /** `null` while loading. Never `[]` unless the day genuinely has no dates. */
-  today: TodayRow[] | null;
-  /**
-   * The briefing failed, so we do NOT know whether the day is empty. Kept
-   * apart from `today: []` on purpose: "nothing is due" and "I could not find
-   * out what is due" are different claims, and only one of them is ours to
-   * make when the request failed.
-   */
-  todayFailed: boolean;
-  notifications: { href: string; hasUnread: boolean };
+  businessName: string;
+  /** The business logo, when one is configured. */
+  businessLogoDataUrl: string | null;
+  day: HomeDayView;
+  nav: DayNavigation;
+  /** null while loading, or when the briefing / status could not be read. */
+  objects: AttentionObject[] | null;
+  objectsFailed: boolean;
+  watching: number;
+  overdue: HomeOverdueView;
+  loading: boolean;
 };
 
-/* --------------------------------------------------------------- icons -- */
-
-function IconBell() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></svg>
-  );
-}
-
-function IconChevron() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6l-6 6 6 6" /></svg>
-  );
-}
-
-function IconPerson() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8.5" r="3.6" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></svg>
-  );
-}
-
-/** Group glyphs — invoice and box reused, unchanged, from the tool strip. */
-function IconInvoice() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6M9 13h6M9 17h4" /></svg>
-  );
-}
-
-function IconPeople() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="8.5" r="3.3" /><path d="M3 19.5a6 6 0 0 1 12 0" /><path d="M15.5 5.4a3.3 3.3 0 0 1 0 6.2M17.5 14.2a6 6 0 0 1 3.5 5.3" /></svg>
-  );
-}
-
-function IconBox() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M4 7.5l8 4.5 8-4.5M12 12v9" /></svg>
-  );
-}
-
-/*
- * Decorative line drawings, one per group. Pure SVG, no raster assets; they
- * are aria-hidden and the first thing to go when the card gets narrow.
- */
-function ArtMoney() {
-  return (
-    <svg viewBox="0 0 96 68" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 6h30l10 10v44a3 3 0 0 1-3 3H22a3 3 0 0 1-3-3V9a3 3 0 0 1 3-3z" />
-      <path d="M52 6v10h10M27 26h20M27 34h26M27 42h14" />
-      <circle cx="68" cy="48" r="13" />
-      <path d="M62.5 48.5l4 4 7.5-8" />
-    </svg>
-  );
-}
-
-function ArtCustomers() {
-  return (
-    <svg viewBox="0 0 96 68" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="30" y="6" width="54" height="34" rx="6" />
-      <circle cx="44" cy="20" r="5" />
-      <path d="M55 17h20M55 25h13" />
-      <rect x="12" y="26" width="54" height="34" rx="6" />
-      <circle cx="26" cy="40" r="5" />
-      <path d="M18 53a8 8 0 0 1 16 0M40 37h18M40 45h12" />
-    </svg>
-  );
-}
-
-function ArtOperations() {
-  return (
-    <svg viewBox="0 0 96 68" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M30 34l14 8v16l-14 8-14-8V42z" />
-      <path d="M16 42l14 8 14-8M30 50v16" />
-      <path d="M58 34l14 8v16l-14 8-14-8" />
-      <path d="M44 42l14 8 14-8M58 50v16" />
-      <path d="M44 10l14 8v16l-14 8-14-8V18z" />
-      <path d="M30 18l14 8 14-8M44 26v16" />
-    </svg>
-  );
-}
-
-/**
- * Home-only presentation of the three groups. The titles are the Home card
- * names; /tools keeps its own group headings (`TOOL_GROUPS[].label`). Each
- * line names only tools that really live in that group on /tools — nothing
- * without a route ("הוצאות", "יומן") and nothing from another group.
- */
-const GROUP_CARD: Record<
-  ToolGroupKey,
-  { title: string; blurb: string; Icon: () => ReactNode; Art: () => ReactNode }
-> = {
-  money: {
-    title: "כסף וחשבוניות",
-    blurb: "חשבוניות, גבייה, מסמכים והצעות מחיר",
-    Icon: IconInvoice,
-    Art: ArtMoney,
-  },
-  customers: {
-    title: "לקוחות ומכירות",
-    blurb: "לקוחות, לידים, שיחות וקופונים",
-    Icon: IconPeople,
-    Art: ArtCustomers,
-  },
-  operations: {
-    title: "ניהול העסק",
-    // U+00A0 binds "מזכירת תשלומים" so it never breaks across lines.
-    blurb: "מלאי, ספקים, מזכירת\u00a0תשלומים וחיבורים",
-    Icon: IconBox,
-    Art: ArtOperations,
-  },
-};
-
-/* ------------------------------------------------------------ sections -- */
-
-function SectionTitle({ children }: { children: ReactNode }) {
-  return <h2 className="sttl">{children}</h2>;
-}
-
-/**
- * The secretary — the loudest element on the screen, and the only one that
- * states a conclusion. The whole card is the link to `/attention`, so the
- * exception engine is one tap from Home in every state. The CTA inside is a
- * span rather than a nested button for exactly that reason; it carries the
- * platform's own primary-action tokens, not a new button variant.
- */
-function SecretaryCard({
-  secretary,
-  onRetry,
+export function HomeScreen({
+  view,
+  identity,
+  onIdentityChange,
 }: {
-  secretary: HomeSecretaryView;
-  onRetry: () => void;
+  view: HomeView;
+  identity: HomeIdentity;
+  onIdentityChange: (next: HomeIdentity) => void;
 }) {
-  if (secretary.failed) {
-    return (
-      <section className="seccard sec-failed" aria-live="polite">
-        <div className="srow">
-          <span className="sav">
-            <Image src="/secretary-avatar.jpg" alt="" width={64} height={64} priority />
-          </span>
-          <div className="stx">
-            <div className="lb">{secretary.label}</div>
-            <div className="hi">לא הצלחתי לטעון את מצב היום</div>
-          </div>
-        </div>
-        <p className="smsg">
-          זו תקלת טעינה אצלי, לא מצב של העסק. לא אנחש לך ורדיקט.
-        </p>
-        <div className="sfoot">
-          <button type="button" className="dzcta dzcta-quiet" onClick={onRetry}>
-            נסה שוב
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const objects = view.objects ?? [];
+  const label = useMemo(() => dayLabel(view.nav.offset), [view.nav.offset]);
+  const canShowBusinessLogo = Boolean(view.businessLogoDataUrl);
+  const showingBusiness = identity === "business" && canShowBusinessLogo;
+
+  return (
+    <main className="dzhome" data-page-intent="content" dir="rtl">
+      <style>{HOME_CSS}</style>
+      <div className="w">
+        {/* Settings on the left, identity centred, the business under it. */}
+        <header className="top">
+          <Link href={HOME_ROUTES.settings} className="gear" aria-label="הגדרות">
+            <GearGlyph />
+          </Link>
+          <button
+            type="button"
+            className="ident"
+            onClick={() => setSheetOpen(true)}
+            aria-haspopup="dialog"
+            aria-label="הזהות שמוצגת כאן"
+          >
+            {showingBusiness ? (
+              // eslint-disable-next-line @next/next/no-img-element -- a data: URL the business already owns; the image optimiser has nothing to fetch.
+              <img className="ident-logo" src={view.businessLogoDataUrl ?? ""} alt="" />
+            ) : (
+              <DubizLogo height={18} />
+            )}
           </button>
-        </div>
-      </section>
-    );
-  }
+          <span className="gear ghost" aria-hidden />
+        </header>
+        <p className="bizname">{view.businessName}</p>
 
-  if (!secretary.verdict) {
-    return (
-      <section className="seccard" aria-busy="true">
-        <div className="srow">
-          <span className="sav sav-sk" />
-          <div className="stx" style={{ flex: 1 }}>
-            <span className="sk sk-lb" />
-            <span className="sk sk-hi" />
+        {/* LAYER 1 — the day */}
+        <section className="day" aria-label="נגבה דרך Dubiz">
+          <div className="daynav">
+            <button type="button" className="dn" onClick={view.nav.goEarlier} aria-label="היום הקודם">
+              ›
+            </button>
+            <span className="dn-t">{label.short}</span>
+            <button
+              type="button"
+              className="dn"
+              onClick={view.nav.goLater}
+              disabled={view.nav.offset === 0}
+              aria-label="היום הבא"
+            >
+              ‹
+            </button>
+            {view.nav.offset !== 0 ? (
+              <button type="button" className="dn-today" onClick={view.nav.goToday}>
+                חזרה להיום
+              </button>
+            ) : null}
           </div>
+
+          <p className="day-l">{label.title}</p>
+          <DayAmount day={view.day} />
+          <HourGraph day={view.day} />
+          <FinancialContext day={view.day} overdue={view.overdue} />
+        </section>
+
+        {/* "עוד היום" describes TODAY; an earlier day must not imply it. */}
+        {view.nav.offset === 0 ? <Activity day={view.day} /> : null}
+
+        {/* LAYER 2 — the Secretary */}
+        <section className="sec" aria-label="המזכירה — מה צריך אותך">
+          <div className="sec-head">
+            <span className="por">
+              {view.loading ? (
+                <span className="sk" style={{ width: "100%", height: "100%", borderRadius: "50%" }} />
+              ) : (
+                <Image src="/secretary-avatar.jpg" alt="" width={36} height={36} />
+              )}
+            </span>
+            <span className="sec-name">המזכירה</span>
+            {!view.loading && objects.length > 0 ? (
+              <span className="sec-ctx">
+                {objects.length === 1 ? "דבר אחד" : `${objects.length} דברים`}
+              </span>
+            ) : null}
+            <span className="sec-rule" aria-hidden />
+          </div>
+          <Attention view={view} />
+        </section>
+
+        {/* LAYER 3 — the product */}
+        <section className="dz" aria-labelledby="dz-h">
+          <h2 id="dz-h">בדוביז</h2>
+          <ul>
+            {TOOL_GROUPS.map((group) => (
+              <li key={group.key}>
+                <FamilyRow group={group} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+
+      {sheetOpen ? (
+        <IdentitySheet
+          identity={identity}
+          hasBusinessLogo={canShowBusinessLogo}
+          onChoose={(next) => {
+            onIdentityChange(next);
+            setSheetOpen(false);
+          }}
+          onClose={() => setSheetOpen(false)}
+        />
+      ) : null}
+    </main>
+  );
+}
+
+/* ----------------------------------------------------------- the day -- */
+
+function DayAmount({ day }: { day: HomeDayView }) {
+  if (day.state === "loading") return <span className="sk" style={{ width: 180, height: 44, margin: "4px 0" }} />;
+  if (day.state === "failed") return <p className="day-off">נתוני הגבייה לא נטענו כרגע</p>;
+  return (
+    <p className="day-amt">
+      {formatAmount(String(day.total), "ILS")}
+      {day.count > 0 ? (
+        <span className="day-n">{day.count === 1 ? "תשלום אחד" : `${day.count} תשלומים`}</span>
+      ) : null}
+    </p>
+  );
+}
+
+/**
+ * Hourly BUCKETS, not a cumulative line.
+ *
+ * With a handful of payments a day, a bar at 09:00 says "a payment came in at
+ * nine". A cumulative curve would draw a continuous climb across hours in which
+ * nothing happened, implying activity the business did not have. Anchors at
+ * 00 / 06 / 12 / 18 / 24 only — this is the business's day, not an analytics
+ * screen. On today, hours that have not arrived yet are drawn fainter, so an
+ * empty evening reads as "not yet" instead of "nothing".
+ */
+function HourGraph({ day }: { day: HomeDayView }) {
+  if (day.state === "loading") return <span className="sk" style={{ display: "block", height: 74, borderRadius: 10 }} />;
+  if (day.state === "failed") return <div className="hg empty" aria-hidden />;
+  const max = Math.max(...day.hours, 1);
+  const empty = day.total === 0;
+  return (
+    <div className="hg">
+      <div
+        className="hg-bars"
+        role="img"
+        aria-label={empty ? "אין גבייה ביום הזה" : `גבייה לפי שעות: ${formatAmount(String(day.total), "ILS")}`}
+      >
+        {day.hours.map((value, hour) => (
+          <span
+            key={hour}
+            className={`hg-b${value > 0 ? " on" : ""}${day.elapsedHours !== null && hour > day.elapsedHours ? " ahead" : ""}`}
+            style={value > 0 ? { height: `${Math.max(8, (value / max) * 100)}%` } : undefined}
+          />
+        ))}
+      </div>
+      <div className="hg-ax" aria-hidden>
+        <span>00</span>
+        <span>06</span>
+        <span>12</span>
+        <span>18</span>
+        <span>24</span>
+      </div>
+      {empty ? <p className="hg-none">לא נגבה כסף ביום הזה דרך Dubiz.</p> : null}
+    </div>
+  );
+}
+
+/**
+ * FINANCIAL CONTEXT — the numbers read first, the words explain them.
+ *
+ * Two figure groups with a hairline between them and a semantic rule above
+ * each. Secondary to the day's own amount by size and weight; never a KPI grid.
+ */
+function FinancialContext({ day, overdue }: { day: HomeDayView; overdue: HomeOverdueView }) {
+  if (day.state === "loading" || overdue.state === "loading") {
+    return (
+      <div className="fc" aria-busy="true">
+        <span className="sk" style={{ width: "80%", height: 46 }} />
+        <span className="sk" style={{ width: "80%", height: 46 }} />
+      </div>
+    );
+  }
+  const month = day.state === "ready" ? day.month : null;
+  const showOverdue = overdue.state === "ready" && overdue.amount > 0;
+  if (!month && !showOverdue) return null;
+  return (
+    <div className="fc">
+      {month ? (
+        <Link href={HOME_ROUTES.collectionCenter} className="fc-g">
+          <span className="fc-rule" style={{ background: toneOfEntity("collection").ink }} aria-hidden />
+          <span className="fc-n">
+            {formatAmount(String(month.amount), "ILS")}
+            {month.changePct !== null ? (
+              <span className={`fc-tr${month.changePct >= 0 ? "" : " down"}`}>
+                {month.changePct >= 0 ? "+" : "−"}
+                {Math.abs(month.changePct)}%
+              </span>
+            ) : null}
+          </span>
+          <span className="fc-l">
+            {month.changePct !== null ? "נגבה החודש · מול החודש שעבר" : "נגבה החודש"}
+          </span>
+        </Link>
+      ) : null}
+      {overdue.state === "ready" && overdue.amount > 0 ? (
+        <Link href={HOME_ROUTES.collectionCenter} className="fc-g">
+          <span className="fc-rule" style={{ background: toneOfEntity("invoice").ink }} aria-hidden />
+          <span className="fc-n">
+            {formatAmount(String(overdue.amount), "ILS")}
+            <span className="fc-sub">
+              {overdue.customers === 1 ? "לקוח אחד" : `${overdue.customers} לקוחות`}
+            </span>
+          </span>
+          <span className="fc-l">בחשבוניות באיחור</span>
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+/** What else happened today — each fact as its own small entity object. */
+function Activity({ day }: { day: HomeDayView }) {
+  if (day.state !== "ready" || !day.activity) return null;
+  const items: { key: string; entity: string; label: string; href: string }[] = [];
+  if (day.activity.invoicesIssued > 0) {
+    items.push({
+      key: "invoices",
+      entity: "invoice",
+      label:
+        day.activity.invoicesIssued === 1
+          ? "חשבונית הופקה"
+          : `${day.activity.invoicesIssued} חשבוניות הופקו`,
+      href: "/billing",
+    });
+  }
+  if (day.activity.newLeads > 0) {
+    items.push({
+      key: "leads",
+      entity: "leads",
+      label: day.activity.newLeads === 1 ? "ליד חדש" : `${day.activity.newLeads} לידים חדשים`,
+      href: "/leads",
+    });
+  }
+  if (items.length === 0) return null;
+  return (
+    <div className="act">
+      <span className="act-l">עוד היום</span>
+      {items.map((item) => {
+        const tone = toneOfEntity(item.entity);
+        return (
+          <Link key={item.key} href={item.href} className="act-o" style={{ background: tone.tint }}>
+            <EntityIcon entity={item.entity} size={22} />
+            <span style={{ color: tone.ink }}>{item.label}</span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------- secretary -- */
+
+function Attention({ view }: { view: HomeView }) {
+  if (view.objectsFailed) return <p className="sec-quiet">לא הצלחתי לבדוק כרגע מה מחכה לך.</p>;
+
+  if (view.loading || view.objects === null) {
+    return (
+      <div className="stage" aria-busy="true">
+        <span className="slab" style={{ background: toneOfEntity("payables").solid }} aria-hidden />
+        <div className="obj sk-obj">
+          <span className="sk" style={{ width: 120, height: 12 }} />
+          <span className="sk" style={{ width: "65%", height: 22 }} />
+          <span className="sk" style={{ width: 130, height: 30 }} />
         </div>
-        <span className="sk sk-msg" />
-        <div className="sfoot">
-          <span className="sk sk-cta" />
-        </div>
-      </section>
+      </div>
     );
   }
 
-  const { badge, sentence, ctaLabel, tone } = secretary.verdict;
+  if (view.objects.length === 0) {
+    return (
+      <Link href={HOME_ROUTES.secretary} className="calm">
+        <EntityIcon entity="collection" size={32} />
+        <span>
+          <b>אין היום משהו שמחכה לך.</b>
+          {view.watching > 0 ? (
+            <span>
+              {view.watching === 1
+                ? "אני משגיחה על התחייבות אחת."
+                : `אני משגיחה על ${view.watching} התחייבויות.`}
+            </span>
+          ) : null}
+        </span>
+      </Link>
+    );
+  }
+
+  const [primary, ...rest] = view.objects;
+  const support = rest.slice(0, 2);
+  // What is left over is linked to its OWNER, not to one convenient page: the
+  // Secretary holds obligations, the exception list holds everything else.
+  // Sending both to /attention was the original defect — it pointed at a page
+  // that does not contain an obligation.
+  const overflow = rest.slice(support.length);
+  const moreObligations = overflow.filter((o) => o.kind === 'obligation').length;
+  const moreExceptions = overflow.length - moreObligations;
 
   return (
-    <Link
-      href={HOME_ROUTES.attention}
-      className={`seccard seccard-link tone-${tone}`}
-      aria-label={`${badge}. ${sentence} ${ctaLabel}`}
-    >
-      <div className="srow">
-        <span className="sav">
-          <Image src="/secretary-avatar.jpg" alt="" width={64} height={64} priority />
-        </span>
-        <div className="stx">
-          <div className="lb">{secretary.label}</div>
-          <span className={`sbadge sbadge-${tone}`}>{badge}</span>
-        </div>
-      </div>
+    <>
+      <PrimaryObject object={primary} />
+      {support.length ? (
+        <ul className="sup">
+          {support.map((object) => {
+            const tone = toneOfEntity(object.entity);
+            return (
+              <li key={object.key}>
+                {/* Equal priority ⇒ identical geometry; only the colour differs. */}
+                <Link href={object.href} className="slip" style={{ background: tone.tint }}>
+                  <span className="slip-top">
+                    <EntityIcon entity={object.entity} size={20} />
+                    <span className="slip-k" style={{ color: tone.ink }}>
+                      {object.kindWord}
+                    </span>
+                  </span>
+                  <span className="slip-t">{object.title}</span>
+                  <span className="slip-m">
+                    {object.amount ? <b>{object.amount}</b> : null}
+                    {object.chip ? <span> {object.chip.label}</span> : null}
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {moreObligations > 0 ? (
+        <Link href={HOME_ROUTES.secretaryToday} className="more">
+          ועוד {moreObligations} אצל המזכירה ›
+        </Link>
+      ) : null}
+      {moreExceptions > 0 ? (
+        <Link href={HOME_ROUTES.attention} className="more">
+          ועוד {moreExceptions} שדורשים תשומת לב ›
+        </Link>
+      ) : null}
+    </>
+  );
+}
 
-      <p className="smsg">{sentence}</p>
-
-      <div className="sfoot">
-        <span className="dzcta">
-          {ctaLabel}
-          <span className="dzcta-arrow" aria-hidden>
-            <IconChevron />
+function PrimaryObject({ object }: { object: AttentionObject }) {
+  const tone = toneOfEntity(object.entity);
+  const chipTone = object.chip?.urgent ? URGENT : tone;
+  return (
+    <div className="stage">
+      <span className="slab" style={{ background: tone.solid }} aria-hidden />
+      <Link href={object.href} className={`obj${object.kind === "obligation" ? " torn" : ""}`}>
+        <span className="obj-top">
+          <span className="obj-kind" style={{ color: tone.ink }}>
+            <EntityIcon entity={object.entity} size={22} />
+            {object.kindWord}
           </span>
-        </span>
-      </div>
-    </Link>
-  );
-}
-
-/**
- * One counter, in exactly one of three honest states.
- *
- *   loading → a skeleton the size of the figure. NOT the failure wording: a
- *             request still in flight has not failed, and saying so would be
- *             a claim we have not earned.
- *   ready   → the figure, including a legitimate 0. Zero is an answer.
- *   failed  → "לא נטען", and only then.
- *
- * A value of 0 keeps its link — the empty list is an answer too.
- */
-function CounterTile({ counter }: { counter: HomeCounter }) {
-  const v = counter.value;
-  return (
-    <Link
-      href={counter.href}
-      className="ntile"
-      aria-label={counter.label}
-      aria-busy={v.state === "loading" || undefined}
-    >
-      {v.state === "loading" ? (
-        <span className="nval nval-loading">
-          <span className="sk sk-num" aria-hidden />
-        </span>
-      ) : v.state === "failed" ? (
-        <span className="nval nval-off">לא נטען</span>
-      ) : (
-        <span className="nval">{v.value}</span>
-      )}
-      <span className="nlab">{counter.label}</span>
-      {counter.note ? <span className="nnote">{counter.note}</span> : null}
-    </Link>
-  );
-}
-
-/**
- * One group card. The whole card is the link (no nested controls); the status
- * label from /api/business-status is kept, as a quiet chip under the copy.
- * While that source is loading — or failed — the chip slot holds a skeleton
- * and no words, exactly as the tile it replaces did.
- */
-function GroupCard({ group }: { group: HomeGroupView }) {
-  const { title, blurb, Icon, Art } = GROUP_CARD[group.key];
-  const status = group.status;
-  return (
-    <Link
-      href={group.href}
-      className={`ftile fcard-${group.key}`}
-      aria-label={status ? `${title}. ${blurb}. ${status.label}` : `${title}. ${blurb}`}
-    >
-      <span className="fin">
-        <span className="fic" aria-hidden>
-          <Icon />
-        </span>
-        <span className="ftx">
-          <span className="flab">{title}</span>
-          <span className="fdesc">{blurb}</span>
-          {status ? (
-            <span className={`fstat fstat-${status.tone}`}>
-              <span className="fdot" aria-hidden />
-              {status.label}
+          {object.chip ? (
+            <span className="obj-chip" style={{ background: chipTone.tint, color: chipTone.ink }}>
+              {object.chip.label}
             </span>
+          ) : null}
+        </span>
+        <span className="obj-t">{object.title}</span>
+        <span className="obj-bot">
+          {object.amount ? (
+            <span className="amt">{object.amount}</span>
           ) : (
-            <span className="fstat fstat-loading" aria-hidden>
-              <span className="sk sk-stat" />
-            </span>
+            <span className="obj-meta">{object.meta}</span>
           )}
+          <span className="cta">לטיפול</span>
         </span>
-        <span className="fart" aria-hidden>
-          <Art />
-        </span>
-        <span className="fchev" aria-hidden>
-          <IconChevron />
-        </span>
+        {object.kind === "obligation" ? <TornEdge /> : null}
+      </Link>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ parts -- */
+
+/**
+ * A family: a small cluster of coloured Dubiz icons, the family name, a short
+ * capability line and a way in.
+ *
+ * No counts. A count ("7 כלים") describes our information architecture rather
+ * than what the owner gets, and it goes stale the moment a tool moves. The
+ * icons carry the breadth instead, and the line names exactly those icons.
+ */
+function FamilyRow({ group }: { group: ToolGroup }) {
+  return (
+    <Link href={categoryHref(group)} className="fam">
+      <span className="fam-cl" aria-hidden>
+        {group.icons.map((entity) => (
+          <span key={entity} className="fam-i">
+            <EntityIcon entity={entity} size={24} />
+          </span>
+        ))}
+      </span>
+      <span className="fam-tx">
+        <span className="fam-t">{group.label}</span>
+        <span className="fam-l">{group.capabilityLine}</span>
+      </span>
+      <span className="chev" aria-hidden>
+        ‹
       </span>
     </Link>
   );
 }
 
-function TodaySection({
-  rows,
-  failed,
-}: {
-  rows: TodayRow[] | null;
-  failed: boolean;
-}) {
-  if (failed) {
-    return (
-      <p className="tempty tempty-failed">
-        לא הצלחתי לבדוק אילו מועדים פתוחים היום.
-      </p>
-    );
-  }
-
-  if (rows === null) {
-    return (
-      <div className="tlist" aria-busy="true">
-        <span className="sk sk-row" />
-        <span className="sk sk-row" />
-      </div>
-    );
-  }
-
-  if (rows.length === 0) {
-    return <p className="tempty">אין היום מועדים פתוחים. אני ממשיכה להשגיח.</p>;
-  }
-
-  return (
-    <ul className="tlist">
-      {rows.map((row) => (
-        <li key={row.obligationId}>
-          <Link href={obligationHref(row.obligationId)} className="trow">
-            <span className={`tbadge tbadge-${row.badge}`}>
-              {DUE_BADGE_LABEL[row.badge]}
-            </span>
-            <span className="ttx">
-              <span className="tname">{row.title}</span>
-              <span className="tmeta">{formatDueDate(row.dueAtIso)}</span>
-            </span>
-            <span className="tamt">{formatAmount(row.amount, row.currency)}</span>
-          </Link>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/* --------------------------------------------------------------- screen -- */
-
-export function HomeScreen({
-  view,
-  onRetryVerdict,
-}: {
-  view: HomeView;
-  onRetryVerdict: () => void;
-}) {
-  const {
-    greeting,
-    subGreeting,
-    initial,
-    secretary,
-    counters,
-    groups,
-    today,
-    todayFailed,
-    notifications,
-  } = view;
-
-  return (
-    <main className="dzhome" dir="rtl" data-page-intent="content">
-      <style>{HOME_CSS}</style>
-      <div className="wrap">
-        <header className="top">
-          <Link href={HOME_ROUTES.profile} className="ib avatar" aria-label="החשבון שלי">
-            {initial ? <span className="avin">{initial}</span> : <IconPerson />}
-          </Link>
-
-          <span className="brandmark">
-            <DubizLogo height={22} />
-          </span>
-
-          <Link
-            href={notifications.href}
-            className={`ib bell${notifications.hasUnread ? " has-unread" : ""}`}
-            aria-label={notifications.hasUnread ? "התראות — יש חדשות" : "התראות"}
-          >
-            <IconBell />
-          </Link>
-        </header>
-
-        <div className="greet">
-          <h1 className="ghi">{greeting}</h1>
-          <p className="gsub">{subGreeting}</p>
-        </div>
-
-        <SecretaryCard secretary={secretary} onRetry={onRetryVerdict} />
-
-        <section className="sect">
-          <SectionTitle>היום במספרים</SectionTitle>
-          <div className="ngrid">
-            {counters.map((counter) => (
-              <CounterTile key={counter.key} counter={counter} />
-            ))}
-          </div>
-        </section>
-
-        <section className="sect" aria-label="אזורי העבודה">
-          <div className="fcards">
-            {groups.map((group) => (
-              <GroupCard key={group.key} group={group} />
-            ))}
-          </div>
-        </section>
-
-        <section className="sect">
-          <SectionTitle>היום שלך</SectionTitle>
-          <TodaySection rows={today} failed={todayFailed} />
-        </section>
-      </div>
-    </main>
-  );
-}
-
-/** The groups, in map order, with their status resolved by the page. */
-export function buildGroupViews(
-  resolve: (key: ToolGroupKey) => GroupStatus | null
-): HomeGroupView[] {
-  return TOOL_GROUPS.map((group) => ({
-    key: group.key,
-    label: group.label,
-    href: groupHref(group),
-    status: resolve(group.key),
-  }));
-}
-
 /**
- * Scoped styles, namespaced under `.dzhome`.
+ * The identity choice.
  *
- * The custom-property block is carried over from the screen that shipped on
- * main WITHOUT edits — same values, same names — and does not touch the
- * `--brand` / `--dz-brand` discrepancy the audit recorded. Everything the new
- * sections paint is composed from those existing variables plus the platform's
- * own `--dz-action-*` role tokens for the primary CTA.
- *
- * The staged entrance animation that used to play here is gone: the ratified
- * design language (`docs/dubiz-design-language-v1.md` §4, principle 10) bans
- * entrance animations outright, and these sections are new markup rather than
- * markup being preserved.
+ * NO NEW STORAGE: the logo is the one the business already uploaded for its
+ * invoices (`BusinessProfile.billingLogoDataUrl`), and which identity to show
+ * is remembered per device. A schema column bought nothing here — the choice is
+ * a view preference, not a business fact, and a migration for it would be a
+ * permanent cost for a temporary opinion.
  */
+function IdentitySheet({
+  identity,
+  hasBusinessLogo,
+  onChoose,
+  onClose,
+}: {
+  identity: HomeIdentity;
+  hasBusinessLogo: boolean;
+  onChoose: (next: HomeIdentity) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="sheet" role="dialog" aria-label="הזהות שמוצגת">
+      <div className="sheet-in">
+        <p className="sheet-t">מה יוצג כאן?</p>
+        <button
+          type="button"
+          className={`sheet-o${identity === "dubiz" ? " on" : ""}`}
+          onClick={() => onChoose("dubiz")}
+        >
+          <DubizLogo height={16} /> הלוגו של Dubiz
+        </button>
+        {hasBusinessLogo ? (
+          <button
+            type="button"
+            className={`sheet-o${identity === "business" ? " on" : ""}`}
+            onClick={() => onChoose("business")}
+          >
+            הלוגו של העסק
+          </button>
+        ) : (
+          <p className="sheet-note">עוד לא הועלה לוגו לעסק.</p>
+        )}
+        <Link href="/settings/business" className="sheet-o sheet-link" onClick={onClose}>
+          {hasBusinessLogo ? "החלפת הלוגו של העסק ›" : "העלאת לוגו לעסק ›"}
+        </Link>
+        <button type="button" className="sheet-x" onClick={onClose}>
+          סגירה
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GearGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="#55605a" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="3.1" />
+      <path d="M19.9 14.4a1.7 1.7 0 0 0 .34 1.87l.06.06a2.1 2.1 0 1 1-2.97 2.97l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.55v.17a2.1 2.1 0 1 1-4.2 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2.1 2.1 0 1 1-2.97-2.97l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1.03H2.8a2.1 2.1 0 1 1 0-4.2h.09A1.7 1.7 0 0 0 4.44 8.2a1.7 1.7 0 0 0-.34-1.87l-.06-.06A2.1 2.1 0 1 1 7.01 3.3l.06.06a1.7 1.7 0 0 0 1.87.34h.08A1.7 1.7 0 0 0 10.05 2.2V2.1a2.1 2.1 0 1 1 4.2 0v.09a1.7 1.7 0 0 0 1.03 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2.1 2.1 0 1 1 2.97 2.97l-.06.06a1.7 1.7 0 0 0-.34 1.87v.08a1.7 1.7 0 0 0 1.55 1.03h.17a2.1 2.1 0 1 1 0 4.2h-.09a1.7 1.7 0 0 0-1.55 1.03z" />
+    </svg>
+  );
+}
+
+/** The torn edge that marks an obligation as a physical slip of paper. */
+function TornEdge() {
+  const teeth = 22;
+  const points: string[] = [];
+  for (let i = 0; i <= teeth; i += 1) points.push(`${(i * 100) / teeth},${i % 2 === 0 ? 1 : 7}`);
+  return (
+    <svg className="torn-edge" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden>
+      <polygon points={`0,0 ${points.join(" ")} 100,0`} fill="#fffdf8" />
+      <polyline
+        points={points.join(" ")}
+        fill="none"
+        stroke="#1f2a26"
+        strokeWidth="2"
+        vectorEffect="non-scaling-stroke"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 const HOME_CSS = `
 .dzhome{
-  --bg:#F7F4ED; --card:#FFFFFF; --ink:#2C2A26; --ink2:#8A8478; --hair:#EAE4D7;
-  --brand:#2E7C6E; --brand-d:#1B4A45; --brand-t:#E7F2EF; --brand-t2:#D6E9E3; --brand-l:#5FCEB0;
-  --pos:#3E9A6B; --pos-t:#DEEFE4; --neg:#C4674A; --neg-t:#F6E4DC;
-  --amber:#B8801F; --amber-t:#F8EBD2;
-  --sh:0 1px 2px rgba(70,55,25,.04),0 12px 26px -16px rgba(90,70,35,.2);
-  --hl:inset 0 1px 0 rgba(255,255,255,.7);
-  direction:rtl;
-  min-height:100dvh;
-  color:var(--ink);
-  font-family:var(--font-heebo),'Heebo','Assistant',system-ui,sans-serif;
-  background:radial-gradient(120% 38% at 78% 0%,#F3EFE3,transparent 58%),var(--bg);
-  /* Safe-area contract (Spec v1 §12): the top inset comes ONLY from the
-     shell-published var, never a raw env(). */
-  padding:calc(6px + var(--dz-safe-top,0px)) 20px 18px;
-  -webkit-font-smoothing:antialiased;
+  --ink:#1f2a26; --ink2:#55605a; --teal:#1f4a46; --action:#2f615c;
+  --paper:#f6f3ec; --white:#fffdf8; --hair:rgba(31,42,38,.12);
+  direction:rtl; min-height:100dvh; color:var(--ink); background:var(--paper);
+  font-family:var(--font-heebo),'Heebo',system-ui,sans-serif; -webkit-font-smoothing:antialiased;
 }
-.dzhome .wrap{max-width:480px;margin:0 auto}
-.dzhome a{text-decoration:none;color:inherit;-webkit-tap-highlight-color:transparent}
+.dzhome a{color:inherit;text-decoration:none;-webkit-tap-highlight-color:transparent}
+.dzhome a:focus-visible,.dzhome button:focus-visible{outline:3px solid var(--action);outline-offset:3px;border-radius:12px}
+.dzhome .w{max-width:480px;margin:0 auto;padding:calc(6px + var(--dz-safe-top,0px)) 20px 24px}
+.dzhome .sk{display:block;border-radius:8px;background:rgba(31,42,38,.08)}
 
-/* --- top bar -------------------------------------------------------- */
-.dzhome .top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0 16px}
-.dzhome .ib{width:44px;height:44px;min-width:44px;border-radius:15px;background:rgba(255,255,255,.8);border:1px solid rgba(120,98,64,.12);display:flex;align-items:center;justify-content:center;color:#5c5344;box-shadow:0 6px 14px -10px rgba(90,66,30,.5),var(--hl);flex:0 0 auto}
-.dzhome .ib svg{width:21px;height:21px}
-.dzhome .ib.avatar{background:var(--brand-t);border-color:var(--brand-t2);color:var(--brand-d)}
-.dzhome .avin{font-size:17px;font-weight:700;line-height:1}
-.dzhome .brandmark{display:flex;align-items:center;justify-content:center;flex:1 1 auto;min-width:0}
-.dzhome .ib.bell{position:relative}
-.dzhome .ib.bell.has-unread::after{content:"";position:absolute;top:10px;right:11px;width:8px;height:8px;border-radius:50%;background:var(--neg);border:2px solid #fff}
+/* header: gear · identity · balance */
+.dzhome .top{display:grid;grid-template-columns:44px 1fr 44px;align-items:center;height:44px}
+.dzhome .gear{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;order:3}
+.dzhome .gear svg{width:22px;height:22px}
+.dzhome .gear.ghost{order:1}
+.dzhome .ident{order:2;justify-self:center;display:flex;align-items:center;justify-content:center;min-height:44px;padding:0 10px;border:0;background:none;cursor:pointer}
+.dzhome .ident-logo{max-height:26px;max-width:120px;object-fit:contain;display:block}
+.dzhome .bizname{margin:0 0 10px;text-align:center;font-size:13.5px;font-weight:800;color:var(--ink2)}
 
-/* --- greeting ------------------------------------------------------- */
-.dzhome .greet{padding:0 2px;margin-bottom:16px}
-.dzhome .ghi{font-family:var(--font-rubik),'Rubik',sans-serif;font-weight:700;font-size:23px;letter-spacing:-.015em;line-height:1.2;margin:0;color:var(--brand-d)}
-.dzhome .gsub{font-size:13.5px;color:#6b6353;margin:5px 0 0;line-height:1.5}
+/* the day */
+.dzhome .day{margin-bottom:12px}
+.dzhome .daynav{display:flex;align-items:center;gap:4px;margin-bottom:6px}
+.dzhome .dn{width:44px;height:44px;border-radius:50%;border:0;background:none;color:rgba(31,42,38,.5);font-size:17px;font-weight:800;line-height:1;cursor:pointer}
+.dzhome .dn:disabled{opacity:.3}
+.dzhome .dn-t{font-size:14px;font-weight:800;min-width:84px;text-align:center}
+.dzhome .dn-today{margin-inline-start:auto;min-height:44px;padding:0 12px;border:0;border-radius:999px;background:rgba(31,74,70,.1);color:var(--action);font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}
+.dzhome .day-l{margin:0;font-size:12.5px;font-weight:700;color:var(--ink2)}
+.dzhome .day-amt{display:flex;align-items:baseline;gap:10px;margin:2px 0 4px;font-size:40px;font-weight:800;letter-spacing:-.03em;line-height:1.05;font-variant-numeric:tabular-nums}
+.dzhome .day-n{font-size:13px;font-weight:700;color:var(--ink2);letter-spacing:0}
+.dzhome .day-off{margin:4px 0 8px;font-size:17px;font-weight:700;color:var(--ink2)}
 
-/* --- secretary: the loudest element on the screen -------------------- */
-.dzhome .seccard{position:relative;display:block;padding:18px 18px 16px;margin-bottom:28px;border-radius:26px;
-  background:linear-gradient(155deg,#22544E 0%,#1A4340 55%,#153A3A 100%);
-  box-shadow:0 22px 44px -22px rgba(18,52,52,.75),inset 0 1px 0 rgba(255,255,255,.09);
-  overflow:hidden;color:#EAF7F2}
-.dzhome .seccard::before{content:"";position:absolute;top:-70px;left:-50px;width:210px;height:210px;border-radius:50%;
-  background:radial-gradient(circle,rgba(95,206,176,.26),transparent 68%);pointer-events:none}
-.dzhome .seccard>*{position:relative;z-index:1}
-.dzhome .seccard-link{transition:transform .14s ease}
-.dzhome .seccard-link:active{transform:scale(.995)}
-.dzhome .seccard .srow{display:flex;align-items:center;gap:14px}
-.dzhome .seccard .sav{width:64px;height:64px;border-radius:50%;overflow:hidden;flex:0 0 auto;box-shadow:0 8px 20px -14px rgba(0,0,0,.6);background:rgba(255,255,255,.08)}
-.dzhome .seccard .sav img{width:100%;height:100%;display:block;object-fit:cover}
-.dzhome .seccard .stx{min-width:0}
-.dzhome .seccard .stx .lb{font-size:12px;color:#7FDCC2;font-weight:600}
-.dzhome .seccard .stx .hi{font-family:var(--font-rubik),'Rubik',sans-serif;font-weight:700;font-size:19px;line-height:1.25;margin-top:4px;color:#EAF7F2}
-.dzhome .seccard .smsg{font-family:var(--font-rubik),'Rubik',sans-serif;font-size:19px;font-weight:700;line-height:1.42;letter-spacing:-.015em;color:#EAF7F2;margin:16px 0 0}
-.dzhome .seccard .sfoot{display:flex;justify-content:flex-start;margin-top:18px}
+/* hourly buckets */
+.dzhome .hg{margin-top:2px}
+.dzhome .hg-bars{direction:ltr;display:flex;align-items:flex-end;gap:2px;height:60px;padding-bottom:6px;border-bottom:1.5px solid rgba(31,42,38,.18)}
+.dzhome .hg-b{flex:1;min-width:0;height:4px;border-radius:3px;background:rgba(31,42,38,.09)}
+.dzhome .hg-b.ahead{background:rgba(31,42,38,.045)}
+.dzhome .hg-b.on{background:#1f4a46;border-radius:4px 4px 2px 2px}
+.dzhome .hg.empty .hg-bars{opacity:.4}
+.dzhome .hg-ax{display:flex;justify-content:space-between;margin-top:5px;font-size:10.5px;font-weight:700;color:rgba(31,42,38,.45);font-variant-numeric:tabular-nums;direction:ltr}
+.dzhome .hg-none{margin:8px 0 0;font-size:13px;color:var(--ink2)}
 
-/* State chip — colour is information: it says which of the four states we are
-   in, and nothing on this screen is tinted to look interesting.
-   The ink/ground pairs are the platform's SEMANTIC Mist tokens, not the home's
-   own tints: those tints are ICON colours (#B8801F on #F8EBD2 is ~3.3:1) and
-   would fail AA as 11.5px text. The QA pass measures the rendered contrast
-   rather than trusting this comment. */
-.dzhome .sbadge{display:inline-flex;align-items:center;margin-top:6px;font-size:11.5px;font-weight:700;padding:3px 10px;border-radius:999px;border:1px solid transparent}
-.dzhome .sbadge-calm{background:var(--dz-success-bg);color:var(--dz-success);border-color:var(--dz-success-border)}
-.dzhome .sbadge-busy{background:var(--dz-warning-bg);color:var(--dz-warning);border-color:var(--dz-warning-border)}
-.dzhome .sbadge-critical{background:var(--dz-danger-bg);color:var(--dz-danger);border-color:var(--dz-danger-border)}
-.dzhome .sbadge-settling{background:var(--brand-t);color:var(--brand-d);border-color:var(--brand-t2)}
+/* financial context: the numbers first, one hairline between two groups */
+.dzhome .fc{display:grid;grid-template-columns:1fr 1fr;margin-top:14px}
+.dzhome .fc-g{display:flex;flex-direction:column;gap:2px;min-height:66px;padding:0 14px 2px 10px}
+.dzhome .fc-g+.fc-g{border-inline-start:1px solid var(--hair)}
+.dzhome .fc-g:first-child{padding-inline-start:2px}
+.dzhome .fc-rule{width:26px;height:3px;border-radius:2px;margin-bottom:6px}
+.dzhome .fc-n{display:flex;align-items:baseline;gap:7px;font-size:21px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.dzhome .fc-tr{font-size:13px;font-weight:800;color:#2f615c}
+.dzhome .fc-tr.down{color:#9A5240}
+.dzhome .fc-sub{font-size:12px;font-weight:700;color:var(--ink2)}
+.dzhome .fc-l{font-size:11.5px;font-weight:600;color:var(--ink2);line-height:1.35;text-wrap:balance}
 
-/* Primary action — the platform's own role tokens, not a new variant.
-   Rendered as a span because the whole card is the link (one tap target).
-   No hex fallback: these are declared on :root in app/dubiz-mist.css, which is
-   loaded app-wide. A fallback is a second copy of a colour that can drift —
-   which is how a CTA once ended up painting nothing at 1.03:1. */
-.dzhome .dzcta{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 20px;border-radius:14px;
-  background:var(--dz-action-primary);color:var(--dz-action-primary-text);
-  box-shadow:var(--dz-action-primary-shadow);
-  font-family:inherit;font-size:15px;font-weight:600;border:none;cursor:pointer;line-height:1.15}
-.dzhome .dzcta-arrow{display:inline-flex;width:14px;height:14px}
-.dzhome .dzcta-arrow svg{width:14px;height:14px}
-.dzhome .dzcta-quiet{background:rgba(255,255,255,.12);color:#EAF7F2;box-shadow:none;border:1px solid rgba(255,255,255,.2)}
-.dzhome .sec-failed .smsg{font-family:inherit;font-size:13.5px;font-weight:500;color:#7FDCC2;margin-top:12px}
+/* what else happened today: small entity objects, not a sentence */
+.dzhome .act{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0 14px}
+.dzhome .act-l{font-size:11.5px;font-weight:800;color:var(--ink2);margin-inline-end:2px}
+.dzhome .act-o{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 13px 0 11px;border-radius:12px;font-size:13.5px;font-weight:800}
 
-/* --- section heads --------------------------------------------------- */
-.dzhome .sect{margin-bottom:26px}
-.dzhome .sttl{font-size:14.5px;font-weight:700;margin:0 2px 12px;color:var(--ink)}
+/* secretary */
+.dzhome .sec{margin-bottom:20px}
+.dzhome .sec-head{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.dzhome .por{width:36px;height:36px;border-radius:50%;overflow:hidden;flex:0 0 auto;box-shadow:0 0 0 1.5px var(--ink)}
+.dzhome .por img{width:100%;height:100%;object-fit:cover;display:block}
+.dzhome .sec-name{font-size:13.5px;font-weight:800}
+.dzhome .sec-ctx{font-size:12.5px;font-weight:700;color:var(--ink2)}
+.dzhome .sec-rule{flex:1;height:1.5px;background:rgba(31,42,38,.25);border-radius:2px}
+.dzhome .sec-quiet{margin:0;font-size:14px;color:var(--ink2)}
+.dzhome .calm{display:flex;align-items:center;gap:12px;padding:2px}
+.dzhome .calm span{display:flex;flex-direction:column;gap:3px}
+.dzhome .calm b{font-size:17px;font-weight:800}
+.dzhome .calm span span{font-size:13.5px;color:var(--ink2);font-weight:600}
 
-/* --- היום במספרים: four counters, no percentages, no money aggregate -- */
-.dzhome .ngrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.dzhome .ntile{display:flex;flex-direction:column;gap:3px;min-height:88px;padding:14px;border-radius:18px;
-  background:var(--card);border:1px solid var(--hair);box-shadow:var(--sh);transition:transform .14s ease}
-.dzhome .ntile:active{transform:scale(.99)}
-.dzhome .nval{font-family:var(--font-rubik),'Rubik',sans-serif;font-size:26px;font-weight:700;line-height:1.05;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums}
-.dzhome .nval-off{font-family:inherit;font-size:13px;font-weight:600;color:#6b6353;line-height:1.6}
-.dzhome .nval-loading{display:flex;align-items:center;height:27px}
-.dzhome .sk-num{width:46px;height:22px;border-radius:8px;background:rgba(0,0,0,.06)}
-.dzhome .nlab{font-size:12.5px;font-weight:600;color:#6b6353;line-height:1.35}
-.dzhome .nnote{font-size:11px;color:#6b6353;line-height:1.35}
+.dzhome .stage{position:relative;margin:0 0 16px 12px}
+.dzhome .slab{position:absolute;inset:16px -12px -12px 20px;border-radius:16px}
+.dzhome .obj{position:relative;display:flex;flex-direction:column;gap:8px;padding:13px 15px 15px;background:var(--white);border:2px solid var(--ink);border-radius:12px}
+.dzhome .obj.torn{border-bottom:none;border-radius:12px 12px 0 0;margin-bottom:8px}
+.dzhome .sk-obj{min-height:126px}
+.dzhome .torn-edge{position:absolute;left:-2px;right:-2px;bottom:-8px;width:calc(100% + 4px);height:8px}
+.dzhome .obj-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.dzhome .obj-kind{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:800}
+.dzhome .obj-chip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:800}
+.dzhome .obj-t{font-size:18px;font-weight:800;line-height:1.25}
+.dzhome .obj-bot{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-top:2px}
+.dzhome .amt{font-size:30px;font-weight:800;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums}
+.dzhome .obj-meta{font-size:14px;color:var(--ink2)}
+.dzhome .cta{display:inline-flex;align-items:center;height:44px;padding:0 20px;border-radius:12px;background:var(--action);color:#fffdf8;font-size:15px;font-weight:800}
 
-/* --- group cards: three wide cards, each with its own deep tone -------- */
-/* Each card sets four local properties and the shared rules paint from them,
-   so the three tones stay one family: same geometry, same light, same depth.
-   All text on them is near-white; the QA pass measures it against every
-   gradient stop rather than trusting this comment. */
-.dzhome .fcards{display:flex;flex-direction:column;gap:10px}
-.dzhome .fcard-money{--fc-a:#1E5A4D;--fc-b:#113A32;--fc-glow:rgba(118,214,178,.24);--fc-ink:#CDEFE1}
-.dzhome .fcard-customers{--fc-a:#6A2B3A;--fc-b:#431A25;--fc-glow:rgba(236,152,170,.22);--fc-ink:#F4D4DB}
-.dzhome .fcard-operations{--fc-a:#2A4562;--fc-b:#172A40;--fc-glow:rgba(142,178,224,.24);--fc-ink:#D2E0F1}
-.dzhome .ftile{position:relative;display:block;container-type:inline-size;border-radius:22px;overflow:hidden;
-  color:#fff;border:1px solid rgba(255,255,255,.07);
-  background:radial-gradient(90% 130% at 0% 0%,var(--fc-glow),transparent 60%),linear-gradient(135deg,var(--fc-a) 0%,var(--fc-b) 100%);
-  box-shadow:0 16px 30px -22px rgba(22,30,40,.6),inset 0 1px 0 rgba(255,255,255,.09);
-  transition:transform .14s ease,box-shadow .14s ease}
-.dzhome .ftile:active{transform:scale(.99)}
-.dzhome .ftile:focus-visible{outline:3px solid var(--brand);outline-offset:3px}
-@media (hover:hover){
-  .dzhome .ftile:hover{transform:translateY(-1px);box-shadow:0 20px 34px -22px rgba(22,30,40,.7),inset 0 1px 0 rgba(255,255,255,.09)}
-}
-/* RTL grid: icon (right) · text · art · chevron (left). The art column is
-   auto-sized, so hiding the art gives its width straight back to the text. */
-.dzhome .fin{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;column-gap:14px;min-height:98px;padding:16px 16px 16px 14px}
-.dzhome .fic{width:46px;height:46px;border-radius:15px;display:flex;align-items:center;justify-content:center;color:var(--fc-ink);
-  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
-.dzhome .fic svg{width:23px;height:23px}
-.dzhome .ftx{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0}
-.dzhome .flab{font-family:var(--font-rubik),'Rubik',sans-serif;font-size:17px;font-weight:700;line-height:1.25;letter-spacing:-.01em;color:#fff}
-.dzhome .fdesc{font-size:12.5px;font-weight:500;line-height:1.45;color:rgba(255,255,255,.8);text-wrap:balance}
-.dzhome .fstat{display:inline-flex;align-items:center;gap:6px;margin-top:7px;padding:3px 9px 3px 10px;border-radius:999px;
-  font-size:11.5px;font-weight:600;line-height:1.35;color:rgba(255,255,255,.92);background:rgba(255,255,255,.1)}
-.dzhome .fdot{width:6px;height:6px;border-radius:50%;flex:0 0 auto}
-.dzhome .fstat-clear .fdot{background:#8EDDB9}
-.dzhome .fstat-review .fdot{background:#F3C46A}
-.dzhome .fstat-urgent{background:rgba(255,255,255,.16)}
-.dzhome .fstat-urgent .fdot{background:#FF9C86;box-shadow:0 0 0 3px rgba(255,156,134,.22)}
-.dzhome .fstat-loading{background:none;padding:0}
-.dzhome .sk-stat{width:74px;height:20px;border-radius:999px;background:rgba(255,255,255,.1)}
-.dzhome .fart{display:none;width:84px;color:var(--fc-ink);opacity:.34}
-.dzhome .fart svg{display:block;width:84px;height:60px}
-.dzhome .fchev{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-  color:rgba(255,255,255,.9);background:rgba(255,255,255,.1)}
-.dzhome .fchev svg{width:15px;height:15px}
-/* The art only appears when the card itself has room for it — a container
-   query, so it holds at any viewport and in the desktop three-up row. */
-@container (min-width:360px){
-  .dzhome .fart{display:block}
-}
+/* EQUAL PRIORITY ⇒ EQUAL GEOMETRY: one height, one padding, one radius. */
+.dzhome .sup{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:stretch}
+.dzhome .sup li{display:flex}
+.dzhome .slip{flex:1;display:flex;flex-direction:column;gap:4px;height:96px;padding:11px 12px;border-radius:14px;box-sizing:border-box}
+.dzhome .slip-top{display:flex;align-items:center;gap:7px}
+.dzhome .slip-k{font-size:11.5px;font-weight:800}
+.dzhome .slip-t{font-size:13.5px;font-weight:800;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.dzhome .slip-m{font-size:12.5px;font-weight:600;margin-top:auto}
+.dzhome .slip-m b{font-weight:800}
+.dzhome .more{display:inline-flex;align-items:center;min-height:44px;margin-top:2px;font-size:13.5px;font-weight:700;color:var(--action)}
 
-/* --- היום שלך -------------------------------------------------------- */
-.dzhome .tlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
-.dzhome .trow{display:flex;align-items:center;gap:11px;min-height:60px;padding:11px 14px;border-radius:16px;
-  background:var(--card);border:1px solid var(--hair);box-shadow:var(--sh)}
-.dzhome .trow:active{transform:scale(.995)}
-.dzhome .tbadge{flex:0 0 auto;font-size:11px;font-weight:700;padding:4px 9px;border-radius:999px}
-.dzhome .tbadge-late{background:var(--dz-danger-bg);color:var(--dz-danger)}
-.dzhome .tbadge-today{background:var(--dz-warning-bg);color:var(--dz-warning)}
-.dzhome .tbadge-tomorrow{background:var(--brand-t);color:var(--brand-d)}
-.dzhome .ttx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.dzhome .tname{font-size:14px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dzhome .tmeta{font-size:11.5px;color:#6b6353}
-.dzhome .tamt{flex:0 0 auto;font-family:var(--font-rubik),'Rubik',sans-serif;font-size:15px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
-.dzhome .tempty{font-size:13.5px;color:#6b6353;line-height:1.6;margin:0;padding:2px}
-.dzhome .tempty-failed{color:#6b6353}
+/* families — quiet, and clear of the accessibility button */
+.dzhome .dz{padding-inline-end:62px}
+.dzhome .dz h2{margin:0 2px 2px;font-size:12px;font-weight:800;color:var(--ink2)}
+.dzhome .dz ul{list-style:none;margin:0;padding:0}
+.dzhome .dz li+li{border-top:1px solid var(--hair)}
+.dzhome .fam{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:13px;min-height:62px;padding:7px 2px}
+.dzhome .fam-cl{display:flex;align-items:center}
+.dzhome .fam-i{display:flex;margin-inline-start:-8px;padding:2px;border-radius:50%;background:var(--paper)}
+.dzhome .fam-i:first-child{margin-inline-start:0}
+.dzhome .fam-tx{display:flex;flex-direction:column;gap:1px;min-width:0}
+.dzhome .fam-t{font-size:15px;font-weight:800}
+.dzhome .fam-l{font-size:12.5px;font-weight:600;color:var(--ink2)}
+.dzhome .chev{font-size:18px;color:rgba(31,42,38,.35);line-height:1}
 
-/* --- skeletons: the size of the thing they stand in for --------------- */
-.dzhome .sk{display:block;border-radius:10px;background:rgba(255,255,255,.14)}
-.dzhome .sav-sk{width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.14);flex:0 0 auto}
-.dzhome .sk-lb{width:88px;height:12px;margin-bottom:8px}
-.dzhome .sk-hi{width:120px;height:20px}
-.dzhome .sk-msg{width:100%;height:46px;margin-top:16px}
-.dzhome .sk-cta{width:150px;height:44px;border-radius:14px}
-.dzhome .sk-row{height:60px;border-radius:16px;background:rgba(0,0,0,.05)}
+/* identity sheet */
+.dzhome .sheet{position:fixed;inset:0;z-index:160;background:rgba(31,42,38,.35);display:flex;align-items:flex-end}
+.dzhome .sheet-in{width:100%;max-width:480px;margin:0 auto;background:var(--white);border-radius:22px 22px 0 0;padding:18px 18px calc(22px + var(--dz-safe-bottom,0px));display:flex;flex-direction:column;gap:8px}
+.dzhome .sheet-t{margin:0 0 4px;font-size:15px;font-weight:800}
+.dzhome .sheet-o{display:flex;align-items:center;gap:10px;min-height:52px;padding:0 14px;border:1.5px solid var(--hair);border-radius:14px;background:var(--paper);font:inherit;font-size:14.5px;font-weight:700;cursor:pointer;text-align:start}
+.dzhome .sheet-o.on{border-color:var(--action);box-shadow:inset 0 0 0 1px var(--action)}
+.dzhome .sheet-note{margin:0;padding:0 4px;font-size:13px;color:var(--ink2)}
+.dzhome .sheet-link{color:var(--action)}
+.dzhome .sheet-x{min-height:48px;border:0;background:none;font:inherit;font-size:14px;font-weight:800;color:var(--ink2);cursor:pointer}
 
-/* ============================================================
-   Adaptive recomposition (Adaptive + Native Spec v1 §22). The 480 column is
-   the MOBILE composition and is unchanged below 768; everything here is
-   additive, at the canonical tiers only (LAYOUT.bp 768 / 1024).
-   ============================================================ */
 @media (min-width:768px){
-  .dzhome .wrap{max-width:600px}
-  /* The shell reserves 32px below the content from this tier up. */
-  .dzhome{min-height:calc(100dvh - 32px)}
-  .dzhome .ngrid{grid-template-columns:repeat(4,minmax(0,1fr))}
-}
-@media (min-width:1024px){
-  .dzhome{padding:calc(6px + var(--dz-safe-top,0px)) 32px 24px}
-  .dzhome .wrap{max-width:960px;display:grid;grid-template-columns:1fr 1fr;column-gap:32px;row-gap:0;align-items:start}
-  .dzhome .wrap>*{grid-column:1 / -1;min-width:0}
-  /* The secretary and the day's numbers are both "where the business stands
-     right now" and read together; pairing them removes a screen of scrolling.
-     In RTL the first grid item takes the inline-start (right) edge, so the
-     reading order stays secretary -> numbers, exactly as on mobile. */
-  .dzhome .wrap>.seccard{grid-column:1;margin-bottom:26px}
-  .dzhome .wrap>.sect:first-of-type{grid-column:2}
-  .dzhome .ngrid{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .dzhome .fcards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+  .dzhome .w{max-width:620px}
 }
 `;

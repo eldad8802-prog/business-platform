@@ -16,6 +16,8 @@ import {
   jerusalemHour,
   daysBetweenDayKeys,
   jerusalemDayKey,
+  jerusalemDayUtcHalfOpen,
+  startOfJerusalemDayUtc,
 } from "@/lib/utils/jerusalem-day";
 
 let checks = 0;
@@ -179,7 +181,39 @@ function main() {
     ok("every hour of a day maps into 0..23", allInRange);
   }
 
+  dayBoundaries();
+
   console.log(`jerusalem-day.verify.test.ts: ok (${checks} checks)`);
+}
+
+function dayBoundaries() {
+  // A boundary must round-trip: the first instant of a day reads as that day,
+  // and one millisecond earlier reads as the day before.
+  for (const key of ["2026-01-01", "2026-03-27", "2026-03-28", "2026-06-15", "2026-10-25", "2026-12-31"]) {
+    const { from, toExclusive } = jerusalemDayUtcHalfOpen(key);
+    eq(`${key}: starts on its own day`, jerusalemDayKey(from), key);
+    eq(`${key}: one ms earlier is the previous day`, jerusalemDayKey(new Date(from.getTime() - 1)), addCalendarDays(key, -1));
+    eq(`${key}: the exclusive end is the next day`, jerusalemDayKey(toExclusive), addCalendarDays(key, 1));
+    eq(`${key}: one ms before the end is still the day`, jerusalemDayKey(new Date(toExclusive.getTime() - 1)), key);
+    eq(`${key}: the day begins at midnight`, jerusalemHour(from), 0);
+  }
+
+  // DST: the spring-forward day is 23 hours long, the autumn day is 25.
+  const hours = (key: string) => {
+    const { from, toExclusive } = jerusalemDayUtcHalfOpen(key);
+    return (toExclusive.getTime() - from.getTime()) / 3_600_000;
+  };
+  eq("an ordinary day is 24 hours", hours("2026-06-15"), 24);
+  eq("the spring-forward day is 23 hours", hours("2026-03-27"), 23);
+  eq("the autumn day is 25 hours", hours("2026-10-25"), 25);
+
+  // Consecutive days must tile with no gap and no overlap.
+  let tiles = true;
+  for (let i = 0; i < 400; i += 1) {
+    const key = addCalendarDays("2026-01-01", i);
+    if (jerusalemDayUtcHalfOpen(key).toExclusive.getTime() !== startOfJerusalemDayUtc(addCalendarDays(key, 1)).getTime()) tiles = false;
+  }
+  ok("400 consecutive days tile exactly", tiles);
 }
 
 main();

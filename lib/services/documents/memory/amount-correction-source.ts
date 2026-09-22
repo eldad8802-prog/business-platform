@@ -6,9 +6,19 @@
  * re-runs the representation engine on the document file). When the ledger is
  * empty (not yet activated) this returns [] and the whole pipeline reports
  * "No Effect" — a valid state.
+ *
+ * M0 — this read is now TENANT-SCOPED and takes an explicit `businessId`.
+ *
+ * It previously selected every `approvedAs: "financial"` ReviewEvent in the database and grouped by
+ * tenant afterwards. Nothing leaked (the caller is an offline runner, and under the least-privilege
+ * runtime role RLS would have returned nothing at all), but the SHAPE was wrong in the way that
+ * matters most for a learning system: a prior is only ever allowed to be built from ONE business's own
+ * history. "Normal for this business" can never be derived from a corpus that spans businesses. Making
+ * the tenant a required argument means that rule is enforced by the type system, not by a convention
+ * downstream code is trusted to remember.
  */
 
-import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import type { AmountScopeKey } from "./amount-memory";
 
 export type RawAmountCorrection = {
@@ -41,19 +51,30 @@ function extractHumanAmount(rawFinal: unknown, verdicts: unknown): number | null
   return null;
 }
 
-export async function loadAmountCorrectionsFromLedger(): Promise<RawAmountCorrection[]> {
-  const reviews = await prisma.reviewEvent.findMany({
-    where: { approvedAs: "financial" },
-    orderBy: { occurredAt: "asc" },
+export async function loadAmountCorrectionsFromLedger(
+  businessId: number,
+): Promise<RawAmountCorrection[]> {
+  const { reviews, snaps } = await tenantTx(businessId, async (tx) => {
+    // The explicit `businessId` predicate is kept alongside the tenant transaction on purpose: the GUC
+    // is the database's guarantee, this is the application's, and a learning corpus should not depend
+    // on exactly one of them being correct.
+    const reviews = await tx.reviewEvent.findMany({
+      where: { businessId, approvedAs: "financial" },
+      orderBy: { occurredAt: "asc" },
+    });
+    if (reviews.length === 0) return { reviews, snaps: [] };
+
+    const docIds = Array.from(new Set(reviews.map((r) => r.documentId)));
+    const snaps = await tx.extractionSnapshot.findMany({
+      where: { businessId, documentId: { in: docIds } },
+      orderBy: { occurredAt: "desc" },
+      select: { documentId: true, documentType: true },
+    });
+    return { reviews, snaps };
   });
+
   if (reviews.length === 0) return [];
 
-  const docIds = Array.from(new Set(reviews.map((r) => r.documentId)));
-  const snaps = await prisma.extractionSnapshot.findMany({
-    where: { documentId: { in: docIds } },
-    orderBy: { occurredAt: "desc" },
-    select: { documentId: true, documentType: true },
-  });
   const docTypeByDoc = new Map<number, string | null>();
   for (const s of snaps) {
     if (!docTypeByDoc.has(s.documentId)) docTypeByDoc.set(s.documentId, s.documentType);

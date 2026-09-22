@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import BackButton from "@/components/ui/back-button";
 import { parseBillingPdfTemplateStyle } from "@/lib/billing/billing-pdf-template-style";
@@ -119,6 +119,7 @@ export default function BillingHubPage() {
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const searchParams = useSearchParams();
   const [createOpen, setCreateOpen] = useState<boolean>(false);
   const [createDocumentType, setCreateDocumentType] = useState<
     "TAX_INVOICE" | "QUOTE"
@@ -283,6 +284,20 @@ export default function BillingHubPage() {
       cancelled = true;
     };
   }, [identityGateOpen]);
+
+  // Arriving from "+" with ?create=1 starts the flow the label promised.
+  // The parameter is consumed immediately so a refresh, or a back-navigation,
+  // does not re-open a modal the owner already dismissed.
+  const createParam = searchParams.get("create");
+  useEffect(() => {
+    if (!createParam) return;
+    const type = createParam === "QUOTE" ? "QUOTE" : "TAX_INVOICE";
+    router.replace("/billing");
+    openCreateFlow(type);
+    // openCreateFlow reads identity state that is settled by the time a user
+    // can act; re-running on every change would re-open the modal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createParam]);
 
   function openCreateFlow(type: "TAX_INVOICE" | "QUOTE") {
     if (billingIdentityOk === false) {

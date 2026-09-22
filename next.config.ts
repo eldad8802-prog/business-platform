@@ -16,6 +16,14 @@ const nextConfig: NextConfig = {
         destination: "/home",
         permanent: true,
       },
+      // The homepage v4 candidate route, retired by the 2026-09-23 cutover:
+      // its content IS `/home` now. Anyone holding a review link lands on the
+      // canonical page instead of a 404, and no second public copy survives.
+      {
+        source: "/home-candidate",
+        destination: "/home",
+        permanent: true,
+      },
     ];
   },
 

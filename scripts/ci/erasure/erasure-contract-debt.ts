@@ -126,6 +126,7 @@ const MODEL_LEVEL: DebtEntry[] = [
   { code: "C13-NEEDS-OWNER-DECISION", key: "BusinessBotRecommendation", why: "E2" },
   { code: "C13-NEEDS-OWNER-DECISION", key: "BusinessBotSettings", why: "E2" },
   { code: "C13-NEEDS-OWNER-DECISION", key: "BusinessBotSetupDraft", why: "E2" },
+  { code: "C13-NEEDS-OWNER-DECISION", key: "BusinessInsight", why: "E2" },
   { code: "C13-NEEDS-OWNER-DECISION", key: "ContentEvent", why: "E2" },
   { code: "C13-NEEDS-OWNER-DECISION", key: "ContentRender", why: "E2" },
   { code: "C13-NEEDS-OWNER-DECISION", key: "ContentRun", why: "E2" },

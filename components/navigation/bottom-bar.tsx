@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -30,6 +30,7 @@ export function BottomBar() {
   const [actionSheetOpen, setActionSheetOpen] = useState(false);
   const [fabPressed, setFabPressed] = useState(false);
   const chromeHidden = useShellChromeHidden();
+  const hasUnread = useUnreadNotifications(pathname);
 
   // A full-screen surface (e.g. a secretary sub-screen/modal) has requested the
   // shell chrome be hidden so its bottom CTA is not covered by the fixed bar.
@@ -91,6 +92,7 @@ export function BottomBar() {
           icon={tabs[0].icon}
           // Home links to "/" but the authenticated home renders at "/app"
           // (via redirect); isNavActive treats both as the active home route.
+          unread={hasUnread && tabs[0].key === "notifications"}
           active={isNavActive(pathname, tabs[0].href)}
           activeColor={activeColor}
           activeBg={activeBg}
@@ -100,6 +102,7 @@ export function BottomBar() {
           href={tabs[1].href}
           label={tabs[1].label}
           icon={tabs[1].icon}
+          unread={hasUnread && tabs[1].key === "notifications"}
           active={isNavActive(pathname, tabs[1].href)}
           activeColor={activeColor}
           activeBg={activeBg}
@@ -164,6 +167,7 @@ export function BottomBar() {
           href={tabs[2].href}
           label={tabs[2].label}
           icon={tabs[2].icon}
+          unread={hasUnread && tabs[2].key === "notifications"}
           active={isNavActive(pathname, tabs[2].href)}
           activeColor={activeColor}
           activeBg={activeBg}
@@ -173,6 +177,7 @@ export function BottomBar() {
           href={tabs[3].href}
           label={tabs[3].label}
           icon={tabs[3].icon}
+          unread={hasUnread && tabs[3].key === "notifications"}
           active={isNavActive(pathname, tabs[3].href)}
           activeColor={activeColor}
           activeBg={activeBg}
@@ -187,11 +192,55 @@ export function BottomBar() {
   );
 }
 
+/**
+ * Whether anything is waiting in the notification centre.
+ *
+ * Read once per navigation rather than polled: the count changes when the
+ * owner reads something, and re-reading on every route change is enough to
+ * clear the dot right after they do. A failure leaves the dot off — a bell
+ * that cries wolf because a request failed is worse than a quiet one.
+ */
+function useUnreadNotifications(pathname: string): boolean {
+  const [hasUnread, setHasUnread] = useState(false);
+
+  useEffect(() => {
+    let token: string | null = null;
+    try {
+      token = localStorage.getItem("token");
+    } catch {
+      token = null;
+    }
+    if (!token) return;
+
+    let cancelled = false;
+    fetch("/api/notifications/unread-count", {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (!cancelled && json && typeof json.unreadCount === "number") {
+          setHasUnread(json.unreadCount > 0);
+        }
+      })
+      .catch(() => {
+        /* The bell stays quiet. */
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  return hasUnread;
+}
+
 function BarLink({
   href,
   label,
   icon: Icon,
   active,
+  unread,
   activeColor,
   activeBg,
   activeRing,
@@ -200,6 +249,7 @@ function BarLink({
   label: string;
   icon: (props: { active: boolean }) => ReactNode;
   active: boolean;
+  unread?: boolean;
   activeColor: string;
   activeBg: string;
   activeRing: string;
@@ -246,6 +296,7 @@ function BarLink({
       >
         <span
           style={{
+            position: "relative",
             display: "flex",
             width: 24,
             height: 24,
@@ -257,6 +308,20 @@ function BarLink({
           aria-hidden
         >
           <Icon active={active} />
+          {unread ? (
+            <span
+              style={{
+                position: "absolute",
+                top: -1,
+                insetInlineEnd: -2,
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: "#eba58f",
+                boxShadow: "0 0 0 2px var(--dz-nav-surface)",
+              }}
+            />
+          ) : null}
         </span>
         <span
           style={{
@@ -274,6 +339,7 @@ function BarLink({
           {label}
         </span>
       </span>
+      {unread ? <span className="sr-only">יש התראות שלא נקראו</span> : null}
     </Link>
   );
 }

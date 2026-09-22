@@ -8,7 +8,8 @@ export type BusinessStatusDomain =
   | "inventory"
   | "billing"
   | "supplier"
-  | "leads";
+  | "leads"
+  | "payables";
 
 /** Semantic taxonomy subset used in MVP */
 export type SemanticCategory =

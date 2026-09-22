@@ -1,5 +1,5 @@
 /**
- * HOMEPAGE v4 — automated QA gate (/home-candidate).
+ * HOMEPAGE v4 — automated QA gate (the public homepage, /home).
  *
  * Written to fail on the defects this page must never ship with:
  *   - a CTA that leads to the closed-registration wall, or more than the two
@@ -23,14 +23,14 @@
  *   PUBLIC_SIGNUP_ENABLED=true  npx next start -p 3148
  *   AUDIT_BASE_URL=http://localhost:3148 EXPECT_SIGNUP=on  node scripts/qa/ui/homepage-candidate.mjs
  *
- * Optional: AUDIT_ROUTE (default /home-candidate), AUDIT_OUT_DIR.
+ * Optional: AUDIT_ROUTE (default /home), AUDIT_OUT_DIR.
  */
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const BASE = process.env.AUDIT_BASE_URL || "http://localhost:3147";
-const ROUTE = process.env.AUDIT_ROUTE || "/home-candidate";
+const ROUTE = process.env.AUDIT_ROUTE || "/home";
 const EXPECT_SIGNUP = (process.env.EXPECT_SIGNUP || "off").toLowerCase();
 const OUT = process.env.AUDIT_OUT_DIR || path.join(process.cwd(), `.homepage-qa-${EXPECT_SIGNUP}`);
 
@@ -169,6 +169,19 @@ async function run() {
       text.includes("התשלומים הקבועים שרשמת מופיעים במזכירה, במסך נפרד.")
     );
     check(`${width} · the card payment is qualified`, text.includes("קישור לתשלום בכרטיס"));
+
+    /* indexability — this is the PUBLIC homepage now, not a noindex candidate */
+    const seo = await page.evaluate(() => ({
+      robots: document.querySelector('meta[name="robots"]')?.getAttribute("content") || "",
+      canonical: document.querySelector('link[rel="canonical"]')?.getAttribute("href") || "",
+      title: document.title,
+      desc: document.querySelector('meta[name="description"]')?.getAttribute("content") || "",
+      h1: [...document.querySelectorAll("main h1")].map((h) => h.textContent.trim()),
+    }));
+    check(`${width} · the page is indexable (no noindex)`, !/noindex/i.test(seo.robots), seo.robots || "(no robots meta)");
+    check(`${width} · one canonical, the apex root`, seo.canonical === "https://promaxgroup.co.il/", seo.canonical);
+    check(`${width} · title and description are public`, seo.title.includes("Dubiz") && seo.desc.length > 60, `${seo.title} | ${seo.desc.length} chars`);
+    check(`${width} · exactly one h1`, seo.h1.length === 1, seo.h1.join(" | "));
     const heavy = await page.evaluate(() =>
       [...document.querySelectorAll("main *")]
         .filter((e) => e.childNodes.length && [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()))

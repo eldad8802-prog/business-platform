@@ -121,10 +121,14 @@ jobs:
         run: |
           set -euo pipefail
           set -a; . ./ops/tenant/collection-qa-tenant.identity.env; set +a
-          EXISTING=$(psql "$DIRECT_URL" --no-psqlrc -tAX \
-            --set=ON_ERROR_STOP=1 \
-            --set=qa_email="$COLLECTION_QA_EMAIL" \
-            -c "SELECT count(*) FROM \"User\" WHERE \"email\" = :'qa_email'")
+
+          # Piped, like every other step here. psql expands :'var' only in input
+          # it READS — a file or stdin — never inside a -c command string, which
+          # it forwards to the server verbatim. Written as -c, this step failed
+          # with a syntax error at ":" and stopped the run before provisioning.
+          EXISTING=$(printf "\\set qa_email '%s'\nSELECT count(*) FROM \"User\" WHERE \"email\" = :'qa_email';\n" \
+            "$COLLECTION_QA_EMAIL" \
+            | psql "$DIRECT_URL" --no-psqlrc -tAX --set=ON_ERROR_STOP=1 -f -)
           echo "users already holding that address: $EXISTING"
           if [ "$EXISTING" != "0" ]; then
             echo "::notice::the QA tenant already exists — this run will insert nothing."

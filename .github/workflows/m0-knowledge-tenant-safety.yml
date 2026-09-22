@@ -1,0 +1,130 @@
+# M0 — Tenant-Safe Knowledge Foundation.
+#
+# This repository already runs 44 database-backed batteries in CI. Not one of them covered the
+# knowledge layer, and that is precisely why the defect survived: 21 Business Memory suites ran green
+# while the read and write paths were both broken in Production, because every one of them injected a
+# fake client and none ever exercised the DEFAULT binding.
+#
+# So this is not a new capability — it is the missing coverage, in the idiom the other 44 established.
+# It runs on every push that touches the knowledge layer, because a guard that runs only on the
+# author's machine would have exactly the blind spot that produced this bug.
+name: m0-knowledge-tenant-safety
+
+on:
+  pull_request:
+    paths:
+      - "lib/business-memory/**"
+      - "lib/tenant/**"
+      - "lib/services/documents/memory/**"
+      - "lib/business-status/**"
+      - "lib/knowledge/**"
+      - "prisma/schema.prisma"
+      - "prisma/migrations/**"
+      - "scripts/ci/tenant-context-guard.sh"
+      - ".m0/**"
+      - ".github/workflows/m0-knowledge-tenant-safety.yml"
+  push:
+    branches: [main]
+    paths:
+      - "lib/business-memory/**"
+      - "lib/tenant/**"
+      - ".m0/**"
+
+permissions:
+  contents: read
+
+jobs:
+  knowledge-tenant-safety:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: lab_owner
+          POSTGRES_PASSWORD: lab_pw
+          POSTGRES_DB: m0_lab
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # A throwaway container that exists for the life of this job. The battery additionally refuses
+      # the Production and Preview endpoints by name, so a mis-set secret cannot point it at real data.
+      M0_ADMIN_URL: postgresql://lab_owner:lab_pw@localhost:5432/m0_lab
+      DATABASE_URL: postgresql://lab_owner:lab_pw@localhost:5432/m0_lab
+      DIRECT_URL: postgresql://lab_owner:lab_pw@localhost:5432/m0_lab
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The static ratchet first: it is cheap, and if the seams have drifted back to the global client
+      # there is no point paying for a database to find out.
+      - name: CI-TC tenant context guard (incl. M0 knowledge checks)
+        run: bash scripts/ci/tenant-context-guard.sh .
+
+      - name: Guard negative proof — the guard must FAIL on the pre-M0 wiring
+        run: |
+          set -euo pipefail
+          cp lib/business-memory/read/coordinator.ts /tmp/coordinator.bak
+          node -e "
+            const fs=require('fs');
+            const p='lib/business-memory/read/coordinator.ts';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('import { tenantTx } from \"@/lib/tenant/tenant-tx\";','import { prisma } from \"@/lib/prisma\";');
+            s=s.replace(/return await tenantTx\(query\.businessId, \(tx\) =>\s*\n\s*readClaim\(query, tx as unknown as ClaimReaderClient\),\s*\n\s*\);/,'return await readClaim(query, prisma as unknown as ClaimReaderClient);');
+            fs.writeFileSync(p,s);
+          "
+          if bash scripts/ci/tenant-context-guard.sh . > /tmp/neg.txt 2>&1; then
+            echo '::error::CI-TC PASSED on the pre-M0 wiring — the guard does not actually detect it.'
+            cat /tmp/neg.txt
+            cp /tmp/coordinator.bak lib/business-memory/read/coordinator.ts
+            exit 1
+          fi
+          grep -q 'FAIL. CI-TC-14' /tmp/neg.txt || {
+            echo '::error::the guard failed, but not on CI-TC-14 — it failed for the wrong reason.'
+            cat /tmp/neg.txt; cp /tmp/coordinator.bak lib/business-memory/read/coordinator.ts; exit 1; }
+          cp /tmp/coordinator.bak lib/business-memory/read/coordinator.ts
+          echo "negative proof held: CI-TC-14 detects the pre-M0 wiring."
+
+      - run: npx prisma generate
+
+      - name: Push the schema into the throwaway lab
+        run: npx prisma db push --skip-generate --accept-data-loss
+
+      - name: Business Memory unit suites (all 21)
+        run: |
+          set -euo pipefail
+          fail=0
+          for t in $(find lib/business-memory -name '*.test.ts' | sort); do
+            if ! npx tsx "$t" > /tmp/o.txt 2>&1; then
+              echo "::error::FAILED $t"; tail -20 /tmp/o.txt; fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ]
+
+      # The battery lives in a dot-directory, which TypeScript globs skip — so it was never checked
+      # and a duplicate declaration reached CI as a runtime transform error. Now it is checked first.
+      - name: Type-check the proof harness
+        run: npx tsc -p .m0/tsconfig.json --noEmit
+
+      - name: M1 L0 fact-layer contracts (pure)
+        run: npx tsx lib/business-status/translators/payables.test.ts
+
+      - name: M2 DOC-04 rule contracts (pure)
+        run: npx tsx lib/knowledge/rules/documents-paperwork-lag.test.ts
+
+      - name: M3 insight composer contracts (pure)
+        run: npx tsx lib/knowledge/insight-composer.test.ts
+
+      - name: M0-M3 knowledge battery (real DB, NOBYPASSRLS role)
+        run: npx tsx .m0/knowledge-tenant-battery.ts

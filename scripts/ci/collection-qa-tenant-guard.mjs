@@ -40,7 +40,18 @@ const DEFAULTS = {
   sql: "ops/tenant/collection-qa-tenant.sql",
   verify: "ops/tenant/collection-qa-tenant-verify.sql",
   identity: "ops/tenant/collection-qa-tenant.identity.env",
+  workflow: ".github/workflows/prod-create-collection-qa-tenant.yml",
+  passwordSql: "ops/tenant/collection-qa-tenant-password.sql",
+  passwordVerify: "ops/tenant/collection-qa-tenant-password-verify.sql",
+  passwordWorkflow: ".github/workflows/prod-set-collection-qa-tenant-password.yml",
 };
+
+/**
+ * The rows provisioning created. Pinned HERE, as the names are, so the repair
+ * cannot be aimed at another account by editing a data file.
+ */
+const APPROVED_BUSINESS_ID = "38";
+const APPROVED_USER_ID = "33";
 
 /**
  * Statements that have no business in either file, whatever the transaction
@@ -83,6 +94,9 @@ function check(label, condition, detail = "") {
     failures.push(detail ? `${label} — ${detail}` : label);
   }
 }
+
+/** The un-prefixed recorder, for helpers that label their own checks. */
+const globalCheck = check;
 
 function parseArgs(argv) {
   const out = { ...DEFAULTS };
@@ -159,7 +173,118 @@ function checkIdentity(path) {
     email.startsWith(`${EMAIL_LOCAL_PREFIX}`),
     `must begin with "${EMAIL_LOCAL_PREFIX}"`
   );
+  check(
+    "business id is the provisioned one",
+    id.COLLECTION_QA_BUSINESS_ID === APPROVED_BUSINESS_ID,
+    `expected ${APPROVED_BUSINESS_ID}`
+  );
+  check(
+    "user id is the provisioned one",
+    id.COLLECTION_QA_USER_ID === APPROVED_USER_ID,
+    `expected ${APPROVED_USER_ID}`
+  );
   return id;
+}
+
+// ---------------------------------------------------------------- password --
+
+/**
+ * The repair statement: one UPDATE, one column, one row.
+ *
+ * This is the only file in the repository allowed to UPDATE a Production row
+ * outside a migration, so its rules are narrower than the provisioning file's,
+ * not looser. In particular the target is pinned four ways — id, address,
+ * business id, business name — and the SET clause may assign exactly one
+ * column. An UPDATE that quietly grew a second assignment is the failure this
+ * refuses, and the negative proof performs it.
+ */
+function checkPasswordSql(path) {
+  const raw = readFileSync(path, "utf8");
+  const sql = stripComments(raw);
+
+  for (const [label, pattern] of FORBIDDEN) {
+    if (label === "UPDATE") continue; // the one statement this file exists for
+    check(`password: no ${label}`, !pattern.test(sql), "forbidden statement found");
+  }
+  check("password: no INSERT", !/\binsert\s+into\b/i.test(sql));
+  check("password: no DELETE", !/\bdelete\s+from\b/i.test(sql));
+
+  check("password: exactly one BEGIN", countOccurrences(sql, /\bbegin\s*;/gi) === 1);
+  check("password: exactly one COMMIT", countOccurrences(sql, /\bcommit\s*;/gi) === 1);
+  check("password: no ROLLBACK", countOccurrences(sql, /\brollback\b/gi) === 0);
+
+  const updates = [...sql.matchAll(/update\s+"([A-Za-z]+)"/gi)].map((m) => m[1]);
+  check("password: exactly one UPDATE", updates.length === 1, `found ${updates.length}`);
+  check('password: the UPDATE targets "User"', updates[0] === "User", String(updates[0]));
+
+  // Everything between SET and the next clause. One assignment, and it is the
+  // credential — "sets exactly one column" is the claim, so it is measured.
+  const setClause = sql.match(/\bset\s+([\s\S]*?)\bfrom\b/i)?.[1] ?? "";
+  const assignments = [...setClause.matchAll(/"([A-Za-z]+)"\s*=/g)].map((m) => m[1]);
+  check(
+    "password: the UPDATE assigns exactly one column",
+    assignments.length === 1,
+    `assigns: ${assignments.join(", ") || "nothing"}`
+  );
+  check(
+    "password: that column is the credential",
+    assignments[0] === "password",
+    String(assignments[0])
+  );
+  check(
+    "password: the credential comes from the bound variable",
+    /"password"\s*=\s*:'qa_password_hash'/.test(sql)
+  );
+
+  // The target, pinned four ways. Any one of these alone would be enough for
+  // the database; together they are enough for a reviewer.
+  check("password: pinned by user id", /u\."id"\s*=\s*:qa_user_id/.test(sql));
+  check("password: pinned by address", /u\."email"\s*=\s*:'qa_email'/.test(sql));
+  check("password: pinned by business id", /u\."businessId"\s*=\s*:qa_business_id/.test(sql));
+  check("password: pinned by business name", /b\."name"\s*=\s*:'qa_business_name'/.test(sql));
+  check(
+    "password: the UPDATE has a WHERE clause",
+    /\bwhere\b/i.test(sql),
+    "an UPDATE without one rewrites the table"
+  );
+  check("password: the row it changed is returned", /\breturning\b/i.test(sql));
+
+  const literals = quotedLiterals(sql);
+  check(
+    "password: no email literal in the file",
+    literals.every((l) => !l.includes("@"))
+  );
+  check(
+    "password: no credential literal in the file",
+    literals.every((l) => !/^\$2[aby]\$/.test(l))
+  );
+}
+
+function checkPasswordVerifySql(path) {
+  const raw = readFileSync(path, "utf8");
+  const sql = stripComments(raw);
+
+  for (const [label, pattern] of FORBIDDEN) {
+    check(`password verify: no ${label}`, !pattern.test(sql));
+  }
+  check("password verify: no INSERT", !/\binsert\s+into\b/i.test(sql));
+  check("password verify: declares READ ONLY", /begin\s+transaction\s+read\s+only\s*;/i.test(sql));
+  check("password verify: ends in ROLLBACK", /\brollback\s*;/i.test(sql));
+  check("password verify: never COMMITs", !/\bcommit\s*;/i.test(sql));
+
+  // The fingerprint proves the value moved; the value itself stays unread.
+  const allowed = [
+    `(u."password" ~ '^\\$2[aby]\\$10\\$')`,
+    `length(u."password")`,
+    `left(md5(u."password"), 8)`,
+  ];
+  let remaining = sql;
+  for (const snippet of allowed) remaining = remaining.split(snippet).join(" ");
+  check(
+    "password verify: the hash is never selected",
+    !/"password"/i.test(remaining),
+    "only its shape, length and fingerprint may be read"
+  );
 }
 
 // ------------------------------------------------------------ provisioning --
@@ -271,6 +396,72 @@ function checkVerifySql(path) {
   );
 }
 
+// ------------------------------------------------------------------ caller --
+
+/**
+ * How the production workflow HANDS the variables to psql.
+ *
+ * This exists because of a real failure: the pre-flight step wrote its query as
+ * `psql -c "... = :'qa_email'"`. psql expands its variables only in input it
+ * READS — a file, or stdin — and forwards a -c string to the server verbatim,
+ * so the server received a literal colon and refused it. The run stopped at
+ * that step, which is the system working, but it stopped a production run over
+ * something a machine can see from here.
+ *
+ * The credential check is the same shape of claim: the hash must arrive on
+ * stdin, never as an argument, because arguments are visible in the process
+ * list of a machine this repository does not own.
+ */
+function checkWorkflow(path, label = "workflow") {
+  const yaml = readFileSync(path, "utf8");
+  const check = (name, condition, detail = "") =>
+    globalCheck(`${label}: ${name}`, condition, detail);
+
+  // Scanned to end of LINE, not to the closing quote: the query is likely to
+  // contain escaped quotes of its own (\"User\"), and a pattern that stops at
+  // the first one walks straight past the defect it is looking for.
+  const dashCWithVariable = [...yaml.matchAll(/-c\s+"[^\n]*:'/g)];
+  check(
+    "no psql -c carries a psql variable",
+    dashCWithVariable.length === 0,
+    "psql expands :'var' only in input it reads — use a piped \\set and -f -"
+  );
+
+  check(
+    "the credential is never passed as an argument",
+    !/--set=qa_password_hash|--body[= ]/.test(yaml),
+    "an argument is visible in the runner's process list"
+  );
+  check(
+    "the credential reaches psql through stdin",
+    /printf "\\\\set qa_password_hash/.test(yaml)
+  );
+
+  check(
+    "the production run is manual only",
+    /on:\s*\n\s*workflow_dispatch:/.test(yaml) && !/\bon:\s*\n\s*push:/.test(yaml)
+  );
+  check(
+    "the production run is gated on the protected environment",
+    /environment:\s*production-db/.test(yaml)
+  );
+  check(
+    "the production run asserts the verified host",
+    /ep-flat-brook-am4bhq1y/.test(yaml)
+  );
+  check(
+    "the production run takes no inputs",
+    !/\binputs:/.test(yaml),
+    "an input would make this a generic provisioning tool"
+  );
+  check(
+    "the production run calls this guard before connecting",
+    yaml.indexOf("collection-qa-tenant-guard.mjs") <
+      yaml.indexOf("psql"),
+    "the guard must run before any connection is opened"
+  );
+}
+
 // -------------------------------------------------------------------- main --
 
 function main() {
@@ -279,6 +470,10 @@ function main() {
     checkIdentity(args.identity);
     checkProvisioningSql(args.sql);
     checkVerifySql(args.verify);
+    checkWorkflow(args.workflow, "provision workflow");
+    checkPasswordSql(args.passwordSql);
+    checkPasswordVerifySql(args.passwordVerify);
+    checkWorkflow(args.passwordWorkflow, "password workflow");
   } catch (error) {
     failures.push(`guard could not complete: ${error.message}`);
   }
