@@ -172,10 +172,14 @@ jobs:
             npx prisma db push --skip-generate
           DATABASE_URL="$BASE/p3_migration" DIRECT_URL="$BASE/p3_migration" \
             npx prisma db push --skip-generate
+          # CASCADE: later phases' tables (PaymentPreparation, ExternalTransaction)
+          # hold foreign keys INTO these two. Dropping those FKs in this scratch
+          # database does not touch what is compared below — only the Phase 3
+          # tables' own columns, enums, keys and indexes.
           # Remove what the datamodel created for Phase 3, then let the
           # Production migration build it instead.
           psql "$BASE/p3_migration" -v ON_ERROR_STOP=1 -q -c '
-            DROP TABLE "Cheque"; DROP TABLE "BusinessBankAccount";
+            DROP TABLE "Cheque" CASCADE; DROP TABLE "BusinessBankAccount" CASCADE;
             DROP TYPE "ChequeStatus"; DROP TYPE "ChequeClearedSource";'
           psql "$BASE/p3_migration" -v ON_ERROR_STOP=1 -q -f "$MIG"
 

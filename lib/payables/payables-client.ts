@@ -595,3 +595,252 @@ export const CHEQUE_ADVANCE_LABEL: Partial<Record<ChequeStatus, string>> = {
   DELIVERED: "סמן כנמסר",
   PRESENTED: "סמן כהופקד",
 };
+
+/* ───────── phases 4–6: destinations, prepared payments, bank lines ───────── */
+
+/** A payee account as the browser ever sees it: label, name, last four digits. */
+export type DestinationApi = {
+  id: number;
+  payeeId: number;
+  label: string;
+  beneficiaryName: string;
+  last4: string;
+  masked: string;
+  origin: string;
+  verification: string;
+  isActive: boolean;
+  isDefault: boolean;
+  replacesDestinationId: number | null;
+  note: string | null;
+  createdAt: string;
+};
+
+export type PreparationStatus = "PREPARED" | "APPROVED" | "SUBMITTED" | "COMPLETED" | "FAILED" | "CANCELLED";
+
+export type PreparationApi = {
+  id: number;
+  status: PreparationStatus;
+  amount: string;
+  currency: string;
+  method: string;
+  payee: { id: number | null; name: string };
+  commitment: { id: number; title: string };
+  installment: { id: number; sequence: number; dueAt: string } | null;
+  source: { id: number; label: string; masked: string; isActive: boolean } | null;
+  destination: { id: number; label: string; beneficiaryName: string; masked: string; isActive: boolean; verification: string } | null;
+  reference: string | null;
+  note: string | null;
+  approvedAt: string | null;
+  cancelledAt: string | null;
+  cancellationReason: string | null;
+  completedAt: string | null;
+  completionSource: string | null;
+  paymentId: number | null;
+  executions: Array<{ id: number; provider: string; status: string; providerReference: string | null; failureCode: string | null; requestedAt: string }>;
+  createdAt: string;
+  actions: { approve: boolean; cancel: boolean; reportCompleted: boolean; execute: boolean };
+};
+
+export type BankLineApi = {
+  id: number;
+  source: string;
+  direction: "DEBIT" | "CREDIT";
+  amount: string;
+  currency: string;
+  bookedAt: string;
+  counterpartyName: string | null;
+  reference: string | null;
+  description: string | null;
+  sourceAccount: { id: number; label: string; last4: string } | null;
+  state: "MATCHED" | "OPEN" | "DISMISSED" | "NOT_A_PAYABLE";
+  matchedPayment: { evidenceId: number; paymentId: number; payeeName: string; paymentStatus: string } | null;
+  dismissReason: string | null;
+};
+
+export type BankSuggestionApi = {
+  kind: "PAYMENT" | "INSTALLMENT" | "PREPARATION";
+  id: number;
+  commitmentId: number;
+  commitmentTitle: string;
+  payeeName: string;
+  amount: string;
+  date: string;
+  confidence: Confidence;
+  reasons: string[];
+  installmentId?: number;
+};
+
+export function fetchDestinations(payeeId: number) {
+  return call<{ destinations: DestinationApi[] }>(`/api/payables/destinations?payeeId=${payeeId}`).then((r) => r.destinations);
+}
+
+export function createDestination(body: {
+  payeeId: number;
+  label: string;
+  beneficiaryName: string;
+  bankCode: string;
+  branchCode: string;
+  accountNumber: string;
+  isDefault?: boolean;
+}) {
+  return call<{ destination: DestinationApi; restored: boolean }>("/api/payables/destinations", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function archiveDestination(id: number) {
+  return call<{ destination: DestinationApi }>(`/api/payables/destinations/${id}/archive`, { method: "POST" });
+}
+
+/**
+ * The one call that returns a full account number — for the owner to copy into
+ * their bank app. Audited server-side on every call; never cached.
+ */
+export function revealDestination(id: number) {
+  return call<{
+    destination: DestinationApi;
+    coordinates: { bankCode: string; branchCode: string; accountNumber: string } | null;
+    readable: boolean;
+  }>(`/api/payables/destinations/${id}/reveal`, { method: "POST", cache: "no-store" });
+}
+
+export function linkCommitmentPayee(commitmentId: number, payeeId: number) {
+  return call<{ commitment: unknown }>(`/api/payables/commitments/${commitmentId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ payeeId }),
+  });
+}
+
+export function fetchPreparations(opts: { commitmentId?: number; scope?: "open" | "all" } = {}) {
+  const p = new URLSearchParams({ scope: opts.scope ?? "all" });
+  if (opts.commitmentId) p.set("commitmentId", String(opts.commitmentId));
+  return call<{ preparations: PreparationApi[] }>(`/api/payables/preparations?${p}`).then((r) => r.preparations);
+}
+
+export function preparePayment(body: {
+  commitmentId: number;
+  installmentId?: number | null;
+  amount: string;
+  method: string;
+  destinationId?: number | null;
+  sourceBankAccountId?: number | null;
+  reference?: string | null;
+}) {
+  return call<{ preparation: PreparationApi }>("/api/payables/preparations", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }).then((r) => r.preparation);
+}
+
+export function approvePreparation(id: number) {
+  return call<{ preparation: PreparationApi }>(`/api/payables/preparations/${id}/approve`, { method: "POST" }).then((r) => r.preparation);
+}
+
+export function cancelPreparation(id: number, reason?: string) {
+  return call<{ preparation: PreparationApi }>(`/api/payables/preparations/${id}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ reason: reason ?? null }),
+  }).then((r) => r.preparation);
+}
+
+export function completePreparation(id: number, paidAt: string, externalReference?: string | null) {
+  return call<{ preparation: PreparationApi; unallocated: string; replayed: boolean }>(
+    `/api/payables/preparations/${id}/complete`,
+    { method: "POST", body: JSON.stringify({ paidAt, externalReference: externalReference ?? null }) },
+  );
+}
+
+export function fetchOutboundProviders() {
+  return call<{ providers: Array<{ id: string; displayName: string }>; live: boolean }>("/api/payables/outbound-providers");
+}
+
+export function fetchBankLines(scope: "open" | "all" = "open") {
+  return call<{ lines: BankLineApi[] }>(`/api/payables/bank-lines?scope=${scope}`).then((r) => r.lines);
+}
+
+export function recordBankLine(body: {
+  clientKey: string;
+  bookedAt: string;
+  amount: string;
+  direction: "DEBIT" | "CREDIT";
+  counterpartyName?: string | null;
+  reference?: string | null;
+  description?: string | null;
+  sourceBankAccountId?: number | null;
+}) {
+  return call<{ inserted: number; alreadyKnown: number }>("/api/payables/bank-lines", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function uploadBankStatement(csvText: string, sourceBankAccountId?: number | null) {
+  return call<{ inserted: number; alreadyKnown: number; parsed: number; errors: Array<{ lineNumber: number; field: string }> }>(
+    "/api/payables/bank-lines/upload",
+    { method: "POST", body: JSON.stringify({ csvText, sourceBankAccountId: sourceBankAccountId ?? null }) },
+  );
+}
+
+export function fetchBankLineSuggestions(id: number) {
+  return call<{ suggestions: BankSuggestionApi[]; ambiguous: boolean; reason: string | null }>(
+    `/api/payables/bank-lines/${id}/suggestions`,
+  );
+}
+
+export function attachBankLine(id: number, paymentId: number) {
+  return call<{ paymentId: number; createdPayment: boolean }>(`/api/payables/bank-lines/${id}/attach`, {
+    method: "POST",
+    body: JSON.stringify({ paymentId }),
+  });
+}
+
+export function completePreparationFromBankLine(id: number, preparationId: number) {
+  return call<{ paymentId: number; createdPayment: boolean }>(`/api/payables/bank-lines/${id}/complete-preparation`, {
+    method: "POST",
+    body: JSON.stringify({ preparationId }),
+  });
+}
+
+export function recordPaymentFromBankLine(
+  id: number,
+  body: { commitmentId: number; installmentId?: number | null; acknowledgeSimilarPayment?: boolean },
+) {
+  return call<{ paymentId: number; unallocated: string; createdPayment: boolean }>(`/api/payables/bank-lines/${id}/record-payment`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function rejectBankLinePairing(id: number, body: { paymentId?: number | null; installmentId?: number | null }) {
+  return call<{ rejectionId: number | null }>(`/api/payables/bank-lines/${id}/reject`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function dismissBankLine(id: number, reason?: string) {
+  return call<{ dismissed: boolean }>(`/api/payables/bank-lines/${id}/dismiss`, {
+    method: "POST",
+    body: JSON.stringify({ reason: reason ?? null }),
+  });
+}
+
+export function revokeBankEvidence(evidenceId: number) {
+  return call<{ revoked: boolean }>(`/api/payables/bank-evidence/${evidenceId}/revoke`, { method: "POST", body: "{}" });
+}
+
+export const PREPARATION_STATUS_LABEL: Record<PreparationStatus, string> = {
+  PREPARED: "הוכן — ממתין לאישורך",
+  APPROVED: "אושר — טרם בוצע",
+  SUBMITTED: "נשלח לביצוע",
+  COMPLETED: "בוצע",
+  FAILED: "הביצוע נכשל — לא שולם",
+  CANCELLED: "בוטל",
+};
+
+export const COMPLETION_SOURCE_LABEL: Record<string, string> = {
+  OWNER_REPORTED: "לפי דיווחך",
+  BANK_OBSERVED: "לפי שורת בנק שאישרת",
+  PROVIDER_SETTLED: "לפי ספק התשלום",
+};

@@ -247,6 +247,11 @@ model Business {
   payablesMatchRejections PayablesMatchRejection[]
   businessBankAccounts    BusinessBankAccount[]
   cheques                 Cheque[]
+  paymentDestinations     PaymentDestination[]
+  paymentPreparations     PaymentPreparation[]
+  externalTransactions    ExternalTransaction[]
+  externalMatchRejections ExternalTransactionMatchRejection[]
+  outboundExecutions      OutboundExecution[]
 }
 
 model User {
@@ -4305,6 +4310,8 @@ model Payee {
   commitments Commitment[]
   payments    Payment[]
   cheques     Cheque[]
+  destinations PaymentDestination[]
+  preparations PaymentPreparation[]
 
   @@index([businessId, isActive])
   @@index([businessId, taxId])
@@ -4350,6 +4357,7 @@ model Commitment {
   @@index([businessId, legacyObligationId])
   matchRejections PayablesMatchRejection[]
   cheques         Cheque[]
+  preparations    PaymentPreparation[]
 }
 
 /// One scheduled amount due on one date.
@@ -4384,6 +4392,8 @@ model Installment {
   @@index([commitmentId])
   matchRejections PayablesMatchRejection[]
   cheques         Cheque[]
+  preparations    PaymentPreparation[]
+  externalMatchRejections ExternalTransactionMatchRejection[]
 }
 
 /// The economic fact: money left the business.
@@ -4415,6 +4425,9 @@ model Payment {
   payee       Payee?              @relation(fields: [payeeId], references: [id], onDelete: SetNull)
   allocations PaymentAllocation[]
   evidences   PaymentEvidence[]
+  preparations PaymentPreparation[]
+  outboundExecutions OutboundExecution[]
+  externalMatchRejections ExternalTransactionMatchRejection[]
 
   @@unique([businessId, idempotencyKey])
   @@index([businessId, paidAt])
@@ -4492,6 +4505,11 @@ model PaymentEvidence {
   business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
   payment  Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
   document Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  /// Phase 5: the bank / provider line this evidence points at. One active
+  /// evidence per line — a PARTIAL unique index in the migration, same shape
+  /// as the document guard above. Do not regenerate it from the datamodel.
+  externalTransactionId Int?
+  externalTransaction   ExternalTransaction? @relation(fields: [externalTransactionId], references: [id], onDelete: SetNull)
 
   /// DO NOT regenerate this model's indexes from the datamodel.
   ///
@@ -4506,6 +4524,7 @@ model PaymentEvidence {
   @@index([businessId, paymentId])
   @@index([businessId, kind])
   @@index([businessId, documentId])
+  @@index([businessId, externalTransactionId])
 }
 
 /// The owner said NO to a specific pairing, so it stops being suggested.
@@ -4597,6 +4616,8 @@ model BusinessBankAccount {
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   cheques  Cheque[]
+  preparations PaymentPreparation[]
+  externalTransactions ExternalTransaction[]
 
   @@unique([businessId, fingerprint])
   @@index([businessId, isActive])
@@ -4672,6 +4693,256 @@ enum ChequeStatus {
 /// assertion can be represented — deliberately.
 enum ChequeClearedSource {
   OWNER_ASSERTED
+}
+
+/// Where money goes TO (Phase 4). Never where it comes from — that is a
+/// BusinessBankAccount. Same sealed-coordinate contract (§11): ciphertext + IV +
+/// tag + key id, last four digits, keyed fingerprint; no plaintext column.
+///
+/// Unique per PAYEE: two payees of one business may share an account.
+/// `verification` is pinned to NONE by a CHECK — nothing verifies a destination
+/// yet, and no UI may call one "מאומת".
+///
+/// DO NOT regenerate indexes from the datamodel. The migration ships PARTIAL
+/// unique indexes Prisma cannot express: one active default per payee
+/// (`PaymentDestination_one_active_default`) and a non-forking replacement
+/// chain (`PaymentDestination_replaces_key`).
+model PaymentDestination {
+  id                    Int                            @id @default(autoincrement())
+  businessId            Int
+  payeeId               Int
+  kind                  PaymentDestinationKind         @default(IL_BANK_ACCOUNT)
+  label                 String
+  beneficiaryName       String
+  coordinatesEncrypted  String
+  coordinatesIv         String
+  coordinatesTag        String
+  encryptionKeyId       String
+  accountLast4          String
+  fingerprint           String
+  origin                PaymentDestinationOrigin       @default(OWNER_ENTERED)
+  verification          PaymentDestinationVerification @default(NONE)
+  isActive              Boolean                        @default(true)
+  isDefault             Boolean                        @default(false)
+  replacesDestinationId Int?
+  note                  String?
+  createdByUserId       Int?
+  createdAt             DateTime                       @default(now())
+  updatedAt             DateTime                       @updatedAt
+
+  business     Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payee        Payee                @relation(fields: [payeeId], references: [id], onDelete: Cascade)
+  replaces     PaymentDestination?  @relation("DestinationReplacement", fields: [replacesDestinationId], references: [id], onDelete: SetNull)
+  replacedBy   PaymentDestination[] @relation("DestinationReplacement")
+  preparations PaymentPreparation[]
+
+  @@unique([businessId, payeeId, fingerprint])
+  @@index([businessId, fingerprint])
+  @@index([businessId, payeeId, isActive])
+}
+
+/// "הכן תשלום" (Phase 4). An INTENTION, never money: preparing, approving or
+/// cancelling moves nothing and settles nothing. When money has actually moved it
+/// becomes ONE canonical Payment and `paymentId` records which.
+///
+/// Approval freezes a snapshot (`approvalHash`, frozen fingerprints). CHECKs in
+/// the migration: amount > 0; anything approved carries the snapshot; COMPLETED
+/// requires the Payment. `paymentId` is UNIQUE (partial) — one Payment completes
+/// one preparation.
+model PaymentPreparation {
+  id                           Int                      @id @default(autoincrement())
+  businessId                   Int
+  commitmentId                 Int
+  installmentId                Int?
+  payeeId                      Int?
+  payeeNameSnapshot            String
+  amount                       Decimal                  @db.Decimal(18, 2)
+  currency                     String                   @default("ILS")
+  method                       PaymentMethod
+  sourceBankAccountId          Int?
+  destinationId                Int?
+  reference                    String?
+  note                         String?
+  status                       PaymentPreparationStatus @default(PREPARED)
+  approvedAt                   DateTime?
+  approvedByUserId             Int?
+  approvalHash                 String?
+  frozenDestinationFingerprint String?
+  frozenSourceFingerprint      String?
+  cancelledAt                  DateTime?
+  cancelledByUserId            Int?
+  cancellationReason           String?
+  completedAt                  DateTime?
+  completionSource             PaymentCompletionSource?
+  paymentId                    Int?
+  createdByUserId              Int?
+  createdAt                    DateTime                 @default(now())
+  updatedAt                    DateTime                 @updatedAt
+
+  business          Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  commitment        Commitment           @relation(fields: [commitmentId], references: [id], onDelete: Cascade)
+  installment       Installment?         @relation(fields: [installmentId], references: [id], onDelete: SetNull)
+  payee             Payee?               @relation(fields: [payeeId], references: [id], onDelete: SetNull)
+  sourceBankAccount BusinessBankAccount? @relation(fields: [sourceBankAccountId], references: [id], onDelete: Restrict)
+  destination       PaymentDestination?  @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+  payment           Payment?             @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  executions        OutboundExecution[]
+
+  @@index([businessId, status])
+  @@index([businessId, commitmentId])
+  @@index([businessId, installmentId])
+}
+
+/// What the bank or a provider OBSERVED (Phase 5). An observation, never a
+/// payment. Idempotent by (business, source, externalId); its facts are
+/// IMMUTABLE after insert (a trigger in the migration) — only the owner's
+/// dismissal may change. Reconciliation attaches it to an existing Payment as
+/// PaymentEvidence{BANK_TRANSACTION}.
+model ExternalTransaction {
+  id                  Int                          @id @default(autoincrement())
+  businessId          Int
+  source              ExternalTransactionSource
+  externalId          String
+  sourceBankAccountId Int?
+  direction           ExternalTransactionDirection
+  amount              Decimal                      @db.Decimal(18, 2)
+  currency            String                       @default("ILS")
+  bookedAt            DateTime
+  valueDate           DateTime?
+  counterpartyName    String?
+  reference           String?
+  description         String?
+  importBatchId       String?
+  dismissedAt         DateTime?
+  dismissedByUserId   Int?
+  dismissReason       String?
+  createdByUserId     Int?
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+
+  business          Business                           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sourceBankAccount BusinessBankAccount?               @relation(fields: [sourceBankAccountId], references: [id], onDelete: SetNull)
+  evidences         PaymentEvidence[]
+  rejections        ExternalTransactionMatchRejection[]
+
+  @@unique([businessId, source, externalId])
+  @@index([businessId, bookedAt])
+  @@index([businessId, amount])
+}
+
+/// The owner said this bank line is NOT that payment / installment. Scoped to
+/// the pairing, like PayablesMatchRejection. Candidates are never stored.
+model ExternalTransactionMatchRejection {
+  id                    Int      @id @default(autoincrement())
+  businessId            Int
+  externalTransactionId Int
+  paymentId             Int?
+  installmentId         Int?
+  reason                String?
+  rejectedByUserId      Int?
+  createdAt             DateTime @default(now())
+
+  business            Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  externalTransaction ExternalTransaction @relation(fields: [externalTransactionId], references: [id], onDelete: Cascade)
+  payment             Payment?            @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  installment         Installment?        @relation(fields: [installmentId], references: [id], onDelete: Cascade)
+
+  /// The migration also ships a unique index over COALESCEd pairing columns.
+  @@index([businessId, externalTransactionId], map: "ExternalTransactionMatchRejection_business_ext_idx")
+}
+
+/// Asking a provider to move money (Phase 6). Provider-independent: NO outbound
+/// provider is connected today. Idempotent by (business, idempotencyKey); one
+/// live and one settled attempt per preparation (partial unique indexes); only
+/// SETTLED may carry a Payment, and must (CHECK). Acceptance is not settlement.
+model OutboundExecution {
+  id                     Int                     @id @default(autoincrement())
+  businessId             Int
+  preparationId          Int
+  provider               String
+  idempotencyKey         String
+  status                 OutboundExecutionStatus @default(REQUESTED)
+  amount                 Decimal                 @db.Decimal(18, 2)
+  currency               String                  @default("ILS")
+  sourceFingerprint      String?
+  destinationFingerprint String
+  approvalHash           String
+  providerReference      String?
+  providerStatusCode     String?
+  failureCode            String?
+  failureMessage         String?
+  requestedByUserId      Int?
+  requestedAt            DateTime                @default(now())
+  submittedAt            DateTime?
+  acknowledgedAt         DateTime?
+  settledAt              DateTime?
+  failedAt               DateTime?
+  cancelledAt            DateTime?
+  paymentId              Int?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  business    Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  preparation PaymentPreparation @relation(fields: [preparationId], references: [id], onDelete: Cascade)
+  payment     Payment?           @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, status])
+}
+
+enum PaymentDestinationKind {
+  IL_BANK_ACCOUNT
+}
+
+enum PaymentDestinationOrigin {
+  OWNER_ENTERED
+  DOCUMENT_DERIVED
+  PROVIDER_SUPPLIED
+}
+
+/// Pinned to NONE by a CHECK in the migration. The other values exist so a
+/// future verification is a new state, not a reinterpretation of old rows.
+enum PaymentDestinationVerification {
+  NONE
+  MICRO_DEPOSIT
+  PROVIDER_CONFIRMED
+  BANK_CONFIRMED
+}
+
+enum PaymentPreparationStatus {
+  PREPARED
+  APPROVED
+  SUBMITTED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentCompletionSource {
+  OWNER_REPORTED
+  PROVIDER_SETTLED
+  BANK_OBSERVED
+}
+
+enum ExternalTransactionSource {
+  OWNER_ENTRY
+  OWNER_UPLOAD
+  BANK_FEED
+  PROVIDER
+}
+
+enum ExternalTransactionDirection {
+  DEBIT
+  CREDIT
+}
+
+enum OutboundExecutionStatus {
+  REQUESTED
+  SUBMITTED
+  ACKNOWLEDGED
+  SETTLED
+  FAILED
+  CANCELLED
 }
 
 enum PayeeKind {

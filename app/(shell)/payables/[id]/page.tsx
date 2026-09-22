@@ -9,6 +9,8 @@ import {
   cancelInstallment,
   fetchBankAccounts,
   fetchCheques,
+  fetchOutboundProviders,
+  fetchPreparations,
   fetchCommitment,
   formatDate,
   formatMoney,
@@ -17,12 +19,14 @@ import {
   voidPayment,
   type BankAccountApi,
   type ChequeApi,
+  type PreparationApi,
   type CommitmentDetailApi,
   type DerivedState,
   type InstallmentApi,
 } from "@/lib/payables/payables-client";
 import { PAYABLES_THEME } from "../payables-theme";
 import { ChequeCard, ChequeForm } from "../cheque-parts";
+import { PreparationCard, PreparePaymentForm } from "../prepare-parts";
 import styles from "../payables.module.css";
 
 const BADGE_CLASS: Record<DerivedState, string> = {
@@ -62,6 +66,9 @@ export default function CommitmentDetailPage({
   const [cheques, setCheques] = useState<ChequeApi[]>([]);
   const [accounts, setAccounts] = useState<BankAccountApi[]>([]);
   const [showChequeForm, setShowChequeForm] = useState(false);
+  const [preparations, setPreparations] = useState<PreparationApi[]>([]);
+  const [providersLive, setProvidersLive] = useState(false);
+  const [showPrepare, setShowPrepare] = useState(false);
 
   // Every setState for the fetch lives inside the effect, so a response for a
   // commitment the owner has already navigated away from cannot land on the
@@ -79,12 +86,18 @@ export default function CommitmentDetailPage({
       fetchBankAccounts()
         .then((r) => r.accounts)
         .catch(() => [] as BankAccountApi[]),
+      fetchPreparations({ commitmentId, scope: "all" }).catch(() => [] as PreparationApi[]),
+      fetchOutboundProviders()
+        .then((r) => r.live)
+        .catch(() => false),
     ])
-      .then(([d, list, bank]) => {
+      .then(([d, list, bank, preps, live]) => {
         if (cancelled) return;
         setDetail(d);
         setCheques(list);
         setAccounts(bank);
+        setPreparations(preps);
+        setProvidersLive(live);
         setError(null);
       })
       .catch((e) => {
@@ -206,6 +219,52 @@ export default function CommitmentDetailPage({
               <strong>{formatMoney(p.unallocated, detail.currency)}</strong> שלא
               שויכו לאף תשלום. אפשר לשייך אותם בתשלום חדש, או להשאירם כפי שהם.
             </div>
+          ))}
+        </div>
+      )}
+
+      <div className={styles.header}>
+        <h2 className={styles.sectionTitle}>הכן תשלום</h2>
+        {detail.status === "ACTIVE" && (
+          <div className={styles.toolbar}>
+            <button
+              type="button"
+              className={styles.buttonPrimary}
+              onClick={() => setShowPrepare((v) => !v)}
+              aria-expanded={showPrepare}
+            >
+              {showPrepare ? "סגור" : "הכן תשלום"}
+            </button>
+          </div>
+        )}
+      </div>
+      {showPrepare && (
+        <PreparePaymentForm
+          detail={detail}
+          accounts={accounts}
+          onPayeeLinked={() => {
+            setNotice("המוטב נרשם וקושר להתחייבות.");
+            reload();
+          }}
+          onPrepared={() => {
+            setShowPrepare(false);
+            setNotice("התשלום הוכן. עדיין לא שולם דבר — בדוק ואשר.");
+            reload();
+          }}
+        />
+      )}
+      {preparations.length > 0 && (
+        <div className={styles.timeline}>
+          {preparations.map((p) => (
+            <PreparationCard
+              key={p.id}
+              prep={p}
+              providersLive={providersLive}
+              onChanged={(message) => {
+                setNotice(message);
+                reload();
+              }}
+            />
           ))}
         </div>
       )}

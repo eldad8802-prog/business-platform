@@ -94,6 +94,13 @@ export default function PayablesPage() {
           <button
             type="button"
             className={styles.buttonQuiet}
+            onClick={() => router.push("/payables/bank")}
+          >
+            תנועות בנק
+          </button>
+          <button
+            type="button"
+            className={styles.buttonQuiet}
             onClick={() => setScope((s) => (s === "open" ? "all" : "open"))}
           >
             {scope === "open" ? "הצג הכול" : "הצג פתוחות בלבד"}
