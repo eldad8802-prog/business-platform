@@ -70,13 +70,16 @@ jobs:
       - name: No outbound provider is registered for Production
         run: |
           set -euo pipefail
-          # The registry may only contain the test adapter, and only behind its
-          # explicit non-production switch. A real adapter arriving is a reviewed
-          # change to this check, not a silent addition.
-          grep -q "OUTBOUND_TEST_ADAPTER" lib/services/payables/payables-outbound.service.ts
-          if grep -nE "register(Outbound)?Adapter\(" lib/services/payables/*.ts | grep -v "test-adapter\|\.test\.ts"; then
-            echo "::error::an outbound adapter is registered outside the test switch"; exit 1
-          fi
+          F=lib/services/payables/payables-outbound.service.ts
+          # Exactly one registration in the whole payables tree, it is the test
+          # adapter, it sits behind the explicit switch, and it refuses under
+          # NODE_ENV=production. A real adapter arriving is a reviewed change to
+          # this check, never a silent addition.
+          n=$(grep -rn "registry.set(" lib/services/payables | wc -l)
+          [ "$n" = "1" ] || { echo "::error::expected exactly one adapter registration, found $n"; exit 1; }
+          grep -q 'registry.set("test-adapter"' "$F" || { echo "::error::the one registration is not the test adapter"; exit 1; }
+          grep -q 'process.env.OUTBOUND_TEST_ADAPTER !== "1"' "$F" || { echo "::error::test adapter switch missing"; exit 1; }
+          grep -q 'process.env.NODE_ENV === "production"' "$F" || { echo "::error::production refusal missing"; exit 1; }
           echo "OK — no production outbound adapter"
 
   db:

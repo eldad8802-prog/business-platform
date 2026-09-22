@@ -102,6 +102,14 @@ const MODEL_LEVEL: DebtEntry[] = [
   // fingerprint) and the cheques written from it take the same E2 position.
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "BusinessBankAccount", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Cheque", why: "E2" },
+  // Payables Phases 4–6: destinations, prepared payments, bank lines, their
+  // rejections, and outbound executions take the same E2 position as the rest
+  // of the payables family.
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "PaymentDestination", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "PaymentPreparation", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "ExternalTransaction", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "ExternalTransactionMatchRejection", why: "E2" },
+  { code: "C12-UNMANAGED-PERSONAL-DATA", key: "OutboundExecution", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "Deal", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailAddress", why: "E2" },
   { code: "C12-UNMANAGED-PERSONAL-DATA", key: "InboundEmailAttachmentImport", why: "E2" },

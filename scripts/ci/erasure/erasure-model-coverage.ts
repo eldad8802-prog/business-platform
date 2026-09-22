@@ -265,6 +265,15 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   // cheque names its payee as written and carries free-text notes and reasons.
   BusinessBankAccount: unmanaged("encrypted bank coordinates, last4, label and note"),
   Cheque: unmanaged("payeeNameSnapshot, note and cancellationReason"),
+  // Payables, Phases 4–6. A destination is a payee's bank account — for a
+  // person-payee, personal data even though it is only ever sealed. A prepared
+  // payment and an execution name their payee and carry references and notes;
+  // a bank line carries a counterparty name and free-text description.
+  PaymentDestination: unmanaged("beneficiaryName, label, note and the sealed account coordinates"),
+  PaymentPreparation: unmanaged("payeeNameSnapshot, reference, note and cancellationReason"),
+  ExternalTransaction: unmanaged("counterpartyName, description, reference and dismissReason from a bank line"),
+  ExternalTransactionMatchRejection: unmanaged("reason, the owner's free-text note on a rejected pairing"),
+  OutboundExecution: unmanaged("providerReference and failureMessage returned by a provider"),
   Deal: unmanaged("lostReason, and leadId to a partially-scrubbed Lead"),
   Recommendation: unmanaged("title and body, generated about the business"),
   RecommendationOutcome: unmanaged("notes"),

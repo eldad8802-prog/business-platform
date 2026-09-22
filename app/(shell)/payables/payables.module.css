@@ -510,3 +510,25 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* Phase 4 — the prepared-payment summary: who / how much / from / to / for what. */
+.prepGrid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 12px;
+  margin: 10px 0 0;
+  font-size: 14px;
+  min-width: 0;
+}
+
+.prepGrid dt {
+  color: var(--pay-muted);
+  font-weight: 600;
+}
+
+.prepGrid dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--pay-ink);
+  overflow-wrap: anywhere;
+}

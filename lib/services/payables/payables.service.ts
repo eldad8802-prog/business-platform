@@ -81,7 +81,28 @@ export type PayablesAuditType =
   | "CHEQUE_CLEARED_OWNER_ASSERTED"
   | "CHEQUE_BOUNCED"
   | "CHEQUE_CANCELLED"
-  | "CHEQUE_REPLACED";
+  | "CHEQUE_REPLACED"
+  // Phases 4–6. Ids travel in metadata; never coordinates, never fingerprints.
+  | "DESTINATION_CREATED"
+  | "DESTINATION_RESTORED"
+  | "DESTINATION_UPDATED"
+  | "DESTINATION_DEFAULT_SET"
+  | "DESTINATION_ARCHIVED"
+  | "DESTINATION_REPLACED"
+  | "DESTINATION_REVEALED"
+  | "PREPARATION_CREATED"
+  | "PREPARATION_APPROVED"
+  | "PREPARATION_CANCELLED"
+  | "PREPARATION_COMPLETED"
+  | "EXTERNAL_TRANSACTIONS_INGESTED"
+  | "EXTERNAL_TRANSACTION_DISMISSED"
+  | "EXTERNAL_TRANSACTION_ATTACHED"
+  | "EXTERNAL_TRANSACTION_REJECTED"
+  | "EXTERNAL_EVIDENCE_REVOKED"
+  | "EXECUTION_REQUESTED"
+  | "EXECUTION_UPDATED"
+  | "EXECUTION_SETTLED"
+  | "EXECUTION_FAILED";
 
 export async function writeAudit(
   tx: Tx,
@@ -330,7 +351,7 @@ export async function createCommitment(input: CreateCommitmentInput) {
 
 /* ───────────────────────────── derived read model ────────────────────────── */
 
-function toFacts(installment: {
+export function toFacts(installment: {
   scheduledAmount: Prisma.Decimal;
   dueAt: Date;
   status: string;
@@ -553,7 +574,12 @@ function runInCallerTx<T>(tx: Tx, fn: (tx: Tx) => Promise<T>): Promise<T> {
 export async function recordPaymentInTx(
   outerTx: Tx,
   input: RecordManualPaymentInput & {
-    evidence?: { kind: "MANUAL" | "CHEQUE"; note?: string | null };
+    evidence?: {
+      kind: "MANUAL" | "CHEQUE" | "BANK_TRANSACTION" | "PAYMENT_PROVIDER";
+      note?: string | null;
+      /** Phase 5: the observed bank line this Payment is evidenced by. */
+      externalTransactionId?: number | null;
+    };
     auditSummary?: string;
   },
 ) {
@@ -658,6 +684,7 @@ export async function recordPaymentInTx(
         paymentId: payment.id,
         kind: (input.evidence?.kind ?? "MANUAL") as never,
         note: (input.evidence ? input.evidence.note?.trim() : input.note?.trim()) || null,
+        externalTransactionId: input.evidence?.externalTransactionId ?? null,
         assertedByUserId: input.actorUserId ?? null,
       },
     });
