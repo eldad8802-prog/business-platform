@@ -132,10 +132,15 @@ export async function loadCustomerFinancialThread(
     }
 
     for (const r of requests) {
+      // The money is the fact: a request that carries verified money is PAID
+      // whatever its own status says (e.g. cancelled by the owner, then paid
+      // through its link) — and is never offered for sharing or cancelling.
+      const hasVerifiedMoney = r.transactions.some((t) => t.status === "PAID" && t.amount.greaterThan(0));
+      const status = hasVerifiedMoney ? "PAID" : r.status;
       events.push({
         kind: "REQUEST_CREATED", at: r.createdAt.toISOString(), requestId: r.id, amount: dec(r.amount), currency: r.currency,
-        invoiceId: r.billingDocumentId, invoiceNumber: r.billingDocument?.documentNumberFormatted ?? null, status: r.status,
-        paymentUrl: r.status === "PENDING" ? r.paymentUrl : null,
+        invoiceId: r.billingDocumentId, invoiceNumber: r.billingDocument?.documentNumberFormatted ?? null, status,
+        paymentUrl: status === "PENDING" ? r.paymentUrl : null,
       });
       for (const c of r.auditEvents) {
         events.push({ kind: "REQUEST_CANCELLED", at: c.occurredAt.toISOString(), requestId: r.id });
