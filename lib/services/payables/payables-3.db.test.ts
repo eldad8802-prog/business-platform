@@ -325,7 +325,7 @@ async function main(): Promise<void> {
   );
   await rejects(
     "4.1c a cheque cannot have cleared in the future",
-    () => asA(() => cheques.clearCheque({ businessId: A, chequeId: c1.id, clearedAt: new Date(Date.now() + 86400000) })),
+    () => asA(() => cheques.clearCheque({ businessId: A, chequeId: c1.id, clearedAt: new Date(Date.now() + 3 * 86400000) })),
     "in the future",
   );
   const paymentsBefore = await prisma.payment.count({ where: { businessId: A } });

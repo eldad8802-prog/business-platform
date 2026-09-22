@@ -23,8 +23,10 @@ import {
 } from "@/lib/payables/payables-client";
 import styles from "./payables.module.css";
 
+/** Today in the OWNER's calendar — a UTC date is yesterday before 03:00 in Israel. */
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function toIso(date: string): string {

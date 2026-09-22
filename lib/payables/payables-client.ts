@@ -7,6 +7,8 @@
  * the one the owner will believe.
  */
 
+import { buildClientAuthHeaders } from "@/lib/client-session";
+
 export type DerivedState =
   | "SCHEDULED"
   | "DUE"
@@ -108,10 +110,27 @@ export type CommitmentDetailApi = {
   }>;
 };
 
+/**
+ * Every payables route authenticates with the Bearer session token, exactly like
+ * leads, customers and inventory. Before this used `buildClientAuthHeaders` the
+ * browser sent no token at all, so every /api/payables call from the real
+ * screens was a 401 — invisible to the runtime QA, which injected responses at
+ * the network layer and never looked at the request.
+ */
+export function payablesRequestHeaders(extra?: HeadersInit): Record<string, string> {
+  const merged: Record<string, string> = {};
+  new Headers(extra ?? {}).forEach((value, key) => {
+    // Content-Type is set by buildClientAuthHeaders; a lowercase copy here
+    // would reach fetch as a second, comma-joined value.
+    if (key !== "content-type") merged[key] = value;
+  });
+  return buildClientAuthHeaders(merged);
+}
+
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: payablesRequestHeaders(init?.headers),
   });
   const text = await res.text();
   let body: unknown = null;
@@ -119,6 +138,9 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
     body = text ? JSON.parse(text) : null;
   } catch {
     /* a non-JSON body is reported through the status below */
+  }
+  if (res.status === 401) {
+    throw new Error("פג תוקף ההתחברות. יש להתחבר מחדש.");
   }
   if (!res.ok) {
     const message =
