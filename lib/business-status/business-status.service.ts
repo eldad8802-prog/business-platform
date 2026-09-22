@@ -10,6 +10,8 @@ import {
   loadSupplierPurchasesPending,
   loadPayablesOverdue,
   loadPayablesDueSoon,
+  loadBillingStaleDrafts,
+  loadStalePaymentLinks,
 } from "./loaders";
 import { finalizeBusinessStatusItem } from "./priority";
 import { evaluatePaperworkInsight } from "./paperwork-insight";
@@ -30,6 +32,10 @@ import {
   translatePayablesDueSoon,
   translatePayablesOverdue,
 } from "./translators/payables";
+import {
+  translateBillingStaleDrafts,
+  translateStalePaymentLinks,
+} from "./translators/forgotten-money";
 
 /**
  * Read-only aggregation for Business Status MVP v1.
@@ -58,6 +64,8 @@ export async function getBusinessStatusSnapshot(
     leadRows,
     payablesOverdueRows,
     payablesDueSoonRows,
+    staleDraftRows,
+    stalePaymentLinkRows,
     paperworkInsight,
   ] = await Promise.all([
     loadAttentionPendingSuggestions(businessId, excludeConvIds),
@@ -69,6 +77,8 @@ export async function getBusinessStatusSnapshot(
     loadLeadsNeedingAttention(businessId, now),
     loadPayablesOverdue(businessId, now),
     loadPayablesDueSoon(businessId, now),
+    loadBillingStaleDrafts(businessId, now),
+    loadStalePaymentLinks(businessId, now),
     paperworkInsightPromise,
   ]);
 
@@ -83,6 +93,8 @@ export async function getBusinessStatusSnapshot(
     ...translateLeadsNeedingAttention(leadRows, now),
     ...translatePayablesOverdue(payablesOverdueRows, now),
     ...translatePayablesDueSoon(payablesDueSoonRows, now),
+    ...translateBillingStaleDrafts(staleDraftRows, now),
+    ...translateStalePaymentLinks(stalePaymentLinkRows, now),
   ];
 
   const items = builds

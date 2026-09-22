@@ -520,11 +520,11 @@ async function main(): Promise<void> {
   const decided = await recordOwnerDecision(bizA.id, ins!.id, "DISMISSED", actor.id, "כבר טיפלתי בזה");
   check("the owner's decision was recorded", decided.ok === true, decided.reason);
 
-  const after = await owner.businessInsight.findUnique({ where: { id: ins!.id } });
-  check("the decision is DURABLE", after?.status === "DISMISSED");
-  check("the ACTOR is known", after?.ownerDecisionByUserId === actor.id);
-  check("the decision is timestamped", after?.ownerDecisionAt instanceof Date);
-  check("the owner's REASON was captured", after?.ownerDecisionNote === "כבר טיפלתי בזה");
+  const decidedRow = await owner.businessInsight.findUnique({ where: { id: ins!.id } });
+  check("the decision is DURABLE", decidedRow?.status === "DISMISSED");
+  check("the ACTOR is known", decidedRow?.ownerDecisionByUserId === actor.id);
+  check("the decision is timestamped", decidedRow?.ownerDecisionAt instanceof Date);
+  check("the owner's REASON was captured", decidedRow?.ownerDecisionNote === "כבר טיפלתי בזה");
 
   // Regenerating must not resurrect a decided insight — the owner said no, and tomorrow is not a
   // fresh chance to ask again.

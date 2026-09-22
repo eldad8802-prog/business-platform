@@ -32,3 +32,16 @@ export const BS_PAYABLES_DUE_SOON_CAP = 8;
  * would be the first fake-precision in the knowledge layer.
  */
 export const BS_PAYABLES_DUE_SOON_DAYS = 14;
+
+/** M1 — money the owner has already asked for, or nearly. */
+export const BS_BILLING_STALE_DRAFT_CAP = 8;
+export const BS_PAYMENT_LINK_STALE_CAP = 8;
+
+/**
+ * How long something sits before sitting becomes the fact.
+ *
+ * A draft written this morning is work in progress; one from three weeks ago is money the owner
+ * probably meant to bill and forgot. Fourteen days is the point where "in progress" stops being the
+ * likelier explanation — a judgement, openly, because there is no evidence base for it yet.
+ */
+export const BS_STALE_AFTER_DAYS = 14;

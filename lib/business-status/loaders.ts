@@ -54,6 +54,9 @@ import {
   BS_PAYABLES_OVERDUE_CAP,
   BS_PAYABLES_DUE_SOON_CAP,
   BS_PAYABLES_DUE_SOON_DAYS,
+  BS_BILLING_STALE_DRAFT_CAP,
+  BS_PAYMENT_LINK_STALE_CAP,
+  BS_STALE_AFTER_DAYS,
 } from "./limits";
 
 const SNIPPET_MAX = 140;
@@ -659,4 +662,67 @@ export async function loadPayablesDueSoon(
     select: PAYABLE_SELECT,
   })) as PayableRow[];
   return toPayableRaw(rows);
+}
+
+// ── M1 · Money asked for, or nearly, and then forgotten ─────────────────────
+//
+// Both facts are about SITTING. Nothing failed, nothing is wrong — an invoice was started and never
+// issued, or a payment link was sent and never used. They are invisible precisely because nothing
+// happened, which is what makes them worth surfacing and what makes them safe to surface: neither
+// accuses the owner of anything, and both are trivially verifiable.
+
+export type StaleBillingDraftRaw = {
+  id: number;
+  createdAt: Date;
+  customerName: string | null;
+  totalAmount: Prisma.Decimal;
+  currency: string;
+};
+
+/** Drafts that were never issued. DRAFT only — PENDING_REVIEW is someone's queue, not neglect. */
+export async function loadBillingStaleDrafts(
+  businessId: number,
+  now: Date
+): Promise<StaleBillingDraftRaw[]> {
+  const cutoff = new Date(now.getTime() - BS_STALE_AFTER_DAYS * 24 * 60 * 60 * 1000);
+  const rows = await dbStep((db) => db.billingDocument.findMany({
+    where: { businessId, status: BillingDocumentStatus.DRAFT, createdAt: { lt: cutoff } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: BS_BILLING_STALE_DRAFT_CAP,
+    select: { id: true, createdAt: true, customerNameSnapshot: true, totalAmount: true, currency: true },
+  }));
+  return rows.map((r) => ({
+    id: r.id,
+    createdAt: r.createdAt,
+    customerName: r.customerNameSnapshot,
+    totalAmount: r.totalAmount,
+    currency: r.currency,
+  }));
+}
+
+export type StalePaymentLinkRaw = {
+  id: number;
+  createdAt: Date;
+  amount: Prisma.Decimal;
+  currency: string;
+  customerId: number | null;
+};
+
+/**
+ * Payment links still waiting.
+ *
+ * PENDING only. FAILED and EXPIRED are different facts with different answers, and lumping them in
+ * would turn one honest statement into a vague one.
+ */
+export async function loadStalePaymentLinks(
+  businessId: number,
+  now: Date
+): Promise<StalePaymentLinkRaw[]> {
+  const cutoff = new Date(now.getTime() - BS_STALE_AFTER_DAYS * 24 * 60 * 60 * 1000);
+  return dbStep((db) => db.paymentRequest.findMany({
+    where: { businessId, status: "PENDING", createdAt: { lt: cutoff } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: BS_PAYMENT_LINK_STALE_CAP,
+    select: { id: true, createdAt: true, amount: true, currency: true, customerId: true },
+  }));
 }

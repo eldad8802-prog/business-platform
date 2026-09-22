@@ -112,6 +112,11 @@ jobs:
           done
           [ "$fail" -eq 0 ]
 
+      # The battery lives in a dot-directory, which TypeScript globs skip — so it was never checked
+      # and a duplicate declaration reached CI as a runtime transform error. Now it is checked first.
+      - name: Type-check the proof harness
+        run: npx tsc -p .m0/tsconfig.json --noEmit
+
       - name: M1 L0 fact-layer contracts (pure)
         run: npx tsx lib/business-status/translators/payables.test.ts
 

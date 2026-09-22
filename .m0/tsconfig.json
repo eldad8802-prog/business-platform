@@ -1,0 +1,7 @@
+{
+  "_comment": "The battery lives in a dot-directory, which TypeScript's `**/*` globs skip — so the root tsconfig never type-checked it, and a duplicate declaration reached CI as a runtime transform error. This project exists so the proof harness is checked like any other code.",
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "noEmit": true },
+  "include": ["**/*.ts", "../lib/**/*.ts", "../next-env.d.ts"],
+  "exclude": ["../node_modules", "../**/*.test.ts"]
+}
