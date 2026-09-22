@@ -54,6 +54,27 @@ await probe.$disconnect();
 const { derivePaperworkLagForBusiness } = await import("../../lib/knowledge/paperwork-lag.service.js");
 const { generateInsightsForBusiness, listOpenInsights } = await import("../../lib/knowledge/insight.service.js");
 
+const { runWithTenantContext } = await import("../../lib/tenant/context.js");
+const { getBusinessStatusSnapshot } = await import("../../lib/business-status/business-status.service.js");
+
+// M1 — the L0 fact layer, exercised through the SAME loaders the product uses, under the restricted
+// role. Three of those loaders (inventory alerts, leads, supplier drafts) read through the global
+// client until M1 and therefore returned nothing at all under this exact credential. A per-domain
+// count is the shortest honest statement that the silence is over.
+console.log(`
+== M1 · L0 facts for business ${businessId} ==`);
+const snapshot = await runWithTenantContext({ businessId }, () => getBusinessStatusSnapshot(businessId));
+const byDomain: Record<string, number> = {};
+for (const item of snapshot.items) byDomain[item.domain] = (byDomain[item.domain] ?? 0) + 1;
+console.log(
+  JSON.stringify({
+    totalFacts: snapshot.items.length,
+    byDomain,
+    // A fact is a claim about THIS business or it is a bug. Counts only — never the entities.
+    snapshotTenant: snapshot.businessId,
+  }),
+);
+
 console.log(`\n== M2 · deriving DOC-04 for business ${businessId} ==`);
 const measure = await derivePaperworkLagForBusiness(businessId);
 if (measure.kind === "failed") {
