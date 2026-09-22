@@ -1,7 +1,7 @@
-import { AwaitingPaymentScreen } from "@/components/collection/awaiting-payment-screen";
+import { CollectionInboxScreen } from "@/components/collection/inbox/collection-inbox-screen";
 
-export const metadata = { title: "מי חייב לי כסף" };
+export const metadata = { title: "גבייה" };
 
 export default function CollectionPage() {
-  return <AwaitingPaymentScreen />;
+  return <CollectionInboxScreen />;
 }

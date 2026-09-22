@@ -30,7 +30,7 @@ const QUICK_ACTIONS: {
 }[] = [
   { label: "ליד חדש", href: "/leads", icon: "lead" },
   { label: "המזכירה", href: "/secretary", icon: "secretary" },
-  { label: "גבייה", href: "/payments", icon: "payments" },
+  { label: "גבייה", href: "/collection", icon: "payments" },
   { label: "העלאת מסמך", href: "/documents/upload", icon: "upload" },
   { label: "חשבונית חדשה", href: "/billing", icon: "invoice" },
   { label: "שיחה חדשה", href: "/inbox", icon: "chat" },

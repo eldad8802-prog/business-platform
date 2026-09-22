@@ -28,6 +28,8 @@ import type {
 export const PAYMENT_AUDIT_EVENT_TYPES = [
   // M1 — Charge & Request
   "PAYMENT_REQUEST_CREATED",
+  // Collection — the owner stopped asking (the request, never money received).
+  "PAYMENT_REQUEST_CANCELLED",
   // M3 — Provider Connectivity
   "PAYMENT_CONNECTION_UPSERTED",
   // M2 — Settlement & Verification (authority decisions)
@@ -55,6 +57,8 @@ export const PAYMENT_AUDIT_EVENT_TYPES = [
   "PAYMENT_ACCOUNTING_SETTLED",
   "PAYMENT_ACCOUNTING_REQUIRES_ATTENTION",
   "PAYMENT_ACCOUNTING_RETRY_SCHEDULED",
+  // The owner named who paid a verified payment that arrived with no customer.
+  "PAYMENT_ACCOUNTING_CUSTOMER_NAMED",
 ] as const;
 
 export type PaymentAuditEventType = (typeof PAYMENT_AUDIT_EVENT_TYPES)[number];
