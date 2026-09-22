@@ -1,5 +1,7 @@
 # Dubiz — Homepage Final Candidate · Copy Record (V2.1 base)
 
+> **SUPERSEDED (2026-09-22):** הכיוון שהמסמך הזה מתעד נדחה ע"י הבעלים. רשומת הקופי המחייבת עבור `/home-candidate` היא `dubiz-homepage-copy-v3.md`. נשמר כהיסטוריה בלבד.
+
 > **סוג המסמך:** רשומת קופי מחייבת ל-**Final Candidate** (`/home-candidate`). נכתב **לפני** הקוד, לפי חוק *document first → code second*.
 > **בסיס מוצר:** Homepage Prototype **V2.1** (`app/(corporate)/home-prototype/page.tsx`, #342) — החלטת מוצר נעולה.
 > **כפוף ל (מנצחים בכל סתירה):** `dubiz-homepage-pre-copy-gate-v1.md` · `dubiz-homepage-copy-v1.md` · `dubiz-homepage-structural-wireframe-v2.md` · `dubiz-homepage-visual-design-spec-v1.md`.

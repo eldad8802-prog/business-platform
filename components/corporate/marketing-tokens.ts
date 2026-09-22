@@ -50,35 +50,37 @@ export const marketingVars = {
   "--mkt-page": TOKEN.dsv1.canvas,
 
   /*
-   * ── Homepage rhythm (Sage & Sand) and the product stage (Forest) ──────────
-   * Consumed only by the homepage candidate; declaring them here changes
-   * nothing on /about, /contact or the legal pages. Every value is DERIVED from
-   * Dubiz Mist — no new hue enters the system:
+   * ── Homepage v3 palette (D-derived art direction, owner-approved 2026-09-22) ──
+   * Consumed only by the homepage (/home-candidate); declaring them here changes
+   * nothing on /about, /contact or the legal pages.
    *
-   *   cream pigment  the opaque colour behind `--dz-mist-cream*`
-   *                  (rgba(206,178,134,·) in dubiz-mist.css). color-mix in srgb
-   *                  of two opaque colours equals alpha-compositing, so
-   *   sand           = that pigment at 15% over the Mist ground → ≈ #eeebe0,
-   *                  the same strength as `--dz-mist-cream-strong`.
-   *   stage          = `--dz-app-chrome` (#23302b), Mist's own deep forest ink.
-   *
-   * Measured: ink on sand 11.5:1, secondary 5.4:1 (AA). `--dz-text-muted` on
-   * sand is 4.37:1 — so sand is only for sections that do not set muted text.
-   * On the stage: paper 13.1:1, muted-on-stage 7.2:1, the cream marker 6.8:1
-   * (≥ 3:1 non-text, WCAG 1.4.11).
+   * The page is PAPER with a small, compositional colour family — never one
+   * colour per feature. Each hue repeats in different roles and scales:
+   *   teal    — the anchor: the one deep band (leads)
+   *   sage    — calm fields that belong to the Mist UI (collection, the map)
+   *   ochre   — emphasis: the "מסודר." label, offset layers, the invoice
+   *             field, the closing band
+   *   sky     — cool masses behind product objects (hero, documents, today)
+   *   coral   — a single accent label (leads). Never a field.
+   * Ink and action stay the Mist tokens, so product screenshots and marketing
+   * share one text colour and one action colour.
    */
-  "--mkt-cream-pigment": "rgb(206 178 134)",
-  "--mkt-sand": "color-mix(in srgb, var(--mkt-cream-pigment) 15%, var(--dz-background))",
-  "--mkt-stage": "var(--dz-app-chrome)",
-  "--mkt-on-stage": "var(--dz-text-on-brand)",
-  "--mkt-on-stage-muted": "color-mix(in srgb, var(--dz-text-on-brand) 70%, var(--dz-app-chrome))",
-  /** Hairlines and the resting segmented track on the stage. */
-  "--mkt-stage-line": "color-mix(in srgb, var(--dz-text-on-brand) 16%, var(--dz-app-chrome))",
-  "--mkt-stage-track": "color-mix(in srgb, var(--dz-text-on-brand) 8%, var(--dz-app-chrome))",
-  /** The selection marker on the stage — warm, never the action teal. */
-  "--mkt-stage-marker": "var(--mkt-cream-pigment)",
-
-  /** Two radius levels for marketing surfaces: an object, and a control on it. */
-  "--mkt-radius-object": "20px",
-  "--mkt-radius-control": "12px",
+  "--mkt3-paper": "#f6f3ec",
+  "--mkt3-white": "#fffdf8",
+  "--mkt3-ink": "var(--dz-text-primary)",
+  "--mkt3-ink2": "var(--dz-text-secondary)",
+  "--mkt3-action": "var(--dz-action-primary)",
+  "--mkt3-teal": "#1f4a46",
+  "--mkt3-teal-ink": "#0f2d2a",
+  "--mkt3-on-teal": "#fbfaf6",
+  "--mkt3-on-teal2": "#c9d4cf",
+  "--mkt3-sage": "#d3e6dc",
+  "--mkt3-sage2": "#b8d6c7",
+  "--mkt3-ochre": "#f1cc76",
+  "--mkt3-ochre-soft": "#fbf3df",
+  "--mkt3-on-ochre2": "#4d4431",
+  "--mkt3-sky": "#c7dbec",
+  "--mkt3-sky-soft": "#dfeaf4",
+  "--mkt3-coral": "#eba58f",
+  "--mkt3-sand": "#eadcc3",
 } as CSSProperties;
