@@ -1,6 +1,6 @@
 # Dubiz Homepage — copy record v4 (binding)
 
-**Status:** approved story, implemented at `/home-candidate` (noindex). Supersedes
+**Status:** approved story. LIVE as the public homepage at the canonical `/home` since the 2026-09-23 cutover (the apex `/` is rewritten to it; `/home-candidate` and `/corporate-home` are 308s to it). Supersedes
 `docs/dubiz-homepage-copy-v3.md`. Written before the code; the page may contain
 no string that is not here.
 
