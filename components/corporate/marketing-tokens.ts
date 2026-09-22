@@ -48,4 +48,39 @@ export const marketingVars = {
   "--mkt-border": TOKEN.dsv1.line,
   /** Page canvas — DS v1 warm cream. */
   "--mkt-page": TOKEN.dsv1.canvas,
+
+  /*
+   * ── Homepage v3 palette (D-derived art direction, owner-approved 2026-09-22) ──
+   * Consumed only by the homepage (/home-candidate); declaring them here changes
+   * nothing on /about, /contact or the legal pages.
+   *
+   * The page is PAPER with a small, compositional colour family — never one
+   * colour per feature. Each hue repeats in different roles and scales:
+   *   teal    — the anchor: the one deep band (leads)
+   *   sage    — calm fields that belong to the Mist UI (collection, the map)
+   *   ochre   — emphasis: the "מסודר." label, offset layers, the invoice
+   *             field, the closing band
+   *   sky     — cool masses behind product objects (hero, documents, today)
+   *   coral   — a single accent label (leads). Never a field.
+   * Ink and action stay the Mist tokens, so product screenshots and marketing
+   * share one text colour and one action colour.
+   */
+  "--mkt3-paper": "#f6f3ec",
+  "--mkt3-white": "#fffdf8",
+  "--mkt3-ink": "var(--dz-text-primary)",
+  "--mkt3-ink2": "var(--dz-text-secondary)",
+  "--mkt3-action": "var(--dz-action-primary)",
+  "--mkt3-teal": "#1f4a46",
+  "--mkt3-teal-ink": "#0f2d2a",
+  "--mkt3-on-teal": "#fbfaf6",
+  "--mkt3-on-teal2": "#c9d4cf",
+  "--mkt3-sage": "#d3e6dc",
+  "--mkt3-sage2": "#b8d6c7",
+  "--mkt3-ochre": "#f1cc76",
+  "--mkt3-ochre-soft": "#fbf3df",
+  "--mkt3-on-ochre2": "#4d4431",
+  "--mkt3-sky": "#c7dbec",
+  "--mkt3-sky-soft": "#dfeaf4",
+  "--mkt3-coral": "#eba58f",
+  "--mkt3-sand": "#eadcc3",
 } as CSSProperties;

@@ -38,7 +38,7 @@ export function CorporateNav({
             href={link.href}
             onClick={onNavigate}
             aria-current={active ? "page" : undefined}
-            className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
+            className={`inline-flex min-h-[44px] items-center rounded-xl px-3 py-2 text-sm font-semibold transition ${
               active
                 ? "bg-[var(--mkt-soft)] text-[var(--mkt-link)]"
                 : "text-[var(--dz-text-muted)] hover:text-[var(--mkt-ink)]"
