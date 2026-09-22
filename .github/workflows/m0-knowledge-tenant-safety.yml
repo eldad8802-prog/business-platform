@@ -18,6 +18,7 @@ on:
       - "lib/services/documents/memory/**"
       - "lib/business-status/**"
       - "lib/knowledge/**"
+      - "app/api/knowledge/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/**"
       - "scripts/ci/tenant-context-guard.sh"
@@ -125,6 +126,9 @@ jobs:
 
       - name: M3 insight composer contracts (pure)
         run: npx tsx lib/knowledge/insight-composer.test.ts
+
+      - name: Derivation route security contract
+        run: npx tsx lib/knowledge/derive-route.verify.test.ts
 
       - name: M0-M3 knowledge battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/knowledge-tenant-battery.ts
