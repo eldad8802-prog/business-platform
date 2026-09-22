@@ -152,10 +152,22 @@ async function enrich(raw: RawAmountCorrection): Promise<AmountCorrection> {
 
 // ---- main --------------------------------------------------------------------
 async function main(): Promise<void> {
+  // M0 — the ledger read is tenant-scoped, so this runner evaluates ONE business at a time. A prior may
+  // only ever be built from a single business's own corrections; running it across the whole table
+  // would fabricate a cross-business baseline, which is precisely what a learning system must never do.
+  const businessId = Number(process.env.AMOUNT_MEMORY_BUSINESS_ID);
+  if (!Number.isInteger(businessId) || businessId <= 0) {
+    console.error(
+      "AMOUNT_MEMORY_BUSINESS_ID must be a positive integer — this shadow evaluates ONE business.",
+    );
+    process.exit(1);
+  }
+  console.log("businessId under evaluation:", businessId);
+
   // 1. Correction Ledger
   let raw: RawAmountCorrection[] = [];
   try {
-    raw = await loadAmountCorrectionsFromLedger();
+    raw = await loadAmountCorrectionsFromLedger(businessId);
   } catch (e) {
     console.error("ledger read failed (table missing / not activated?):", e instanceof Error ? e.message : e);
   }

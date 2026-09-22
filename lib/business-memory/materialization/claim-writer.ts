@@ -3,8 +3,10 @@
  *
  * Persists ONE validated DerivedClaimResult into exactly one projection slot, atomically. It is the
  * only place that writes Business Memory. It does NOT read canonical evidence, derive, resolve/select a
- * policy version, normalize, touch VendorLearning, or connect to any runtime flow. INERT: no product
- * caller (Materializer pre-impl v1 §21/§23).
+ * policy version, normalize, touch VendorLearning, or add derivation logic of its own.
+ *
+ * WIRED (flag-dark): reached from the approval route via the shadow trigger → Orchestrator, gated by
+ * `BUSINESS_MEMORY_SHADOW`. It writes nothing the product reads.
  *
  * Replace semantics (v2 §13): transactional deleteMany(slot)+cascade, then a nested create — a full
  * replace, no Claim history. Idempotent: replaying the same valid command yields the same logical DB
@@ -14,9 +16,10 @@
  * VALIDATES it exists — it never resolves policyKey→id, never reads current/latest. (Semantic binding
  * of the version to vendor-category/v1 is enforced UPSTREAM by the future Resolver, not here — §5.)
  */
-import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import type {
   ClaimWriterClient,
+  ClaimWriterTx,
   MaterializationCommand,
   MaterializationOutcome,
   ProjectionCreateData,
@@ -25,12 +28,32 @@ import type {
 import { MaterializationRejected, validateCommand } from "./claim-writer.validate";
 
 /**
- * Materialize one DerivedClaimResult. `client` is injectable (default: Prisma) so the Writer is
- * unit-testable with a fake — no real DB required.
+ * The default client is a TENANT transaction, not the bare Prisma singleton.
+ *
+ * D2/P7 — the three DerivedClaim* tables carry FORCE row-level security whose policy reads the
+ * transaction-local GUC `app.current_business_id`. The bare singleton never sets it, so under the
+ * least-privilege runtime role (`app_runtime_prod`, NOBYPASSRLS) the nested create would fail its
+ * `WITH CHECK` and the slot delete would match zero rows. Binding the Writer to `tenantTx` makes the
+ * tenant that `validateCommand` already enforced in the application the same tenant the DATABASE
+ * enforces — the two invariants now agree by construction instead of merely coinciding.
+ *
+ * `tenantTx` re-asserts the context instead of requiring an ambient one, so this is correct both
+ * under the shadow path (which establishes a context) and from a bare caller.
+ */
+function tenantClaimWriterClient(businessId: number): ClaimWriterClient {
+  return {
+    $transaction: <T>(fn: (tx: ClaimWriterTx) => Promise<T>): Promise<T> =>
+      tenantTx(businessId, (tx) => fn(tx as unknown as ClaimWriterTx)),
+  };
+}
+
+/**
+ * Materialize one DerivedClaimResult. `client` is injectable (default: a tenant-scoped transaction)
+ * so the Writer stays unit-testable with a fake — no real DB required.
  */
 export async function materializeClaim(
   command: MaterializationCommand,
-  client: ClaimWriterClient = prisma as unknown as ClaimWriterClient,
+  client: ClaimWriterClient = tenantClaimWriterClient(command?.businessId),
 ): Promise<MaterializationOutcome> {
   // 1) Pure validation BEFORE any mutation (tenant, structural, subset, state consistency).
   validateCommand(command);

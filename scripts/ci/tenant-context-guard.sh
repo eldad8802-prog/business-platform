@@ -33,6 +33,23 @@ ok() {
 # ready for it and cannot drift back.
 PILOT_MODELS="conversation customer appointment billingDocument paymentRequest"
 
+# M0 — the KNOWLEDGE models.
+#
+# Every table below is under FORCE RLS with a policy keyed on `app.current_business_id`, and each one
+# either stores derived knowledge or IS the canonical evidence knowledge is derived from. They are
+# tracked separately from PILOT_MODELS because the failure they produce is worse than an empty list: a
+# knowledge engine that reads no evidence does not error — it concludes "this business has no history"
+# and then stays silent forever, or, if it ever aggregated across the table, builds a baseline out of
+# other businesses' data.
+#
+# This is not hypothetical. The Business Memory read and write paths both ran on the global client from
+# the day they merged. Twenty-one production comparisons reported `absent` and nothing ever failed,
+# because a context-less read under RLS is indistinguishable from "nothing learned yet". CI-TC-1..5
+# could not see it: DerivedClaim* was not a pilot model.
+#
+# A new learning artifact MUST be added here on the day its table receives an RLS policy.
+KNOWLEDGE_MODELS="derivedClaimProjection derivedClaimCandidate derivedClaimEvidenceLink reviewEvent extractionSnapshot extractionEvidence sliceDecision vendorLearning learningEvent"
+
 # Runtime trees that must never touch a pilot model through the global client.
 TENANT_TREES="app lib features components"
 
@@ -209,6 +226,43 @@ ok "CI-TC-11 runtime code never names the owner role" "$([ "$n" -eq 0 ] && echo 
 # --- 12. the admin plane is still allowed to read cross-tenant -------------
 n=$(grep -rc "prisma\." "$ROOT/lib/services/platform-admin/platform-business-detail.service.ts" 2>/dev/null || echo 0)
 ok "CI-TC-12 platform-admin retains its own (non-tenant) read path" "$([ "$n" -ge 1 ] && echo 1 || echo 0)"
+
+# --- 13. KNOWLEDGE tables are never reached through the global client ------
+# The check CI-TC-1..5 could not perform, because these were never pilot models. The Learning Center
+# is exempt: it is the platform-admin analytics surface and reads cross-tenant BY DESIGN through
+# `adminDb()`, which is a different credential (app_admin, SELECT-only additive policies), not the
+# tenant runtime client this guard is about.
+KNOWLEDGE_ALLOW="lib/services/platform-admin/ lib/services/learning-center/"
+kn_hits=""
+for m in $KNOWLEDGE_MODELS; do
+  h="$(grep -rn "prisma\.${m}\." --include=*.ts $(for t in $TENANT_TREES; do echo "$ROOT/$t"; done) 2>/dev/null \
+       | grep -v '\.test\.' || true)"
+  for alw in $KNOWLEDGE_ALLOW; do
+    h="$(printf '%s\n' "$h" | grep -v "$alw" || true)"
+  done
+  [ -n "$(printf '%s' "$h" | grep -c . | grep -v '^0$')" ] && kn_hits="$kn_hits $(printf '%s' "$h" | tr '\n' ' ')"
+done
+kn_hits="$(printf '%s' "$kn_hits" | sed 's/^ *//')"
+ok "CI-TC-13 no KNOWLEDGE model reached through the global prisma client" \
+   "$([ -z "$kn_hits" ] && echo 1 || echo 0)" "$(printf '%s' "$kn_hits" | cut -c1-240)"
+
+# --- 14. the Business Memory DB seams are tenant-bound by construction -----
+# Named seams rather than a blanket text scan: these three are the only places Business Memory touches
+# a tenant table, and each must reach it through the tenant primitives. If a future refactor moves the
+# binding, this fails instead of silently returning to a context-less read.
+co="$ROOT/lib/business-memory/read/coordinator.ts"
+cw="$ROOT/lib/business-memory/materialization/claim-writer.ts"
+rs="$ROOT/lib/business-memory/shadow/run-shadow.ts"
+n=0
+if [ -f "$co" ] && [ -f "$cw" ] && [ -f "$rs" ]; then
+  a=$(grep -c "tenantTx(query.businessId" "$co" || true)          # Claim read
+  b=$(grep -c "runWithTenantContext" "$co" || true)               # evidence freshness read
+  c=$(grep -c "tenantTx(businessId" "$cw" || true)                # Claim write
+  d=$(grep -c "runWithTenantContext" "$rs" || true)               # whole shadow orchestration
+  e=$(grep -c 'from "@/lib/prisma"' "$co" "$cw" | grep -c ':[1-9]' || true)  # neither binds the singleton
+  [ "$a" -ge 1 ] && [ "$b" -ge 1 ] && [ "$c" -ge 1 ] && [ "$d" -ge 1 ] && [ "$e" -eq 0 ] && n=1
+fi
+ok "CI-TC-14 Business Memory read/write/shadow seams are tenant-bound, not global-client" "$n"
 
 echo ""
 echo "[CI-TC] PASS=$PASS FAIL=$FAIL"
