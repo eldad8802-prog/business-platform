@@ -1,527 +1,566 @@
+import type { CSSProperties, ReactNode } from "react";
 import type { Metadata } from "next";
 import Image from "next/image";
-import { CorporateContainer } from "@/components/corporate/CorporateContainer";
 import { PrimaryCta } from "@/components/ui/primary-cta";
-import { TOKEN } from "@/lib/design/tokens";
+import { BlobShape, DotLink, Edge, Receipt, Stamp } from "@/components/corporate/home/art";
+import {
+  isPublicSignupEnabled,
+  SIGNUP_DISABLED_MESSAGE_HE,
+  SIGNUP_DISABLED_TITLE_HE,
+} from "@/lib/auth/signup-gate";
+import s from "./home.module.css";
 
 /**
- * Dubiz Homepage v1 — canonical 9-stage story.
+ * Dubiz Homepage v4 — THE public homepage, at the canonical `/home`.
  *
- * Sources: docs/dubiz-homepage-story-reconciliation-v1.md · structural-wireframe-v2 ·
- * pre-copy-gate-v1 · copy-v1 · visual-design-spec-v1. Copy is transcribed verbatim from
- * copy-v1.md. Sells a TRAIT (nothing falls, you still decide), never a character ("מזכירה")
- * and never a category ("מערכת הפעלה"). Product-Truth locked: no scheduler/push/reminders,
- * no aging, no sync/integration, no multi-user, no pricing/free, no blanket compliance,
- * no invented social proof. Primary CTA is the real self-serve /register.
+ * Cut over from `/home-candidate` on 2026-09-23 after owner approval and a
+ * proven Production run. `/` on the apex host is rewritten to this route
+ * (next.config.ts), `/home-candidate` and `/corporate-home` are 308s to it,
+ * and the v1 page it replaced sits beside this file as `page.v1-legacy.tsx`
+ * (not a route) until the cutover is proven, then it goes.
  *
- * Nine stages, order binding; stage 3 (Mechanism) → stage 4 (Safety) stay adjacent in DOM
- * (Adjacent-Objection Law). Visual = DS v1 warm (TOKEN.dsv1), Heebo, .dz-btn-primary.
+ * v4 changes the STORY, not the design (2026-09-22): the problem is that the
+ * owner is the one holding the business together, the promise is "what needs
+ * you today", the first proof is the money, and the principle is that the
+ * owner decides. Section 02 is therefore the attention surface, moved up from
+ * sixth place; the rest of the order follows the approved sequence. The
+ * breadth map answers "why is it useful that this lives together", with two
+ * real proofs (inventory, a commitment) and everything else drawn or set.
+ *
+ * TEMPORARY PRODUCT PROOF: every /landing/v3 asset is a real screen, but the
+ * logged-in app is being redesigned, so these are placeholders in fixed slots
+ * — swap the file, keep the composition (docs/dubiz-homepage-copy-v4.md §4).
+ *
+ * Art direction: "D-derived" — ink line, ticket + perforation, document
+ * stickers, a stamp only where something was stamped, typography as object,
+ * and a small compositional colour family on paper (see marketing-tokens).
+ * Ten sections, in this order; Tier A proof moments (collection, documents,
+ * invoices, leads), Tier B presence (the secretary, inventory, the accountant),
+ * Tier C breadth on one map. No tabs, no carousel: everything is on the page.
+ *
+ * Every visible string comes from `docs/dubiz-homepage-copy-v3.md`, which was
+ * written and gated BEFORE this file. Every product image is a real Dubiz
+ * screen or component captured by `scripts/qa/ui/homepage-proof-capture.mjs`
+ * (real app, synthetic data, no database) — complete, never cropped.
+ *
+ * Layout: ≥1024 each section is a stage with the mockup's aspect ratio and
+ * objects placed in `cqw`; below that, the same DOM flows in reading order
+ * (see home.module.css). Not linked from anywhere yet; `/home` is unchanged.
  */
 
+// The CTA contract is read from the server environment on every request.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
-  // `absolute` so the app name leads the title instead of the generic "בית".
-  // It bypasses the "%s · Dubiz" template from the corporate layout, which
-  // would otherwise append a second "· Dubiz". Homepage only — every other
-  // corporate page keeps the template unchanged.
-  title: { absolute: "Dubiz — ניהול היום־יום של העסק" },
+  // `absolute` so the brand leads the title instead of the layout's "%s · Dubiz"
+  // template appending a second "· Dubiz". Homepage only.
+  title: { absolute: "Dubiz — העסק שלך, מסודר." },
   description:
-    "Dubiz מרכזת את היום־יום של העסק שלך — לקוחות, כסף ומסמכים — מהוואטסאפ, מהמייל ומהמסמכים שכבר יש לך. בלי הקמה. מופעל על ידי PRO MAX GROUP.",
+    "אתה מנהל ב-Dubiz את הגבייה, המסמכים, הלקוחות, הפניות והמלאי — ומה שנשאר פתוח מחכה לך ברשימה אחת של מה דורש אותך היום. תוכנה רשומה ברשות המסים, תעודת רישום 270901.",
+  // The apex rewrites `/` to this route, so the same page answers on two URLs.
+  // The apex root is the one we want indexed; this points both at it.
+  alternates: { canonical: "https://promaxgroup.co.il/" },
 };
 
-// Dubiz Mist palette (token-driven — no invented colors).
-const C = {
-  ink: "var(--mkt-ink)",
-  muted: TOKEN.dsv1.muted,
-  card: TOKEN.dsv1.card,
-  line: TOKEN.dsv1.line,
-  soft: TOKEN.dsv1.surface2,
-  teal: TOKEN.dsv1.accent, // done / positive
-  clay: TOKEN.warm.status.late.ink, // needs attention (NOT alarm red)
-  brown: TOKEN.warm.status.partial.ink, // open / partial
+/* ── placement helpers: mockup pixels (1440 wide) → cqw of the stage ─────── */
+const cq = (px: number) => `${(px / 14.4).toFixed(3)}cqw`;
+type Place = { x?: number; right?: number; y: number; w: number; r?: number; z?: number; mw?: number };
+function at(p: Place): CSSProperties {
+  return {
+    ...(p.x !== undefined ? { "--x": cq(p.x) } : {}),
+    ...(p.right !== undefined ? { "--xr": cq(p.right) } : {}),
+    "--y": cq(p.y),
+    "--w": cq(p.w),
+    "--r": `${p.r ?? 0}deg`,
+    "--z": p.z ?? 1,
+    ...(p.mw ? { "--mw": `${p.mw}px` } : {}),
+  } as CSSProperties;
+}
+type BlobPlace = {
+  x?: number;
+  right?: number;
+  y: number;
+  w: number;
+  h: number;
+  m?: { x?: string; right?: string; y: string; w: string; h: string };
 };
+function blobAt(p: BlobPlace): CSSProperties {
+  return {
+    ...(p.x !== undefined ? { "--bx": cq(p.x) } : {}),
+    ...(p.right !== undefined ? { "--bxr": cq(p.right) } : {}),
+    "--by": cq(p.y),
+    "--bw": cq(p.w),
+    "--bh": cq(p.h),
+    ...(p.m
+      ? {
+          "--mdisp": "block",
+          ...(p.m.x ? { "--mbx": p.m.x } : {}),
+          ...(p.m.right ? { "--mbxr": p.m.right } : {}),
+          "--mby": p.m.y,
+          "--mbw": p.m.w,
+          "--mbh": p.m.h,
+        }
+      : {}),
+  } as CSSProperties;
+}
+const stage = (h: number) => ({ "--h": h }) as CSSProperties;
+const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(" ");
 
-const cardStyle = {
-  // `background`, not `backgroundColor`: the Mist card token is an image stack.
-  background: C.card,
-  borderColor: C.line,
-  boxShadow: TOKEN.dsv1.shadowCard,
-} as const;
+/* ── real product assets (public/landing/v3, true pixel sizes) ────────────── */
+type Asset = { src: string; w: number; h: number };
+const A = {
+  today: { src: "/landing/v3/today-numbers.webp", w: 1050, h: 582 },
+  collectionDesk: { src: "/landing/v3/collection-desktop.webp", w: 2880, h: 1800 },
+  collectionPhone: { src: "/landing/v3/collection-phone.webp", w: 1170, h: 2532 },
+  invoice: { src: "/landing/v3/invoice-page.webp", w: 1170, h: 2817 },
+  leadsDesk: { src: "/landing/v3/leads-desktop.webp", w: 2880, h: 1800 },
+  leadsPhone: { src: "/landing/v3/leads-phone.webp", w: 1170, h: 2532 },
+  attention: { src: "/landing/v3/attention-phone.webp", w: 1170, h: 2532 },
+  invValue: { src: "/landing/v3/inventory-value.webp", w: 1050, h: 390 },
+  invHealth: { src: "/landing/v3/inventory-health.webp", w: 1050, h: 483 },
+  payables: { src: "/landing/v3/payables-card.webp", w: 1074, h: 570 },
+  doc: (n: number): Asset => ({ src: `/landing/v3/doc-${n}.webp`, w: 1074, h: 303 }),
+} satisfies Record<string, Asset | ((n: number) => Asset)>;
 
-// ── Fold · Attention items (representative, static — no clock/badge/scheduler) ──
-const ATTENTION = [
-  { dot: C.brown, text: "לקוח ממתין לתשובה", action: "טיוטה מוכנה" },
-  { dot: C.clay, text: "חשבונית פתוחה · ₪3,200", action: "קישור לתשלום" },
-  { dot: C.teal, text: "קבלה נקלטה מהוואטסאפ", action: "ספק וסכום זוהו" },
-];
+function Shot({ a, alt, className }: { a: Asset; alt: string; className?: string }) {
+  // Already-optimised WebP at ≥2× the rendered size; served as-is so the small
+  // UI text inside is not re-encoded soft.
+  return <Image src={a.src} alt={alt} width={a.w} height={a.h} unoptimized className={cx(s.img, className)} />;
+}
 
-// ── Mirror · accumulation (one growing pile, not a card grid) ──
-const ACCUMULATION = [
-  "לקוח שצריך לחזור אליו",
-  "מסמך שמחכה",
-  "כסף שעדיין פתוח",
-  "הודעה שאסור לשכוח",
-  "פריט שנגמר",
-  "עוד דבר קטן בראש",
-];
-
-// ── Mechanism · intake channels (Product-Truth tiered; no sync/realtime) ──
-const CHANNELS = [
-  { icon: "💬", label: "השיחות והמסמכים מהוואטסאפ העסקי — מרוכזים אצלך." },
-  { icon: "📸", label: "מצלמים קבלה, והפרטים נקלטים לבד." },
-  { icon: "✉️", label: "וגם מסמכים שמגיעים במייל." },
-];
-
-// ── Proof · real product screens (A claims only; new captions) ──
-const PROOF = [
-  {
-    src: "/landing/customer-card.webp",
-    alt: "כרטיס לקוח ב-Dubiz — פרטים, מסמכים, תשלומים ושיחות במקום אחד",
-    caption:
-      "כל לקוח במקום אחד — פרטים, מסמכים, תשלומים ושיחות. תמיד תדע איפה אתה עומד מולו.",
-  },
-  {
-    src: "/landing/collection.webp",
-    alt: "מרכז הגבייה של Dubiz — מה שולם, מה פתוח, וקישור לתשלום",
-    caption: "רואים מה שולם ומה עדיין פתוח, ושולחים ללקוח קישור לתשלום בלחיצה.",
-  },
-  {
-    src: "/landing/documents-home.webp",
-    alt: "קליטת מסמך ב-Dubiz — זיהוי ספק, סכום ותאריך",
-    caption: "מצלמים חשבונית — Dubiz מזהה ספק, סכום ותאריך לבד.",
-  },
-  {
-    src: "/landing/bot-config.webp",
-    alt: "בוט Dubiz — מכין טיוטת תשובה שאתה מאשר לפני שליחה",
-    caption: "הבוט מכין טיוטת תשובה בשפה שלך — ואתה מאשר לפני שהיא נשלחת.",
-  },
-];
-
-// ── Self-Projection · breadth as outcome (not a module catalogue) ──
-const AROUND_BUSINESS = ["הלקוחות", "הכסף", "המסמכים", "השיחות"];
-
-// ── Tail · honest FAQ ──
-const FAQ = [
-  {
-    q: "כבר יש לי חשבונית ירוקה / תוכנת חשבוניות.",
-    a: "מצוין. Dubiz לא מחליפה אותה — היא מרכזת סביבה את כל השאר: הלקוחות, הגבייה, המסמכים והשיחות. מתחילים בלי לוותר על כלום.",
-  },
-  {
-    q: "זה עובד עם צוות / עובדים?",
-    a: "כרגע Dubiz בנויה לבעל העסק שמנהל את היום־יום בעצמו. גישת-צוות עם הרשאות עדיין לא קיימת — אנחנו בונים אותה.",
-  },
-  {
-    q: "מה עם רואה החשבון שלי?",
-    a: "הכול יוצא מסודר לרואה החשבון, בפורמט תקין ומוכן להעברה.",
-  },
-  {
-    q: "מה קורה עם הנתונים שלי?",
-    a: "נקלט רק מה שקשור לעסק, המידע נשאר שלך, ושום דבר לא יוצא החוצה בלי אישורך.",
-  },
-  {
-    q: "אני חייב להעביר הכול?",
-    a: "לא. מתחילים מהמקום שבו העסק כבר חי — וואטסאפ, מייל וקבלות — ומתקדמים בקצב שלך.",
-  },
-];
-
-function SectionHeading({ children }: { children: React.ReactNode }) {
+function Tag({ children, onTeal = false }: { children: ReactNode; onTeal?: boolean }) {
   return (
-    <h2
-      className="text-2xl font-bold leading-snug sm:text-3xl"
-      style={{ color: C.ink }}
-    >
+    <span className={cx(s.tag, onTeal && s.tagOnTeal)}>
+      <i aria-hidden />
       {children}
-    </h2>
+    </span>
   );
 }
 
-export default function CorporateHomePage() {
+const FAQ = [
+  {
+    q: "כבר יש לי תוכנת חשבוניות.",
+    a: "אפשר להתחיל ב-Dubiz מהדברים האחרים שהעסק מנהל — גבייה, מסמכים, לקוחות, לידים, מלאי וספקים — ולהחליט בהמשך במה להשתמש.",
+  },
+  {
+    q: "Dubiz רודפת אחרי הלקוחות במקומי?",
+    a: "לא. היא מראה לך מה עוד פתוח ומכינה את ההודעה ללקוח — ואתה שולח אותה מתי שנוח לך.",
+  },
+  {
+    q: "איך זה עובד מול רואה החשבון?",
+    a: "רואה החשבון נשאר שלך. מורידים חבילה מסודרת של החודש — דוח מסכם והמסמכים שאישרת — ומעבירים לו אותה.",
+  },
+  {
+    q: "צריך ספק סליקה כדי לשלוח קישור לתשלום?",
+    a: "כן. מחברים את חשבון הסליקה של העסק (כרגע CardCom), והקישור נשלח ללקוח מתי שתבחר.",
+  },
+  {
+    q: "Dubiz עושה דברים לבד?",
+    a: "לא. היא מסדרת, מזהה ומכינה טיוטות — ושום דבר לא נשלח ולא מאושר בלי שאתה מחליט.",
+  },
+  {
+    q: "זה עובד עם צוות או עובדים?",
+    a: "כרגע Dubiz בנויה לבעל העסק שמנהל את היום־יום בעצמו. גישה לעובדים עם הרשאות עדיין לא קיימת.",
+  },
+  {
+    q: "אני חייב להעביר הכול בבת אחת?",
+    a: "לא. מתחילים ממה שנוח — לצלם כמה קבלות או להפיק חשבונית — ומוסיפים בקצב שלך.",
+  },
+];
+
+const DOCS: Array<{ n: number; p: Place; alt: string }> = [
+  { n: 2, p: { right: 250, y: 130, w: 430, r: -4, z: 1 }, alt: "מסמך שנקלט — מוסך הדר, 1,320 ₪, 17.09.2026, שירותים" },
+  { n: 3, p: { right: 140, y: 290, w: 430, r: 3, z: 2 }, alt: "מסמך שנקלט — מחסני עץ יוסף, 2,680 ₪, 14.09.2026, חומרים" },
+  { n: 4, p: { right: 300, y: 450, w: 430, r: -1.5, z: 3 }, alt: "מסמך שנקלט — דפוס קרני, 540 ₪, 18.09.2026, שירותים" },
+  { n: 5, p: { right: 170, y: 610, w: 430, r: 5, z: 4 }, alt: "מסמך שנקלט — תחנת דלק הצפון, 286 ₪, 19.09.2026, דלק" },
+];
+
+export default function HomeV3Page() {
+  // Single source of truth for the CTA — the same gate /register uses. While
+  // registration is closed the page never links to /register.
+  const signupOpen = isPublicSignupEnabled();
+  const cta = signupOpen
+    ? { href: "/register", label: "מתחילים עם Dubiz" }
+    : { href: "/login", label: "כניסה למשתמשים קיימים" };
+
   return (
-    <CorporateContainer className="py-12 sm:py-16">
-      {/*
-       * Application identity line. States, as real visible text above the fold,
-       * that this application is named "Dubiz" and is operated by PRO MAX GROUP
-       * — matching the OAuth consent-screen app name and the identical statement
-       * in the footer, privacy, terms and about pages. Not decoration and not a
-       * marketing message: it is deliberately outside the governed Homepage v1
-       * stage copy (no H1 / eyebrow / support change).
-       */}
-      <p
-        className="mb-7 text-center text-sm sm:mb-9 lg:text-start"
-        style={{ color: C.muted }}
-      >
-        {/* 600 (not 700): Heebo is loaded at 300–600, so font-bold would be
-            synthetically emboldened by the browser. */}
-        <span className="font-semibold" style={{ color: C.ink }}>
-          Dubiz
-        </span>{" "}
-        — מופעל על ידי PRO MAX GROUP
-      </p>
+    <div className={s.page} dir="rtl">
+      {/* ═══ 01 · HERO — paper · sky mass · sage entering from the corner ═══ */}
+      <section className={cx(s.sec, s.paper)} data-section="01-hero" aria-labelledby="h-hero">
+        <div className={s.stage} style={stage(830)}>
+          <div aria-hidden className={s.blob} style={blobAt({ x: -60, y: 80, w: 760, h: 700, m: { x: "-12%", y: "46%", w: "110%", h: "46%" } })}>
+            <BlobShape variant="a" fill="var(--mkt3-sky)" />
+          </div>
+          <div aria-hidden className={s.blob} style={blobAt({ x: 1130, y: 600, w: 420, h: 330 })}>
+            <BlobShape variant="b" fill="var(--mkt3-sage2)" />
+          </div>
 
-      {/* ───────────────────────── STAGE 1 · FOLD ───────────────────────── */}
-      <section className="grid items-center gap-8 sm:gap-10 lg:grid-cols-2">
-        <div className="text-center lg:text-start">
-          <span
-            className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold"
-            style={{ backgroundColor: /* mist-ok: flat */ C.soft, borderColor: C.line, color: C.teal }}
-          >
-            תוכנה רשומה ברשות המסים · 270901
-          </span>
-
-          <h1
-            className="mx-auto mt-5 max-w-xl text-3xl font-extrabold leading-tight sm:text-5xl lg:mx-0"
-            style={{ color: C.ink }}
-          >
-            כל היום־יום של העסק שלך — מסודר, בלי שתחזיק הכול בראש.
-          </h1>
-
-          <p
-            className="mx-auto mt-5 max-w-lg text-base leading-7 sm:text-lg lg:mx-0"
-            style={{ color: C.muted }}
-          >
-            Dubiz מרכזת את מה שחשוב בעסק — מהוואטסאפ, מהמייל ומהמסמכים שכבר יש לך.
-            בלי הקמה.
-          </p>
-
-          <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center lg:justify-start">
-            <PrimaryCta href="/register" block>
-              התחילו עכשיו
+          <div className={cx(s.txt, s.o)} style={at({ right: 72, y: 80, w: 520, z: 6 })}>
+            <Tag>לבעל עסק שמנהל את היום־יום בעצמו</Tag>
+            <h1 id="h-hero" className={s.h1}>
+              העסק שלך,
+              <br />
+              <span className={cx(s.lbl, s.lblOchre)}>מסודר.</span>
+            </h1>
+            <p className={cx(s.lede, s.ledeLead)}>יותר מהעסק מול העיניים. פחות דברים שאתה מחזיק בראש.</p>
+            <p className={s.lede} style={{ maxWidth: "32em" }}>
+              אתה מנהל ב-Dubiz את הגבייה, המסמכים, הלקוחות, הפניות והמלאי — ומה
+              שנשאר פתוח מחכה לך ברשימה אחת.
+            </p>
+            <PrimaryCta href={cta.href} className={s.cta}>
+              {cta.label}
             </PrimaryCta>
-            <a
-              href="#how-it-works"
-              className="text-sm font-semibold underline underline-offset-4"
-              style={{ color: C.teal }}
-            >
-              ראו איך זה עובד
-            </a>
+            <p className={s.micro}>
+              אתה מחליט על כל צעד · תוכנה רשומה ברשות המסים · תעודת רישום 270901
+            </p>
+          </div>
+
+          <div aria-hidden className={cx(s.o, s.dOnly)} style={at({ x: 70, y: 166, w: 210, r: 8, z: 2 })}>
+            <Receipt />
+          </div>
+
+          {/* the ticket: a stub, a perforation, and the real "today in numbers" */}
+          <div
+            className={cx(s.o, s.ticket)}
+            style={{ ...at({ x: 200, y: 170, w: 540, r: -3, z: 3, mw: 520 }), "--ny": "64px", "--notch-bg": "var(--mkt3-sky)" } as CSSProperties}
+          >
+            <span className={cx(s.notch, s.notchL)} aria-hidden />
+            <span className={cx(s.notch, s.notchR)} aria-hidden />
+            <div className={s.stub}>
+              <b>היום</b>
+            </div>
+            <div className={s.perf} aria-hidden />
+            <Shot
+              a={A.today}
+              alt="היום במספרים ב-Dubiz — 9 גביות שנגבו ואומתו החודש, 3 ממתינות לגבייה, 7 מסמכים לבדיקה ותשלום אחד למועד"
+              className={s.ticketImg}
+            />
+          </div>
+
+          <div className={cx(s.o, s.stk, s.lift)} style={at({ x: 400, y: 560, w: 390, r: 4, z: 5, mw: 380 })}>
+            <Shot a={A.doc(1)} alt="מסמך שנקלט ב-Dubiz — חומרי בניין הגליל, 412 ₪, 20.09.2026, ספק, סכום ותאריך מזוהים, ממתין לאישור" />
           </div>
         </div>
+      </section>
 
-        {/* Attention surface — "מה כבר מסודר" (representative, static) */}
-        <div className="rounded-[24px] border p-5 sm:p-6" style={cardStyle}>
-          <p className="mb-4 text-xs font-semibold" style={{ color: C.muted }}>
-            מה כבר מסודר
-          </p>
-          <ul className="flex flex-col gap-3">
-            {ATTENTION.map((item) => (
-              <li
-                key={item.text}
-                className="flex items-center justify-between gap-3 rounded-2xl dz-mist px-4 py-3"
-                style={{ border: `1px solid ${C.line}` }}
-              >
-                <span className="flex items-center gap-3 text-sm" style={{ color: C.ink }}>
-                  <span
-                    className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: /* mist-ok: flat */ item.dot }}
-                    aria-hidden="true"
-                  />
-                  {item.text}
-                </span>
-                <span
-                  className="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold"
-                  style={{ backgroundColor: /* mist-ok: flat */ C.soft, color: C.teal }}
-                >
-                  {item.action}
-                </span>
-              </li>
-            ))}
-          </ul>
+      {/* ═══ 02 · WHAT NEEDS YOU TODAY — the positioning's main proof ═══════
+          Several domains (a message, a document, a lead, stock) arrive in one
+          ranked list. The obligations the owner types in live on the secretary,
+          a separate morning surface — said in words, never merged into the list. */}
+      <section className={cx(s.sec, s.sage)} data-section="02-attention" aria-labelledby="h-attention">
+        <Edge variant="a" fill="var(--mkt3-sage)" className={s.edge} />
+        <div className={s.stage} style={stage(900)}>
+          <div className={cx(s.txt, s.o)} style={at({ right: 96, y: 110, w: 500, z: 6 })}>
+            <Tag>הבוקר שלך</Tag>
+            <h2 id="h-attention" className={cx(s.h2, s.h2Big)}>
+              מה דורש
+              <br />
+              אותך היום
+            </h2>
+            <p className={s.lede}>
+              פנייה שמחכה לתשובה, מסמך שממתין לאישור, ליד שהגיע הזמן לחזור אליו,
+              מלאי שיורד — ברשימה אחת, לפי מה שדחוף קודם.
+            </p>
+            <p className={cx(s.lede, s.note)} style={{ marginTop: "18px" }}>
+              התשלומים הקבועים שרשמת מופיעים במזכירה, במסך נפרד.
+            </p>
+          </div>
+          <div className={cx(s.o, s.fit, s.doms)} style={at({ x: 150, y: 96, w: 420, r: -2, z: 4 })}>
+            <span>פנייה</span>
+            <span>מסמך</span>
+            <span>ליד</span>
+            <span>מלאי</span>
+          </div>
+          <div className={cx(s.o, s.win, s.offOchre)} style={at({ x: 300, y: 180, w: 330, r: 2, z: 2, mw: 340 })}>
+            <Shot
+              a={A.attention}
+              alt="דורש תשומת לב ב-Dubiz — מעקב ליד שעבר את הזמן, 7 מסמכים ממתינים לבדיקה, מלאי נמוך והזמנה מספק שממתינה לקליטה"
+            />
+          </div>
+          <div aria-hidden className={cx(s.o, s.dOnly)} style={at({ x: 700, y: 560, w: 300 })}>
+            <DotLink viewBox="0 0 300 80" d="M0 20 C 90 90, 200 0, 300 60" />
+          </div>
         </div>
       </section>
 
-      {/* ───────────────────────── STAGE 2 · MIRROR ───────────────────────── */}
-      <section className="mt-16 text-center sm:mt-24">
-        <SectionHeading>
-          פתחת עסק כדי לעבוד במקצוע שלך — לא כדי להיות גם המשרד.
-        </SectionHeading>
-        <p
-          className="mx-auto mt-4 max-w-2xl text-base leading-8 sm:text-lg"
-          style={{ color: C.muted }}
-        >
-          ואז, לאט לאט, נוסף לך תפקיד שלם שאף אחד לא לקח: לרשום, לחייב, לגבות,
-          לחזור ללקוח, לזכור את הספק, לא לפספס את המע&quot;מ. הכול נשאר לך בראש —
-          אחרי שעות העבודה.
-        </p>
-
-        <ul className="mx-auto mt-8 flex max-w-xl flex-col gap-2">
-          {ACCUMULATION.map((item, i) => (
-            <li
-              key={item}
-              className="flex items-center gap-3 rounded-2xl px-4 py-2.5 text-start text-sm"
-              style={{
-                backgroundColor: /* mist-ok: flat */ C.soft,
-                color: C.ink,
-                // subtle "growing pile" — each row nudged slightly
-                marginInlineStart: `${i * 8}px`,
-              }}
-            >
-              <span
-                className="inline-block h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: /* mist-ok: flat */ C.brown }}
-                aria-hidden="true"
-              />
-              {item}
-            </li>
-          ))}
-        </ul>
-
-        <p className="mt-6 text-base font-semibold" style={{ color: C.ink }}>
-          אתה לא בלגניסט. פשוט נפל עליך תפקיד שני.
-        </p>
+      {/* ═══ 03 · COLLECTION — Tier A · paper · ochre offset ═══ */}
+      <section className={cx(s.sec, s.paper)} data-section="03-collection" aria-labelledby="h-collection">
+        <div className={s.stage} style={stage(980)}>
+          <div className={cx(s.txt, s.o)} style={at({ right: 90, y: 90, w: 380, z: 6 })}>
+            <Tag>גבייה</Tag>
+            <h2 id="h-collection" className={s.h2}>
+              מי שילם,
+              <br />
+              ומה עוד פתוח
+            </h2>
+            <p className={s.lede}>
+              כל חשבונית שהוצאת נשארת מול העיניים עד שהיא משולמת. שולחים ללקוח
+              קישור לתשלום בכרטיס — וכשהוא משלם, הקבלה מופקת ונרשמת מול החשבונית.
+            </p>
+          </div>
+          <div className={cx(s.o, s.win, s.offOchre)} style={at({ x: 64, y: 150, w: 840, z: 2, mw: 390 })}>
+            <Shot
+              a={A.collectionDesk}
+              className={s.dOnly}
+              alt="מרכז הגבייה של Dubiz במחשב — רשימת הגביות עם הסכומים, קבוצת דורש טיפול, ופרטי הגבייה הנבחרת"
+            />
+            <Shot
+              a={A.collectionPhone}
+              className={s.mOnly}
+              alt="מרכז הגבייה של Dubiz בטלפון — חמש גביות פתוחות, סכומים, קבל תשלום ושתי גביות שדורשות טיפול"
+            />
+          </div>
+          <div aria-hidden className={cx(s.o, s.dOnly)} style={at({ x: 980, y: 640, w: 460 })}>
+            <DotLink viewBox="0 0 460 300" d="M0 40 C 120 40, 180 220, 460 250" />
+          </div>
+        </div>
       </section>
 
-      {/* ─────────────────── STAGE 3 · MECHANISM / DIFFERENCE ─────────────────── */}
-      {/* NOTE: stage 3 and stage 4 are intentionally adjacent (Adjacent-Objection Law) */}
-      <section id="how-it-works" className="mt-16 sm:mt-24">
-        <div className="text-center">
-          <SectionHeading>
-            Dubiz מתחילה מהמקום שבו העסק שלך כבר חי.
-          </SectionHeading>
-          <p
-            className="mx-auto mt-4 max-w-2xl text-base leading-8 sm:text-lg"
-            style={{ color: C.muted }}
+      {/* ═══ 03 · DOCUMENTS — Tier A · paper · a sky field entering from the right ═══ */}
+      <section className={cx(s.sec, s.paper)} data-section="04-documents" aria-labelledby="h-documents">
+        <div className={s.stage} style={stage(840)}>
+          <div
+            aria-hidden
+            className={s.blob}
+            style={blobAt({ right: -120, y: -40, w: 900, h: 900, m: { right: "-20%", y: "38%", w: "120%", h: "62%" } })}
           >
-            אתה לא מזין כלום ולא מעביר שום דבר. שולח קבלה בוואטסאפ, מצלם חשבונית,
-            או נותן ל-Dubiz לקלוט אותן מהמייל — והיא מזהה לבד ספק, סכום ותאריך.
-          </p>
-        </div>
-
-        <div className="mt-8 grid gap-4 sm:grid-cols-3">
-          {CHANNELS.map((c) => (
-            <div
-              key={c.label}
-              className="rounded-[20px] border p-5 text-start"
-              style={cardStyle}
-            >
-              <span className="text-2xl" aria-hidden="true">
-                {c.icon}
-              </span>
-              <p className="mt-3 text-sm leading-6" style={{ color: C.ink }}>
-                {c.label}
-              </p>
+            <BlobShape variant="c" fill="var(--mkt3-sky)" />
+          </div>
+          <div className={cx(s.txt, s.o)} style={at({ x: 110, y: 170, w: 440, z: 6 })}>
+            <Tag>מסמכים</Tag>
+            <h2 id="h-documents" className={s.h2}>
+              קבלה שצילמת
+              <br />
+              לא נשארת בגלריה
+            </h2>
+            <p className={s.lede}>
+              מעלים את המסמך, ו-Dubiz מזהה ספק, סכום ותאריך. מה שצריך את האישור
+              שלך מחכה בתור אחד.
+            </p>
+          </div>
+          {DOCS.map((d) => (
+            <div key={d.n} className={cx(s.o, s.stk)} style={at({ ...d.p, mw: 400 })}>
+              <Shot a={A.doc(d.n)} alt={d.alt} />
             </div>
           ))}
         </div>
-
-        {/* Micro-proof: representative captured receipt (not a fake screenshot) */}
-        <div
-          className="mx-auto mt-8 max-w-md rounded-[20px] border p-5"
-          style={cardStyle}
-        >
-          <p className="text-xs font-semibold" style={{ color: C.muted }}>
-            כך נראית קבלה אחרי שנקלטה — בלי שהקלדת
-          </p>
-          <dl className="mt-3 flex flex-col gap-2 text-sm">
-            {[
-              ["ספק", "פרו מקס גרופ בע״מ"],
-              ["סכום", "₪1,240"],
-              ["תאריך", "12/08/2026"],
-            ].map(([k, v]) => (
-              <div
-                key={k}
-                className="flex items-center justify-between rounded-xl dz-mist px-3 py-2"
-                style={{ border: `1px solid ${C.line}` }}
-              >
-                <dt style={{ color: C.muted }}>{k}</dt>
-                <dd className="font-semibold" style={{ color: C.ink }}>
-                  {v}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-
-        <p className="mt-6 text-center text-base font-semibold" style={{ color: C.ink }}>
-          פחות להזין, פחות להעתיק, פחות לזכור.
-        </p>
       </section>
 
-      {/* ───────────── STAGE 4 · SAFETY / CONTROL / PRIVACY (adjacent) ───────────── */}
-      <section className="mt-12 sm:mt-16">
-        <div
-          className="rounded-[28px] border p-6 text-center sm:p-8"
-          style={cardStyle}
-        >
-          <SectionHeading>
-            אתה רואה מה נכנס — ושום דבר לא יוצא בלעדיך.
-          </SectionHeading>
-          <ul className="mx-auto mt-5 flex max-w-2xl flex-col gap-3 text-start">
-            {[
-              "נקלט רק מה שקשור לעסק — לא כל הוואטסאפ שלך.",
-              "המידע שלך נשאר שלך, ואתה מנתק את החיבור מתי שתרצה.",
-              "כל תשובה ללקוח וכל מסמך שיוצא החוצה — מחכה לאישור שלך.",
-            ].map((fact) => (
-              <li key={fact} className="flex items-start gap-3 text-sm" style={{ color: C.ink }}>
-                <span
-                  className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold"
-                  style={{ backgroundColor: /* mist-ok: flat */ C.soft, color: C.teal }}
-                  aria-hidden="true"
-                >
-                  ✓
-                </span>
-                {fact}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-6 text-base font-semibold" style={{ color: C.ink }}>
-            אתה עדיין בעל הבית.
-          </p>
-        </div>
-      </section>
-
-      {/* ───────────────────────── STAGE 5 · PROOF ───────────────────────── */}
-      <section className="mt-16 sm:mt-24">
-        <div className="text-center">
-          <SectionHeading>זה לא מצגת. זה כבר עובד.</SectionHeading>
-          <p
-            className="mx-auto mt-3 max-w-2xl text-sm leading-7 sm:text-base"
-            style={{ color: C.muted }}
-          >
-            אלה מסכים אמיתיים מ-Dubiz — לא חזון ולא רשימת המתנה.
-          </p>
-        </div>
-
-        {/* horizontal scroll on mobile, grid on desktop */}
-        <ul className="mt-8 flex snap-x gap-5 overflow-x-auto pb-2 sm:grid sm:grid-cols-2 sm:overflow-visible">
-          {PROOF.map((p) => (
-            <li
-              key={p.src}
-              className="flex w-[78vw] shrink-0 snap-start flex-col items-center rounded-[24px] border p-5 text-center sm:w-auto"
-              style={cardStyle}
-            >
-              <div
-                className="w-full max-w-[220px] overflow-hidden rounded-[1.4rem]"
-                style={{ border: `1px solid ${C.line}` }}
-              >
-                <Image
-                  src={p.src}
-                  alt={p.alt}
-                  width={390}
-                  height={844}
-                  className="h-auto w-full"
-                  loading="lazy"
-                  sizes="(min-width: 640px) 220px, 78vw"
-                />
-              </div>
-              <p className="mt-4 text-sm leading-6" style={{ color: C.ink }}>
-                {p.caption}
-              </p>
-            </li>
-          ))}
-        </ul>
-
-        <div className="mt-8 flex justify-center">
-          <PrimaryCta href="/register">התחילו עכשיו</PrimaryCta>
-        </div>
-      </section>
-
-      {/* ───────────────────────── STAGE 6 · LEGITIMACY ───────────────────────── */}
-      <section className="mt-16 sm:mt-24">
-        <div
-          className="rounded-[28px] border p-6 text-center sm:p-8"
-          style={{ backgroundColor: /* mist-ok: flat */ C.soft, borderColor: C.line }}
-        >
-          <SectionHeading>
-            מסודר מול רשות המסים — ומסודר לרואה החשבון שלך.
-          </SectionHeading>
-          <p
-            className="mx-auto mt-4 max-w-2xl text-base leading-8"
-            style={{ color: C.muted }}
-          >
-            החשבוניות והמסמכים יוצאים בפורמט תקין ומסודר. Dubiz היא תוכנה רשומה
-            ברשות המסים (270901), והכול מוכן להעברה לרואה החשבון — בלי שתצטרך
-            להבין בזה.
-          </p>
-          <p className="mt-5 text-base font-semibold" style={{ color: C.ink }}>
-            אתה מכוסה מול הרשויות.
-          </p>
-        </div>
-      </section>
-
-      {/* ─────────────────── STAGE 7 · SELF-PROJECTION ─────────────────── */}
-      <section className="mt-16 text-center sm:mt-24">
-        <SectionHeading>ככה נראה השבוע שלך עם Dubiz.</SectionHeading>
-        <p
-          className="mx-auto mt-4 max-w-2xl text-base leading-8 sm:text-lg"
-          style={{ color: C.muted }}
-        >
-          אתה נכנס בבוקר ורואה מה חשוב — מי מחכה לתשובה, מה עדיין פתוח, מה נקלט.
-          לא ערימה, לא חיפוש בין הודעות, ולא עוד דברים שאתה מחזיק בראש.
-        </p>
-
-        <div className="mx-auto mt-7 flex max-w-lg flex-wrap items-center justify-center gap-2">
-          {AROUND_BUSINESS.map((item) => (
-            <span
-              key={item}
-              className="rounded-full px-4 py-2 text-sm font-semibold"
-              style={{ backgroundColor: /* mist-ok: flat */ C.soft, color: C.teal }}
-            >
-              {item}
-            </span>
-          ))}
-          <span className="text-sm" style={{ color: C.muted }}>
-            — כולם סביב אותו עסק, במקום אחד.
-          </span>
-        </div>
-
-        <p className="mt-6 text-base font-semibold" style={{ color: C.ink }}>
-          אתה חוזר להיות בעל העסק, לא המשרד שלו.
-        </p>
-      </section>
-
-      {/* ───────────────────────── STAGE 8 · THE ASK ───────────────────────── */}
-      <section className="mt-16 sm:mt-24">
-        <div
-          className="rounded-[28px] p-8 text-center sm:p-12"
-          style={{ background: C.card, border: `1px solid ${C.line}`, boxShadow: TOKEN.dsv1.shadowCard }}
-        >
-          <h2 className="text-2xl font-extrabold sm:text-4xl" style={{ color: C.ink }}>
-            תפסיק להחזיק את כל העסק בראש.
-          </h2>
-          <p
-            className="mx-auto mt-4 max-w-xl text-base leading-7"
-            style={{ color: C.muted }}
-          >
-            מתחילים בכמה דקות, בלי הקמה ובלי להעביר הכול ביום אחד. הנתונים שלך
-            נשארים שלך, עם ייצוא מסודר בכל רגע.
-          </p>
-          <div className="mt-7 flex justify-center">
-            <PrimaryCta href="/register">התחילו עכשיו</PrimaryCta>
+      {/* ═══ 04 · INVOICES — Tier A · an ochre field · the real issued invoice + its stamp ═══ */}
+      <section className={cx(s.sec, s.paper)} data-section="05-invoices" aria-labelledby="h-invoices">
+        <div className={s.stage} style={stage(990)}>
+          <div
+            className={s.field}
+            style={{ "--fxr": cq(120), "--fy": cq(60), "--fw": cq(600), "--fh": cq(880), "--mby": "34%" } as CSSProperties}
+            aria-hidden
+          />
+          <div className={cx(s.txt, s.o)} style={at({ x: 110, y: 220, w: 480, z: 6 })}>
+            <Tag>חשבוניות</Tag>
+            <h2 id="h-invoices" className={s.h2}>
+              חשבונית מס והצעת
+              <br />
+              מחיר, כמו שצריך
+            </h2>
+            <p className={s.lede}>
+              מספור רציף, והצעת מחיר שהופכת לחשבונית בלחיצה. חשבונית שהופקה לא
+              משתנה, ובמסך שלה רואים את היתרה הפתוחה.
+            </p>
+            <p className={cx(s.lede, s.trust)}>
+              <b>Dubiz היא תוכנה רשומה ברשות המסים — תעודת רישום מס׳ 270901.</b>
+            </p>
+          </div>
+          <div className={s.o} style={at({ right: 300, y: 110, w: 320, r: 2, z: 2, mw: 340 })}>
+            <div className={cx(s.stk, s.stkPage)}>
+              <Shot
+                a={A.invoice}
+                alt="חשבונית מס שהופקה ב-Dubiz — מספר 001042, תאריך הפקה, יתרה פתוחה של 4,590.20 ₪ ופעולת שליחה לתשלום, ובדיקה קצרה של הלקוח, הפריטים והסכום"
+              />
+            </div>
+            <div className={s.stamp} aria-hidden>
+              <Stamp word="הופק" sub="001042" />
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ───────────────────────── STAGE 9 · TAIL / FAQ ───────────────────────── */}
-      <section className="mt-16 sm:mt-20">
-        <h2 className="text-center text-xl font-bold sm:text-2xl" style={{ color: C.ink }}>
-          שאלות שאולי עולות לך
-        </h2>
-        <div className="mx-auto mt-6 flex max-w-2xl flex-col gap-3">
-          {FAQ.map((item) => (
-            <details
-              key={item.q}
-              className="group rounded-2xl border px-5 py-4"
-              style={cardStyle}
-            >
-              <summary
-                className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold"
-                style={{ color: C.ink }}
-              >
-                {item.q}
-                <span
-                  className="shrink-0 text-lg transition-transform group-open:rotate-45"
-                  style={{ color: C.teal }}
-                  aria-hidden="true"
-                >
-                  +
-                </span>
-              </summary>
-              <p className="mt-3 text-sm leading-6" style={{ color: C.muted }}>
-                {item.a}
-              </p>
-            </details>
-          ))}
+      {/* ═══ 05 · LEADS — Tier A · the one deep teal band ═══ */}
+      <section className={cx(s.sec, s.teal)} data-section="06-leads" aria-labelledby="h-leads">
+        <Edge variant="b" fill="var(--mkt3-teal)" className={s.edge} />
+        <div className={s.stage} style={stage(1020)}>
+          <div className={cx(s.txt, s.o)} style={at({ right: 96, y: 70, w: 540, z: 6 })}>
+            <Tag onTeal>לידים</Tag>
+            <h2 id="h-leads" className={s.h2}>
+              למי לחזור היום
+            </h2>
+            <p className={cx(s.lede, s.ledeOnTeal)}>
+              פנייה שנכנסה, לקוח שביקש הצעה, מישהו שהבטחת לחזור אליו. קובעים מתי
+              — וביום הזה הוא מופיע ברשימה. טיפלת? מסמנים בלחיצה.
+            </p>
+          </div>
+          <div className={cx(s.o, s.fit)} style={at({ x: 1110, y: 250, w: 230, r: 4, z: 3 })}>
+            <span className={cx(s.lbl, s.lblCoral, s.chipLabel)}>מעקב להיום</span>
+          </div>
+          <div className={cx(s.o, s.win, s.offTeal)} style={at({ x: 170, y: 290, w: 1100, z: 2, mw: 390 })}>
+            <Shot
+              a={A.leadsDesk}
+              className={s.dOnly}
+              alt="רשימת הלידים של Dubiz במחשב — תור עבודה לפי מעקב, וכרטיס הליד הנבחר עם מועד המעקב, הפעולות, הסטטוס וההערות"
+            />
+            <Shot
+              a={A.leadsPhone}
+              className={s.mOnly}
+              alt="רשימת הלידים של Dubiz בטלפון — פניות לפי מעקב שעבר, מעקב להיום וליד חדש, עם טופל ודחייה בכל שורה"
+            />
+          </div>
         </div>
       </section>
-    </CorporateContainer>
+
+      {/* ═══ 07 · THE REST OF THE BUSINESS — breadth map · sage field ═══ */}
+      <section className={cx(s.sec, s.sage)} data-section="07-map" aria-labelledby="h-map">
+        <Edge variant="c" fill="var(--mkt3-sage)" className={s.edge} />
+        <div className={s.stage} style={stage(1260)}>
+          <div className={cx(s.txt, s.o)} style={at({ right: 100, y: 70, w: 660, z: 6 })}>
+            <h2 id="h-map" className={cx(s.h2, s.h2Big)}>
+              ובאותו מקום —
+              <br />
+              שאר העסק
+            </h2>
+            <p className={s.lede}>
+              פחות מערכות לנהל. כל חלק שמתנהל כאן הוא עוד דבר שאתה לא צריך לזכור
+              לבד.
+            </p>
+          </div>
+
+          <div className={cx(s.o, s.ptag)} style={at({ right: 90, y: 300, w: 520, r: -1.5, mw: 460 })}>
+            <h3>מלאי</h3>
+            <p>מה יש, מה עומד להיגמר, ומה להזמין מהספק.</p>
+            <div className={s.ptagImgs}>
+              <Shot a={A.invValue} alt="שווי המלאי ב-Dubiz — 7,528 ₪, 6 מוצרים פעילים" />
+              <Shot a={A.invHealth} alt="בריאות המלאי ב-Dubiz — 4 פריטים תקינים ו-2 קריטיים" />
+            </div>
+          </div>
+          <div className={cx(s.o, s.ptag)} style={at({ right: 660, y: 270, w: 320, r: 3, mw: 420 })}>
+            <h3>לקוחות</h3>
+            <p>כרטיס אחד לכל לקוח: החשבוניות, התשלומים, השיחות וההערות.</p>
+          </div>
+          <div className={cx(s.o, s.ptag, s.ptagSoft)} style={at({ right: 650, y: 580, w: 310, r: -2.5, mw: 420 })}>
+            <h3>ספקים והזמנות</h3>
+            <p>הספקים, ההזמנה לספק וקליטת הסחורה.</p>
+          </div>
+          <div className={cx(s.o, s.ptk)} style={at({ x: 80, y: 270, w: 360, r: -3, mw: 420 })}>
+            <h3>התחייבויות</h3>
+            <p>כל התחייבות עם לוח התשלומים שלה — שולם, נותר ומועד הבא.</p>
+            <div className={s.ptkImg}>
+              <Shot
+                a={A.payables}
+                alt="התחייבות ב-Dubiz — מכונת CNC בפריסת 12 תשלומים, 6,000 ₪ שולמו, 12,000 ₪ נותרו, והתשלום הבא ב-25.09.2026"
+              />
+            </div>
+          </div>
+          <div className={cx(s.o, s.folder)} style={at({ x: 70, y: 600, w: 370, r: 2, mw: 420 })}>
+            <h3>רואה החשבון</h3>
+            <p>חבילה מסודרת של החודש — דוח מסכם והמסמכים — להורדה ולהעברה לרואה החשבון.</p>
+            <div className={s.files}>
+              <span>דוח מסכם</span>
+              <span>מסמכים מאושרים</span>
+              <span>ממתינים</span>
+            </div>
+          </div>
+          <div className={cx(s.o, s.ptag, s.ptagSky)} style={at({ right: 290, y: 930, w: 330, r: 2, mw: 420 })}>
+            <h3>שיחות</h3>
+            <p>הפניות מ-WhatsApp העסקי בתיבה אחת, ורואים מי מחכה לתשובה.</p>
+          </div>
+          <div aria-hidden className={cx(s.o, s.dOnly)} style={at({ x: 752, y: 985, w: 96 })}>
+            <DotLink viewBox="0 0 300 80" d="M0 40 C 90 0, 200 80, 300 40" />
+          </div>
+          <div className={cx(s.o, s.ptag)} style={at({ x: 410, y: 945, w: 340, r: -2, mw: 420 })}>
+            <h3>הבוט</h3>
+            <p>מכין טיוטת תשובה לפי מה שהגדרת — אתה מחליט אם לשלוח.</p>
+          </div>
+          <p className={cx(s.o, s.note)} style={at({ x: 410, y: 1165, w: 420 })}>
+            שיחות והבוט — בחיבור WhatsApp העסקי.
+          </p>
+        </div>
+      </section>
+
+      {/* ═══ 08 · CONTROL — quiet paper · typography object ═══ */}
+      <section className={cx(s.sec, s.paper)} data-section="08-control" aria-labelledby="h-control">
+        <div className={s.stage} style={stage(440)}>
+          <div aria-hidden className={s.blob} style={blobAt({ x: -60, y: 140, w: 360, h: 360 })}>
+            <BlobShape variant="a" fill="var(--mkt3-sage)" />
+          </div>
+          <div className={cx(s.txt, s.o)} style={at({ right: 110, y: 120, w: 640, z: 6 })}>
+            <h2 id="h-control" className={cx(s.h2, s.h2Huge)}>
+              שום דבר
+              <br />
+              לא יוצא <span className={cx(s.lbl, s.lblWhite)}>בלעדיך.</span>
+            </h2>
+            <p className={s.lede}>Dubiz מסדרת, מזהה ומציעה. אתה מחליט.</p>
+          </div>
+          <div className={cx(s.o, s.rules)} style={at({ x: 110, y: 150, w: 520, z: 2 })}>
+            <p>
+              <b>אתה בוחר מה מתחבר</b> <span>— ואפשר לנתק בכל רגע</span>
+            </p>
+            <p>
+              <b>כלום לא נשלח בשמך</b> <span>— לא ללקוח, לא לספק, לא לרשות</span>
+            </p>
+            <p>
+              <b>המידע שלך נשאר שלך</b> <span>— עם ייצוא מסודר בכל רגע</span>
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ 09 · FAQ — plain details on a dotted rule ═══ */}
+      <section className={cx(s.sec, s.paper)} data-section="09-faq" aria-labelledby="h-faq">
+        <div className={cx(s.stage, s.stageFlow)}>
+          <div className={s.faq}>
+            <h2 id="h-faq" className={s.h2}>
+              שאלות שאולי עולות לך
+            </h2>
+            <div className={s.faqList}>
+              {FAQ.map((f) => (
+                <details key={f.q}>
+                  <summary>
+                    <span className={s.plus} aria-hidden>
+                      +
+                    </span>
+                    {f.q}
+                  </summary>
+                  <p>{f.a}</p>
+                </details>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ 10 · FINAL CTA — ochre · the ticket's perforated edge ═══ */}
+      <section className={cx(s.sec, s.ochre)} data-section="10-final" aria-labelledby="h-final">
+        <div className={s.perfEdge} aria-hidden />
+        <div className={s.stage} style={stage(600)}>
+          <div className={cx(s.txt, s.o)} style={at({ right: 110, y: 130, w: 760, z: 6 })}>
+            <h2 id="h-final" className={cx(s.h2, s.h2Final)}>
+              {signupOpen ? (
+                <>
+                  מתחילים לעבוד
+                  <br />
+                  מסודר.
+                </>
+              ) : (
+                SIGNUP_DISABLED_TITLE_HE
+              )}
+            </h2>
+            {signupOpen ? null : <p className={cx(s.lede, s.ledeOnOchre)}>{SIGNUP_DISABLED_MESSAGE_HE}</p>}
+            <PrimaryCta href={cta.href} className={s.cta}>
+              {cta.label}
+            </PrimaryCta>
+          </div>
+          <div aria-hidden className={cx(s.o, s.dOnly)} style={at({ x: 170, y: 90, w: 230, r: -8 })}>
+            <Receipt check />
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
