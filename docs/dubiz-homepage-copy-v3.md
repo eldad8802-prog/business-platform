@@ -1,3 +1,6 @@
+> **SUPERSEDED by `docs/dubiz-homepage-copy-v4.md` (2026-09-22).** v4 keeps this
+> art direction and replaces the story and the strings.
+
 # Dubiz Homepage v3 — Copy Record (Product Canvas / D-derived)
 
 > **סוג המסמך:** רשומת קופי מחייבת לדף הבית v3. נכתב **לפני** הקוד (document first → code second).

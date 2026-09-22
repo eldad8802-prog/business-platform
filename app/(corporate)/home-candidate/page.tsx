@@ -11,7 +11,19 @@ import {
 import s from "./home.module.css";
 
 /**
- * Dubiz Homepage v3 — the owner-approved blueprint (2026-09-22).
+ * Dubiz Homepage v4 — the approved story inside the approved art direction.
+ *
+ * v4 changes the STORY, not the design (2026-09-22): the problem is that the
+ * owner is the one holding the business together, the promise is "what needs
+ * you today", the first proof is the money, and the principle is that the
+ * owner decides. Section 02 is therefore the attention surface, moved up from
+ * sixth place; the rest of the order follows the approved sequence. The
+ * breadth map answers "why is it useful that this lives together", with two
+ * real proofs (inventory, a commitment) and everything else drawn or set.
+ *
+ * TEMPORARY PRODUCT PROOF: every /landing/v3 asset is a real screen, but the
+ * logged-in app is being redesigned, so these are placeholders in fixed slots
+ * — swap the file, keep the composition (docs/dubiz-homepage-copy-v4.md §4).
  *
  * Art direction: "D-derived" — ink line, ticket + perforation, document
  * stickers, a stamp only where something was stamped, typography as object,
@@ -95,6 +107,7 @@ const A = {
   attention: { src: "/landing/v3/attention-phone.webp", w: 1170, h: 2532 },
   invValue: { src: "/landing/v3/inventory-value.webp", w: 1050, h: 390 },
   invHealth: { src: "/landing/v3/inventory-health.webp", w: 1050, h: 483 },
+  payables: { src: "/landing/v3/payables-card.webp", w: 1074, h: 570 },
   doc: (n: number): Asset => ({ src: `/landing/v3/doc-${n}.webp`, w: 1074, h: 303 }),
 } satisfies Record<string, Asset | ((n: number) => Asset)>;
 
@@ -119,16 +132,24 @@ const FAQ = [
     a: "אפשר להתחיל ב-Dubiz מהדברים האחרים שהעסק מנהל — גבייה, מסמכים, לקוחות, לידים, מלאי וספקים — ולהחליט בהמשך במה להשתמש.",
   },
   {
-    q: "זה עובד עם צוות או עובדים?",
-    a: "כרגע Dubiz בנויה לבעל העסק שמנהל את היום־יום בעצמו. גישה לעובדים עם הרשאות עדיין לא קיימת.",
+    q: "Dubiz רודפת אחרי הלקוחות במקומי?",
+    a: "לא. היא מראה לך מה עוד פתוח ומכינה את ההודעה ללקוח — ואתה שולח אותה מתי שנוח לך.",
   },
   {
     q: "איך זה עובד מול רואה החשבון?",
-    a: "מורידים חבילה מסודרת של החודש — דוח מסכם והמסמכים — ומעבירים אותה לרואה החשבון.",
+    a: "רואה החשבון נשאר שלך. מורידים חבילה מסודרת של החודש — דוח מסכם והמסמכים שאישרת — ומעבירים לו אותה.",
   },
   {
     q: "צריך ספק סליקה כדי לשלוח קישור לתשלום?",
     a: "כן. מחברים את חשבון הסליקה של העסק (כרגע CardCom), והקישור נשלח ללקוח מתי שתבחר.",
+  },
+  {
+    q: "Dubiz עושה דברים לבד?",
+    a: "לא. היא מסדרת, מזהה ומכינה טיוטות — ושום דבר לא נשלח ולא מאושר בלי שאתה מחליט.",
+  },
+  {
+    q: "זה עובד עם צוות או עובדים?",
+    a: "כרגע Dubiz בנויה לבעל העסק שמנהל את היום־יום בעצמו. גישה לעובדים עם הרשאות עדיין לא קיימת.",
   },
   {
     q: "אני חייב להעביר הכול בבת אחת?",
@@ -170,13 +191,17 @@ export default function HomeV3Page() {
               <br />
               <span className={cx(s.lbl, s.lblOchre)}>מסודר.</span>
             </h1>
+            <p className={cx(s.lede, s.ledeLead)}>יותר מהעסק מול העיניים. פחות דברים שאתה מחזיק בראש.</p>
             <p className={s.lede} style={{ maxWidth: "32em" }}>
-              Dubiz מרכזת את העבודה השוטפת של העסק — מהכסף והמסמכים ועד הלקוחות,
-              המלאי והספקים — ומראה לך מה דורש טיפול היום.
+              אתה מנהל ב-Dubiz את הגבייה, המסמכים, הלקוחות, הפניות והמלאי — ומה
+              שנשאר פתוח מחכה לך ברשימה אחת.
             </p>
             <PrimaryCta href={cta.href} className={s.cta}>
               {cta.label}
             </PrimaryCta>
+            <p className={s.micro}>
+              אתה מחליט על כל צעד · תוכנה רשומה ברשות המסים · תעודת רישום 270901
+            </p>
           </div>
 
           <div aria-hidden className={cx(s.o, s.dOnly)} style={at({ x: 70, y: 166, w: 210, r: 8, z: 2 })}>
@@ -207,9 +232,48 @@ export default function HomeV3Page() {
         </div>
       </section>
 
-      {/* ═══ 02 · COLLECTION — Tier A · sage field · ochre offset ═══ */}
-      <section className={cx(s.sec, s.sage)} data-section="02-collection" aria-labelledby="h-collection">
+      {/* ═══ 02 · WHAT NEEDS YOU TODAY — the positioning's main proof ═══════
+          Several domains (a message, a document, a lead, stock) arrive in one
+          ranked list. The obligations the owner types in live on the secretary,
+          a separate morning surface — said in words, never merged into the list. */}
+      <section className={cx(s.sec, s.sage)} data-section="02-attention" aria-labelledby="h-attention">
         <Edge variant="a" fill="var(--mkt3-sage)" className={s.edge} />
+        <div className={s.stage} style={stage(900)}>
+          <div className={cx(s.txt, s.o)} style={at({ right: 96, y: 110, w: 500, z: 6 })}>
+            <Tag>הבוקר שלך</Tag>
+            <h2 id="h-attention" className={cx(s.h2, s.h2Big)}>
+              מה דורש
+              <br />
+              אותך היום
+            </h2>
+            <p className={s.lede}>
+              פנייה שמחכה לתשובה, מסמך שממתין לאישור, ליד שהגיע הזמן לחזור אליו,
+              מלאי שיורד — ברשימה אחת, לפי מה שדחוף קודם.
+            </p>
+            <p className={cx(s.lede, s.note)} style={{ marginTop: "18px" }}>
+              התשלומים הקבועים שרשמת מופיעים במזכירה, במסך נפרד.
+            </p>
+          </div>
+          <div className={cx(s.o, s.fit, s.doms)} style={at({ x: 150, y: 96, w: 420, r: -2, z: 4 })}>
+            <span>פנייה</span>
+            <span>מסמך</span>
+            <span>ליד</span>
+            <span>מלאי</span>
+          </div>
+          <div className={cx(s.o, s.win, s.offOchre)} style={at({ x: 300, y: 180, w: 330, r: 2, z: 2, mw: 340 })}>
+            <Shot
+              a={A.attention}
+              alt="דורש תשומת לב ב-Dubiz — מעקב ליד שעבר את הזמן, 7 מסמכים ממתינים לבדיקה, מלאי נמוך והזמנה מספק שממתינה לקליטה"
+            />
+          </div>
+          <div aria-hidden className={cx(s.o, s.dOnly)} style={at({ x: 700, y: 560, w: 300 })}>
+            <DotLink viewBox="0 0 300 80" d="M0 20 C 90 90, 200 0, 300 60" />
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ 03 · COLLECTION — Tier A · paper · ochre offset ═══ */}
+      <section className={cx(s.sec, s.paper)} data-section="03-collection" aria-labelledby="h-collection">
         <div className={s.stage} style={stage(980)}>
           <div className={cx(s.txt, s.o)} style={at({ right: 90, y: 90, w: 380, z: 6 })}>
             <Tag>גבייה</Tag>
@@ -219,8 +283,8 @@ export default function HomeV3Page() {
               ומה עוד פתוח
             </h2>
             <p className={s.lede}>
-              מה ממתין לתשלום, מה נגבה החודש ומה לא הושלם — ברשימה אחת. כשצריך,
-              שולחים ללקוח קישור לתשלום.
+              כל חשבונית שהוצאת נשארת מול העיניים עד שהיא משולמת. שולחים ללקוח
+              קישור לתשלום בכרטיס — וכשהוא משלם, הקבלה מופקת ונרשמת מול החשבונית.
             </p>
           </div>
           <div className={cx(s.o, s.win, s.offOchre)} style={at({ x: 64, y: 150, w: 840, z: 2, mw: 390 })}>
@@ -242,7 +306,7 @@ export default function HomeV3Page() {
       </section>
 
       {/* ═══ 03 · DOCUMENTS — Tier A · paper · a sky field entering from the right ═══ */}
-      <section className={cx(s.sec, s.paper)} data-section="03-documents" aria-labelledby="h-documents">
+      <section className={cx(s.sec, s.paper)} data-section="04-documents" aria-labelledby="h-documents">
         <div className={s.stage} style={stage(840)}>
           <div
             aria-hidden
@@ -254,13 +318,13 @@ export default function HomeV3Page() {
           <div className={cx(s.txt, s.o)} style={at({ x: 110, y: 170, w: 440, z: 6 })}>
             <Tag>מסמכים</Tag>
             <h2 id="h-documents" className={s.h2}>
-              מסמכי ספקים,
+              קבלה שצילמת
               <br />
-              מזוהים ומסודרים
+              לא נשארת בגלריה
             </h2>
             <p className={s.lede}>
-              מצלמים או מעלים קבלה, ו-Dubiz מזהה ספק, סכום ותאריך. מה שצריך את
-              האישור שלך מחכה בתור אחד.
+              מעלים את המסמך, ו-Dubiz מזהה ספק, סכום ותאריך. מה שצריך את האישור
+              שלך מחכה בתור אחד.
             </p>
           </div>
           {DOCS.map((d) => (
@@ -272,7 +336,7 @@ export default function HomeV3Page() {
       </section>
 
       {/* ═══ 04 · INVOICES — Tier A · an ochre field · the real issued invoice + its stamp ═══ */}
-      <section className={cx(s.sec, s.paper)} data-section="04-invoices" aria-labelledby="h-invoices">
+      <section className={cx(s.sec, s.paper)} data-section="05-invoices" aria-labelledby="h-invoices">
         <div className={s.stage} style={stage(990)}>
           <div
             className={s.field}
@@ -282,16 +346,16 @@ export default function HomeV3Page() {
           <div className={cx(s.txt, s.o)} style={at({ x: 110, y: 220, w: 480, z: 6 })}>
             <Tag>חשבוניות</Tag>
             <h2 id="h-invoices" className={s.h2}>
-              חשבוניות מס
+              חשבונית מס והצעת
               <br />
-              והצעות מחיר
+              מחיר, כמו שצריך
             </h2>
             <p className={s.lede}>
-              מפיקים חשבונית מס או הצעת מחיר, והופכים הצעה לחשבונית בלחיצה. ה-PDF
-              מוכן לשיתוף, ובמסך החשבונית רואים את היתרה הפתוחה.
+              מספור רציף, והצעת מחיר שהופכת לחשבונית בלחיצה. חשבונית שהופקה לא
+              משתנה, ובמסך שלה רואים את היתרה הפתוחה.
             </p>
             <p className={cx(s.lede, s.trust)}>
-              <b>תוכנה רשומה ברשות המסים (270901).</b>
+              <b>Dubiz היא תוכנה רשומה ברשות המסים — תעודת רישום מס׳ 270901.</b>
             </p>
           </div>
           <div className={s.o} style={at({ right: 300, y: 110, w: 320, r: 2, z: 2, mw: 340 })}>
@@ -309,21 +373,21 @@ export default function HomeV3Page() {
       </section>
 
       {/* ═══ 05 · LEADS — Tier A · the one deep teal band ═══ */}
-      <section className={cx(s.sec, s.teal)} data-section="05-leads" aria-labelledby="h-leads">
+      <section className={cx(s.sec, s.teal)} data-section="06-leads" aria-labelledby="h-leads">
         <Edge variant="b" fill="var(--mkt3-teal)" className={s.edge} />
         <div className={s.stage} style={stage(1020)}>
           <div className={cx(s.txt, s.o)} style={at({ right: 96, y: 70, w: 540, z: 6 })}>
             <Tag onTeal>לידים</Tag>
             <h2 id="h-leads" className={s.h2}>
-              רשימת עבודה לכל הפניות
+              למי לחזור היום
             </h2>
             <p className={cx(s.lede, s.ledeOnTeal)}>
-              קובעים מועד מעקב לכל פנייה, והרשימה מסודרת לפי מי שצריך לחזור אליו
-              קודם. טיפלת? מסמנים בלחיצה.
+              פנייה שנכנסה, לקוח שביקש הצעה, מישהו שהבטחת לחזור אליו. קובעים מתי
+              — וביום הזה הוא מופיע ברשימה. טיפלת? מסמנים בלחיצה.
             </p>
           </div>
           <div className={cx(s.o, s.fit)} style={at({ x: 1110, y: 250, w: 230, r: 4, z: 3 })}>
-            <span className={cx(s.lbl, s.lblCoral, s.chipLabel)}>למי לחזור היום</span>
+            <span className={cx(s.lbl, s.lblCoral, s.chipLabel)}>מעקב להיום</span>
           </div>
           <div className={cx(s.o, s.win, s.offTeal)} style={at({ x: 170, y: 290, w: 1100, z: 2, mw: 390 })}>
             <Shot
@@ -340,36 +404,6 @@ export default function HomeV3Page() {
         </div>
       </section>
 
-      {/* ═══ 06 · THE SECRETARY — Tier B · paper · sky mass ═══ */}
-      <section className={cx(s.sec, s.paper)} data-section="06-secretary" aria-labelledby="h-secretary">
-        <div className={s.stage} style={stage(860)}>
-          <div aria-hidden className={s.blob} style={blobAt({ x: 40, y: 60, w: 820, h: 720, m: { x: "-10%", y: "40%", w: "120%", h: "58%" } })}>
-            <BlobShape variant="b" fill="var(--mkt3-sky)" />
-          </div>
-          <div className={cx(s.txt, s.o)} style={at({ right: 100, y: 130, w: 480, z: 6 })}>
-            <Tag>המזכירה</Tag>
-            <h2 id="h-secretary" className={s.h2}>
-              מה חשוב
-              <br />
-              היום
-            </h2>
-            <p className={s.lede}>
-              המזכירה מרכזת את מה שהעסק צריך לשלם, ומסדרת אותו לפי מה שבאיחור, מה
-              להיום ומה מתקרב. כשאתה נכנס, היא מציגה במבט אחד מה דורש אותך.
-            </p>
-          </div>
-          <div className={cx(s.o, s.fit)} style={at({ x: 170, y: 88, w: 300, r: -4, z: 3 })}>
-            <span className={cx(s.lbl, s.lblOchre, s.chipLabel)}>מה מחכה לך היום</span>
-          </div>
-          <div className={cx(s.o, s.win)} style={at({ x: 330, y: 130, w: 320, r: 2, z: 2, mw: 340 })}>
-            <Shot
-              a={A.attention}
-              alt="דורש תשומת לב ב-Dubiz — מעקב ליד שעבר את הזמן, 7 מסמכים ממתינים לבדיקה, מלאי נמוך והזמנה מספק שממתינה לקליטה"
-            />
-          </div>
-        </div>
-      </section>
-
       {/* ═══ 07 · THE REST OF THE BUSINESS — breadth map · sage field ═══ */}
       <section className={cx(s.sec, s.sage)} data-section="07-map" aria-labelledby="h-map">
         <Edge variant="c" fill="var(--mkt3-sage)" className={s.edge} />
@@ -380,7 +414,10 @@ export default function HomeV3Page() {
               <br />
               שאר העסק
             </h2>
-            <p className={s.lede}>לקוחות, ספקים, מלאי ומה שצריך לשלם. אותה מערכת, אותו סדר.</p>
+            <p className={s.lede}>
+              פחות מערכות לנהל. כל חלק שמתנהל כאן הוא עוד דבר שאתה לא צריך לזכור
+              לבד.
+            </p>
           </div>
 
           <div className={cx(s.o, s.ptag)} style={at({ right: 90, y: 300, w: 520, r: -1.5, mw: 460 })}>
@@ -399,11 +436,14 @@ export default function HomeV3Page() {
             <h3>ספקים והזמנות</h3>
             <p>הספקים, ההזמנה לספק וקליטת הסחורה.</p>
           </div>
-          <div className={cx(s.o, s.ptk)} style={at({ x: 80, y: 270, w: 330, r: -3, mw: 420 })}>
+          <div className={cx(s.o, s.ptk)} style={at({ x: 80, y: 270, w: 360, r: -3, mw: 420 })}>
             <h3>התחייבויות</h3>
-            <p>כל התחייבות עם לוח התשלומים שלה — כמה שולם וכמה נותר.</p>
-            <div className={s.ptkFoot}>
-              <span>שולם · נותר</span>
+            <p>כל התחייבות עם לוח התשלומים שלה — שולם, נותר ומועד הבא.</p>
+            <div className={s.ptkImg}>
+              <Shot
+                a={A.payables}
+                alt="התחייבות ב-Dubiz — מכונת CNC בפריסת 12 תשלומים, 6,000 ₪ שולמו, 12,000 ₪ נותרו, והתשלום הבא ב-25.09.2026"
+              />
             </div>
           </div>
           <div className={cx(s.o, s.folder)} style={at({ x: 70, y: 600, w: 370, r: 2, mw: 420 })}>
@@ -444,6 +484,7 @@ export default function HomeV3Page() {
               <br />
               לא יוצא <span className={cx(s.lbl, s.lblWhite)}>בלעדיך.</span>
             </h2>
+            <p className={s.lede}>Dubiz מסדרת, מזהה ומציעה. אתה מחליט.</p>
           </div>
           <div className={cx(s.o, s.rules)} style={at({ x: 110, y: 150, w: 520, z: 2 })}>
             <p>

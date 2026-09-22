@@ -1,5 +1,5 @@
 /**
- * HOMEPAGE v3 — automated QA gate (/home-candidate).
+ * HOMEPAGE v4 — automated QA gate (/home-candidate).
  *
  * Written to fail on the defects this page must never ship with:
  *   - a CTA that leads to the closed-registration wall, or more than the two
@@ -37,7 +37,7 @@ const OUT = process.env.AUDIT_OUT_DIR || path.join(process.cwd(), `.homepage-qa-
 const WIDTHS = [360, 390, 768, 1024, 1280, 1440, 1536];
 const MOBILE = 390;
 
-const SECTIONS = ["01-hero", "02-collection", "03-documents", "04-invoices", "05-leads", "06-secretary", "07-map", "08-control", "09-faq", "10-final"];
+const SECTIONS = ["01-hero", "02-attention", "03-collection", "04-documents", "05-invoices", "06-leads", "07-map", "08-control", "09-faq", "10-final"];
 
 /** Claims the runtime audit ruled out (copy record §0). Matched on visible text. */
 const FORBIDDEN_CLAIMS = [
@@ -46,6 +46,10 @@ const FORBIDDEN_CLAIMS = [
   "24/7", "מסביב לשעון", "בדיוק בזמן", "מסנכרן", "סנכרון",
   "בינה מלאכותית", "AI", "חכמה", "לומד",
   "מחליף רואה חשבון", "מחליפה רואה חשבון", "פורמט תקין", "מאושר על ידי רשות המסים",
+  // the registration is a REGISTRATION: "approved" / "recognised" are not ours
+  "מאושרת ברשות המסים", "מאושרת על ידי רשות המסים", "מוכרת ברשות המסים",
+  // market language we deliberately do not compete on
+  "ניהול העסק", "כל מה שהעסק צריך", "הכול במקום אחד", "חיסכון בזמן",
   "מספר הקצאה", "מספרי הקצאה", "קבלה דיגיטלית", "חשבונית זיכוי",
   "פלטפורמה", "מערכת הפעלה", "בחינם", "תקופת ניסיון", "ללא התחייבות",
   "Tranzila", "PayPlus", "SUMIT",
@@ -150,7 +154,21 @@ async function run() {
     check(`${width} · no forbidden claim`, found.length === 0, found.join(", "));
     const count = (needle) => text.split(needle).length - 1;
     check(`${width} · "CardCom" exactly once (FAQ qualification)`, count("CardCom") === 1, count("CardCom"));
-    check(`${width} · "270901" exactly once`, count("270901") === 1, count("270901"));
+    // twice by design: the hero's trust line and the invoices section's full proof
+    check(`${width} · "270901" exactly twice`, count("270901") === 2, count("270901"));
+    check(
+      `${width} · the locked registration wording`,
+      text.includes("Dubiz היא תוכנה רשומה ברשות המסים — תעודת רישום מס׳ 270901") &&
+        text.includes("תוכנה רשומה ברשות המסים · תעודת רישום 270901"),
+      "hero line + invoices line"
+    );
+    // the positioning's promise, and the product-truth qualification next to it
+    check(`${width} · the attention promise is on the page`, text.includes("מה דורש") && text.includes("אותך היום"));
+    check(
+      `${width} · obligations are named as a separate surface`,
+      text.includes("התשלומים הקבועים שרשמת מופיעים במזכירה, במסך נפרד.")
+    );
+    check(`${width} · the card payment is qualified`, text.includes("קישור לתשלום בכרטיס"));
     const heavy = await page.evaluate(() =>
       [...document.querySelectorAll("main *")]
         .filter((e) => e.childNodes.length && [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()))
@@ -184,7 +202,7 @@ async function run() {
     await page.keyboard.press("Enter");
     check("a11y · skip link moves focus to #main-content", (await page.evaluate(() => document.activeElement?.id)) === "main-content");
     const summaries = await page.locator("main details > summary").count();
-    check("faq · five questions", summaries === 5, summaries);
+    check("faq · seven questions", summaries === 7, summaries);
     const first = page.locator("main details > summary").first();
     await first.focus();
     await page.keyboard.press("Enter");

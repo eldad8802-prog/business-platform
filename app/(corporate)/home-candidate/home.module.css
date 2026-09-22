@@ -121,6 +121,10 @@
 .lede { margin-top: 14px; font-size: 17px; line-height: 1.65; color: var(--mkt3-ink2); }
 .ledeOnTeal { color: var(--mkt3-on-teal2); }
 .ledeOnOchre { color: var(--mkt3-on-ochre2); }
+/* the hero's proposition: one size up from the supporting sentence */
+.ledeLead { font-size: 21px; line-height: 1.4; color: var(--mkt3-ink); font-weight: 500; }
+/* the trust fact under the CTA — a fact, never a badge */
+.micro { margin-top: 18px; font-size: 13px; line-height: 1.6; color: var(--mkt3-ink2); }
 
 /* Type as an object: the key word sits on a label with an offset ink block. */
 .lbl {
@@ -263,6 +267,23 @@
   font-weight: 600;
 }
 .ptkFoot span:last-child { color: var(--mkt3-ink2); }
+/* the one real commitment proof, inside the ticket */
+.ptkImg { margin-top: 16px; padding-top: 16px; border-top: 3px dotted var(--mkt3-ink); }
+.ptkImg .img { border-radius: 13px; border: 2px solid var(--mkt3-ink); }
+
+/* the domains that feed one list: four ink chips, not a legend */
+.doms { display: flex; flex-wrap: wrap; gap: 8px; }
+.doms span {
+  background: var(--mkt3-white);
+  border: 2px solid var(--mkt3-ink);
+  border-radius: 999px;
+  padding: 5px 16px 6px;
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: 3px 3px 0 var(--mkt3-ink);
+}
+.doms span:nth-child(2) { background: var(--mkt3-ochre); transform: rotate(-2deg); }
+.doms span:nth-child(3) { background: var(--mkt3-sky-soft); transform: rotate(1.5deg); }
 
 /* accountant: a folder with a tab */
 .folder {
@@ -397,6 +418,8 @@
   .h2Huge { font-size: 4.45cqw; line-height: 1.05; }
   .h2Final { font-size: 5cqw; line-height: 1.02; }
   .lede { margin-top: 1.1cqw; font-size: clamp(15px, 1.32cqw, 19px); }
+  .ledeLead { font-size: clamp(18px, 1.68cqw, 24px); }
+  .micro { margin-top: 1.4cqw; font-size: clamp(12px, 0.95cqw, 14px); }
   .lbl { box-shadow: 0.5cqw 0.5cqw 0 var(--mkt3-ink); }
   .chipLabel { font-size: clamp(16px, 1.55cqw, 22px); }
   .ptag h3, .folder h3, .ptk h3 { font-size: clamp(19px, 1.8cqw, 26px); }
