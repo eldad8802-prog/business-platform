@@ -345,7 +345,7 @@ CREATE UNIQUE INDEX "ExternalTransactionMatchRejection_pair_key"
   ON "ExternalTransactionMatchRejection"(
     "businessId", "externalTransactionId", COALESCE("paymentId", 0), COALESCE("installmentId", 0)
   );
-CREATE INDEX "ExternalTransactionMatchRejection_businessId_externalTransactionId_idx"
+CREATE INDEX "ExternalTransactionMatchRejection_business_ext_idx"
   ON "ExternalTransactionMatchRejection"("businessId", "externalTransactionId");
 
 -- ── 4. OutboundExecution ─────────────────────────────────────────────────────
