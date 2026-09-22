@@ -56,6 +56,7 @@ const DEFAULT_LOCALE = "he-IL";
 const DEFAULT_TIMEZONE = "Asia/Jerusalem";
 const DEFAULT_VAT_MODE = "EXCLUSIVE";
 const DEFAULT_SOURCE = "manual";
+const SYSTEM_SETTLEMENT_SOURCE = "payment_settlement";
 const DOCUMENT_ALREADY_HANDLED_MESSAGE =
   "המסמך כבר עודכן או הופק על ידי פעולה אחרת";
 
@@ -124,6 +125,8 @@ type IssuedSnapshot = {
     subtotal: string;
     vat: string;
     total: string;
+    /** C3: RECEIPT only — money evidenced but applied to no debt. */
+    unapplied?: string;
   };
   tax: {
     currency: string;
@@ -133,7 +136,7 @@ type IssuedSnapshot = {
   metadata: {
     locale: string;
     timezone: string;
-    actorUserId: number;
+    actorUserId: number | null;
     source: string;
   };
   /** Frozen layout preset at issue time (CLASSIC | MODERN | COMPACT). */
@@ -217,7 +220,10 @@ export function buildIssuedSnapshot(args: {
   documentNumber: number;
   documentNumberFormatted: string;
   issuedAt: Date;
-  actorUserId: number;
+  /** null when the system issued the document (C3 payment settlement). */
+  actorUserId: number | null;
+  /** Defaults to "manual"; "payment_settlement" for a system-issued receipt. */
+  source?: string;
   totals: {
     subtotalAmount: Prisma.Decimal;
     vatAmount: Prisma.Decimal;
@@ -322,6 +328,12 @@ export function buildIssuedSnapshot(args: {
       subtotal: formatMoney(totals.subtotalAmount),
       vat: formatMoney(totals.vatAmount),
       total: formatMoney(totals.totalAmount),
+      // C3: a receipt's unapplied money is part of its fiscal truth and is
+      // frozen with it. Other document types carry no such field, so their
+      // snapshots are byte-identical to before.
+      ...(document.documentType === BillingDocumentType.RECEIPT
+        ? { unapplied: formatMoney(document.unappliedAmount) }
+        : {}),
     },
     tax: {
       currency: document.currency,
@@ -332,7 +344,7 @@ export function buildIssuedSnapshot(args: {
       locale: DEFAULT_LOCALE,
       timezone: DEFAULT_TIMEZONE,
       actorUserId,
-      source: DEFAULT_SOURCE,
+      source: args.source ?? DEFAULT_SOURCE,
     },
     pdfTemplateStyle,
     extensions: {
@@ -448,311 +460,14 @@ export async function issueBillingDocument(
 
   const issuedAt = new Date();
 
-  const result = await billingTenantTx(input.businessId, async (tx) => {
-    // C2.5 — hold the document being issued before reading it. Everything that
-    // can still change a draft receipt's money (its payment lines, its
-    // allocations) takes this same lock, so what is validated below is what
-    // becomes the legal record, and a second issuance of the same document
-    // waits here and then reads it as already ISSUED.
-    await lockBillingDocumentRowsTx(tx, input.businessId, [
-      input.billingDocumentId,
-    ]);
-
-    const doc = await tx.billingDocument.findFirst({
-      where: {
-        id: input.billingDocumentId,
-        businessId: input.businessId,
-      },
-      include: {
-        lines: { orderBy: { lineIndex: "asc" } },
-        // A receipt states its money here, not in goods lines.
-        receiptPayments: { orderBy: { lineIndex: "asc" } },
-      },
-    });
-
-    if (!doc) {
-      throw new NotFoundError("Billing document not found");
-    }
-
-    if (doc.documentType === BillingDocumentType.QUOTE) {
-      throw new ValidationError(
-        "לא ניתן להפיק חשבונית מס ישירות מהצעת מחיר — יש להשתמש ב\"הפוך לחשבונית\""
-      );
-    }
-
-    if (
-      doc.status !== BillingDocumentStatus.PENDING_REVIEW &&
-      doc.status !== BillingDocumentStatus.DRAFT
-    ) {
-      throw new ForbiddenError(DOCUMENT_ALREADY_HANDLED_MESSAGE);
-    }
-
-    const customerNameSnapshot = (doc.customerNameSnapshot ?? "").trim();
-    if (customerNameSnapshot.length === 0) {
-      throw new ValidationError(
-        "customerNameSnapshot is required to issue a document"
-      );
-    }
-
-    // WHAT A DOCUMENT'S MONEY IS MADE OF DEPENDS ON THE DOCUMENT.
-    //
-    // Every type but one states its money in goods lines, and this guard was
-    // written for those: no lines, nothing to issue. A pure RECEIPT is the
-    // exception and always was — it has no goods, because it is not a claim for
-    // anything. Its money IS its payment lines, so the generic rule rejected
-    // every legitimate receipt and no receipt could ever be issued.
-    //
-    // The fix is to ask the question per type rather than to stop asking it.
-    // A receipt must still prove it has money and that its stated total is that
-    // money; an invoice's requirements are untouched, and the branch below is
-    // the only place the two differ.
-    const recomputed = recomputeAll(
-      doc.lines.map((line) => ({
-        description: line.description,
-        quantity: line.quantity,
-        unitPrice: line.unitPrice,
-        vatRatePercent: line.vatRatePercent,
-        lineIndex: line.lineIndex,
-      }))
-    );
-
-    // The totals that belong on the legal snapshot and the audit record. The
-    // rule itself is pure and lives beside this service so it can be tested
-    // without a database; here we only supply the shape.
-    const issuedTotals = assertIssuableShape({
-      documentType: doc.documentType,
-      lineCount: doc.lines.length,
-      paymentAmounts: doc.receiptPayments.map((payment) => payment.amount),
-      stored: {
-        subtotalAmount: doc.subtotalAmount,
-        vatAmount: doc.vatAmount,
-        totalAmount: doc.totalAmount,
-      },
-      recomputed: recomputed.totals,
-    });
-
-    // C2.5 — a receipt's allocations become authoritative in this transaction,
-    // so this is where they must be true: equal to the money received, and
-    // within what each invoice still has left to settle, read under the
-    // invoices' own locks.
-    if (doc.documentType === BillingDocumentType.RECEIPT) {
-      await assertReceiptAllocationIntegrityTx(tx, {
-        businessId: input.businessId,
-        receiptDocumentId: doc.id,
-        receiptCurrency: doc.currency,
-        receiptTotal: issuedTotals.totalAmount,
-      });
-    }
-
-    if (doc.documentType === BillingDocumentType.CREDIT_NOTE) {
-      if (doc.referenceDocumentId === null) {
-        throw new ValidationError(
-          "Credit note must reference an issued source invoice"
-        );
-      }
-      await assertCanReferenceSourceInvoice(tx, {
-        businessId: input.businessId,
-        sourceBillingDocumentId: doc.referenceDocumentId,
-        creditDocumentId: doc.id,
-      });
-      await assertCreditAmountWithinRemaining(tx, {
-        businessId: input.businessId,
-        sourceBillingDocumentId: doc.referenceDocumentId,
-        creditTotalAmount: issuedTotals.totalAmount,
-        currency: doc.currency,
-      });
-    }
-
-    const business = await tx.business.findUnique({
-      where: { id: input.businessId },
-      select: {
-        id: true,
-        name: true,
-        profile: {
-          select: {
-            billingLegalName: true,
-            billingBusinessKind: true,
-            billingTaxId: true,
-            billingVatNumber: true,
-            billingPhone: true,
-            billingEmail: true,
-            billingAddress: true,
-            billingPaymentNote: true,
-            billingFooterNote: true,
-            billingLogoDataUrl: true,
-            billingSignatureDataUrl: true,
-            billingPdfTemplateStyle: true,
-          },
-        },
-      },
-    });
-
-    if (!business) {
-      throw new NotFoundError("Business not found");
-    }
-
-    assertBillingIdentityReadyForTaxInvoice(business.profile);
-
-    let customerData:
-      | {
-          id: number;
-          name: string;
-          phone: string | null;
-          email: string | null;
-          city: string | null;
-          taxId: string | null;
-          taxIdType: CustomerTaxIdType | null;
-        }
-      | null = null;
-
-    if (doc.customerId !== null) {
-      const customer = await tx.customer.findFirst({
-        where: { id: doc.customerId, businessId: input.businessId },
-        select: {
-          id: true,
-          name: true,
-          phone: true,
-          email: true,
-          city: true,
-          taxId: true,
-          // Needed for authority readiness (licensed-dealer check). Not part of
-          // the issued snapshot; used only to evaluate submission readiness.
-          taxIdType: true,
-        },
-      });
-      if (customer) {
-        customerData = customer;
-      }
-    }
-
-    const sequence = await tx.billingDocumentNumberSequence.upsert({
-      where: {
-        businessId_documentType: {
-          businessId: input.businessId,
-          documentType: doc.documentType,
-        },
-      },
-      create: {
-        businessId: input.businessId,
-        documentType: doc.documentType,
-        nextNumber: 2,
-      },
-      update: {
-        nextNumber: { increment: 1 },
-      },
-    });
-
-    const documentNumber = sequence.nextNumber - 1;
-    const documentNumberFormatted = formatDocumentNumber(documentNumber);
-
-    const snapshot = buildIssuedSnapshot({
-      document: doc,
-      lines: doc.lines,
-      business,
-      customer: customerData,
-      documentNumber,
-      documentNumberFormatted,
-      issuedAt,
-      actorUserId: input.actorUserId,
-      totals: issuedTotals,
-    });
-    const legalSnapshotHash = hashIssuedSnapshot(snapshot);
-
-    const updated = await updateBillingDocuments(tx, {
-      where: {
-        id: input.billingDocumentId,
-        businessId: input.businessId,
-      },
-      intent: "issue_to_issued",
-      data: {
-        status: BillingDocumentStatus.ISSUED,
-        documentNumber,
-        documentNumberFormatted,
-        issuedAt,
-        issuedByUserId: input.actorUserId,
-        issuedSnapshot: snapshot as unknown as Prisma.InputJsonValue,
-        lockedAt: issuedAt,
-        legalSnapshotHash,
-        pdfRenderStatus: BillingPdfRenderStatus.PENDING,
-      },
-    });
-
-    if (updated.count !== 1) {
-      throw new ForbiddenError(DOCUMENT_ALREADY_HANDLED_MESSAGE);
-    }
-
-    const issued = await tx.billingDocument.findFirstOrThrow({
-      where: {
-        id: input.billingDocumentId,
-        businessId: input.businessId,
-      },
-      include: { lines: { orderBy: { lineIndex: "asc" } } },
-    });
-
-    await ensureBillingInvoicePostedEvent(tx, issued);
-    await createBillingAuditEventTx(tx, {
+  const result = await billingTenantTx(input.businessId, (tx) =>
+    issueBillingDocumentTx(tx, {
       businessId: input.businessId,
-      billingDocumentId: issued.id,
-      actorUserId: input.actorUserId,
-      eventType:
-        issued.documentType === BillingDocumentType.CREDIT_NOTE
-          ? "BILLING_CREDIT_NOTE_ISSUED"
-          : "BILLING_DOC_ISSUED",
-      summary:
-        issued.documentType === BillingDocumentType.CREDIT_NOTE
-          ? "Credit note issued"
-          : "Billing document issued",
-      metadata: {
-        documentId: issued.id,
-        documentType: issued.documentType,
-        documentNumber,
-        documentNumberFormatted,
-        issuedAt: issuedAt.toISOString(),
-        lockedAt: issued.lockedAt?.toISOString() ?? null,
-        legalSnapshotHash: issued.legalSnapshotHash,
-        customerId: issued.customerId,
-        referenceDocumentId: issued.referenceDocumentId,
-        sourceInvoiceId: issued.referenceDocumentId,
-        subtotalAmount: issuedTotals.subtotalAmount.toString(),
-        vatAmount: issuedTotals.vatAmount.toString(),
-        totalAmount: issuedTotals.totalAmount.toString(),
-        currency: issued.currency,
-        lineCount: issued.lines.length,
-        snapshotSchemaVersion: SNAPSHOT_SCHEMA_VERSION,
-        actorUserId: input.actorUserId,
-      },
-      occurredAt: issuedAt,
-    });
-
-    // Atomic with issuance: create the authority submission (READY / NOT_REQUIRED)
-    // for the now-ISSUED document. Returns null for non-eligible document types.
-    // Any failure here rolls back the whole issue transaction (no ISSUED document
-    // without a resolved authority readiness when the type is relevant).
-    const authoritySubmission = await createAuthoritySubmissionForIssuedDocumentTx(
-      tx,
-      {
-        businessId: input.businessId,
-        billingDocumentId: issued.id,
-        actorUserId: input.actorUserId,
-        documentType: issued.documentType,
-        legalSnapshotHash,
-        vatAmount: issuedTotals.vatAmount,
-        subtotalAmount: issuedTotals.subtotalAmount,
-        currency: issued.currency,
-        customerTaxId: customerData?.taxId ?? null,
-        customerTaxIdType: customerData?.taxIdType ?? null,
-        issuedAt,
-      }
-    );
-
-    return {
-      issued,
-      documentNumber,
-      documentNumberFormatted,
-      totals: issuedTotals,
-      authoritySubmission,
-    };
-  });
+      billingDocumentId: input.billingDocumentId,
+      actor: { kind: "USER", userId: input.actorUserId },
+      issuedAt,
+    })
+  );
 
   await logAuditEvent({
     businessId: input.businessId,
@@ -789,4 +504,397 @@ export async function issueBillingDocument(
   );
 
   return { document: result.issued, authority };
+}
+
+/**
+ * Who issues a document.
+ *
+ * A person, through an authenticated route — or, since C3, the system itself,
+ * issuing the receipt for a payment the provider verified. A system issuance
+ * is recorded as exactly that: no user id, source PAYMENT_SETTLEMENT. It is
+ * never attributed to an owner who did not perform it.
+ */
+export type IssuanceActor =
+  | { kind: "USER"; userId: number }
+  | { kind: "PAYMENT_SETTLEMENT"; sourcePaymentTransactionId: number };
+
+export type IssueBillingDocumentTxResult = {
+  issued: BillingDocument & { lines: BillingDocumentLine[] };
+  documentNumber: number;
+  documentNumberFormatted: string;
+  totals: {
+    subtotalAmount: Prisma.Decimal;
+    vatAmount: Prisma.Decimal;
+    totalAmount: Prisma.Decimal;
+  };
+  authoritySubmission: CreateAuthoritySubmissionAtIssueResult | null;
+};
+
+/**
+ * The issuance itself, inside the caller's transaction. `issueBillingDocument`
+ * wraps it for people; C3 payment settlement calls it directly so that receipt
+ * creation, allocation and issuance commit — or roll back — as one unit.
+ *
+ * A system actor may issue only the pure RECEIPT that evidences the very
+ * payment it names; nothing else can be issued without a person.
+ */
+export async function issueBillingDocumentTx(
+  tx: Prisma.TransactionClient,
+  core: {
+    businessId: number;
+    billingDocumentId: number;
+    actor: IssuanceActor;
+    issuedAt: Date;
+  }
+): Promise<IssueBillingDocumentTxResult> {
+  const input = {
+    businessId: core.businessId,
+    billingDocumentId: core.billingDocumentId,
+    actorUserId: core.actor.kind === "USER" ? core.actor.userId : null,
+  };
+  const issuedAt = core.issuedAt;
+  const auditSource =
+    core.actor.kind === "USER" ? ("USER" as const) : ("PAYMENT_SETTLEMENT" as const);
+
+  // C2.5 — hold the document being issued before reading it. Everything that
+  // can still change a draft receipt's money (its payment lines, its
+  // allocations) takes this same lock, so what is validated below is what
+  // becomes the legal record, and a second issuance of the same document
+  // waits here and then reads it as already ISSUED.
+  await lockBillingDocumentRowsTx(tx, input.businessId, [
+    input.billingDocumentId,
+  ]);
+
+  const doc = await tx.billingDocument.findFirst({
+    where: {
+      id: input.billingDocumentId,
+      businessId: input.businessId,
+    },
+    include: {
+      lines: { orderBy: { lineIndex: "asc" } },
+      // A receipt states its money here, not in goods lines.
+      receiptPayments: { orderBy: { lineIndex: "asc" } },
+    },
+  });
+
+  if (!doc) {
+    throw new NotFoundError("Billing document not found");
+  }
+
+  if (doc.documentType === BillingDocumentType.QUOTE) {
+    throw new ValidationError(
+      "לא ניתן להפיק חשבונית מס ישירות מהצעת מחיר — יש להשתמש ב\"הפוך לחשבונית\""
+    );
+  }
+
+  if (
+    doc.status !== BillingDocumentStatus.PENDING_REVIEW &&
+    doc.status !== BillingDocumentStatus.DRAFT
+  ) {
+    throw new ForbiddenError(DOCUMENT_ALREADY_HANDLED_MESSAGE);
+  }
+
+  // C3 — the system may issue exactly one thing: the pure RECEIPT evidencing
+  // the verified payment it names. And only such a receipt may carry money it
+  // applies to no debt; a manual document cannot state unapplied money at all.
+  if (core.actor.kind === "PAYMENT_SETTLEMENT") {
+    if (
+      doc.documentType !== BillingDocumentType.RECEIPT ||
+      doc.sourcePaymentTransactionId !== core.actor.sourcePaymentTransactionId
+    ) {
+      throw new ForbiddenError(
+        "System issuance is limited to the receipt of its own verified payment"
+      );
+    }
+  }
+  if (!doc.unappliedAmount.isZero() && doc.sourcePaymentTransactionId === null) {
+    throw new ValidationError(
+      "Only a receipt evidencing a verified payment may carry unapplied money"
+    );
+  }
+
+  const customerNameSnapshot = (doc.customerNameSnapshot ?? "").trim();
+  if (customerNameSnapshot.length === 0) {
+    throw new ValidationError(
+      "customerNameSnapshot is required to issue a document"
+    );
+  }
+
+  // WHAT A DOCUMENT'S MONEY IS MADE OF DEPENDS ON THE DOCUMENT.
+  //
+  // Every type but one states its money in goods lines, and this guard was
+  // written for those: no lines, nothing to issue. A pure RECEIPT is the
+  // exception and always was — it has no goods, because it is not a claim for
+  // anything. Its money IS its payment lines, so the generic rule rejected
+  // every legitimate receipt and no receipt could ever be issued.
+  //
+  // The fix is to ask the question per type rather than to stop asking it.
+  // A receipt must still prove it has money and that its stated total is that
+  // money; an invoice's requirements are untouched, and the branch below is
+  // the only place the two differ.
+  const recomputed = recomputeAll(
+    doc.lines.map((line) => ({
+      description: line.description,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+      vatRatePercent: line.vatRatePercent,
+      lineIndex: line.lineIndex,
+    }))
+  );
+
+  // The totals that belong on the legal snapshot and the audit record. The
+  // rule itself is pure and lives beside this service so it can be tested
+  // without a database; here we only supply the shape.
+  const issuedTotals = assertIssuableShape({
+    documentType: doc.documentType,
+    lineCount: doc.lines.length,
+    paymentAmounts: doc.receiptPayments.map((payment) => payment.amount),
+    stored: {
+      subtotalAmount: doc.subtotalAmount,
+      vatAmount: doc.vatAmount,
+      totalAmount: doc.totalAmount,
+    },
+    recomputed: recomputed.totals,
+  });
+
+  // C2.5 — a receipt's allocations become authoritative in this transaction,
+  // so this is where they must be true: equal to the money received, and
+  // within what each invoice still has left to settle, read under the
+  // invoices' own locks.
+  if (doc.documentType === BillingDocumentType.RECEIPT) {
+    await assertReceiptAllocationIntegrityTx(tx, {
+      businessId: input.businessId,
+      receiptDocumentId: doc.id,
+      receiptCurrency: doc.currency,
+      receiptTotal: issuedTotals.totalAmount,
+      unappliedAmount: doc.unappliedAmount,
+    });
+  }
+
+  if (doc.documentType === BillingDocumentType.CREDIT_NOTE) {
+    if (doc.referenceDocumentId === null) {
+      throw new ValidationError(
+        "Credit note must reference an issued source invoice"
+      );
+    }
+    // C3 — the invoice's economic authority is shared by credit notes and
+    // receipts, so both take the invoice's row lock (same helper, same order:
+    // own document first, then the invoice). Two credits can no longer both
+    // read the same uncredited balance, and a payment settlement reading the
+    // credits sees every credit that committed before it.
+    await lockBillingDocumentRowsTx(tx, input.businessId, [
+      doc.referenceDocumentId,
+    ]);
+    await assertCanReferenceSourceInvoice(tx, {
+      businessId: input.businessId,
+      sourceBillingDocumentId: doc.referenceDocumentId,
+      creditDocumentId: doc.id,
+    });
+    await assertCreditAmountWithinRemaining(tx, {
+      businessId: input.businessId,
+      sourceBillingDocumentId: doc.referenceDocumentId,
+      creditTotalAmount: issuedTotals.totalAmount,
+      currency: doc.currency,
+    });
+  }
+
+  const business = await tx.business.findUnique({
+    where: { id: input.businessId },
+    select: {
+      id: true,
+      name: true,
+      profile: {
+        select: {
+          billingLegalName: true,
+          billingBusinessKind: true,
+          billingTaxId: true,
+          billingVatNumber: true,
+          billingPhone: true,
+          billingEmail: true,
+          billingAddress: true,
+          billingPaymentNote: true,
+          billingFooterNote: true,
+          billingLogoDataUrl: true,
+          billingSignatureDataUrl: true,
+          billingPdfTemplateStyle: true,
+        },
+      },
+    },
+  });
+
+  if (!business) {
+    throw new NotFoundError("Business not found");
+  }
+
+  assertBillingIdentityReadyForTaxInvoice(business.profile);
+
+  let customerData:
+    | {
+        id: number;
+        name: string;
+        phone: string | null;
+        email: string | null;
+        city: string | null;
+        taxId: string | null;
+        taxIdType: CustomerTaxIdType | null;
+      }
+    | null = null;
+
+  if (doc.customerId !== null) {
+    const customer = await tx.customer.findFirst({
+      where: { id: doc.customerId, businessId: input.businessId },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+        city: true,
+        taxId: true,
+        // Needed for authority readiness (licensed-dealer check). Not part of
+        // the issued snapshot; used only to evaluate submission readiness.
+        taxIdType: true,
+      },
+    });
+    if (customer) {
+      customerData = customer;
+    }
+  }
+
+  const sequence = await tx.billingDocumentNumberSequence.upsert({
+    where: {
+      businessId_documentType: {
+        businessId: input.businessId,
+        documentType: doc.documentType,
+      },
+    },
+    create: {
+      businessId: input.businessId,
+      documentType: doc.documentType,
+      nextNumber: 2,
+    },
+    update: {
+      nextNumber: { increment: 1 },
+    },
+  });
+
+  const documentNumber = sequence.nextNumber - 1;
+  const documentNumberFormatted = formatDocumentNumber(documentNumber);
+
+  const snapshot = buildIssuedSnapshot({
+    document: doc,
+    lines: doc.lines,
+    business,
+    customer: customerData,
+    documentNumber,
+    documentNumberFormatted,
+    issuedAt,
+    actorUserId: input.actorUserId,
+    source: core.actor.kind === "USER" ? DEFAULT_SOURCE : SYSTEM_SETTLEMENT_SOURCE,
+    totals: issuedTotals,
+  });
+  const legalSnapshotHash = hashIssuedSnapshot(snapshot);
+
+  const updated = await updateBillingDocuments(tx, {
+    where: {
+      id: input.billingDocumentId,
+      businessId: input.businessId,
+    },
+    intent: "issue_to_issued",
+    data: {
+      status: BillingDocumentStatus.ISSUED,
+      documentNumber,
+      documentNumberFormatted,
+      issuedAt,
+      issuedByUserId: input.actorUserId,
+      issuedSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+      lockedAt: issuedAt,
+      legalSnapshotHash,
+      pdfRenderStatus: BillingPdfRenderStatus.PENDING,
+    },
+  });
+
+  if (updated.count !== 1) {
+    throw new ForbiddenError(DOCUMENT_ALREADY_HANDLED_MESSAGE);
+  }
+
+  const issued = await tx.billingDocument.findFirstOrThrow({
+    where: {
+      id: input.billingDocumentId,
+      businessId: input.businessId,
+    },
+    include: { lines: { orderBy: { lineIndex: "asc" } } },
+  });
+
+  await ensureBillingInvoicePostedEvent(tx, issued);
+  await createBillingAuditEventTx(tx, {
+    businessId: input.businessId,
+    billingDocumentId: issued.id,
+    actorUserId: input.actorUserId,
+    source: auditSource,
+    eventType:
+      issued.documentType === BillingDocumentType.CREDIT_NOTE
+        ? "BILLING_CREDIT_NOTE_ISSUED"
+        : "BILLING_DOC_ISSUED",
+    summary:
+      issued.documentType === BillingDocumentType.CREDIT_NOTE
+        ? "Credit note issued"
+        : "Billing document issued",
+    metadata: {
+      documentId: issued.id,
+      documentType: issued.documentType,
+      documentNumber,
+      documentNumberFormatted,
+      issuedAt: issuedAt.toISOString(),
+      lockedAt: issued.lockedAt?.toISOString() ?? null,
+      legalSnapshotHash: issued.legalSnapshotHash,
+      customerId: issued.customerId,
+      referenceDocumentId: issued.referenceDocumentId,
+      sourceInvoiceId: issued.referenceDocumentId,
+      subtotalAmount: issuedTotals.subtotalAmount.toString(),
+      vatAmount: issuedTotals.vatAmount.toString(),
+      totalAmount: issuedTotals.totalAmount.toString(),
+      currency: issued.currency,
+      lineCount: issued.lines.length,
+      snapshotSchemaVersion: SNAPSHOT_SCHEMA_VERSION,
+      actorUserId: input.actorUserId,
+      ...(issued.sourcePaymentTransactionId !== null
+        ? {
+            sourcePaymentTransactionId: issued.sourcePaymentTransactionId,
+            unappliedAmount: issued.unappliedAmount.toString(),
+          }
+        : {}),
+    },
+    occurredAt: issuedAt,
+  });
+
+  // Atomic with issuance: create the authority submission (READY / NOT_REQUIRED)
+  // for the now-ISSUED document. Returns null for non-eligible document types.
+  // Any failure here rolls back the whole issue transaction (no ISSUED document
+  // without a resolved authority readiness when the type is relevant).
+  // A system issuance is always a pure RECEIPT, which is not authority-eligible;
+  // there is no submission to create and no person to attribute one to.
+  const authoritySubmission = input.actorUserId === null ? null : await createAuthoritySubmissionForIssuedDocumentTx(
+    tx,
+    {
+      businessId: input.businessId,
+      billingDocumentId: issued.id,
+      actorUserId: input.actorUserId,
+      documentType: issued.documentType,
+      legalSnapshotHash,
+      vatAmount: issuedTotals.vatAmount,
+      subtotalAmount: issuedTotals.subtotalAmount,
+      currency: issued.currency,
+      customerTaxId: customerData?.taxId ?? null,
+      customerTaxIdType: customerData?.taxIdType ?? null,
+      issuedAt,
+    }
+  );
+
+  return {
+    issued,
+    documentNumber,
+    documentNumberFormatted,
+    totals: issuedTotals,
+    authoritySubmission,
+  };
 }

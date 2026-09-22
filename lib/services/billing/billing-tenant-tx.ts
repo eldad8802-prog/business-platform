@@ -25,7 +25,8 @@ import { tenantTx } from "@/lib/tenant/tenant-tx";
  */
 export function billingTenantTx<T>(
   businessId: number,
-  fn: (tx: Prisma.TransactionClient) => Promise<T>
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  options?: { timeoutMs?: number }
 ): Promise<T> {
-  return tenantTx(businessId, fn);
+  return tenantTx(businessId, fn, options);
 }

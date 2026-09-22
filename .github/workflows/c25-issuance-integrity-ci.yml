@@ -24,6 +24,8 @@ on:
       - "lib/services/billing/billing-issue.service.ts"
       - "lib/services/billing/receipt/**"
       - "lib/services/billing/domain/billing-allocation-authority.ts"
+      - "lib/services/billing/domain/billing-invoice-economic-remaining.ts"
+      - "lib/services/billing/settlement/**"
       - "lib/services/billing/collection/awaiting-payment.loader.ts"
       - "lib/services/payments/payment-store.prisma.ts"
       - ".c25integrity/**"
@@ -109,7 +111,7 @@ jobs:
         run: |
           F="lib/services/billing/receipt/billing-receipt-issuance-integrity.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/  assertReceiptAllocationsMatchTotal\(allocations, args\.receiptTotal\);\n//' "$F"
+          perl -0pi -e 's/  assertReceiptAllocationsMatchTotal\(allocations, args\.receiptTotal, args\.unappliedAmount\);\n//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npx tsx .c25integrity/battery.mts >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a 300 receipt settled 1,000 and the battery did not notice"; exit 1
@@ -119,9 +121,11 @@ jobs:
 
       - name: Negative proof (drafts reserve capacity again)
         run: |
-          F="lib/services/billing/receipt/billing-payment-allocation.service.ts"
+          # Since C3 every capacity read goes through the shared economic rule,
+          # so that is where drafts would start reserving capacity again.
+          F="lib/services/billing/domain/billing-invoice-economic-remaining.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/          \.\.\.authoritativeAllocationWhere\(input\.businessId\),\n//' "$F"
+          perl -0pi -e 's/      \.\.\.authoritativeAllocationWhere\(args\.businessId\),\n//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if npx tsx .c25integrity/battery.mts >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an abandoned draft blocked a real payment and the battery did not notice"; exit 1

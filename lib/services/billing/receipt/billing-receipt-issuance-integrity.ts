@@ -1,12 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { NotFoundError } from "@/lib/errors";
-import { authoritativeAllocationWhere } from "@/lib/services/billing/domain/billing-allocation-authority";
+import { loadInvoiceEconomicStateTx } from "@/lib/services/billing/domain/billing-invoice-economic-remaining";
 import {
   assertAllocationWithinRemaining,
   assertInvoiceAllocatable,
   assertReceiptAllocationsMatchTotal,
   assertSameCurrency,
-  computeRemainingAllocatable,
 } from "@/lib/services/billing/receipt/billing-receipt-allocation.rules";
 
 /**
@@ -33,12 +32,12 @@ import {
  * lock. Once it is held, the issued allocations read below cannot change until
  * this transaction ends.
  *
- * WHAT THE CAPACITY IS. Exactly the rule the draft path always applied —
- * invoice total minus the other receipts' allocations — narrowed by C2's
- * authority filter to the allocations that actually count. Credit notes are
- * deliberately left where they were: the allocation guard has never counted
- * them, and changing how credit and payment share an invoice is a separate
- * accounting decision, not an integrity fix.
+ * WHAT THE CAPACITY IS. The invoice's economic remaining — total, less the
+ * other receipts' ISSUED allocations, less ISSUED credit notes — from the one
+ * shared rule (billing-invoice-economic-remaining). C2.5 originally left credit
+ * notes out; C3 settles real money automatically, and a payment must not settle
+ * more than a credited invoice is still worth. Credit-note issuance takes the
+ * same invoice lock, so the credits read here are not stale.
  */
 
 /**
@@ -76,8 +75,8 @@ export function orderedUniqueIds(ids: number[]): number[] {
  * Asserts, inside the issuance transaction, that a pure RECEIPT may become
  * ISSUED. The caller must already hold the receipt's own row lock.
  *
- *  1. zero allocations          → ad-hoc receipt, nothing to check
- *  2. allocations ≠ receipt total → reject (E4)
+ *  1. zero allocations, nothing unapplied → ad-hoc receipt, nothing to check
+ *  2. allocations + unapplied ≠ receipt total → reject (E4)
  *  3. lock every target invoice, ascending id
  *  4. re-read each invoice and its ISSUED allocations under that lock
  *  5. new allocation > remaining  → reject (F)
@@ -89,6 +88,8 @@ export async function assertReceiptAllocationIntegrityTx(
     receiptDocumentId: number;
     receiptCurrency: string;
     receiptTotal: Prisma.Decimal;
+    /** C3: money the receipt states it applies to no debt. 0 for manual receipts. */
+    unappliedAmount: Prisma.Decimal;
   }
 ): Promise<void> {
   const allocations = await tx.billingPaymentAllocation.findMany({
@@ -100,7 +101,7 @@ export async function assertReceiptAllocationIntegrityTx(
     orderBy: { invoiceDocumentId: "asc" },
   });
 
-  assertReceiptAllocationsMatchTotal(allocations, args.receiptTotal);
+  assertReceiptAllocationsMatchTotal(allocations, args.receiptTotal, args.unappliedAmount);
   if (allocations.length === 0) {
     return;
   }
@@ -129,19 +130,15 @@ export async function assertReceiptAllocationIntegrityTx(
     assertInvoiceAllocatable(invoice);
     assertSameCurrency(args.receiptCurrency, invoice.currency);
 
-    const settled = await tx.billingPaymentAllocation.aggregate({
-      where: {
-        businessId: args.businessId,
-        invoiceDocumentId: allocation.invoiceDocumentId,
-        receiptDocumentId: { not: args.receiptDocumentId },
-        ...authoritativeAllocationWhere(args.businessId),
-      },
-      _sum: { allocatedAmount: true },
+    const state = await loadInvoiceEconomicStateTx(tx, {
+      businessId: args.businessId,
+      invoiceDocumentId: allocation.invoiceDocumentId,
+      totalAmount: invoice.totalAmount,
+      excludeReceiptDocumentId: args.receiptDocumentId,
     });
-    const remaining = computeRemainingAllocatable(
-      invoice.totalAmount,
-      settled._sum.allocatedAmount ?? new Prisma.Decimal(0)
+    assertAllocationWithinRemaining(
+      allocation.allocatedAmount,
+      state.economicRemaining
     );
-    assertAllocationWithinRemaining(allocation.allocatedAmount, remaining);
   }
 }

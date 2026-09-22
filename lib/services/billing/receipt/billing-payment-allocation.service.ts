@@ -17,10 +17,9 @@ import {
   assertInvoiceAllocatable,
   assertSameBusiness,
   assertSameCurrency,
-  computeRemainingAllocatable,
   sumAllocationAmounts,
 } from "@/lib/services/billing/receipt/billing-receipt-allocation.rules";
-import { authoritativeAllocationWhere } from "@/lib/services/billing/domain/billing-allocation-authority";
+import { loadInvoiceEconomicStateTx } from "@/lib/services/billing/domain/billing-invoice-economic-remaining";
 import { lockBillingDocumentRowsTx } from "@/lib/services/billing/receipt/billing-receipt-issuance-integrity";
 import { billingTenantTx } from "../billing-tenant-tx";
 
@@ -93,9 +92,24 @@ export async function setReceiptAllocations(
   input: SetReceiptAllocationsInput
 ): Promise<BillingPaymentAllocation[]> {
   assertBusinessId(input.businessId);
-  const parsed = parseAllocations(input.allocations);
+  parseAllocations(input.allocations);
+  return billingTenantTx(input.businessId, (tx) =>
+    setReceiptAllocationsTx(tx, input)
+  );
+}
 
-  return billingTenantTx(input.businessId, async (tx) => {
+/**
+ * The same operation inside a caller's transaction. C3 payment settlement uses
+ * it so a system receipt's allocation goes through exactly the checks a manual
+ * one does — there is one allocation write path, not two.
+ */
+export async function setReceiptAllocationsTx(
+  tx: Prisma.TransactionClient,
+  input: SetReceiptAllocationsInput
+): Promise<BillingPaymentAllocation[]> {
+  assertBusinessId(input.businessId);
+  const parsed = parseAllocations(input.allocations);
+  {
     // C2.5 — serialise with issuance of this same receipt. Without the lock,
     // allocations could be rewritten between issuance validating them and
     // issuance committing; with it, whichever runs second reads the other's
@@ -113,6 +127,7 @@ export async function setReceiptAllocations(
         status: true,
         currency: true,
         totalAmount: true,
+        unappliedAmount: true,
       },
     });
     if (!receipt) {
@@ -126,9 +141,11 @@ export async function setReceiptAllocations(
     // Mutable only before ISSUED.
     assertBillingDocumentLinesMutable(receipt.status);
 
-    // The receipt's money must be fully allocated across invoices.
+    // The receipt's money must be fully accounted for: allocated across
+    // invoices, plus any unapplied excess the receipt states (C3; always 0 on a
+    // manual receipt, which cannot set it).
     const allocationsTotal = sumAllocationAmounts(parsed);
-    if (!allocationsTotal.equals(receipt.totalAmount)) {
+    if (!allocationsTotal.plus(receipt.unappliedAmount).equals(receipt.totalAmount)) {
       throw new ValidationError(
         "Sum of allocations must equal the receipt total"
       );
@@ -159,26 +176,22 @@ export async function setReceiptAllocations(
       assertSameBusiness(receipt.businessId, invoice.businessId);
       assertSameCurrency(receipt.currency, invoice.currency);
 
-      // Remaining = invoice total − allocations from OTHER receipts that have
-      // actually settled something. C2.5: an unissued receipt's allocation is
-      // a plan, so it reserves nothing — an abandoned draft must not block a
-      // real payment. This is early feedback only; the binding check runs at
-      // issuance, under the invoice's lock.
-      const others = await tx.billingPaymentAllocation.aggregate({
-        where: {
-          businessId: input.businessId,
-          invoiceDocumentId: invoice.id,
-          receiptDocumentId: { not: receipt.id },
-          ...authoritativeAllocationWhere(input.businessId),
-        },
-        _sum: { allocatedAmount: true },
+      // Remaining = the invoice's economic remaining, excluding this receipt:
+      // total − OTHER receipts' ISSUED allocations − ISSUED credit notes.
+      // C2.5: an unissued receipt's allocation is a plan, so it reserves
+      // nothing — an abandoned draft must not block a real payment. This is
+      // early feedback only; the binding check runs at issuance, under the
+      // invoice's lock.
+      const state = await loadInvoiceEconomicStateTx(tx, {
+        businessId: input.businessId,
+        invoiceDocumentId: invoice.id,
+        totalAmount: invoice.totalAmount,
+        excludeReceiptDocumentId: receipt.id,
       });
-      const othersAllocated = others._sum.allocatedAmount ?? new Prisma.Decimal(0);
-      const remaining = computeRemainingAllocatable(
-        invoice.totalAmount,
-        othersAllocated
+      assertAllocationWithinRemaining(
+        allocation.allocatedAmount,
+        state.economicRemaining
       );
-      assertAllocationWithinRemaining(allocation.allocatedAmount, remaining);
     }
 
     await tx.billingPaymentAllocation.deleteMany({
@@ -198,5 +211,5 @@ export async function setReceiptAllocations(
       where: { businessId: input.businessId, receiptDocumentId: receipt.id },
       orderBy: { invoiceDocumentId: "asc" },
     });
-  });
+  }
 }

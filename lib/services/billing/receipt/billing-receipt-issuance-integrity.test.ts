@@ -100,14 +100,26 @@ ok(
     /WHERE "businessId" = \$\{businessId\}/.test(integrity)
   );
   const lockAt = integrity.indexOf("await lockBillingDocumentRowsTx(");
-  const aggAt = integrity.indexOf("billingPaymentAllocation.aggregate(");
+  const aggAt = integrity.indexOf("loadInvoiceEconomicStateTx(tx,");
   ok(
     "invoice capacity is read only after the invoices are locked",
     lockAt > 0 && aggAt > lockAt
   );
+  // Since C3 capacity is the shared economic rule, read from one module.
+  const economic = read("../domain/billing-invoice-economic-remaining.ts");
   ok(
     "capacity counts only authoritative (ISSUED) allocations",
-    /authoritativeAllocationWhere\(args\.businessId\)/.test(integrity)
+    /authoritativeAllocationWhere\(args\.businessId\)/.test(economic)
+  );
+  ok(
+    "C3: capacity also subtracts ISSUED credit notes",
+    /authoritativeCreditNoteWhere\(\)/.test(economic)
+  );
+  ok(
+    "C3: the equality rule includes the stated unapplied amount",
+    /assertReceiptAllocationsMatchTotal\(allocations, args\.receiptTotal, args\.unappliedAmount\)/.test(
+      integrity
+    )
   );
   ok(
     "the equality rule runs before capacity",
@@ -117,7 +129,9 @@ ok(
 }
 {
   const issue = read("../billing-issue.service.ts");
-  const txAt = issue.indexOf("billingTenantTx(input.businessId, async (tx) =>");
+  // Since C3 the body lives in issueBillingDocumentTx: issueBillingDocument runs
+  // it inside billingTenantTx, payment settlement inside its own transaction.
+  const txAt = issue.indexOf("export async function issueBillingDocumentTx(");
   const lockAt = issue.indexOf("await lockBillingDocumentRowsTx(tx,");
   const readAt = issue.indexOf("tx.billingDocument.findFirst({", txAt);
   const checkAt = issue.indexOf("await assertReceiptAllocationIntegrityTx(tx,");
@@ -138,8 +152,8 @@ ok(
 {
   const write = read("./billing-payment-allocation.service.ts");
   ok(
-    "the draft preflight counts only authoritative allocations (drafts reserve nothing)",
-    /authoritativeAllocationWhere\(input\.businessId\)/.test(write)
+    "the draft preflight uses the shared economic rule (drafts reserve nothing)",
+    /loadInvoiceEconomicStateTx\(tx,/.test(write)
   );
   ok(
     "allocating a receipt takes the receipt's lock",

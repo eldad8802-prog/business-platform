@@ -95,6 +95,9 @@ export const BILLING_AUDIT_SOURCES = [
   "JOB",
   "MIGRATION",
   "API",
+  // C3: a receipt the system issued for a provider-verified payment. Never a
+  // person, so it carries no actorUserId.
+  "PAYMENT_SETTLEMENT",
 ] as const;
 
 export type BillingAuditSource = (typeof BILLING_AUDIT_SOURCES)[number];
