@@ -35,6 +35,13 @@ export type ToolGroupKey = "money" | "customers" | "operations";
 export type Tool = {
   key: string;
   label: string;
+  /**
+   * One short line on what the screen is for, taken from what the screen
+   * actually does — never a promise it does not keep.
+   */
+  description: string;
+  /** Which drawn Dubiz entity this tool is (`components/ui/entity/entity-icon`). */
+  entity: string;
   href: string;
   color: ToolColor;
   group: ToolGroupKey;
@@ -48,8 +55,19 @@ export type Tool = {
 
 export type ToolGroup = {
   key: ToolGroupKey;
+  /** The family name — on Home, on its own screen, and on /tools. */
   label: string;
-  /** Anchor id on /tools — the home group tile scrolls straight to it. */
+  /**
+   * Representative capabilities, as the owner would name them. EXAMPLES, never
+   * the full list and never a count: it names exactly the entities in `icons`,
+   * so the two must be edited together.
+   */
+  capabilityLine: string;
+  /** The 2–3 entities whose icons stand for this family on Home. */
+  icons: string[];
+  /** URL segment of the family's own screen: /tools/<slug>. */
+  slug: string;
+  /** Anchor id of the family's section on /tools (old deep links keep working). */
   anchorId: string;
   /** The domains whose exceptions this group's status label speaks for. */
   domains: StatusDomain[];
@@ -73,8 +91,10 @@ export const HOME_ROUTES = {
   /** The Payment Secretary, and its "today" screen. */
   secretary: "/secretary",
   secretaryToday: "/secretary?today=1",
-  /** All tools. */
+  /** The tool directory, and the root of the three family screens. */
   tools: "/tools",
+  /** Settings — reached from Home's gear, and the only owner of configuration. */
+  settings: "/settings",
   /** Home. */
   home: "/app",
 } as const;
@@ -89,33 +109,66 @@ export function obligationHref(obligationId: number): string {
 export const TOOL_GROUPS: ToolGroup[] = [
   {
     key: "money",
-    label: "כסף ומסמכים",
+    label: "כסף וחשבוניות",
+    capabilityLine: "חשבוניות · גבייה · התחייבויות",
+    icons: ["invoice", "collection", "payables"],
+    slug: "money",
     anchorId: "group-money",
     domains: ["billing", "documents"],
   },
   {
     key: "customers",
-    label: "לקוחות ושיחות",
+    label: "לקוחות ומכירות",
+    capabilityLine: "לקוחות · לידים · שיחות",
+    icons: ["customers", "leads", "conversations"],
+    slug: "customers",
     anchorId: "group-customers",
     domains: ["inbox", "leads"],
   },
   {
     key: "operations",
-    label: "מלאי וספקים",
+    // Two, honestly. This family holds stock and the people who supply it;
+    // pricing has no screen of its own and Connections is configuration. Three
+    // would look tidier than the product is, and visual symmetry is not a
+    // reason to invent product importance.
+    label: "ניהול העסק",
+    capabilityLine: "מלאי · ספקים",
+    icons: ["inventory", "suppliers"],
+    slug: "operations",
     anchorId: "group-operations",
     domains: ["inventory", "supplier"],
   },
 ];
 
-/** The home group tile links to the group's anchor inside /tools. */
+/** The family's own screen — where the Home family row sends the owner. */
+export function categoryHref(group: ToolGroup): string {
+  return `${HOME_ROUTES.tools}/${group.slug}`;
+}
+
+/** The group's section inside /tools. Old links (/tools#group-money) keep working. */
 export function groupHref(group: ToolGroup): string {
   return `${HOME_ROUTES.tools}#${group.anchorId}`;
+}
+
+export function groupBySlug(slug: string): ToolGroup | undefined {
+  return TOOL_GROUPS.find((g) => g.slug === slug);
 }
 
 /**
  * Every tool shown on /tools, in group order.
  *
- * Deliberately absent — see the closing report:
+ * WHAT BELONGS HERE: a capability the owner goes to and MANAGES. A way of
+ * CREATING something belongs to the global "+" or to the screen that owns it,
+ * and a setting belongs in Settings. That rule decides the three absences
+ * below as much as the presences above.
+ *
+ * Deliberately absent:
+ *  - "בקשת תשלום" (`/collection/new`) is a creation method, not a place. It is
+ *    reached from "+" and from inside Collection, which is where the owner is
+ *    when they decide to ask for money.
+ *  - "חיבורים" (`/settings/connections`) is configuration — what is wired to
+ *    what — not daily work. Settings owns it, and Home's gear reaches it in two
+ *    taps. Listing it here a second time made it look like a daily tool.
  *  - "הוצאות" has no route on main. Expenses exist only as approved expense
  *    DOCUMENTS (`/documents`), never as their own surface, so a tile would
  *    have had to point somewhere it does not mean.
@@ -124,10 +177,12 @@ export function groupHref(group: ToolGroup): string {
  *    at `/secretary`, which is the payment secretary, not a diary.
  */
 export const TOOLS: Tool[] = [
-  // --- כסף ומסמכים ---------------------------------------------------------
+  // --- כסף וחשבוניות -------------------------------------------------------
   {
     key: "invoices",
     label: "חשבוניות",
+    description: "חשבוניות, קבלות והצעות מחיר",
+    entity: "invoice",
     href: "/billing",
     color: "sage",
     group: "money",
@@ -136,22 +191,18 @@ export const TOOLS: Tool[] = [
   {
     key: "collection",
     label: "גבייה",
+    description: "מי חייב לך, בקשות תשלום ומה שכבר נגבה",
+    entity: "collection",
     href: "/collection",
     color: "teal",
     group: "money",
     colorSource: "carried",
   },
   {
-    key: "payment-request",
-    label: "בקשת תשלום",
-    href: "/collection/new",
-    color: "teal",
-    group: "money",
-    colorSource: "borrowed:collection",
-  },
-  {
     key: "documents",
     label: "מסמכים",
+    description: "המסמכים הפיננסיים שנקלטו לעסק",
+    entity: "documents",
     href: "/documents",
     color: "teal",
     group: "money",
@@ -160,15 +211,43 @@ export const TOOLS: Tool[] = [
   {
     key: "documents-email",
     label: "מסמכים מהמייל",
+    description: "קליטת מסמכים מתיבת ה-Gmail",
+    entity: "documents-email",
     href: "/documents/email",
     color: "teal",
     group: "money",
     colorSource: "borrowed:documents",
   },
-  // --- לקוחות ושיחות -------------------------------------------------------
+  // Outbound money: the Secretary REMINDS about what the business owes, and
+  // Payables is where the money paid against it is tracked. Both are money
+  // leaving, so both belong with money — a navigation decision only, neither
+  // product changes.
+  {
+    key: "payables",
+    label: "התחייבויות",
+    description: "מה העסק חייב, מתי, וכמה כבר שולם",
+    entity: "payables",
+    href: "/payables",
+    color: "amber",
+    group: "money",
+    colorSource: "borrowed:secretary",
+  },
+  {
+    key: "secretary",
+    label: "המזכירה",
+    description: "תזכורות לתשלומים שהעסק צריך לשלם",
+    entity: "secretary",
+    href: "/secretary",
+    color: "amber",
+    group: "money",
+    colorSource: "carried",
+  },
+  // --- לקוחות ומכירות ------------------------------------------------------
   {
     key: "customers",
     label: "לקוחות",
+    description: "כרטיסי הלקוחות של העסק",
+    entity: "customers",
     href: "/customers",
     color: "slate",
     group: "customers",
@@ -177,6 +256,8 @@ export const TOOLS: Tool[] = [
   {
     key: "leads",
     label: "לידים",
+    description: "פניות של לקוחות פוטנציאליים",
+    entity: "leads",
     href: "/leads",
     color: "slate",
     group: "customers",
@@ -185,6 +266,8 @@ export const TOOLS: Tool[] = [
   {
     key: "conversations",
     label: "שיחות",
+    description: "השיחות עם הלקוחות במקום אחד",
+    entity: "conversations",
     href: "/inbox",
     color: "sage",
     group: "customers",
@@ -193,6 +276,8 @@ export const TOOLS: Tool[] = [
   {
     key: "bots",
     label: "בוטים",
+    description: "הבוט שעונה ללקוחות, והאופן שבו הוא עונה",
+    entity: "bots",
     href: "/business/bot",
     color: "clay",
     group: "customers",
@@ -201,15 +286,29 @@ export const TOOLS: Tool[] = [
   {
     key: "coupons",
     label: "קופונים",
+    description: "קופונים והטבות ללקוחות",
+    entity: "coupons",
     href: "/revenue?view=browse",
     color: "clay",
     group: "customers",
     colorSource: "carried",
   },
-  // --- מלאי וספקים ---------------------------------------------------------
+  {
+    key: "content",
+    label: "תוכן ושיווק",
+    description: "חומרי שיווק ותוכן לעסק",
+    entity: "content",
+    href: "/content",
+    color: "clay",
+    group: "customers",
+    colorSource: "borrowed:coupons",
+  },
+  // --- ניהול העסק -----------------------------------------------------------
   {
     key: "inventory",
     label: "מלאי",
+    description: "המוצרים והכמויות במלאי",
+    entity: "inventory",
     href: "/inventory",
     color: "slate",
     group: "operations",
@@ -218,26 +317,12 @@ export const TOOLS: Tool[] = [
   {
     key: "suppliers",
     label: "ספקים",
+    description: "ספקים, הזמנות ופרטי קשר",
+    entity: "suppliers",
     href: "/suppliers",
     color: "amber",
     group: "operations",
     colorSource: "carried",
-  },
-  {
-    key: "secretary",
-    label: "המזכירה",
-    href: "/secretary",
-    color: "amber",
-    group: "operations",
-    colorSource: "carried",
-  },
-  {
-    key: "connections",
-    label: "חיבורים",
-    href: "/settings/connections",
-    color: "amber",
-    group: "operations",
-    colorSource: "borrowed:suppliers",
   },
 ];
 
@@ -254,6 +339,7 @@ export function allMappedHrefs(): string[] {
   return [
     ...Object.values(HOME_ROUTES),
     ...TOOL_GROUPS.map(groupHref),
+    ...TOOL_GROUPS.map(categoryHref),
     ...TOOLS.map((t) => t.href),
     obligationHref(1),
   ];

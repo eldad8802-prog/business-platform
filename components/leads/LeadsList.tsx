@@ -67,7 +67,7 @@ export function LeadsList({ selectedId }: { selectedId: string | null }) {
   const [ranking, setRanking] = useState<LeadRankingConfidence>("authoritative");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(searchParams.get("new") === "1");
   const searchedOnce = useRef(false);
 
   // Returns the result; never sets state — so the effect updates state only

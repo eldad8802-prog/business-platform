@@ -36,7 +36,13 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   { key: "home", label: "בית", href: "/app", icon: IconHome, primary: true },
   { key: "chats", label: "שיחות", href: "/inbox", icon: IconChat, primary: true },
   { key: "docs", label: "מסמכים", href: "/documents", icon: IconDocs, primary: true },
-  { key: "inventory", label: "מלאי", href: "/inventory", icon: IconInventory, primary: true },
+  // Notifications take the fourth tab, because "what happened that mattered"
+  // is something the owner comes back for many times a day and previously had
+  // no home on mobile at all — the shell has no top bar to hang a bell from.
+  // Inventory leaves the bar and stays reachable through ניהול העסק and "+";
+  // it is a place you visit when you are doing stock, not all day.
+  { key: "notifications", label: "התראות", href: "/notifications", icon: IconBell, primary: true },
+  { key: "inventory", label: "מלאי", href: "/inventory", icon: IconInventory },
   { key: "leads", label: "לידים", href: "/leads", icon: IconLeads },
   { key: "customers", label: "לקוחות", href: "/customers", icon: IconCustomers },
   { key: "payments", label: "גבייה", href: "/collection", icon: IconPayments },
@@ -140,6 +146,22 @@ function IconSecretary({ active }: { active: boolean }) {
     <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
       <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8A2.5 2.5 0 0 1 17.5 16H9l-4 3.5V16H6.5A2.5 2.5 0 0 1 4 13.5v-8z" stroke="currentColor" strokeWidth={w} strokeLinejoin="round" />
       <path d="M12 6.4l.9 1.9 2.1.3-1.5 1.5.35 2.1-1.85-1-1.85 1 .35-2.1-1.5-1.5 2.1-.3.9-1.9z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconBell({ active }: { active: boolean }) {
+  const w = active ? 2.05 : 1.8;
+  return (
+    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M18 8.6A6 6 0 0 0 6 8.6c0 6.1-2.4 7.6-2.4 7.6h16.8S18 14.7 18 8.6z"
+        stroke="currentColor"
+        strokeWidth={w}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M13.7 19.6a2 2 0 0 1-3.4 0" stroke="currentColor" strokeWidth={w} strokeLinecap="round" />
     </svg>
   );
 }

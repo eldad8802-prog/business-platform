@@ -6,23 +6,19 @@ import { PageContainer } from "@/components/ui/page-container";
 import { DubizIntroOverlay } from "@/components/brand/dubiz-intro-overlay";
 import {
   HomeScreen,
-  buildGroupViews,
-  type HomeCounter,
+  type HomeIdentity,
+  type HomeOverdueView,
   type HomeView,
 } from "@/features/home/components/home-screen";
+import { buildAttentionObjects, watchingCount } from "@/features/home/lib/home-attention";
 import {
-  buildTodayRows,
-  buildVerdict,
-  countObligationsDue,
-  counterFrom,
-  greetingForHour,
-  groupStatus,
-  type GroupStatus,
-  type LoadState,
-  type TodayRow,
-  type VerdictView,
-} from "@/features/home/lib/home-model";
-import { HOME_ROUTES, TOOL_GROUPS } from "@/lib/navigation/home-routes";
+  dayKeyForOffset,
+  dayViewFrom,
+  withCarriedContext,
+  type HomeDayView,
+  type HomeDayWire,
+} from "@/features/home/lib/home-day-view";
+import type { LoadState } from "@/features/home/lib/home-model";
 import type { BusinessStatusItem } from "@/lib/business-status/types";
 import type { BriefingApi } from "@/lib/obligations/secretary-client";
 
@@ -37,13 +33,18 @@ import type { HomeResponse } from "@/features/home/types/home.types";
  * HOME 2B. The screen itself is presentational; everything that decides what
  * is TRUE lives here and in `features/home/lib/home-model.ts`.
  *
- * Six independent read-only requests, none of which is new backend:
+ * Five independent read-only requests, all of them parallel:
  *   /api/home                            owner + business name
- *   /api/notifications/unread-count      the bell
- *   /api/obligations/briefing            the verdict, and "היום שלך"
- *   /api/business-status                 the three group status labels
- *   /api/payments/collection-workspace   two of the four counters
- *   /api/documents/inbox?summaryOnly=1   the documents counter
+ *   /api/home/day                        the day, the month, today's activity
+ *   /api/obligations/briefing            the obligations that need the owner
+ *   /api/business-status                 the open exceptions, each with its
+ *                                        own true destination
+ *   /api/billing/invoice-profile         the business logo, if one exists
+ *
+ * Past-due invoices ride along with the collection read the screen already
+ * needs (`/api/billing/collection/awaiting`), making six in total — one fewer
+ * than the layout would have cost as separate domain calls, and the same number
+ * the old counter Home made for less.
  *
  * They are deliberately NOT one combined call and NOT all-or-nothing: each
  * settles on its own, and a source that fails leaves its own element saying so
@@ -55,21 +56,25 @@ const HOME_FETCH_TIMEOUT_MS = 28_000;
 
 /* ------------------------------------------------------------ wire types -- */
 
-type CollectionWorkspaceSummary = {
-  summary: {
-    pending: { amount: string; count: number };
-    collectedThisMonth: { amount: string; count: number };
-    expired: { amount: string; count: number };
-  };
+type AwaitingPaymentWire = {
+  totalOutstanding?: string;
+  customerCount?: number;
 };
 
-type DocumentsInboxSummary = {
-  financialPulse?: {
-    inboxDocumentCounts?: {
-      totalPendingReview?: number;
-    };
-  };
+type InvoiceProfileWire = {
+  profile?: { billingLogoDataUrl?: string | null } | null;
 };
+
+/** Which identity the owner chose to see, remembered per device. */
+const IDENTITY_KEY = "dubiz.home.identity.v1";
+
+function readIdentity(): HomeIdentity {
+  try {
+    return localStorage.getItem(IDENTITY_KEY) === "dubiz" ? "dubiz" : "business";
+  } catch {
+    return "business";
+  }
+}
 
 /**
  * Loading / ready / failed, kept apart so "failed" is never rendered as a zero
@@ -203,14 +208,15 @@ function HomeErrorState({
 
 function HomePage() {
   const [data, setData] = useState<HomeResponse | null>(null);
-  // Its own tiny request rather than a field on /api/home: the count changes
-  // when the owner reads something, which has nothing to do with the home
-  // payload, and a failure here must not cost them the whole screen.
-  const [unreadCount, setUnreadCount] = useState(0);
   const [briefing, setBriefing] = useState<Loaded<BriefingApi>>(LOADING);
   const [status, setStatus] = useState<Loaded<BusinessStatusItem[]>>(LOADING);
-  const [collection, setCollection] = useState<Loaded<CollectionWorkspaceSummary>>(LOADING);
-  const [docsPending, setDocsPending] = useState<Loaded<number>>(LOADING);
+  const [overdue, setOverdue] = useState<HomeOverdueView>({ state: "loading" });
+  const [businessLogo, setBusinessLogo] = useState<string | null>(null);
+  const [identity, setIdentity] = useState<HomeIdentity>("business");
+
+  /** 0 = today. The day the owner is looking at; never positive. */
+  const [dayOffset, setDayOffset] = useState(0);
+  const [day, setDay] = useState<HomeDayView>({ state: "loading" });
 
   /** Start true so we never flash HomeErrorState before the first /api/home attempt (token path). */
   const [loading, setLoading] = useState(true);
@@ -231,46 +237,21 @@ function HomePage() {
     setStorageError(err);
     setSessionToken(t);
     setSessionReady(true);
+    // The identity preference is a per-device view choice, read from this
+    // browser rather than from the business record — see the identity sheet.
+    setIdentity(readIdentity());
   }, []);
 
-  // Read once the session exists. No polling: the badge is refreshed by the
-  // centre itself after the owner reads something, and anything they have not
-  // opened the app to see is what push is for, later.
-  useEffect(() => {
-    if (!sessionReady || !sessionToken) return;
-    let cancelled = false;
-    fetch("/api/notifications/unread-count", {
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${sessionToken}` },
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json) => {
-        if (!cancelled && json && typeof json.unreadCount === "number") {
-          setUnreadCount(json.unreadCount);
-        }
-      })
-      .catch(() => {
-        /* The bell simply stays quiet. A failed count is not worth an error. */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionReady, sessionToken]);
+  const chooseIdentity = useCallback((next: HomeIdentity) => {
+    setIdentity(next);
+    try {
+      localStorage.setItem(IDENTITY_KEY, next);
+    } catch {
+      /* A browser that refuses storage still gets the choice for this visit. */
+    }
+  }, []);
 
-  /**
-   * The verdict can be retried on its own: a briefing that failed is a loading
-   * failure, not a calm business, and the card says exactly that instead of
-   * showing a state we did not derive.
-   */
-  const retryVerdict = useCallback(() => {
-    if (!sessionToken) return;
-    setBriefing(LOADING);
-    fetchBriefing(sessionToken)
-      .then((json) => setBriefing(ready(json)))
-      .catch(() => setBriefing(FAILED));
-  }, [sessionToken]);
-
-  /** The four secondary sources. Independent; none can break the screen. */
+  /** The secondary sources. Independent; none can break the screen. */
   useEffect(() => {
     if (!sessionReady || !sessionToken) return;
     let cancelled = false;
@@ -293,30 +274,75 @@ function HomePage() {
         if (!cancelled) setStatus(FAILED);
       });
 
-    fetch("/api/payments/collection-workspace", { cache: "no-store", headers: auth })
+    // Past-due invoices: ISSUED tax invoices past the business's own payment
+    // terms, with a balance left after receipts and credit notes. NOT total
+    // receivables — invoices not yet due are excluded — which is why the screen
+    // says "בחשבוניות באיחור" and never "חייבים לך".
+    fetch("/api/billing/collection/awaiting", { cache: "no-store", headers: auth })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
-      .then((json: CollectionWorkspaceSummary) => {
-        if (!cancelled) setCollection(ready(json));
+      .then((json: AwaitingPaymentWire) => {
+        if (cancelled) return;
+        setOverdue({
+          state: "ready",
+          amount: Number(json.totalOutstanding ?? 0),
+          customers: json.customerCount ?? 0,
+        });
       })
       .catch(() => {
-        if (!cancelled) setCollection(FAILED);
+        if (!cancelled) setOverdue({ state: "failed" });
       });
 
-    fetch("/api/documents/inbox?summaryOnly=1", { cache: "no-store", headers: auth })
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
-      .then((json: DocumentsInboxSummary) => {
-        const total = json.financialPulse?.inboxDocumentCounts?.totalPendingReview;
+    // The logo the business already uploaded for its invoices. Absent is a
+    // perfectly good answer — the header then carries the Dubiz mark.
+    fetch("/api/billing/invoice-profile", { cache: "no-store", headers: auth })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: InvoiceProfileWire | null) => {
         if (cancelled) return;
-        setDocsPending(typeof total === "number" ? ready(total) : FAILED);
+        const logo = json?.profile?.billingLogoDataUrl;
+        setBusinessLogo(typeof logo === "string" && logo.length > 0 ? logo : null);
       })
       .catch(() => {
-        if (!cancelled) setDocsPending(FAILED);
+        /* No logo is not an error; it is the Dubiz mark. */
       });
 
     return () => {
       cancelled = true;
     };
   }, [sessionReady, sessionToken]);
+
+  /**
+   * The selected day.
+   *
+   * The first read asks for everything (`scope=full`); moving to another day
+   * asks for the day alone and keeps the month and today's activity, because
+   * neither of them changed when the owner looked at yesterday.
+   */
+  useEffect(() => {
+    if (!sessionReady || !sessionToken) return;
+    let cancelled = false;
+    const full = dayOffset === 0;
+    const query = new URLSearchParams({ date: dayKeyForOffset(dayOffset) });
+    if (!full) query.set("scope", "day");
+
+    fetch(`/api/home/day?${query.toString()}`, {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((json: HomeDayWire) => {
+        if (cancelled) return;
+        // A day that failed must never render as ₪0, so the carry only ever
+        // adds context to a day that actually arrived.
+        setDay((prev) => withCarriedContext(dayViewFrom(json), prev));
+      })
+      .catch(() => {
+        if (!cancelled) setDay({ state: "failed" });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionReady, sessionToken, dayOffset]);
 
   const loadHome = async () => {
     const ctrl = new AbortController();
@@ -401,7 +427,6 @@ function HomePage() {
     }, 400);
 
     return () => window.clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionReady, sessionToken, storageError]);
 
   const showLoginGate = sessionReady && (!sessionToken || storageError !== null);
@@ -469,13 +494,16 @@ function HomePage() {
       <HomeScreen
         view={buildHomeView({
           data,
-          unreadCount,
           briefing,
           status,
-          collection,
-          docsPending,
+          day,
+          overdue,
+          businessLogo,
+          dayOffset,
+          setDayOffset,
         })}
-        onRetryVerdict={retryVerdict}
+        identity={identity}
+        onIdentityChange={chooseIdentity}
       />
     );
   }
@@ -495,107 +523,59 @@ function HomePage() {
 /* ------------------------------------------------------------ view model -- */
 
 /**
- * Assembles the home view-model. Every figure here traces to one of the six
- * requests above; a source still loading or failed passes `null` through, and
- * the screen renders that as "לא נטען" rather than as a number.
+ * Assembles the Home view-model.
+ *
+ * Every figure traces to one of the requests above, and every one of them
+ * carries its own load state the whole way to the screen: a source still in
+ * flight is a skeleton, a source that failed says so, and a legitimate zero is
+ * rendered as a zero. Nothing here invents a value to fill a space.
  */
 function buildHomeView({
   data,
-  unreadCount,
   briefing,
   status,
-  collection,
-  docsPending,
+  day,
+  overdue,
+  businessLogo,
+  dayOffset,
+  setDayOffset,
 }: {
   data: HomeResponse;
-  unreadCount: number;
   briefing: Loaded<BriefingApi>;
   status: Loaded<BusinessStatusItem[]>;
-  collection: Loaded<CollectionWorkspaceSummary>;
-  docsPending: Loaded<number>;
+  day: HomeDayView;
+  overdue: HomeOverdueView;
+  businessLogo: string | null;
+  dayOffset: number;
+  setDayOffset: (update: (previous: number) => number) => void;
 }): HomeView {
   const ownerFullName = data.businessSnapshot.ownerName?.trim() || "";
-  const businessName = data.businessSnapshot.businessName?.trim() || "";
-  const firstName =
-    ownerFullName.split(/\s+/)[0] || businessName.split(/\s+/)[0] || "";
-  const greeting = greetingForHour(new Date().getHours());
-
-  const now = new Date();
+  const businessName = data.businessSnapshot.businessName?.trim() || ownerFullName;
   const briefingValue = valueOrNull(briefing);
-
-  const verdict: VerdictView | null = briefingValue
-    ? buildVerdict(briefingValue)
-    : null;
-
-  // A failed briefing is NOT an empty day. `today` stays null and the section
-  // says it could not check, rather than claiming nothing is due.
-  const today: TodayRow[] | null = briefingValue
-    ? buildTodayRows(briefingValue, now)
-    : null;
-
   const statusItems = valueOrNull(status);
-  const groups = buildGroupViews((key) => {
-    if (!statusItems) return null;
-    const group = TOOL_GROUPS.find((g) => g.key === key);
-    if (!group) return null;
-    return groupStatus(statusItems, group.domains) satisfies GroupStatus;
-  });
 
-  // Each counter carries its source's load state, not a flattened number. A
-  // request still in flight renders a skeleton; only a real failure says so.
-  const counters: HomeCounter[] = [
-    {
-      key: "collected",
-      // NOT "today": the only exact source for verified collection is
-      // `sumPaidBetween` over the calendar month (`collectedThisMonth`). The
-      // per-day figure would have to come from the capped, createdAt-ordered
-      // history page, which can silently miss a payment collected today on an
-      // older request — so the window is named instead of being guessed.
-      label: "נגבה ואומת",
-      note: "בחודש הנוכחי",
-      value: counterFrom(collection, (c) => c.summary.collectedThisMonth.count),
-      href: HOME_ROUTES.collectionCenter,
-    },
-    {
-      key: "pending",
-      label: "ממתינים לגבייה",
-      value: counterFrom(collection, (c) => c.summary.pending.count),
-      href: HOME_ROUTES.collectionCenter,
-    },
-    {
-      key: "documents",
-      label: "מסמכים לבדיקה",
-      value: counterFrom(docsPending, (n) => n),
-      href: HOME_ROUTES.documentsReview,
-    },
-    {
-      key: "obligations",
-      label: "תשלומים למועד",
-      value: counterFrom(briefing, (b) => countObligationsDue(b, now)),
-      href: HOME_ROUTES.secretaryToday,
-    },
-  ];
+  // Either source failing means the Secretary cannot claim the day is clear.
+  const objectsFailed = briefing.state === "failed" || status.state === "failed";
+  const objects = objectsFailed
+    ? null
+    : buildAttentionObjects(briefingValue, statusItems, new Date());
 
   return {
-    greeting: firstName ? `${greeting}, ${firstName}` : greeting,
-    subGreeting: "הנה מה שחשוב בעסק שלך היום",
-    initial: (firstName || businessName).charAt(0),
-    secretary: {
-      label: "המזכירה שלך",
-      verdict,
-      failed: briefing.state === "failed",
+    businessName,
+    businessLogoDataUrl: businessLogo,
+    day,
+    nav: {
+      offset: dayOffset,
+      goEarlier: () => setDayOffset((previous) => previous - 1),
+      // The future does not exist: forward stops at today.
+      goLater: () => setDayOffset((previous) => Math.min(0, previous + 1)),
+      goToday: () => setDayOffset(() => 0),
     },
-    counters,
-    groups,
-    today,
-    todayFailed: briefing.state === "failed",
-    notifications: {
-      // The bell points at the notification centre — the history of what the
-      // owner was actually told. The live exception engine is `/attention`,
-      // which the secretary card above reaches in one tap, in every state.
-      href: HOME_ROUTES.notifications,
-      hasUnread: unreadCount > 0,
-    },
+    objects,
+    objectsFailed,
+    watching: watchingCount(briefingValue),
+    overdue,
+    loading: objects === null && !objectsFailed,
   };
 }
 
