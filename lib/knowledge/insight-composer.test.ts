@@ -124,6 +124,29 @@ const input = (over: Partial<ComposerInput> = {}): ComposerInput => ({
     !d.suggestedActions.some((a) => /בוצע|שולם בהצלחה|נשלח/.test(a)));
 }
 
+// ── The three levels stay separable, and only the first is authoritative ───
+// Every fact can be correct while the interpretation joining them is wrong, or irrelevant, or right
+// about a situation the owner already handled — and a suggested action can be wrong even when the
+// interpretation is sound. The structure does not make an insight correct. It makes each level
+// separately rejectable, so a bad interpretation can be dismissed without discrediting the facts
+// underneath it. That is the property that has to survive when a reasoning layer writes the middle
+// level instead of this file.
+{
+  const d = composeMoneyPressure(input({ activeMeasures: [measure] }))!;
+  ok("facts are a list, each independently attributable",
+    Array.isArray(d.factLines) && d.factLines.every((f) => f.text.length > 0 && f.sourceRef.length > 0));
+  ok("interpretation is ONE field, never mixed into the facts",
+    typeof d.interpretation === "string" && !d.factLines.some((f) => f.text === d.interpretation));
+  ok("suggested actions are their own level — neither fact nor interpretation",
+    d.suggestedActions.length > 0 &&
+      !d.suggestedActions.some((a) => d.factLines.some((f) => f.text === a)) &&
+      !d.suggestedActions.some((a) => a === d.interpretation));
+  ok("dropping the interpretation leaves every fact intact and still attributable",
+    d.factLines.every((f) => f.sourceRef.length > 0));
+  ok("no fact line carries a suggestion verb — that belongs one level up",
+    !d.factLines.some((f) => /כדאי|מומלץ|בדוק |עבור על/.test(f.text)));
+}
+
 // ── STATIC: the composer stays pure and blind to non-ACTIVE knowledge ──────
 {
   const src = readFileSync(join(__dirname, "insight-composer.ts"), "utf8");

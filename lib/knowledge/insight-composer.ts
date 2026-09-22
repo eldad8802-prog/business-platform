@@ -7,10 +7,24 @@
  * correlation — those need a baseline that does not exist yet, and would need evidence volume this
  * business data does not have.
  *
- * That restraint is the design, not a limitation waiting to be removed. A composition of facts cannot
- * be wrong, which means the very first thing Dubiz ever says to an owner cannot be wrong. Everything
- * afterwards — patterns, anomalies, a reasoning layer — arrives through a channel that has already
- * earned the right to be read.
+ * That restraint is the design, not a limitation waiting to be removed.
+ *
+ * THREE LEVELS, AND ONLY THE FIRST IS AUTHORITATIVE
+ *   FACTS           authoritative observations. Each one is true, and each points at the artifact it
+ *                   came from, so it can be checked rather than believed.
+ *   INTERPRETATION  what Dubiz makes of those facts together. Derived, and NOT authoritative.
+ *   SUGGESTED ACTION a recommendation. The owner decides; nothing here acts.
+ *
+ * An earlier version of this comment claimed that "a composition of facts cannot be wrong". That is
+ * false and worth correcting in place, because it is the kind of sentence that quietly becomes an
+ * engineering assumption. Every fact can be correct while the interpretation joining them is wrong,
+ * or irrelevant, or right about a situation the owner already handled — and the suggested action can
+ * be wrong even when the interpretation is sound.
+ *
+ * What the structure actually buys is narrower and more useful: each level is separately
+ * explainable, so a wrong interpretation can be identified AS an interpretation and rejected without
+ * discrediting the facts underneath it. That separation is what will matter most when a reasoning
+ * layer starts producing the middle level instead of this file.
  *
  * WHAT THE COMPOSER MAY NOT DO
  *   - claim causality ("because"), or that one thing LED to another;
