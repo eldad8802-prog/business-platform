@@ -749,20 +749,31 @@ jobs:
 
       # The load-bearing one for the Supplier wave: resolving InventoryItem's MODEL-level
       # C12 must NOT take its image debt with it.
-      - name: proof — S3 a model-level C12 resolving leaves the object finding standing
+      # The acceptance property of the Supplier wave, asserted without mutating anything:
+      # InventoryItem's model-level finding is gone AND its image object is still reported
+      # as unerased. Either one without the other is the failure. The sentinel line keeps
+      # the absence honest - an absence proved with wording the verifier no longer emits
+      # would pass forever.
+      - name: proof — InventoryItem's C12 is resolved while its image debt stays open
         run: |
-          A="lib/services/account/account-deletion.prisma-store.ts"
-          C="scripts/ci/erasure/erasure-model-coverage.ts"
-          cp "$A" "$RUNNER_TEMP/S3.a"; cp "$C" "$RUNNER_TEMP/S3.c"
+          set +e; npm run verify:erasure-contract > "$RUNNER_TEMP/split.out" 2>&1; set -e
+          grep -qF "holds personal data the erasure does not touch" "$RUNNER_TEMP/split.out" || { echo "PROOF FAIL: the C12 wording this step greps for is not emitted any more"; exit 1; }
+          grep -qF "InventoryItem holds personal data" "$RUNNER_TEMP/split.out" && { echo "PROOF FAIL: the model-level finding is still open"; exit 1; }
+          grep -qF "InventoryItem.imageUrl points at stored bytes" "$RUNNER_TEMP/split.out" || { tail -30 "$RUNNER_TEMP/split.out"; echo "PROOF FAIL: the image debt vanished with the model-level finding"; exit 1; }
+          echo "PROOF PASS — C12::InventoryItem resolved, C19::InventoryItem.imageUrl still open"
+
+      - name: negative proof — S3 the image object is declared ERASED while nothing deletes it
+        run: |
+          F="scripts/ci/erasure/erasure-object-surfaces.ts"
+          cp "$F" "$RUNNER_TEMP/S3.orig"
           node .ad2a/mutate.mjs S3
-          if cmp -s "$A" "$RUNNER_TEMP/S3.a"; then echo "MUTATION NOT APPLIED"; exit 1; fi
-          set +e; npm run verify:erasure-contract > "$RUNNER_TEMP/S3.out" 2>&1; set -e
-          cp "$RUNNER_TEMP/S3.a" "$A"; cp "$RUNNER_TEMP/S3.c" "$C"
-          cmp -s "$A" "$RUNNER_TEMP/S3.a" && cmp -s "$C" "$RUNNER_TEMP/S3.c" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
-          grep -qF "InventoryItem holds personal data" "$RUNNER_TEMP/S3.out" && { echo "the model-level C12 did not resolve; the proof proves nothing"; exit 1; }
-          grep -qF "C19-EXTERNAL-OBJECT-UNERASED" "$RUNNER_TEMP/S3.out" || { echo "PROOF FAIL: no object findings at all"; exit 1; }
-          grep -qF "InventoryItem.imageUrl points at stored bytes" "$RUNNER_TEMP/S3.out" || { tail -40 "$RUNNER_TEMP/S3.out"; echo "PROOF FAIL: the image debt vanished with the model-level finding"; exit 1; }
-          echo "PROOF PASS — C12 resolved, C19::InventoryItem.imageUrl still open"
+          if cmp -s "$F" "$RUNNER_TEMP/S3.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/S3.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/S3.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/S3.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an object declared erased that nothing deletes passed"; exit 1; }
+          grep -qF "C26-OBJECT-DISPOSITION-MISMATCH" "$RUNNER_TEMP/S3.out" || { tail -30 "$RUNNER_TEMP/S3.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
 
       - name: negative proof — S4 the InventoryItem image surface is undeclared
         run: |

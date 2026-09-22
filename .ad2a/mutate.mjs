@@ -21,6 +21,12 @@ const SCHEMA = "prisma/schema.prisma";
 
 function replaceOnce(file, anchor, replacement) {
   const text = fs.readFileSync(file, "utf8");
+  // Anchors here are written with LF. A file that arrives with CRLF matches none of
+  // them, and a mutation that does not apply is precisely the failure this driver
+  // exists to make impossible - so the anchor takes on the file's own line ending.
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  anchor = anchor.replace(/\r?\n/g, eol);
+  replacement = replacement.replace(/\r?\n/g, eol);
   const n = text.split(anchor).length - 1;
   if (n !== 1) throw new Error(`${file}: anchor must occur exactly once, found ${n}: ${JSON.stringify(anchor.slice(0, 80))}`);
   fs.writeFileSync(file, text.replace(anchor, replacement));
@@ -185,20 +191,28 @@ const MUTATIONS = {
     fs.writeFileSync(ADAPTER, text.slice(0, start) + text.slice(end));
   },
 
-  /** S3 — InventoryItem's MODEL-level C12 is resolved. Its image surface must survive that. */
-  S3: () => {
+  /**
+   * S3 — the image surface is declared ERASED while nothing deletes the object.
+   *
+   * The model-level finding for InventoryItem is resolved on main: the Supplier wave
+   * erases its supplier identity. The property this protects is what must NOT follow
+   * from that — the bytes behind `imageUrl` are still there, and no declaration may
+   * say otherwise while the adapter deletes nothing.
+   */
+  S3: () =>
     replaceOnce(
-      ADAPTER,
-      "          await tx.crmAttachment.deleteMany({ where: { businessId } });",
-      '          await tx.inventoryItem.updateMany({ where: { businessId }, data: { supplierName: null } });\n' +
-        "          await tx.crmAttachment.deleteMany({ where: { businessId } });"
-    );
-    replaceOnce(
-      COVERAGE,
-      '  InventoryItem: unmanaged("supplierName, a denormalised copy of a Supplier name"),',
-      '  InventoryItem: { disposition: "ERASURE_MANAGED" },'
-    );
-  },
+      SURFACES,
+      `    kind: "PUBLIC_URL",
+    domain: "inventory",
+    state: "OPEN",
+    reason:
+      "a product photo written to public storage; the column holds the public URL and no URL→key inverse or public-asset delete exists, so a database erasure cannot reach the bytes",`,
+      `    kind: "PUBLIC_URL",
+    domain: "inventory",
+    state: "ERASED",
+    reason:
+      "a product photo written to public storage; the column holds the public URL and no URL→key inverse or public-asset delete exists, so a database erasure cannot reach the bytes",`
+    ),
 
   /** S4 — the InventoryItem image surface declaration is removed. */
   S4: () => dropObjectSurface("InventoryItem", "imageUrl"),
