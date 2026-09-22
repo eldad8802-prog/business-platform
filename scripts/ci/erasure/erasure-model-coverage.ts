@@ -145,6 +145,17 @@ const ERASURE_MANAGED: Record<string, ModelCoverage> = {
   // product identity survives and the other tenant is untouched.
   ReceivingSession: { disposition: "ERASURE_MANAGED" },
   PurchaseOrderLine: { disposition: "ERASURE_MANAGED" },
+  // C12-SUPPLIER. The adapter now strips counterparty identity from all five, and
+  // every other column on them carries an explicit disposition in
+  // erasure-dispositions.ts. InventoryItem is the one to read twice: its supplier
+  // identity is erased here, while the bytes its `imageUrl` points at are still
+  // unerased and still reported — C19 in the object contract, which this cannot
+  // close.
+  Supplier: { disposition: "ERASURE_MANAGED" },
+  VendorLearning: { disposition: "ERASURE_MANAGED" },
+  PurchaseOrder: { disposition: "ERASURE_MANAGED" },
+  SupplierPurchaseDraft: { disposition: "ERASURE_MANAGED" },
+  InventoryItem: { disposition: "ERASURE_MANAGED" },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -242,7 +253,6 @@ const unmanaged = (surface: string, target = "E2"): ModelCoverage => ({
 });
 
 const UNMANAGED: Record<string, ModelCoverage> = {
-  Supplier: unmanaged("name, phone, email, contactName/Role/Phone/Email, legalName, taxId, full address, notes"),
   Appointment: unmanaged("notes and title as free text, plus customerId and leadId"),
   Task: unmanaged("title and description as free text"),
   BusinessObligation: unmanaged("obligeeName and note"),
@@ -277,12 +287,8 @@ const UNMANAGED: Record<string, ModelCoverage> = {
   Deal: unmanaged("lostReason, and leadId to a partially-scrubbed Lead"),
   Recommendation: unmanaged("title and body, generated about the business"),
   RecommendationOutcome: unmanaged("notes"),
-  InventoryItem: unmanaged("supplierName, a denormalised copy of a Supplier name"),
   InventoryMovement: unmanaged("note, plus createdByUserId"),
   InventoryDraft: unmanaged("detectedName and imageUrl"),
-  PurchaseOrder: unmanaged("supplierName and supplierId"),
-  SupplierPurchaseDraft: unmanaged("supplierName and supplierId"),
-  VendorLearning: unmanaged("vendorName and its normalised form"),
   BusinessBotKnowledge: unmanaged("address and notes, entered by the owner"),
   AuthSession: unmanaged("userId and userAgent survive; sessions are refused by the lifecycle gate, not invalidated"),
   AuthSessionSecret: unmanaged("session secrets hang off AuthSession and are not removed with it"),
@@ -405,6 +411,10 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
         "app/api/inventory/supplier-purchases/[id]/reject/route.ts",
         "lib/services/inventory/supplier-purchase-approval.service.ts",
         "lib/services/inventory/supplier-purchase-intake.service.ts",
+        // C12-SUPPLIER: the erasure clears the PARENT draft’s supplierName, and the
+        // via-delegate rule counts that as a write to this child. It is: the adapter
+        // writes the parent. It writes none of the three columns above.
+        "lib/services/account/account-deletion.prisma-store.ts",
       ],
       viaDelegates: ["supplierPurchaseDraft"],
     },

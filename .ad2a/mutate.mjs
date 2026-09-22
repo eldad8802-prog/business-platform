@@ -258,11 +258,138 @@ const MUTATIONS = {
 
   /** R8 — one of the five synchronised payables entries is removed again. */
   R8: () => dropRetainEntry("payment"),
+
+  // ── P/V: the Supplier / Vendor identity wave ────────────────────────────
+  //
+  // Every personal surface in the wave has to be protected on its own. `FIELD` takes
+  // `<delegate>.<column>` and removes exactly that property from the adapter's write,
+  // so a group that stops being erased fails for its own reason rather than hiding
+  // behind a sibling.
+
+  /** V1 — the vendor tombstone becomes a shared constant, which the unique key forbids. */
+  V1: () => {
+    const text = fs.readFileSync(ADAPTER, "utf8");
+    const start = text.indexOf("          // It takes TWO passes");
+    const end = text.indexOf("          // The three copies.", start + 1);
+    if (start < 0 || end < 0) throw new Error("the vendor tombstone block is not where it was");
+    const naive = [
+      "          const vendorMemories = await tx.vendorLearning.findMany({",
+      "            where: { businessId },",
+      "            select: { id: true },",
+      "          });",
+      "          for (const { id } of vendorMemories) {",
+      "            await tx.vendorLearning.updateMany({",
+      "              where: { businessId, id },",
+      '              data: { vendorName: "erased-vendor", vendorNameNormalized: null },',
+      "            });",
+      "          }",
+      "",
+      "",
+    ].join("\n");
+    fs.writeFileSync(ADAPTER, text.slice(0, start) + naive + text.slice(end));
+  },
 };
 
+/** Remove one property from the adapter's write for a delegate: `FIELD <delegate>.<column>`. */
+/**
+ * Remove one property from the adapter's write for a delegate: `FIELD <delegate>.<column>`.
+ *
+ * Located in three steps — the call, its `data` object, then the property — rather than
+ * with one regex, so it works for a write spread over twenty lines and for one written
+ * inline. The VALUE is scanned rather than matched: a tombstone is a template literal
+ * containing `${id}`, and a regex that stopped at the first `}` cut it in half and left
+ * a file that would not compile — which is red for the wrong reason.
+ */
+function dropAdapterField(spec) {
+  const [delegate, column] = String(spec).split(".");
+  if (!delegate || !column) throw new Error("usage: FIELD <delegate>.<column>");
+  const text = fs.readFileSync(ADAPTER, "utf8");
+  const call = text.indexOf("tx." + delegate + ".");
+  if (call < 0) throw new Error("no " + delegate + " write in the adapter");
+
+  let from = call;
+  for (;;) {
+    const dataAt = text.indexOf("data: {", from);
+    if (dataAt < 0) throw new Error("the " + delegate + " write does not carry " + column);
+    const open = text.indexOf("{", dataAt);
+    const close = matchBrace(text, open);
+    const body = text.slice(open, close + 1);
+    const at = body.search(new RegExp("\\b" + column + "\\s*:"));
+    if (at >= 0) {
+      // Back up over the indentation, then scan the value with the nesting rules.
+      let start = at;
+      while (start > 0 && (body[start - 1] === " " || body[start - 1] === "\t")) start--;
+      let end = body.indexOf(":", at) + 1;
+      let depth = 0;
+      for (; end < body.length; end++) {
+        const ch = body[end];
+        if (ch === "`") {
+          end = skipTemplate(body, end);
+          continue;
+        }
+        if (ch === '"' || ch === "'") {
+          end = skipQuoted(body, end);
+          continue;
+        }
+        if (ch === "{" || ch === "[" || ch === "(") depth++;
+        else if (ch === "}" || ch === "]" || ch === ")") {
+          if (depth === 0) break; // the data object's own closing brace
+          depth--;
+        } else if (ch === "," && depth === 0) {
+          end++; // take the separator with it
+          break;
+        }
+      }
+      while (end < body.length && (body[end] === " " || body[end] === "\t")) end++;
+      if (body[end] === "\r") end++;
+      if (body[end] === "\n") end++;
+      const next = body.slice(0, start) + body.slice(end);
+      fs.writeFileSync(ADAPTER, text.slice(0, open) + next + text.slice(close + 1));
+      return;
+    }
+    from = close + 1;
+  }
+}
+
+function matchBrace(text, open) {
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === "`") { i = skipTemplate(text, i); continue; }
+    if (text[i] === '"' || text[i] === "'") { i = skipQuoted(text, i); continue; }
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") { depth--; if (depth === 0) return i; }
+  }
+  throw new Error("unterminated object");
+}
+
+/** Index of the closing backtick, `${...}` holes included. */
+function skipTemplate(text, i) {
+  for (let j = i + 1; j < text.length; j++) {
+    if (text[j] === "\\") { j++; continue; }
+    if (text[j] === "$" && text[j + 1] === "{") { j = matchBrace(text, j + 1); continue; }
+    if (text[j] === "`") return j;
+  }
+  throw new Error("unterminated template literal");
+}
+
+/** Index of the closing quote. */
+function skipQuoted(text, i) {
+  const q = text[i];
+  for (let j = i + 1; j < text.length; j++) {
+    if (text[j] === "\\") { j++; continue; }
+    if (text[j] === q) return j;
+  }
+  throw new Error("unterminated string");
+}
+
 const id = process.argv[2];
+if (id === "FIELD") {
+  dropAdapterField(process.argv[3]);
+  console.log(`[mutate] applied FIELD ${process.argv[3]}`);
+  process.exit(0);
+}
 if (!MUTATIONS[id]) {
-  console.error(`usage: node .ad2a/mutate.mjs <${Object.keys(MUTATIONS).join("|")}>`);
+  console.error(`usage: node .ad2a/mutate.mjs <${Object.keys(MUTATIONS).join("|")}|FIELD <delegate>.<column>>`);
   process.exit(2);
 }
 MUTATIONS[id]();

@@ -35,6 +35,7 @@
 // `Prisma` is a VALUE import, not a type-only one: clearing a nullable Json
 // column needs `Prisma.DbNull`, because a plain `null` there means "JSON null"
 // rather than "no value".
+import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
@@ -369,6 +370,122 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
           await tx.purchaseOrderLine.updateMany({
             where: { purchaseOrder: { businessId } },
             data: { remainingDecisionNote: null },
+          });
+
+          // ── C12-SUPPLIER — counterparty identity, and every copy of it ──────
+          //
+          // A supplier is a company, but these columns hold people: a contact's name,
+          // their direct line, their email, an address, and free text somebody typed.
+          // The ROWS stay — purchase orders point at them, and deleting them would
+          // rewrite the business's own purchasing history instead of its counterparty's
+          // identity. What goes is the identity itself, in every place this product
+          // copied it to.
+          //
+          // `name` is NOT NULL, so it cannot be cleared. It is overwritten per row with
+          // a tombstone derived from the row's own id: deterministic (a retry writes
+          // the same value), non-personal, and incapable of colliding with a sibling
+          // row whatever uniqueness the table grows later.
+          const suppliers = await tx.supplier.findMany({
+            where: { businessId },
+            select: { id: true },
+          });
+          for (const { id } of suppliers) {
+            await tx.supplier.updateMany({
+              where: { businessId, id },
+              data: {
+                name: `ספק שנמחק ${id}`,
+                legalName: null,
+                taxId: null,
+                taxIdType: null,
+                phone: null,
+                email: null,
+                contactName: null,
+                contactRole: null,
+                contactPhone: null,
+                contactEmail: null,
+                addressStreet: null,
+                addressCity: null,
+                addressPostalCode: null,
+                notes: null,
+                // Neither is validated against any vocabulary — `website` is never
+                // parsed as a URL and `category` is never matched against a list — so
+                // both are free text that can name a person.
+                website: null,
+                category: null,
+              },
+            });
+          }
+
+          // VendorLearning is the document engine's memory of which vendor string maps
+          // to which expense category. `vendorName` is NOT NULL and unique within the
+          // tenant (`@@unique([businessId, vendorName])`), so a shared tombstone would
+          // raise a unique violation on the second row and take the whole erasure down
+          // with it. The id-derived value cannot collide, and the normalised copy — the
+          // one built for matching — is cleared outright.
+          // It takes TWO passes, and the reason is the whole difficulty of this table.
+          // The final value is `erased-vendor-<id>`: unique by construction, stable
+          // across retries, and carrying nothing of the original. But a row may ALREADY
+          // hold a string in that shape — somebody's document really can name a vendor
+          // "erased-vendor-1" — and if that row is not the one whose id is 1, the update
+          // that gives row 1 its tombstone collides with it and the unique constraint
+          // takes the entire erasure down. That is not a hypothetical: the first version
+          // of this code failed exactly that way against a fixture seeded to test it.
+          //
+          // So every row is first moved into a staging namespace that is PROVEN unused
+          // in this tenant, which empties every target slot; the second pass then writes
+          // the deterministic tombstones into slots nothing can occupy. Staging values
+          // never survive the transaction, so they need not be stable — and a retry,
+          // where the rows already hold their final values, rewrites the same values and
+          // converges.
+          const vendorMemories = await tx.vendorLearning.findMany({
+            where: { businessId },
+            select: { id: true },
+          });
+          if (vendorMemories.length > 0) {
+            const stagingPrefix = `erasing-${randomUUID()}-`;
+            const occupied = await tx.vendorLearning.count({
+              where: { businessId, vendorName: { startsWith: stagingPrefix } },
+            });
+            if (occupied > 0) {
+              // Fail closed rather than guess. Nothing has been written yet, the
+              // transaction rolls back, and the next attempt draws a new namespace.
+              throw new Error(
+                `account-erasure: the vendor staging namespace is already in use for business ${businessId}`
+              );
+            }
+            for (const { id } of vendorMemories) {
+              await tx.vendorLearning.updateMany({
+                where: { businessId, id },
+                data: { vendorName: `${stagingPrefix}${id}`, vendorNameNormalized: null },
+              });
+            }
+            for (const { id } of vendorMemories) {
+              await tx.vendorLearning.updateMany({
+                where: { businessId, id },
+                data: { vendorName: `erased-vendor-${id}` },
+              });
+            }
+          }
+
+          // The three copies. A purchase order and a draft SNAPSHOT the supplier's name
+          // at write time; an inventory item carries one typed freely on the item and
+          // never derived from a Supplier row at all — which is why erasing Supplier
+          // alone would have left an independent second copy standing.
+          //
+          // Only the name goes. The order, the draft and the item keep their own facts:
+          // quantities, costs, dates, status, and the product identity (`name`, `sku`,
+          // `barcode`) that is ratified NON_PERSONAL under S-7C.
+          await tx.purchaseOrder.updateMany({
+            where: { businessId },
+            data: { supplierName: null },
+          });
+          await tx.supplierPurchaseDraft.updateMany({
+            where: { businessId },
+            data: { supplierName: null },
+          });
+          await tx.inventoryItem.updateMany({
+            where: { businessId },
+            data: { supplierName: null },
           });
 
           // B.2 delete pure communications PII with no fiscal linkage.

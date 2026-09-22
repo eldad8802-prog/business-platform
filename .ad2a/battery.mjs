@@ -155,10 +155,19 @@ async function main() {
   // and a proof that the lab stops reproducing Production (E4) passed on leftovers.
   // For the three tables this increment relies on, start from nothing — no RLS, no
   // policy — so whatever protection they end up with is the contract's, this run.
-  for (const t of ["ReceivingSession", "PurchaseOrderLine", "PurchaseOrder"]) {
+  for (const t of [
+    "ReceivingSession",
+    "PurchaseOrderLine",
+    "PurchaseOrder",
+    "Supplier",
+    "SupplierPurchaseDraft",
+    "InventoryItem",
+    "VendorLearning",
+  ]) {
     await owner.$executeRawUnsafe(`ALTER TABLE "${t}" NO FORCE ROW LEVEL SECURITY`);
     await owner.$executeRawUnsafe(`ALTER TABLE "${t}" DISABLE ROW LEVEL SECURITY`);
     await owner.$executeRawUnsafe(`DROP POLICY IF EXISTS p7w3_tenant ON "${t}"`);
+    await owner.$executeRawUnsafe(`DROP POLICY IF EXISTS p7w4d_tenant ON "${t}"`);
   }
   await applyProductionContract(owner);
 
@@ -247,6 +256,16 @@ async function main() {
   );
   await owner.$executeRawUnsafe(
     `REVOKE DELETE ON "ReceivingSession","PurchaseOrderLine","PurchaseOrder" FROM ${RT_ROLE}`
+  );
+  // C12-SUPPLIER. Same shape, same reason: the wave-3 and w4d grant artifacts hand the
+  // runtime SELECT, INSERT and UPDATE on these four — and no DELETE. VendorLearning's
+  // missing DELETE is load-bearing: it is why the vendor memory is tombstoned in place
+  // rather than removed.
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT, INSERT, UPDATE ON "Supplier","SupplierPurchaseDraft","InventoryItem","VendorLearning" TO ${RT_ROLE}`
+  );
+  await owner.$executeRawUnsafe(
+    `REVOKE DELETE ON "Supplier","SupplierPurchaseDraft","InventoryItem","VendorLearning" FROM ${RT_ROLE}`
   );
   await owner.$executeRawUnsafe(
     `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT_ROLE}`
@@ -596,10 +615,84 @@ async function main() {
     // `rawName`, `sku` and `barcode` are ratified product identity, and an erasure
     // that touched them would be over-deleting, which the assertions check for as
     // carefully as they check for under-deleting.
+    // ── C12-SUPPLIER — counterparty identity, and every copy of it ──────────
+    //
+    // Every identity column is filled with the W1 sentinel, so "the erasure cleared
+    // this field" is a statement about a value that was demonstrably there. The
+    // supplier row is then pointed at by an order and a draft, and an inventory item
+    // carries its OWN typed copy of a supplier name — the one that is never derived
+    // from this row, and would have survived an erasure that only stripped Supplier.
+    const supplier = await owner.supplier.create({
+      data: {
+        businessId: b.id,
+        name: `${W1}supplier-name-${tag}`,
+        legalName: `${W1}supplier-legal-${tag}`,
+        taxId: `${W1}taxid-${tag}`,
+        taxIdType: "LTD_COMPANY",
+        phone: `${W1}phone-${tag}`,
+        email: `${W1}email-${tag}`,
+        contactName: `${W1}contact-name-${tag}`,
+        contactRole: `${W1}contact-role-${tag}`,
+        contactPhone: `${W1}contact-phone-${tag}`,
+        contactEmail: `${W1}contact-email-${tag}`,
+        addressStreet: `${W1}street-${tag}`,
+        addressCity: `${W1}city-${tag}`,
+        addressPostalCode: `${W1}zip-${tag}`,
+        notes: `${W1}notes-${tag}`,
+        website: `${W1}website-${tag}`,
+        category: `${W1}category-${tag}`,
+        isActive: true,
+        defaultLeadTimeDays: 7,
+        paymentTermsDays: 30,
+      },
+    });
+    const draft = await owner.supplierPurchaseDraft.create({
+      data: {
+        businessId: b.id,
+        supplierId: supplier.id,
+        supplierName: `${W1}draft-supplier-${tag}`,
+        externalOrderId: `${tag}-EXT-77`,
+        source: "CSV",
+        status: "PENDING_REVIEW",
+        createdByUserId: u.id,
+      },
+    });
+    const item = await owner.inventoryItem.create({
+      data: {
+        businessId: b.id,
+        name: `${tag}-coffee-beans`,
+        sku: `ITEM-SKU-${tag}`,
+        barcode: `ITEM-BC-${tag}`,
+        unitType: "UNIT",
+        // Typed on the item, never read from the Supplier row above.
+        supplierName: `${W1}item-supplier-${tag}`,
+        imageUrl: `https://assets.invalid/biz/${b.id}/inventory/${tag}.jpg`,
+        currentQuantity: 5,
+        minimumQuantity: 1,
+        costPerUnit: 12.5,
+      },
+    });
+    // Three vendor memories, deliberately awkward for a tombstone: two that differ only
+    // in case, and one already sitting in the tombstone namespace. A shared constant
+    // would collide on the second row; a namespace collision would collide on the third.
+    const vendorRows = [];
+    for (const vendorName of [
+      `${W1}vendor-${tag}`,
+      `${W1}VENDOR-${tag}`,
+      "erased-vendor-1",
+    ]) {
+      vendorRows.push(
+        await owner.vendorLearning.create({
+          data: { businessId: b.id, vendorName, vendorNameNormalized: vendorName.toLowerCase(), category: "office", confidence: 0.9 },
+        })
+      );
+    }
+
     const po = await owner.purchaseOrder.create({
       data: {
         businessId: b.id,
-        supplierName: `${tag}-supplier`,
+        supplierId: supplier.id,
+        supplierName: `${W1}po-supplier-${tag}`,
         status: "AWAITING_DELIVERY",
         createdByUserId: u.id,
       },
@@ -740,6 +833,7 @@ async function main() {
       biz: b, user: u, customer: c, conversation: conv, doc, run, historical, reversal,
       emailConn, authorityConn, payConn, waConn, posKey, po, poLine, recv,
       attachment, attachmentKey,
+      supplier, draft, item, vendorRows,
     };
   };
 
@@ -1366,6 +1460,97 @@ async function main() {
   );
   const PHASE_E1 = e1a && e1b && e1c && e1d && e1e && e1f;
 
+  // ── C12-SUPPLIER — the identity, its copies, and what must survive ────────
+  console.log("--- phase 7b.3: C12-SUPPLIER counterparty identity ---");
+  const aSupplier = await owner.supplier.findUnique({ where: { id: A.supplier.id } });
+  const aDraft = await owner.supplierPurchaseDraft.findUnique({ where: { id: A.draft.id } });
+  const aItem = await owner.inventoryItem.findUnique({ where: { id: A.item.id } });
+  const aPo = await owner.purchaseOrder.findUnique({ where: { id: A.po.id } });
+  const aVendors = await owner.vendorLearning.findMany({ where: { businessId: A.biz.id }, orderBy: { id: "asc" } });
+
+  const supCleared = [
+    "legalName", "taxId", "taxIdType", "phone", "email",
+    "contactName", "contactRole", "contactPhone", "contactEmail",
+    "addressStreet", "addressCity", "addressPostalCode", "notes", "website", "category",
+  ];
+  const sup1 = ok(
+    "SUP-A · every nullable Supplier identity column is NULL",
+    aSupplier !== null && supCleared.every((k) => aSupplier[k] === null),
+    JSON.stringify(Object.fromEntries(supCleared.map((k) => [k, aSupplier?.[k] ?? null]).filter(([, v]) => v !== null)))
+  );
+  const sup2 = ok(
+    "SUP-B · Supplier.name is a per-row tombstone, not the original and not a constant",
+    aSupplier?.name === `ספק שנמחק ${A.supplier.id}` && !aSupplier.name.includes(W1),
+    `name=${aSupplier?.name}`
+  );
+  const sup3 = ok(
+    "SUP-C · the Supplier ROW survives, with its procurement terms",
+    aSupplier !== null && aSupplier.isActive === true && aSupplier.defaultLeadTimeDays === 7 && aSupplier.paymentTermsDays === 30
+  );
+  const sup4 = ok(
+    "SUP-D · the three snapshots of the supplier's name are gone",
+    aPo?.supplierName === null && aDraft?.supplierName === null && aItem?.supplierName === null,
+    JSON.stringify([aPo?.supplierName, aDraft?.supplierName, aItem?.supplierName])
+  );
+  const sup5 = ok(
+    "SUP-E · the rows that carried them survive with their own facts",
+    aPo !== null && aPo.status === "AWAITING_DELIVERY" &&
+      aDraft !== null && aDraft.externalOrderId === A.draft.externalOrderId &&
+      aItem !== null && aItem.currentQuantity === 5 && aItem.costPerUnit === 12.5
+  );
+  const sup6 = ok(
+    "SUP-F · product identity on the item is PRESERVED (name, sku, barcode)",
+    aItem?.name === A.item.name && aItem?.sku === A.item.sku && aItem?.barcode === A.item.barcode,
+    JSON.stringify([aItem?.name, aItem?.sku, aItem?.barcode])
+  );
+  const sup7 = ok(
+    "SUP-G · the supplier pointers are RETAINED, naming a row this erasure stripped",
+    aPo?.supplierId === A.supplier.id && aDraft?.supplierId === A.supplier.id
+  );
+  // S8 stays open: the image column is declared EXTERNAL_OBJECT_OPEN, and the erasure
+  // must not have touched it. A wave that quietly nulled it would be closing an object
+  // debt it never paid.
+  const sup8 = ok(
+    "SUP-H · InventoryItem.imageUrl is UNTOUCHED — its object debt is still open",
+    aItem?.imageUrl === A.item.imageUrl,
+    `imageUrl=${aItem?.imageUrl}`
+  );
+
+  // VendorLearning: the collision proof. Three rows, one tenant, a unique key on
+  // (businessId, vendorName), one fixture already sitting in the tombstone namespace.
+  const vendorNames = aVendors.map((v) => v.vendorName);
+  const vl1 = ok(
+    "SUP-V1 · every vendor memory survives as a row (three in, three out)",
+    aVendors.length === 3,
+    `n=${aVendors.length}`
+  );
+  const vl2 = ok(
+    "SUP-V2 · no original vendor identity remains, in either column",
+    aVendors.every((v) => !v.vendorName.includes(W1) && v.vendorNameNormalized === null),
+    JSON.stringify(aVendors.map((v) => [v.vendorName, v.vendorNameNormalized]))
+  );
+  const vl3 = ok(
+    "SUP-V3 · every tombstone is unique within the tenant (the unique key held)",
+    new Set(vendorNames).size === vendorNames.length,
+    JSON.stringify(vendorNames)
+  );
+  const vl4 = ok(
+    "SUP-V4 · each tombstone is derived from its own row id",
+    aVendors.every((v) => v.vendorName === `erased-vendor-${v.id}`),
+    JSON.stringify(aVendors.map((v) => [v.id, v.vendorName]))
+  );
+  const vl5 = ok(
+    "SUP-V5 · the learned category and counters survive (how the business files, not who sent it)",
+    aVendors.every((v) => v.category === "office" && v.usageCount >= 1)
+  );
+  const supF = ok(
+    "SUP-I · the W1 sentinel is unrecoverable in ANY column of the five models",
+    !JSON.stringify({ aSupplier, aDraft, aItem, aPo, aVendors }).includes(W1),
+    "a W1-marked value is still readable"
+  );
+  const PHASE_SUP = sup1 && sup2 && sup3 && sup4 && sup5 && sup6 && sup7 && sup8 && vl1 && vl2 && vl3 && vl4 && vl5 && supF;
+  console.log(`  C12-SUPPLIER IDENTITY          = ${PHASE_SUP ? "PASS" : "FAIL"}`);
+
   // ── FAILURE C — stage 3 deletion evidence and terminal state ──────────────
   console.log("--- phase 7c: stage-3 evidence + terminal state (postconditions) ---");
   const aAfter = await owner.business.findUnique({ where: { id: A.biz.id } });
@@ -1492,6 +1677,28 @@ async function main() {
   );
   // The whole row, not just the note: an over-broad statement that blanked any other
   // column, or merely touched B's rows, would show here as a changed value or updatedAt.
+  // C12-SUPPLIER cross-tenant. B's supplier identity, its snapshots and its vendor
+  // memories must be exactly as seeded — including the vendor rows, where a statement
+  // that lost its tenant predicate would have rewritten every tombstone in the table.
+  const bSupplier = await owner.supplier.findUnique({ where: { id: B.supplier.id } });
+  const bItem = await owner.inventoryItem.findUnique({ where: { id: B.item.id } });
+  const bDraft = await owner.supplierPurchaseDraft.findUnique({ where: { id: B.draft.id } });
+  const bVendors = await owner.vendorLearning.findMany({ where: { businessId: B.biz.id }, orderBy: { id: "asc" } });
+  ok(
+    "SUP-X1 · B's supplier identity is untouched, column for column",
+    JSON.stringify(bSupplier) === JSON.stringify(B.supplier),
+    JSON.stringify(bSupplier?.name ?? null)
+  );
+  ok(
+    "SUP-X2 · B's snapshots and its typed item copy are untouched",
+    bItem?.supplierName === B.item.supplierName && bDraft?.supplierName === B.draft.supplierName
+  );
+  ok(
+    "SUP-X3 · B's vendor memories are untouched, names and normalised forms",
+    JSON.stringify(bVendors) === JSON.stringify(B.vendorRows),
+    JSON.stringify(bVendors.map((v) => v.vendorName))
+  );
+
   const bRecvRow = await owner.receivingSession.findUnique({ where: { id: B.recv.id } });
   const bLineRow = await owner.purchaseOrderLine.findUnique({ where: { id: B.poLine.id } });
   const e1x3 = ok(

@@ -316,6 +316,36 @@ export const PRODUCTION_RLS_CONTRACT = [
   // created them. Neither was ever in this contract, so the laboratory ran that
   // delete against tables with NO row-level security. Nothing here was noticed by
   // reading; it was found by comparing this file with what the migrations do.
+  // ── C12-SUPPLIER. Stage 2 strips counterparty identity from these five. ──
+  //
+  // They were outside the contract while the erasure did not touch them; the moment it
+  // does, the cross-check requires them here, and it is right to: an erasure proved
+  // against tables the lab left without row-level security is proved against a database
+  // Production does not have.
+  {
+    table: "Supplier",
+    migration: "20260825200000_d2_p7_wave3_tenant_rls",
+    why: "stage 2 anonymises supplier identity in place under a direct businessId predicate",
+    policies: [{ name: "p7w3_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
+  {
+    table: "VendorLearning",
+    migration: "20260827090000_d2_p7_w4d_documents_tenant_rls",
+    why: "stage 2 tombstones the learned vendor name; the runtime holds no DELETE here",
+    policies: [{ name: "p7w4d_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
+  {
+    table: "SupplierPurchaseDraft",
+    migration: "20260825200000_d2_p7_wave3_tenant_rls",
+    why: "stage 2 clears the supplier-name snapshot on the draft",
+    policies: [{ name: "p7w3_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
+  {
+    table: "InventoryItem",
+    migration: "20260825200000_d2_p7_wave3_tenant_rls",
+    why: "stage 2 clears the item’s own typed copy of a supplier name",
+    policies: [{ name: "p7w3_tenant", command: "ALL", using: TENANT, check: TENANT }],
+  },
   {
     table: "InboundEmailAuthorizedSender",
     migration: "20260916090000_inbound_email_authorized_senders",
@@ -504,6 +534,10 @@ export const EXPECTED_RUNTIME_TABLE_PRIVILEGES = {
   Notification: { verbs: SIU, basis: "scripts/security/notification-grants.sql — no DELETE" },
   NotificationDelivery: { verbs: SIU, basis: "scripts/security/notification-grants.sql — no DELETE" },
   ReceivingSession: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },
+  Supplier: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },
+  SupplierPurchaseDraft: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },
+  InventoryItem: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },
+  VendorLearning: { verbs: SIU, basis: "scripts/security/d2-p7-w4d-grants.sql — no DELETE, which is why the vendor memory is tombstoned in place" },
   PurchaseOrderLine: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },
   PurchaseOrder: { verbs: SIU, basis: "scripts/security/d2-p7-wave3-grants.sql — no DELETE" },
 };
