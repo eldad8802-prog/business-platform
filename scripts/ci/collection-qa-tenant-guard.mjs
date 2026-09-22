@@ -1,0 +1,299 @@
+#!/usr/bin/env node
+/**
+ * Containment guard for the Collection QA tenant provisioning run.
+ *
+ * WHY A STATIC GUARD
+ *
+ * ops/tenant/collection-qa-tenant.sql is the only file in this repository that
+ * COMMITS a write to Production outside a migration. What makes that acceptable
+ * is not that it is short today — it is that a machine reads it before any
+ * connection is opened and refuses the run unless it is still exactly what was
+ * approved: two INSERTs, one transaction, one named tenant, nothing else.
+ *
+ * The guard therefore checks properties, not prose, and it FAILS CLOSED. Every
+ * unknown is a refusal: an unrecognised statement, a widened file, an email
+ * that is still the placeholder, a name that drifted from the approved literal.
+ * Widening the SQL to touch anything else makes this guard exit non-zero, and
+ * scripts/ci/collection-qa-tenant-guard.test.mjs proves that by doing it.
+ *
+ * It is deliberately specific to this one tenant. The approved names are
+ * carried HERE, as constants, so the workflow cannot be repurposed into a
+ * generic tenant-provisioning tool by editing a data file alone.
+ *
+ * Usage:
+ *   node scripts/ci/collection-qa-tenant-guard.mjs
+ *   node scripts/ci/collection-qa-tenant-guard.mjs --sql X --verify Y --identity Z
+ */
+
+import { readFileSync } from "node:fs";
+
+/** The approved tenant. Changing these is a code change, reviewed as one. */
+const APPROVED_BUSINESS_NAME = "QA COLLECTION SANDBOX — אין להשתמש";
+const APPROVED_USER_NAME = "QA Collection Sandbox";
+const EMAIL_PLACEHOLDER = "__COLLECTION_QA_EMAIL_NOT_SET__";
+/** The local part every QA address must start with, so it can never be a person's mailbox. */
+const EMAIL_LOCAL_PREFIX = "collection-qa";
+/** Same permissive shape signup uses (lib/auth/signup-identity.ts). */
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const DEFAULTS = {
+  sql: "ops/tenant/collection-qa-tenant.sql",
+  verify: "ops/tenant/collection-qa-tenant-verify.sql",
+  identity: "ops/tenant/collection-qa-tenant.identity.env",
+};
+
+/**
+ * Statements that have no business in either file, whatever the transaction
+ * does around them. Checked after comments are stripped: this is a claim about
+ * what runs, and a sentence in a comment never runs. (The evidence guards check
+ * prose too, and it has cost real time — a rule that fails on the word
+ * "alter" in an explanation teaches people to stop explaining.)
+ */
+const FORBIDDEN = [
+  ["UPDATE", /\bupdate\s+(?:only\s+)?["a-z_]/i],
+  ["DELETE", /\bdelete\s+from\b/i],
+  ["DROP", /\bdrop\s+/i],
+  ["ALTER", /\balter\s+/i],
+  ["TRUNCATE", /\btruncate\b/i],
+  ["GRANT", /\bgrant\s+/i],
+  ["REVOKE", /\brevoke\s+/i],
+  ["CREATE", /\bcreate\s+/i],
+  ["COPY", /\bcopy\s+/i],
+  ["MERGE", /\bmerge\s+into\b/i],
+  // Any dollar-quoted body, not just DO: a function body or an anonymous block
+  // is SQL this guard cannot read, which is the same as no guard at all.
+  ["DO block", /\bdo\s*\$/i],
+  ["dollar-quoted body", /\$[a-z_]*\$/i],
+  ["SET ROLE", /\bset\s+(?:local\s+)?role\b/i],
+  ["SECURITY DEFINER", /\bsecurity\s+definer\b/i],
+  // A conflict clause would turn an insert that must be a no-op into an
+  // in-place write on a row this run did not create.
+  ["ON CONFLICT", /\bon\s+conflict\b/i],
+  ["shell escape", /^\s*\\!/m],
+  ["file read", /\bpg_read_file\b/i],
+];
+
+const failures = [];
+const passes = [];
+
+function check(label, condition, detail = "") {
+  if (condition) {
+    passes.push(label);
+  } else {
+    failures.push(detail ? `${label} — ${detail}` : label);
+  }
+}
+
+function parseArgs(argv) {
+  const out = { ...DEFAULTS };
+  for (let i = 0; i < argv.length; i += 2) {
+    const key = argv[i]?.replace(/^--/, "");
+    const value = argv[i + 1];
+    if (key && value && key in out) out[key] = value;
+  }
+  return out;
+}
+
+/** Remove line and block comments. What remains is what the server executes. */
+function stripComments(sql) {
+  return sql
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/--[^\n]*/g, " ");
+}
+
+/** Every single-quoted literal in the statement text. */
+function quotedLiterals(sql) {
+  return [...sql.matchAll(/'((?:[^']|'')*)'/g)].map((m) => m[1]);
+}
+
+function countOccurrences(text, pattern) {
+  return [...text.matchAll(pattern)].length;
+}
+
+function readIdentity(path) {
+  const raw = readFileSync(path, "utf8");
+  const values = {};
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+    // Values are quoted in the file because the workflow sources it with `.`:
+    // the business name contains spaces, and an unquoted one would be read as a
+    // variable assignment followed by a command. The quotes are shell syntax,
+    // not part of the value, so they come off here.
+    const raw = trimmed.slice(eq + 1);
+    values[trimmed.slice(0, eq).trim()] = raw.replace(/^"([\s\S]*)"$/, "$1");
+  }
+  return values;
+}
+
+// ---------------------------------------------------------------- identity --
+
+function checkIdentity(path) {
+  const id = readIdentity(path);
+  const email = id.COLLECTION_QA_EMAIL ?? "";
+
+  check(
+    "business name is the approved literal",
+    id.COLLECTION_QA_BUSINESS_NAME === APPROVED_BUSINESS_NAME,
+    "this workflow provisions one named tenant and no other"
+  );
+  check(
+    "user name is the approved literal",
+    id.COLLECTION_QA_USER_NAME === APPROVED_USER_NAME
+  );
+  check(
+    "login email is set",
+    email !== "" && email !== EMAIL_PLACEHOLDER,
+    "the owner has not fixed the final address yet — refusing to provision"
+  );
+  check(
+    "login email is already normalized",
+    email === email.trim().toLowerCase(),
+    "signup folds case before storing; an unfolded address would not be found by login"
+  );
+  check("login email is shaped like an address", EMAIL_SHAPE.test(email.trim()));
+  check(
+    "login email is unmistakably the QA tenant's",
+    email.startsWith(`${EMAIL_LOCAL_PREFIX}`),
+    `must begin with "${EMAIL_LOCAL_PREFIX}"`
+  );
+  return id;
+}
+
+// ------------------------------------------------------------ provisioning --
+
+function checkProvisioningSql(path) {
+  const raw = readFileSync(path, "utf8");
+  const sql = stripComments(raw);
+
+  for (const [label, pattern] of FORBIDDEN) {
+    check(`no ${label}`, !pattern.test(sql), "forbidden statement found");
+  }
+
+  check("exactly one BEGIN", countOccurrences(sql, /\bbegin\s*;/gi) === 1);
+  check("exactly one COMMIT", countOccurrences(sql, /\bcommit\s*;/gi) === 1);
+  check("no ROLLBACK", countOccurrences(sql, /\brollback\b/gi) === 0);
+
+  const inserts = [...sql.matchAll(/insert\s+into\s+"([A-Za-z]+)"/gi)].map(
+    (m) => m[1]
+  );
+  check("exactly two INSERT statements", inserts.length === 2, `found ${inserts.length}`);
+  check(
+    'one INSERT into "Business"',
+    inserts.filter((t) => t === "Business").length === 1
+  );
+  check('one INSERT into "User"', inserts.filter((t) => t === "User").length === 1);
+  check(
+    "no INSERT targets any other table",
+    inserts.every((t) => t === "Business" || t === "User"),
+    `targets: ${inserts.join(", ")}`
+  );
+
+  check(
+    "no VALUES form",
+    !/\bvalues\s*\(/i.test(sql),
+    "both inserts must be INSERT ... SELECT so they can carry their own guards"
+  );
+  check(
+    "idempotency guard on the business insert",
+    countOccurrences(sql, /not\s+exists/gi) >= 2,
+    "the business must be guarded on both the email and the name"
+  );
+  // Scoped to the user insert itself. Looking for the phrase anywhere in the
+  // file is not the same claim: the closing SELECT also counts new_business,
+  // so a user insert rewritten to read the Business table directly would slip
+  // through a whole-file search while being exactly the defect — a second run
+  // attaching a user to a tenant it did not create.
+  const userInsert = sql.slice(sql.search(/insert\s+into\s+"User"/i));
+  check(
+    "the user row is drawn only from the business this run created",
+    /from\s+new_business\b/i.test(userInsert),
+    "the user INSERT must select FROM new_business"
+  );
+  check(
+    "the user insert reads no table directly",
+    !/from\s+"[A-Za-z]+"/i.test(userInsert),
+    "selecting from a table here would defeat the idempotency argument"
+  );
+  check(
+    "identity is the login email",
+    /"email"\s*=\s*:'qa_email'/i.test(sql)
+  );
+
+  for (const variable of ["qa_email", "qa_business_name", "qa_user_name", "qa_password_hash"]) {
+    check(`binds :${variable}`, sql.includes(`:'${variable}'`));
+  }
+
+  check(
+    'both inserts write "updatedAt"',
+    countOccurrences(sql, /"updatedAt"/g) === 2,
+    "the column has no database default; Prisma maintains it in the app layer"
+  );
+
+  const literals = quotedLiterals(sql);
+  check(
+    "no email literal in the file",
+    literals.every((l) => !l.includes("@")),
+    "the address arrives as a bound variable, never baked in"
+  );
+  check(
+    "no credential literal in the file",
+    literals.every((l) => !/^\$2[aby]\$/.test(l)),
+    "the hash arrives from the protected secret, never from git"
+  );
+}
+
+// ------------------------------------------------------------------ verify --
+
+function checkVerifySql(path) {
+  const raw = readFileSync(path, "utf8");
+  const sql = stripComments(raw);
+
+  for (const [label, pattern] of FORBIDDEN) {
+    check(`verify: no ${label}`, !pattern.test(sql));
+  }
+  check("verify: no INSERT", !/\binsert\s+into\b/i.test(sql));
+  check("verify: declares READ ONLY", /begin\s+transaction\s+read\s+only\s*;/i.test(sql));
+  check("verify: ends in ROLLBACK", /\brollback\s*;/i.test(sql));
+  check("verify: never COMMITs", !/\bcommit\s*;/i.test(sql));
+
+  // The hash may be characterised, never returned. Each mention of the column
+  // must be one of the two shapes that yield a boolean or a length.
+  const allowed = [`(u."password" ~ '^\\$2[aby]\\$10\\$')`, `length(u."password")`];
+  let remaining = sql;
+  for (const snippet of allowed) remaining = remaining.split(snippet).join(" ");
+  check(
+    "verify: the password hash is never selected",
+    !/"password"/i.test(remaining),
+    "only its bcrypt shape and length may be read"
+  );
+}
+
+// -------------------------------------------------------------------- main --
+
+function main() {
+  const args = parseArgs(process.argv.slice(2));
+  try {
+    checkIdentity(args.identity);
+    checkProvisioningSql(args.sql);
+    checkVerifySql(args.verify);
+  } catch (error) {
+    failures.push(`guard could not complete: ${error.message}`);
+  }
+
+  for (const pass of passes) console.log(`  ok   ${pass}`);
+  for (const failure of failures) console.log(`  FAIL ${failure}`);
+
+  if (failures.length > 0) {
+    console.log(
+      `\nCONTAINMENT GUARD: FAIL (${failures.length} of ${passes.length + failures.length})`
+    );
+    process.exit(1);
+  }
+
+  console.log(`\nCONTAINMENT GUARD: PASS (${passes.length} checks)`);
+}
+
+main();

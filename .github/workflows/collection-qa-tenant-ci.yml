@@ -1,0 +1,92 @@
+# Collection QA tenant — everything that can be proven WITHOUT Production.
+#
+# The production workflow writes two rows into the live database. What makes
+# that acceptable is not the size of the change; it is that the file doing it
+# has been read by a guard, matched against the schema it writes into, and
+# rehearsed end to end against a real PostgreSQL — including the login the
+# resulting account has to perform.
+#
+# Four proofs, in order of what they would catch:
+#   guard          the SQL is still only what was approved
+#   negative proof the guard actually refuses a widened SQL  (it must FAIL to pass)
+#   schema         the columns and defaults are the ones the schema declares
+#   hash           the credential is the one Production login accepts
+#   lab            the statement runs, is idempotent, and the account logs in
+#
+# Synthetic only. ZERO secrets, ZERO Neon, ZERO network, ZERO Production.
+
+name: collection QA tenant (guard + lab)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "ops/tenant/**"
+      - "scripts/ci/collection-qa-tenant-*"
+      - ".github/workflows/collection-qa-tenant-ci.yml"
+      - ".github/workflows/prod-create-collection-qa-tenant.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qa-tenant:
+    name: QA tenant provisioning proofs (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: qa_owner
+          POSTGRES_PASSWORD: qa_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_qa_tenant
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U qa_owner -d dubiz_qa_tenant"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://qa_owner:qa_ci_synthetic_owner_pw@localhost:5432/dubiz_qa_tenant
+      DIRECT_URL: postgresql://qa_owner:qa_ci_synthetic_owner_pw@localhost:5432/dubiz_qa_tenant
+      AUTH_DATABASE_URL: postgresql://qa_owner:qa_ci_synthetic_owner_pw@localhost:5432/dubiz_qa_tenant
+      AUTH_TOKEN_SECRET: qa_tenant_ci_auth_secret_synthetic_at_least_32_chars
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      # The guard against the identity the repository actually carries. It must
+      # PASS: the owner has fixed the address, so the tenant is provisionable
+      # and this is the same check the production run performs first.
+      #
+      # The address was deliberately UNSET until the owner chose it, and that
+      # refusal is still proven — by the negative proof below, which rebuilds
+      # the placeholder rather than depending on the repository still being in
+      # that state.
+      - name: Containment guard (the committed identity)
+        run: node scripts/ci/collection-qa-tenant-guard.mjs
+
+      - name: Containment guard — negative proof
+        run: node scripts/ci/collection-qa-tenant-guard.test.mjs
+
+      - name: Schema contract (columns, defaults, link, RLS predicate)
+        run: node scripts/ci/collection-qa-tenant-schema-contract.test.mjs
+
+      - name: Password hash compatibility with Production login
+        run: node scripts/ci/collection-qa-tenant-hash-compat.test.mjs
+
+      - name: Push schema (lab)
+        run: npx prisma db push --skip-generate
+
+      - name: Provisioning lab (real SQL, real PostgreSQL, real login route)
+        run: npx tsx ops/tenant/collection-qa-tenant-lab.mts
