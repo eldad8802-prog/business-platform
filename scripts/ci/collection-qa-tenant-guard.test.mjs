@@ -27,6 +27,9 @@ const SQL = "ops/tenant/collection-qa-tenant.sql";
 const VERIFY = "ops/tenant/collection-qa-tenant-verify.sql";
 const IDENTITY = "ops/tenant/collection-qa-tenant.identity.env";
 const WORKFLOW = ".github/workflows/prod-create-collection-qa-tenant.yml";
+const PASSWORD_SQL = "ops/tenant/collection-qa-tenant-password.sql";
+const PASSWORD_VERIFY = "ops/tenant/collection-qa-tenant-password-verify.sql";
+const PASSWORD_WORKFLOW = ".github/workflows/prod-set-collection-qa-tenant-password.yml";
 
 const FIXTURE_EMAIL = "collection-qa-sandbox@example.test";
 
@@ -35,6 +38,9 @@ const pristineSql = readFileSync(SQL, "utf8");
 const pristineVerify = readFileSync(VERIFY, "utf8");
 const pristineIdentity = readFileSync(IDENTITY, "utf8");
 const pristineWorkflow = readFileSync(WORKFLOW, "utf8");
+const pristinePasswordSql = readFileSync(PASSWORD_SQL, "utf8");
+const pristinePasswordVerify = readFileSync(PASSWORD_VERIFY, "utf8");
+const pristinePasswordWorkflow = readFileSync(PASSWORD_WORKFLOW, "utf8");
 
 /** The identity file as it will look once the owner fixes the address. */
 const resolvedIdentity = pristineIdentity.replace(
@@ -45,15 +51,21 @@ const resolvedIdentity = pristineIdentity.replace(
 let failures = 0;
 let passed = 0;
 
-function runGuard({ sql, verify, identity, workflow }) {
+function runGuard({ sql, verify, identity, workflow, passwordSql, passwordVerify, passwordWorkflow }) {
   const sqlPath = join(dir, "provision.sql");
   const verifyPath = join(dir, "verify.sql");
   const identityPath = join(dir, "identity.env");
   const workflowPath = join(dir, "workflow.yml");
+  const passwordSqlPath = join(dir, "password.sql");
+  const passwordVerifyPath = join(dir, "password-verify.sql");
+  const passwordWorkflowPath = join(dir, "password-workflow.yml");
   writeFileSync(sqlPath, sql);
   writeFileSync(verifyPath, verify);
   writeFileSync(identityPath, identity);
   writeFileSync(workflowPath, workflow);
+  writeFileSync(passwordSqlPath, passwordSql);
+  writeFileSync(passwordVerifyPath, passwordVerify);
+  writeFileSync(passwordWorkflowPath, passwordWorkflow);
 
   try {
     const stdout = execFileSync(
@@ -64,6 +76,9 @@ function runGuard({ sql, verify, identity, workflow }) {
         "--verify", verifyPath,
         "--identity", identityPath,
         "--workflow", workflowPath,
+        "--passwordSql", passwordSqlPath,
+        "--passwordVerify", passwordVerifyPath,
+        "--passwordWorkflow", passwordWorkflowPath,
       ],
       { encoding: "utf8" }
     );
@@ -73,14 +88,34 @@ function runGuard({ sql, verify, identity, workflow }) {
   }
 }
 
+const PRISTINE = {
+  sql: pristineSql,
+  verify: pristineVerify,
+  identity: resolvedIdentity,
+  workflow: pristineWorkflow,
+  passwordSql: pristinePasswordSql,
+  passwordVerify: pristinePasswordVerify,
+  passwordWorkflow: pristinePasswordWorkflow,
+};
+
 function mustRefuse(label, mutation) {
-  const input = {
-    sql: pristineSql,
-    verify: pristineVerify,
-    identity: resolvedIdentity,
-    workflow: pristineWorkflow,
-    ...mutation,
-  };
+  const input = { ...PRISTINE, ...mutation };
+
+  // A mutation that did not actually change anything makes the guard look like
+  // it refused something when it refused nothing — and this file has been
+  // fooled that way twice, by an escaped-quote pattern and by a backslash
+  // miscount in a replacement. So every case now has to prove it bit.
+  const unchanged = Object.keys(mutation).filter(
+    (key) => input[key] === PRISTINE[key]
+  );
+  if (unchanged.length > 0) {
+    failures += 1;
+    console.log(
+      `  FAIL  the mutation never landed (${unchanged.join(", ")} unchanged): ${label}`
+    );
+    return;
+  }
+
   const { code, stdout } = runGuard(input);
   if (code === 0) {
     failures += 1;
@@ -114,6 +149,9 @@ mustAccept("the repository's own files, unmodified", {
   verify: pristineVerify,
   identity: pristineIdentity,
   workflow: pristineWorkflow,
+  passwordSql: pristinePasswordSql,
+  passwordVerify: pristinePasswordVerify,
+  passwordWorkflow: pristinePasswordWorkflow,
 });
 
 mustAccept("the approved provisioning SQL with a fixture address", {
@@ -121,6 +159,9 @@ mustAccept("the approved provisioning SQL with a fixture address", {
   verify: pristineVerify,
   identity: resolvedIdentity,
   workflow: pristineWorkflow,
+  passwordSql: pristinePasswordSql,
+  passwordVerify: pristinePasswordVerify,
+  passwordWorkflow: pristinePasswordWorkflow,
 });
 
 // 2. Widening the SQL to another kind of mutation.
@@ -286,7 +327,126 @@ mustRefuse("an input added, making it a generic provisioning tool", {
   ),
 });
 
-// 10. The verification file must stay read-only and must never return the hash.
+// 10. The password repair: the only UPDATE this repository permits against
+//     Production. Its whole licence is that it touches one column on one row,
+//     so every way of widening it has to be refused — starting with the two
+//     that would be easiest to write by accident.
+mustRefuse("the repair setting a second column", {
+  passwordSql: pristinePasswordSql.replace(
+    /SET "password" = :'qa_password_hash'/,
+    () => `SET "password" = :'qa_password_hash', "role" = 'ADMIN'`
+  ),
+});
+
+mustRefuse("the repair quietly bumping updatedAt as well", {
+  passwordSql: pristinePasswordSql.replace(
+    /SET "password" = :'qa_password_hash'/,
+    () => `SET "password" = :'qa_password_hash', "updatedAt" = now()`
+  ),
+});
+
+mustRefuse("the repair setting a column other than the credential", {
+  passwordSql: pristinePasswordSql.replace(
+    /SET "password" = :'qa_password_hash'/,
+    () => `SET "tokenVersion" = 1`
+  ),
+});
+
+mustRefuse("the repair losing its user-id pin", {
+  passwordSql: pristinePasswordSql.replace(
+    /WHERE u\."id" = :qa_user_id\n\s*AND /,
+    () => "WHERE "
+  ),
+});
+
+mustRefuse("the repair losing its address pin", {
+  passwordSql: pristinePasswordSql.replace(
+    /AND u\."email" = :'qa_email'\n/,
+    () => ""
+  ),
+});
+
+mustRefuse("the repair losing its business pins", {
+  passwordSql: pristinePasswordSql
+    .replace(/AND u\."businessId" = :qa_business_id\n/, () => "")
+    .replace(/AND b\."name" = :'qa_business_name'\n/, () => ""),
+});
+
+mustRefuse("the repair with no WHERE clause at all", {
+  passwordSql: pristinePasswordSql.replace(
+    /WHERE[\s\S]*?RETURNING/,
+    () => "RETURNING"
+  ),
+});
+
+mustRefuse("a second UPDATE in the repair transaction", {
+  passwordSql: pristinePasswordSql.replace(
+    /COMMIT;/,
+    () => 'UPDATE "Business" SET "name" = \'x\' WHERE "id" = :qa_business_id;\n\nCOMMIT;'
+  ),
+});
+
+mustRefuse("an INSERT smuggled into the repair transaction", {
+  passwordSql: pristinePasswordSql.replace(
+    /COMMIT;/,
+    () => 'INSERT INTO "User" ("email") SELECT :\'qa_email\';\n\nCOMMIT;'
+  ),
+});
+
+mustRefuse("a DELETE smuggled into the repair transaction", {
+  passwordSql: pristinePasswordSql.replace(
+    /COMMIT;/,
+    () => 'DELETE FROM "AuthSession" WHERE "userId" = :qa_user_id;\n\nCOMMIT;'
+  ),
+});
+
+mustRefuse("the repair credential baked into the file", {
+  passwordSql: pristinePasswordSql.replace(
+    /:'qa_password_hash'/,
+    () => "'$2b$10$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012'"
+  ),
+});
+
+mustRefuse("the repair running outside a transaction", {
+  passwordSql: pristinePasswordSql.replace(/BEGIN;/, () => ""),
+});
+
+mustRefuse("the password verification selecting the hash itself", {
+  passwordVerify: pristinePasswordVerify.replace(
+    /left\(md5\(u\."password"\), 8\)/,
+    () => 'u."password"'
+  ),
+});
+
+mustRefuse("a write added to the password verification", {
+  passwordVerify: pristinePasswordVerify.replace(
+    /ROLLBACK;/,
+    () => 'UPDATE "User" SET "loginCount" = 0;\n\nROLLBACK;'
+  ),
+});
+
+mustRefuse("the repair workflow losing its production-db gate", {
+  passwordWorkflow: pristinePasswordWorkflow.replace(
+    /environment: production-db/,
+    () => "# ungated"
+  ),
+});
+
+mustRefuse("the repair aimed at a different user id", {
+  identity: resolvedIdentity.replace(
+    /^COLLECTION_QA_USER_ID=.*$/m,
+    () => 'COLLECTION_QA_USER_ID="1"'
+  ),
+});
+
+mustRefuse("the repair aimed at a different business id", {
+  identity: resolvedIdentity.replace(
+    /^COLLECTION_QA_BUSINESS_ID=.*$/m,
+    () => 'COLLECTION_QA_BUSINESS_ID="13"'
+  ),
+});
+
+// 11. The verification file must stay read-only and must never return the hash.
 mustRefuse("a write added to the read-only verification file", {
   verify: pristineVerify.replace(
     /ROLLBACK;/,
