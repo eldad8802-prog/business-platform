@@ -231,6 +231,25 @@ async function main() {
   // ── Phase 3: apply W4E-A migration + grants ─────────────────────────────
   await applySqlFile("prisma/migrations/20260830120000_d2_p7_w4ea_payments_tenant_rls/migration.sql");
   await applySqlFile("scripts/security/d2-p7-w4ea-grants.sql", { ":ROLE": RT_ROLE });
+  // C3: a verified PAID write now opens its PaymentAccountingSettlement in the
+  // same transaction. The lab builds its schema with db push, so it mirrors the
+  // posture migration 20260922090000 gives that table in Production: FORCE RLS,
+  // a tenant policy per verb (no DELETE), and SELECT/INSERT/UPDATE + sequence.
+  await owner.$executeRawUnsafe(`ALTER TABLE "PaymentAccountingSettlement" ENABLE ROW LEVEL SECURITY`);
+  await owner.$executeRawUnsafe(`ALTER TABLE "PaymentAccountingSettlement" FORCE ROW LEVEL SECURITY`);
+  for (const [verb, clause] of [
+    ["read", "FOR SELECT USING"],
+    ["insert", "FOR INSERT WITH CHECK"],
+    ["update", "FOR UPDATE USING"],
+  ]) {
+    const pred = `("businessId" = NULLIF(current_setting('app.current_business_id', true), '')::int)`;
+    await owner.$executeRawUnsafe(`DROP POLICY IF EXISTS c3_settlement_tenant_${verb} ON "PaymentAccountingSettlement"`);
+    await owner.$executeRawUnsafe(
+      `CREATE POLICY c3_settlement_tenant_${verb} ON "PaymentAccountingSettlement" ${clause} ${pred}${verb === "update" ? ` WITH CHECK ${pred}` : ""}`
+    );
+  }
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE ON "PaymentAccountingSettlement" TO ${RT_ROLE}`);
+  await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON SEQUENCE "PaymentAccountingSettlement_id_seq" TO ${RT_ROLE}`);
   const polCount = Number((await owner.$queryRawUnsafe(
     `SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w4ea_tenant'`))[0].c);
   ok("4 p7w4ea_tenant policies installed", polCount === 4, `found ${polCount}`);
@@ -279,6 +298,13 @@ async function main() {
   // ── Phase 6: fixtures ───────────────────────────────────────────────────
   const cleanup = async () => {
     const bids = `SELECT id FROM "Business" WHERE name LIKE '${MARK}%'`;
+    // C3: a verified PAID transaction now carries its accounting settlement
+    // (and, when it settled, the receipt evidencing it). Both reference the
+    // money row with RESTRICT, so the synthetic fixtures go first.
+    await owner.$executeRawUnsafe(`DELETE FROM "PaymentAccountingSettlement" WHERE "businessId" IN (${bids})`);
+    await owner.$executeRawUnsafe(`DELETE FROM "BillingPaymentAllocation" WHERE "businessId" IN (${bids})`);
+    await owner.$executeRawUnsafe(`DELETE FROM "BillingAuditEvent" WHERE "businessId" IN (${bids})`);
+    await owner.$executeRawUnsafe(`DELETE FROM "BillingDocument" WHERE "sourcePaymentTransactionId" IS NOT NULL AND "businessId" IN (${bids})`);
     await owner.$executeRawUnsafe(`DELETE FROM "PaymentTransaction" WHERE "paymentRequestId" IN (SELECT id FROM "PaymentRequest" WHERE "businessId" IN (${bids}))`);
     await owner.$executeRawUnsafe(`DELETE FROM "PaymentProviderRouting" WHERE "businessId" IN (${bids})`);
     // PaymentRequest first: it references BillingDocument and Customer, which

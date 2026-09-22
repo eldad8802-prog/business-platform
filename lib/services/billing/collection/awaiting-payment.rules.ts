@@ -22,6 +22,7 @@
 
 import { Prisma } from "@prisma/client";
 
+import { computeEconomicRemaining } from "../domain/billing-invoice-economic-remaining";
 import {
   computeExpectedPaymentDate,
   daysAwaiting,
@@ -100,12 +101,16 @@ export interface AwaitingPaymentList {
  *
  * Total, less what was paid, less what was credited. Never negative — an
  * over-allocation is a bookkeeping matter, not a debt of the customer.
+ *
+ * C3: the arithmetic is the shared economic-remaining rule, so the balance the
+ * owner sees is the same figure payment settlement is bounded by.
  */
 export function computeOutstanding(row: InvoiceRow): Prisma.Decimal {
-  const outstanding = row.totalAmount
-    .minus(row.allocatedAmount)
-    .minus(row.creditedAmount);
-  return outstanding.lessThan(ZERO) ? ZERO : outstanding;
+  return computeEconomicRemaining(
+    row.totalAmount,
+    row.allocatedAmount,
+    row.creditedAmount
+  );
 }
 
 /**

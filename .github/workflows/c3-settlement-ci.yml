@@ -1,0 +1,150 @@
+# C3 — verified payment → accounting settlement, on an ephemeral PG17.
+#
+# A verified payment used to stop at PaymentTransaction + PAID + FinancialEvent:
+# no receipt, no allocation, an invoice that still looked unpaid. C3 finishes it
+# through one canonical function, settleVerifiedPayment, which must be
+# exactly-once under duplicates, concurrency and crashes, and resumable from
+# local state alone. None of that can be proven with a fake: the battery drives
+# the real webhook orchestration (synthetic provider), the real Prisma store,
+# the real billing services and the real readers against real PostgreSQL. Each
+# negative proof re-plants one defect and requires the battery to catch it.
+#
+# Synthetic CI-only credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: c3 — payment accounting settlement (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "lib/services/billing/**"
+      - "lib/services/payments/**"
+      - "prisma/schema.prisma"
+      - ".c3settlement/**"
+      - ".c25integrity/**"
+      - ".c2authority/**"
+      - ".c1receipt/**"
+      - ".github/workflows/c3-settlement-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  c3-settlement:
+    name: C3 settlement engine (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: c3_owner
+          POSTGRES_PASSWORD: c3_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_c3
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U c3_owner -d dubiz_c3"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://c3_owner:c3_ci_synthetic_owner_pw@localhost:5432/dubiz_c3
+      DIRECT_URL: postgresql://c3_owner:c3_ci_synthetic_owner_pw@localhost:5432/dubiz_c3
+      AUTH_TOKEN_SECRET: c3_ci_auth_secret_synthetic
+      C3_ITER: "25"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Rules and wiring (pure, no database)
+        run: |
+          npm run verify:receipt-issuance-integrity
+          npm run verify:allocation-authority
+          npx tsx lib/services/billing/billing-issuable-shape.test.ts
+
+      - name: Push schema (lab)
+        run: npx prisma db push --skip-generate
+
+      - name: C3 settlement battery
+        run: npx tsx .c3settlement/battery.mts
+
+      - name: C2.5 / C2 / C1 regression
+        run: |
+          npx tsx .c25integrity/battery.mts
+          npx tsx .c2authority/battery.mts
+          npx tsx .c1receipt/battery.mts
+
+      # ── NEGATIVE PROOFS ─────────────────────────────────────────────────
+      - name: Negative proof 1 (durable uniqueness is the last line of defence)
+        run: |
+          F="lib/services/billing/settlement/payment-accounting-settlement.service.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    FOR UPDATE\n  `;\n  return rows\[0\] \?\? null;/  `;\n  return rows[0] ?? null;/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          # (a) Lock removed: the UNIQUE on sourcePaymentTransactionId alone must still hold.
+          C3_ONLY=F npx tsx .c3settlement/battery.mts || { mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: without the row lock the database constraint did not hold"; exit 1; }
+          # (b) Lock removed AND the constraint dropped: duplicates must now appear.
+          psql "$DATABASE_URL" -c 'DROP INDEX "BillingDocument_sourcePaymentTransactionId_key"'
+          if C3_ONLY=F npx tsx .c3settlement/battery.mts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: no duplicate appeared without uniqueness — the battery cannot see duplicates"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Rebuild the lab after negative proof 1
+        run: |
+          psql "$DATABASE_URL" -c 'DROP SCHEMA public CASCADE' -c 'CREATE SCHEMA public'
+          npx prisma db push --skip-generate
+
+      - name: Negative proof 2 (local recovery rests on the durable settlement row)
+        run: |
+          F="lib/services/payments/payment-store.prisma.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/        if \(open\) \{\n          await db\.paymentAccountingSettlement\.create\(/        if (false \&\& open) {\n          await db.paymentAccountingSettlement.create(/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if C3_ONLY=G npx tsx .c3settlement/battery.mts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: recovery 'worked' without a durable settlement row"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Negative proof 3 (invoice locking bounds competing settlements)
+        run: |
+          F="lib/services/billing/receipt/billing-receipt-issuance-integrity.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/  if \(ids\.length === 0\) \{\n    return;\n  \}\n  await tx\.\$queryRaw/  if (ids.length >= 0) {\n    return;\n  }\n  await tx.\$queryRaw/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if C3_ONLY=M npx tsx .c3settlement/battery.mts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: two settlements over-settled one invoice unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Negative proof 4 (credit issuance takes the invoice lock)
+        run: |
+          F="lib/services/billing/billing-issue.service.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    await lockBillingDocumentRowsTx\(tx, input\.businessId, \[\n      doc\.referenceDocumentId,\n    \]\);\n//' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if C3_ONLY=O npx tsx .c3settlement/battery.mts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: concurrent credits over-credited unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Worktree unchanged by the negative proofs
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain
+            echo "A negative proof left the worktree dirty"; exit 1
+          fi
+          echo "WORKTREE CLEAN"

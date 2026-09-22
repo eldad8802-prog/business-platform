@@ -606,17 +606,47 @@ export function createPaymentPrismaStore(): PaymentStore {
       const step = tenant
         ? <T,>(f: (db: typeof prisma) => Promise<T>) => guardedDbStep(tenant.businessId, f)
         : dbStep;
-      const created = await step((db) => db.paymentTransaction.create({
-        data: {
-          paymentRequestId: row.paymentRequestId,
-          provider: row.provider,
-          providerTransactionId: row.providerTransactionId,
-          amount: row.amount,
-          currency: row.currency,
-          status: row.status,
-          rawPayload: toJsonInput(row.rawPayload),
-        },
-      }));
+      const open = row.openAccountingSettlement;
+      if (open) {
+        // C3: a settlement is opened only for verified money IN, and only for
+        // the tenant the stored request belongs to.
+        if (row.status !== "PAID" || !(Number(row.amount) > 0)) {
+          throw new Error("accounting settlement may only open for a positive PAID transaction");
+        }
+        // Only ever opened on the tenant path (the webhook runs inside the
+        // stored request's tenant), so the money row and its settlement are
+        // one tenant transaction.
+        if (!tenant || tenant.businessId !== open.businessId) {
+          throw new Error("accounting settlement must be opened inside its own tenant context");
+        }
+      }
+      const write = async (db: typeof prisma) => {
+        const created = await db.paymentTransaction.create({
+          data: {
+            paymentRequestId: row.paymentRequestId,
+            provider: row.provider,
+            providerTransactionId: row.providerTransactionId,
+            amount: row.amount,
+            currency: row.currency,
+            status: row.status,
+            rawPayload: toJsonInput(row.rawPayload),
+          },
+        });
+        if (open) {
+          await db.paymentAccountingSettlement.create({
+            data: {
+              businessId: open.businessId,
+              paymentTransactionId: created.id,
+              status: "PENDING",
+              nextAttemptAt: new Date(),
+            },
+          });
+        }
+        return created;
+      };
+      // Inside a tenant, `step` is ONE transaction, so the money row and its
+      // settlement commit together.
+      const created = await step(write);
       return toTransactionRecord(created);
     },
 

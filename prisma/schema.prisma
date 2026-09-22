@@ -144,6 +144,7 @@ model ContentEvent {
 }
 
 model Business {
+  paymentAccountingSettlements PaymentAccountingSettlement[]
   id                            Int                             @id @default(autoincrement())
   name                          String
   archivedAt                    DateTime?
@@ -2119,6 +2120,13 @@ model BillingDocument {
   signedPdfStorageKey         String?
   signedPdfHash               String?
   signedAt                    DateTime?
+  /// C3: the verified PaymentTransaction this receipt evidences. UNIQUE — one
+  /// verified settlement produces at most one receipt. Set only by the system
+  /// settlement path; NULL on every manual document.
+  sourcePaymentTransactionId  Int?                        @unique
+  /// C3: money this receipt evidences but applies to no debt (overpayment).
+  /// Σ allocations + unappliedAmount = totalAmount, exactly. 0 on manual receipts.
+  unappliedAmount             Decimal                     @default(0) @db.Decimal(18, 2)
   createdAt                   DateTime                    @default(now())
   updatedAt                   DateTime                    @updatedAt
   business                    Business                    @relation(fields: [businessId], references: [id], onDelete: Restrict)
@@ -2135,6 +2143,7 @@ model BillingDocument {
   paymentAllocationsAsReceipt BillingPaymentAllocation[]  @relation("ReceiptAllocations")
   paymentAllocationsAsInvoice BillingPaymentAllocation[]  @relation("InvoiceAllocations")
   paymentRequests             PaymentRequest[]
+  sourcePaymentTransaction    PaymentTransaction?         @relation(fields: [sourcePaymentTransactionId], references: [id], onDelete: Restrict)
 
   @@unique([businessId, documentType, documentNumber])
   @@index([businessId, status, issuedAt])
@@ -2952,6 +2961,8 @@ model PaymentTransaction {
   createdAt             DateTime                 @default(now())
 
   paymentRequest PaymentRequest @relation(fields: [paymentRequestId], references: [id], onDelete: Cascade)
+  receiptDocument      BillingDocument?
+  accountingSettlement PaymentAccountingSettlement?
 
   // D2/P7-W4E-A: DB-level settlement idempotency. The webhook previously
   // guarded duplicates with a read-then-write check, which the W4E-A battery
@@ -4708,4 +4719,35 @@ enum PaymentEvidenceKind {
   BANK_TRANSACTION
   PAYMENT_PROVIDER
   CHEQUE
+}
+
+enum PaymentAccountingSettlementStatus {
+  PENDING
+  SETTLED
+  REQUIRES_ATTENTION
+}
+
+/// C3 — one row per verified positive incoming payment that must be settled in
+/// accounting. The durable forward-only boundary (a transaction recorded before
+/// C3 has no row), the local recovery queue, and the REQUIRES_ATTENTION pause.
+/// Migration 20260922090000_c3_payment_accounting_settlement (FORCE RLS,
+/// per-verb tenant policies, no runtime DELETE).
+model PaymentAccountingSettlement {
+  id                   Int                               @id @default(autoincrement())
+  businessId           Int
+  paymentTransactionId Int                               @unique
+  status               PaymentAccountingSettlementStatus @default(PENDING)
+  attentionReason      String?
+  attemptCount         Int                               @default(0)
+  lastAttemptAt        DateTime?
+  nextAttemptAt        DateTime?
+  lastError            String?
+  settledAt            DateTime?
+  createdAt            DateTime                          @default(now())
+  updatedAt            DateTime                          @updatedAt
+
+  business           Business           @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  paymentTransaction PaymentTransaction @relation(fields: [paymentTransactionId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, status, nextAttemptAt])
 }

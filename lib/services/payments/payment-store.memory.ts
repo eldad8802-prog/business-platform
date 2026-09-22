@@ -50,6 +50,8 @@ export interface InMemoryPaymentStore extends PaymentStore {
   readonly transactions: PaymentTransactionRecord[];
   readonly webhookEvents: PaymentWebhookEventRecord[];
   readonly auditEvents: PaymentAuditEventRecord[];
+  /** C3: accounting settlements opened alongside verified PAID transactions. */
+  readonly accountingSettlements: { businessId: number; paymentTransactionId: number }[];
 }
 
 export function createInMemoryPaymentStore(): InMemoryPaymentStore {
@@ -62,6 +64,7 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
   const auditEvents: PaymentAuditEventRecord[] = [];
   const documents: PayableDocumentRef[] = [];
   const customers: { id: number; businessId: number }[] = [];
+  const accountingSettlements: { businessId: number; paymentTransactionId: number }[] = [];
 
   let connectionSeq = 0;
   let requestSeq = 0;
@@ -70,6 +73,7 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
   let auditSeq = 0;
 
   return {
+    accountingSettlements,
     requests,
     transactions,
     webhookEvents,
@@ -344,6 +348,15 @@ export function createInMemoryPaymentStore(): InMemoryPaymentStore {
         createdAt: new Date(),
       };
       transactions.push(record);
+      if (row.openAccountingSettlement) {
+        if (row.status !== "PAID" || !(Number(row.amount) > 0)) {
+          throw new Error("accounting settlement may only open for a positive PAID transaction");
+        }
+        accountingSettlements.push({
+          businessId: row.openAccountingSettlement.businessId,
+          paymentTransactionId: record.id,
+        });
+      }
       return { ...record };
     },
 

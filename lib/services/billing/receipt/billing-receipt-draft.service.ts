@@ -102,6 +102,49 @@ export async function createReceiptDraft(
 ): Promise<ReceiptWithChildren> {
   assertBusinessId(input.businessId);
 
+  // The same customer resolution every other document uses, for the same
+  // reason: issuance requires an immutable name snapshot, so a receipt created
+  // with a customer and without one could never be issued — which is precisely
+  // the defect this replaces. Resolving here also keeps the tenant check on the
+  // single path that knows how to make it.
+  const customer = await resolveCustomerForCreate(
+    input.businessId,
+    input.customerId,
+    input.customerNameSnapshot
+  );
+
+  return billingTenantTx(input.businessId, (tx) =>
+    createReceiptDraftTx(tx, { ...input, ...customer })
+  );
+}
+
+/**
+ * C3 — what only the system settlement path may state on a receipt: the
+ * verified payment it evidences, and the part of it that settles no debt.
+ * Deliberately not part of CreateReceiptDraftInput, so no manual route can
+ * reach it.
+ */
+export type SystemReceiptSettlementFields = {
+  sourcePaymentTransactionId: number;
+  unappliedAmount: Prisma.Decimal;
+};
+
+/**
+ * Creates the draft inside the caller's transaction. The customer must already
+ * be resolved and tenant-checked by the caller (`createReceiptDraft` does it
+ * through `resolveCustomerForCreate`; payment settlement resolves it from the
+ * authoritative request/invoice inside its own transaction).
+ */
+export async function createReceiptDraftTx(
+  tx: Prisma.TransactionClient,
+  input: Omit<CreateReceiptDraftInput, "customerId" | "customerNameSnapshot"> & {
+    customerId: number | null;
+    customerNameSnapshot: string | null;
+  },
+  system?: SystemReceiptSettlementFields
+): Promise<ReceiptWithChildren> {
+  assertBusinessId(input.businessId);
+
   if (!isReceiptDocumentType(input.documentType)) {
     throw new ValidationError(
       "documentType must be RECEIPT or TAX_INVOICE_RECEIPT"
@@ -142,18 +185,18 @@ export async function createReceiptDraft(
     paymentsTotal,
   });
 
-  // The same customer resolution every other document uses, for the same
-  // reason: issuance requires an immutable name snapshot, so a receipt created
-  // with a customer and without one could never be issued — which is precisely
-  // the defect this replaces. Resolving here also keeps the tenant check on the
-  // single path that knows how to make it.
-  const { customerId, customerNameSnapshot } = await resolveCustomerForCreate(
-    input.businessId,
-    input.customerId,
-    input.customerNameSnapshot
-  );
+  const { customerId, customerNameSnapshot } = input;
 
-  const result = await billingTenantTx(input.businessId, async (tx) => {
+  if (system) {
+    if (input.documentType !== BillingDocumentType.RECEIPT) {
+      throw new ValidationError("Only a pure RECEIPT can evidence a verified payment");
+    }
+    if (system.unappliedAmount.lessThan(0) || system.unappliedAmount.greaterThan(totalAmount)) {
+      throw new ValidationError("Unapplied amount must be within the receipt total");
+    }
+  }
+
+  {
     const created = await tx.billingDocument.create({
       data: {
         businessId: input.businessId,
@@ -167,6 +210,12 @@ export async function createReceiptDraft(
         totalAmount,
         pdfRenderStatus: BillingPdfRenderStatus.PENDING,
         createdByUserId: input.actorUserId,
+        ...(system
+          ? {
+              sourcePaymentTransactionId: system.sourcePaymentTransactionId,
+              unappliedAmount: system.unappliedAmount,
+            }
+          : {}),
       },
     });
 
@@ -200,9 +249,7 @@ export async function createReceiptDraft(
         receiptPayments: { orderBy: { lineIndex: "asc" } },
       },
     });
-  });
-
-  return result;
+  }
 }
 
 export async function replaceReceiptPaymentLines(

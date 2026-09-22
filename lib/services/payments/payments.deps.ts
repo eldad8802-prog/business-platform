@@ -23,6 +23,7 @@ import type { RefundPaymentRequestDeps } from "./payment-refund.service";
 import type { ProcessWebhookDeps } from "./payment-webhook.service";
 import type { PaymentConnectionRecord, PaymentProvider } from "./payments.types";
 import { resolvePaymentProvider } from "./providers/provider-registry";
+import { settleVerifiedPayment } from "@/lib/services/billing/settlement/payment-accounting-settlement.service";
 
 function decryptConnectionCredential(
   connection: PaymentConnectionRecord
@@ -86,6 +87,11 @@ export function paymentWebhookDeps(): ProcessWebhookDeps {
       } catch (err) {
         console.error("onVerifiedPaid (FinancialEvent PAYMENT) error:", err);
       }
+    },
+    // C3: verified payment → one issued receipt, allocated. The canonical
+    // settlement; recovery and manual retry call the very same function.
+    settleAccounting: async (e) => {
+      await settleVerifiedPayment(e);
     },
   };
 }

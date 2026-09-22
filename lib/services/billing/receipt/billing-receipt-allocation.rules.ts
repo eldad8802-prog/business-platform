@@ -96,15 +96,30 @@ export function assertAllocationWithinRemaining(
  * write path already demands this, but a receipt's payment lines can be
  * replaced afterwards without touching its allocations, so it is asserted again
  * at the only moment it becomes a legal record.
+ *
+ * C3 — UNAPPLIED MONEY IS STATED, NEVER INFERRED. A verified payment larger
+ * than the invoice's economic remaining becomes one receipt that allocates what
+ * the invoice can take and states the excess as `unappliedAmount`. The rule is
+ * therefore
+ *
+ *   Σ allocations + unappliedAmount = total      (exactly)
+ *
+ * and not "Σ allocations ≤ total": an unstated gap would be indistinguishable
+ * from the E4 defect this rule exists to catch. Manual receipts cannot set
+ * `unappliedAmount` (it is 0), so for them the rule is exactly C2.5's.
  */
 export function assertReceiptAllocationsMatchTotal(
   allocations: { allocatedAmount: Prisma.Decimal }[],
-  receiptTotal: Prisma.Decimal
+  receiptTotal: Prisma.Decimal,
+  unappliedAmount: Prisma.Decimal = new Prisma.Decimal(0)
 ): void {
-  if (allocations.length === 0) {
+  if (unappliedAmount.lessThan(0)) {
+    throw new ValidationError("Receipt unapplied amount cannot be negative");
+  }
+  if (allocations.length === 0 && unappliedAmount.isZero()) {
     return;
   }
-  if (!sumAllocationAmounts(allocations).equals(receiptTotal)) {
+  if (!sumAllocationAmounts(allocations).plus(unappliedAmount).equals(receiptTotal)) {
     throw new ValidationError(
       "Receipt allocations must equal the receipt total before it can be issued"
     );

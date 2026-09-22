@@ -194,6 +194,7 @@ const RETAINED: Record<string, ModelCoverage> = {
   BillingAuthoritySubmission: FISCAL("proof of what was filed with the tax authority and when"),
   PaymentRequest: FISCAL("payment evidence referenced by issued receipts"),
   PaymentTransaction: FISCAL("clearing evidence; `rawPayload` may carry provider-side personal data"),
+  PaymentAccountingSettlement: FISCAL("the accounting-settlement record of a verified payment: which receipt evidences it, or why it is paused"),
   FinancialDocument: FISCAL("bookkeeping evidence"),
   FinancialRecord: FISCAL("the extracted fiscal facts of a document"),
   Document: FISCAL("the source artifact the fiscal record derives from — the artifact IS the evidence"),
