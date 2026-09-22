@@ -23,8 +23,10 @@ on:
     paths:
       - "ops/tenant/**"
       - "scripts/ci/collection-qa-tenant-*"
+      - "scripts/ops/qa-password-hash*"
       - ".github/workflows/collection-qa-tenant-ci.yml"
       - ".github/workflows/prod-create-collection-qa-tenant.yml"
+      - ".github/workflows/prod-set-collection-qa-tenant-password.yml"
   workflow_dispatch:
 
 permissions:
@@ -75,6 +77,13 @@ jobs:
       # that state.
       - name: Containment guard (the committed identity)
         run: node scripts/ci/collection-qa-tenant-guard.mjs
+
+      # The local step that produces the credential. It is in CI because its
+      # failure mode is invisible: the first attempt hashed a file holding only
+      # a byte-order mark, every shallow check passed, and the account ended up
+      # with a password the login form can never submit.
+      - name: Credential tool refuses a password that is not one
+        run: node scripts/ops/qa-password-hash.test.mjs
 
       - name: Containment guard — negative proof
         run: node scripts/ci/collection-qa-tenant-guard.test.mjs
