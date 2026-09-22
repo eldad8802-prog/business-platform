@@ -334,6 +334,120 @@ jobs:
           grep -qF "C6-NO-DISPOSITION  PurchaseOrderLine.supplierContactNote" "$RUNNER_TEMP/E6.out" || { cat "$RUNNER_TEMP/E6.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
           echo "NEGATIVE-PROOF PASS"
 
+      # ── The retention contract: two authorities, one answer ────────────────
+      #
+      # The registry classifies (complete by construction); the manifest projects that
+      # into the operational list the runtime guard reads. Five payables models were
+      # retained in one and absent from the other for weeks, and nothing failed —
+      # `assertManifestSafe` was checking the manifest against the manifest. R1–R4
+      # prove the two sets cannot drift apart in either direction again; R5–R7 prove
+      # the safety property now bites when measured against the REGISTRY's set; R8
+      # pins the five that were missing.
+
+      - name: negative proof — R1 a retained model disappears from the manifest
+        run: |
+          F="lib/services/account/account-erasure-manifest.ts"
+          cp "$F" "$RUNNER_TEMP/R1.orig"
+          node .ad2a/mutate.mjs R1
+          if cmp -s "$F" "$RUNNER_TEMP/R1.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/R1.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/R1.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/R1.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: the retention contract stayed green"; exit 1; }
+          grep -qF -- "C24-RETENTION-SET-MISMATCH" "$RUNNER_TEMP/R1.out" || { tail -40 "$RUNNER_TEMP/R1.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — R2 the manifest retains a model the registry does not
+        run: |
+          F="lib/services/account/account-erasure-manifest.ts"
+          cp "$F" "$RUNNER_TEMP/R2.orig"
+          node .ad2a/mutate.mjs R2
+          if cmp -s "$F" "$RUNNER_TEMP/R2.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/R2.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/R2.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/R2.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: the retention contract stayed green"; exit 1; }
+          grep -qF -- "C24-RETENTION-SET-MISMATCH" "$RUNNER_TEMP/R2.out" || { tail -40 "$RUNNER_TEMP/R2.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — R3 the registry stops retaining a model the manifest retains
+        run: |
+          F="scripts/ci/erasure/erasure-model-coverage.ts"
+          cp "$F" "$RUNNER_TEMP/R3.orig"
+          node .ad2a/mutate.mjs R3
+          if cmp -s "$F" "$RUNNER_TEMP/R3.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/R3.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/R3.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/R3.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: the retention contract stayed green"; exit 1; }
+          grep -qF -- "C24-RETENTION-SET-MISMATCH" "$RUNNER_TEMP/R3.out" || { tail -40 "$RUNNER_TEMP/R3.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — R4 a new retained registry entry has no manifest counterpart
+        run: |
+          F="scripts/ci/erasure/erasure-model-coverage.ts"
+          cp "$F" "$RUNNER_TEMP/R4.orig"
+          node .ad2a/mutate.mjs R4
+          if cmp -s "$F" "$RUNNER_TEMP/R4.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/R4.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/R4.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/R4.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: the retention contract stayed green"; exit 1; }
+          grep -qF -- "C24-RETENTION-SET-MISMATCH" "$RUNNER_TEMP/R4.out" || { tail -40 "$RUNNER_TEMP/R4.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — R5 a retained model is placed in the delete set
+        run: |
+          F="lib/services/account/account-erasure-manifest.ts"
+          cp "$F" "$RUNNER_TEMP/R5.orig"
+          node .ad2a/mutate.mjs R5
+          if cmp -s "$F" "$RUNNER_TEMP/R5.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/R5.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/R5.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/R5.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: the retention contract stayed green"; exit 1; }
+          grep -qF -- "C25-RETAINED-MODEL-IN-PURGE-SET" "$RUNNER_TEMP/R5.out" || { tail -40 "$RUNNER_TEMP/R5.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — R6 a retained model is placed in the anonymise set
+        run: |
+          F="lib/services/account/account-erasure-manifest.ts"
+          cp "$F" "$RUNNER_TEMP/R6.orig"
+          node .ad2a/mutate.mjs R6
+          if cmp -s "$F" "$RUNNER_TEMP/R6.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/R6.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/R6.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/R6.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: the retention contract stayed green"; exit 1; }
+          grep -qF -- "C25-RETAINED-MODEL-IN-PURGE-SET" "$RUNNER_TEMP/R6.out" || { tail -40 "$RUNNER_TEMP/R6.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — R7 a retained model is placed in the revoke set
+        run: |
+          F="lib/services/account/account-erasure-manifest.ts"
+          cp "$F" "$RUNNER_TEMP/R7.orig"
+          node .ad2a/mutate.mjs R7
+          if cmp -s "$F" "$RUNNER_TEMP/R7.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/R7.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/R7.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/R7.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: the retention contract stayed green"; exit 1; }
+          grep -qF -- "C25-RETAINED-MODEL-IN-PURGE-SET" "$RUNNER_TEMP/R7.out" || { tail -40 "$RUNNER_TEMP/R7.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — R8 one of the five synchronised payables entries is removed again
+        run: |
+          F="lib/services/account/account-erasure-manifest.ts"
+          cp "$F" "$RUNNER_TEMP/R8.orig"
+          node .ad2a/mutate.mjs R8
+          if cmp -s "$F" "$RUNNER_TEMP/R8.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/R8.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/R8.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/R8.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: the retention contract stayed green"; exit 1; }
+          grep -qF -- "C24-RETENTION-SET-MISMATCH" "$RUNNER_TEMP/R8.out" || { tail -40 "$RUNNER_TEMP/R8.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
       # ── S8 — the objects, which the model-level contract cannot describe ────
       #
       # `CrmAttachment` is ERASURE_MANAGED and its object used to survive the erasure,

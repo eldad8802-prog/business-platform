@@ -8,9 +8,25 @@
  * set. The Prisma adapter executes this manifest; the orchestrator enforces order/gate.
  */
 
-/** Bucket A — legally must-retain (Israeli tax law + billing-compliance non-negotiables).
- *  These are NEVER anonymized or deleted. Includes the 12 `Restrict` FKs and the ratified
- *  bookkeeping-evidence models (FinancialDocument/Document/FinancialRecord + children). */
+/**
+ * Bucket A — legally must-retain (Israeli tax law + billing-compliance non-negotiables).
+ * These are NEVER anonymized or deleted. Includes the 12 `Restrict` FKs and the ratified
+ * bookkeeping-evidence models (FinancialDocument/Document/FinancialRecord + children).
+ *
+ * WHERE THE AUTHORITY FOR THIS LIST COMES FROM
+ *
+ * The CLASSIFICATION of a model — retained or not, and on what basis — is decided in
+ * `scripts/ci/erasure/erasure-model-coverage.ts`, which is complete by construction:
+ * every model in the schema must have an entry or the build fails. This list is the
+ * OPERATIONAL projection of that decision, in Prisma delegate names, because the
+ * runtime guard below needs it and must not import CI code.
+ *
+ * Two lists mean two chances to drift, so the drift is what is checked: the erasure
+ * contract verifier compares this set with the registry's RETAINED_BY_DESIGN set in
+ * BOTH directions and fails on any difference, naming the models. It was written after
+ * exactly that drift was found — five payables/collection models were retained in the
+ * registry and absent here, and the guard below approved a manifest it could not see.
+ */
 export const RETAIN_MODELS = [
   // 12 Restrict fiscal/governance
   "billingDocument",
@@ -37,6 +53,16 @@ export const RETAIN_MODELS = [
   // reason the documents they describe are: the obligation to keep a fiscal record
   // does not care which software produced it.
   "historicalFiscalDocument",
+  // Payables and collection. Retained in the registry since each shipped, and missing
+  // here until the equality check was written — the drift that motivated it. Nothing
+  // about their classification changes by appearing in this list: the registry still
+  // states the basis (LEGAL/FISCAL, except the payables audit trail: SECURITY/AUDIT),
+  // and the erasure's behaviour is unchanged — it never touched any of them.
+  "payment",
+  "paymentAllocation",
+  "paymentEvidence",
+  "payablesAuditEvent",
+  "paymentAccountingSettlement",
 ] as const;
 
 /** Bucket C — external integration credentials to revoke (provider-side best-effort).

@@ -90,6 +90,21 @@ function dropObjectSurface(model, field) {
   fs.writeFileSync(SURFACES, text.slice(0, start) + text.slice(end));
 }
 
+const MANIFEST = "lib/services/account/account-erasure-manifest.ts";
+
+/** Remove one delegate from RETAIN_MODELS. */
+function dropRetainEntry(delegate) {
+  const text = fs.readFileSync(MANIFEST, "utf8");
+  const re = new RegExp(`^[ \\t]*"${delegate}",\\r?\\n`, "m");
+  if (!re.test(text)) throw new Error(`RETAIN_MODELS does not carry "${delegate}"`);
+  fs.writeFileSync(MANIFEST, text.replace(re, ""));
+}
+
+/** Add a delegate to RETAIN_MODELS, right after the list opens. */
+function addRetainEntry(delegate) {
+  replaceOnce(MANIFEST, "export const RETAIN_MODELS = [", `export const RETAIN_MODELS = [\n  "${delegate}",`);
+}
+
 /** Add a column to a Prisma model, right after its opening line. */
 function insertPrismaField(model, line) {
   const text = fs.readFileSync(SCHEMA, "utf8");
@@ -190,6 +205,59 @@ const MUTATIONS = {
 
   /** S5 — a new owned-object pointer column arrives with no declaration at all. */
   S5: () => insertPrismaField("CrmNote", "receiptImageUrl String?"),
+
+  // ── R1…R8: the retention contract ───────────────────────────────────────
+  //
+  // Retention is declared in two places on purpose. These prove the pair cannot drift
+  // apart again in either direction, and that the manifest's safety guard can no
+  // longer certify itself from an incomplete list.
+
+  /** R1 — a retained model disappears from the manifest while the registry keeps it. */
+  R1: () => dropRetainEntry("document"),
+
+  /** R2 — the manifest claims a model the registry does not classify as retained. */
+  R2: () => addRetainEntry("customer"),
+
+  /** R3 — the registry stops retaining a model the manifest still retains. */
+  // An inline literal, not the `unmanaged()` helper: that helper is declared further
+  // down the file, so calling it here would fail on the temporal dead zone instead of
+  // on the contract, and the proof would be about module evaluation order.
+  R3: () =>
+    replaceOnce(
+      COVERAGE,
+      '  Payment: FISCAL("bookkeeping evidence that money left the business"),',
+      '  Payment: { disposition: "UNMANAGED_PERSONAL_DATA", surface: "payeeNameSnapshot and voidReason", target: "E2" },'
+    ),
+
+  /** R4 — a NEW retained registry entry arrives with no manifest counterpart. */
+  R4: () =>
+    replaceOnce(
+      COVERAGE,
+      '  ReceivingLine: operational("quantities received against a purchase-order line"),',
+      '  ReceivingLine: FISCAL("newly declared retained, with no manifest entry"),'
+    ),
+
+  /** R5 — a retained model is placed in the delete set. */
+  R5: () => replaceOnce(MANIFEST, "export const DELETE_MODELS = [", 'export const DELETE_MODELS = [\n  "document",'),
+
+  /** R6 — a retained model is placed in the anonymise set. */
+  R6: () =>
+    replaceOnce(
+      MANIFEST,
+      "export const ANONYMIZE_MODELS = [",
+      'export const ANONYMIZE_MODELS = [\n  { model: "document", fields: { fileUrl: "null" } },'
+    ),
+
+  /** R7 — a retained model is placed in the revoke set (rows deleted on revoke). */
+  R7: () =>
+    replaceOnce(
+      MANIFEST,
+      "export const REVOKE_INTEGRATIONS = [",
+      'export const REVOKE_INTEGRATIONS = [\n  { model: "document", deleteRow: true },'
+    ),
+
+  /** R8 — one of the five synchronised payables entries is removed again. */
+  R8: () => dropRetainEntry("payment"),
 };
 
 const id = process.argv[2];
