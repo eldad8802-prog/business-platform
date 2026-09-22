@@ -351,6 +351,11 @@ async function main() {
   );
   const { getCurrentUser, signAuthToken } = await import("@/lib/auth");
   const { runTenantJob } = await import("@/lib/tenant/job");
+  // S8: the product's own attachment storage path, and the store itself for read-back.
+  const { buildAttachmentStorageKey, putAttachmentObject } = await import(
+    "@/lib/services/crm/crm-attachment-storage"
+  );
+  const { getStorageService } = await import("@/lib/storage");
   const { withTenantTransaction } = await import("@/lib/tenant/transaction");
   const {
     lifecycleOf,
@@ -460,6 +465,38 @@ async function main() {
     });
     await owner.crmNote.create({
       data: { businessId: b.id, subjectType: "CUSTOMER", subjectId: c.id, body: `${MARK}note`, createdByUserId: u.id },
+    });
+
+    // ── S8 — a CRM attachment with REAL BYTES behind it ─────────────────────
+    //
+    // The row alone proves nothing about objects. The erasure deleted rows like this
+    // one for months while the bytes stayed in storage and the only `storageKey`
+    // went with the row — invisible to any fixture that never wrote an object. So
+    // this one is written through the product's own storage path, and the assertions
+    // read the store back rather than the table.
+    const attachmentKey = buildAttachmentStorageKey({
+      businessId: b.id,
+      subjectType: "CUSTOMER",
+      subjectId: c.id,
+      storageExt: "txt",
+    });
+    await putAttachmentObject({
+      businessId: b.id,
+      key: attachmentKey,
+      body: Buffer.from(`${W1}attachment-bytes-${tag}`, "utf8"),
+      contentType: "text/plain",
+    });
+    const attachment = await owner.crmAttachment.create({
+      data: {
+        businessId: b.id,
+        subjectType: "CUSTOMER",
+        subjectId: c.id,
+        storageKey: attachmentKey,
+        originalFileName: `${MARK}attachment-${tag}.txt`,
+        mimeType: "text/plain",
+        sizeBytes: 32,
+        uploadedByUserId: u.id,
+      },
     });
 
     // ── E2-W1 — the two deterministic residual surfaces ─────────────────────
@@ -702,6 +739,7 @@ async function main() {
     return {
       biz: b, user: u, customer: c, conversation: conv, doc, run, historical, reversal,
       emailConn, authorityConn, payConn, waConn, posKey, po, poLine, recv,
+      attachment, attachmentKey,
     };
   };
 
@@ -1163,6 +1201,29 @@ async function main() {
   // anonymisation specifically rather than to stage 2 never running at all.
   ok("A's CRM notes are gone (FOR ALL policy covers DELETE)",
     (await owner.crmNote.count({ where: { businessId: A.biz.id } })) === 0);
+  // ── S8 — the bytes, not the row ──────────────────────────────────────────
+  //
+  // This is the assertion whose absence let a live defect run: the row went, the
+  // object stayed, and the `storageKey` was destroyed with the row, so nothing could
+  // find the bytes afterwards. The store is read back directly, not inferred.
+  const storage = getStorageService();
+  const aAttRows = await owner.crmAttachment.count({ where: { businessId: A.biz.id } });
+  const aObject = await storage.headObject(A.attachmentKey);
+  const s8a = ok("S8-A · A's CRM attachment ROW is gone", aAttRows === 0, `rows=${aAttRows}`);
+  const s8b = ok(
+    "S8-B · A's CRM attachment OBJECT is gone from storage, not merely its row",
+    aObject.exists === false,
+    `key=${A.attachmentKey} exists=${aObject.exists}`
+  );
+  const bObject = await storage.headObject(B.attachmentKey);
+  const bAttRow = await owner.crmAttachment.findFirst({ where: { businessId: B.biz.id } });
+  const s8c = ok(
+    "S8-C · B's attachment row AND object are both untouched",
+    bAttRow !== null && bAttRow.storageKey === B.attachmentKey && bObject.exists === true,
+    `row=${bAttRow !== null} object=${bObject.exists}`
+  );
+  console.log(`  S8 CRM ATTACHMENT OBJECTS     = ${s8a && s8b && s8c ? "PASS" : "FAIL"}`);
+
   ok("A's inbound sender challenges are gone (child deleted before parent)",
     (await owner.inboundEmailSenderChallenge.count({ where: { businessId: A.biz.id } })) === 0);
   ok("A's inbound authorised senders are gone",
@@ -1780,6 +1841,82 @@ async function main() {
     return /GRANT[^;]*DELETE[^;]*ON\s*"(Conversation|Message|MessageAnalysis|ReplySuggestion)"/i.test(sql);
   });
   ok("no shipped grants artifact grants DELETE on the Conversation graph", shippedConvDelete === false);
+
+  // ── Phase 13b: S8 failure matrix — object deletion is NOT transactional ───
+  //
+  // Deleting an object is a network call; PostgreSQL knows nothing about it. So the
+  // question is not "is it atomic" (it is not) but "which orders are safe, and does a
+  // second run converge". Each case below is produced for real, not simulated with a
+  // stub: the object is made undeletable by putting a DIRECTORY where the file was,
+  // and the row is made undeletable by REVOKING the privilege.
+  console.log("--- phase 13b: S8 failure matrix ---");
+  const fsp = await import("node:fs/promises");
+  const nodePath = await import("node:path");
+  const storageRoot = process.env.LOCAL_STORAGE_ROOT;
+  const objectPath = (key) => nodePath.join(storageRoot, key);
+
+  // CASE B — object delete FAILS → the row and its key must survive, the erasure must
+  // fail, and the account must not be reported deleted.
+  const S1 = await mkBiz("S1");
+  await fsp.rm(objectPath(S1.attachmentKey));
+  await fsp.mkdir(objectPath(S1.attachmentKey)); // a directory cannot be unlinked as a file
+  const caseBErr = await throws(() =>
+    deleteOwnBusinessAccount(prismaAccountDeletionStore, { businessId: S1.biz.id, actorUserId: S1.user.id })
+  );
+  const s1Row = await owner.crmAttachment.findFirst({ where: { businessId: S1.biz.id } });
+  const s1Biz = await owner.business.findUnique({ where: { id: S1.biz.id } });
+  const fmB = ok(
+    "S8-FM-B · object delete fails → erasure fails, row and storageKey survive, account NOT purged",
+    caseBErr !== null &&
+      s1Row !== null &&
+      s1Row.storageKey === S1.attachmentKey &&
+      lifecycleOf(s1Biz) !== "PURGED",
+    `threw=${caseBErr !== null} row=${s1Row !== null} lifecycle=${lifecycleOf(s1Biz)}`
+  );
+  // CASE E — the obstacle is gone and the object is now simply absent. A retry must
+  // converge rather than fail on "already deleted".
+  await fsp.rmdir(objectPath(S1.attachmentKey));
+  const retryB = await throws(() =>
+    deleteOwnBusinessAccount(prismaAccountDeletionStore, { businessId: S1.biz.id, actorUserId: S1.user.id })
+  );
+  const fmE = ok(
+    "S8-FM-E · retry with the object ALREADY ABSENT converges (row gone, object gone)",
+    retryB === null &&
+      (await owner.crmAttachment.count({ where: { businessId: S1.biz.id } })) === 0 &&
+      (await getStorageService().headObject(S1.attachmentKey)).exists === false,
+    `threw=${retryB !== null}`
+  );
+
+  // CASE C — object delete SUCCEEDS and the row delete FAILS. The object is gone, the
+  // row survives with its key, and the erasure must not claim success.
+  const S2 = await mkBiz("S2");
+  await owner.$executeRawUnsafe(`REVOKE DELETE ON "CrmAttachment" FROM ${RT_ROLE}`);
+  const caseCErr = await throws(() =>
+    deleteOwnBusinessAccount(prismaAccountDeletionStore, { businessId: S2.biz.id, actorUserId: S2.user.id })
+  );
+  const s2Row = await owner.crmAttachment.findFirst({ where: { businessId: S2.biz.id } });
+  const s2Object = await getStorageService().headObject(S2.attachmentKey);
+  const s2Biz = await owner.business.findUnique({ where: { id: S2.biz.id } });
+  const fmC = ok(
+    "S8-FM-C · row delete fails after the object is gone → row+key survive, account NOT purged",
+    caseCErr !== null && s2Row !== null && s2Object.exists === false && lifecycleOf(s2Biz) !== "PURGED",
+    `threw=${caseCErr !== null} row=${s2Row !== null} object=${s2Object.exists} lifecycle=${lifecycleOf(s2Biz)}`
+  );
+  // CASE D — retry after C. The object is already absent; the delete is idempotent, so
+  // the second run reaches the row and both end up gone.
+  await owner.$executeRawUnsafe(`GRANT DELETE ON "CrmAttachment" TO ${RT_ROLE}`);
+  const retryC = await throws(() =>
+    deleteOwnBusinessAccount(prismaAccountDeletionStore, { businessId: S2.biz.id, actorUserId: S2.user.id })
+  );
+  const fmD = ok(
+    "S8-FM-D · retry after C converges: row gone, object still gone",
+    retryC === null &&
+      (await owner.crmAttachment.count({ where: { businessId: S2.biz.id } })) === 0 &&
+      (await getStorageService().headObject(S2.attachmentKey)).exists === false,
+    `threw=${retryC !== null}`
+  );
+  // CASE A is the main flow above (S8-A/S8-B): object gone, row gone, success.
+  console.log(`  S8 FAILURE MATRIX A/B/C/D/E   = ${s8b && fmB && fmC && fmD && fmE ? "PASS" : "FAIL"}`);
 
   // ── Phase 14: residue ─────────────────────────────────────────────────────
   console.log("--- phase 14: residue ---");

@@ -38,6 +38,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { logAuditEvent } from "@/lib/services/audit.service";
+// S8: the object deleter the CRM product already uses. One implementation, not two.
+import { deleteAttachmentObject } from "@/lib/services/crm/crm-attachment-storage";
 import { runTenantJob } from "@/lib/tenant/job";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { ADVISORY_NAMESPACE, lifecycleOf } from "@/lib/tenant/business-lifecycle";
@@ -228,8 +230,45 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
   async purgeOperationalData(businessId) {
     await runTenantJob(
       { businessId },
-      () =>
-        withTenantTransaction(async (tx) => {
+      async () => {
+        // ── S8. THE OBJECTS GO FIRST, AND OUTSIDE THE TRANSACTION ─────────────
+        //
+        // CRM attachment bytes live in object storage. The row is the only place
+        // their `storageKey` exists — `@@unique([businessId, storageKey])`, and no
+        // other model carries it. The erasure used to delete the row inside the
+        // transaction below and never touch storage, so the object survived the
+        // account deletion AND the only pointer to it was destroyed in the same
+        // statement. The storage service has no listing operation, so after that
+        // nothing in this application could find those bytes again.
+        //
+        // Deleting an object is a network call and is NOT transactional with
+        // PostgreSQL. Pretending otherwise would be the lie; the ORDER is what makes
+        // it safe instead:
+        //
+        //   object delete FAILS       → this throws, the transaction below never
+        //                               runs, row and key survive, stage 2 fails and
+        //                               the deletion does not report success. Retry.
+        //   object ok, row delete FAILS → the object is gone and the row survives
+        //                               with its key; the retry deletes an object
+        //                               that is already absent, which both adapters
+        //                               treat as success (local unlink swallows
+        //                               ENOENT; an S3 DELETE of a missing key
+        //                               succeeds). The second run converges.
+        //
+        // Reading the keys needs the tenant context `runTenantJob` has established,
+        // so the read runs in its own short transaction before any object is touched.
+        const attachments = await withTenantTransaction(async (tx) => {
+          await assertTenantContextIs(tx, businessId);
+          return tx.crmAttachment.findMany({
+            where: { businessId },
+            select: { storageKey: true },
+          });
+        });
+        for (const { storageKey } of attachments) {
+          await deleteAttachmentObject(storageKey);
+        }
+
+        return withTenantTransaction(async (tx) => {
           await assertTenantContextIs(tx, businessId);
 
           // B.1 anonymize (rows kept — required by fiscal FKs / referential integrity).
@@ -449,7 +488,8 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
               leadId: null,
             },
           });
-        }),
+        });
+      },
       { quarantinePolicy: "erasure" }
     );
   },

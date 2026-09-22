@@ -22,6 +22,10 @@ on:
       - "scripts/security/conversation-integrity-scan.mjs"
       - "scripts/ci/account-deletion-guard.sh"
       - ".ad2a/**"
+      # S8: the battery now writes and reads real objects through these.
+      - "lib/storage/**"
+      - "lib/services/crm/**"
+      - "scripts/ci/erasure/**"
       # The contract is cross-checked against the migrations, and the lab's schema
       # and grants come from these — a change to any of them can change the proof.
       - "prisma/migrations/**"
@@ -263,6 +267,23 @@ jobs:
           if [ $rc -eq 0 ]; then echo "NEGATIVE-PROOF FAIL: deleting the cited artifact passed"; exit 1; fi
           grep -qF "permission denied for table Document" "$RUNNER_TEMP/claimA.out" || { tail -60 "$RUNNER_TEMP/claimA.out"; echo "NEGATIVE-PROOF FAIL: red, but not on the privilege boundary"; exit 1; }
           echo "NEGATIVE-PROOF PASS (Claim A: lab privilege boundary)"
+
+      # S8 runtime. The static proof (S2, in erasure-contract-ci.yml) says the adapter
+      # no longer calls the deleter. This one says what that COSTS: the object is still
+      # in the store after the account is deleted, and the whole failure matrix
+      # collapses with it. Its own fresh lab, with its own storage root.
+      - name: negative proof — S2R the erasure deletes the row and leaves the object
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/S2R.orig"
+          node .ad2a/mutate.mjs S2
+          if cmp -s "$F" "$RUNNER_TEMP/S2R.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; node .ad2a/fresh-lab.mjs s8_object -- npx tsx .ad2a/battery.mjs --baseline-check > "$RUNNER_TEMP/S2R.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/S2R.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/S2R.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          if [ $rc -eq 0 ]; then echo "NEGATIVE-PROOF FAIL: the battery stayed green with an orphaned object"; exit 1; fi
+          grep -qF "[FAIL] S8-B · A's CRM attachment OBJECT is gone from storage" "$RUNNER_TEMP/S2R.out" || { tail -60 "$RUNNER_TEMP/S2R.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
 
       # ── LAB ISOLATION HARDENING — the I-series ──────────────────────────────
       #

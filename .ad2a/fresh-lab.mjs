@@ -34,6 +34,9 @@
  */
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 
 const argv = process.argv.slice(2);
@@ -70,6 +73,13 @@ await sh(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app
 await sh(`CREATE DATABASE ${db}`);
 await sh(`COMMENT ON DATABASE ${db} IS 'ad2a-fresh:${nonce}'`);
 
+// S8. A proof about objects needs a store of its own, for the same reason it needs a
+// database of its own: bytes an earlier proof wrote must not be able to make a later
+// one look correct. The local filesystem adapter is the lab's storage provider, rooted
+// in a directory named for this proof and nothing else.
+const storageRoot = path.join(os.tmpdir(), `ad2a-storage-${nonce}`);
+fs.mkdirSync(storageRoot, { recursive: true });
+
 const env = {
   ...process.env,
   DATABASE_URL: ownerUrl,
@@ -78,7 +88,10 @@ const env = {
   AD2A_FRESH_DB: db,
   AD2A_RT_ROLE: role,
   AD2A_RT_PW: pw,
+  STORAGE_PROVIDER: "local",
+  LOCAL_STORAGE_ROOT: storageRoot,
 };
+console.log(`[fresh-lab] ${label}: storage root ${storageRoot}`);
 const push = spawnSync("npx", ["prisma", "db", "push", "--skip-generate"], { env, stdio: ["ignore", "ignore", "inherit"], shell: process.platform === "win32" });
 if (push.status !== 0) {
   console.error(`[fresh-lab] schema push failed (${push.status})`);
@@ -89,11 +102,12 @@ const run = spawnSync(cmd, args, { env, stdio: "inherit", shell: process.platfor
 const code = run.status ?? 1;
 
 if (keep) {
-  console.log(`[fresh-lab] --keep: ${db} and ${role} left in place`);
+  console.log(`[fresh-lab] --keep: ${db}, ${role} and ${storageRoot} left in place`);
 } else {
   try {
     await sh(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
     await sh(`DROP ROLE IF EXISTS ${role}`);
+    fs.rmSync(storageRoot, { recursive: true, force: true });
   } catch (e) {
     // Never fatal: isolation comes from the NEW database the next proof gets, not
     // from this one being removed.
