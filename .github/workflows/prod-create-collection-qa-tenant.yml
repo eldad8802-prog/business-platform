@@ -1,0 +1,207 @@
+# Provision the ONE permanent Collection QA tenant in Production.
+#
+# WHAT THIS IS
+#
+# The only workflow in this repository that COMMITs a write to the live
+# database outside a migration. It creates two rows — a Business and its first
+# User — for a single, named, permanently reserved QA tenant, and it can create
+# nothing else.
+#
+# WHY IT EXISTS
+#
+# The collection settlement engine has never processed a payment in Production.
+# Proving it requires a tenant: CardCom test terminal 1000 charges no card, but
+# on the Dubiz side the payment request, the verified transaction and the issued
+# receipt are all real and permanent. That must never happen inside a business
+# that trades. POST /api/auth/register would be the ordinary way to create the
+# tenant, but public registration is closed and must stay closed — opening it
+# for one account opens it for everyone, for as long as it is open.
+#
+# WHY IT CANNOT BE REPURPOSED
+#
+# It takes NO inputs. The tenant's name and address are repository constants,
+# and the guard carries the approved names itself, so aiming this at a different
+# tenant means editing reviewed code — not filling in a dispatch form. The
+# credential arrives only from the production-db environment secret, is checked
+# for shape without being printed, and never appears in a log, an argument list
+# or an artifact.
+#
+# GATES, in the order they stop a mistake:
+#   1. manual dispatch only
+#   2. the production-db environment — human approval, every run
+#   3. the containment guard reads the SQL BEFORE a connection is opened
+#   4. the host allowlist pins the connection to the verified Production endpoint
+#   5. the hash must be bcrypt cost 10, or the run stops
+#   6. the write itself is one transaction containing two guarded INSERTs
+#   7. a read-only verification afterwards, asserted line by line
+#
+# WHAT IT DOES NOT DO: no billing identity, no provider connection, no customer,
+# no invoice, no payment request. Those are the owner's, through the product,
+# afterwards. And it never deletes: re-running it is a no-op by construction.
+
+name: Prod — create the Collection QA tenant
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-collection-qa-tenant
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: Create the Collection QA tenant (Production)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-db
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Gate 3. Before anything is installed and long before anything connects.
+      - name: Containment guard (approved tenant, approved statements only)
+        run: node scripts/ci/collection-qa-tenant-guard.mjs
+
+      # Gate 4. Same allowlist every production workflow in this repository uses.
+      - name: Host allowlist assertion (verified Production only)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          ALLOW="ep-flat-brook-am4bhq1y"
+          if [ -z "${DIRECT_URL:-}" ]; then
+            echo "::error::DIRECT_URL secret is not set in the production-db environment."; exit 1
+          fi
+          case "$DIRECT_URL" in
+            *"$ALLOW"*) echo "Host allowlist OK: DIRECT_URL targets endpoint $ALLOW." ;;
+            *) echo "::error::DIRECT_URL does not target the verified Production endpoint ($ALLOW) — aborting."; exit 1 ;;
+          esac
+
+      # Gate 5. The shape is checked by the same module the compatibility test
+      # proves against, so the two can never drift. The value is read from the
+      # environment inside node — never echoed, never an argument, never a file.
+      - name: Credential shape (bcrypt cost 10, never printed)
+        env:
+          QA_PASSWORD_HASH: ${{ secrets.COLLECTION_QA_PASSWORD_HASH }}
+        run: |
+          set -euo pipefail
+          node --input-type=module -e '
+            const { BCRYPT_COST_10_SHAPE } = await import("./scripts/ci/collection-qa-tenant-hash-shape.mjs");
+            const hash = process.env.QA_PASSWORD_HASH ?? "";
+            if (hash === "") {
+              console.error("::error::COLLECTION_QA_PASSWORD_HASH is not set in the production-db environment.");
+              process.exit(1);
+            }
+            if (!BCRYPT_COST_10_SHAPE.test(hash)) {
+              console.error("::error::the secret is not a bcrypt cost-10 hash (length " + hash.length + "). Refusing to write a credential nobody can log in with.");
+              process.exit(1);
+            }
+            console.log("Credential shape OK: bcrypt cost 10, 60 characters.");
+          '
+
+      - name: Install psql client
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      # Read-only, so the log says what the run is about to do rather than only
+      # what it did. A tenant that already exists makes the run a no-op, and
+      # that is a normal outcome, not a failure.
+      - name: Pre-flight — does the tenant already exist?
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          PGSSLMODE: require
+        run: |
+          set -euo pipefail
+          set -a; . ./ops/tenant/collection-qa-tenant.identity.env; set +a
+          EXISTING=$(psql "$DIRECT_URL" --no-psqlrc -tAX \
+            --set=ON_ERROR_STOP=1 \
+            --set=qa_email="$COLLECTION_QA_EMAIL" \
+            -c "SELECT count(*) FROM \"User\" WHERE \"email\" = :'qa_email'")
+          echo "users already holding that address: $EXISTING"
+          if [ "$EXISTING" != "0" ]; then
+            echo "::notice::the QA tenant already exists — this run will insert nothing."
+          fi
+
+      # Gate 6. The variables are piped in as psql \set commands rather than
+      # passed as arguments, so the hash never appears in the process list.
+      - name: Provision (one transaction, two guarded INSERTs)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          QA_PASSWORD_HASH: ${{ secrets.COLLECTION_QA_PASSWORD_HASH }}
+          PGSSLMODE: require
+        run: |
+          set -euo pipefail
+          set -a; . ./ops/tenant/collection-qa-tenant.identity.env; set +a
+
+          {
+            printf "\\set qa_email '%s'\n" "$COLLECTION_QA_EMAIL"
+            printf "\\set qa_business_name '%s'\n" "$COLLECTION_QA_BUSINESS_NAME"
+            printf "\\set qa_user_name '%s'\n" "$COLLECTION_QA_USER_NAME"
+            printf "\\set qa_password_hash '%s'\n" "$QA_PASSWORD_HASH"
+            cat ops/tenant/collection-qa-tenant.sql
+          } | psql "$DIRECT_URL" --no-psqlrc --set=ON_ERROR_STOP=1 -f - | tee provision.out
+
+          grep -q "PROVISION" provision.out || {
+            echo "::error::the provisioning statement did not report — refusing to claim it ran"; exit 1; }
+
+      # Gate 7. A separate, read-only transaction. The assertions are named, so
+      # a check that silently did not run cannot be mistaken for one that passed.
+      - name: Verify (read-only) and assert every invariant
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          PGSSLMODE: require
+        run: |
+          set -euo pipefail
+          set -a; . ./ops/tenant/collection-qa-tenant.identity.env; set +a
+
+          {
+            printf "\\set qa_email '%s'\n" "$COLLECTION_QA_EMAIL"
+            printf "\\set qa_business_name '%s'\n" "$COLLECTION_QA_BUSINESS_NAME"
+            printf "\\set qa_user_name '%s'\n" "$COLLECTION_QA_USER_NAME"
+            cat ops/tenant/collection-qa-tenant-verify.sql
+          } | psql "$DIRECT_URL" --no-psqlrc -tAX --set=ON_ERROR_STOP=1 -f - | tee verify.out
+
+          LINE=$(grep '^VERIFY|' verify.out || true)
+          if [ -z "$LINE" ]; then
+            echo "::error::verification returned no row — the tenant was not created"; exit 1
+          fi
+
+          IFS='|' read -r _ USER_COUNT BUSINESS_COUNT USER_ID BUSINESS_ID LINK_OK ROLE \
+            TOKEN_VERSION LOGIN_COUNT NEVER_LOGGED_IN BCRYPT_OK HASH_LENGTH \
+            BUSINESS_NAME_OK USER_NAME_OK BUSINESS_LIVE CONNECTIONS DOCUMENTS REQUESTS <<< "$LINE"
+
+          fail=0
+          assert() {
+            if [ "$2" = "$3" ]; then
+              echo "  ok   $1 = $3"
+            else
+              echo "::error::$1 is '$2', expected '$3'"; fail=1
+            fi
+          }
+
+          assert "exactly one user with that address" "$USER_COUNT" "1"
+          assert "exactly one business with that name" "$BUSINESS_COUNT" "1"
+          assert "the user is linked to that business"  "$LINK_OK" "t"
+          assert "role"                                 "$ROLE" "USER"
+          assert "token generation"                     "$TOKEN_VERSION" "0"
+          assert "credential is bcrypt cost 10"         "$BCRYPT_OK" "t"
+          assert "credential length"                    "$HASH_LENGTH" "60"
+          assert "business name"                        "$BUSINESS_NAME_OK" "t"
+          assert "display name"                         "$USER_NAME_OK" "t"
+          assert "business is live"                     "$BUSINESS_LIVE" "t"
+          assert "no provider connection"               "$CONNECTIONS" "0"
+
+          echo "business id: $BUSINESS_ID    user id: $USER_ID"
+          echo "existing billing documents: $DOCUMENTS    payment requests: $REQUESTS"
+          echo "logins so far: $LOGIN_COUNT (never logged in: $NEVER_LOGGED_IN)"
+
+          [ "$fail" = "0" ] || exit 1
+          echo "COLLECTION QA TENANT: PROVISIONED AND VERIFIED"
