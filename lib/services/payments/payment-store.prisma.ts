@@ -613,8 +613,11 @@ export function createPaymentPrismaStore(): PaymentStore {
         if (row.status !== "PAID" || !(Number(row.amount) > 0)) {
           throw new Error("accounting settlement may only open for a positive PAID transaction");
         }
-        if (tenant && tenant.businessId !== open.businessId) {
-          throw new Error("accounting settlement tenant does not match the active tenant");
+        // Only ever opened on the tenant path (the webhook runs inside the
+        // stored request's tenant), so the money row and its settlement are
+        // one tenant transaction.
+        if (!tenant || tenant.businessId !== open.businessId) {
+          throw new Error("accounting settlement must be opened inside its own tenant context");
         }
       }
       const write = async (db: typeof prisma) => {
@@ -642,10 +645,8 @@ export function createPaymentPrismaStore(): PaymentStore {
         return created;
       };
       // Inside a tenant, `step` is ONE transaction, so the money row and its
-      // settlement commit together. Outside one (never the webhook), make it so.
-      const created = tenant
-        ? await step(write)
-        : await prisma.$transaction((db) => write(db as unknown as typeof prisma));
+      // settlement commit together.
+      const created = await step(write);
       return toTransactionRecord(created);
     },
 
