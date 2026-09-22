@@ -476,9 +476,15 @@ async function main(): Promise<void> {
 
   section("M3 — the first cross-domain Dubiz Insight, and the owner's decision");
 
-  await owner.$executeRawUnsafe(
-    `GRANT SELECT, INSERT, UPDATE, DELETE ON "BusinessInsight", "InventoryAlert", "SupplierPurchaseDraft", "Lead", "Conversation", "ReplySuggestion", "BillingDocument" TO ${RT_ROLE}`,
-  );
+  // The insight composer reads the whole Business Status snapshot, which spans a dozen tables and their
+  // relations. Enumerating them was a losing game — the previous run failed on `ExtractedData`, reached
+  // through a nested select inside the documents loader.
+  //
+  // So: grant broadly, and be explicit about why that weakens nothing. This battery proves ROW
+  // visibility under RLS; grants are the other gate, asserted by the exact-grant batteries elsewhere in
+  // CI. A missing grant here would only prove a table was ungranted in the LAB. The knowledge-table
+  // grants above stay enumerated, because those document what Production actually holds.
+  await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT_ROLE}`);
 
   // Tenant A already has: overdue + upcoming payables (M1 seed) and an ACTIVE paperwork-lag measure
