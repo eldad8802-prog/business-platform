@@ -21,6 +21,10 @@ on:
       - "lib/services/payments/**"
       - "prisma/schema.prisma"
       - ".c3settlement/**"
+      - ".c3recovery/**"
+      - "app/api/payments/settlement-recovery/**"
+      - "vercel.json"
+      - ".github/workflows/payment-settlement-recovery.yml"
       - ".c25integrity/**"
       - ".c2authority/**"
       - ".c1receipt/**"
@@ -70,12 +74,16 @@ jobs:
           npm run verify:receipt-issuance-integrity
           npm run verify:allocation-authority
           npx tsx lib/services/billing/billing-issuable-shape.test.ts
+          npx tsx lib/services/billing/settlement/settlement-recovery-auth.test.ts
 
       - name: Push schema (lab)
         run: npx prisma db push --skip-generate
 
       - name: C3 settlement battery
         run: npx tsx .c3settlement/battery.mts
+
+      - name: C3 scheduled-recovery battery
+        run: npx tsx .c3recovery/battery.mts
 
       - name: C2.5 / C2 / C1 regression
         run: |
@@ -137,6 +145,18 @@ jobs:
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if C3_ONLY=O npx tsx .c3settlement/battery.mts >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: concurrent credits over-credited unnoticed"; exit 1
+          fi
+          mv "$F.bak" "$F"
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: Negative proof 5 (recovery really finds due settlements)
+        run: |
+          F="lib/services/billing/settlement/payment-settlement-recovery.service.ts"
+          cp "$F" "$F.bak"
+          perl -0pi -e 's/    return rows\.map\(\(r\) => r\.paymentTransactionId\);/    return rows.map((r) => r.paymentTransactionId).slice(0, 0);/' "$F"
+          if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
+          if RECOVERY_ONLY=V1 npx tsx .c3recovery/battery.mts >/dev/null 2>&1; then
+            mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a recovery that finds nothing passed the battery"; exit 1
           fi
           mv "$F.bak" "$F"
           echo "NEGATIVE-PROOF PASS"

@@ -294,6 +294,27 @@ async function resolveRoutedRequest(
   return toRequestRecord(row);
 }
 
+/**
+ * C3 recovery — which businesses have ever routed a payment through Dubiz.
+ *
+ * The scheduled settlement recovery runs with no tenant, and the settlement
+ * table is under FORCE RLS, so it cannot be scanned across tenants directly.
+ * The routing index is the sanctioned pre-context surface (see
+ * docs/security-d2-provider-bootstrap-allowlist-v1.md): read here, in its one
+ * sanctioned reader, only as a HINT naming candidate tenants. Every settlement
+ * is then found and settled inside that tenant's own context.
+ */
+export async function listRoutedBusinessIds(): Promise<number[]> {
+  const rows = await bootstrapStep((db) =>
+    db.paymentProviderRouting.findMany({
+      distinct: ["businessId"],
+      select: { businessId: true },
+      orderBy: { businessId: "asc" },
+    })
+  );
+  return rows.map((r) => r.businessId);
+}
+
 export function createPaymentPrismaStore(): PaymentStore {
   return {
     async findActiveConnection(businessId, provider) {

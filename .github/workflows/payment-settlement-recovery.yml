@@ -1,0 +1,49 @@
+# C3 — scheduled local recovery of verified payments.
+#
+# The webhook settles a verified payment inline. If that process dies or the
+# attempt fails transiently, the PaymentAccountingSettlement row stays PENDING.
+# This schedule asks Production to finish those from local state — no provider
+# resend — through the one canonical settleVerifiedPayment.
+#
+# WHY GITHUB ACTIONS. The Vercel team is on the Hobby plan, whose crons run at
+# most once a day; a 10-minute recovery cadence is not available there. This
+# repository is public, so scheduled runs cost nothing. A daily Vercel cron in
+# vercel.json remains as a backstop should this schedule ever be suspended.
+#
+# The only secret is CRON_SECRET (a repository secret, identical to the one in
+# the Vercel Production environment). It is sent as a bearer header, never
+# echoed; the endpoint answers counts only.
+
+name: payment settlement recovery (scheduled)
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: payment-settlement-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Trigger settlement recovery on Production
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          RECOVERY_URL: https://promaxgroup.co.il/api/payments/settlement-recovery
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET is not configured for this repository."; exit 1
+          fi
+          code=$(curl -sS -o body.json -w "%{http_code}" -m 90 \
+            -X POST -H "Authorization: Bearer ${CRON_SECRET}" "$RECOVERY_URL")
+          echo "HTTP $code"
+          cat body.json; echo
+          [ "$code" = "200" ] || { echo "::error::recovery endpoint answered $code"; exit 1; }
