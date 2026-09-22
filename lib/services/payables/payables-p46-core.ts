@@ -211,7 +211,12 @@ function splitCsvLine(line: string): string[] {
         i += 1;
       } else if (ch === '"') quoted = false;
       else cur += ch;
-    } else if (ch === '"') quoted = true;
+    } else if (ch === '"' && cur.trim() === "") {
+      // A quote OPENS a quoted field only at the start of the field (RFC 4180).
+      // Mid-field it is a literal — and Hebrew uses it constantly: בע"מ, ח"פ.
+      quoted = true;
+      cur = "";
+    }
     else if (ch === ",") {
       out.push(cur);
       cur = "";

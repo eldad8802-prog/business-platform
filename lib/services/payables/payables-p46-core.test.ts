@@ -116,6 +116,11 @@ check("amounts arrive in minor units", parsed.lines[0].amountMinor === 120000);
 check("bad lines are reported by number and FIELD", JSON.stringify(parsed.errors) === JSON.stringify([{ lineNumber: 5, field: "date" }, { lineNumber: 6, field: "amount" }]));
 check("errors never carry line content", !JSON.stringify(parsed.errors).includes("no amount"));
 check("a file without a date column is refused whole", parseStatementCsv("amount\n1").errors[0]?.field === "date column");
+const heb = parseStatementCsv(
+  ["date,description,amount", '2026-03-05,העברה ספק הדפוס בע"מ,-1000.00', '2026-03-06,"quoted, with comma",-5'].join("\n"),
+);
+check('a mid-field quote (בע"מ) is literal, not a quoted field', heb.lines.length === 2 && heb.lines[0].description === 'העברה ספק הדפוס בע"מ' && heb.lines[0].amountMinor === 100000);
+check("a real quoted field with a comma still works", heb.lines[1]?.description === "quoted, with comma");
 const signed = parseStatementCsv("date,amount,description\n2026-03-05,-80.00,fee\n2026-03-06,120,in");
 check("a signed amount column works", signed.lines[0].direction === "DEBIT" && signed.lines[1].direction === "CREDIT");
 
