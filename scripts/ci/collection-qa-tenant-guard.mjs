@@ -123,7 +123,7 @@ function readIdentity(path) {
     // variable assignment followed by a command. The quotes are shell syntax,
     // not part of the value, so they come off here.
     const raw = trimmed.slice(eq + 1);
-    values[trimmed.slice(0, eq).trim()] = raw.replace(/^"(.*)"$/s, "$1");
+    values[trimmed.slice(0, eq).trim()] = raw.replace(/^"([\s\S]*)"$/, "$1");
   }
   return values;
 }

@@ -65,18 +65,16 @@ jobs:
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
 
-      # The guard runs against the file as the repository ships it — with the
-      # login address still unset. That MUST fail: refusing to provision before
-      # the owner fixes the address is the stop gate, so the PR proves the gate
-      # is shut rather than asserting it in prose.
-      - name: The shipped file is not yet provisionable (stop gate is shut)
-        run: |
-          set -euo pipefail
-          if node scripts/ci/collection-qa-tenant-guard.mjs; then
-            echo "::error::the guard ACCEPTED an unresolved login email — the stop gate is open"
-            exit 1
-          fi
-          echo "Stop gate confirmed shut: the guard refuses until the address is fixed."
+      # The guard against the identity the repository actually carries. It must
+      # PASS: the owner has fixed the address, so the tenant is provisionable
+      # and this is the same check the production run performs first.
+      #
+      # The address was deliberately UNSET until the owner chose it, and that
+      # refusal is still proven — by the negative proof below, which rebuilds
+      # the placeholder rather than depending on the repository still being in
+      # that state.
+      - name: Containment guard (the committed identity)
+        run: node scripts/ci/collection-qa-tenant-guard.mjs
 
       - name: Containment guard — negative proof
         run: node scripts/ci/collection-qa-tenant-guard.test.mjs

@@ -8,8 +8,11 @@
  * non-zero for every one of them — then requires it to PASS on the pristine
  * pair, so the refusals are not simply "this guard always fails".
  *
- * The one edit made to the pristine copy is the login email: the repository
- * deliberately ships it unset, and "unset" is itself one of the refusals below.
+ * The identity now committed to the repository is the approved one, so the
+ * pristine trio must PASS as it stands. "Unset" remains one of the refusals
+ * below, reconstructed explicitly rather than read from the file — a refusal
+ * that depends on the repository still being in an earlier state stops testing
+ * anything the moment that state changes.
  *
  * Run: node scripts/ci/collection-qa-tenant-guard.test.mjs
  */
@@ -92,9 +95,16 @@ function mustAccept(label, input) {
 
 console.log("Collection QA tenant guard — negative proof\n");
 
-// 1. The pristine, resolved pair must pass. Everything below is a deviation
-//    from THIS, so this line is what makes the refusals meaningful.
-mustAccept("the approved provisioning SQL with the address resolved", {
+// 1. The files exactly as the repository ships them must pass — identity
+//    included. This is the case that says the tenant is provisionable at all,
+//    and everything below is a deviation from it.
+mustAccept("the repository's own files, unmodified", {
+  sql: pristineSql,
+  verify: pristineVerify,
+  identity: pristineIdentity,
+});
+
+mustAccept("the approved provisioning SQL with a fixture address", {
   sql: pristineSql,
   verify: pristineVerify,
   identity: resolvedIdentity,
@@ -189,8 +199,18 @@ mustRefuse("a bcrypt hash baked into the SQL as a literal", {
 });
 
 // 7. The stop gate itself: the address must be fixed before anything runs.
-mustRefuse("the login email left as the shipped placeholder", {
-  identity: pristineIdentity,
+mustRefuse("the login email left as the placeholder", {
+  identity: resolvedIdentity.replace(
+    /^COLLECTION_QA_EMAIL=.*$/m,
+    () => 'COLLECTION_QA_EMAIL="__COLLECTION_QA_EMAIL_NOT_SET__"'
+  ),
+});
+
+mustRefuse("the login email emptied", {
+  identity: resolvedIdentity.replace(
+    /^COLLECTION_QA_EMAIL=.*$/m,
+    () => 'COLLECTION_QA_EMAIL=""'
+  ),
 });
 
 mustRefuse("an unfolded (mixed-case) login email that login would not find", {

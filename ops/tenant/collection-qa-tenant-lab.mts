@@ -36,9 +36,34 @@ import { BCRYPT_COST_10_SHAPE } from "../../scripts/ci/collection-qa-tenant-hash
 
 const prisma = new PrismaClient();
 
-const EMAIL = "collection-qa-sandbox@example.test";
-const BUSINESS_NAME = "QA COLLECTION SANDBOX — אין להשתמש";
-const USER_NAME = "QA Collection Sandbox";
+/**
+ * The identity is READ from the file Production will use, not restated here.
+ * A rehearsal against constants of its own would keep passing while the
+ * committed identity said something else — which is the one thing this file
+ * exists to catch.
+ */
+function identity(): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const line of readFileSync(
+    "ops/tenant/collection-qa-tenant.identity.env",
+    "utf8"
+  ).split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+    values[trimmed.slice(0, eq).trim()] = trimmed
+      .slice(eq + 1)
+      .replace(/^"([\s\S]*)"$/, "$1");
+  }
+  return values;
+}
+
+const ID = identity();
+const EMAIL = ID.COLLECTION_QA_EMAIL;
+const BUSINESS_NAME = ID.COLLECTION_QA_BUSINESS_NAME;
+const USER_NAME = ID.COLLECTION_QA_USER_NAME;
+/** Lab-only, and a literal on purpose: this database is destroyed with the job. */
 const PASSWORD = "lab-only-qa-collection-password";
 
 let pass = 0;
