@@ -720,8 +720,8 @@ async function main() {
   // This proves the key alone. The delete is issued as the lab OWNER — a superuser, so
   // neither a privilege nor a row-level policy can refuse it — against the Document
   // A's historical record cites. The only thing left that can stop it is a constraint,
-  // and the assertion requires the refusal to be SQLSTATE 23001 naming exactly that
-  // constraint. A control delete of an uncited Document, same owner, same transaction
+  // and the assertion requires the refusal to be a foreign-key violation naming exactly
+  // that constraint. A control delete of an uncited Document, same owner, same transaction
   // shape, must succeed — so the refusal is about the citation, not about deleting
   // Documents. Both run in transactions that are rolled back. The runtime role's
   // privileges are not touched.
@@ -782,12 +782,14 @@ async function main() {
   } catch (e) {
     if (e !== ROLLBACK_FK) fkOutcome = `harness error: ${String(e.message).split("\n").slice(-1)[0]}`;
   }
-  // 23001 restrict_violation, not 23503: PostgreSQL raises 23503 for NO ACTION and
-  // 23001 only for an ON DELETE RESTRICT action — so this SQLSTATE can come from the
-  // RESTRICT key and from nothing else.
+  // The SQLSTATE depends on the server version: PostgreSQL 17 reports a RESTRICT
+  // violation as 23503 (the same code as NO ACTION), PostgreSQL 18 as 23001
+  // restrict_violation. So the SQLSTATE proves "a foreign-key violation", the
+  // constraint name proves WHICH key, and that the key is RESTRICT rather than NO
+  // ACTION is proved separately — from the catalog (confdeltype) and the migration.
   ok(
-    "FISCAL-B · deleting the cited Document fails with 23001 restrict_violation on exactly that key",
-    fkOutcome === `23001:${FISCAL_FK}`,
+    "FISCAL-B · deleting the cited Document fails with a foreign-key violation on exactly that key",
+    fkOutcome === `23503:${FISCAL_FK}` || fkOutcome === `23001:${FISCAL_FK}`,
     `outcome=${fkOutcome}`
   );
   let controlDeleted = -1;

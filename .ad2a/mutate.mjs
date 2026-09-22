@@ -95,17 +95,19 @@ const MUTATIONS = {
       "SELECT 1"
     ),
   // I8: leave a lab full of state a later proof must not inherit — an undeclared
-  // grant, an undeclared DELETE policy and a dropped FORCE, all at once.
+  // DELETE policy and a dropped FORCE, both at once.
   POISON: () => {
     afterContractApply(js(`ALTER TABLE "Lead" NO FORCE ROW LEVEL SECURITY`));
     afterContractApply(js(`CREATE POLICY ad2a_undeclared_delete ON "Customer" FOR DELETE USING (true)`));
   },
-  // Fiscal Claim B: the citing key stops being RESTRICT. Schema text only; never shipped.
+  // Fiscal Claim B: the citing key stops being RESTRICT — it CASCADEs, so deleting the
+  // cited Document succeeds and takes the fiscal record with it. Red on every server
+  // version (the refusal disappears), not only where SQLSTATEs differ. Schema text only.
   FB: () =>
     replaceOnce(
       SCHEMA,
       "document  Document?  @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)",
-      "document  Document?  @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: NoAction)"
+      "document  Document?  @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Cascade)"
     ),
 };
 

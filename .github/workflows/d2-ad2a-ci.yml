@@ -410,7 +410,7 @@ jobs:
           cp "$RUNNER_TEMP/FB.orig" "$F"
           cmp -s "$F" "$RUNNER_TEMP/FB.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
           if [ $rc -eq 0 ]; then tail -40 "$RUNNER_TEMP/FB.out"; echo "NEGATIVE-PROOF FAIL: stayed green"; exit 1; fi
-          grep -qF -- "[FAIL] FISCAL-B · deleting the cited Document fails with 23001" "$RUNNER_TEMP/FB.out" || { tail -60 "$RUNNER_TEMP/FB.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          grep -qF -- "[FAIL] FISCAL-B · deleting the cited Document fails with a foreign-key violation" "$RUNNER_TEMP/FB.out" || { tail -60 "$RUNNER_TEMP/FB.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
           echo "NEGATIVE-PROOF PASS"
 
       # I8 — two DB proofs in a row cannot share state. The first leaves an
