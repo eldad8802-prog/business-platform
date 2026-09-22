@@ -33,6 +33,7 @@ on:
           - 'ops/evidence/c3-billing-runtime-privilege-evidence.sql'
           - 'ops/evidence/payables-runtime-grants-evidence.sql'
           - 'ops/evidence/c3-migration-closure-evidence.sql'
+          - 'ops/evidence/collection-production-closure-evidence.sql'
 
 permissions:
   contents: read
