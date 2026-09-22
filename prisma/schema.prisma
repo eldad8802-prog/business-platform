@@ -228,6 +228,8 @@ model Business {
   riaPolicyLineages             RiaPolicyLineage[]
   derivedClaimProjections       DerivedClaimProjection[]
   derivedClaimEvidenceLinks     DerivedClaimEvidenceLink[]
+  knowledgeMeasures             KnowledgeMeasure[]
+  knowledgeMeasureEvidenceLinks KnowledgeMeasureEvidenceLink[]
   paymentConnections            BusinessPaymentConnection[]
   paymentRequests               PaymentRequest[]
   businessObligations           BusinessObligation[]
@@ -3223,6 +3225,7 @@ model DerivationPolicyVersion {
   /// version is never cascade-deleted by a derived materialization (the Projection FK is RESTRICT) —
   /// policy history outlives its materializations. This is a virtual relation (no column, no behavior).
   claimProjections DerivedClaimProjection[]
+  knowledgeMeasures KnowledgeMeasure[]
 
   /// Identity uniqueness ONLY: one row per (policy, version). This is the version's IDENTITY (a version IS
   /// (policy, version)); it does NOT imply order, currentness, precedence, or "one active version".
@@ -5027,4 +5030,110 @@ model PaymentAccountingSettlement {
   paymentTransaction PaymentTransaction @relation(fields: [paymentTransactionId], references: [id], onDelete: Restrict)
 
   @@index([businessId, status, nextAttemptAt])
+}
+
+/// M2 · Business Memory — the quantitative half of derived knowledge.
+///
+/// WHY A SECOND ARTIFACT RATHER THAN A WIDER CLAIM
+/// `DerivedClaimProjection` + `DerivedClaimCandidate` can express exactly one thing: a subject, and a
+/// SET OF VALUES claimed about it. That is the right shape for a categorical claim derived from owner
+/// decisions ("this vendor is an office expense"), where two co-existing values genuinely ARE a
+/// conflict and where a confidence number would be a lie.
+///
+/// It is the wrong shape for "the owner files paperwork a median of 12 days late, from 18 observations,
+/// over the last 180 days, and that is getting worse". Two windows are not a conflict, an observation
+/// count is not a candidate, and encoding all of it into `propositionValue` would destroy both the
+/// conflict semantics and any ability to query it. So MEASURE is its own artifact — sharing the
+/// governance (versioned rule, evidence fingerprint, tenant scope, rebuildability) and not the table.
+///
+/// Rule versioning deliberately REUSES `DerivationPolicyVersion`: a measure is derived by a versioned
+/// rule exactly as a claim is, and a second registry would be two sources of truth for the same idea.
+///
+/// Derived, disposable, rebuildable. Never authoritative, and never a substitute for the evidence.
+model KnowledgeMeasure {
+  id         Int     @id @default(autoincrement())
+  businessId Int
+  /// Governed identity of the rule's output, e.g. "documents.paperwork_lag". A String, not an enum:
+  /// the catalogue grows per milestone and a migration per rule would be friction with no safety gain.
+  measureKey String
+  /// What the measure is ABOUT. Null = the business itself (e.g. overall paperwork lag); otherwise the
+  /// entity kind and id (e.g. "supplier" 42). Deliberately NOT a foreign key: measures span domains,
+  /// and a polymorphic FK would either fail or force one table per entity kind.
+  entityType String?
+  entityId   Int?
+
+  /// The headline number, kept OUT of Json so the Brain can filter and order without parsing payloads.
+  valueNumeric Decimal @db.Decimal(18, 4)
+  /// What the number means: "days" | "count" | "ratio" | "currency". Governed String.
+  valueUnit    String
+  /// Measure-specific extras (percentiles, distributions, comparison values). Optional by design —
+  /// a measure must be useful from `valueNumeric` alone.
+  detail       Json?
+
+  /// How many observations the number rests on. A first-class column, not a detail: a median of two
+  /// is not a habit, and a consumer must be able to refuse a measure without opening a payload.
+  observationCount Int
+  windowStart      DateTime
+  windowEnd        DateTime
+  /// Direction of travel across the window, when the rule computes one. Null = the rule does not.
+  trend            KnowledgeTrend?
+
+  /// ACTIVE is the only status a reasoning layer may consume. The others exist so that "I do not know"
+  /// is a value the system can hold and explain, rather than a silence indistinguishable from zero.
+  status KnowledgeStatus
+
+  rulePolicyVersionId Int
+  /// Identity of the evidence set this was derived from — the same staleness aid Claims use.
+  evidenceFingerprint String
+  materializedAt      DateTime @default(now())
+
+  business      Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  policyVersion DerivationPolicyVersion @relation(fields: [rulePolicyVersionId], references: [id], onDelete: Restrict)
+  evidenceLinks KnowledgeMeasureEvidenceLink[]
+
+  /// One live measure per (tenant, key, subject, rule version). Uniqueness over the nullable subject is
+  /// enforced by a COALESCE expression index in the migration, because Postgres treats NULLs as
+  /// distinct and would otherwise allow unlimited duplicate business-level measures.
+  @@index([businessId, measureKey])
+  @@index([businessId, entityType, entityId])
+  @@index([rulePolicyVersionId])
+}
+
+/// The explainability anchor for a measure: which evidence records the number was computed from.
+/// Same contract as `DerivedClaimEvidenceLink` — a logical reference, never copied evidence — so
+/// "why does Dubiz think this?" can be answered by walking to the source rather than by trusting a blob.
+model KnowledgeMeasureEvidenceLink {
+  id               Int    @id @default(autoincrement())
+  measureId        Int
+  businessId       Int
+  evidenceKind     String
+  evidenceRecordId Int
+
+  measure  KnowledgeMeasure @relation(fields: [measureId], references: [id], onDelete: Cascade)
+  business Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([measureId, evidenceKind, evidenceRecordId])
+  @@index([measureId])
+  @@index([businessId, evidenceKind, evidenceRecordId])
+}
+
+/// Whether a piece of derived knowledge may be used, and if not, why not.
+enum KnowledgeStatus {
+  /// Enough evidence, fresh enough, no unresolved conflict. The ONLY status a consumer may act on.
+  ACTIVE
+  /// The rule ran and deliberately declined: below minimum support, or below its consistency floor.
+  /// This is a RESULT, not a failure — it is how the system says "I do not know yet".
+  INSUFFICIENT_EVIDENCE
+  /// Was ACTIVE, but the evidence has moved on and it has not been recomputed.
+  STALE
+  /// Replaced by a newer derivation (typically a newer rule version).
+  SUPERSEDED
+}
+
+/// Direction of travel across a measure's window. Deliberately coarse: with the observation counts a
+/// small business produces, a percentage change would imply a precision the data cannot support.
+enum KnowledgeTrend {
+  IMPROVING
+  STABLE
+  WORSENING
 }

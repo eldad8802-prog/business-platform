@@ -1,12 +1,13 @@
 # M0 — Tenant-Safe Knowledge Foundation.
 #
-# This is the repository's first CI job with a real PostgreSQL. That is the point.
+# This repository already runs 44 database-backed batteries in CI. Not one of them covered the
+# knowledge layer, and that is precisely why the defect survived: 21 Business Memory suites ran green
+# while the read and write paths were both broken in Production, because every one of them injected a
+# fake client and none ever exercised the DEFAULT binding.
 #
-# Before M0, 21 Business Memory suites ran green while the read and write paths were both broken in
-# Production, because every one of them injected a fake client and none of them ever exercised the
-# DEFAULT binding. The defect lived exactly in the gap those tests could not reach. A guard that runs
-# only on the author's machine would have the same blind spot, so the proof runs here, on every push
-# that touches the knowledge layer.
+# So this is not a new capability — it is the missing coverage, in the idiom the other 44 established.
+# It runs on every push that touches the knowledge layer, because a guard that runs only on the
+# author's machine would have exactly the blind spot that produced this bug.
 name: m0-knowledge-tenant-safety
 
 on:
@@ -16,6 +17,7 @@ on:
       - "lib/tenant/**"
       - "lib/services/documents/memory/**"
       - "lib/business-status/**"
+      - "lib/knowledge/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/**"
       - "scripts/ci/tenant-context-guard.sh"
@@ -112,6 +114,9 @@ jobs:
 
       - name: M1 L0 fact-layer contracts (pure)
         run: npx tsx lib/business-status/translators/payables.test.ts
+
+      - name: M2 DOC-04 rule contracts (pure)
+        run: npx tsx lib/knowledge/rules/documents-paperwork-lag.test.ts
 
       - name: M0+M1 tenant-isolation battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/knowledge-tenant-battery.ts

@@ -76,18 +76,34 @@ const owner = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
  * works; this one fails if the migration ever stops protecting these tables.
  */
 function policyStatementsFromMigration(): string[] {
-  const sql = readFileSync(
-    join(process.cwd(), "prisma/migrations/20260825150000_d2_p7_wave2_tenant_rls/migration.sql"),
-    "utf8",
-  );
-  const wanted = ["DerivedClaimProjection", "DerivedClaimCandidate", "DerivedClaimEvidenceLink"];
+  // `prisma db push` builds the lab from schema.prisma, which carries tables and indexes but NOT
+  // policies, and not an expression index written in raw SQL. Both live only in the migrations — so
+  // both are replayed from the shipped migrations here, and a lab that drifts from what was shipped
+  // fails rather than quietly proving something easier.
+  const files = [
+    "prisma/migrations/20260825150000_d2_p7_wave2_tenant_rls/migration.sql",
+    "prisma/migrations/20260923100000_m2_knowledge_measure/migration.sql",
+  ];
+  const wanted = [
+    "DerivedClaimProjection",
+    "DerivedClaimCandidate",
+    "DerivedClaimEvidenceLink",
+    "KnowledgeMeasure",
+    "KnowledgeMeasureEvidenceLink",
+  ];
   const out: string[] = [];
-  // Statements are `;`-terminated; keep the ones naming a table we care about.
-  for (const raw of sql.split(";")) {
-    const stmt = raw.trim();
-    if (!stmt) continue;
-    if (!/ROW LEVEL SECURITY|CREATE POLICY|DROP POLICY/.test(stmt)) continue;
-    if (wanted.some((t) => stmt.includes(`"${t}"`))) out.push(stmt);
+  for (const f of files) {
+    const sql = readFileSync(join(process.cwd(), f), "utf8");
+    // Statements are `;`-terminated; keep policy/RLS statements plus the COALESCE slot index, which is
+    // what makes "re-derive replaces" true for a business-level measure whose subject columns are null.
+    for (const raw of sql.split(";")) {
+      const stmt = raw.trim();
+      if (!stmt) continue;
+      const isPolicy = /ROW LEVEL SECURITY|CREATE POLICY|DROP POLICY/.test(stmt);
+      const isSlotIndex = /CREATE UNIQUE INDEX "KnowledgeMeasure_slot_key"/.test(stmt);
+      if (!isPolicy && !isSlotIndex) continue;
+      if (isSlotIndex || wanted.some((t) => stmt.includes(`"${t}"`))) out.push(stmt);
+    }
   }
   return out;
 }
@@ -100,8 +116,10 @@ async function main(): Promise<void> {
   );
 
   const policies = policyStatementsFromMigration();
-  check("shipped migration still carries the DerivedClaim* tenant policies", policies.length >= 9,
+  check("shipped migrations still carry the knowledge tenant policies", policies.length >= 15,
     `found ${policies.length} statements`);
+  check("…including KnowledgeMeasure", policies.some((s) => s.includes('"KnowledgeMeasure"')));
+  check("…and the COALESCE slot index", policies.some((s) => s.includes("KnowledgeMeasure_slot_key")));
   for (const stmt of policies) await owner.$executeRawUnsafe(stmt);
 
   // Production grants, as QUERIED from the production catalog on 2026-09-22 — not as the repo's
@@ -326,6 +344,107 @@ async function main(): Promise<void> {
     loudFailure = true;
   }
   check("a context-less fact read throws instead of returning an empty world", loudFailure);
+
+  section("M2 — the first real MEASURE, and the silence next to it");
+
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON "KnowledgeMeasure", "KnowledgeMeasureEvidenceLink", "FinancialRecord" TO ${RT_ROLE}`,
+  );
+  await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT_ROLE}`);
+
+  // Tenant A files paperwork with a growing lag; tenant B has filed only twice. The asymmetry is the
+  // point: one business gets an answer, the other gets an explained silence, from the same rule.
+  const seedRecord = async (businessId: number, approvedDaysAgo: number, lagDays: number, n: number) => {
+    const approvedAt = new Date(Date.now() - approvedDaysAgo * 86_400_000);
+    const doc = await owner.document.create({
+      data: { businessId, fileUrl: `s3://m0/fr-${NONCE}-${n}`, source: "upload", mimeType: "application/pdf", status: "approved" },
+    });
+    await owner.financialRecord.create({
+      data: {
+        documentId: doc.id, businessId, amount: 100 + n, date: new Date(approvedAt.getTime() - lagDays * 86_400_000),
+        vendorName: "ACME SUPPLIES", direction: "expense", category: "office", approvedAt,
+      },
+    });
+  };
+  // Older half: filed within ~2 days. Recent half: ~12 days. A real, explainable deterioration.
+  const lagsA = [[170, 2], [160, 3], [150, 2], [20, 12], [12, 13], [5, 11]];
+  for (let i = 0; i < lagsA.length; i++) await seedRecord(bizA.id, lagsA[i][0], lagsA[i][1], i);
+  await seedRecord(bizB.id, 30, 4, 100);
+  await seedRecord(bizB.id, 20, 5, 101);
+
+  const { derivePaperworkLagForBusiness, MEASURE_KEY } = await import("@/lib/knowledge/paperwork-lag.service");
+
+  const mA = await derivePaperworkLagForBusiness(bizA.id);
+  check("tenant A's measure was derived and written", mA.kind === "written",
+    mA.kind === "failed" ? `stage=${mA.stage} ${mA.detail}` : "");
+  check("tenant A's measure is ACTIVE", mA.kind === "written" && mA.result.status === "ACTIVE");
+  check("tenant A's measure carries a real number of days",
+    mA.kind === "written" && typeof mA.result.valueNumeric === "number" && mA.result.valueNumeric! > 0,
+    mA.kind === "written" ? `value=${mA.result.valueNumeric}` : "");
+  check("tenant A's measure rests on all six observations",
+    mA.kind === "written" && mA.result.observationCount === 6,
+    mA.kind === "written" ? `n=${mA.result.observationCount}` : "");
+  check("tenant A's measure detected the deterioration",
+    mA.kind === "written" && mA.result.trend === "WORSENING",
+    mA.kind === "written" ? `trend=${mA.result.trend}` : "");
+
+  const mB = await derivePaperworkLagForBusiness(bizB.id);
+  check("tenant B, with two observations, is told nothing was learned",
+    mB.kind === "written" && mB.result.status === "INSUFFICIENT_EVIDENCE");
+  check("…and that silence carries NO number", mB.kind === "written" && mB.result.valueNumeric === null);
+  check("…and can explain itself (`have` vs `minSupport`)",
+    mB.kind === "written" && (mB.result.detail as { have: number })?.have === 2);
+
+  // The silence is PERSISTED, not skipped: an absent row is indistinguishable from a rule that never
+  // ran, and the difference is the whole answer to "why did Dubiz say nothing?".
+  const storedB = await owner.knowledgeMeasure.findFirst({ where: { businessId: bizB.id, measureKey: MEASURE_KEY } });
+  check("the refusal is stored, not skipped", storedB?.status === "INSUFFICIENT_EVIDENCE");
+
+  // Evidence links must point at real FinancialRecords of the SAME tenant.
+  const storedA = await owner.knowledgeMeasure.findFirst({
+    where: { businessId: bizA.id, measureKey: MEASURE_KEY },
+    include: { evidenceLinks: true },
+  });
+  check("the measure links its evidence", (storedA?.evidenceLinks.length ?? 0) === 6);
+  const linkedIds = (storedA?.evidenceLinks ?? []).map((l) => l.evidenceRecordId);
+  const realA = await owner.financialRecord.findMany({ where: { businessId: bizA.id }, select: { id: true } });
+  check("every evidence link points at a real record of THIS tenant",
+    linkedIds.every((id) => realA.some((r) => r.id === id)));
+  check("no evidence link belongs to another tenant",
+    (storedA?.evidenceLinks ?? []).every((l) => l.businessId === bizA.id));
+
+  section("M2 — cross-tenant invisibility of derived knowledge");
+  const seenByB = await ctx2({ businessId: bizB.id }, () =>
+    runtimePrisma.knowledgeMeasure.findMany({ where: { measureKey: MEASURE_KEY } }),
+  );
+  check("tenant B cannot see tenant A's measure", seenByB.every((m) => m.businessId === bizB.id),
+    `ids=${seenByB.map((m) => m.businessId).join(",")}`);
+
+  section("M2 — DETERMINISTIC REBUILD");
+  const before2 = await owner.knowledgeMeasure.findFirst({ where: { businessId: bizA.id, measureKey: MEASURE_KEY } });
+  // Destroy every derived measure for this tenant, then rebuild from canonical evidence alone.
+  await owner.knowledgeMeasure.deleteMany({ where: { businessId: bizA.id } });
+  const gone = await owner.knowledgeMeasure.count({ where: { businessId: bizA.id } });
+  check("all derived knowledge for the tenant was dropped", gone === 0);
+
+  const rebuilt = await derivePaperworkLagForBusiness(bizA.id);
+  const after2 = await owner.knowledgeMeasure.findFirst({ where: { businessId: bizA.id, measureKey: MEASURE_KEY } });
+  check("the measure rebuilt from evidence alone", rebuilt.kind === "written");
+  check("the rebuilt fingerprint is identical",
+    !!before2 && !!after2 && before2.evidenceFingerprint === after2.evidenceFingerprint,
+    `${before2?.evidenceFingerprint} vs ${after2?.evidenceFingerprint}`);
+  check("the rebuilt value is identical",
+    !!before2 && !!after2 && String(before2.valueNumeric) === String(after2.valueNumeric),
+    `${before2?.valueNumeric} vs ${after2?.valueNumeric}`);
+  check("the rebuilt observation count is identical",
+    before2?.observationCount === after2?.observationCount);
+
+  // Re-deriving REPLACES rather than accumulates — the COALESCE slot index is what makes that true for
+  // a business-level measure, whose entityType/entityId are null.
+  await derivePaperworkLagForBusiness(bizA.id);
+  await derivePaperworkLagForBusiness(bizA.id);
+  const slotCount = await owner.knowledgeMeasure.count({ where: { businessId: bizA.id, measureKey: MEASURE_KEY } });
+  check("re-deriving replaces the slot instead of accumulating rows", slotCount === 1, `rows=${slotCount}`);
 
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) {
