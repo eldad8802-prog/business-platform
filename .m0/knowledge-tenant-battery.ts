@@ -95,7 +95,20 @@ function policyStatementsFromMigration(): string[] {
   ];
   const out: string[] = [];
   for (const f of files) {
-    const sql = readFileSync(join(process.cwd(), f), "utf8");
+    // Strip `--` comments BEFORE splitting on `;`.
+    //
+    // Not tidiness. A semicolon inside a comment — "…about one business's behaviour; there is no
+    // reading of it that is safe to share." — splits the file mid-sentence, and the prose after it is
+    // then handed to Postgres as a statement. That failed in CI with `syntax error at or near "there"`,
+    // which is a confusing way to be told that an English sentence was executed as SQL.
+    // CRLF is normalised FIRST. In JavaScript `.` does not match `\r` (it is a line terminator), so on
+    // a CRLF file `--.*$` matches nothing at all and every comment survives — which is how a stray
+    // semicolon in prose reached Postgres in the first place.
+    const sql = readFileSync(join(process.cwd(), f), "utf8")
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map((line) => line.replace(/--.*$/, ""))
+      .join("\n");
     // Statements are `;`-terminated; keep policy/RLS statements plus the COALESCE slot index, which is
     // what makes "re-derive replaces" true for a business-level measure whose subject columns are null.
     for (const raw of sql.split(";")) {
@@ -106,6 +119,19 @@ function policyStatementsFromMigration(): string[] {
       if (!isPolicy && !isSlotIndex) continue;
       if (isSlotIndex || wanted.some((t) => stmt.includes(`"${t}"`))) out.push(stmt);
     }
+  }
+
+  // Every replayed fragment must actually LOOK like the statement it claims to be.
+  //
+  // Without this the splitter fails silently in the worst direction: a malformed fragment reaches
+  // Postgres, the error names a word from an English sentence, and the real cause — a semicolon in a
+  // comment — is nowhere in the message. Better to refuse to start than to debug that twice.
+  const malformed = out.filter((s) => !/^(ALTER TABLE|DROP POLICY|CREATE POLICY|CREATE UNIQUE INDEX)/.test(s));
+  if (malformed.length > 0) {
+    throw new Error(
+      `migration replay produced ${malformed.length} fragment(s) that are not SQL statements — ` +
+        `the splitter is wrong, not the migration. First: ${JSON.stringify(malformed[0].slice(0, 120))}`,
+    );
   }
   return out;
 }
