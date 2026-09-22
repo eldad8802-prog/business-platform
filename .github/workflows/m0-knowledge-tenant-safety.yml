@@ -118,5 +118,8 @@ jobs:
       - name: M2 DOC-04 rule contracts (pure)
         run: npx tsx lib/knowledge/rules/documents-paperwork-lag.test.ts
 
-      - name: M0+M1 tenant-isolation battery (real DB, NOBYPASSRLS role)
+      - name: M3 insight composer contracts (pure)
+        run: npx tsx lib/knowledge/insight-composer.test.ts
+
+      - name: M0-M3 knowledge battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/knowledge-tenant-battery.ts

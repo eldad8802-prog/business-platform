@@ -230,6 +230,7 @@ model Business {
   derivedClaimEvidenceLinks     DerivedClaimEvidenceLink[]
   knowledgeMeasures             KnowledgeMeasure[]
   knowledgeMeasureEvidenceLinks KnowledgeMeasureEvidenceLink[]
+  businessInsights              BusinessInsight[]
   paymentConnections            BusinessPaymentConnection[]
   paymentRequests               PaymentRequest[]
   businessObligations           BusinessObligation[]
@@ -5136,4 +5137,71 @@ enum KnowledgeTrend {
   IMPROVING
   STABLE
   WORSENING
+}
+
+/// M3 · A Dubiz Insight — what the system noticed, why it matters, and what the owner decided.
+///
+/// WHY NOT `BusinessBotLearningSuggestion`
+/// The plan said to reuse it if it fit. It does not. It is keyed on `botId`, carries no `businessId`,
+/// and exactly ONE of thirty businesses in Production has a bot — so twenty-nine could never receive an
+/// insight through it. It also means something else: the bot proposing a change to ITSELF. An insight
+/// about an overdue supplier payment is not a bot-settings proposal, and forcing the two together would
+/// have made the tenancy indirect through a row that mostly does not exist.
+///
+/// WHAT IT MUST BE ABLE TO ANSWER
+/// "Why is Dubiz telling me this?" — answerable from the row alone. `factLines` are things that are
+/// TRUE, each pointing at the fact or measure it came from. `interpretation` is what Dubiz makes of
+/// them, kept structurally separate so the two can never be read as the same kind of statement.
+/// `contributingRules` names every rule and version that participated. There is no confidence score:
+/// uncertainty is stated in words or not at all, because a number here would be decoration.
+///
+/// The insight is a SNAPSHOT of what was shown. It is not recomputed, because the owner's decision has
+/// to remain attached to the thing they actually saw — that is the whole basis of outcome learning later.
+model BusinessInsight {
+  id         Int    @id @default(autoincrement())
+  businessId Int
+  /// Governed identity of the composition, e.g. "payables.pressure_with_paperwork_backlog".
+  insightKey String
+  /// One LIVE insight per (business, dedupeKey). Re-running the composer refreshes rather than repeats;
+  /// an owner who dismissed something must not be shown it again tomorrow by a fresh row.
+  dedupeKey  String
+
+  severity String
+  title    String
+
+  /// Statements that are TRUE, each with the artifact it came from. Never interpretation.
+  factLines Json
+  /// What Dubiz makes of the facts. Null when the composition is purely factual — which is the honest
+  /// state for most early insights, and saying nothing is better than manufacturing a narrative.
+  interpretation String?
+  /// What we are NOT sure of, in words. Deliberately not a score.
+  uncertainty    String?
+  /// Every rule/artifact that participated: [{ ruleId, ruleVersion, artifactKind, artifactRef }].
+  contributingRules Json
+  /// What the owner could do. Suggestions, never actions taken on their behalf.
+  suggestedActions  Json?
+
+  status              InsightStatus @default(OPEN)
+  ownerDecisionAt     DateTime?
+  ownerDecisionByUserId Int?
+  /// Free-text reason when the owner dismisses. The WHY that most of this codebase does not capture.
+  ownerDecisionNote   String?
+
+  generatedAt      DateTime @default(now())
+  /// Version of the composer that produced this, so a later change is attributable.
+  composerVersion  String
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, dedupeKey])
+  @@index([businessId, status])
+}
+
+/// OPEN until the owner says otherwise. ADOPTED and DISMISSED are both DECISIONS and both durable —
+/// a dismissal is as much a signal as an adoption, and a system that only records agreement learns
+/// only half of what the owner is telling it.
+enum InsightStatus {
+  OPEN
+  ADOPTED
+  DISMISSED
 }

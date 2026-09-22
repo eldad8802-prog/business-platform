@@ -83,6 +83,7 @@ function policyStatementsFromMigration(): string[] {
   const files = [
     "prisma/migrations/20260825150000_d2_p7_wave2_tenant_rls/migration.sql",
     "prisma/migrations/20260923100000_m2_knowledge_measure/migration.sql",
+    "prisma/migrations/20260923110000_m3_business_insight/migration.sql",
   ];
   const wanted = [
     "DerivedClaimProjection",
@@ -90,6 +91,7 @@ function policyStatementsFromMigration(): string[] {
     "DerivedClaimEvidenceLink",
     "KnowledgeMeasure",
     "KnowledgeMeasureEvidenceLink",
+    "BusinessInsight",
   ];
   const out: string[] = [];
   for (const f of files) {
@@ -445,6 +447,99 @@ async function main(): Promise<void> {
   await derivePaperworkLagForBusiness(bizA.id);
   const slotCount = await owner.knowledgeMeasure.count({ where: { businessId: bizA.id, measureKey: MEASURE_KEY } });
   check("re-deriving replaces the slot instead of accumulating rows", slotCount === 1, `rows=${slotCount}`);
+
+  section("M3 — the first cross-domain Dubiz Insight, and the owner's decision");
+
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON "BusinessInsight", "InventoryAlert", "SupplierPurchaseDraft", "Lead", "Conversation", "ReplySuggestion", "BillingDocument" TO ${RT_ROLE}`,
+  );
+  await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT_ROLE}`);
+
+  // Tenant A already has: overdue + upcoming payables (M1 seed) and an ACTIVE paperwork-lag measure
+  // (M2). It needs documents awaiting review so the composition spans two domains.
+  for (let i = 0; i < 2; i++) {
+    await owner.document.create({
+      data: { businessId: bizA.id, fileUrl: `s3://m0/nr-${NONCE}-${i}`, source: "upload",
+        mimeType: "application/pdf", status: "needs_review" },
+    });
+  }
+
+  const { generateInsightsForBusiness, recordOwnerDecision, listOpenInsights } =
+    await import("@/lib/knowledge/insight.service");
+
+  const gen = await generateInsightsForBusiness(bizA.id);
+  check("an insight was generated for tenant A", gen.length === 1, `n=${gen.length}`);
+  check("…and it is the cross-domain composition",
+    gen[0]?.insightKey === "payables.pressure_with_paperwork_backlog");
+
+  const openA = await listOpenInsights(bizA.id);
+  const ins = openA[0];
+  check("the insight is OPEN and awaiting the owner", ins?.status === "OPEN");
+  check("it belongs to tenant A", ins?.businessId === bizA.id);
+
+  const lines = ins?.factLines as { text: string; sourceKind: string; sourceRef: string }[];
+  check("it states facts from BOTH domains",
+    lines.some((l) => /תשלומים/.test(l.text)) && lines.some((l) => /מסמכים/.test(l.text)));
+  check("every fact line points at the artifact it came from", lines.every((l) => l.sourceRef.length > 0));
+  check("it consumed the ACTIVE measure", lines.some((l) => l.sourceKind === "measure"));
+  check("…and cites it by artifact id",
+    lines.some((l) => l.sourceRef.startsWith("knowledge-measure:")));
+
+  const cites = ins?.contributingRules as { ruleId: string; ruleVersion: string }[];
+  check("DOC-04 is credited with its rule version",
+    cites.some((r) => r.ruleId === "DOC-04" && r.ruleVersion.length > 0));
+  check("interpretation is stored SEPARATELY from the facts", typeof ins?.interpretation === "string");
+  check("uncertainty is stated in words, not as a score",
+    typeof ins?.uncertainty === "string" && !/\d+%/.test(ins!.uncertainty!));
+
+  // Tenant B has payables and documents too, but its measure is INSUFFICIENT_EVIDENCE — the insight
+  // must still compose from facts, and must NOT quote a number it does not have.
+  await owner.document.create({
+    data: { businessId: bizB.id, fileUrl: `s3://m0/nrb-${NONCE}`, source: "upload",
+      mimeType: "application/pdf", status: "needs_review" },
+  });
+  const genB = await generateInsightsForBusiness(bizB.id);
+  check("tenant B also gets an insight from its own facts", genB.length === 1);
+  const insB = (await listOpenInsights(bizB.id))[0];
+  check("tenant B's insight quotes NO habit (its measure is insufficient)",
+    (insB?.factLines as { sourceKind: string }[]).every((l) => l.sourceKind !== "measure"));
+  check("…and offers no interpretation it cannot support", insB?.interpretation === null);
+
+  section("M3 — insights are tenant-private");
+  const insightsSeenByB = await ctx2({ businessId: bizB.id }, () =>
+    runtimePrisma.businessInsight.findMany({}),
+  );
+  check("tenant B cannot see tenant A's insight",
+    insightsSeenByB.every((i) => i.businessId === bizB.id),
+    `ids=${insightsSeenByB.map((i) => i.businessId).join(",")}`);
+
+  section("M3 — THE OWNER DECISION LOOP");
+  const actor = await owner.user.create({
+    data: { email: `m0-${NONCE}@example.test`, password: "x", businessId: bizA.id },
+  });
+  const decided = await recordOwnerDecision(bizA.id, ins!.id, "DISMISSED", actor.id, "כבר טיפלתי בזה");
+  check("the owner's decision was recorded", decided.ok === true, decided.reason);
+
+  const after = await owner.businessInsight.findUnique({ where: { id: ins!.id } });
+  check("the decision is DURABLE", after?.status === "DISMISSED");
+  check("the ACTOR is known", after?.ownerDecisionByUserId === actor.id);
+  check("the decision is timestamped", after?.ownerDecisionAt instanceof Date);
+  check("the owner's REASON was captured", after?.ownerDecisionNote === "כבר טיפלתי בזה");
+
+  // Regenerating must not resurrect a decided insight — the owner said no, and tomorrow is not a
+  // fresh chance to ask again.
+  await generateInsightsForBusiness(bizA.id);
+  const afterRegen = await owner.businessInsight.findUnique({ where: { id: ins!.id } });
+  check("regenerating does NOT reopen a dismissed insight", afterRegen?.status === "DISMISSED");
+  check("…and does not erase who decided it", afterRegen?.ownerDecisionByUserId === actor.id);
+  const countA = await owner.businessInsight.count({ where: { businessId: bizA.id } });
+  check("regenerating refreshes one row instead of breeding new ones", countA === 1, `rows=${countA}`);
+
+  // A decision aimed at another tenant's insight must not land.
+  const crossDecision = await recordOwnerDecision(bizB.id, ins!.id, "ADOPTED", actor.id);
+  check("a decision cannot be written onto another tenant's insight", crossDecision.ok === false);
+  const untouched = await owner.businessInsight.findUnique({ where: { id: ins!.id } });
+  check("…and that insight is unchanged", untouched?.status === "DISMISSED");
 
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) {
