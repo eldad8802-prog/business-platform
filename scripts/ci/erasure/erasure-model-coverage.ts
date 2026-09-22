@@ -328,6 +328,14 @@ const OPERATIONAL: Record<string, ModelCoverage> = {
   PaymentProviderRouting: operational("which provider a business routes to"),
   NotificationDelivery: operational("delivery bookkeeping for one notification"),
   ImportRunRow: operational("per-row import status and hashes"),
+  KnowledgeMeasure: operational(
+    "a number, an observation count and a window describing the OWNER's own behaviour — " +
+      "today only paperwork lag, which is business-level and names nobody. It cascades with " +
+      "Business. See the DECIDE entry if a future measure ever carries entityType/entityId."
+  ),
+  KnowledgeMeasureEvidenceLink: operational(
+    "identity bookkeeping only: which evidence rows a measure was computed from. No payload, by contract."
+  ),
   DerivedClaimCandidate: operational("candidate bookkeeping in the inert claim substrate"),
   DerivedClaimEvidenceLink: operational("link rows in the inert claim substrate"),
 
@@ -467,6 +475,12 @@ const DECIDE: Record<string, ModelCoverage> = {
   ReviewEvent: decide("rawBelief and rawFinal are decision blobs over document content"),
   PartyResolutionClaim: decide("subjectType/subjectId point at a Customer or Supplier; the claim itself is a link"),
   DerivedClaimProjection: decide("subjectNormalizedKey may encode a counterparty name"),
+  BusinessInsight: decide(
+    "factLines and interpretation are free text by type. The one composer that exists today writes " +
+      "counts and names nobody, so nothing personal is stored yet — but the type permits it, and the " +
+      "next composition that quotes a payee would make this personal without changing the schema. " +
+      "Decide whether insights are erased with the account or rebuilt from evidence after it."
+  ),
   ImportRun: decide("sheetName and the content hashes describe an uploaded file"),
   PaymentWebhookEvent: decide(
     "a raw provider webhook `payload` with NO businessId. The erasure is tenant-scoped, so it " +

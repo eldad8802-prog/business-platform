@@ -12,7 +12,7 @@ export function CorporateFooter() {
       <CorporateContainer className="py-10">
         <div className="flex flex-col gap-8 sm:flex-row sm:justify-between">
           <div>
-            <div className="flex items-center gap-2 text-lg font-extrabold text-[var(--dz-text-primary)]">
+            <div className="flex items-center gap-2 text-[var(--dz-text-primary)]">
               <Image
                 src="/dubiz-logo.png"
                 alt="Dubiz"

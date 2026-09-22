@@ -1,29 +1,53 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { CorporateContainer } from "./CorporateContainer";
 import { CorporateNav } from "./CorporateNav";
-import { PrimaryCta } from "@/components/ui/primary-cta";
+import { MenuIcon, CloseIcon } from "./corporate-icons";
+import { GhostCta } from "@/components/ui/primary-cta";
+import { useAccessibleDialog } from "@/components/ui/accessibility";
 
 /**
- * Corporate header: sticky top bar with brand, nav, and a single login CTA.
+ * Corporate header: sticky top bar with brand, nav, and the existing-user login.
  * On mobile the nav collapses into a toggleable drawer.
  *
- * Note: the "כניסה למערכת" CTA is a one-way outbound link to the existing
- * /login route. It does not modify login or auth in any way.
+ * Two deliberate properties:
+ *
+ * 1. The login is a `GhostCta`, NOT a `PrimaryCta`. It used to render the filled
+ *    teal primary skin, which put two visually identical primary buttons in the
+ *    same viewport as the page's own CTA — pointing at different destinations.
+ *    Exactly one saturated action is visible per screen; this is not it.
+ *
+ * 2. The drawer is a real dialog. It was previously a plain conditional div: no
+ *    Escape, no focus trap, no focus restore — a keyboard user who opened it kept
+ *    tabbing straight into the page behind it. `useAccessibleDialog` supplies all
+ *    of that from the shared accessibility primitive rather than re-deriving it.
+ *
+ * The login remains a one-way outbound link to the existing /login route. It does
+ * not modify login or auth in any way.
  */
 export function CorporateHeader() {
   const [open, setOpen] = useState(false);
+
+  // Stable identity: useAccessibleDialog keys effects off `onClose`, so an inline
+  // arrow would re-run the focus/inert effects on every render.
+  const close = useCallback(() => setOpen(false), []);
+
+  const { dialogProps } = useAccessibleDialog<HTMLDivElement>({
+    open,
+    onClose: close,
+    ariaLabel: "תפריט ניווט",
+  });
 
   return (
     <header className="sticky top-0 z-50 border-b border-[var(--mkt-border)] bg-[var(--dz-surface-translucent)] backdrop-blur">
       <CorporateContainer className="flex h-16 items-center justify-between gap-3">
         <Link
           href="/home"
-          onClick={() => setOpen(false)}
-          className="flex items-center gap-2 text-lg font-extrabold text-[var(--dz-text-primary)]"
+          onClick={close}
+          className="flex min-h-[44px] items-center gap-2 text-[var(--dz-text-primary)]"
         >
           <Image
             src="/dubiz-logo.png"
@@ -37,30 +61,36 @@ export function CorporateHeader() {
 
         <div className="hidden items-center gap-2 sm:flex">
           <CorporateNav />
-          <PrimaryCta href="/login">כניסה למערכת</PrimaryCta>
+          <GhostCta href="/login">כניסה למערכת</GhostCta>
         </div>
 
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-2xl border border-[var(--mkt-border)] text-[var(--mkt-ink)] sm:hidden"
-          aria-label="תפריט"
+          aria-label={open ? "סגירת התפריט" : "תפריט"}
           aria-expanded={open}
+          aria-controls="corporate-mobile-nav"
         >
-          ☰
+          {open ? (
+            <CloseIcon className="h-5 w-5" />
+          ) : (
+            <MenuIcon className="h-5 w-5" />
+          )}
         </button>
       </CorporateContainer>
 
       {open ? (
-        <div className="border-t border-[var(--mkt-border)] dz-mist sm:hidden">
+        <div
+          {...dialogProps}
+          id="corporate-mobile-nav"
+          className="border-t border-[var(--mkt-border)] dz-mist sm:hidden"
+        >
           <CorporateContainer className="flex flex-col gap-3 py-4">
-            <CorporateNav
-              orientation="vertical"
-              onNavigate={() => setOpen(false)}
-            />
-            <PrimaryCta href="/login" block onClick={() => setOpen(false)}>
+            <CorporateNav orientation="vertical" onNavigate={close} />
+            <GhostCta href="/login" block onClick={close}>
               כניסה למערכת
-            </PrimaryCta>
+            </GhostCta>
           </CorporateContainer>
         </div>
       ) : null}

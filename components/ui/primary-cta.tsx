@@ -54,3 +54,38 @@ export function PrimaryCta(props: LinkCtaProps | ButtonCtaProps) {
     </button>
   );
 }
+
+/**
+ * GhostCta — the public SECONDARY action.
+ *
+ * Same contract as `PrimaryCta` (href → Link, no href → button), but it renders
+ * the `dz-btn-ghost` skin instead of the brand fill. Use it wherever an action is
+ * real but must not compete with the page's single primary — the header's
+ * existing-user login being the canonical case.
+ *
+ * Rule of thumb: at most one `PrimaryCta` is visible per screen; everything else
+ * that still needs to look like a control is a `GhostCta`.
+ */
+function ghostClasses(block?: boolean, extra?: string): string {
+  return ["dz-btn-ghost", block ? "dz-btn-ghost--block" : "", extra]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function GhostCta(props: LinkCtaProps | ButtonCtaProps) {
+  if (props.href !== undefined) {
+    const { href, children, block, className, ...rest } = props;
+    return (
+      <Link href={href} className={ghostClasses(block, className)} {...rest}>
+        {children}
+      </Link>
+    );
+  }
+
+  const { children, block, className, type, ...rest } = props;
+  return (
+    <button type={type ?? "button"} className={ghostClasses(block, className)} {...rest}>
+      {children}
+    </button>
+  );
+}
