@@ -40,6 +40,7 @@ const DEFAULTS = {
   sql: "ops/tenant/collection-qa-tenant.sql",
   verify: "ops/tenant/collection-qa-tenant-verify.sql",
   identity: "ops/tenant/collection-qa-tenant.identity.env",
+  workflow: ".github/workflows/prod-create-collection-qa-tenant.yml",
 };
 
 /**
@@ -271,6 +272,70 @@ function checkVerifySql(path) {
   );
 }
 
+// ------------------------------------------------------------------ caller --
+
+/**
+ * How the production workflow HANDS the variables to psql.
+ *
+ * This exists because of a real failure: the pre-flight step wrote its query as
+ * `psql -c "... = :'qa_email'"`. psql expands its variables only in input it
+ * READS — a file, or stdin — and forwards a -c string to the server verbatim,
+ * so the server received a literal colon and refused it. The run stopped at
+ * that step, which is the system working, but it stopped a production run over
+ * something a machine can see from here.
+ *
+ * The credential check is the same shape of claim: the hash must arrive on
+ * stdin, never as an argument, because arguments are visible in the process
+ * list of a machine this repository does not own.
+ */
+function checkWorkflow(path) {
+  const yaml = readFileSync(path, "utf8");
+
+  // Scanned to end of LINE, not to the closing quote: the query is likely to
+  // contain escaped quotes of its own (\"User\"), and a pattern that stops at
+  // the first one walks straight past the defect it is looking for.
+  const dashCWithVariable = [...yaml.matchAll(/-c\s+"[^\n]*:'/g)];
+  check(
+    "no psql -c carries a psql variable",
+    dashCWithVariable.length === 0,
+    "psql expands :'var' only in input it reads — use a piped \\set and -f -"
+  );
+
+  check(
+    "the credential is never passed as an argument",
+    !/--set=qa_password_hash|--body[= ]/.test(yaml),
+    "an argument is visible in the runner's process list"
+  );
+  check(
+    "the credential reaches psql through stdin",
+    /printf "\\\\set qa_password_hash/.test(yaml)
+  );
+
+  check(
+    "the production run is manual only",
+    /on:\s*\n\s*workflow_dispatch:/.test(yaml) && !/\bon:\s*\n\s*push:/.test(yaml)
+  );
+  check(
+    "the production run is gated on the protected environment",
+    /environment:\s*production-db/.test(yaml)
+  );
+  check(
+    "the production run asserts the verified host",
+    /ep-flat-brook-am4bhq1y/.test(yaml)
+  );
+  check(
+    "the production run takes no inputs",
+    !/\binputs:/.test(yaml),
+    "an input would make this a generic provisioning tool"
+  );
+  check(
+    "the production run calls this guard before connecting",
+    yaml.indexOf("collection-qa-tenant-guard.mjs") <
+      yaml.indexOf("psql"),
+    "the guard must run before any connection is opened"
+  );
+}
+
 // -------------------------------------------------------------------- main --
 
 function main() {
@@ -279,6 +344,7 @@ function main() {
     checkIdentity(args.identity);
     checkProvisioningSql(args.sql);
     checkVerifySql(args.verify);
+    checkWorkflow(args.workflow);
   } catch (error) {
     failures.push(`guard could not complete: ${error.message}`);
   }
