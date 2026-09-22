@@ -26,6 +26,7 @@ const GUARD = "scripts/ci/collection-qa-tenant-guard.mjs";
 const SQL = "ops/tenant/collection-qa-tenant.sql";
 const VERIFY = "ops/tenant/collection-qa-tenant-verify.sql";
 const IDENTITY = "ops/tenant/collection-qa-tenant.identity.env";
+const WORKFLOW = ".github/workflows/prod-create-collection-qa-tenant.yml";
 
 const FIXTURE_EMAIL = "collection-qa-sandbox@example.test";
 
@@ -33,6 +34,7 @@ const dir = mkdtempSync(join(tmpdir(), "qa-tenant-guard-"));
 const pristineSql = readFileSync(SQL, "utf8");
 const pristineVerify = readFileSync(VERIFY, "utf8");
 const pristineIdentity = readFileSync(IDENTITY, "utf8");
+const pristineWorkflow = readFileSync(WORKFLOW, "utf8");
 
 /** The identity file as it will look once the owner fixes the address. */
 const resolvedIdentity = pristineIdentity.replace(
@@ -43,18 +45,26 @@ const resolvedIdentity = pristineIdentity.replace(
 let failures = 0;
 let passed = 0;
 
-function runGuard({ sql, verify, identity }) {
+function runGuard({ sql, verify, identity, workflow }) {
   const sqlPath = join(dir, "provision.sql");
   const verifyPath = join(dir, "verify.sql");
   const identityPath = join(dir, "identity.env");
+  const workflowPath = join(dir, "workflow.yml");
   writeFileSync(sqlPath, sql);
   writeFileSync(verifyPath, verify);
   writeFileSync(identityPath, identity);
+  writeFileSync(workflowPath, workflow);
 
   try {
     const stdout = execFileSync(
       process.execPath,
-      [GUARD, "--sql", sqlPath, "--verify", verifyPath, "--identity", identityPath],
+      [
+        GUARD,
+        "--sql", sqlPath,
+        "--verify", verifyPath,
+        "--identity", identityPath,
+        "--workflow", workflowPath,
+      ],
       { encoding: "utf8" }
     );
     return { code: 0, stdout };
@@ -68,6 +78,7 @@ function mustRefuse(label, mutation) {
     sql: pristineSql,
     verify: pristineVerify,
     identity: resolvedIdentity,
+    workflow: pristineWorkflow,
     ...mutation,
   };
   const { code, stdout } = runGuard(input);
@@ -102,12 +113,14 @@ mustAccept("the repository's own files, unmodified", {
   sql: pristineSql,
   verify: pristineVerify,
   identity: pristineIdentity,
+  workflow: pristineWorkflow,
 });
 
 mustAccept("the approved provisioning SQL with a fixture address", {
   sql: pristineSql,
   verify: pristineVerify,
   identity: resolvedIdentity,
+  workflow: pristineWorkflow,
 });
 
 // 2. Widening the SQL to another kind of mutation.
@@ -234,7 +247,46 @@ mustRefuse("a login email pointed at a person's mailbox", {
   identity: resolvedIdentity.replace(FIXTURE_EMAIL, "eldad@example.com"),
 });
 
-// 9. The verification file must stay read-only and must never return the hash.
+// 9. How the workflow HANDS the variables to psql. These are not hypothetical:
+//    the first production run failed at the pre-flight step because it was
+//    written as `psql -c "... = :'qa_email'"`, and psql expands its variables
+//    only in input it reads. Nothing was written — the provisioning step never
+//    started — but a machine could have caught it here, so now it does.
+mustRefuse("a psql -c carrying a psql variable, as the failed run had", {
+  workflow: pristineWorkflow.replace(
+    /- name: Install psql client/,
+    () =>
+      `- name: Careless pre-flight\n        run: |\n          psql "$DIRECT_URL" -tAX -c "SELECT count(*) FROM \\"User\\" WHERE \\"email\\" = :'qa_email'"\n\n      - name: Install psql client`
+  ),
+});
+
+// A plain string, not a regex: the line being replaced is dense with
+// backslashes, and an escaping mistake here would leave the mutation unapplied
+// and the guard credited with a refusal it never made. (That is what happened
+// on the first attempt.)
+mustRefuse("the credential passed to psql as an argument", {
+  workflow: pristineWorkflow.replace(
+    'printf "\\\\set qa_password_hash',
+    () => '--set=qa_password_hash="$QA_PASSWORD_HASH" # printf "\\\\set unused'
+  ),
+});
+
+mustRefuse("the production-db environment gate removed", {
+  workflow: pristineWorkflow.replace(/environment: production-db/, () => "# ungated"),
+});
+
+mustRefuse("the host allowlist removed", {
+  workflow: pristineWorkflow.replace(/ep-flat-brook-am4bhq1y/g, () => "any-host"),
+});
+
+mustRefuse("an input added, making it a generic provisioning tool", {
+  workflow: pristineWorkflow.replace(
+    /  workflow_dispatch:/,
+    () => "  workflow_dispatch:\n    inputs:\n      email:\n        required: true"
+  ),
+});
+
+// 10. The verification file must stay read-only and must never return the hash.
 mustRefuse("a write added to the read-only verification file", {
   verify: pristineVerify.replace(
     /ROLLBACK;/,

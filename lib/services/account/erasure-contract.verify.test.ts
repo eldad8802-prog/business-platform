@@ -42,8 +42,10 @@ import ts from "typescript";
 import {
   ANONYMIZE_MODELS,
   DELETE_MODELS,
+  ERASURE_MANIFEST,
   RETAIN_MODELS,
   REVOKE_ENTRIES,
+  assertManifestSafe,
   revokesRow,
 } from "./account-erasure-manifest";
 import { COVERED_MODELS, DISPOSITIONS } from "./erasure-dispositions";
@@ -623,6 +625,76 @@ function main(): number {
       ts.forEachChild(node, visit);
     };
     visit(src);
+  }
+
+  // ── C24/C25 — the retention contract: two authorities, one answer ─────────
+  //
+  // Retention is declared twice, and it has to be: the REGISTRY decides whether a
+  // model is retained and on what basis, and is complete by construction (C8 fails on
+  // any model with no entry); the MANIFEST carries the operational projection the
+  // runtime guard reads, and must not import CI code to get it.
+  //
+  // Two declarations drift. This pair did: five payables/collection models were
+  // RETAINED_BY_DESIGN in the registry and absent from the manifest, and nothing
+  // noticed — `assertManifestSafe` was checking the manifest against the manifest's
+  // own incomplete list, so it approved a manifest it could not see past. Removing a
+  // retained model from RETAIN_MODELS failed nothing at all.
+  //
+  // THE AUTHORITY CHAIN, and why this is not circular:
+  //
+  //   schema    → every model must be classified                      (C8)
+  //   registry  → disposition + basis, per model                      (C11)
+  //   manifest  → the operational sets, and its retained projection
+  //   C24       → the two retained sets are EQUAL, in both directions   ← here
+  //   C25       → the manifest's own safety property, re-proved with the REGISTRY's
+  //               set substituted in, so a manifest that lost an entry cannot
+  //               certify itself
+  //
+  // C24 compares two independently written declarations. C25 asks the manifest's
+  // safety question using the OTHER source as the definition of "retained". Each has
+  // an input the other does not supply, so neither proves itself.
+  {
+    const registryRetained = new Map(
+      Object.entries(MODEL_COVERAGE)
+        .filter(([, c]) => c.disposition === "RETAINED_BY_DESIGN")
+        .map(([name, c]) => [delegateName(name), { name, basis: c.basis }])
+    );
+    const manifestRetained = new Set(RETAIN_MODELS as readonly string[]);
+
+    for (const [delegate, entry] of registryRetained) {
+      if (!manifestRetained.has(delegate)) {
+        report(
+          "C24-RETENTION-SET-MISMATCH",
+          entry.name,
+          `${entry.name} is RETAINED_BY_DESIGN in the registry (basis ${entry.basis}) and absent from ` +
+            `RETAIN_MODELS — the manifest's compliance guard cannot protect a model it does not list`
+        );
+      }
+    }
+    for (const delegate of manifestRetained) {
+      if (!registryRetained.has(delegate)) {
+        const model = byDelegate.get(delegate);
+        report(
+          "C24-RETENTION-SET-MISMATCH",
+          model?.name ?? delegate,
+          `RETAIN_MODELS carries "${delegate}", which the registry does not classify RETAINED_BY_DESIGN ` +
+            `(it says ${model ? MODEL_COVERAGE[model.name]?.disposition ?? "nothing" : "there is no such model"})`
+        );
+      }
+    }
+
+    // C25 — the same question the manifest asks itself, asked with the registry's
+    // retained set in place of its own. When the sets agree this is the same
+    // assertion; when they ever disagree, this is the one that still bites.
+    try {
+      assertManifestSafe({ ...ERASURE_MANIFEST, retain: [...registryRetained.keys()] });
+    } catch (e) {
+      report(
+        "C25-RETAINED-MODEL-IN-PURGE-SET",
+        "manifest",
+        `measured against the registry's retained set: ${String((e as Error).message)}`
+      );
+    }
   }
 
   // ── C19…C23 — S8: the objects, which are not the rows ─────────────────────
