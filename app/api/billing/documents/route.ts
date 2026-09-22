@@ -7,7 +7,6 @@ import {
 import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
 import { ValidationError } from "@/lib/errors";
-import { prisma } from "@/lib/prisma";
 import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 import {
   createBillingDraft,
@@ -94,17 +93,28 @@ export async function POST(req: NextRequest) {
     };
 
     if (documentTypeRaw === BillingDocumentType.TAX_INVOICE) {
-      const issuerProfile = await prisma.businessProfile.findUnique({
-        where: { businessId: user.businessId },
-        select: {
-          billingLegalName: true,
-          billingBusinessKind: true,
-          billingTaxId: true,
-          billingPhone: true,
-          billingEmail: true,
-          billingAddress: true,
-        },
-      });
+      // Read inside the tenant transaction, like every other read in this file.
+      //
+      // `BusinessProfile` is FORCE RLS. Without `app.current_business_id` the
+      // policy predicate matches zero rows, so the bare client returned null
+      // for EVERY tenant and this check refused every tax invoice with "יש
+      // להשלים את פרטי העסק" — including tenants whose identity was complete.
+      // It failed the way a read under RLS fails: not with an error, with
+      // nothing. Observed in Production on a tenant whose identity the profile
+      // endpoint had reported complete seconds earlier.
+      const issuerProfile = await billingTenantTx(user.businessId, (tx) =>
+        tx.businessProfile.findUnique({
+          where: { businessId: user.businessId },
+          select: {
+            billingLegalName: true,
+            billingBusinessKind: true,
+            billingTaxId: true,
+            billingPhone: true,
+            billingEmail: true,
+            billingAddress: true,
+          },
+        })
+      );
       assertBillingIdentityReadyForTaxInvoice(issuerProfile);
     }
 
