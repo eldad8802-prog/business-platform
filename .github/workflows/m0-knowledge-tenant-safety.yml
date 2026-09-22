@@ -15,6 +15,7 @@ on:
       - "lib/business-memory/**"
       - "lib/tenant/**"
       - "lib/services/documents/memory/**"
+      - "lib/business-status/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/**"
       - "scripts/ci/tenant-context-guard.sh"
@@ -109,5 +110,8 @@ jobs:
           done
           [ "$fail" -eq 0 ]
 
-      - name: M0 knowledge tenant-isolation battery (real DB, NOBYPASSRLS role)
+      - name: M1 L0 fact-layer contracts (pure)
+        run: npx tsx lib/business-status/translators/payables.test.ts
+
+      - name: M0+M1 tenant-isolation battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/knowledge-tenant-battery.ts

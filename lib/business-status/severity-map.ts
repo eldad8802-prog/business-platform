@@ -27,3 +27,23 @@ export function severityBillingPdfFailed(): Severity {
 export function severityBillingPendingReview(): Severity {
   return "MEDIUM";
 }
+
+/**
+ * M1 — payables.
+ *
+ * Severity rises with how late the money already is, because that is the only signal available at L0.
+ * It deliberately does NOT consider the amount: "large" is meaningless without a baseline for this
+ * business, and inventing one from the number alone would be the first cross-business judgement in the
+ * knowledge layer. Amount-awareness belongs to M4, once a per-business baseline exists.
+ */
+export function severityPayablesOverdue(daysLate: number): Severity {
+  if (daysLate >= 30) return "CRITICAL";
+  if (daysLate >= 7) return "HIGH";
+  return "MEDIUM";
+}
+
+/** Nothing is wrong yet, so this never reaches CRITICAL — it only gets closer. */
+export function severityPayablesDueSoon(daysUntil: number): Severity {
+  if (daysUntil <= 3) return "MEDIUM";
+  return "LOW";
+}

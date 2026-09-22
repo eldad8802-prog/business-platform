@@ -51,6 +51,9 @@ import {
   BS_LEADS_CAP,
   BS_OPEN_CONVERSATION_SCAN_CAP,
   BS_SUPPLIER_CAP,
+  BS_PAYABLES_OVERDUE_CAP,
+  BS_PAYABLES_DUE_SOON_CAP,
+  BS_PAYABLES_DUE_SOON_DAYS,
 } from "./limits";
 
 const SNIPPET_MAX = 140;
@@ -421,7 +424,7 @@ export async function loadDocumentsNeedsReview(
 export async function loadInventoryAlertsUnresolved(
   businessId: number
 ): Promise<InventoryAlertRaw[]> {
-  const alerts = await prisma.inventoryAlert.findMany({
+  const alerts = await dbStep((db) => db.inventoryAlert.findMany({
     where: {
       businessId,
       isResolved: false,
@@ -438,7 +441,7 @@ export async function loadInventoryAlertsUnresolved(
         select: { name: true },
       },
     },
-  });
+  }));
 
   return alerts.map((a) => ({
     id: a.id,
@@ -500,7 +503,7 @@ export async function loadLeadsNeedingAttention(
   businessId: number,
   now: Date
 ): Promise<LeadAttentionRaw[]> {
-  return prisma.lead.findMany({
+  return dbStep((db) => db.lead.findMany({
     where: {
       businessId,
       status: { in: [...OPEN_LEAD_STATUSES] },
@@ -523,13 +526,13 @@ export async function loadLeadsNeedingAttention(
       followUpNote: true,
       createdAt: true,
     },
-  });
+  }));
 }
 
 export async function loadSupplierPurchasesPending(
   businessId: number
 ): Promise<SupplierDraftRaw[]> {
-  const drafts = await prisma.supplierPurchaseDraft.findMany({
+  const drafts = await dbStep((db) => db.supplierPurchaseDraft.findMany({
     where: {
       businessId,
       status: SupplierPurchaseDraftStatus.PENDING_REVIEW,
@@ -543,7 +546,7 @@ export async function loadSupplierPurchasesPending(
       externalOrderId: true,
       _count: { select: { lines: true } },
     },
-  });
+  }));
 
   return drafts.map((d) => ({
     id: d.id,
@@ -552,4 +555,108 @@ export async function loadSupplierPurchasesPending(
     externalOrderId: d.externalOrderId,
     lineCount: d._count.lines,
   }));
+}
+
+// ── M1 · Payables (money leaving the business) ──────────────────────────────
+//
+// Two L0 facts, and deliberately only two. A commitment that is late and one that is about to fall due
+// are things the owner can act on TODAY, from data that already exists — no history, no baseline, no
+// minimum support. They are facts, not learning, and the distinction is kept on purpose: the knowledge
+// layer earns trust by being right about simple things before it is allowed to claim patterns.
+//
+// "Unpaid" is derived, never stored. `Installment.status` carries assertions only (SCHEDULED /
+// CANCELLED / SETTLED_LEGACY); PAID and OVERDUE are computed from allocations and `dueAt`, exactly as
+// the schema requires. An allocation counts only when it is not reversed AND its payment is RECORDED —
+// a voided payment must not make a debt disappear.
+
+export type PayableInstallmentRaw = {
+  id: number;
+  dueAt: Date;
+  scheduledAmount: Prisma.Decimal;
+  currency: string;
+  commitmentId: number;
+  commitmentTitle: string;
+  payeeName: string | null;
+  allocatedAmount: number;
+};
+
+/** The unpaid-installment shape shared by both facts. `settled` rows are excluded in SQL, not in JS. */
+function unpaidInstallmentWhere(businessId: number) {
+  return {
+    businessId,
+    status: "SCHEDULED" as const,
+    // SETTLED_LEGACY is migration-only and contributes nothing to real allocations; SCHEDULED is the
+    // only status an API can produce, so pinning it keeps pre-ledger assertions out of the count.
+  };
+}
+
+const PAYABLE_SELECT = {
+  id: true,
+  dueAt: true,
+  scheduledAmount: true,
+  currency: true,
+  commitmentId: true,
+  commitment: { select: { title: true, payeeNameSnapshot: true } },
+  allocations: {
+    where: { reversedAt: null, payment: { status: "RECORDED" as const } },
+    select: { allocatedAmount: true },
+  },
+} as const;
+
+type PayableRow = {
+  id: number;
+  dueAt: Date;
+  scheduledAmount: Prisma.Decimal;
+  currency: string;
+  commitmentId: number;
+  commitment: { title: string; payeeNameSnapshot: string | null };
+  allocations: { allocatedAmount: Prisma.Decimal }[];
+};
+
+function toPayableRaw(rows: PayableRow[]): PayableInstallmentRaw[] {
+  return rows
+    .map((r) => {
+      const allocated = r.allocations.reduce((sum, a) => sum + Number(a.allocatedAmount), 0);
+      return {
+        id: r.id,
+        dueAt: r.dueAt,
+        scheduledAmount: r.scheduledAmount,
+        currency: r.currency,
+        commitmentId: r.commitmentId,
+        commitmentTitle: r.commitment.title,
+        payeeName: r.commitment.payeeNameSnapshot,
+        allocatedAmount: allocated,
+      };
+    })
+    // Fully-allocated installments are settled and are not a fact about anything.
+    .filter((r) => r.allocatedAmount + 0.009 < Number(r.scheduledAmount));
+}
+
+/** Past their due date and still not fully covered by an active allocation. */
+export async function loadPayablesOverdue(
+  businessId: number,
+  now: Date
+): Promise<PayableInstallmentRaw[]> {
+  const rows = await dbStep((db) => db.installment.findMany({
+    where: { ...unpaidInstallmentWhere(businessId), dueAt: { lt: now } },
+    orderBy: [{ dueAt: "asc" }, { id: "asc" }],
+    take: BS_PAYABLES_OVERDUE_CAP,
+    select: PAYABLE_SELECT,
+  })) as PayableRow[];
+  return toPayableRaw(rows);
+}
+
+/** Falling due inside the look-ahead window. Not late yet — which is the point. */
+export async function loadPayablesDueSoon(
+  businessId: number,
+  now: Date
+): Promise<PayableInstallmentRaw[]> {
+  const horizon = new Date(now.getTime() + BS_PAYABLES_DUE_SOON_DAYS * 24 * 60 * 60 * 1000);
+  const rows = await dbStep((db) => db.installment.findMany({
+    where: { ...unpaidInstallmentWhere(businessId), dueAt: { gte: now, lte: horizon } },
+    orderBy: [{ dueAt: "asc" }, { id: "asc" }],
+    take: BS_PAYABLES_DUE_SOON_CAP,
+    select: PAYABLE_SELECT,
+  })) as PayableRow[];
+  return toPayableRaw(rows);
 }

@@ -249,6 +249,84 @@ async function main(): Promise<void> {
     hitA.status === "supported",
   );
 
+  section("M1 — the L0 fact layer is tenant-scoped, and equals a direct query");
+
+  // Three of the Business Status loaders read through the global client until M1: inventory alerts,
+  // leads and supplier drafts. Under this exact role that returned zero rows behind a green 200, so the
+  // owner's Attention list silently dropped three domains. This proves the facts now arrive AND belong
+  // to the right tenant — the two halves of "correct" that a silent empty satisfies neither of.
+  await owner.$executeRawUnsafe(
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON "Installment", "Commitment", "PaymentAllocation", "Payment", "Payee" TO ${RT_ROLE}`,
+  );
+
+  const seedPayable = async (businessId: number, dueAt: Date, amount: string) => {
+    const c = await owner.commitment.create({
+      data: {
+        businessId, title: `M0 rent ${NONCE}`, payeeNameSnapshot: `Landlord ${businessId}`,
+        currency: "ILS", scheduleKind: "ONE_OFF", status: "ACTIVE", startAt: new Date(),
+      },
+    });
+    await owner.installment.create({
+      data: { businessId, commitmentId: c.id, sequence: 1, scheduledAmount: amount, currency: "ILS", dueAt, status: "SCHEDULED" },
+    });
+  };
+  const past = new Date(Date.now() - 10 * 86_400_000);
+  const soon = new Date(Date.now() + 3 * 86_400_000);
+  await seedPayable(bizA.id, past, "5000");
+  await seedPayable(bizA.id, soon, "1200");
+  await seedPayable(bizB.id, past, "9999");
+
+  const { runWithTenantContext: ctx2 } = await import("@/lib/tenant/context");
+  const { loadPayablesOverdue, loadPayablesDueSoon } = await import("@/lib/business-status/loaders");
+
+  const overdueA = await ctx2({ businessId: bizA.id }, () => loadPayablesOverdue(bizA.id, new Date()));
+  const dueSoonA = await ctx2({ businessId: bizA.id }, () => loadPayablesDueSoon(bizA.id, new Date()));
+  const overdueB = await ctx2({ businessId: bizB.id }, () => loadPayablesOverdue(bizB.id, new Date()));
+
+  check("tenant A sees its own overdue installment", overdueA.length === 1, `n=${overdueA.length}`);
+  check("tenant A's overdue amount is A's, not B's", Number(overdueA[0]?.scheduledAmount) === 5000);
+  check("tenant A sees its own upcoming installment", dueSoonA.length === 1, `n=${dueSoonA.length}`);
+  check("an upcoming payment is NOT reported as overdue", overdueA.every((r) => r.dueAt < new Date()));
+  check("tenant B sees only its own", overdueB.length === 1 && Number(overdueB[0]?.scheduledAmount) === 9999);
+
+  // Direct-query equivalence: the fact must equal what the database says, not merely be non-empty.
+  const directA = await owner.installment.count({
+    where: { businessId: bizA.id, status: "SCHEDULED", dueAt: { lt: new Date() } },
+  });
+  check("the L0 fact equals a direct owner-side query", overdueA.length === directA,
+    `fact=${overdueA.length} direct=${directA}`);
+
+  // A settled installment is not a fact about anything.
+  const pay = await owner.payment.create({
+    data: { businessId: bizA.id, payeeNameSnapshot: "Landlord", amount: "5000", currency: "ILS",
+      paidAt: new Date(), method: "BANK_TRANSFER", status: "RECORDED", idempotencyKey: `m0-${NONCE}` },
+  });
+  const instA = await owner.installment.findFirst({ where: { businessId: bizA.id, dueAt: { lt: new Date() } } });
+  await owner.paymentAllocation.create({
+    data: { businessId: bizA.id, paymentId: pay.id, installmentId: instA!.id, allocatedAmount: "5000", currency: "ILS" },
+  });
+  const afterPay = await ctx2({ businessId: bizA.id }, () => loadPayablesOverdue(bizA.id, new Date()));
+  check("a fully-allocated installment stops being an overdue fact", afterPay.length === 0,
+    `n=${afterPay.length}`);
+
+  // …and a reversed allocation brings the debt back. "Paid" is derived, never asserted.
+  await owner.paymentAllocation.updateMany({
+    where: { installmentId: instA!.id },
+    data: { reversedAt: new Date(), reversalReason: "M0 proof" },
+  });
+  const afterReversal = await ctx2({ businessId: bizA.id }, () => loadPayablesOverdue(bizA.id, new Date()));
+  check("reversing the allocation restores the debt (paid is derived, not stored)", afterReversal.length === 1,
+    `n=${afterReversal.length}`);
+
+  // The loaders must FAIL LOUD without a tenant context rather than return an empty world.
+  let loudFailure = false;
+  try {
+    await loadPayablesOverdue(bizA.id, new Date());
+  } catch {
+    loudFailure = true;
+  }
+  check("a context-less fact read throws instead of returning an empty world", loudFailure);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) {
     console.log("\nFAILURES:");

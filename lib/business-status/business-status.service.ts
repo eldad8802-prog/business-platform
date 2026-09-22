@@ -8,6 +8,8 @@ import {
   loadInventoryAlertsUnresolved,
   loadLeadsNeedingAttention,
   loadSupplierPurchasesPending,
+  loadPayablesOverdue,
+  loadPayablesDueSoon,
 } from "./loaders";
 import { finalizeBusinessStatusItem } from "./priority";
 import { evaluatePaperworkInsight } from "./paperwork-insight";
@@ -24,6 +26,10 @@ import { translateDocumentsNeedsReview } from "./translators/documents";
 import { translateLeadsNeedingAttention } from "./translators/leads";
 import { translateInventoryAlerts } from "./translators/inventory";
 import { translateSupplierPurchasesPending } from "./translators/supplier";
+import {
+  translatePayablesDueSoon,
+  translatePayablesOverdue,
+} from "./translators/payables";
 
 /**
  * Read-only aggregation for Business Status MVP v1.
@@ -50,6 +56,8 @@ export async function getBusinessStatusSnapshot(
     billingFailedRows,
     supplierRows,
     leadRows,
+    payablesOverdueRows,
+    payablesDueSoonRows,
     paperworkInsight,
   ] = await Promise.all([
     loadAttentionPendingSuggestions(businessId, excludeConvIds),
@@ -59,6 +67,8 @@ export async function getBusinessStatusSnapshot(
     loadBillingPdfFailed(businessId),
     loadSupplierPurchasesPending(businessId),
     loadLeadsNeedingAttention(businessId, now),
+    loadPayablesOverdue(businessId, now),
+    loadPayablesDueSoon(businessId, now),
     paperworkInsightPromise,
   ]);
 
@@ -71,6 +81,8 @@ export async function getBusinessStatusSnapshot(
     ...translateBillingPdfFailed(billingFailedRows),
     ...translateSupplierPurchasesPending(supplierRows),
     ...translateLeadsNeedingAttention(leadRows, now),
+    ...translatePayablesOverdue(payablesOverdueRows, now),
+    ...translatePayablesDueSoon(payablesDueSoonRows, now),
   ];
 
   const items = builds
