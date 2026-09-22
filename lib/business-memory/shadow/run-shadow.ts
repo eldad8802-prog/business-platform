@@ -7,6 +7,7 @@
  * retries, NEVER reads/writes VendorLearning, and produces no product-visible effect (S-A: materialize
  * only, no comparison). Derivation/resolution/persistence all live in the Orchestrator, not here.
  */
+import { runWithTenantContext } from "@/lib/tenant/context";
 import { normalizeVendorForLearning } from "@/lib/services/documents/vendor-normalization.service";
 import { runVendorCategoryOrchestration } from "@/lib/business-memory/orchestration";
 import type { OrchestratorOutcome } from "@/lib/business-memory/orchestration";
@@ -68,7 +69,20 @@ export async function runShadowMaterialization(input: ShadowInput, deps?: Shadow
     if (vendor.length === 0) return;
     if (normalizeVendorForLearning(vendor).normalizedKey.trim().length === 0) return;
 
-    const outcome = await d.runOrchestration({ businessId: input.businessId, vendorInput: vendor });
+    // D2/P7 — establish the tenant context for the WHOLE orchestration, once, here.
+    //
+    // Everything downstream that touches a tenant table opens its own short transaction: the evidence
+    // reader opens one per DB step when a context is in scope, and the Claim Writer opens one through
+    // `tenantTx`. Establishing a CONTEXT (not a transaction) is what lets them do that without nesting
+    // an interactive transaction inside another. The approval transaction has already committed by the
+    // time this runs, so this opens no transaction across the caller's work.
+    //
+    // `businessId` is the same server-derived tenant the approval route validated; `runWithTenantContext`
+    // refuses a switch to a different tenant, so a wrong value fails loudly instead of writing across
+    // the boundary.
+    const outcome = await runWithTenantContext({ businessId: input.businessId }, () =>
+      d.runOrchestration({ businessId: input.businessId, vendorInput: vendor }),
+    );
     d.observe(outcome, input.businessId);
   } catch (error) {
     // Total isolation: any failure (incl. deps construction) is swallowed. No retry. Approval unaffected.

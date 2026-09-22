@@ -9,10 +9,12 @@
  * S2 is READ-ONLY: it reads the canonical evidence identity and compares — no re-derive, no write, no
  * materialization, no retry. Not consulted for absent/conflicting/invalid/unavailable (no needless read).
  *
- * INERT: 0 production callers, no BUSINESS_MEMORY_READ, no product wiring, no read-switch. Defaults wire
- * the real collaborators but nothing calls this coordinator.
+ * WIRED (flag-dark): reached from the live extraction path via `categorySuggestionWithComparison`,
+ * gated by `BUSINESS_MEMORY_READ`. Comparison-only — there is no read-switch, and the memory value is
+ * never applied.
  */
-import { prisma } from "@/lib/prisma";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { decideCategory } from "@/lib/services/documents/category-decision.service";
 import { normalizeVendorForLearning } from "@/lib/services/documents/vendor-normalization.service";
 import { resolveVendorCategoryPolicyVersion } from "@/lib/business-memory/policy";
@@ -30,16 +32,51 @@ import type {
 
 const CLAIM_TYPE = "vendor-category" as const;
 
-/** Real collaborators. Imports no writer/deriver/materialization/shadow — read-only by construction. */
+/**
+ * Real collaborators. Imports no writer/deriver/materialization/shadow — read-only by construction.
+ *
+ * D2/P7 tenant binding. `DerivedClaimProjection` carries FORCE row-level security keyed on the
+ * transaction-local GUC `app.current_business_id`. A read on the bare Prisma singleton never sets it,
+ * so under the least-privilege runtime role every lookup here would match zero rows and the Coordinator
+ * would report `absent` for a Claim that exists — a silent, permanent miss that looks exactly like
+ * "nothing learned yet". Both DB-touching collaborators are therefore tenant-bound:
+ *
+ *   - readClaim runs inside `tenantTx`, which carries the GUC for its single findUnique;
+ *   - readEvidenceIdentity runs under `runWithTenantContext`, because the evidence reader already
+ *     opens its own short tenant transaction per DB step when a context is in scope. Establishing the
+ *     context (rather than a transaction) here is what keeps that from nesting.
+ *
+ * `policyVersion` resolution is deliberately NOT tenant-bound: `DerivationPolicy`/`DerivationPolicyVersion`
+ * are global, carry no `businessId`, and have no RLS — the derivation rule is platform-authored, and
+ * only the knowledge it produces is tenant-local.
+ */
 export function defaultCoordinatorDeps(): CoordinatorDeps {
   const evidenceReader = createReviewEventEvidenceReader();
   return {
     decideCategory: (businessId, vendorName, text) => decideCategory(businessId, vendorName, text),
     normalize: (vendorName) => ({ normalizedKey: normalizeVendorForLearning(vendorName).normalizedKey }),
     resolvePolicyVersion: () => resolveVendorCategoryPolicyVersion(),
-    readClaim: (query) => readClaim(query, prisma as unknown as ClaimReaderClient),
+    // The Claim Reader's contract is that it NEVER throws (every failure is a typed `unavailable`).
+    // Opening the tenant transaction is a new failure source outside the reader, so it is caught here
+    // and mapped to the same typed result — the contract is preserved at the seam, not weakened.
+    readClaim: async (query) => {
+      try {
+        return await tenantTx(query.businessId, (tx) =>
+          readClaim(query, tx as unknown as ClaimReaderClient),
+        );
+      } catch (e) {
+        return {
+          status: "unavailable",
+          detail: e instanceof Error ? e.message : "tenant-scoped claim lookup failed",
+        };
+      }
+    },
     readEvidenceIdentity: async (businessId, subject) => ({
-      fingerprint: (await evidenceReader.readOwnerDecisionEvidence(businessId, subject)).identity.fingerprint,
+      fingerprint: (
+        await runWithTenantContext({ businessId }, () =>
+          evidenceReader.readOwnerDecisionEvidence(businessId, subject),
+        )
+      ).identity.fingerprint,
     }),
   };
 }

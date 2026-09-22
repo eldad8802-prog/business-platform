@@ -120,7 +120,21 @@ async function main(): Promise<void> {
     check("no retry / loop / sleep / backoff", !/\bretry\b|while\s*\(|for\s*\(|setTimeout|setInterval|backoff/i.test(code));
     check("logs no raw vendor / normalizedKey / evidence payload", !/vendorInput\s*[,)]/.test(code.replace(/vendorInput\s*=/g, "")) === false || !/console\.(info|log|error)\([^)]*vendorInput/.test(code));
     check("does not import/read Derived Claims (no claim reader)", !/derivedClaim|DerivedClaimProjection/i.test(code));
-    check("awaits Orchestrator (F1), not fire-and-forget (no floating promise)", /await d\.runOrchestration|await runVendorCategoryOrchestration/.test(src));
+    // F1 still holds after the D2/P7 tenant binding: the orchestration is awaited — it is simply
+    // awaited THROUGH `runWithTenantContext`, which returns whatever its callback returns.
+    check(
+      "awaits Orchestrator (F1), not fire-and-forget (no floating promise)",
+      /await\s+runWithTenantContext\([\s\S]*?d\.runOrchestration/.test(src) ||
+        /await d\.runOrchestration|await runVendorCategoryOrchestration/.test(src),
+    );
+    // D2/P7 — the orchestration (evidence reads + Claim write) MUST carry a tenant context. Without it
+    // every DerivedClaim* statement runs with no `app.current_business_id`, so FORCE RLS silently
+    // empties the reads and rejects the write. The tenant must come from the trusted input, never from
+    // a value derived inside the shadow.
+    check(
+      "orchestration runs inside a tenant context taken from the trusted input businessId",
+      /runWithTenantContext\(\s*\{\s*businessId:\s*input\.businessId\s*\}/.test(src),
+    );
     check("kill switch checked before orchestration", /if \(!d\.enabled\(\)\) return;/.test(src));
     check("evidence-persisted guard present", /if \(!input\.evidencePersisted\) return;/.test(src));
   }
