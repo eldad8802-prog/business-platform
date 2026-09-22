@@ -176,6 +176,9 @@ async function main() {
   ok("T1 — newest first", th.body.events.every((x: any, i: number, arr: any[]) => i === 0 || arr[i - 1].at >= x.at));
   ok("T1 — outstanding = 1000 − 400 paid − 100 credited = 500", th.body.totals.outstanding === "500.00", th.body.totals.outstanding);
   ok("T1 — receipt shows its allocation", th.body.events.some((x: any) => x.kind === "RECEIPT_ISSUED" && x.allocations[0]?.amount === "400.00" && x.automatic));
+  const cth = await json(await threadRoute.GET(req(`/api/collection/customers/${c.customerId}`, c.token), { params: Promise.resolve({ customerId: String(c.customerId) }) }));
+  const crEvent = cth.body.events.find((x: any) => x.kind === "REQUEST_CREATED" && x.requestId === cr.id);
+  ok("T1 — a cancelled-then-paid request reads PAID in the thread, with nothing to share or cancel", crEvent?.status === "PAID" && crEvent?.paymentUrl === null, JSON.stringify(crEvent));
 
   console.log("\n== X1 — cancel rules ==");
   const x = await makeBusiness("X");
