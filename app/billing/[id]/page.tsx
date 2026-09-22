@@ -3701,103 +3701,54 @@ function toPaymentRequestView(raw: unknown): PaymentRequestView | null {
 }
 
 /**
- * Collections ("גבייה") for an ISSUED TAX_INVOICE. Connects the existing
- * payments services to the invoice screen: create a PaymentRequest for the
- * invoice's open balance, then surface its status + hosted payment link.
+ * Collections ("גבייה") for an ISSUED TAX_INVOICE — שולם / נותר / גבה.
  *
- * Open balance currently equals the invoice total — there is no receipt/
- * allocation automation yet (out of P1.2 scope), so nothing has been settled
- * against the invoice through this flow.
+ * The figures come from the one shared economic rule (issued receipts'
+ * allocations and issued credit notes), the same one the collection inbox and
+ * payment settlement use. "גבה" enters the single collection flow at
+ * /collection/new for this customer and invoice — this screen no longer
+ * creates requests of its own.
  */
 function CollectionsSection({ doc }: { doc: BillingDocumentDetail }) {
-  const [loading, setLoading] = useState(true);
-  const [request, setRequest] = useState<PaymentRequestView | null>(null);
-  const [creating, setCreating] = useState(false);
+  type InvoiceCollectionState = {
+    customerId: number | null;
+    currency: string;
+    total: string;
+    paid: string;
+    credited: string;
+    remaining: string;
+    latestRequest: { id: number; status: PaymentRequestStatus; amount: string; createdAt: string } | null;
+  };
+  const [state, setState] = useState<InvoiceCollectionState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-
-  const loadExisting = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const token = getAuthToken();
-      const res = await fetch(
-        `/api/payments/requests?billingDocumentId=${doc.id}&limit=1`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          cache: "no-store",
-        }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const list = Array.isArray(data?.requests) ? data.requests : [];
-        setRequest(list.length > 0 ? toPaymentRequestView(list[0]) : null);
-      }
-    } catch {
-      // Soft-fail: leave the create action available.
-    } finally {
-      setLoading(false);
-    }
-  }, [doc.id]);
 
   useEffect(() => {
-    void loadExisting();
-  }, [loadExisting]);
-
-  async function handleCreate() {
-    if (creating) return;
-    setCreating(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const token = getAuthToken();
-      const res = await fetch(`/api/payments/requests`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          billingDocumentId: doc.id,
-          customerId: doc.customerId,
-          amount: doc.totalAmount,
-          currency: doc.currency,
-        }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        setError(
-          data && typeof data.error === "string"
-            ? data.error
-            : "לא הצלחנו ליצור קישור תשלום."
-        );
-        return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = getAuthToken();
+        const res = await fetch(`/api/collection/invoices/${doc.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        const data = (await res.json()) as InvoiceCollectionState;
+        if (!cancelled) setState(data);
+      } catch {
+        if (!cancelled) setError("לא הצלחנו לטעון את מצב הגבייה.");
       }
-      const view = toPaymentRequestView(data);
-      if (!view) {
-        setError("התקבלה תגובה לא תקינה מהשרת.");
-        return;
-      }
-      setRequest(view);
-      setNotice("קישור התשלום מוכן.");
-    } catch {
-      setError("לא הצלחנו ליצור קישור תשלום.");
-    } finally {
-      setCreating(false);
-    }
-  }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [doc.id]);
 
-  async function handleCopyLink() {
-    if (!request?.paymentUrl) return;
-    try {
-      await navigator.clipboard.writeText(request.paymentUrl);
-      setNotice("קישור התשלום הועתק.");
-    } catch {
-      setError("לא הצלחנו להעתיק את הקישור.");
-    }
-  }
-
-  const openBalance = formatMoney(doc.totalAmount, doc.currency);
+  const row = (label: string, value: string, strong = false) => (
+    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: strong ? TOKEN.ink.primary : TOKEN.ink.secondary, fontWeight: strong ? 700 : 400 }}>
+      <span>{label}</span>
+      <span>{value}</span>
+    </div>
+  );
 
   return (
     <section
@@ -3808,130 +3759,46 @@ function CollectionsSection({ doc }: { doc: BillingDocumentDetail }) {
         padding: 18,
         display: "flex",
         flexDirection: "column",
-        gap: 14,
+        gap: 12,
       }}
     >
-      <div style={{ display: "grid", gap: 4 }}>
-        <span
-          style={{
-            fontSize: 13,
-            fontWeight: 600,
-            color: TOKEN.ink.primary,
-            letterSpacing: "-0.01em",
-          }}
-        >
-          גבייה
-        </span>
-        <span style={{ fontSize: 14, color: TOKEN.ink.secondary }}>
-          יתרה פתוחה: {openBalance}
-        </span>
-      </div>
-
-      {error ? (
-        <div
-          role="alert"
-          style={{
-            background: TOKEN.semantic.urgent.bg,
-            border: `1px solid ${TOKEN.semantic.urgent.border}`,
-            color: TOKEN.semantic.urgent.ink,
-            borderRadius: 10,
-            padding: "8px 12px",
-            fontSize: 13,
-            lineHeight: 1.5,
-          }}
-        >
-          {error}
-        </div>
-      ) : null}
-
-      {notice ? (
-        <div
-          role="status"
-          style={{
-            background: TOKEN.semantic.success.bg,
-            border: `1px solid ${TOKEN.semantic.success.border}`,
-            color: TOKEN.semantic.success.ink,
-            borderRadius: 10,
-            padding: "8px 12px",
-            fontSize: 13,
-            lineHeight: 1.5,
-          }}
-        >
-          {notice}
-        </div>
-      ) : null}
-
-      {loading ? (
-        <span style={{ fontSize: 13, color: TOKEN.ink.meta }}>טוען…</span>
-      ) : request ? (
-        <div style={{ display: "grid", gap: 12 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-            }}
-          >
-            <PaymentStatusBadge status={request.status} />
-            <span style={{ fontSize: 13, color: TOKEN.ink.muted }}>
-              נוצר: {formatDateTime(request.createdAt)}
-            </span>
+      <span style={{ fontSize: 13, fontWeight: 600, color: TOKEN.ink.primary, letterSpacing: "-0.01em" }}>גבייה</span>
+      {error ? <span style={{ fontSize: 13, color: TOKEN.semantic.urgent.ink }}>{error}</span> : null}
+      {!state && !error ? <span style={{ fontSize: 13, color: TOKEN.ink.secondary }}>טוען…</span> : null}
+      {state ? (
+        <>
+          <div style={{ display: "grid", gap: 6 }}>
+            {row("שולם", formatMoney(state.paid, state.currency))}
+            {Number(state.credited) > 0 ? row("זוכה", formatMoney(state.credited, state.currency)) : null}
+            {row("נותר", formatMoney(state.remaining, state.currency), true)}
           </div>
-
-          {request.paymentUrl ? (
-            <div
-              dir="ltr"
-              style={{
-                fontSize: 12,
-                color: TOKEN.ink.secondary,
-                background: TOKEN.surface.inset,
-                border: `1px solid ${TOKEN.border.DEFAULT}`,
-                borderRadius: 10,
-                padding: "8px 10px",
-                wordBreak: "break-all",
-                textAlign: "left",
-              }}
-            >
-              {request.paymentUrl}
+          {state.latestRequest ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: TOKEN.ink.secondary }}>
+              <span>בקשת התשלום האחרונה:</span>
+              <PaymentStatusBadge status={state.latestRequest.status} />
             </div>
           ) : null}
-
-          <button
-            type="button"
-            onClick={() => void handleCopyLink()}
-            disabled={!request.paymentUrl}
-            style={{
-              ...glassActionStyle({
-                disabled: !request.paymentUrl,
-                fullWidth: true,
-                height: 48,
-              }),
-              fontSize: 15,
-              fontWeight: 600,
-            }}
-          >
-            העתק קישור
-          </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => void handleCreate()}
-          disabled={creating}
-          style={{
-            ...primaryActionStyle({
-              disabled: creating,
-              fullWidth: true,
-              height: 48,
-            }),
-            fontSize: 15,
-            fontWeight: 600,
-          }}
-        >
-          {creating ? "מכין קישור תשלום…" : "שלח לתשלום"}
-        </button>
-      )}
+          {Number(state.remaining) > 0 ? (
+            state.customerId ? (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Link
+                  href={`/collection/new?customerId=${state.customerId}&invoiceId=${doc.id}`}
+                  style={{ ...primaryActionStyle({ height: 44 }), textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                >
+                  גבה {formatMoney(state.remaining, state.currency)}
+                </Link>
+                <Link href={`/collection/c/${state.customerId}`} style={{ fontSize: 13, color: TOKEN.ink.secondary, alignSelf: "center" }}>
+                  לתיק הלקוח
+                </Link>
+              </div>
+            ) : (
+              <span style={{ fontSize: 13, color: TOKEN.ink.secondary }}>כדי לגבות, שייכו את החשבונית ללקוח.</span>
+            )
+          ) : (
+            <span style={{ fontSize: 13, color: TOKEN.ink.secondary }}>החשבונית סגורה — אין יתרה לגבייה.</span>
+          )}
+        </>
+      ) : null}
     </section>
   );
 }

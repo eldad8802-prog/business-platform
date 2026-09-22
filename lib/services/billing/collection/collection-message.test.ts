@@ -10,6 +10,7 @@
 
 import {
   buildCollectionMessage,
+  buildPaymentRequestMessage,
   formatAmount,
   formatHebrewDate,
   type MessageInvoiceLine,
@@ -137,6 +138,21 @@ function run() {
       : `\nCollection · message: ${failed} CHECK(S) FAILED`,
   );
   process.exit(failed === 0 ? 0 : 1);
+}
+
+// ── buildPaymentRequestMessage (collection request link) ────────────────────
+{
+  const m = buildPaymentRequestMessage({
+    customerName: "יוסי כהן", amount: "450", currencySymbol: "₪",
+    invoiceNumber: "000123", paymentUrl: "https://pay.example/x", businessName: "העסק שלי",
+  });
+  if (!m.includes("שלום יוסי כהן,") || !m.includes("450 ₪ עבור חשבונית 000123") || !m.includes("https://pay.example/x") || !m.endsWith("העסק שלי")) {
+    console.error("FAIL buildPaymentRequestMessage content"); process.exit(1);
+  }
+  if (/נשלח|נמסר|נקרא/.test(m)) { console.error("FAIL message claims delivery"); process.exit(1); }
+  const anon = buildPaymentRequestMessage({ customerName: null, amount: "10", currencySymbol: "₪", invoiceNumber: null, paymentUrl: "u", businessName: "b" });
+  if (!anon.startsWith("שלום,") || anon.includes("חשבונית")) { console.error("FAIL anonymous/ad-hoc message"); process.exit(1); }
+  console.log("OK: buildPaymentRequestMessage");
 }
 
 run();

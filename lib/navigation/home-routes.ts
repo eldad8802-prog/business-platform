@@ -67,7 +67,7 @@ export const HOME_ROUTES = {
   /** The owner's initial / "אני". */
   profile: "/settings/team",
   /** מרכז הגבייה. */
-  collectionCenter: "/payments",
+  collectionCenter: "/collection",
   /** The documents review queue (renders needs_review only). */
   documentsReview: "/documents/inbox",
   /** The Payment Secretary, and its "today" screen. */
@@ -136,7 +136,7 @@ export const TOOLS: Tool[] = [
   {
     key: "collection",
     label: "גבייה",
-    href: "/payments",
+    href: "/collection",
     color: "teal",
     group: "money",
     colorSource: "carried",
@@ -144,7 +144,7 @@ export const TOOLS: Tool[] = [
   {
     key: "payment-request",
     label: "בקשת תשלום",
-    href: "/payments/new",
+    href: "/collection/new",
     color: "teal",
     group: "money",
     colorSource: "borrowed:collection",

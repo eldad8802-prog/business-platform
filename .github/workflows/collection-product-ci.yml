@@ -1,0 +1,75 @@
+# Collection product (/collection) — server read models and actions on an
+# ephemeral PG17, driven through the REAL route handlers with real bearer auth.
+#
+# The UI is proven by scripts/qa/collection-runtime-qa.mjs against a built app
+# (network-injected data, seven widths, RTL); this job proves the server side:
+# segments, cancel, resolve-and-retry, readiness, invoice state, tenancy.
+#
+# Synthetic CI-only credentials; ZERO secrets; ZERO Neon; ZERO network.
+
+name: collection product (ephemeral PG17)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/api/collection/**"
+      - "app/api/payments/requests/**"
+      - "app/(shell)/collection/**"
+      - "app/(shell)/payments/**"
+      - "components/collection/**"
+      - "lib/services/billing/collection/**"
+      - "lib/services/billing/settlement/**"
+      - "lib/services/payments/**"
+      - ".collection/**"
+      - ".github/workflows/collection-product-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  collection-product:
+    name: Collection product (PG17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: col_owner
+          POSTGRES_PASSWORD: col_ci_synthetic_owner_pw
+          POSTGRES_DB: dubiz_col
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U col_owner -d dubiz_col"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://col_owner:col_ci_synthetic_owner_pw@localhost:5432/dubiz_col
+      DIRECT_URL: postgresql://col_owner:col_ci_synthetic_owner_pw@localhost:5432/dubiz_col
+      AUTH_TOKEN_SECRET: col_ci_auth_secret_synthetic_at_least_32_chars
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+
+      - name: Pure (no database)
+        run: |
+          npx tsx lib/services/billing/collection/collection-message.test.ts
+          npx tsx components/navigation/nav-destinations.test.tsx
+          npx tsx lib/navigation/home-routes.test.ts
+
+      - name: Push schema (lab)
+        run: npx prisma db push --skip-generate
+
+      - name: Collection battery (real routes, real auth, real PostgreSQL)
+        run: npx tsx .collection/battery.mts

@@ -39,7 +39,7 @@ ok("home NOT active on /inbox", isNavActive("/inbox", "/app") === false);
 ok("documents active on /documents", isNavActive("/documents", "/documents") === true);
 ok("documents active on nested /documents/123", isNavActive("/documents/123", "/documents") === true);
 ok("documents NOT active on /inbox", isNavActive("/inbox", "/documents") === false);
-ok("payments not active on /", isNavActive("/", "/payments") === false);
+ok("collection not active on /", isNavActive("/", "/collection") === false);
 
 // ---- primary tabs shape (mobile bottom bar) ----
 ok("exactly 4 primary tabs", PRIMARY_DESTINATIONS.length === 4);

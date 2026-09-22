@@ -39,7 +39,7 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   { key: "inventory", label: "מלאי", href: "/inventory", icon: IconInventory, primary: true },
   { key: "leads", label: "לידים", href: "/leads", icon: IconLeads },
   { key: "customers", label: "לקוחות", href: "/customers", icon: IconCustomers },
-  { key: "payments", label: "גבייה", href: "/payments", icon: IconPayments },
+  { key: "payments", label: "גבייה", href: "/collection", icon: IconPayments },
   { key: "billing", label: "חשבוניות", href: "/billing", icon: IconInvoice },
   { key: "secretary", label: "מזכירה", href: "/secretary", icon: IconSecretary },
   // Beside the Secretary on purpose: the Secretary REMINDS about what is owed,

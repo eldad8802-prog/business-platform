@@ -123,3 +123,34 @@ export function buildCollectionMessage(
 
   return lines.join("\n");
 }
+
+export interface BuildPaymentRequestMessageInput {
+  readonly customerName: string | null;
+  /** Already formatted, e.g. "450". */
+  readonly amount: string;
+  readonly currencySymbol: string;
+  readonly invoiceNumber: string | null;
+  readonly paymentUrl: string;
+  readonly businessName: string;
+}
+
+/**
+ * The message that carries a payment link to the customer.
+ *
+ * It states only what Dubiz knows: the amount asked for, the invoice it is
+ * against (if any), and the link. It makes no claim about delivery — Dubiz can
+ * open WhatsApp or copy the text, it cannot see whether the message was sent.
+ */
+export function buildPaymentRequestMessage(input: BuildPaymentRequestMessageInput): string {
+  const who = input.customerName?.trim() ? `שלום ${input.customerName.trim()},` : "שלום,";
+  const ref = input.invoiceNumber ? ` עבור חשבונית ${input.invoiceNumber}` : "";
+  return [
+    who,
+    "",
+    `מצורף קישור לתשלום של ${input.amount} ${input.currencySymbol}${ref}:`,
+    input.paymentUrl,
+    "",
+    "תודה,",
+    input.businessName,
+  ].join("\n");
+}
