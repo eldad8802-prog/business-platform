@@ -1,0 +1,227 @@
+name: payables phases 4-6
+
+# Accounts Payable Phases 4–6 — destinations and "הכן תשלום", bank observation
+# and reconciliation, provider-independent outbound execution.
+#
+# PR-2 of the migration-first rule: the datamodel and the code that reads it.
+# The migration (20260922130000_payables_p4_p6_outbound_foundation) is PR-1.
+#
+#   core    pure rules — preparation lifecycle and approval snapshot, bank-line
+#           matching (amount alone is never identity), execution state machine,
+#           CSV parsing, and every earlier pure suite, because this PR touches
+#           the shared payment path
+#   db      the services against a real database, plus 1a / 1b / 2 / 3
+#           regression suites
+#   drift   the datamodel and the migration describe the same objects — built
+#           twice in one server (db push vs the migration SQL) and diffed
+
+on:
+  push:
+    branches: [feat/payables-p4-p6-code]
+  pull_request:
+    paths:
+      - "prisma/schema.prisma"
+      - "prisma/migrations/20260922130000_payables_p4_p6_outbound_foundation/**"
+      - "lib/services/payables/**"
+      - "lib/payables/**"
+      - "app/api/payables/**"
+      - "app/(shell)/payables/**"
+      - "scripts/ci/erasure/**"
+      - ".github/workflows/payables-p4-p6-ci.yml"
+
+jobs:
+  core:
+    name: payables p4-p6 core (no database)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Pure suites (p4-p6 and every earlier phase)
+        run: |
+          set -euo pipefail
+          for t in \
+            lib/services/payables/payables-p46-core.test.ts \
+            lib/services/payables/payables-bank-crypto.test.ts \
+            lib/services/payables/payables-cheque-core.test.ts \
+            lib/services/payables/payables-core.test.ts \
+            lib/services/payables/payables-matching.test.ts \
+            lib/payables/payables-client.test.ts ; do
+            echo "== $t"
+            npx tsx "$t"
+          done
+      - name: Erasure coverage — every new model has a disposition
+        run: npm run verify:erasure-contract -- --baseline-check
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Lint the payables scope
+        run: npx eslint lib/services/payables lib/payables app/api/payables "app/(shell)/payables"
+      - name: No route, page or client file names a sealed column
+        run: |
+          set -euo pipefail
+          if grep -rnE "coordinatesEncrypted|coordinatesIv|coordinatesTag|fingerprint|approvalHash" \
+               app/api/payables "app/(shell)/payables" lib/payables; then
+            echo "::error::a route, page or client file names a sealed column"; exit 1
+          fi
+          echo "OK"
+      - name: No outbound provider is registered for Production
+        run: |
+          set -euo pipefail
+          # The registry may only contain the test adapter, and only behind its
+          # explicit non-production switch. A real adapter arriving is a reviewed
+          # change to this check, not a silent addition.
+          grep -q "OUTBOUND_TEST_ADAPTER" lib/services/payables/payables-outbound.service.ts
+          if grep -nE "register(Outbound)?Adapter\(" lib/services/payables/*.ts | grep -v "test-adapter\|\.test\.ts"; then
+            echo "::error::an outbound adapter is registered outside the test switch"; exit 1
+          fi
+          echo "OK — no production outbound adapter"
+
+  db:
+    name: payables p4-p6 services (PG17)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: payables_owner
+          POSTGRES_PASSWORD: payables_ci_synthetic_pw
+          POSTGRES_DB: dubiz_payables
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U payables_owner -d dubiz_payables"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
+      DIRECT_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
+      TEST_DATABASE_URL: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432/dubiz_payables
+      MIG: prisma/migrations/20260922130000_payables_p4_p6_outbound_foundation/migration.sql
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build the schema
+        run: npx prisma db push --skip-generate
+      - name: Generate the client
+        run: npx prisma generate
+      # db push cannot express partial indexes, CHECKs or the immutability
+      # trigger. Replace what it built for Phases 4–6 with the migration itself,
+      # so every guard the suites test is the one Production has.
+      - name: Replace the p4-p6 objects with the migration's own
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c '
+            DROP TABLE "OutboundExecution"; DROP TABLE "ExternalTransactionMatchRejection";
+            ALTER TABLE "PaymentEvidence" DROP COLUMN "externalTransactionId";
+            DROP TABLE "ExternalTransaction"; DROP TABLE "PaymentPreparation"; DROP TABLE "PaymentDestination";
+            DROP TYPE "PaymentDestinationKind"; DROP TYPE "PaymentDestinationOrigin";
+            DROP TYPE "PaymentDestinationVerification"; DROP TYPE "PaymentPreparationStatus";
+            DROP TYPE "PaymentCompletionSource"; DROP TYPE "ExternalTransactionSource";
+            DROP TYPE "ExternalTransactionDirection"; DROP TYPE "OutboundExecutionStatus";'
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$MIG"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c '
+            CREATE UNIQUE INDEX IF NOT EXISTS "PaymentAllocation_active_payment_installment_key"
+              ON "PaymentAllocation"("paymentId", "installmentId") WHERE "reversedAt" IS NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS "PaymentEvidence_active_document_key"
+              ON "PaymentEvidence"("businessId", "documentId") WHERE "revokedAt" IS NULL AND "documentId" IS NOT NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS "BusinessBankAccount_one_active_default"
+              ON "BusinessBankAccount"("businessId") WHERE "isDefault" = true AND "isActive" = true;
+            CREATE UNIQUE INDEX IF NOT EXISTS "Cheque_active_number_key"
+              ON "Cheque"("businessId", "sourceBankAccountId", "chequeNumber") WHERE "cancelledAt" IS NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS "Cheque_replaces_key"
+              ON "Cheque"("replacesChequeId") WHERE "replacesChequeId" IS NOT NULL;'
+      - name: 1a ledger (regression)
+        run: npx tsx lib/services/payables/payables.db.test.ts
+      - name: 1b product (regression)
+        run: npx tsx lib/services/payables/payables-1b.db.test.ts
+      - name: 2 reconciliation (regression)
+        run: npx tsx lib/services/payables/payables-2.db.test.ts
+      - name: 3 cheques and bank accounts (regression)
+        run: npx tsx lib/services/payables/payables-3.db.test.ts
+      - name: 4-6 destinations, preparation, observation, execution
+        run: npx tsx lib/services/payables/payables-p46.db.test.ts
+
+  drift:
+    name: payables p4-p6 datamodel ↔ migration (PG17)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: payables_owner
+          POSTGRES_PASSWORD: payables_ci_synthetic_pw
+          POSTGRES_DB: p46_datamodel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U payables_owner -d p46_datamodel"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      BASE: postgresql://payables_owner:payables_ci_synthetic_pw@localhost:5432
+      MIG: prisma/migrations/20260922130000_payables_p4_p6_outbound_foundation/migration.sql
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build twice — from the datamodel, and by the migration
+        run: |
+          set -euo pipefail
+          psql "$BASE/p46_datamodel" -v ON_ERROR_STOP=1 -q -c 'CREATE DATABASE p46_migration;'
+          DATABASE_URL="$BASE/p46_datamodel" DIRECT_URL="$BASE/p46_datamodel" npx prisma db push --skip-generate
+          DATABASE_URL="$BASE/p46_migration" DIRECT_URL="$BASE/p46_migration" npx prisma db push --skip-generate
+          psql "$BASE/p46_migration" -v ON_ERROR_STOP=1 -q -c '
+            DROP TABLE "OutboundExecution"; DROP TABLE "ExternalTransactionMatchRejection";
+            ALTER TABLE "PaymentEvidence" DROP COLUMN "externalTransactionId";
+            DROP TABLE "ExternalTransaction"; DROP TABLE "PaymentPreparation"; DROP TABLE "PaymentDestination";
+            DROP TYPE "PaymentDestinationKind"; DROP TYPE "PaymentDestinationOrigin";
+            DROP TYPE "PaymentDestinationVerification"; DROP TYPE "PaymentPreparationStatus";
+            DROP TYPE "PaymentCompletionSource"; DROP TYPE "ExternalTransactionSource";
+            DROP TYPE "ExternalTransactionDirection"; DROP TYPE "OutboundExecutionStatus";'
+          psql "$BASE/p46_migration" -v ON_ERROR_STOP=1 -q -f "$MIG"
+      - name: Columns, enums, keys and plain indexes agree
+        run: |
+          set -euo pipefail
+          T="'PaymentDestination','PaymentPreparation','ExternalTransaction','ExternalTransactionMatchRejection','OutboundExecution'"
+          Q_COLS="SELECT table_name, column_name, data_type, udt_name, is_nullable,
+                         coalesce(numeric_precision::text,''), coalesce(numeric_scale::text,''), coalesce(column_default,'')
+                    FROM information_schema.columns
+                   WHERE table_schema='public' AND (table_name IN ($T)
+                      OR (table_name='PaymentEvidence' AND column_name='externalTransactionId'))
+                   ORDER BY 1,2;"
+          Q_ENUMS="SELECT t.typname, string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder)
+                     FROM pg_type t JOIN pg_enum e ON e.enumtypid=t.oid
+                    WHERE t.typname IN ('PaymentDestinationKind','PaymentDestinationOrigin','PaymentDestinationVerification',
+                      'PaymentPreparationStatus','PaymentCompletionSource','ExternalTransactionSource',
+                      'ExternalTransactionDirection','OutboundExecutionStatus') GROUP BY 1 ORDER BY 1;"
+          Q_FKS="SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
+                  WHERE contype IN ('f','p') AND (conrelid::regclass::text IN
+                    ('\"PaymentDestination\"','\"PaymentPreparation\"','\"ExternalTransaction\"',
+                     '\"ExternalTransactionMatchRejection\"','\"OutboundExecution\"')
+                    OR conname = 'PaymentEvidence_externalTransactionId_fkey')
+                  ORDER BY 1;"
+          Q_IDX="SELECT indexname, indexdef FROM pg_indexes
+                  WHERE schemaname='public' AND (tablename IN ($T)
+                     OR indexname = 'PaymentEvidence_businessId_externalTransactionId_idx')
+                    AND indexdef NOT LIKE '%WHERE%' AND indexname NOT LIKE '%pair_key' ORDER BY 1;"
+          for q in COLS ENUMS FKS IDX; do
+            eval "SQL=\$Q_$q"
+            psql "$BASE/p46_datamodel" -At -v ON_ERROR_STOP=1 -c "$SQL" > "dm_$q.txt"
+            psql "$BASE/p46_migration" -At -v ON_ERROR_STOP=1 -c "$SQL" > "mg_$q.txt"
+            if ! diff -u "dm_$q.txt" "mg_$q.txt"; then
+              echo "::error::$q differs between schema.prisma and the migration"; exit 1
+            fi
+            echo "OK — $q agree ($(wc -l < "dm_$q.txt") rows)"
+          done
