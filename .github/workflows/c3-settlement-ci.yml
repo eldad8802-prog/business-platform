@@ -153,7 +153,7 @@ jobs:
         run: |
           F="lib/services/billing/settlement/payment-settlement-recovery.service.ts"
           cp "$F" "$F.bak"
-          perl -0pi -e 's/    return rows.map((r) => r.paymentTransactionId);/    return rows.map((r) => r.paymentTransactionId).slice(0, 0);/' "$F"
+          perl -0pi -e 's/    return rows\.map\(\(r\) => r\.paymentTransactionId\);/    return rows.map((r) => r.paymentTransactionId).slice(0, 0);/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
           if RECOVERY_ONLY=V1 npx tsx .c3recovery/battery.mts >/dev/null 2>&1; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a recovery that finds nothing passed the battery"; exit 1
