@@ -1,0 +1,66 @@
+# M2/M3 — ask Production to derive one business's knowledge.
+#
+# WHY THIS EXISTS RATHER THAN A DIRECT DB JOB. The derivation must run where the least-privilege
+# runtime role lives, because that is the only place it proves BOTH that the rules are right and that
+# the tenant context reaches the database. The `production-db` environment's connection is privileged —
+# correct for migrations, useless for a tenant-enforcement proof. So this does not touch the database
+# at all: it asks the running application to do the work.
+#
+# This is the same shape as `payment-settlement-recovery.yml`, and for the same reason: CRON_SECRET is
+# a repository secret identical to the one in the Vercel Production environment, sent as a bearer
+# header, never echoed. The endpoint answers statuses, counts and rule versions — no vendor, no payee,
+# no fact text.
+#
+# NO SCHEDULE. One tenant per run, dispatched deliberately. A cadence is an M4 decision about cost.
+
+name: knowledge derive (manual, one tenant)
+
+on:
+  workflow_dispatch:
+    inputs:
+      business_id:
+        description: "The ONE business to derive knowledge for"
+        required: true
+      reason:
+        description: "Audit note: why this run is happening"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: knowledge-derive-${{ inputs.business_id }}
+  cancel-in-progress: false
+
+jobs:
+  derive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Derive knowledge on Production
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BID: ${{ inputs.business_id }}
+          DERIVE_URL: https://promaxgroup.co.il/api/knowledge/derive
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::CRON_SECRET is not configured for this repository."; exit 1
+          fi
+          case "${BID}" in
+            ''|*[!0-9]*) echo "::error::business_id must be a positive integer"; exit 1;;
+          esac
+          [ "${BID}" -gt 0 ] || { echo "::error::business_id must be > 0"; exit 1; }
+
+          code=$(curl -sS -o body.json -w "%{http_code}" -m 120 \
+            -X POST -H "Authorization: Bearer ${CRON_SECRET}" "${DERIVE_URL}?businessId=${BID}")
+          echo "HTTP $code"
+          cat body.json; echo
+          [ "$code" = "200" ] || { echo "::error::derive endpoint answered $code"; exit 1; }
+
+          # The run is only evidence of tenant enforcement if the runtime said it was. A FULL proof
+          # level means the application observed a NOBYPASSRLS, NOSUPERUSER role at the moment it wrote.
+          grep -q '"proofLevel":"FULL"' body.json || {
+            echo "::error::proofLevel was not FULL — this run does not demonstrate tenant enforcement."
+            exit 1; }
+          echo "proof level FULL confirmed."
