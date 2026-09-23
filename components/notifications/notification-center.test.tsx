@@ -28,6 +28,12 @@ const REPO_ROOT = join(HERE, "..", "..");
 const CENTER = readFileSync(join(HERE, "notification-center.tsx"), "utf8");
 const PAGE = readFileSync(join(REPO_ROOT, "app", "(shell)", "notifications", "page.tsx"), "utf8");
 const HOME = readFileSync(join(REPO_ROOT, "app", "(shell)", "app", "page.tsx"), "utf8");
+// The bell moved out of Home in the approved Home (#499): the unread dot now
+// lives on the notifications tab of the bottom bar, and the tab's href comes
+// from the nav destinations. The guarantees below did not change — they are
+// asserted where the behaviour now is, rather than where it used to be.
+const BAR = readFileSync(join(REPO_ROOT, "components", "navigation", "bottom-bar.tsx"), "utf8");
+const NAV = readFileSync(join(REPO_ROOT, "components", "navigation", "nav-destinations.tsx"), "utf8");
 
 let failures = 0;
 function check(name: string, cond: boolean, extra = ""): void {
@@ -149,12 +155,14 @@ console.log("\nShell integration");
 {
   check("the page declares a width intent", /intent="focused"/.test(PAGE));
   check("the centre is right-to-left", /dir="rtl"/.test(CENTER));
-  check("the home bell points at the notification centre", /href: "\/notifications"/.test(HOME));
+  check("the bell tab points at the notification centre", /href: "\/notifications"/.test(NAV));
   check("the bell's unread flag comes from the real count",
-    /hasUnread: unreadCount > 0/.test(HOME) && /api\/notifications\/unread-count/.test(HOME));
+    /setHasUnread\(json\.unreadCount > 0\)/.test(BAR) && /api\/notifications\/unread-count/.test(BAR));
   check("the bell no longer fakes unread from the leads count",
-    !/hasUnread: \(data\.leadsAttention/.test(HOME));
-  check("the home screen does not poll the count", !/setInterval/.test(HOME));
+    !/leadsAttention/.test(BAR) && !/hasUnread: \(data\.leadsAttention/.test(HOME));
+  check("the bell does not poll the count", !/setInterval/.test(BAR));
+  check("the dot is shown only on the notifications tab",
+    /unread=\{hasUnread && tabs\[\d\]\.key === "notifications"\}/.test(BAR));
   check("mark-all-read is offered only when something is unread",
     /unreadCount > 0 \? \([\s\S]{0,600}סמן הכל כנקרא/.test(CENTER));
 }
@@ -203,30 +211,42 @@ console.log("\nEvery notification request is authenticated");
       call !== undefined && /Authorization: `Bearer/.test(call));
   }
 
-  check("the home unread-count request carries Authorization",
-    /unread-count[\s\S]{0,200}Authorization: `Bearer \$\{sessionToken\}`/.test(HOME));
+  check("the unread-count request carries Authorization",
+    /unread-count[\s\S]{0,200}Authorization: `Bearer \$\{token\}`/.test(BAR));
 
   // A credential-less request must be abandoned, never sent malformed: the
   // server would read "Bearer null" as a bad token rather than no token.
   check("the centre refuses to call without a token",
     (CENTER.match(/if \(!token\) throw new MissingSessionError\(\)/g) || []).length === 3);
-  check("the home badge stays quiet without a token", /if \(!sessionToken\) return;/.test(HOME));
+  check("the badge stays quiet without a token", /if \(!token\) return;/.test(BAR));
   // Comments legitimately discuss "Bearer null"; only executable code counts.
   const stripComments = (src: string) =>
     src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   const centerCode = stripComments(CENTER);
   const homeCode = stripComments(HOME);
+  const barCode = stripComments(BAR);
   check("no request can be built as Bearer null or undefined",
-    !/Bearer (null|undefined)/.test(centerCode) && !/Bearer (null|undefined)/.test(homeCode));
+    !/Bearer (null|undefined)/.test(centerCode) &&
+    !/Bearer (null|undefined)/.test(homeCode) &&
+    !/Bearer (null|undefined)/.test(barCode));
+  // Home gained a third name when it was rewritten: `token` is the parameter of
+  // fetchBriefing, typed `string` rather than `string | null`, so what stops a
+  // null reaching it is the compiler rather than a runtime check — which the
+  // next assertion pins, so widening this list does not widen the guarantee.
   check("every Bearer in code interpolates a guarded variable",
     [...centerCode.matchAll(/Bearer \$\{(\w+)\}/g)].every((m) => m[1] === "token") &&
-    [...homeCode.matchAll(/Bearer \$\{(\w+)\}/g)].every((m) => ["sessionToken", "currentToken"].includes(m[1])));
+    [...barCode.matchAll(/Bearer \$\{(\w+)\}/g)].every((m) => m[1] === "token") &&
+    [...homeCode.matchAll(/Bearer \$\{(\w+)\}/g)].every((m) => ["sessionToken", "currentToken", "token"].includes(m[1])));
+  check("the Home briefing token cannot be null by type",
+    /function fetchBriefing\(token: string\)/.test(HOME));
 
   check("the token is read the way the rest of the app reads it",
     /window\.localStorage\.getItem\("token"\)/.test(CENTER));
   check("no token value is ever logged", !/console\.(log|warn|error)[^;]*token/i.test(CENTER));
   check("no token is hardcoded",
-    !/Bearer [A-Za-z0-9._-]{8,}/.test(CENTER) && !/Bearer [A-Za-z0-9._-]{8,}/.test(HOME));
+    !/Bearer [A-Za-z0-9._-]{8,}/.test(CENTER) &&
+    !/Bearer [A-Za-z0-9._-]{8,}/.test(HOME) &&
+    !/Bearer [A-Za-z0-9._-]{8,}/.test(BAR));
   check("still no businessId is sent from the client",
     !/businessId/.test(CENTER));
 }

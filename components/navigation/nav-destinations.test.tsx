@@ -43,7 +43,18 @@ ok("collection not active on /", isNavActive("/", "/collection") === false);
 
 // ---- primary tabs shape (mobile bottom bar) ----
 ok("exactly 4 primary tabs", PRIMARY_DESTINATIONS.length === 4);
-ok("primary tabs are home/chats/docs/inventory", PRIMARY_DESTINATIONS.map((d) => d.key).join(",") === "home,chats,docs,inventory");
+// Inventory left the bottom bar in the approved Home (#499): the fourth tab is
+// now the notification centre, and inventory remains a destination reachable
+// from the tools. The assertion follows the shipped design rather than the
+// other way round.
+ok(
+  "primary tabs are home/chats/docs/notifications",
+  PRIMARY_DESTINATIONS.map((d) => d.key).join(",") === "home,chats,docs,notifications",
+);
+ok(
+  "inventory is still a destination, just not a primary tab",
+  NAV_DESTINATIONS.some((d) => d.key === "inventory" && !d.primary),
+);
 
 if (failed > 0) {
   console.error(`\n${failed} test(s) FAILED`);
