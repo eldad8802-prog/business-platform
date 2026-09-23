@@ -248,7 +248,7 @@ export function normalizeDayKey(raw: string | null | undefined): JerusalemDayKey
   if (!raw) return null;
   const value = raw.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const [y, m, d] = value.split("-").map(Number);
+  const [, m, d] = value.split("-").map(Number);
   if (m < 1 || m > 12 || d < 1 || d > 31) return null;
   // Round-tripping through the day boundary rejects impossible dates such as
   // 2026-02-31, which the pattern alone would let through.

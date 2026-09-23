@@ -188,7 +188,9 @@
     "qa:homepage-candidate": "node scripts/qa/ui/homepage-candidate.mjs",
     "verify:home-day": "npx tsx lib/services/home/home-day.verify.test.ts",
     "qa:home-final": "node scripts/qa/ui/home-final-states.mjs",
-    "qa:home-day-real": "npx tsx scripts/qa/home-day-real-data.mjs"
+    "qa:home-day-real": "npx tsx scripts/qa/home-day-real-data.mjs",
+    "verify:home-collection": "npx tsx lib/services/home/home-collection.verify.test.ts",
+    "qa:home-mobile": "node scripts/qa/ui/home-mobile-states.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1059.0",

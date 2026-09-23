@@ -10,14 +10,13 @@ import {
   type HomeOverdueView,
   type HomeView,
 } from "@/features/home/components/home-screen";
-import { buildAttentionObjects, watchingCount } from "@/features/home/lib/home-attention";
+import { buildAttentionObjects } from "@/features/home/lib/home-attention";
 import {
-  dayKeyForOffset,
-  dayViewFrom,
-  withCarriedContext,
-  type HomeDayView,
-  type HomeDayWire,
-} from "@/features/home/lib/home-day-view";
+  collectionViewFrom,
+  type CollectionView,
+  type CollectionWire,
+  type HomePeriodKey,
+} from "@/features/home/lib/home-collection-view";
 import type { LoadState } from "@/features/home/lib/home-model";
 import type { BusinessStatusItem } from "@/lib/business-status/types";
 import type { BriefingApi } from "@/lib/obligations/secretary-client";
@@ -35,7 +34,7 @@ import type { HomeResponse } from "@/features/home/types/home.types";
  *
  * Five independent read-only requests, all of them parallel:
  *   /api/home                            owner + business name
- *   /api/home/day                        the day, the month, today's activity
+ *   /api/home/collection                 the period, the one before it, the month
  *   /api/obligations/briefing            the obligations that need the owner
  *   /api/business-status                 the open exceptions, each with its
  *                                        own true destination
@@ -214,9 +213,9 @@ function HomePage() {
   const [businessLogo, setBusinessLogo] = useState<string | null>(null);
   const [identity, setIdentity] = useState<HomeIdentity>("business");
 
-  /** 0 = today. The day the owner is looking at; never positive. */
-  const [dayOffset, setDayOffset] = useState(0);
-  const [day, setDay] = useState<HomeDayView>({ state: "loading" });
+  /** Which framing of collection the owner is looking at. */
+  const [period, setPeriod] = useState<HomePeriodKey>("today");
+  const [collection, setCollection] = useState<CollectionView>({ state: "loading" });
 
   /** Start true so we never flash HomeErrorState before the first /api/home attempt (token path). */
   const [loading, setLoading] = useState(true);
@@ -311,38 +310,31 @@ function HomePage() {
   }, [sessionReady, sessionToken]);
 
   /**
-   * The selected day.
-   *
-   * The first read asks for everything (`scope=full`); moving to another day
-   * asks for the day alone and keeps the month and today's activity, because
-   * neither of them changed when the owner looked at yesterday.
+   * The selected period. Each framing is its own read, because each one is a
+   * different window AND a different window to compare against — the server is
+   * the only place that can cut both at the same point.
    */
   useEffect(() => {
     if (!sessionReady || !sessionToken) return;
     let cancelled = false;
-    const full = dayOffset === 0;
-    const query = new URLSearchParams({ date: dayKeyForOffset(dayOffset) });
-    if (!full) query.set("scope", "day");
 
-    fetch(`/api/home/day?${query.toString()}`, {
+    fetch(`/api/home/collection?period=${period}`, {
       cache: "no-store",
       headers: { Authorization: `Bearer ${sessionToken}` },
     })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
-      .then((json: HomeDayWire) => {
-        if (cancelled) return;
-        // A day that failed must never render as ₪0, so the carry only ever
-        // adds context to a day that actually arrived.
-        setDay((prev) => withCarriedContext(dayViewFrom(json), prev));
+      .then((json: CollectionWire) => {
+        if (!cancelled) setCollection(collectionViewFrom(json));
       })
       .catch(() => {
-        if (!cancelled) setDay({ state: "failed" });
+        // Never ₪0: a period we could not read is a period we cannot report.
+        if (!cancelled) setCollection({ state: "failed" });
       });
 
     return () => {
       cancelled = true;
     };
-  }, [sessionReady, sessionToken, dayOffset]);
+  }, [sessionReady, sessionToken, period]);
 
   const loadHome = async () => {
     const ctrl = new AbortController();
@@ -496,11 +488,11 @@ function HomePage() {
           data,
           briefing,
           status,
-          day,
+          collection,
+          period,
+          setPeriod,
           overdue,
           businessLogo,
-          dayOffset,
-          setDayOffset,
         })}
         identity={identity}
         onIdentityChange={chooseIdentity}
@@ -534,20 +526,20 @@ function buildHomeView({
   data,
   briefing,
   status,
-  day,
+  collection,
+  period,
+  setPeriod,
   overdue,
   businessLogo,
-  dayOffset,
-  setDayOffset,
 }: {
   data: HomeResponse;
   briefing: Loaded<BriefingApi>;
   status: Loaded<BusinessStatusItem[]>;
-  day: HomeDayView;
+  collection: CollectionView;
+  period: HomePeriodKey;
+  setPeriod: (next: HomePeriodKey) => void;
   overdue: HomeOverdueView;
   businessLogo: string | null;
-  dayOffset: number;
-  setDayOffset: (update: (previous: number) => number) => void;
 }): HomeView {
   const ownerFullName = data.businessSnapshot.ownerName?.trim() || "";
   const businessName = data.businessSnapshot.businessName?.trim() || ownerFullName;
@@ -563,18 +555,12 @@ function buildHomeView({
   return {
     businessName,
     businessLogoDataUrl: businessLogo,
-    day,
-    nav: {
-      offset: dayOffset,
-      goEarlier: () => setDayOffset((previous) => previous - 1),
-      // The future does not exist: forward stops at today.
-      goLater: () => setDayOffset((previous) => Math.min(0, previous + 1)),
-      goToday: () => setDayOffset(() => 0),
-    },
+    collection,
+    period,
+    onPeriodChange: setPeriod,
+    overdue,
     objects,
     objectsFailed,
-    watching: watchingCount(briefingValue),
-    overdue,
     loading: objects === null && !objectsFailed,
   };
 }
