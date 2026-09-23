@@ -5,6 +5,7 @@ import Link from "next/link";
 
 import { DubizLogo } from "@/components/ui/dubiz-logo";
 import { FamilyIcon, type IconEntity } from "@/components/ui/entity/family-icon";
+import { FamilyMark, type FamilyMarkKey } from "@/components/ui/entity/family-mark";
 import { formatAmount } from "@/features/home/lib/home-model";
 import type { AttentionObject } from "@/features/home/lib/home-attention";
 import {
@@ -107,13 +108,11 @@ export function HomeScreen({
 
         <section className="dz" aria-labelledby="dz-h">
           <h2 id="dz-h">בדוביז</h2>
-          <ul>
+          <div className="fams">
             {TOOL_GROUPS.map((group) => (
-              <li key={group.key}>
-                <FamilyRow group={group} />
-              </li>
+              <FamilyTile key={group.key} group={group} />
             ))}
-          </ul>
+          </div>
         </section>
       </div>
 
@@ -520,21 +519,21 @@ function Receipt({ object, focused }: { object: AttentionObject; focused: boolea
 
 /* --------------------------------------------------------- families -- */
 
-function FamilyRow({ group }: { group: ToolGroup }) {
+/**
+ * A family tile.
+ *
+ * Three of them in one row, compact enough to survive 360px. The whole surface
+ * is the target; the mark carries the personality and the tint stays quiet, so
+ * the families never compete with the money or the receipts above them.
+ */
+function FamilyTile({ group }: { group: ToolGroup }) {
   return (
-    <Link href={categoryHref(group)} className="fam">
+    <Link href={categoryHref(group)} className={`fam fam-${group.key}`}>
       <span className="fam-ic" aria-hidden>
-        {group.icons.map((entity) => (
-          <FamilyIcon key={entity} entity={entity as IconEntity} size={26} />
-        ))}
+        <FamilyMark family={group.key as FamilyMarkKey} width={50} />
       </span>
-      <span className="fam-tx">
-        <span className="fam-t">{group.label}</span>
-        <span className="fam-l">{group.capabilityLine}</span>
-      </span>
-      <span className="chev" aria-hidden>
-        ‹
-      </span>
+      <span className="fam-t">{group.label}</span>
+      <span className="fam-l">{group.capabilityLine}</span>
     </Link>
   );
 }
@@ -744,17 +743,19 @@ const HOME_CSS = `
 .dzhome .rc-quiet{margin:16px 0 0;font-size:14px;color:var(--ink2)}
 .dzhome .rc-calm{display:flex;align-items:center;gap:10px;margin-top:16px;min-height:52px;font-size:15px;font-weight:700;color:var(--ink2)}
 
-/* families — rows on the page, separated by hairlines */
-.dzhome .dz{margin-top:20px;padding-inline-end:62px}
-.dzhome .dz h2{margin:0 0 4px;font-size:20px;font-weight:800}
-.dzhome .dz ul{list-style:none;margin:0;padding:0}
-.dzhome .dz li{border-top:1px solid var(--hair)}
-.dzhome .fam{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;min-height:66px;padding:8px 0}
-.dzhome .fam-tx{display:flex;flex-direction:column;gap:1px;min-width:0;text-align:start}
-.dzhome .fam-t{font-size:16px;font-weight:800}
-.dzhome .fam-l{font-size:12.5px;font-weight:600;color:var(--ink2)}
-.dzhome .fam-ic{display:flex;align-items:center;gap:8px}
-.dzhome .chev{font-size:19px;color:var(--ink3);line-height:1}
+/* families — three quiet tiles, one row, the mark doing the talking */
+.dzhome .dz{margin-top:20px}
+.dzhome .dz h2{margin:0 0 10px;font-size:20px;font-weight:800}
+.dzhome .fams{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding-inline-end:58px}
+.dzhome .fam{display:flex;flex-direction:column;gap:7px;min-height:126px;padding:12px 10px;
+  border:1px solid rgba(31,42,38,.11);border-radius:15px}
+.dzhome .fam-ic{display:block;height:36px}
+.dzhome .fam-t{font-size:13px;font-weight:800;line-height:1.2}
+.dzhome .fam-l{font-size:10.5px;font-weight:600;line-height:1.45;color:var(--ink2)}
+/* Tints from the same page: sand, mint, sage-stone. Nothing saturated. */
+.dzhome .fam-money{background:#f1e6d2}
+.dzhome .fam-customers{background:#e2ece4}
+.dzhome .fam-operations{background:#e4e9e0}
 
 /* identity sheet */
 .dzhome .sheet{position:fixed;inset:0;z-index:160;background:rgba(31,42,38,.35);display:flex;align-items:flex-end}
@@ -773,7 +774,9 @@ const HOME_CSS = `
   .dzhome .col-amt{font-size:33px}
   .dzhome .rc{margin-left:-14px;margin-right:-14px}
   .dzhome .rc-rail{padding-left:14px;padding-right:14px}
-  .dzhome .dz{padding-inline-end:66px}
+  .dzhome .fams{gap:6px;padding-inline-end:56px}
+  .dzhome .fam{padding:11px 8px;min-height:124px}
+  .dzhome .fam-t{font-size:12.5px}
 }
 @media (min-width:768px){
   .dzhome .w{max-width:620px}
