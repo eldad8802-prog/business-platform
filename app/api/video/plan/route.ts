@@ -12,8 +12,8 @@ import {
 import { buildCreativeBlueprint } from "@/lib/features/content/creative-blueprint/creative-blueprint.engine";
 import { buildRenderBlueprint } from "@/lib/features/content/render-blueprint/render-blueprint.engine";
 import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import { runWithTenantContext } from "@/lib/tenant/context";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { persistContentPlanV1 } from "@/lib/services/content-plan-persistence-v1.service";
 import {
@@ -104,10 +104,16 @@ export async function POST(req: Request) {
     let dbSubCategory: string | undefined;
 
     try {
-      const dbProfile = await prisma.businessProfile.findUnique({
-        where: { businessId: user.businessId },
-        select: { category: true, subCategory: true },
-      });
+      // Tenant-scoped, like the persistence further down. `BusinessProfile` is
+      // FORCE RLS, so the bare client matched zero rows for every tenant and
+      // this enrichment silently fell back to the body — the stored business
+      // identity was never used, and the try/catch guaranteed nobody noticed.
+      const dbProfile = await tenantTx(user.businessId, (tx) =>
+        tx.businessProfile.findUnique({
+          where: { businessId: user.businessId },
+          select: { category: true, subCategory: true },
+        })
+      );
       dbCategory = dbProfile?.category ?? undefined;
       dbSubCategory = dbProfile?.subCategory ?? undefined;
     } catch {

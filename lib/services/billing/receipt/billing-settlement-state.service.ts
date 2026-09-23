@@ -1,9 +1,7 @@
 import { BillingDocumentType, Prisma } from "@prisma/client";
 import { NotFoundError, UnauthorizedError, ValidationError } from "@/lib/errors";
-import { prisma } from "@/lib/prisma";
 import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 import { authoritativeAllocationWhere } from "@/lib/services/billing/domain/billing-allocation-authority";
-import { billingDbStep } from "../billing-db-step";
 
 /**
  * Derived settlement state for an issued invoice. Computed purely from
@@ -60,12 +58,42 @@ export async function getInvoiceSettlementState(args: {
   }
   assertPositiveInteger(args.invoiceDocumentId, "invoiceDocumentId");
 
-  const invoice = await billingTenantTx(args.businessId, (tx) =>
-    tx.billingDocument.findFirst({
-    where: { id: args.invoiceDocumentId, businessId: args.businessId },
-    select: { id: true, documentType: true, totalAmount: true },
-  })
-  );
+  // Both reads carry the tenant explicitly, in one transaction.
+  //
+  // The aggregate used to go through `billingDbStep`, which scopes a read only
+  // when an ALS tenant context is already established — and this function's
+  // only caller is an API route, which establishes none. Under FORCE RLS on
+  // `BillingPaymentAllocation` the aggregate therefore matched zero rows, and
+  // the route reported an invoice that had been half settled as UNPAID with no
+  // allocations. Observed in Production: invoice 3 of the QA tenant, 5.00 of
+  // 10.00 collected and receipted, reported as owing the full 10.00.
+  //
+  // The invoice read above was already scoped, which is what made the result
+  // look plausible rather than empty: a real invoice, a false balance.
+  const { invoice, aggregate } = await billingTenantTx(args.businessId, async (tx) => {
+    const invoiceRow = await tx.billingDocument.findFirst({
+      where: { id: args.invoiceDocumentId, businessId: args.businessId },
+      select: { id: true, documentType: true, totalAmount: true },
+    });
+    if (!invoiceRow || invoiceRow.documentType !== BillingDocumentType.TAX_INVOICE) {
+      // The classification below needs the row; the aggregate would be
+      // meaningless without it, so it is not run.
+      return { invoice: invoiceRow, aggregate: null };
+    }
+    return {
+      invoice: invoiceRow,
+      aggregate: await tx.billingPaymentAllocation.aggregate({
+        where: {
+          businessId: args.businessId,
+          invoiceDocumentId: args.invoiceDocumentId,
+          ...authoritativeAllocationWhere(args.businessId),
+        },
+        _sum: { allocatedAmount: true },
+        _count: { _all: true },
+      }),
+    };
+  });
+
   if (!invoice) {
     throw new NotFoundError("Invoice not found");
   }
@@ -74,16 +102,9 @@ export async function getInvoiceSettlementState(args: {
       "Settlement state is only defined for a TAX_INVOICE"
     );
   }
-
-  const aggregate = await billingDbStep((db) => db.billingPaymentAllocation.aggregate({
-    where: {
-      businessId: args.businessId,
-      invoiceDocumentId: args.invoiceDocumentId,
-      ...authoritativeAllocationWhere(args.businessId),
-    },
-    _sum: { allocatedAmount: true },
-    _count: { _all: true },
-  }));
+  if (!aggregate) {
+    throw new NotFoundError("Invoice not found");
+  }
 
   const allocatedAmount = aggregate._sum.allocatedAmount ?? new Prisma.Decimal(0);
   const remainingAmount = invoice.totalAmount.minus(allocatedAmount);
