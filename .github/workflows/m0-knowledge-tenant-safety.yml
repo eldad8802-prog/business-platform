@@ -19,6 +19,7 @@ on:
       - "lib/business-status/**"
       - "lib/knowledge/**"
       - "app/api/knowledge/**"
+      - "app/api/insights/**"
       - "prisma/schema.prisma"
       - "prisma/migrations/**"
       - "scripts/ci/tenant-context-guard.sh"
@@ -129,6 +130,9 @@ jobs:
 
       - name: Derivation route security contract
         run: npx tsx lib/knowledge/derive-route.verify.test.ts
+
+      - name: Owner-decision surface contract
+        run: npx tsx lib/knowledge/insight-decision-route.verify.test.ts
 
       - name: M0-M3 knowledge battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/knowledge-tenant-battery.ts
