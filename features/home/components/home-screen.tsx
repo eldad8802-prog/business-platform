@@ -530,12 +530,24 @@ function FamilyTile({ group }: { group: ToolGroup }) {
   return (
     <Link href={categoryHref(group)} className={`fam fam-${group.key}`}>
       <span className="fam-ic" aria-hidden>
-        <FamilyMark family={group.key as FamilyMarkKey} width={50} />
+        <FamilyMark family={group.key as FamilyMarkKey} width={42} />
       </span>
       <span className="fam-t">{group.label}</span>
-      <span className="fam-l">{group.capabilityLine}</span>
+      <span className="fam-l">{bindSeparators(group.capabilityLine)}</span>
     </Link>
   );
+}
+
+/**
+ * Keeps the "·" with the word it follows.
+ *
+ * A capability line wraps inside a narrow tile, and left to itself it breaks
+ * BEFORE the separator — so a line opens with a floating dot. Binding the
+ * separator to the preceding word with a no-break space moves every break to
+ * the gap after it, which is where a reader expects one.
+ */
+function bindSeparators(line: string): string {
+  return line.split(" · ").join(" · ");
 }
 
 /* ------------------------------------------------------------ parts -- */
@@ -744,14 +756,21 @@ const HOME_CSS = `
 .dzhome .rc-calm{display:flex;align-items:center;gap:10px;margin-top:16px;min-height:52px;font-size:15px;font-weight:700;color:var(--ink2)}
 
 /* families — three quiet tiles, one row, the mark doing the talking */
-.dzhome .dz{margin-top:20px}
-.dzhome .dz h2{margin:0 0 10px;font-size:20px;font-weight:800}
-.dzhome .fams{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding-inline-end:58px}
-.dzhome .fam{display:flex;flex-direction:column;gap:7px;min-height:126px;padding:12px 10px;
+/*
+ * The floating accessibility control rests over the bottom-inline-start corner
+ * of the viewport. The families answer that with VERTICAL room, never by
+ * giving up width: the tiles keep the page's full content width and stay
+ * symmetrical, and the section carries a clear zone below them so the control
+ * always has somewhere to sit that is not on top of a word.
+ */
+.dzhome .dz{margin-top:6px;padding-bottom:82px}
+.dzhome .dz h2{margin:0 0 5px;font-size:18px;font-weight:800}
+.dzhome .fams{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.dzhome .fam{display:flex;flex-direction:column;gap:5px;min-height:106px;padding:9px 10px 10px;
   border:1px solid rgba(31,42,38,.11);border-radius:15px}
-.dzhome .fam-ic{display:block;height:36px}
-.dzhome .fam-t{font-size:13px;font-weight:800;line-height:1.2}
-.dzhome .fam-l{font-size:10.5px;font-weight:600;line-height:1.45;color:var(--ink2)}
+.dzhome .fam-ic{display:block;height:29px}
+.dzhome .fam-t{font-size:13px;font-weight:800;line-height:1.15}
+.dzhome .fam-l{font-size:11px;font-weight:600;line-height:1.32;color:var(--ink2);text-wrap:balance}
 /* Tints from the same page: sand, mint, sage-stone. Nothing saturated. */
 .dzhome .fam-money{background:#f1e6d2}
 .dzhome .fam-customers{background:#e2ece4}
@@ -774,8 +793,8 @@ const HOME_CSS = `
   .dzhome .col-amt{font-size:33px}
   .dzhome .rc{margin-left:-14px;margin-right:-14px}
   .dzhome .rc-rail{padding-left:14px;padding-right:14px}
-  .dzhome .fams{gap:6px;padding-inline-end:56px}
-  .dzhome .fam{padding:11px 8px;min-height:124px}
+  .dzhome .fams{gap:8px}
+  .dzhome .fam{padding:9px 8px 10px;min-height:104px}
   .dzhome .fam-t{font-size:12.5px}
 }
 @media (min-width:768px){
