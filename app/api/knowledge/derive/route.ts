@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { decideRecoveryAuth } from "@/lib/services/billing/settlement/settlement-recovery-auth";
 import { derivePaperworkLagForBusiness } from "@/lib/knowledge/paperwork-lag.service";
 import { generateInsightsForBusiness } from "@/lib/knowledge/insight.service";
+import { runWithTenantContext } from "@/lib/tenant/context";
+import { getBusinessStatusSnapshot } from "@/lib/business-status/business-status.service";
 
 /**
  * M2/M3 — derive one business's knowledge, inside the runtime.
@@ -61,6 +63,21 @@ async function handle(req: NextRequest) {
     );
     const role = posture[0];
 
+    // The L0 fact layer, reported per domain.
+    //
+    // The composer reads this snapshot anyway, so the loaders already run — but a composition that
+    // happens to use two domains says nothing about the other six. Three of these loaders (inventory
+    // alerts, leads, supplier drafts) read through the global client until M1 and returned NOTHING
+    // under this exact credential, silently, behind a green 200. A per-domain count is the shortest
+    // statement that the silence is over, and it can be compared against a direct query.
+    const snapshot = await runWithTenantContext({ businessId }, () =>
+      getBusinessStatusSnapshot(businessId)
+    );
+    const byDomain: Record<string, number> = {};
+    for (const item of snapshot.items) {
+      byDomain[item.domain] = (byDomain[item.domain] ?? 0) + 1;
+    }
+
     const measure = await derivePaperworkLagForBusiness(businessId);
     const insights = await generateInsightsForBusiness(businessId);
 
@@ -70,6 +87,7 @@ async function handle(req: NextRequest) {
         businessId,
         role: { name: role?.u, superuser: role?.s, bypassrls: role?.b },
         proofLevel: role?.b === false && role?.s === false ? "FULL" : "DERIVATION-ONLY",
+        facts: { total: snapshot.items.length, byDomain, snapshotTenant: snapshot.businessId },
         measure:
           measure.kind === "written"
             ? {
