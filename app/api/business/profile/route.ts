@@ -1,6 +1,22 @@
+/**
+ * The business profile, read and written as the tenant that owns it.
+ *
+ * `BusinessProfile` is FORCE RLS. Both handlers used the bare Prisma client
+ * with no tenant context, and under the least-privilege runtime role that had
+ * two different consequences — one silent, one loud:
+ *
+ *   GET  matched zero rows and answered `hasProfile: false` for a tenant whose
+ *        profile exists. A caller cannot tell that apart from a new account.
+ *   POST fell through the upsert's update branch (its WHERE saw nothing) into
+ *        an insert, which the policy's WITH CHECK refused — an ordinary save
+ *        returning 500 "Server error".
+ *
+ * Both now run through the canonical tenant transaction. The contract is
+ * unchanged: same fields, same validation, same responses.
+ */
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 export async function GET(req: Request) {
   try {
@@ -10,9 +26,11 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const profile = await prisma.businessProfile.findUnique({
-      where: { businessId: user.businessId },
-    });
+    const profile = await tenantTx(user.businessId, (tx) =>
+      tx.businessProfile.findUnique({
+        where: { businessId: user.businessId },
+      })
+    );
 
     return NextResponse.json({
       success: true,
@@ -52,20 +70,22 @@ export async function POST(req: Request) {
 
     const normalizedBusinessModel = String(businessModel).toLowerCase();
 
-    const profile = await prisma.businessProfile.upsert({
-      where: { businessId: user.businessId },
-      update: {
-        category,
-        subCategory,
-        businessModel: normalizedBusinessModel,
-      },
-      create: {
-        businessId: user.businessId,
-        category,
-        subCategory,
-        businessModel: normalizedBusinessModel,
-      },
-    });
+    const profile = await tenantTx(user.businessId, (tx) =>
+      tx.businessProfile.upsert({
+        where: { businessId: user.businessId },
+        update: {
+          category,
+          subCategory,
+          businessModel: normalizedBusinessModel,
+        },
+        create: {
+          businessId: user.businessId,
+          category,
+          subCategory,
+          businessModel: normalizedBusinessModel,
+        },
+      })
+    );
 
     return NextResponse.json({
       success: true,

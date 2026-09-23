@@ -20,13 +20,17 @@
 #
 # Synthetic credentials; ZERO secrets; ZERO Neon; ZERO network.
 
-name: billing profile RLS (ephemeral PG17)
+name: tenant-scoped routes under FORCE RLS (ephemeral PG17)
 
 on:
   pull_request:
     branches: [main]
     paths:
       - "app/api/billing/documents/**"
+      - "app/api/business/profile/**"
+      - "app/api/video/plan/**"
+      - "app/api/rls-tenant-scoped-routes.integration.test.ts"
+      - "lib/services/billing/receipt/billing-settlement-state.service.ts"
       - "lib/billing/business-identity.ts"
       - "lib/services/billing/billing-tenant-tx.ts"
       - "lib/tenant/**"
@@ -38,7 +42,7 @@ permissions:
 
 jobs:
   billing-profile-rls:
-    name: Tax invoice under FORCE RLS (PG17)
+    name: Tenant-scoped routes under FORCE RLS (PG17)
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -97,3 +101,11 @@ jobs:
           AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
           RLS_ADMIN_URL: ${{ env.OWNER_URL }}
         run: npx tsx app/api/billing/documents/route.rls.integration.test.ts
+
+      - name: Tenant-scoped routes under FORCE RLS
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx app/api/rls-tenant-scoped-routes.integration.test.ts
