@@ -26,7 +26,7 @@
  */
 import type { Prisma } from "@prisma/client";
 
-import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 
 /** Newest activity first. `id` breaks ties so paging is deterministic. */
 const ORDER: Prisma.NotificationOrderByWithRelationInput[] = [
@@ -115,8 +115,10 @@ export async function listNotifications(
 ): Promise<NotificationListPage> {
   const where = opts.unreadOnly ? unreadWhere(businessId) : visible(businessId);
 
-  const [rows, unreadCount] = await Promise.all([
-    prisma.notification.findMany({
+  // One tenant transaction, and therefore sequential: a transaction client is a
+  // single connection, so these two cannot run concurrently on it.
+  const { rows, unreadCount } = await tenantTx(businessId, async (tx) => ({
+    rows: await tx.notification.findMany({
       where,
       select: LIST_SELECT,
       orderBy: ORDER,
@@ -125,8 +127,8 @@ export async function listNotifications(
       take: opts.limit + 1,
       ...(opts.cursor !== null ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
     }),
-    prisma.notification.count({ where: unreadWhere(businessId) }),
-  ]);
+    unreadCount: await tx.notification.count({ where: unreadWhere(businessId) }),
+  }));
 
   const hasMore = rows.length > opts.limit;
   const notifications = hasMore ? rows.slice(0, opts.limit) : rows;
@@ -139,7 +141,9 @@ export async function listNotifications(
 }
 
 export async function countUnread(businessId: number): Promise<number> {
-  return prisma.notification.count({ where: unreadWhere(businessId) });
+  return tenantTx(businessId, (tx) =>
+    tx.notification.count({ where: unreadWhere(businessId) })
+  );
 }
 
 export type MarkReadResult = { found: boolean; changed: boolean };
@@ -163,20 +167,22 @@ export async function markNotificationRead(
   notificationId: number,
   now: Date,
 ): Promise<MarkReadResult> {
-  const res = await prisma.notification.updateMany({
-    where: { id: notificationId, businessId, readAt: null },
-    data: { readAt: now, updatedAt: now },
+  return tenantTx(businessId, async (tx) => {
+    const res = await tx.notification.updateMany({
+      where: { id: notificationId, businessId, readAt: null },
+      data: { readAt: now, updatedAt: now },
+    });
+
+    if (res.count === 1) return { found: true, changed: true };
+
+    // Nothing changed: either it was already read, or it is not this tenant's.
+    // Only this path pays for the second query.
+    const exists = await tx.notification.count({
+      where: { id: notificationId, businessId },
+    });
+
+    return { found: exists === 1, changed: false };
   });
-
-  if (res.count === 1) return { found: true, changed: true };
-
-  // Nothing changed: either it was already read, or it is not this tenant's.
-  // Only this path pays for the second query.
-  const exists = await prisma.notification.count({
-    where: { id: notificationId, businessId },
-  });
-
-  return { found: exists === 1, changed: false };
 }
 
 /**
@@ -190,9 +196,11 @@ export async function markAllNotificationsRead(
   businessId: number,
   now: Date,
 ): Promise<number> {
-  const res = await prisma.notification.updateMany({
-    where: unreadWhere(businessId),
-    data: { readAt: now, updatedAt: now },
-  });
+  const res = await tenantTx(businessId, (tx) =>
+    tx.notification.updateMany({
+      where: unreadWhere(businessId),
+      data: { readAt: now, updatedAt: now },
+    })
+  );
   return res.count;
 }

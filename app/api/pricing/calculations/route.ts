@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../lib/prisma";
+import { tenantTx } from "../../../../lib/tenant/tenant-tx";
 import { getCurrentUser } from "../../../../lib/auth";
 
 export async function GET(req: Request) {
@@ -13,7 +13,11 @@ export async function GET(req: Request) {
       );
     }
 
-    const calculations = await prisma.pricingCalculation.findMany({
+    // `PricingCalculation` is FORCE RLS. Read on the bare client this returned
+    // an empty list for every tenant — saved pricing work that still existed in
+    // the database and could no longer be seen.
+    const calculations = await tenantTx(user.businessId, (tx) =>
+      tx.pricingCalculation.findMany({
       where: {
         businessId: user.businessId,
       },
@@ -46,7 +50,8 @@ export async function GET(req: Request) {
         explanationText: true,
         createdAt: true,
       },
-    });
+      })
+    );
 
     return NextResponse.json({
       count: calculations.length,

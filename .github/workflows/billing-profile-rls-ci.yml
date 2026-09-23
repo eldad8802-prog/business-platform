@@ -34,6 +34,13 @@ on:
       - "lib/billing/business-identity.ts"
       - "lib/services/billing/billing-tenant-tx.ts"
       - "lib/tenant/**"
+      - "lib/notifications/notification-read.service.ts"
+      - "app/api/notifications/**"
+      - "app/api/pricing/calculations/**"
+      - "lib/services/billing/collection/awaiting-payment.loader.ts"
+      - "lib/services/billing/authority/billing-authority-validation.service.ts"
+      - "app/api/rls-caller-closure.integration.test.ts"
+      - "scripts/ci/tenant-scoped-access-guard.mjs"
       - ".github/workflows/billing-profile-rls-ci.yml"
   workflow_dispatch:
 
@@ -74,6 +81,12 @@ jobs:
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
 
+      # Static, and deliberately first: it needs no database, and it is the only
+      # check that sees the WHOLE repository rather than the paths this PR
+      # happens to touch.
+      - name: No unscoped access to a FORCE-RLS tenant table
+        run: node scripts/ci/tenant-scoped-access-guard.mjs
+
       - name: Push schema as the owner
         env:
           DATABASE_URL: ${{ env.OWNER_URL }}
@@ -109,3 +122,11 @@ jobs:
           AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
           RLS_ADMIN_URL: ${{ env.OWNER_URL }}
         run: npx tsx app/api/rls-tenant-scoped-routes.integration.test.ts
+
+      - name: Notifications, awaiting payment, pricing and authority identity
+        env:
+          DATABASE_URL: ${{ env.RUNTIME_URL }}
+          DIRECT_URL: ${{ env.RUNTIME_URL }}
+          AUTH_DATABASE_URL: ${{ env.RUNTIME_URL }}
+          RLS_ADMIN_URL: ${{ env.OWNER_URL }}
+        run: npx tsx app/api/rls-caller-closure.integration.test.ts

@@ -12,7 +12,7 @@ import {
   Prisma,
 } from "@prisma/client";
 import { NotFoundError, ValidationError } from "@/lib/errors";
-import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import {
   markAuthorityAuthFailure,
   markAuthorityValidated,
@@ -200,13 +200,25 @@ async function loadValidatableAuthorityConnection(
 async function resolveProbeCustomerVatNumber(
   businessId: number
 ): Promise<string | null> {
-  const profile = await prisma.businessProfile.findUnique({
-    where: { businessId },
-    select: {
-      billingVatNumber: true,
-      billingTaxId: true,
-    },
-  });
+  // Tenant-scoped, and explicitly so.
+  //
+  // `BusinessProfile` is FORCE RLS and this ran on the bare client, so the
+  // probe was built with no customer VAT number at all for every business —
+  // the identity exists, it was simply never visible here. The tenant is an
+  // argument to this function, so it is asserted rather than inherited from an
+  // ambient context the caller may not have set.
+  //
+  // Nothing about the probe, the protocol, the credentials or the validation
+  // semantics changes: only which rows this read can see.
+  const profile = await tenantTx(businessId, (tx) =>
+    tx.businessProfile.findUnique({
+      where: { businessId },
+      select: {
+        billingVatNumber: true,
+        billingTaxId: true,
+      },
+    })
+  );
 
   const vat = profile?.billingVatNumber?.trim();
   if (vat) return vat;

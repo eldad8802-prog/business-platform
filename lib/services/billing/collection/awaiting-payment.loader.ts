@@ -15,7 +15,7 @@
 
 import { BillingDocumentStatus, BillingDocumentType, Prisma } from "@prisma/client";
 
-import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { billingTenantTx } from "@/lib/services/billing/billing-tenant-tx";
 import {
   authoritativeAllocationWhere,
@@ -41,10 +41,19 @@ export async function loadAwaitingPaymentList(
   businessId: number,
   now: Date = new Date(),
 ): Promise<AwaitingPaymentList> {
-  const profile = await prisma.businessProfile.findUnique({
-    where: { businessId },
-    select: { billingPaymentTermsDays: true },
-  });
+  // Tenant-scoped, like the document read below it.
+  //
+  // `BusinessProfile` is FORCE RLS and this ran on the bare client, so the
+  // configured payment terms were never visible and every business silently
+  // used the 30-day default. That is not a cosmetic loss: the terms decide WHEN
+  // an invoice is owed, so a business on 0-day terms saw an empty "awaiting
+  // payment" list — real debt, absent from the screen that exists to show it.
+  const profile = await tenantTx(businessId, (tx) =>
+    tx.businessProfile.findUnique({
+      where: { businessId },
+      select: { billingPaymentTermsDays: true },
+    })
+  );
 
   const termsDays = resolvePaymentTermsDays(profile?.billingPaymentTermsDays ?? null);
 
