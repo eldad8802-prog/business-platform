@@ -705,7 +705,7 @@ const HOME_CSS = `
 .dzhome .figs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--hair)}
 .dzhome .fig{display:flex;align-items:center;gap:8px;min-height:52px}
 .dzhome .fig.trail{justify-content:flex-end}
-.dzhome .figs>*+*{border-inline-start:1px solid var(--hair);padding-inline-start:10px}
+.dzhome .figs .fig+.fig{border-inline-start:1px solid var(--hair);padding-inline-start:10px}
 .dzhome .fig-ic{display:flex;color:#1f6f6b}
 .dzhome .fig-ic.urgent{color:var(--coral)}
 .dzhome .fig-tx{display:flex;flex-direction:column;gap:0;min-width:0}
