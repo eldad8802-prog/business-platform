@@ -29,6 +29,7 @@ import {
 } from "./payment-callback-secret";
 import { assertAmountPayableAgainstDocument } from "./payment-document-authority";
 import { assertPaymentProviderEnabled } from "./providers/provider-availability";
+import { isQaWebhookSuppressed } from "./qa-webhook-suppression";
 import { isSupportedProvider } from "./providers/provider-registry";
 
 export interface CreatePaymentRequestInput {
@@ -319,9 +320,13 @@ export async function createPaymentRequest(
     ? generateCallbackSecret()
     : null;
 
+  // M1 Production proof only — the pinned QA tenant, behind an explicit flag.
+  const suppressWebhookForQa = isQaWebhookSuppressed(input.businessId);
+
   let linkResult;
   try {
     linkResult = await adapter.createPaymentLink({
+      suppressWebhookForQa,
       businessId: input.businessId,
       paymentRequestId: created.id,
       amount,
@@ -376,6 +381,17 @@ export async function createPaymentRequest(
       callbackSecretHash,
       paymentRequestId: created.id,
       businessId: input.businessId,
+    });
+  }
+
+  if (suppressWebhookForQa) {
+    await recordPaymentAuditEvent(deps.store, {
+      businessId: input.businessId,
+      paymentRequestId: created.id,
+      eventType: "PAYMENT_REQUEST_QA_WEBHOOK_SUPPRESSED",
+      source: "SYSTEM",
+      summary: `QA proof: request ${created.id} was issued with a callback URL nothing processes; only reconciliation can record it`,
+      metadata: { provider },
     });
   }
 

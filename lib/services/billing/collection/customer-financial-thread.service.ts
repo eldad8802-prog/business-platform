@@ -17,7 +17,7 @@ export type ThreadEvent =
   | { kind: "INVOICE_ISSUED"; at: string; invoiceId: number; number: string | null; amount: string; currency: string; outstanding: string }
   | { kind: "CREDIT_NOTE_ISSUED"; at: string; documentId: number; number: string | null; amount: string; currency: string; invoiceId: number | null }
   | { kind: "REQUEST_CREATED"; at: string; requestId: number; amount: string; currency: string; invoiceId: number | null; invoiceNumber: string | null; status: string; paymentUrl: string | null }
-  | { kind: "REQUEST_CANCELLED"; at: string; requestId: number }
+  | { kind: "REQUEST_CANCELLED"; at: string; requestId: number; paidAfterward: boolean }
   | { kind: "PAYMENT_FAILED"; at: string; requestId: number; amount: string; currency: string }
   | { kind: "PAYMENT_VERIFIED"; at: string; requestId: number; paymentTransactionId: number; amount: string; currency: string; accounting: "RECEIPTED" | "RECEIPT_PENDING" | "RECEIPT_ATTENTION" | "NO_AUTOMATIC_RECEIPT"; attentionReason: string | null }
   | { kind: "RECEIPT_ISSUED"; at: string; receiptId: number; number: string | null; amount: string; currency: string; allocations: { invoiceId: number; invoiceNumber: string | null; amount: string }[]; unappliedAmount: string; automatic: boolean }
@@ -143,7 +143,9 @@ export async function loadCustomerFinancialThread(
         paymentUrl: status === "PENDING" ? r.paymentUrl : null,
       });
       for (const c of r.auditEvents) {
-        events.push({ kind: "REQUEST_CANCELLED", at: c.occurredAt.toISOString(), requestId: r.id });
+        // M1 — a cancellation is kept as history, and says so when the customer
+        // paid through the link anyway: the money is real and was recorded.
+        events.push({ kind: "REQUEST_CANCELLED", at: c.occurredAt.toISOString(), requestId: r.id, paidAfterward: hasVerifiedMoney });
       }
       const verified = r.transactions.filter((t) => t.status === "PAID" && t.amount.greaterThan(0));
       if (r.status === "FAILED" && verified.length === 0) {

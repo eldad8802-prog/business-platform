@@ -233,7 +233,7 @@ async function main() {
   {
     const { res, store } = await runWebhookWithVerification({
       ResponseCode: 0,
-      TranzactionInfo: { ResponseCode: 0, TranzactionId: 7 },
+      TranzactionInfo: { ResponseCode: 0, TranzactionId: 7, Amount: 100, CoinId: 1 },
     });
     assert.equal(res.verified, true);
     assert.equal(res.paymentRequestStatus, "PAID");
@@ -299,6 +299,99 @@ async function main() {
     } finally {
       if (prev !== undefined) process.env.PAYMENTS_PUBLIC_BASE_URL = prev;
     }
+  }
+
+  // --- 8. M1 / F5 — what GetLpResult may and may not establish ---
+  {
+    // The verified money comes from TranzactionInfo, in CardCom's own terms.
+    const paid = interpretGetLpResult(
+      { ResponseCode: 0, ReturnValue: "42", TerminalNumber: 1000, TranzactionInfo: { ResponseCode: 0, TranzactionId: 31, Amount: 5, CoinId: 1 } },
+      { returnValue: "42", terminalNumber: "1000" }
+    );
+    assert.equal(paid.outcome, "PAID");
+    assert.equal(paid.providerTransactionId, "31");
+    assert.equal(paid.verifiedAmount, "5.00");
+    assert.equal(paid.verifiedCurrency, "ILS");
+    assert.equal(interpretGetLpResult({ ResponseCode: 0, TranzactionInfo: { ResponseCode: 0, TranzactionId: 1, Amount: 9.9, CoinId: 2 } }).verifiedCurrency, "USD");
+    assert.equal(interpretGetLpResult({ ResponseCode: 0, TranzactionInfo: { ResponseCode: 0, TranzactionId: 1, Amount: 1, CoinId: 978 } }).verifiedCurrency, "EUR");
+    // A coin this adapter cannot name can only ever be a mismatch.
+    assert.equal(interpretGetLpResult({ ResponseCode: 0, TranzactionInfo: { ResponseCode: 0, TranzactionId: 1, Amount: 1, CoinId: 826 } }).verifiedCurrency, "COIN:826");
+    // Finer precision than cents is kept verbatim, never rounded into agreement.
+    assert.equal(interpretGetLpResult({ ResponseCode: 0, TranzactionInfo: { ResponseCode: 0, TranzactionId: 1, Amount: 5.004, CoinId: 1 } }).verifiedAmount, "5.004");
+
+    // F5 — a null, empty or absent code is not CardCom's 0.
+    for (const code of [null, "", undefined, false, "0x0", 0.0000001]) {
+      const s = interpretGetLpResult({ ResponseCode: code, TranzactionInfo: { ResponseCode: code, TranzactionId: 7, Amount: 5, CoinId: 1 } });
+      assert.notEqual(s.outcome, "PAID", `code ${JSON.stringify(code)} must not read as success`);
+    }
+    assert.equal(interpretGetLpResult({ ResponseCode: "0", TranzactionInfo: { ResponseCode: "0", TranzactionId: "7", Amount: "5", CoinId: "1" } }).outcome, "PAID");
+    // No TranzactionInfo yet: not conclusive, and no transaction id is claimed.
+    const early = interpretGetLpResult({ ResponseCode: 0, TranzactionInfo: null });
+    assert.equal(early.outcome, "UNKNOWN");
+    assert.equal(early.providerTransactionId, null);
+    // A zero / negative transaction id is no id.
+    assert.equal(interpretGetLpResult({ ResponseCode: 0, TranzactionInfo: { ResponseCode: 0, TranzactionId: 0, Amount: 5, CoinId: 1 } }).providerTransactionId, null);
+
+    // An answer about a DIFFERENT payment or terminal is not evidence about this one.
+    const foreign = interpretGetLpResult(
+      { ResponseCode: 0, ReturnValue: "999", TranzactionInfo: { ResponseCode: 0, TranzactionId: 7, Amount: 5, CoinId: 1 } },
+      { returnValue: "42" }
+    );
+    assert.equal(foreign.outcome, "UNKNOWN");
+    assert.equal(foreign.detail, "return_value_mismatch");
+    const otherTerminal = interpretGetLpResult(
+      { ResponseCode: 0, TerminalNumber: 2000, TranzactionInfo: { ResponseCode: 0, TranzactionId: 7, Amount: 5, CoinId: 1 } },
+      { terminalNumber: "1000" }
+    );
+    assert.equal(otherTerminal.outcome, "UNKNOWN");
+    assert.equal(otherTerminal.detail, "terminal_mismatch");
+
+    // getPaymentStatus asks about THIS request: ReturnValue and terminal are checked.
+    const { fetchImpl } = mockHttp(() => ({
+      json: { ResponseCode: 0, ReturnValue: "77", TerminalNumber: 1000, TranzactionInfo: { ResponseCode: 0, TranzactionId: 8, Amount: 5, CoinId: 1 } },
+    }));
+    const viaAdapter = await provider(fetchImpl).getPaymentStatus!({
+      providerRequestId: "11111111-2222-4333-8444-555555555555",
+      merchantId: "1000",
+      credential: CRED,
+      correlationValue: "78",
+    });
+    assert.equal(viaAdapter.outcome, "UNKNOWN", "a ReturnValue for another request is not evidence");
+  }
+
+  // --- 9. F5 — every CardCom call is bounded by a deadline ---
+  {
+    const hanging: CardComHttpClient = (_url, init) =>
+      new Promise((_, reject) => {
+        init.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    const p = createCardComProvider({ fetchImpl: hanging, baseUrl: "https://test.cardcom", timeoutMs: 50 });
+    const started = Date.now();
+    await assert.rejects(
+      () =>
+        p.getPaymentStatus!({
+          providerRequestId: "11111111-2222-4333-8444-555555555555",
+          merchantId: "1000",
+          credential: CRED,
+        }),
+      (e: unknown) => (e as { code?: string }).code === "TIMEOUT"
+    );
+    assert.ok(Date.now() - started < 5_000, "the deadline, not the platform, ends a hung call");
+    // A body that never finishes is as silent as one that never started.
+    const slowBody = createCardComProvider({
+      fetchImpl: async () => ({ ok: true, status: 200, json: () => new Promise(() => undefined) }),
+      baseUrl: "https://test.cardcom",
+      timeoutMs: 50,
+    });
+    await assert.rejects(
+      () =>
+        slowBody.getPaymentStatus!({
+          providerRequestId: "11111111-2222-4333-8444-555555555555",
+          merchantId: "1000",
+          credential: CRED,
+        }),
+      (e: unknown) => (e as { code?: string }).code === "TIMEOUT"
+    );
   }
 
   void SECRET;

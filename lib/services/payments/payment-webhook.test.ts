@@ -20,10 +20,16 @@ import { createInMemoryPaymentStore } from "./payment-store.memory";
 import { createStubProvider } from "./providers/stub/stub.provider";
 import type { ProviderPaymentStatus } from "./providers/payment-provider.types";
 
-/** Verification result that confirms a PAID, transaction id taken from the body. */
+/**
+ * Verification result that confirms a PAID. M1: the provider's OWN answer
+ * carries the transaction id and the verified money — a callback body's claimed
+ * id is never used as the key.
+ */
 const VERIFIED_PAID: ProviderPaymentStatus = {
   outcome: "PAID",
-  providerTransactionId: null,
+  providerTransactionId: "txn-1",
+  verifiedAmount: "100.00",
+  verifiedCurrency: "ILS",
 };
 
 function setup(

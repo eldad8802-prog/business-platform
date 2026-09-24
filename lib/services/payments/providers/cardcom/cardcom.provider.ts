@@ -28,7 +28,6 @@ import {
   type CreatePaymentLinkInput,
   type CreatePaymentLinkResult,
   type GetPaymentStatusInput,
-  type ParsedPaymentOutcome,
   type ParsedWebhookEvent,
   type ParseWebhookInput,
   type PaymentProviderAdapter,
@@ -41,6 +40,7 @@ import {
   type RefundStatusResult,
 } from "../payment-provider.types";
 import type { ProviderDescriptor } from "../provider-descriptor.types";
+import { QA_WEBHOOK_SINK_PATH } from "../../qa-webhook-suppression";
 
 const CARDCOM_PROVIDER: PaymentProvider = "CARDCOM";
 const DEFAULT_BASE_URL = "https://secure.cardcom.solutions";
@@ -129,13 +129,26 @@ export interface CardComHttpResponse {
 }
 export type CardComHttpClient = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body: string }
+  init: {
+    method: string;
+    headers: Record<string, string>;
+    body: string;
+    signal?: AbortSignal;
+  }
 ) => Promise<CardComHttpResponse>;
+
+/**
+ * F5 — every CardCom call is bounded. Without a deadline a hung connection held
+ * the request until the platform killed the function, which for a payment
+ * verification meant no answer and no record of having asked.
+ */
+export const CARDCOM_DEFAULT_TIMEOUT_MS = 15_000;
 
 export interface CardComProviderOptions {
   fetchImpl?: CardComHttpClient;
   baseUrl?: string;
   publicBaseUrl?: string;
+  timeoutMs?: number;
 }
 
 // --- credential model: JSON { apiName, apiPassword } in the encrypted column -
@@ -223,32 +236,126 @@ export function extractCardComWebhookFields(
 
 // --- GetLpResult outcome interpretation (exported for tests) ---------------
 
-export function interpretGetLpResult(result: unknown): ProviderPaymentStatus {
-  const topCode = caseInsensitiveGet(result, "ResponseCode");
-  const tranInfo = caseInsensitiveGet(result, "TranzactionInfo");
-  const tranCode =
-    tranInfo && typeof tranInfo === "object"
-      ? caseInsensitiveGet(tranInfo, "ResponseCode")
-      : undefined;
-  const tranId =
-    tranInfo && typeof tranInfo === "object"
-      ? caseInsensitiveGet(tranInfo, "TranzactionId")
-      : undefined;
+/**
+ * A CardCom response code, or null when the field is absent or not an integer.
+ *
+ * F5. `Number(null)`, `Number("")` and `Number(false)` are all 0, and 0 is
+ * CardCom's SUCCESS — so a bare `Number(code) === 0` read an empty or null code
+ * as a completed payment. A code is accepted only as a real integer (or an
+ * integer string); anything else establishes nothing.
+ */
+export function cardComCode(value: unknown): number | null {
+  if (typeof value === "number") return Number.isInteger(value) ? value : null;
+  if (typeof value === "string" && /^-?\d+$/.test(value.trim())) {
+    return Number(value.trim());
+  }
+  return null;
+}
 
-  const providerTransactionId = tranId == null ? null : String(tranId);
+/** A positive CardCom id (TranzactionId, TerminalNumber) as a string, else null. */
+function positiveIdOf(value: unknown): string | null {
+  const n = cardComCode(value);
+  return n != null && n > 0 ? String(n) : null;
+}
 
-  let outcome: ParsedPaymentOutcome;
-  if (Number(topCode) === 0 && tranInfo && Number(tranCode) === 0) {
-    outcome = "PAID";
-  } else if (tranInfo && tranCode != null && Number(tranCode) !== 0) {
-    // a transaction exists and the provider says it did not succeed
-    outcome = "FAILED";
-  } else {
-    // no transaction yet / query-level non-zero / unparseable => not conclusive
-    outcome = "UNKNOWN";
+/**
+ * CardCom's `Amount` as a two-decimal string. A value with finer precision is
+ * kept verbatim, so that a comparison against the request fails loudly instead
+ * of being rounded into agreement.
+ */
+function cardComAmountOf(value: unknown): string | null {
+  const n =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))
+        ? Number(value)
+        : NaN;
+  if (!Number.isFinite(n)) return null;
+  const cents = Math.round(n * 100);
+  if (Math.abs(n * 100 - cents) > 1e-6) return String(value);
+  return (cents / 100).toFixed(2);
+}
+
+/**
+ * CardCom `CoinId` → ISO currency. 1 = ILS and 2 = USD are CardCom's own
+ * numbers; anything else is an ISO 4217 numeric code (CardCom v11 OpenAPI,
+ * `TransactionInfo.CoinId`). A coin this adapter cannot name is reported as
+ * `COIN:<n>`, which never equals a request currency — so it can only ever
+ * surface as a mismatch, never be settled.
+ */
+function currencyOfCoinId(value: unknown): string | null {
+  const coin = cardComCode(value);
+  if (coin == null) return null;
+  for (const [currency, id] of Object.entries(ISO_COIN_ID)) {
+    if (id === coin) return currency;
+  }
+  return `COIN:${coin}`;
+}
+
+/** What this request's GetLpResult answer must be about. */
+export interface GetLpResultExpectation {
+  /** Our PaymentRequest id, round-tripped by CardCom as ReturnValue. */
+  returnValue?: string | null;
+  /** The connection's terminal number. */
+  terminalNumber?: string | null;
+}
+
+/**
+ * GetLpResult → the authoritative outcome (CardCom v11 `LowProfileResult`).
+ *
+ *   PAID    top ResponseCode 0 AND TranzactionInfo.ResponseCode 0
+ *   FAILED  TranzactionInfo present with a non-zero ResponseCode
+ *   UNKNOWN everything else — no transaction yet, a query-level error, an
+ *           unreadable body, or an answer about a different payment
+ *
+ * An answer that names a different ReturnValue or terminal than the one asked
+ * about is not evidence about THIS payment, whatever it says, and is UNKNOWN.
+ * The transaction's own Amount and CoinId are returned as the verified money.
+ */
+export function interpretGetLpResult(
+  result: unknown,
+  expected: GetLpResultExpectation = {}
+): ProviderPaymentStatus {
+  const topCode = cardComCode(caseInsensitiveGet(result, "ResponseCode"));
+  const rawInfo = caseInsensitiveGet(result, "TranzactionInfo");
+  const tranInfo = rawInfo && typeof rawInfo === "object" ? rawInfo : null;
+  const tranCode = tranInfo ? cardComCode(caseInsensitiveGet(tranInfo, "ResponseCode")) : null;
+
+  const providerTransactionId = tranInfo
+    ? positiveIdOf(caseInsensitiveGet(tranInfo, "TranzactionId"))
+    : null;
+  const verifiedAmount = tranInfo ? cardComAmountOf(caseInsensitiveGet(tranInfo, "Amount")) : null;
+  const verifiedCurrency = tranInfo ? currencyOfCoinId(caseInsensitiveGet(tranInfo, "CoinId")) : null;
+
+  // Is this answer about the payment we asked about?
+  const returnValue = caseInsensitiveGet(result, "ReturnValue");
+  if (
+    expected.returnValue != null &&
+    returnValue != null &&
+    String(returnValue) !== String(expected.returnValue)
+  ) {
+    return { outcome: "UNKNOWN", providerTransactionId: null, detail: "return_value_mismatch" };
+  }
+  const terminal =
+    positiveIdOf(caseInsensitiveGet(result, "TerminalNumber")) ??
+    (tranInfo ? positiveIdOf(caseInsensitiveGet(tranInfo, "TerminalNumber")) : null);
+  const expectedTerminal = positiveIdOf(expected.terminalNumber);
+  if (expectedTerminal != null && terminal != null && terminal !== expectedTerminal) {
+    return { outcome: "UNKNOWN", providerTransactionId: null, detail: "terminal_mismatch" };
   }
 
-  return { outcome, providerTransactionId };
+  if (topCode === 0 && tranInfo && tranCode === 0) {
+    return { outcome: "PAID", providerTransactionId, verifiedAmount, verifiedCurrency };
+  }
+  if (tranInfo && tranCode != null && tranCode !== 0) {
+    // a transaction exists and the provider says it did not succeed
+    return { outcome: "FAILED", providerTransactionId, verifiedAmount, verifiedCurrency };
+  }
+  return {
+    outcome: "UNKNOWN",
+    providerTransactionId: null,
+    detail: topCode == null ? "no_response_code" : tranInfo ? "no_transaction_code" : "no_transaction_yet",
+  };
 }
 
 // --- provider factory ------------------------------------------------------
@@ -272,36 +379,65 @@ export function createCardComProvider(
     return v ? v.replace(/\/+$/, "") : null;
   };
 
+  const timeoutMs = options.timeoutMs ?? CARDCOM_DEFAULT_TIMEOUT_MS;
+
   async function postJson(path: string, body: unknown): Promise<unknown> {
-    let res: CardComHttpResponse;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    const timeoutError = () =>
+      new PaymentProviderError(CARDCOM_PROVIDER, "TIMEOUT", "CardCom request timed out.");
+    // The deadline covers the whole exchange, body included: a response whose
+    // body never finishes is as silent as one that never started. Whichever
+    // rejection wins the race, a call that ran out of time reports TIMEOUT.
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        reject(timeoutError());
+        controller.abort();
+      }, timeoutMs);
+    });
     try {
-      res = await fetchImpl(`${resolveBaseUrl()}${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(body),
-      });
-    } catch {
-      throw new PaymentProviderError(
-        CARDCOM_PROVIDER,
-        "HTTP_ERROR",
-        "CardCom request failed (network)."
-      );
-    }
-    if (!res.ok) {
-      throw new PaymentProviderError(
-        CARDCOM_PROVIDER,
-        "HTTP_STATUS",
-        `CardCom request failed (status ${res.status}).`
-      );
-    }
-    try {
-      return await res.json();
-    } catch {
-      throw new PaymentProviderError(
-        CARDCOM_PROVIDER,
-        "BAD_RESPONSE",
-        "CardCom returned an unparseable response."
-      );
+      let res: CardComHttpResponse;
+      try {
+        res = await Promise.race([
+          fetchImpl(`${resolveBaseUrl()}${path}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          }),
+          deadline,
+        ]);
+      } catch (error) {
+        if (timedOut) throw timeoutError();
+        if (error instanceof PaymentProviderError) throw error;
+        throw new PaymentProviderError(
+          CARDCOM_PROVIDER,
+          "HTTP_ERROR",
+          "CardCom request failed (network)."
+        );
+      }
+      if (!res.ok) {
+        throw new PaymentProviderError(
+          CARDCOM_PROVIDER,
+          "HTTP_STATUS",
+          `CardCom request failed (status ${res.status}).`
+        );
+      }
+      try {
+        return await Promise.race([res.json(), deadline]);
+      } catch (error) {
+        if (timedOut) throw timeoutError();
+        if (error instanceof PaymentProviderError) throw error;
+        throw new PaymentProviderError(
+          CARDCOM_PROVIDER,
+          "BAD_RESPONSE",
+          "CardCom returned an unparseable response."
+        );
+      }
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -350,7 +486,11 @@ export function createCardComProvider(
         // browser lands on a real page; settlement is server-side via webhook).
         SuccessRedirectUrl: input.successUrl ?? `${publicBaseUrl}/?payment=success`,
         FailedRedirectUrl: input.failureUrl ?? `${publicBaseUrl}/?payment=failed`,
-        WebHookUrl: `${publicBaseUrl}/api/payments/webhook/cardcom`,
+        // M1 Production proof only: the pinned QA tenant may be given a callback
+        // URL nothing processes, so reconciliation alone can discover the payment.
+        WebHookUrl: input.suppressWebhookForQa
+          ? `${publicBaseUrl}${QA_WEBHOOK_SINK_PATH}`
+          : `${publicBaseUrl}/api/payments/webhook/cardcom`,
       };
 
       const result = await postJson(CREATE_PATH, body);
@@ -358,7 +498,7 @@ export function createCardComProvider(
       const url = caseInsensitiveGet(result, "Url");
       const lowProfileId = caseInsensitiveGet(result, "LowProfileId");
 
-      if (Number(responseCode) !== 0 || !url || !lowProfileId) {
+      if (cardComCode(responseCode) !== 0 || !url || !lowProfileId) {
         throw new PaymentProviderError(
           CARDCOM_PROVIDER,
           "CREATE_FAILED",
@@ -391,7 +531,10 @@ export function createCardComProvider(
         LowProfileId: input.providerRequestId,
       });
 
-      return interpretGetLpResult(result);
+      return interpretGetLpResult(result, {
+        returnValue: input.correlationValue ?? null,
+        terminalNumber: input.merchantId,
+      });
     },
 
     async verifyWebhook(input: VerifyWebhookInput): Promise<VerifyWebhookResult> {
