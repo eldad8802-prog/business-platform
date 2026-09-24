@@ -79,6 +79,13 @@ export async function POST(req: NextRequest) {
       businessId: user.businessId,
       name: body.name as string,
       phone: (body.phone as string | null | undefined) ?? null,
+    }, {
+      // M5.5 — server-derived actor; no tx here, so the sensor opens its own (fail-open).
+      sensor: {
+        actor: { type: "OWNER_USER", userId: user.id },
+        source: "OWNER_UI",
+        origin: "BILLING",
+      },
     });
 
     return NextResponse.json(

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import { parseExportRequest } from "@/lib/data-transfer/export/export-request";
 import {
   ExportTooLargeError,
@@ -75,6 +76,21 @@ export async function POST(req: Request) {
       parsed.request.format,
       new Date()
     );
+
+    // M5.5 sensor — fail-open, after the artifact was built. `kind` is the
+    // sorted list of exported domain ids (enum values), joined.
+    await recordSensor({
+      businessId: user.businessId,
+      sensor: "DATA_EXPORTED",
+      entityId: user.businessId,
+      actor: { type: "OWNER_USER", userId: user.id },
+      source: "OWNER_UI",
+      payload: {
+        kind: parsed.request.domains.join("+").slice(0, 100),
+        format: parsed.request.format,
+        rowCount: tables.reduce((n, t) => n + t.rows.length, 0),
+      },
+    });
 
     return new Response(new Uint8Array(artifact.body), {
       headers: {

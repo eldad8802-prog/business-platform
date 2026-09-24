@@ -60,6 +60,8 @@ import {
   type DuplicateDocument,
 } from "@/lib/services/documents/document-duplicate";
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
+import { recordSensor } from "@/lib/sensors/record-sensor";
+import type { SensorActor, SensorSource } from "@/lib/sensors/sensor.contract";
 
 /** Largest single document accepted, in bytes. */
 export const DOCUMENT_MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 15MB
@@ -143,6 +145,18 @@ export type IngestDocumentInput = {
    * take the orphan cleanup path, which is correct but wasteful.
    */
   withinTransaction?: (tx: TenantTx) => Promise<void>;
+  /**
+   * M5.5 — who ingested this and through which path, for the DOCUMENT_INGESTED
+   * sensor. Server-derived by the caller; recorded in the SAME transaction as
+   * the Document row. Omitted means no sensor is written.
+   */
+  sensor?: {
+    actor: SensorActor;
+    source: SensorSource;
+    origin: "UPLOAD" | "EMAIL" | "WHATSAPP" | "IMPORT";
+    importRunId?: number;
+    sourceRowNumber?: number;
+  };
 };
 
 export type { DuplicateDocument };
@@ -238,7 +252,7 @@ export async function ingestDocument(
             if (duplicate) throw new RaceLostToDuplicate(duplicate);
           }
 
-          return tx.document.create({
+          const created = await tx.document.create({
             data: {
               businessId: input.businessId,
               // `fileUrl` stores ONLY the stored basename — no slashes, no
@@ -255,6 +269,32 @@ export async function ingestDocument(
               sizeBytes: input.sizeBytes,
             },
           });
+
+          // M5.5 sensor, same transaction as the row. Scalars only.
+          if (input.sensor) {
+            const s = input.sensor;
+            await recordSensor(
+              {
+                businessId: input.businessId,
+                sensor: "DOCUMENT_INGESTED",
+                entityId: created.id,
+                actor: s.actor,
+                source: s.source,
+                payload: {
+                  origin: s.origin,
+                  forcedDuplicate: input.allowDuplicate === true,
+                  ...(s.importRunId != null ? { importRunId: s.importRunId } : {}),
+                  ...(s.sourceRowNumber != null
+                    ? { sourceRowNumber: s.sourceRowNumber }
+                    : {}),
+                },
+                idempotencyKey: `document:${created.id}:ingested`,
+              },
+              { tx }
+            );
+          }
+
+          return created;
         })
     );
     documentId = document.id;

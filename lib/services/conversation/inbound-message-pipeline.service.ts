@@ -306,6 +306,8 @@ export async function runInboundMessagePipeline(
         direction: labelledMessage.direction,
         senderType: labelledMessage.senderType,
         occurredAt: labelledMessage.createdAt ?? new Date(),
+        // Attribution only (webhook → INTEGRATION); never stored in the event payload.
+        providerMessageId: labelledMessage.providerMessageId,
         state: writerState,
       },
       { tx }

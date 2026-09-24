@@ -50,6 +50,43 @@ export interface ObligationServiceDeps {
   attentionWindowDays?: number;
   /** Generates a recurrence series id. Default: crypto.randomUUID(). */
   newSeriesId?: () => string;
+  /**
+   * M5.5 · optional sensor sink. The production wiring binds it to the store's transaction and to
+   * the server-derived actor (see obligations.deps.ts); tests and callers without it record nothing.
+   * It receives field NAMES and flags only — never an obligee, an amount or a note.
+   */
+  recordChange?: (change: ObligationChange) => Promise<void>;
+}
+
+/** M5.5 · what changed on an obligation, in the shape the OBLIGATION_CHANGED sensor accepts. */
+export interface ObligationChange {
+  businessId: number;
+  obligationId: number | null;
+  action: "CREATED" | "EDITED" | "SNOOZED" | "COMPLETED" | "RELEASED" | "ORIENTED";
+  fields: string[];
+  amountChanged?: boolean;
+  dueAtChanged?: boolean;
+  /** True when Dubiz, not the owner, performed this step (e.g. the next recurring instance). */
+  bySystem?: boolean;
+}
+
+async function emitChange(
+  deps: ObligationServiceDeps,
+  change: ObligationChange
+): Promise<void> {
+  if (deps.recordChange) await deps.recordChange(change);
+}
+
+function sameAmount(a: string, b: string): boolean {
+  const na = Number(a);
+  const nb = Number(b);
+  return Number.isFinite(na) && Number.isFinite(nb) ? na === nb : a === b;
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime();
+  if (a == null && b == null) return true;
+  return a === b;
 }
 
 export interface RecognizeObligationInput {
@@ -144,7 +181,7 @@ export async function recognizeObligation(
   const recurrence = validateRecurrence(input.recurrence);
   const note = normalizeNote(input.note);
 
-  return deps.store.createObligation({
+  const created = await deps.store.createObligation({
     businessId: input.businessId,
     obligeeName,
     amount,
@@ -157,6 +194,17 @@ export async function recognizeObligation(
     note,
     followUpAt: null,
   });
+
+  const fields = ["amount", "currency", "dueAt", "obligeeName", "recurrence"];
+  if (note != null) fields.push("note");
+  await emitChange(deps, {
+    businessId: input.businessId,
+    obligationId: created.id,
+    action: "CREATED",
+    fields: fields.sort(),
+  });
+
+  return created;
 }
 
 async function loadOrThrow(
@@ -195,7 +243,28 @@ export async function updateObligation(
   }
   if (input.note !== undefined) patch.note = normalizeNote(input.note);
 
-  return deps.store.updateObligation(businessId, id, patch);
+  const updated = await deps.store.updateObligation(businessId, id, patch);
+
+  // Field names whose value actually changed; a save that re-sends the same values records nothing.
+  const fields = (Object.keys(patch) as (keyof typeof patch)[])
+    .filter((k) =>
+      k === "amount"
+        ? !sameAmount(current.amount, updated.amount)
+        : !sameValue(current[k], updated[k])
+    )
+    .sort();
+  if (fields.length > 0) {
+    await emitChange(deps, {
+      businessId,
+      obligationId: id,
+      action: "EDITED",
+      fields,
+      amountChanged: fields.includes("amount"),
+      dueAtChanged: fields.includes("dueAt"),
+    });
+  }
+
+  return updated;
 }
 
 /** Postpone ("not now") — suppress from attention until followUpAt. */
@@ -214,7 +283,18 @@ export async function snoozeObligation(
   }
   const current = await loadOrThrow(businessId, id, deps);
   assertTransitionAllowed(current.state, "POSTPONE");
-  return deps.store.updateObligation(businessId, id, { followUpAt: target });
+  const snoozed = await deps.store.updateObligation(businessId, id, { followUpAt: target });
+  if (!sameValue(current.followUpAt, snoozed.followUpAt)) {
+    await emitChange(deps, {
+      businessId,
+      obligationId: id,
+      action: "SNOOZED",
+      fields: ["followUpAt"],
+      amountChanged: false,
+      dueAtChanged: false,
+    });
+  }
+  return snoozed;
 }
 
 /**
@@ -244,6 +324,15 @@ export async function completeObligation(
     followUpAt: null,
   });
 
+  await emitChange(deps, {
+    businessId,
+    obligationId: id,
+    action: "COMPLETED",
+    fields: ["state"],
+    amountChanged: false,
+    dueAtChanged: false,
+  });
+
   let nextInstance: ObligationRecord | null = null;
   if (current.recurrence !== "NONE") {
     const nextDue = nextOccurrence(current.dueAt, current.recurrence);
@@ -260,6 +349,14 @@ export async function completeObligation(
         recurrenceSeriesId: current.recurrenceSeriesId,
         note: current.note,
         followUpAt: null,
+      });
+      // The next instance is Dubiz carrying the series forward, not an owner decision.
+      await emitChange(deps, {
+        businessId,
+        obligationId: nextInstance.id,
+        action: "CREATED",
+        fields: ["dueAt", "recurrence"],
+        bySystem: true,
       });
     }
   }
@@ -282,11 +379,20 @@ export async function releaseObligation(
   if (isIdempotentNoop(current.state, "RELEASE")) return current;
   assertTransitionAllowed(current.state, "RELEASE");
 
-  return deps.store.updateObligation(businessId, id, {
+  const released = await deps.store.updateObligation(businessId, id, {
     state: "RELEASED",
     releasedAt: now,
     followUpAt: null,
   });
+  await emitChange(deps, {
+    businessId,
+    obligationId: id,
+    action: "RELEASED",
+    fields: ["state"],
+    amountChanged: false,
+    dueAtChanged: false,
+  });
+  return released;
 }
 
 /** List obligations for the business (defaults to OPEN only). */
@@ -334,5 +440,16 @@ export async function markOriented(
   deps: ObligationServiceDeps
 ): Promise<OrientationRecord> {
   assertPositiveInt(businessId, "businessId");
-  return deps.store.setOriented(businessId, defaultNow(deps));
+  const before = deps.recordChange ? await deps.store.getOrientation(businessId) : null;
+  const after = await deps.store.setOriented(businessId, defaultNow(deps));
+  // Re-affirming an already-oriented business is not a change.
+  if (before && !before.oriented && after.oriented) {
+    await emitChange(deps, {
+      businessId,
+      obligationId: null,
+      action: "ORIENTED",
+      fields: ["oriented"],
+    });
+  }
+  return after;
 }

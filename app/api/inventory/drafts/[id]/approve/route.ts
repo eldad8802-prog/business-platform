@@ -3,6 +3,7 @@ import { InventoryDraftStatus, InventoryUnitType } from "@prisma/client";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import { getInventoryAuthenticatedUserBasic as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
   InventoryError,
@@ -172,6 +173,32 @@ export async function POST(request: NextRequest) {
     const after = await tx.inventoryDraft.findFirst({
       where: { id: draft.id, businessId: user.businessId },
     });
+
+    const actor = { type: "OWNER_USER", userId: user.id } as const;
+    await recordSensor(
+      {
+        businessId: user.businessId,
+        sensor: "INVENTORY_ITEM_CREATED",
+        entityId: item.id,
+        actor,
+        source: "OWNER_UI",
+        payload: { origin: "PHOTO_DRAFT" },
+        idempotencyKey: `item:${item.id}:created`,
+      },
+      { tx }
+    );
+    await recordSensor(
+      {
+        businessId: user.businessId,
+        sensor: "INVENTORY_DRAFT_DECIDED",
+        entityId: draft.id,
+        actor,
+        source: "OWNER_UI",
+        payload: { decision: "APPROVED", itemId: item.id },
+        idempotencyKey: `inventory-draft:${draft.id}:decided`,
+      },
+      { tx }
+    );
 
     return { updatedDraft: after, createdItem: item };
         })

@@ -102,7 +102,9 @@ export type PayablesAuditType =
   | "EXECUTION_REQUESTED"
   | "EXECUTION_UPDATED"
   | "EXECUTION_SETTLED"
-  | "EXECUTION_FAILED";
+  | "EXECUTION_FAILED"
+  // M5.5. Ids and the kind enum only — never the payee's name, legal name or tax id.
+  | "PAYEE_CREATED";
 
 export async function writeAudit(
   tx: Tx,
@@ -166,12 +168,14 @@ export async function createPayee(input: {
   legalName?: string | null;
   taxId?: string | null;
   note?: string | null;
+  /** Server-derived (the session user). Never read from a request body. */
+  actorUserId?: number | null;
 }) {
   const displayName = input.displayName?.trim();
   if (!displayName) throw new PayablesValidationError("Payee name is required");
 
-  return withTenantTransaction((tx) =>
-    tx.payee.create({
+  return withTenantTransaction(async (tx) => {
+    const payee = await tx.payee.create({
       data: {
         businessId: input.businessId,
         displayName,
@@ -180,8 +184,16 @@ export async function createPayee(input: {
         taxId: input.taxId?.trim() || null,
         note: input.note?.trim() || null,
       },
-    }),
-  );
+    });
+    await writeAudit(tx, {
+      businessId: input.businessId,
+      actorUserId: input.actorUserId,
+      eventType: "PAYEE_CREATED",
+      summary: `Payee #${payee.id} created`,
+      metadata: { payeeId: payee.id, kind: payee.kind },
+    });
+    return payee;
+  });
 }
 
 export async function listPayees(input: { businessId: number; query?: string | null }) {

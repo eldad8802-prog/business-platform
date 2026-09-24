@@ -105,6 +105,11 @@ export async function submitBillingDraftForReview(
     businessId: input.businessId,
     eventType: "BILLING_DOC_SUBMITTED_FOR_REVIEW",
     entityType: "BILLING_DOCUMENT",
+    actor:
+      input.actorUserId != null
+        ? { type: "OWNER_USER", userId: input.actorUserId }
+        : { type: "UNKNOWN" },
+    source: input.actorUserId != null ? "OWNER_UI" : "UNKNOWN",
     entityId: doc.id,
     payload: {
       documentId: doc.id,
@@ -168,6 +173,11 @@ export async function revertBillingDocumentToDraft(
     businessId: input.businessId,
     eventType: "BILLING_DOC_REVERTED_TO_DRAFT",
     entityType: "BILLING_DOCUMENT",
+    actor:
+      input.actorUserId != null
+        ? { type: "OWNER_USER", userId: input.actorUserId }
+        : { type: "UNKNOWN" },
+    source: input.actorUserId != null ? "OWNER_UI" : "UNKNOWN",
     entityId: doc.id,
     payload: {
       documentId: doc.id,

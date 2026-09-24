@@ -5,7 +5,11 @@ import {
   UnauthorizedError,
   ValidationError,
 } from "@/lib/errors";
-import { logAuditEvent } from "@/lib/services/audit.service";
+import {
+  logAuditEvent,
+  type AuditActor,
+  type AuditSource,
+} from "@/lib/services/audit.service";
 import {
   canDisable,
   canEnable,
@@ -71,6 +75,15 @@ export function toMyCouponDTO(coupon: MyCouponRecord, now: Date): MyCouponDTO {
     offerId: coupon.offerId,
     redemptionCount: coupon.redemptionEvents ? 1 : 0,
   };
+}
+
+function ownerActor(actorUserId: number | undefined): {
+  actor: AuditActor;
+  source: AuditSource;
+} {
+  return actorUserId
+    ? { actor: { type: "OWNER_USER", userId: actorUserId }, source: "OWNER_UI" }
+    : { actor: { type: "UNKNOWN" }, source: "UNKNOWN" };
 }
 
 function requireBusinessId(businessId: number | null | undefined): number {
@@ -164,7 +177,9 @@ async function loadOwnedCoupon(publicId: string, businessId: number) {
 export async function disableCoupon(
   publicId: string,
   businessId: number,
-  now: Date = new Date()
+  now: Date = new Date(),
+  /** Session user id from the route — never a request body. Absent → UNKNOWN. */
+  actorUserId?: number
 ): Promise<{ publicId: string; state: CouponLifecycleState; stoppedCount: number }> {
   const owner = requireBusinessId(businessId);
   const coupon = await loadOwnedCoupon(publicId, owner);
@@ -210,6 +225,7 @@ export async function disableCoupon(
     eventType: "REVENUE_COUPON_DISABLED",
     entityType: "COUPON",
     entityId: coupon.id,
+    ...ownerActor(actorUserId),
     payload: {
       couponId: coupon.id,
       publicId: coupon.publicId,
@@ -233,7 +249,9 @@ export async function disableCoupon(
 export async function enableCoupon(
   publicId: string,
   businessId: number,
-  now: Date = new Date()
+  now: Date = new Date(),
+  /** Session user id from the route — never a request body. Absent → UNKNOWN. */
+  actorUserId?: number
 ): Promise<{ publicId: string; state: CouponLifecycleState; resumedCount: number }> {
   const owner = requireBusinessId(businessId);
   const coupon = await loadOwnedCoupon(publicId, owner);
@@ -274,6 +292,7 @@ export async function enableCoupon(
     eventType: "REVENUE_COUPON_ENABLED",
     entityType: "COUPON",
     entityId: coupon.id,
+    ...ownerActor(actorUserId),
     payload: {
       couponId: coupon.id,
       publicId: coupon.publicId,

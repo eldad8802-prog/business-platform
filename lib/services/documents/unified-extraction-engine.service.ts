@@ -604,7 +604,12 @@ export async function runUnifiedDocumentIntelligence(params: {
     structure,
   });
 
-  console.log("DOCUMENT_AMOUNT_ELIGIBILITY:", amountEligibilityLog);
+  // Privacy: counts only — never the amounts or the raw OCR lines they came from.
+  console.log("DOCUMENT_AMOUNT_ELIGIBILITY:", {
+    documentType: amountEligibilityLog.documentType,
+    summary: amountEligibilityLog.summary,
+    itemCount: amountEligibilityLog.items.length,
+  });
 
   const decision = decideDocumentExtraction(entities);
 
@@ -614,7 +619,16 @@ export async function runUnifiedDocumentIntelligence(params: {
     eligibility: amountEligibilityLog,
   });
 
-  console.log("DOCUMENT_AMOUNT_PUBLISH_DECISION:", amountPublishDecisionLog);
+  // Privacy: decision metadata only — no amount values.
+  console.log("DOCUMENT_AMOUNT_PUBLISH_DECISION:", {
+    amountEligible: amountPublishDecisionLog.amountEligible,
+    eligibleCountRaw: amountPublishDecisionLog.eligibleCountRaw,
+    eligibleCountDistinct: amountPublishDecisionLog.eligibleCountDistinct,
+    publishAmountAllowed: amountPublishDecisionLog.publishAmountAllowed,
+    blockReasons: amountPublishDecisionLog.blockReasons,
+    currentAmountMatchesDistinctEligible:
+      amountPublishDecisionLog.currentAmountMatchesDistinctEligible,
+  });
 
   const shadowResolved = resolveFinalEntities({
     entities: {
@@ -631,10 +645,20 @@ export async function runUnifiedDocumentIntelligence(params: {
     documentType: typeDetection.documentType,
   });
 
-  console.log(
-    "DOCUMENT SHADOW COMPARISON:",
-    buildShadowComparisonLog({ decision, shadowResolved, entities })
-  );
+  {
+    // Privacy: flags only. The full comparison carries vendor names, amounts
+    // and dates read off the document and must not reach a log.
+    const shadow = buildShadowComparisonLog({ decision, shadowResolved, entities });
+    console.log("DOCUMENT SHADOW COMPARISON:", {
+      amountChanged: shadow.amountChanged,
+      vendorChanged: shadow.vendorChanged,
+      dateChanged: shadow.dateChanged,
+      currentAmountConfidence: shadow.currentAmountConfidence,
+      currentNeedsReview: shadow.currentNeedsReview,
+      mergedNeedsReview: shadow.mergedNeedsReview,
+      recommendation: shadow.recommendation,
+    });
+  }
 
   const categoryResult = await categorySuggestionWithComparison(
     businessId,
@@ -692,18 +716,16 @@ export async function runUnifiedDocumentIntelligence(params: {
           eligibility: amountEligibilityLog,
         });
 
-      console.log(
-        "DOCUMENT_AMOUNT_PUBLISH_DECISION_AFTER_CORRECTION:",
-        amountPublishDecisionLogAfterCorrection
-      );
+      console.log("DOCUMENT_AMOUNT_PUBLISH_DECISION_AFTER_CORRECTION:", {
+        publishAmountAllowed:
+          amountPublishDecisionLogAfterCorrection.publishAmountAllowed,
+        blockReasons: amountPublishDecisionLogAfterCorrection.blockReasons,
+      });
 
       if (amountPublishDecisionLogAfterCorrection.publishAmountAllowed) {
         publishAmountAllowed = true;
         enforcedAmount = correctedAmount;
-        console.log("SAFE_AMOUNT_CORRECTION_APPLIED:", {
-          originalDecisionAmount: decision.amount,
-          correctedAmount,
-        });
+        console.log("SAFE_AMOUNT_CORRECTION_APPLIED:", { applied: true });
       }
     }
   }
@@ -720,7 +742,6 @@ export async function runUnifiedDocumentIntelligence(params: {
     enforcedAmountConfidence = "low";
 
     console.log("BLOCKED_AMOUNT_PREFILLED_FOR_REVIEW:", {
-      amount: decision.amount,
       originalAmountConfidence: decision.amountConfidence,
       enforcedAmountConfidence,
       blockReasons: amountPublishDecisionLog.blockReasons,

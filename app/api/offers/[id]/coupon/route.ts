@@ -22,6 +22,7 @@ export async function POST(
       offerId,
       businessId: user.businessId,
       baseUrl: resolveCouponBaseUrl(req),
+      actorUserId: user.id,
     });
 
     return NextResponse.json({ coupon }, { status: 201 });

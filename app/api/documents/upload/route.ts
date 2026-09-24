@@ -226,6 +226,12 @@ export async function POST(req: Request) {
       allowDuplicate,
       sessionId,
       sourceChannel: "upload",
+      // M5.5 — the owner uploaded this from the UI (session user).
+      sensor: {
+        actor: { type: "OWNER_USER", userId: user.id },
+        source: "OWNER_UI",
+        origin: "UPLOAD",
+      },
     });
 
     if (!result.ok) {

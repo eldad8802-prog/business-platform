@@ -9,6 +9,8 @@ type CreateOfferInput = {
   customerBenefitText: string;
   imageUrl?: string | null;
   validUntil: Date;
+  /** Session user id only (never a request body). Absent → the event records UNKNOWN. */
+  actorUserId?: number;
 };
 
 export async function createOffer(input: CreateOfferInput) {
@@ -58,9 +60,12 @@ export async function createOffer(input: CreateOfferInput) {
     eventType: "REVENUE_OFFER_CREATED",
     entityType: "OFFER",
     entityId: offer.id,
+    ...(input.actorUserId
+      ? { actor: { type: "OWNER_USER" as const, userId: input.actorUserId }, source: "OWNER_UI" as const }
+      : { actor: { type: "UNKNOWN" as const }, source: "UNKNOWN" as const }),
+    // No title: it is owner-typed free text.
     payload: {
       offerId: offer.id,
-      title: offer.title,
       validUntil: offer.validUntil.toISOString(),
       isActive: offer.isActive,
     },

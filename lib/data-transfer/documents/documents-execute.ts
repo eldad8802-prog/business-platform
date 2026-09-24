@@ -557,6 +557,14 @@ async function createOne(
       // on a newly-appeared duplicate as an override the owner never gave.
       allowDuplicate: action === "CREATE_ANYWAY",
       sessionId: input.sessionId ?? null,
+      // M5.5 — a batch import started by the (session-derived) owner.
+      sensor: {
+        actor: { type: "OWNER_USER", userId: input.userId },
+        source: "IMPORT",
+        origin: "IMPORT",
+        importRunId,
+        sourceRowNumber: position,
+      },
       withinTransaction: async (tx) => {
         await markRow(tx, {
           importRunId,

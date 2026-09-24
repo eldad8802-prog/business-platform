@@ -23,7 +23,6 @@ export async function extractTextFromPdf(filePath: string): Promise<string> {
     const text = result.text || "";
 
     console.log("PDF PARSE: text length:", text.length);
-    console.log("PDF PARSE preview:", text.slice(0, 300));
 
     return text.trim();
   } catch (error) {

@@ -3,8 +3,8 @@ import { after } from "next/server";
 import { runTenantJob } from "@/lib/tenant/job";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
-import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
 import { readDocumentObject } from "@/lib/services/documents/document-storage.service";
@@ -87,9 +87,25 @@ export async function POST(
     } catch (readError) {
       if (readError instanceof StorageObjectNotFoundError) {
         // The source file is gone — nothing to reprocess. Leave it failed.
-        await prisma.document
-          .update({ where: { id }, data: { status: "failed" } })
-          .catch(() => {});
+        // Tenant-scoped: the previous global-client update carried no
+        // businessId filter and, under FORCE RLS, silently matched nothing.
+        await runWithTenantContext({ businessId: user.businessId }, () =>
+          withTenantTransaction((tx) =>
+            tx.document.updateMany({
+              where: { id, businessId: user.businessId },
+              data: { status: "failed" },
+            })
+          )
+        ).catch(() => {});
+        // M5.5 sensor — fail-open, after the action.
+        await recordSensor({
+          businessId: user.businessId,
+          sensor: "DOCUMENT_REPROCESS_REQUESTED",
+          entityId: id,
+          actor: { type: "OWNER_USER", userId: user.id },
+          source: "OWNER_UI",
+          payload: { outcome: "SOURCE_MISSING" },
+        });
         return NextResponse.json(
           { error: "קובץ המקור לא נמצא. יש להעלות מחדש." },
           { status: 409 }
@@ -107,6 +123,16 @@ export async function POST(
         })
       )
     );
+
+    // M5.5 sensor — fail-open, after the status flip committed.
+    await recordSensor({
+      businessId: user.businessId,
+      sensor: "DOCUMENT_REPROCESS_REQUESTED",
+      entityId: id,
+      actor: { type: "OWNER_USER", userId: user.id },
+      source: "OWNER_UI",
+      payload: { outcome: "STARTED" },
+    });
 
     const sessionId = readSessionIdFromRequest(req);
 

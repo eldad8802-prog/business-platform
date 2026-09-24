@@ -5,6 +5,7 @@ import {
   PurchaseOrderStatus,
   ReceivingSessionStatus,
 } from "@prisma/client";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 
 type Tx = Prisma.TransactionClient;
 
@@ -102,4 +103,22 @@ export async function settlePurchaseOrderStatus(
     where: { id: purchaseOrder.id },
     data: { status: nextStatus },
   });
+
+  // Only a real transition reaches here. The status change is a derived
+  // consequence of receiving / a remainder write-off, not a person's choice, so
+  // the actor is the system (the person's own action is recorded by its caller).
+  // CLOSED is terminal and nothing moves an order back, so each target status is
+  // reached at most once per order — a stable identity for retries.
+  await recordSensor(
+    {
+      businessId: input.businessId,
+      sensor: "PURCHASE_ORDER_STATUS_SETTLED",
+      entityId: purchaseOrder.id,
+      actor: { type: "SYSTEM" },
+      source: "SYSTEM",
+      payload: { from: purchaseOrder.status, to: nextStatus },
+      idempotencyKey: `purchase-order:${purchaseOrder.id}:settled:${nextStatus}`,
+    },
+    { tx }
+  );
 }

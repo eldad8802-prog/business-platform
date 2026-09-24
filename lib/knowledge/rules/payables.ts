@@ -238,7 +238,8 @@ export const AP06: RuleDescriptor = {
   ruleId: "AP-06",
   measureKey: "payables.payment_evidence_backing",
   policyKey: "payables-payment-evidence-backing",
-  versionLabel: "v1",
+  // v2 (M5.5): CHEQUE evidence is owner-asserted, not external backing.
+  versionLabel: "v2",
   entityType: null,
   minSupport: 5,
   valueUnit: "ratio",

@@ -276,6 +276,8 @@ export async function initializeInboundAddress(
       businessId,
       eventType: "INBOUND_EMAIL_ADDRESS_CREATED",
       entityType: "InboundEmailAddress",
+      actor: { type: "OWNER_USER", userId },
+      source: "OWNER_UI",
       // No local part, no token hash: the address itself is the routing
       // capability and does not belong in an event log.
       payload: { userId },
@@ -332,6 +334,8 @@ export async function rotateInboundAddress(
     businessId,
     eventType: "INBOUND_EMAIL_ADDRESS_ROTATED",
     entityType: "InboundEmailAddress",
+    actor: { type: "OWNER_USER", userId },
+    source: "OWNER_UI",
     payload: { userId, graceUntil: graceUntil.toISOString() },
   });
   return { ok: true };
@@ -367,6 +371,8 @@ export async function revokeRetiringAddress(
     eventType: "INBOUND_EMAIL_ADDRESS_REVOKED",
     entityType: "InboundEmailAddress",
     entityId: addressId,
+    actor: { type: "OWNER_USER", userId },
+    source: "OWNER_UI",
     payload: { userId },
   });
   return { ok: true };
@@ -463,6 +469,8 @@ export async function addAuthorizedSender(
       eventType: "INBOUND_EMAIL_SENDER_ADDED",
       entityType: "InboundEmailAuthorizedSender",
       entityId: result.row.id,
+      actor: { type: "OWNER_USER", userId },
+      source: "OWNER_UI",
       payload: { userId },
     });
   }
@@ -507,6 +515,8 @@ export async function revokeAuthorizedSender(
     eventType: "INBOUND_EMAIL_SENDER_REVOKED",
     entityType: "InboundEmailAuthorizedSender",
     entityId: senderId,
+    actor: { type: "OWNER_USER", userId },
+    source: "OWNER_UI",
     payload: { userId },
   });
   return { ok: true };

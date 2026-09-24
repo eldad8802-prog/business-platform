@@ -136,6 +136,16 @@ function policySeeds(): string[] {
   return out;
 }
 
+
+/** M5.5 — the rule versions registered after M4/M5 (AP-06, SUPP-02, SUPP-03 v2), out of their migration. */
+function laterRuleVersions(): string[] {
+  const sql = readFileSync(join(process.cwd(), "prisma/migrations/20260925090000_m55_sensor_fabric/migration.sql"), "utf8")
+    .replace(/\r\n/g, "\n").split("\n").map((l) => l.replace(/--.*$/, "")).join("\n");
+  const out = sql.split(";").map((s) => s.trim()).filter((s) => /^INSERT INTO "DerivationPolicyVersion"/.test(s));
+  if (out.length !== 1) throw new Error(`expected 1 M5.5 version insert, found ${out.length}`);
+  return out;
+}
+
 async function main(): Promise<void> {
   section("Provision — a lab that mirrors Production's enforcement");
 
@@ -148,6 +158,7 @@ async function main(): Promise<void> {
     `found ${policies.length} statements`);
   for (const stmt of policies) await owner.$executeRawUnsafe(stmt);
   for (const stmt of policySeeds()) await owner.$executeRawUnsafe(stmt);
+  for (const stmt of laterRuleVersions()) await owner.$executeRawUnsafe(stmt);
 
   // Privileges, not visibility. The battery proves which ROWS a tenant can see; granting broadly is
   // what stops a missing GRANT being mistaken for a working policy.

@@ -174,6 +174,16 @@ function policySeedsFromMigration(): string[] {
   return out;
 }
 
+
+/** M5.5 — the rule versions registered after M4/M5 (AP-06, SUPP-02, SUPP-03 v2), out of their migration. */
+function laterRuleVersions(): string[] {
+  const sql = readFileSync(join(process.cwd(), "prisma/migrations/20260925090000_m55_sensor_fabric/migration.sql"), "utf8")
+    .replace(/\r\n/g, "\n").split("\n").map((l) => l.replace(/--.*$/, "")).join("\n");
+  const out = sql.split(";").map((s) => s.trim()).filter((s) => /^INSERT INTO "DerivationPolicyVersion"/.test(s));
+  if (out.length !== 1) throw new Error(`expected 1 M5.5 version insert, found ${out.length}`);
+  return out;
+}
+
 async function main(): Promise<void> {
   section("Provision — role, policies, grants (mirroring Production)");
 
@@ -194,8 +204,17 @@ async function main(): Promise<void> {
   // catalogue refuses at the policy stage — which is the resolver being correctly fail-closed, and
   // would make this whole battery prove nothing about the rules themselves.
   for (const stmt of policySeedsFromMigration()) await owner.$executeRawUnsafe(stmt);
+  for (const stmt of laterRuleVersions()) await owner.$executeRawUnsafe(stmt);
   const seeded = await owner.derivationPolicyVersion.count();
-  check("the migration seeds a version for every rule in the catalogue", seeded === 14, `versions=${seeded}`);
+  // Every rule's CURRENT version must exist (fail-closed resolver). The count is no longer one per
+  // rule: a corrected rule keeps its v1 row beside its v2, which is what makes supersession auditable.
+  // (No application import here: loading the registry now would bind the Prisma singleton to the
+  // ADMIN connection before the battery switches to the restricted role.)
+  const lineages = await owner.$queryRawUnsafe<{ n: number }[]>(
+    `SELECT count(DISTINCT "policyId")::int AS n FROM "DerivationPolicyVersion"`);
+  const v2 = await owner.derivationPolicyVersion.count({ where: { version: "v2" } });
+  check("the migrations seed the current version of every rule in the catalogue",
+    (lineages[0]?.n ?? 0) >= 14 && v2 === 3 && seeded === 17, `versions=${seeded} lineages=${lineages[0]?.n} v2=${v2}`);
 
   // Production grants, as QUERIED from the production catalog on 2026-09-22 — not as the repo's
   // scripts/security/d2-p7-wave2-grants.sql describes them (that artifact says these tables are

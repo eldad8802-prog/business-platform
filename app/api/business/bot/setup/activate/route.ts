@@ -8,6 +8,16 @@ import {
   materializeSettingsFromBase,
   validateAssembledBase,
 } from "@/lib/features/bot";
+import { recordSensor } from "@/lib/sensors/record-sensor";
+
+/** M5.5 · compare two stored setting values without letting either leave this file. */
+function sameSettingValue(a: unknown, b: unknown): boolean {
+  if (a == null && b == null) return true;
+  if (typeof a === "object" || typeof b === "object") {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  return a === b;
+}
 
 /**
  * Activate (Stage 5) — CONTROLLED, MINIMAL materialization.
@@ -91,7 +101,20 @@ export async function POST(req: Request) {
       // Controlled write — ONLY the allowed fields. Create defaults stay OFF
       // (enabled:false, mode:STARTER, channel:WHATSAPP) — activation never
       // flips the bot on.
-      await tx.businessBotSettings.upsert({
+      const SENSOR_SELECT = {
+        enabled: true,
+        mode: true,
+        channel: true,
+        welcomeMessage: true,
+        questions: true,
+        finalAction: true,
+      } as const;
+      // M5.5 sensor: previous settings, read in the same tenant tx.
+      const before = await tx.businessBotSettings.findUnique({
+        where: { businessId: user.businessId },
+        select: SENSOR_SELECT,
+      });
+      const saved = await tx.businessBotSettings.upsert({
         where: { businessId: user.businessId },
         update: {
           welcomeMessage: mat.welcomeMessage,
@@ -106,7 +129,32 @@ export async function POST(req: Request) {
           questions: mat.questions as unknown as Prisma.InputJsonValue,
           finalAction: mat.finalAction,
         },
+        select: SENSOR_SELECT,
       });
+      const fields = (Object.keys(SENSOR_SELECT) as (keyof typeof SENSOR_SELECT)[])
+        .filter((k) => !sameSettingValue(before?.[k] ?? null, saved[k] ?? null))
+        .sort();
+      if (fields.length > 0) {
+        await recordSensor(
+          {
+            businessId: user.businessId,
+            sensor: "BOT_SETTINGS_CHANGED",
+            entityId: user.businessId,
+            actor: { type: "OWNER_USER", userId: user.id },
+            source: "OWNER_UI",
+            payload: {
+              fields,
+              ...(fields.includes("enabled")
+                ? { fromEnabled: before?.enabled ?? null, toEnabled: saved.enabled }
+                : {}),
+              ...(fields.includes("mode")
+                ? { fromMode: before?.mode ?? null, toMode: saved.mode }
+                : {}),
+            },
+          },
+          { tx }
+        );
+      }
 
       await tx.businessBotSetupDraft.update({
         where: { id: draft.id },

@@ -9,6 +9,31 @@ import {
   MAX_PRODUCT_LINK_INTRO_CHARS,
   MAX_PRODUCT_LINK_URL_CHARS,
 } from "@/lib/inbox-view/product-link-capability";
+import { recordSensor } from "@/lib/sensors/record-sensor";
+
+/** M5.5 · the settings fields compared for BOT_SETTINGS_CHANGED (names only leave this file). */
+const SENSOR_FIELDS = [
+  "enabled",
+  "mode",
+  "channel",
+  "welcomeMessage",
+  "questions",
+  "finalAction",
+  "finalActionPayload",
+  "handoffRules",
+  "showDraftSuggestionsInInbox",
+  "productLinkEnabled",
+  "productLinkUrl",
+  "productLinkIntro",
+] as const;
+
+function sameSettingValue(a: unknown, b: unknown): boolean {
+  if (a == null && b == null) return true;
+  if (typeof a === "object" || typeof b === "object") {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  return a === b;
+}
 
 const ALLOWED_MODES = new Set(["STARTER"]);
 const ALLOWED_CHANNELS = new Set(["WHATSAPP"]);
@@ -381,14 +406,47 @@ export async function PATCH(req: Request) {
     const row = await runWithTenantContext(
       { businessId: user.businessId },
       () =>
-        withTenantTransaction((tx) =>
-          tx.businessBotSettings.upsert({
+        withTenantTransaction(async (tx) => {
+          // M5.5 sensor: previous settings, read in the same tenant tx.
+          const before = await tx.businessBotSettings.findUnique({
+            where: { businessId: user.businessId },
+            select: SETTINGS_SELECT,
+          });
+
+          const saved = await tx.businessBotSettings.upsert({
             where: { businessId: user.businessId },
             update: patch,
             create,
             select: SETTINGS_SELECT,
-          })
-        )
+          });
+
+          const fields = SENSOR_FIELDS.filter(
+            (k) => !sameSettingValue(before?.[k] ?? null, saved[k] ?? null)
+          ).sort();
+          if (fields.length > 0) {
+            await recordSensor(
+              {
+                businessId: user.businessId,
+                sensor: "BOT_SETTINGS_CHANGED",
+                entityId: user.businessId,
+                actor: { type: "OWNER_USER", userId: user.id },
+                source: "OWNER_UI",
+                payload: {
+                  fields,
+                  ...(fields.includes("enabled")
+                    ? { fromEnabled: before?.enabled ?? null, toEnabled: saved.enabled }
+                    : {}),
+                  ...(fields.includes("mode")
+                    ? { fromMode: before?.mode ?? null, toMode: saved.mode }
+                    : {}),
+                },
+              },
+              { tx }
+            );
+          }
+
+          return saved;
+        })
     );
 
     const { id, updatedAt, ...rest } = row;

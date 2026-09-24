@@ -3,6 +3,30 @@ import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { supplierService } from "@/lib/services/inventory/supplier.service";
+import { changedFields, recordSensor } from "@/lib/sensors/record-sensor";
+
+/** Supplier columns an owner edit can change; compared by name only, never by value. */
+const SUPPLIER_EDITABLE_FIELDS = [
+  "name",
+  "phone",
+  "email",
+  "notes",
+  "defaultLeadTimeDays",
+  "legalName",
+  "taxId",
+  "taxIdType",
+  "category",
+  "website",
+  "contactName",
+  "contactRole",
+  "contactPhone",
+  "contactEmail",
+  "addressStreet",
+  "addressCity",
+  "addressPostalCode",
+  "paymentTermsDays",
+  "preferredPaymentMethod",
+] as const;
 import { getInventoryAuthenticatedUser as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 import {
   InventoryError,
@@ -90,8 +114,13 @@ export async function PATCH(
     const supplier = await runWithTenantContext(
       { businessId: user.businessId },
       () =>
-        withTenantTransaction((tx) =>
-          supplierService.updateSupplier({
+        withTenantTransaction(async (tx) => {
+          // Read directly (not getSupplier) so a missing row still surfaces from
+          // updateSupplier exactly as before — validation order is unchanged.
+          const before = await tx.supplier.findFirst({
+            where: { id: supplierId, businessId: user.businessId },
+          });
+          const after = await supplierService.updateSupplier({
       businessId: user.businessId,
       supplierId,
       ...(body?.name !== undefined ? { name: body.name } : {}),
@@ -116,8 +145,43 @@ export async function PATCH(
       ...(body?.addressPostalCode !== undefined ? { addressPostalCode: body.addressPostalCode } : {}),
       ...(body?.paymentTermsDays !== undefined ? { paymentTermsDays: body.paymentTermsDays } : {}),
       ...(body?.preferredPaymentMethod !== undefined ? { preferredPaymentMethod: body.preferredPaymentMethod } : {}),
-          }, { tx })
-        )
+          }, { tx });
+
+          if (!before) return after;
+          const actor = { type: "OWNER_USER", userId: user.id } as const;
+          const fields = changedFields(
+            before as unknown as Record<string, unknown>,
+            after as unknown as Record<string, unknown>,
+            SUPPLIER_EDITABLE_FIELDS
+          );
+          if (fields.length > 0) {
+            await recordSensor(
+              {
+                businessId: user.businessId,
+                sensor: "SUPPLIER_UPDATED",
+                entityId: after.id,
+                actor,
+                source: "OWNER_UI",
+                payload: { fields, taxIdChanged: fields.includes("taxId") },
+              },
+              { tx }
+            );
+          }
+          if (before.isActive !== after.isActive) {
+            await recordSensor(
+              {
+                businessId: user.businessId,
+                sensor: after.isActive ? "SUPPLIER_REACTIVATED" : "SUPPLIER_DEACTIVATED",
+                entityId: after.id,
+                actor,
+                source: "OWNER_UI",
+              },
+              { tx }
+            );
+          }
+
+          return after;
+        })
     );
 
     return NextResponse.json({ supplier });

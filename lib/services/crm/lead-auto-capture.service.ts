@@ -41,6 +41,15 @@ import { leadService, isOpenPhoneCollision } from "@/lib/services/crm/lead.servi
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { ValidationError } from "@/lib/errors";
 
+/**
+ * M5.5 — an auto-captured lead is Dubiz's decision, not the owner's. Stamping it SYSTEM/SYSTEM is
+ * what makes it distinguishable from a lead the owner created from the same conversation.
+ */
+const AUTO_CAPTURE_ACTOR = {
+  actor: { type: "SYSTEM" },
+  source: "SYSTEM",
+} as const;
+
 const FLAG_ENV_NAME = "LEADS_AUTO_CAPTURE_ENABLED";
 
 export function isLeadAutoCaptureEnabled(): boolean {
@@ -135,7 +144,7 @@ export async function maybeCaptureLeadFromMessage(
   try {
     const result = await withTenantTransaction((tx) =>
       leadService.createFromConversation(
-        { businessId, conversationId: conversation.id, name: null },
+        { businessId, conversationId: conversation.id, name: null, ...AUTO_CAPTURE_ACTOR },
         { tx }
       )
     );
@@ -176,7 +185,7 @@ export async function maybeCaptureLeadFromMessage(
     try {
       const adopted = await withTenantTransaction((tx) =>
         leadService.createFromConversation(
-          { businessId, conversationId: conversation.id, name: null },
+          { businessId, conversationId: conversation.id, name: null, ...AUTO_CAPTURE_ACTOR },
           { tx }
         )
       );

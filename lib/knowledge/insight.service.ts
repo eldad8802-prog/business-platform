@@ -8,6 +8,7 @@
  */
 import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { runWithTenantContext } from "@/lib/tenant/context";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import { getBusinessStatusSnapshot } from "@/lib/business-status/business-status.service";
 import {
   composeInsights,
@@ -125,6 +126,12 @@ export async function recordOwnerDecision(
     // The tenant predicate is kept alongside the GUC deliberately: the database's guarantee and the
     // application's should agree, and a decision written onto another tenant's insight is not the
     // failure mode to discover later.
+    // M5.5 sensor: the row keeps only the LATEST decision; the previous one is captured here, in the
+    // same transaction, so a changed mind is history rather than an overwrite.
+    const previous = await tx.businessInsight.findFirst({
+      where: { id: insightId, businessId },
+      select: { status: true, insightKey: true, composerVersion: true },
+    });
     const updated = await tx.businessInsight.updateMany({
       where: { id: insightId, businessId },
       data: {
@@ -134,6 +141,27 @@ export async function recordOwnerDecision(
         ownerDecisionNote: note ?? null,
       },
     });
+    if (updated.count === 1 && previous) {
+      // No idempotency key: re-deciding is a new, explicit decision. The note is a flag only.
+      await recordSensor(
+        {
+          businessId,
+          sensor: "INSIGHT_DECIDED",
+          entityId: insightId,
+          actor: { type: "OWNER_USER", userId },
+          source: "OWNER_UI",
+          payload: {
+            from: previous.status,
+            to: decision,
+            // The governed composition id (e.g. "payables.pressure_with_paperwork_backlog"), not the dedupe key.
+            insightKind: previous.insightKey,
+            composerVersion: previous.composerVersion,
+            noteGiven: note != null && note.length > 0,
+          },
+        },
+        { tx },
+      );
+    }
     return updated.count === 1 ? { ok: true } : { ok: false, reason: "insight not found for this business" };
   });
 }

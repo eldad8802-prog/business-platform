@@ -114,7 +114,15 @@ export async function POST(req: NextRequest) {
               city: (body.city as string | null | undefined) ?? null,
               notes: (body.notes as string | null | undefined) ?? null,
             },
-            { tx }
+            {
+              tx,
+              // M5.5 — server-derived actor; never read from the body.
+              sensor: {
+                actor: { type: "OWNER_USER", userId: user.id },
+                source: "OWNER_UI",
+                origin: "UI",
+              },
+            }
           )
         )
     );

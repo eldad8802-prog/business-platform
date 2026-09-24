@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { HUMAN_TAKEOVER_OUTCOME_REASON } from "@/lib/features/conversation/bot-control";
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
 
           const now = new Date();
 
-          await tx.replySuggestion.updateMany({
+          const dismissed = await tx.replySuggestion.updateMany({
             where: {
               businessId: user.businessId,
               conversationId,
@@ -65,6 +66,19 @@ export async function POST(req: Request) {
               outcomeReason: HUMAN_TAKEOVER_OUTCOME_REASON,
             },
           });
+
+          // M5.5 sensor, same transaction.
+          await recordSensor(
+            {
+              businessId: user.businessId,
+              sensor: "CONVERSATION_HUMAN_TAKEOVER",
+              entityId: conversationId,
+              actor: { type: "OWNER_USER", userId: user.id },
+              source: "OWNER_UI",
+              payload: { draftsDismissed: dismissed.count },
+            },
+            { tx }
+          );
           return true;
         })
     );

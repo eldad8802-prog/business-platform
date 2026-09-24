@@ -56,7 +56,7 @@ export async function POST(
             user.businessId,
             obligationId,
             followUpAt,
-            obligationServiceDeps({ tx })
+            obligationServiceDeps({ tx, actorUserId: user.id })
           )
         )
     );

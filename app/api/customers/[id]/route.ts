@@ -121,6 +121,12 @@ export async function PATCH(
       );
     }
 
+    // M5.5 — server-derived actor; never read from the body.
+    const sensor = {
+      actor: { type: "OWNER_USER", userId: user.id },
+      source: "OWNER_UI",
+    } as const;
+
     // P5: server-derived tenant -> ALS -> tenant transaction (GUC) -> RLS backstop.
     const updated = await runWithTenantContext(
       { businessId: user.businessId },
@@ -133,11 +139,11 @@ export async function PATCH(
                   customerId,
                   isActive: body.isActive as boolean,
                 },
-                { tx }
+                { tx, sensor }
               )
             : customerService.updateCustomerBasics(
                 { businessId: user.businessId, customerId, ...basics },
-                { tx }
+                { tx, sensor }
               )
         )
     );

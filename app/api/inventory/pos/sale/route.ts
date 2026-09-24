@@ -8,6 +8,56 @@ import { syncInventoryAlertNotifications } from "@/lib/notifications/inventory-a
 import { createPendingMatch } from "@/lib/services/inventory/pending-match.service";
 import { consumeRateLimit, getClientIp } from "@/lib/security/rate-limit";
 import { sha256Hex } from "@/lib/services/integrations/gmail/sha256.service";
+import { recordSensor } from "@/lib/sensors/record-sensor";
+import { MAX_LIST, MAX_STRING } from "@/lib/sensors/sensor.contract";
+import type { Prisma } from "@prisma/client";
+
+function clip(value: unknown): string {
+  const s = String(value);
+  return s.length > MAX_STRING ? s.slice(0, MAX_STRING) : s;
+}
+
+/**
+ * Evidence of what this POS delivery did. The caller is an external system
+ * authenticated by its key, so actor and source are both INTEGRATION.
+ */
+function recordPosSaleSensor(
+  tx: Prisma.TransactionClient,
+  input: {
+    businessId: number;
+    entityId: number | null;
+    externalSaleId: unknown;
+    posSource: string;
+    movementIds: number[];
+    lineCount: number;
+    outcome: "APPLIED" | "HELD_FOR_MATCH";
+  }
+) {
+  const saleId = clip(input.externalSaleId);
+  return recordSensor(
+    {
+      businessId: input.businessId,
+      sensor: "POS_SALE_INGESTED",
+      entityId: input.entityId,
+      actor: { type: "INTEGRATION" },
+      source: "INTEGRATION",
+      payload: {
+        externalSaleId: saleId,
+        posSource: clip(input.posSource),
+        movementIds: input.movementIds.slice(0, MAX_LIST),
+        lineCount: input.lineCount,
+        outcome: input.outcome,
+      },
+      // Outcome-scoped: a sale held for matching can later be redelivered and
+      // applied in full (no ExternalSale row exists while it is held), and that
+      // second, different occurrence must not be swallowed by the first's key.
+      // Keyed on a hash of the FULL external id: the payload copy is clipped to 100 characters, and two
+      // ids sharing a 100-character prefix must not collapse into one fact.
+      idempotencyKey: `pos-sale:${sha256Hex(Buffer.from(String(input.externalSaleId), "utf8"))}:${input.outcome === "APPLIED" ? "applied" : "held"}`,
+    },
+    { tx }
+  );
+}
 
 function unauthorized() {
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -246,6 +296,16 @@ export async function POST(request: NextRequest) {
         { tx }
       );
 
+      await recordPosSaleSensor(tx, {
+        businessId,
+        entityId: null,
+        externalSaleId,
+        posSource: source,
+        movementIds: [],
+        lineCount: validItems.length,
+        outcome: "HELD_FOR_MATCH",
+      });
+
       return { kind: "pending" as const, pendingMatch };
     }
 
@@ -267,12 +327,22 @@ export async function POST(request: NextRequest) {
     }
 
     // 💾 רק אחרי עיבוד מלא — אטומי עם התנועות
-    await tx.inventoryExternalSale.create({
+    const externalSale = await tx.inventoryExternalSale.create({
       data: {
         businessId,
         externalSaleId,
         source,
       },
+    });
+
+    await recordPosSaleSensor(tx, {
+      businessId,
+      entityId: externalSale.id,
+      externalSaleId,
+      posSource: source,
+      movementIds: movements.map((m) => m.id),
+      lineCount: validItems.length,
+      outcome: "APPLIED",
     });
 
     return { kind: "processed" as const, movements };

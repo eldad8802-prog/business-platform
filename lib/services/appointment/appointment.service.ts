@@ -30,6 +30,8 @@ import type {
   CancelInput,
   RescheduleInput,
 } from "./appointment.types";
+import { recordSensor } from "@/lib/sensors/record-sensor";
+import type { SensorActor, SensorSource } from "@/lib/sensors/sensor.contract";
 
 const VALID_ACTORS = new Set(["OWNER", "BOT", "SYSTEM"]);
 const VALID_CHANNELS = new Set([
@@ -50,6 +52,35 @@ function isValidActor(actor: ActorContext | undefined): boolean {
   if (!VALID_ACTORS.has(actor.actor)) return false;
   if (!VALID_CHANNELS.has(actor.sourceChannel)) return false;
   return isPositiveInt(actor.userId);
+}
+
+/**
+ * M5.5 — the appointment's own provenance, translated into the sensor vocabulary. Derived ONLY from
+ * the server-built `ActorContext` (routes build it from the session). A BOT or SYSTEM actor is never
+ * attributed to the user id the schema forces onto it: that id would put a name on a decision
+ * nobody made.
+ */
+function sensorWho(ctx: ActorContext): { actor: SensorActor; source: SensorSource } {
+  if (ctx.actor === "OWNER") {
+    const source: SensorSource =
+      ctx.sourceChannel === "INBOX_WEB" || ctx.sourceChannel === "MOBILE"
+        ? "OWNER_UI"
+        : ctx.sourceChannel === "IMPORT"
+          ? "IMPORT"
+          : ctx.sourceChannel === "EXTERNAL_API"
+            ? "API"
+            : "UNKNOWN";
+    return { actor: { type: "OWNER_USER", userId: ctx.userId }, source };
+  }
+  const source: SensorSource =
+    ctx.sourceChannel === "EXTERNAL_API"
+      ? "API"
+      : ctx.sourceChannel === "PUBLIC_BOOKING"
+        ? "INTEGRATION"
+        : ctx.sourceChannel === "WHATSAPP_BOT"
+          ? "SYSTEM"
+          : "UNKNOWN";
+  return { actor: { type: "SYSTEM" }, source };
 }
 
 function mergeNote(existing: string | null, addition: string | null): string | null {
@@ -221,6 +252,20 @@ async function transition(
       where: { id: input.appointmentId },
       data,
     });
+
+    // M5.5 — a real lifecycle move, atomic with it. The cancel reason (free text) stays in notes.
+    if (current.status !== to) {
+      await recordSensor(
+        {
+          businessId: input.businessId,
+          sensor: "APPOINTMENT_STATUS_CHANGED",
+          entityId: appointment.id,
+          ...sensorWho(input.actor),
+          payload: { from: current.status, to },
+        },
+        { tx }
+      );
+    }
     return { ok: true, appointment };
   });
 }
@@ -275,6 +320,27 @@ export async function reschedule(
         durationMinutes: duration,
       },
     });
+
+    // M5.5 — only a real change of time or length is a reschedule; a same-value save is not.
+    const startChanged =
+      (current.startsAt?.getTime() ?? null) !== input.startsAt.getTime();
+    const durationChanged = (current.durationMinutes ?? null) !== duration;
+    if (startChanged || durationChanged) {
+      await recordSensor(
+        {
+          businessId: input.businessId,
+          sensor: "APPOINTMENT_RESCHEDULED",
+          entityId: appointment.id,
+          ...sensorWho(input.actor),
+          payload: {
+            previousStartsAt: current.startsAt ? current.startsAt.toISOString() : null,
+            startsAt: input.startsAt.toISOString(),
+            durationChanged,
+          },
+        },
+        { tx }
+      );
+    }
     return { ok: true, appointment };
   });
 }

@@ -50,6 +50,9 @@ export async function POST(
             businessId,
             conversationId,
             name: (body.name as string | null | undefined) ?? null,
+            // M5.5 — server-derived: the owner asked for this lead.
+            actor: { type: "OWNER_USER", userId: user.id },
+            source: "OWNER_UI",
           },
           { tx }
         );

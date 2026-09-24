@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { buildFinancialRecordsCsvBuffer } from "@/lib/reports/financial-records-csv";
@@ -46,6 +47,16 @@ export async function GET(req: Request) {
     // OCR-derived text straight into the spreadsheet as executable content.
     // See lib/reports/financial-records-csv.ts.
     const csv = buildFinancialRecordsCsvBuffer(records);
+
+    // M5.5 sensor — fail-open, after the CSV was built.
+    await recordSensor({
+      businessId: user.businessId,
+      sensor: "DATA_EXPORTED",
+      entityId: user.businessId,
+      actor: { type: "OWNER_USER", userId: user.id },
+      source: "OWNER_UI",
+      payload: { kind: "FINANCIAL_RECORDS", format: "CSV", rowCount: records.length },
+    });
 
     return new Response(new Uint8Array(csv), {
       headers: {

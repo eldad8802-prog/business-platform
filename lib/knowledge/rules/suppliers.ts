@@ -149,7 +149,8 @@ export const SUPP02: RuleDescriptor = {
   ruleId: "SUPP-02",
   measureKey: "suppliers.delivery_lag",
   policyKey: "suppliers-delivery-lag",
-  versionLabel: "v1",
+  // v2 (M5.5): orders created-and-received by draft approval are excluded (zero lead time by construction).
+  versionLabel: "v2",
   entityType: "supplier",
   minSupport: 3,
   valueUnit: "days",
@@ -204,7 +205,8 @@ export const SUPP03: RuleDescriptor = {
   ruleId: "SUPP-03",
   measureKey: "suppliers.short_delivery_share",
   policyKey: "suppliers-short-delivery-share",
-  versionLabel: "v1",
+  // v2 (M5.5): orders created-and-received by draft approval are excluded (never short by construction).
+  versionLabel: "v2",
   entityType: "supplier",
   minSupport: 3,
   valueUnit: "ratio",

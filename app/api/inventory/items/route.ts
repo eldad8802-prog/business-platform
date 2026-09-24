@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { inventoryService } from "@/lib/services/inventory/inventory.service";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import { getInventoryAuthenticatedUser as getAuthenticatedUser } from '@/lib/auth/inventory-auth';
 // Moved to lib/services/inventory/inventory-core.ts so the Import preview can
 // reach the same rule without importing a route.
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest) {
             categoryId = parsedCategoryId;
           }
 
-          return inventoryService.createItemWithInitialStock(
+          const created = await inventoryService.createItemWithInitialStock(
             {
               businessId: user.businessId,
               name,
@@ -123,6 +124,21 @@ export async function POST(request: NextRequest) {
             },
             { tx }
           );
+
+          await recordSensor(
+            {
+              businessId: user.businessId,
+              sensor: "INVENTORY_ITEM_CREATED",
+              entityId: created.id,
+              actor: { type: "OWNER_USER", userId: user.id },
+              source: "OWNER_UI",
+              payload: { origin: "UI" },
+              idempotencyKey: `item:${created.id}:created`,
+            },
+            { tx }
+          );
+
+          return created;
         })
     );
 

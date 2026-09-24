@@ -17,6 +17,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { tenantTx } from "@/lib/tenant/tenant-tx";
+import { changedFields, recordSensor } from "@/lib/sensors/record-sensor";
 
 export async function GET(req: Request) {
   try {
@@ -70,8 +71,14 @@ export async function POST(req: Request) {
 
     const normalizedBusinessModel = String(businessModel).toLowerCase();
 
-    const profile = await tenantTx(user.businessId, (tx) =>
-      tx.businessProfile.upsert({
+    const profile = await tenantTx(user.businessId, async (tx) => {
+      // M5.5 sensor: read the previous row in the same tenant tx so "what changed" is exact.
+      const before = await tx.businessProfile.findUnique({
+        where: { businessId: user.businessId },
+        select: { category: true, subCategory: true, businessModel: true },
+      });
+
+      const saved = await tx.businessProfile.upsert({
         where: { businessId: user.businessId },
         update: {
           category,
@@ -84,8 +91,42 @@ export async function POST(req: Request) {
           subCategory,
           businessModel: normalizedBusinessModel,
         },
-      })
-    );
+      });
+
+      const prev = {
+        category: before?.category ?? null,
+        subCategory: before?.subCategory ?? null,
+        businessModel: before?.businessModel ?? null,
+      };
+      const next = {
+        category: saved.category ?? null,
+        subCategory: saved.subCategory ?? null,
+        businessModel: saved.businessModel ?? null,
+      };
+      const fields = changedFields(prev, next, ["category", "subCategory", "businessModel"]);
+      if (fields.length > 0) {
+        await recordSensor(
+          {
+            businessId: user.businessId,
+            sensor: "BUSINESS_PROFILE_CHANGED",
+            entityId: user.businessId,
+            actor: { type: "OWNER_USER", userId: user.id },
+            source: "OWNER_UI",
+            payload: {
+              fields,
+              ...(fields.includes("businessModel")
+                ? { fromBusinessModel: prev.businessModel, toBusinessModel: next.businessModel }
+                : {}),
+              // category is free text the owner types (only businessModel is validated), so a
+              // category change is recorded by NAME only — the value stays on BusinessProfile.
+            },
+          },
+          { tx },
+        );
+      }
+
+      return saved;
+    });
 
     return NextResponse.json({
       success: true,

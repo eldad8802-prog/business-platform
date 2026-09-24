@@ -28,7 +28,12 @@ import {
   UnauthorizedError,
   ValidationError,
 } from "@/lib/errors";
-import { logAuditEvent } from "@/lib/services/audit.service";
+import {
+  logAuditEvent,
+  type AuditActor,
+  type AuditSource,
+} from "@/lib/services/audit.service";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import { PENDING_SUGGESTION_STATUSES } from "@/lib/inbox-view/inbox-item.serializer";
 import {
   deriveLeadConversationIntelligence,
@@ -103,7 +108,17 @@ const LEAD_ENTITY_TYPE = "LEAD";
 
 /* -------------------------------------------------------------------- types */
 
-export type CreateLeadInput = {
+/**
+ * M5.5 — who caused a lead write and through which channel. SERVER-DERIVED by the caller (session
+ * user → OWNER_USER/OWNER_UI, auto-capture → SYSTEM/SYSTEM, import → OWNER_USER/IMPORT). Never read
+ * from a request body. Optional: omitted, the event carries no actor — the service never guesses.
+ */
+export type LeadActorContext = {
+  actor?: AuditActor;
+  source?: AuditSource;
+};
+
+export type CreateLeadInput = LeadActorContext & {
   businessId: number;
   name: string;
   phone?: string | null;
@@ -112,7 +127,7 @@ export type CreateLeadInput = {
   sourceChannel?: string | null;
 };
 
-export type UpdateLeadInput = {
+export type UpdateLeadInput = LeadActorContext & {
   businessId: number;
   leadId: number;
   name?: string;
@@ -122,7 +137,7 @@ export type UpdateLeadInput = {
   sourceChannel?: string | null;
 };
 
-export type UpdateLeadStatusInput = {
+export type UpdateLeadStatusInput = LeadActorContext & {
   businessId: number;
   leadId: number;
   status: LeadStatusValue | string;
@@ -130,7 +145,7 @@ export type UpdateLeadStatusInput = {
   lostReason?: string | null;
 };
 
-export type SetLeadFollowUpInput = {
+export type SetLeadFollowUpInput = LeadActorContext & {
   businessId: number;
   leadId: number;
   /** ISO-8601 instant. */
@@ -138,7 +153,7 @@ export type SetLeadFollowUpInput = {
   note?: string | null;
 };
 
-export type ClearLeadFollowUpInput = {
+export type ClearLeadFollowUpInput = LeadActorContext & {
   businessId: number;
   leadId: number;
 };
@@ -302,13 +317,13 @@ async function resolveCustomerForLead(
     phone: string | null;
     email: string | null;
   }
-): Promise<number> {
+): Promise<{ id: number; created: boolean }> {
   if (input.phone) {
     const existing = await db.customer.findFirst({
       where: { businessId: input.businessId, phone: input.phone },
       select: { id: true },
     });
-    if (existing) return existing.id;
+    if (existing) return { id: existing.id, created: false };
   }
 
   const created = await customerService.createCustomer(
@@ -320,7 +335,8 @@ async function resolveCustomerForLead(
     },
     { tx: db }
   );
-  return created.id;
+  // `created` tells createLead to emit CUSTOMER_CREATED once the lead id exists.
+  return { id: created.id, created: true };
 }
 
 /* ------------------------------------------------------------------ service */
@@ -358,12 +374,13 @@ export const leadService = {
         if (clash) throw openLeadConflict(clash.id);
       }
 
-      const customerId = await resolveCustomerForLead(tx, {
+      const resolvedCustomer = await resolveCustomerForLead(tx, {
         businessId: input.businessId,
         name,
         phone,
         email,
       });
+      const customerId = resolvedCustomer.id;
 
       const now = new Date();
       let lead;
@@ -400,9 +417,29 @@ export const leadService = {
             hasEmail: email !== null,
             customerId,
           },
+          actor: input.actor,
+          source: input.source,
         },
         { tx }
       );
+
+      // M5.5 — the customer this lead brought into existence (never a reused one). Origin LEAD for
+      // every path; the source (OWNER_UI vs IMPORT) tells a typed lead from an imported one.
+      if (resolvedCustomer.created) {
+        await recordSensor(
+          {
+            businessId: input.businessId,
+            sensor: "CUSTOMER_CREATED",
+            entityId: customerId,
+            // No stated actor → UNKNOWN for both halves; never a guess.
+            actor: input.actor ?? { type: "UNKNOWN" },
+            source: input.actor ? (input.source ?? "UNKNOWN") : "UNKNOWN",
+            payload: { origin: "LEAD", leadId: lead.id },
+            idempotencyKey: `customer:${customerId}:created`,
+          },
+          { tx }
+        );
+      }
 
       return lead;
     };
@@ -733,6 +770,17 @@ export const leadService = {
     data.lastActivityAt = new Date();
 
     const run = async (tx: Tx) => {
+      // M5.5 — read-only: the previous channel, so a channel change is reported as from/to.
+      const previousSourceChannel =
+        input.sourceChannel !== undefined
+          ? (
+              await tx.lead.findFirst({
+                where: { id: leadId, businessId: input.businessId },
+                select: { sourceChannel: true },
+              })
+            )?.sourceChannel ?? null
+          : null;
+
       if (typeof data.phone === "string") {
         const clash = await findOpenLeadByPhone(
           tx,
@@ -760,7 +808,16 @@ export const leadService = {
           eventType: LEAD_EVENTS.UPDATED,
           entityType: LEAD_ENTITY_TYPE,
           entityId: leadId,
-          payload: { fields: Object.keys(data).filter((k) => k !== "lastActivityAt") },
+          payload: {
+            fields: Object.keys(data).filter((k) => k !== "lastActivityAt"),
+            // sourceChannel is owner-typed text (up to 60 chars), so a change is a flag, not a value.
+            // The value itself stays on Lead.
+            sourceChannelChanged:
+              input.sourceChannel !== undefined &&
+              (data.sourceChannel ?? null) !== previousSourceChannel,
+          },
+          actor: input.actor,
+          source: input.source,
         },
         { tx }
       );
@@ -866,6 +923,8 @@ export const leadService = {
           entityType: LEAD_ENTITY_TYPE,
           entityId: leadId,
           payload: { from: current.status, to: nextStatus },
+          actor: input.actor,
+          source: input.source,
         },
         { tx }
       );
@@ -878,7 +937,14 @@ export const leadService = {
               nextStatus === "WON" ? LEAD_EVENTS.WON : LEAD_EVENTS.LOST,
             entityType: LEAD_ENTITY_TYPE,
             entityId: leadId,
-            payload: { from: current.status, lostReason: lostReason ?? null },
+            // M5.5 — the reason text stays on the Lead row; the event carries only whether one
+            // was given. Free text never belongs in learning evidence.
+            payload:
+              nextStatus === "LOST"
+                ? { from: current.status, reasonGiven: lostReason !== null }
+                : { from: current.status },
+            actor: input.actor,
+            source: input.source,
           },
           { tx }
         );
@@ -944,6 +1010,8 @@ export const leadService = {
             followUpAt: followUpAt.toISOString(),
             rescheduled: current.nextFollowUpAt !== null,
           },
+          actor: input.actor,
+          source: input.source,
         },
         { tx }
       );
@@ -962,6 +1030,8 @@ export const leadService = {
               from: current.nextFollowUpAt.toISOString(),
               to: followUpAt.toISOString(),
             },
+            actor: input.actor,
+            source: input.source,
           },
           { tx }
         );
@@ -1014,6 +1084,8 @@ export const leadService = {
             entityType: LEAD_ENTITY_TYPE,
             entityId: leadId,
             payload: { wasDueAt: current.nextFollowUpAt.toISOString() },
+            actor: input.actor,
+            source: input.source,
           },
           { tx }
         );
@@ -1078,7 +1150,7 @@ export const leadService = {
    * thread. No message history is duplicated into the lead.
    */
   async createFromConversation(
-    input: {
+    input: LeadActorContext & {
       businessId: number;
       conversationId: number;
       /** Overrides the derived name when the owner typed one. */
@@ -1212,6 +1284,8 @@ export const leadService = {
             entityType: LEAD_ENTITY_TYPE,
             entityId: lead.id,
             payload: { conversationId, channel: conversation.channel },
+            actor: input.actor,
+            source: input.source,
           },
           { tx }
         );
@@ -1224,6 +1298,8 @@ export const leadService = {
             entityType: LEAD_ENTITY_TYPE,
             entityId: lead.id,
             payload: { conversationId, outcome },
+            actor: input.actor,
+            source: input.source,
           },
           { tx }
         );

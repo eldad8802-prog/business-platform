@@ -16,7 +16,7 @@ export async function POST(
     }
 
     const { id } = await context.params;
-    const result = await enableCoupon(id, user.businessId);
+    const result = await enableCoupon(id, user.businessId, undefined, user.id);
 
     return NextResponse.json(result, { status: 200 });
   } catch (error) {

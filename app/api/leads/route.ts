@@ -241,6 +241,9 @@ export async function POST(req: NextRequest) {
                 (body.intentSnapshot as string | null | undefined) ?? null,
               sourceChannel:
                 (body.sourceChannel as string | null | undefined) ?? null,
+              // M5.5 — server-derived: the session user typed this lead.
+              actor: { type: "OWNER_USER", userId: user.id },
+              source: "OWNER_UI",
             },
             { tx }
           )

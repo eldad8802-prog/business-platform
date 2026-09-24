@@ -28,16 +28,18 @@ export async function PATCH(
     const resolvedCount = await runWithTenantContext(
       { businessId: user.businessId },
       () =>
-        withTenantTransaction((tx) =>
-          tx.inventoryAlert
-            .updateMany({
-              where: { id: alertId, businessId: user.businessId },
-              data: {
-                isResolved: true,
-              },
-            })
-            .then((r) => r.count)
-        )
+        withTenantTransaction(async (tx) => {
+          // M5.5 — stamp resolvedAt only on the transition from open. Resolving an already-resolved
+          // alert keeps succeeding (same response as before) but must not move its resolution time.
+          const opened = await tx.inventoryAlert.updateMany({
+            where: { id: alertId, businessId: user.businessId, isResolved: false },
+            data: { isResolved: true, resolvedAt: new Date() },
+          });
+          if (opened.count === 1) return 1;
+          return tx.inventoryAlert.count({
+            where: { id: alertId, businessId: user.businessId },
+          });
+        })
     );
 
     if (resolvedCount !== 1) {
@@ -49,7 +51,7 @@ export async function PATCH(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Resolve alert error:", error);
+    console.error("Resolve alert error:", error instanceof Error ? error.name : "unknown");
 
     return NextResponse.json(
       { error: "Internal server error" },

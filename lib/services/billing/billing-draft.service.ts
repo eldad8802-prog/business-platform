@@ -240,6 +240,11 @@ export async function createBillingDraft(
     businessId: input.businessId,
     eventType: "BILLING_DRAFT_CREATED",
     entityType: "BILLING_DOCUMENT",
+    actor:
+      input.actorUserId != null
+        ? { type: "OWNER_USER", userId: input.actorUserId }
+        : { type: "UNKNOWN" },
+    source: input.actorUserId != null ? "OWNER_UI" : "UNKNOWN",
     entityId: doc.id,
     payload: {
       documentId: doc.id,
@@ -374,11 +379,16 @@ export async function updateBillingDraftHeader(
     businessId: input.businessId,
     eventType: "BILLING_DRAFT_HEADER_UPDATED",
     entityType: "BILLING_DOCUMENT",
+    actor:
+      input.actorUserId != null
+        ? { type: "OWNER_USER", userId: input.actorUserId }
+        : { type: "UNKNOWN" },
+    source: input.actorUserId != null ? "OWNER_UI" : "UNKNOWN",
     entityId: doc.id,
     payload: {
       documentId: doc.id,
       customerId: doc.customerId,
-      customerNameSnapshot: doc.customerNameSnapshot,
+      customerNameSet: Boolean(doc.customerNameSnapshot),
       actorUserId: input.actorUserId,
     },
   });
@@ -457,6 +467,11 @@ export async function replaceBillingDraftLines(
     businessId: input.businessId,
     eventType: "BILLING_DRAFT_LINES_REPLACED",
     entityType: "BILLING_DOCUMENT",
+    actor:
+      input.actorUserId != null
+        ? { type: "OWNER_USER", userId: input.actorUserId }
+        : { type: "UNKNOWN" },
+    source: input.actorUserId != null ? "OWNER_UI" : "UNKNOWN",
     entityId: doc.full.id,
     payload: {
       documentId: doc.full.id,

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { recordSensor } from "@/lib/sensors/record-sensor";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import { buildRateLimitResponse } from "@/lib/security/rate-limiter/http";
 import { getClientIp } from "@/lib/security/rate-limit";
@@ -99,6 +100,16 @@ export async function POST(req: Request) {
       // Server-derived. There is no businessId field in this request.
       businessId: user.businessId,
       filter: { from, to },
+    });
+
+    // M5.5 sensor — fail-open, after the archive was built.
+    await recordSensor({
+      businessId: user.businessId,
+      sensor: "DATA_EXPORTED",
+      entityId: user.businessId,
+      actor: { type: "OWNER_USER", userId: user.id },
+      source: "OWNER_UI",
+      payload: { kind: "DOCUMENTS", format: "ZIP", rowCount: artifact.summary.included },
     });
 
     return new NextResponse(new Uint8Array(artifact.body), {

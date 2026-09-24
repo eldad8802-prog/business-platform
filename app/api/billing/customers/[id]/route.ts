@@ -7,6 +7,7 @@ import {
   CUSTOMER_BILLING_IDENTITY_SELECT,
   parseCustomerIdentityPayload,
 } from "@/lib/billing/customer-tax-identity";
+import { changedFields, recordSensor } from "@/lib/sensors/record-sensor";
 
 function parseCustomerId(value: string): number {
   const num = Number(value);
@@ -78,15 +79,41 @@ export async function PATCH(
     const customer = await tenantTx(user.businessId, async (tx) => {
       const existing = await tx.customer.findFirst({
         where: { id: customerId, businessId: user.businessId },
-        select: { id: true },
+        // legalName/taxId/taxIdType are read only so the sensor can report WHICH changed.
+        select: { id: true, legalName: true, taxId: true, taxIdType: true },
       });
       if (!existing) return null;
 
-      return tx.customer.update({
+      const updated = await tx.customer.update({
         where: { id: customerId },
         data: identity,
         select: CUSTOMER_BILLING_IDENTITY_SELECT,
       });
+
+      // M5.5 — field NAMES only, never the tax identity values.
+      const fields = changedFields(
+        { legalName: existing.legalName, taxId: existing.taxId, taxIdType: existing.taxIdType },
+        {
+          ...("legalName" in identity ? { legalName: updated.legalName } : {}),
+          ...("taxId" in identity ? { taxId: updated.taxId } : {}),
+          ...("taxIdType" in identity ? { taxIdType: updated.taxIdType } : {}),
+        },
+        ["legalName", "taxId", "taxIdType"]
+      );
+      if (fields.length > 0) {
+        await recordSensor(
+          {
+            businessId: user.businessId,
+            sensor: "CUSTOMER_TAX_IDENTITY_CHANGED",
+            entityId: customerId,
+            actor: { type: "OWNER_USER", userId: user.id },
+            source: "OWNER_UI",
+            payload: { fields },
+          },
+          { tx }
+        );
+      }
+      return updated;
     });
 
     if (!customer) {

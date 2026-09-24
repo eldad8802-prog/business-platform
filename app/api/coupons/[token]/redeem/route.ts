@@ -4,7 +4,7 @@ import { handleError } from "@/lib/handle-error";
 import { getCurrentUser } from "@/lib/auth";
 import { UnauthorizedError } from "@/lib/errors";
 
-async function getAuthenticatedBusinessId(req: NextRequest) {
+async function getAuthenticatedUser(req: NextRequest) {
   const user = await getCurrentUser(req);
 
   // Refused either way, but this is an authentication failure, not a
@@ -13,7 +13,7 @@ async function getAuthenticatedBusinessId(req: NextRequest) {
     throw new UnauthorizedError();
   }
 
-  return user.businessId;
+  return { businessId: user.businessId, userId: user.id };
 }
 
 export async function POST(
@@ -22,9 +22,9 @@ export async function POST(
 ) {
   try {
     const { token } = await context.params;
-    const redeemingBusinessId = await getAuthenticatedBusinessId(req);
+    const { businessId: redeemingBusinessId, userId } = await getAuthenticatedUser(req);
 
-    const result = await redeemCoupon(token, redeemingBusinessId);
+    const result = await redeemCoupon(token, redeemingBusinessId, userId);
 
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
