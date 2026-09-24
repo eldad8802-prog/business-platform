@@ -3,6 +3,7 @@ import { CollaborationDealStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { logRouteError } from "@/lib/security/route-error";
 
 export async function PATCH(request: Request) {
   try {
@@ -98,10 +99,10 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json(updatedDeal);
   } catch (error) {
+    logRouteError("PATCH /api/deals/[id]", error);
     return NextResponse.json(
       {
         error: "Failed to update deal",
-        details: error instanceof Error ? error.message : String(error),
       },
       { status: 500 }
     );

@@ -3,6 +3,7 @@ import { runMatchingEngine } from "@/lib/collaboration/matchingEngine";
 import { getCurrentUser } from "@/lib/auth";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
+import { logRouteError } from "@/lib/security/route-error";
 
 export async function POST(req: Request) {
   try {
@@ -58,8 +59,9 @@ export async function POST(req: Request) {
         return NextResponse.json({ status: "ok", deals: result.deals });
     }
   } catch (error: any) {
+    logRouteError("POST /api/deals/generate", error);
     return NextResponse.json(
-      { error: "Failed to generate deals", details: error.message },
+      { error: "Failed to generate deals" },
       { status: 500 }
     );
   }
