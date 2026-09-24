@@ -3,6 +3,7 @@ import { decideRecoveryAuth } from "@/lib/services/billing/settlement/settlement
 import { deriveKnowledgeForBusiness } from "@/lib/knowledge/derive.service";
 import { resolveIdentitiesForBusiness } from "@/lib/identity/entity-identity.service";
 import { generateInsightsForBusiness } from "@/lib/knowledge/insight.service";
+import { deriveTemporalForBusiness } from "@/lib/knowledge/temporal/derive-temporal.service";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { getBusinessStatusSnapshot } from "@/lib/business-status/business-status.service";
 
@@ -43,6 +44,7 @@ export const maxDuration = 120;
 /** Every tenant table the knowledge layer writes, and the two M5 evidence tables. */
 const ISOLATION_TABLES = [
   "KnowledgeMeasure",
+  "TemporalKnowledge",
   "BusinessInsight",
   "PartyResolutionClaim",
   "EntityLinkProposal",
@@ -93,6 +95,8 @@ async function handle(req: NextRequest) {
     const identity = await resolveIdentitiesForBusiness(businessId);
     const derivation = await deriveKnowledgeForBusiness(businessId);
     const insights = await generateInsightsForBusiness(businessId);
+    // M6 — temporal knowledge AS OF the same instant the measures were derived at.
+    const temporal = await deriveTemporalForBusiness(businessId, new Date(derivation.now));
 
     // ISOLATION, measured on this connection rather than asserted. Catalog flags and row COUNTS only.
     //
@@ -173,6 +177,20 @@ async function handle(req: NextRequest) {
             rls.every((x) => x.rls && x.force) &&
             Object.values(withoutTenant).every((n) => n === 0) &&
             Object.values(foreignRows).every((n) => n === 0),
+        },
+        // Per temporal rule: outcome and COUNTS by knowledge type and status. No baseline, no value,
+        // no entity id — the same public-log rule as the measures above.
+        temporal: {
+          asOf: temporal.asOf,
+          rulesRun: temporal.rulesRun,
+          rulesOk: temporal.rulesOk,
+          rulesFailed: temporal.rulesFailed,
+          totalDurationMs: temporal.totalDurationMs,
+          rules: temporal.rules.map((r) => ({
+            ruleId: r.ruleId, ruleVersion: r.ruleVersion, outcome: r.outcome, failedStage: r.failedStage,
+            series: r.series, artifacts: r.artifacts, written: r.written, confirmed: r.confirmed,
+            superseded: r.superseded, staled: r.staled, durationMs: r.durationMs,
+          })),
         },
         insights: insights.length,
       },
