@@ -15,7 +15,7 @@ import {
   type CollectionView,
   type HomePeriodKey,
 } from "@/features/home/lib/home-collection-view";
-import { InsightCard, type InsightVariant } from "@/features/home/components/insight-card";
+import { InsightCard } from "@/features/home/components/insight-card";
 import { categoryHref, HOME_ROUTES, TOOL_GROUPS, type ToolGroup } from "@/lib/navigation/home-routes";
 
 /**
@@ -70,12 +70,6 @@ export function HomeScreen({
   onIdentityChange: (next: HomeIdentity) => void;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
-  // PROTOTYPE ONLY: lets the two Insights treatments be compared on the same
-  // Home (?ins=b). Removed once one is approved.
-  const [insVariant, setInsVariant] = useState<InsightVariant>("a");
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("ins") === "b") setInsVariant("b");
-  }, []);
   const canShowBusinessLogo = Boolean(view.businessLogoDataUrl);
   const showingBusiness = identity === "business" && canShowBusinessLogo;
 
@@ -124,7 +118,7 @@ export function HomeScreen({
 
         {/* What Dubiz has noticed. Nothing has been derived yet, and the card
             says exactly that rather than inventing an example. */}
-        <InsightCard view={{ state: "learning" }} variant={insVariant} />
+        <InsightCard view={{ state: "learning" }} />
       </div>
 
       {sheetOpen ? (
@@ -788,22 +782,17 @@ const HOME_CSS = `
 /*
  * insights — the third voice. It spans the full content width like everything
  * else on Home; the floating accessibility control is not designed around.
- * PROTOTYPE: two treatments, chosen by ?ins=a|b, differ in this block only.
+ * Editorial treatment: paper lifted off the page, one deep-teal band on the
+ * inline-start edge, the Dubiz insight badge in front of the eyebrow — unlike
+ * the tinted family tiles and the ink-outlined receipts above it.
  */
-.dzhome .ins{margin-top:14px;margin-bottom:26px;padding:13px 14px 14px}
-.dzhome .ins-eyebrow{display:flex;align-items:center;gap:7px;margin:0;font-size:11.5px;font-weight:800;color:#1f6f6b}
-.dzhome .ins-t{margin:6px 0 0;font-size:15.5px;font-weight:800;line-height:1.25}
-.dzhome .ins-b{margin:4px 0 0;font-size:12px;font-weight:600;line-height:1.5;color:var(--ink2);text-wrap:pretty}
-/* A — quiet: a borderless sage-paper surface, lighter than any tile. */
-.dzhome .ins-a{background:#ebf0e7;border-radius:18px}
-/* B — editorial: paper lifted off the page, one deep-teal band on the
-   inline-start edge, the Dubiz insight badge in front of the eyebrow. */
-.dzhome .ins-b-v{background:#fcfaf5;border-inline-start:3px solid #1f6f6b;border-radius:18px;
-  border-start-start-radius:4px;border-end-start-radius:4px}
-.dzhome .ins-b-v .ins-eyebrow{gap:8px}
+.dzhome .ins{margin-top:14px;margin-bottom:26px;padding:13px 14px 14px;background:#fcfaf5;
+  border-inline-start:3px solid #1f6f6b;border-radius:18px;border-start-start-radius:4px;border-end-start-radius:4px}
+.dzhome .ins-eyebrow{display:flex;align-items:center;gap:8px;margin:0;font-size:11.5px;font-weight:800;color:#1f6f6b}
 .dzhome .ins-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
   border-radius:7px;background:#1f6f6b;flex:0 0 auto}
-.dzhome .ins-b-v .ins-t{font-size:16.5px;margin-top:8px}
+.dzhome .ins-t{margin:8px 0 0;font-size:16.5px;font-weight:800;line-height:1.25}
+.dzhome .ins-b{margin:4px 0 0;font-size:12px;font-weight:600;line-height:1.5;color:var(--ink2);text-wrap:pretty}
 
 /* identity sheet */
 .dzhome .sheet{position:fixed;inset:0;z-index:160;background:rgba(31,42,38,.35);display:flex;align-items:flex-end}

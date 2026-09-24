@@ -35,28 +35,14 @@ const COPY = {
   ready: { eyebrow: "תובנה של Dubiz" },
 };
 
-/**
- * PROTOTYPE: the two treatments under review — "a" a quiet sage surface, "b" an
- * editorial paper surface with a teal band and badge. Same copy, same contract;
- * the loser is deleted once one is approved.
- */
-export type InsightVariant = "a" | "b";
-
-export function InsightCard({ view, variant = "a" }: { view: HomeInsightView; variant?: InsightVariant }) {
+export function InsightCard({ view }: { view: HomeInsightView }) {
   const learning = view.state === "learning";
   return (
-    <section
-      className={`ins ${variant === "b" ? "ins-b-v" : "ins-a"}${learning ? " ins-learning" : ""}`}
-      aria-labelledby="ins-h"
-    >
+    <section className={`ins${learning ? " ins-learning" : ""}`} aria-labelledby="ins-h">
       <p className="ins-eyebrow">
-        {variant === "b" ? (
-          <span className="ins-badge" aria-hidden>
-            <SparkGlyph color="#fffdf8" size={13} />
-          </span>
-        ) : (
-          <SparkGlyph color="#1f6f6b" size={13} />
-        )}
+        <span className="ins-badge" aria-hidden>
+          <SparkGlyph color="#fffdf8" size={13} />
+        </span>
         {learning ? COPY.learning.eyebrow : COPY.ready.eyebrow}
       </p>
       <h2 className="ins-t" id="ins-h">
