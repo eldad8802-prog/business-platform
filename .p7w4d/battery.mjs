@@ -194,6 +194,8 @@ async function main() {
   process.env.ADMIN_DATABASE_URL = ADMIN_URL;
   process.env.AUTH_TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || "p7w4d_auth_secret_synthetic";
   process.env.PLATFORM_ADMIN_EMAILS = "admin@p7w4d.test";
+  // sec-B (M-10): admin MFA is fail-closed; explicit non-production opt-out.
+  process.env.PLATFORM_ADMIN_MFA_REQUIRED = "false";
 
   const { NextRequest } = await import("next/server");
   const { signAuthToken } = await import("@/lib/auth-token");
