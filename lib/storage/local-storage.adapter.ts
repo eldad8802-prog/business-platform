@@ -31,6 +31,9 @@ type StoredSidecarMetadata = {
   size: number;
   createdAt: string;
   custom?: Record<string, string>;
+  /** Serving headers (mirrors R2 system metadata); informational locally. */
+  contentDisposition?: string;
+  cacheControl?: string;
 };
 
 function sidecarPath(absoluteFilePath: string): string {
@@ -101,6 +104,10 @@ export class LocalFsStorageService implements StorageService {
       size: input.body.length,
       createdAt,
       custom: input.metadata.custom,
+      ...(input.contentDisposition
+        ? { contentDisposition: input.contentDisposition }
+        : {}),
+      ...(input.cacheControl ? { cacheControl: input.cacheControl } : {}),
     };
 
     await writeFile(absolute, input.body);

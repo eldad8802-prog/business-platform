@@ -29,7 +29,11 @@ import {
   normalizeStorageKey,
   parseStorageKey,
 } from "./key-validation";
-import { isPrivateVisibility, validatePutObjectMetadata } from "./domain-policy";
+import {
+  getRequiredVisibility,
+  isPrivateVisibility,
+  validatePutObjectMetadata,
+} from "./domain-policy";
 
 const META_BUSINESS_ID = "businessid";
 const META_DOMAIN = "domain";
@@ -160,8 +164,18 @@ export class R2StorageService implements StorageService {
     this.client = createR2Client(config);
   }
 
-  private get bucket(): string {
-    return requireR2Config(this.config).bucketName;
+  /**
+   * H-4: the bucket is chosen by the key's DOMAIN, never by the caller. A
+   * private-domain key can only ever be written to / read from the private
+   * bucket, so a public bucket (the only one that may carry a public base URL)
+   * cannot hold a private document even through a caller bug.
+   */
+  bucketForKey(key: string): string {
+    const r2 = requireR2Config(this.config);
+    const { domain } = parseStorageKey(normalizeStorageKey(key));
+    return getRequiredVisibility(domain) === "public"
+      ? r2.publicBucketName
+      : r2.privateBucketName;
   }
 
   async putObject(input: PutObjectInput): Promise<PutObjectResult> {
@@ -178,12 +192,16 @@ export class R2StorageService implements StorageService {
 
     const result = await this.client.send(
       new PutObjectCommand({
-        Bucket: this.bucket,
+        Bucket: this.bucketForKey(key),
         Key: key,
         Body: input.body,
         ContentType: input.contentType,
         ContentLength: input.body.length,
         Metadata: metadata,
+        ...(input.contentDisposition
+          ? { ContentDisposition: input.contentDisposition }
+          : {}),
+        ...(input.cacheControl ? { CacheControl: input.cacheControl } : {}),
       })
     );
 
@@ -208,7 +226,7 @@ export class R2StorageService implements StorageService {
     try {
       const result = await this.client.send(
         new GetObjectCommand({
-          Bucket: this.bucket,
+          Bucket: this.bucketForKey(normalized),
           Key: normalized,
         })
       );
@@ -236,7 +254,7 @@ export class R2StorageService implements StorageService {
     try {
       const result = await this.client.send(
         new HeadObjectCommand({
-          Bucket: this.bucket,
+          Bucket: this.bucketForKey(normalized),
           Key: normalized,
         })
       );
@@ -270,7 +288,7 @@ export class R2StorageService implements StorageService {
     const normalized = normalizeStorageKey(key);
     await this.client.send(
       new DeleteObjectCommand({
-        Bucket: this.bucket,
+        Bucket: this.bucketForKey(normalized),
         Key: normalized,
       })
     );
@@ -290,7 +308,7 @@ export class R2StorageService implements StorageService {
     return getSignedUrl(
       this.client,
       new GetObjectCommand({
-        Bucket: this.bucket,
+        Bucket: this.bucketForKey(normalized),
         Key: normalized,
       }),
       { expiresIn: ttl }

@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { handleError } from "@/lib/handle-error";
-import { ValidationError } from "@/lib/errors";
-import {
-  extensionFromMime,
-  putPublicAsset,
-} from "@/lib/services/storage/public-asset-storage.service";
+import { receivePublicAssetUpload } from "@/lib/services/storage/public-asset-upload";
 import { StorageConfigError } from "@/lib/storage/storage.errors";
 
-const MAX_BYTES = 5 * 1024 * 1024; // 5MB
-
+/**
+ * Offer image upload. Raster images only (png/jpeg/webp/gif), verified from
+ * the bytes, rate-limited per user and per business (M-2).
+ */
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
@@ -17,40 +15,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const formData = await req.formData();
-    const file = formData.get("file");
-
-    if (!file || !(file instanceof File)) {
-      throw new ValidationError("Missing file");
-    }
-
-    if (file.size <= 0) {
-      throw new ValidationError("Empty file");
-    }
-
-    if (file.size > MAX_BYTES) {
-      throw new ValidationError("File too large");
-    }
-
-    const mime = file.type;
-    if (!extensionFromMime(mime)) {
-      throw new ValidationError("Unsupported file type");
-    }
-
-    const bytes = Buffer.from(await file.arrayBuffer());
-
-    const stored = await putPublicAsset({
-      businessId: user.businessId,
+    const result = await receivePublicAssetUpload({
+      req,
+      user,
       domain: "offers",
-      body: bytes,
-      contentType: mime,
-      custom: { source: "offer_image_upload" },
+      source: "offer_image_upload",
     });
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
+    }
 
-    return NextResponse.json({ url: stored.publicUrl }, { status: 201 });
+    return NextResponse.json({ url: result.stored.publicUrl }, { status: 201 });
   } catch (error) {
     if (error instanceof StorageConfigError) {
-      return NextResponse.json({ error: error.message }, { status: 503 });
+      console.error("[offers-image] storage config error:", error);
+      return NextResponse.json(
+        { error: "Upload is temporarily unavailable" },
+        { status: 503 }
+      );
     }
     return handleError(error);
   }

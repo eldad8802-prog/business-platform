@@ -111,41 +111,95 @@ const REPORT_COLUMN_HEADERS = [
  */
 const ACCOUNTANT_CSV_SEP = ";";
 
+/**
+ * A malformed period in the request (L-6). The route maps it to 400.
+ *
+ * The period used to flow VERBATIM into the zip entry names
+ * (`דוח_${month}.xlsx`), so `month: "../../x"` produced a zip-slip entry; and
+ * an unparseable period silently meant "no date filter" — the whole ledger.
+ */
+export class AccountantExportInputError extends Error {
+  constructor(readonly code: "INVALID_TYPE" | "INVALID_MONTH" | "INVALID_QUARTER" | "INVALID_YEAR") {
+    super(`Invalid accountant export period: ${code}`);
+    this.name = "AccountantExportInputError";
+  }
+}
+
+const MONTH_RE = /^(\d{4})-(0[1-9]|1[0-2])$/;
+const YEAR_RE = /^(\d{4})$/;
+const QUARTER_NUM_RE = /^([1-4])$/;
+const QUARTER_LABEL_RE = /^(\d{4})-Q([1-4])$/;
+const MIN_YEAR = 2000;
+const MAX_YEAR = 2100;
+
+function strictYear(raw: string, code: AccountantExportInputError["code"]): number {
+  const m = YEAR_RE.exec(raw);
+  const y = m ? Number(m[1]) : NaN;
+  if (!Number.isInteger(y) || y < MIN_YEAR || y > MAX_YEAR) {
+    throw new AccountantExportInputError(code);
+  }
+  return y;
+}
+
+/**
+ * Strictly validated period → date range + a label built from PARSED numbers
+ * (never the raw request string). Throws AccountantExportInputError.
+ */
 export function resolveExportDateRange(body: AccountantPackBody): {
   fromDate: Date | undefined;
   toDate: Date | undefined;
   periodLabel: string;
 } {
-  const { type, month, year, quarter } = body;
-  let fromDate: Date | undefined;
-  let toDate: Date | undefined;
-  let periodLabel = "unknown";
+  const type = body?.type;
+  const month = typeof body?.month === "string" ? body.month.trim() : "";
+  const year = typeof body?.year === "string" ? body.year.trim() : "";
+  const quarter = typeof body?.quarter === "string" ? body.quarter.trim() : "";
 
-  if (type === "month" && month) {
-    const [y, m] = month.split("-").map(Number);
-    fromDate = new Date(y, m - 1, 1);
-    toDate = new Date(y, m, 0, 23, 59, 59);
-    periodLabel = month;
+  if (type === "month") {
+    const m = MONTH_RE.exec(month);
+    if (!m) throw new AccountantExportInputError("INVALID_MONTH");
+    const y = strictYear(m[1], "INVALID_MONTH");
+    const mo = Number(m[2]);
+    return {
+      fromDate: new Date(y, mo - 1, 1),
+      toDate: new Date(y, mo, 0, 23, 59, 59),
+      periodLabel: `${y}-${String(mo).padStart(2, "0")}`,
+    };
   }
 
   if (type === "year") {
-    const currentYear = new Date().getFullYear() - 1;
-    fromDate = new Date(currentYear, 0, 1);
-    toDate = new Date(currentYear, 11, 31, 23, 59, 59);
-    periodLabel = String(currentYear);
+    // Absent year keeps the historical default (the previous calendar year).
+    const y = year ? strictYear(year, "INVALID_YEAR") : new Date().getFullYear() - 1;
+    return {
+      fromDate: new Date(y, 0, 1),
+      toDate: new Date(y, 11, 31, 23, 59, 59),
+      periodLabel: String(y),
+    };
   }
 
-  if (type === "quarter" && year && quarter) {
-    const q = Number(quarter);
-    const y = Number(year);
+  if (type === "quarter") {
+    // Accepts {year:"2026", quarter:"2"} and the UI's {quarter:"2026-Q2"}.
+    let y: number;
+    let q: number;
+    const label = QUARTER_LABEL_RE.exec(quarter);
+    if (label) {
+      y = strictYear(label[1], "INVALID_QUARTER");
+      q = Number(label[2]);
+    } else {
+      const qm = QUARTER_NUM_RE.exec(quarter);
+      if (!qm || !year) throw new AccountantExportInputError("INVALID_QUARTER");
+      y = strictYear(year, "INVALID_QUARTER");
+      q = Number(qm[1]);
+    }
     const startMonth = (q - 1) * 3;
-    const endMonth = startMonth + 2;
-    fromDate = new Date(y, startMonth, 1);
-    toDate = new Date(y, endMonth + 1, 0, 23, 59, 59);
-    periodLabel = `${year}-Q${quarter}`;
+    return {
+      fromDate: new Date(y, startMonth, 1),
+      toDate: new Date(y, startMonth + 3, 0, 23, 59, 59),
+      periodLabel: `${y}-Q${q}`,
+    };
   }
 
-  return { fromDate, toDate, periodLabel };
+  throw new AccountantExportInputError("INVALID_TYPE");
 }
 
 function categoryLabel(value: string): string {

@@ -24,6 +24,14 @@
 
 import ExcelJS from "exceljs";
 import type { SheetCell, SheetTable } from "./table.types";
+import {
+  assertXlsxWithinLimits,
+  XLSX_LIMITS,
+  XlsxLimitError,
+  type XlsxLimits,
+} from "./xlsx-guard";
+
+export { XlsxLimitError, XLSX_LIMITS } from "./xlsx-guard";
 
 type RichTextValue = { richText: Array<{ text?: unknown }> };
 type FormulaValue = { formula?: unknown; sharedFormula?: unknown; result?: unknown };
@@ -82,6 +90,8 @@ export type ReadXlsxOptions = {
    * `truncated` on the result — the read stops, it never throws.
    */
   maxRows?: number;
+  /** Override resource limits (tests; stricter callers). */
+  limits?: Partial<XlsxLimits>;
 };
 
 function pickWorksheet(
@@ -102,8 +112,16 @@ export async function readXlsxTable(
   buffer: Buffer,
   options?: ReadXlsxOptions
 ): Promise<SheetTable> {
+  // L-5: bound the archive BEFORE ExcelJS inflates it (zip bomb, huge sheet
+  // dimension, too many rows/cells). Throws XlsxLimitError with a code.
+  const limits = { ...XLSX_LIMITS, ...options?.limits };
+  const { deadline } = assertXlsxWithinLimits(buffer, limits);
+
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+  if (Date.now() > deadline) {
+    throw new XlsxLimitError("XLSX_TIME_BUDGET", "workbook took too long to load");
+  }
 
   const worksheet = pickWorksheet(workbook, options?.sheetName);
   const empty: SheetTable = {
@@ -118,8 +136,29 @@ export async function readXlsxTable(
 
   const width = Math.max(worksheet.actualColumnCount || 0, worksheet.columnCount || 0);
   if (width <= 0) return empty;
+  if (width > limits.maxColumns) {
+    throw new XlsxLimitError("XLSX_DIMENSION_TOO_LARGE", `sheet is ${width} columns wide`);
+  }
+  if (worksheet.rowCount > limits.maxRows) {
+    throw new XlsxLimitError("XLSX_DIMENSION_TOO_LARGE", `sheet is ${worksheet.rowCount} rows tall`);
+  }
 
+  // Every row the loops below touch — EMPTY ONES INCLUDED — is counted, so a
+  // sheet of blank rows cannot stall the scan before the data-row ceiling.
+  let rowsScanned = 0;
+  let cellsScanned = 0;
   const readRow = (rowNumber: number): SheetCell[] => {
+    rowsScanned += 1;
+    cellsScanned += width;
+    if (rowsScanned > limits.maxRowsScanned) {
+      throw new XlsxLimitError("XLSX_TOO_MANY_ROWS_SCANNED", `more than ${limits.maxRowsScanned} rows scanned`);
+    }
+    if (cellsScanned > limits.maxCellsScanned) {
+      throw new XlsxLimitError("XLSX_TOO_MANY_CELLS", `more than ${limits.maxCellsScanned} cells scanned`);
+    }
+    if ((rowsScanned & 0x3ff) === 0 && Date.now() > deadline) {
+      throw new XlsxLimitError("XLSX_TIME_BUDGET", "sheet took too long to read");
+    }
     const row = worksheet.getRow(rowNumber);
     const values: SheetCell[] = new Array(width);
     for (let c = 1; c <= width; c++) {
