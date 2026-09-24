@@ -40,7 +40,7 @@ import os from "node:os";
 import path from "node:path";
 
 export const CLASSES = ["SECURITY_REQUIRED", "PRODUCT_REQUIRED", "OBSOLETE", "DUPLICATE", "LOCAL_ONLY", "INTEGRATION_EXTERNAL"];
-export const LABS = ["pure", "test-db", "owner-lab", "workflow"];
+export const LABS = ["pure", "test-db", "rls-db", "owner-lab", "workflow"];
 export const TEST_FILE = /\.test\.(ts|tsx|mts|mjs|js|cjs)$/;
 export const SECURITY_HEURISTIC =
   /auth|tenant|rls|webhook|erasure|csrf|signature|privilege|isolation|token|payment-authori[sz]ation|grant|session|secret|crypto|signed|permission|revoc|signup|mfa|step-up|quarantine|ownership|boundary|hardening|sender|callback|security|rate-limit|signing|admin/i;
@@ -86,8 +86,26 @@ function workflows(root) {
     fs
       .readdirSync(dir)
       .filter((f) => /\.ya?ml$/.test(f))
-      .map((f) => [f, fs.readFileSync(path.join(dir, f), "utf8").split("\n").filter((l) => !/^\s*#/.test(l)).join("\n")])
+      .map((f) => [f, expandNpmRun(root, fs.readFileSync(path.join(dir, f), "utf8").split("\n").filter((l) => !/^\s*#/.test(l)).join("\n"))])
   );
+}
+
+/** Append the package.json script bodies that `npm run X` invokes (recursively), so a test run
+ *  through a script counts as invoked by that workflow. */
+function expandNpmRun(root, text) {
+  let scripts = {};
+  try { scripts = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).scripts ?? {}; } catch { /* no package.json */ }
+  const seen = new Set();
+  const go = (t) => {
+    let out = t;
+    for (const m of t.matchAll(/npm run ([\w:.-]+)/g)) {
+      if (seen.has(m[1]) || !scripts[m[1]]) continue;
+      seen.add(m[1]);
+      out += `\n${go(scripts[m[1]])}`;
+    }
+    return out;
+  };
+  return go(text);
 }
 
 function hasPullRequestTrigger(text) {
@@ -140,6 +158,64 @@ export function check(root, { log = console.log } = {}) {
 const ASSERTION_MARKER = /(^|\s)(ok|OK|PASS|PASSED|passed|✓|✔)\b|\b\d+\s+(checks?|assertions?|tests?)\s+passed|\bpassed\b/;
 const VACUOUS = /\b0\s+(checks?|assertions?|tests?)\s+(passed|run)\b|\bran 0\b|\b0 passed\b/i;
 
+/**
+ * Per-test database isolation. Every DB-lab test gets a FRESH database:
+ *   test-db    clone of GATE_PG_TEMPLATE (schema built once), connected as the lab owner.
+ *              These are APP-LAYER proofs (the owner bypasses RLS) and are labelled so.
+ *   rls-db     clone of the template, DATABASE_URL = GATE_RLS_ROLE (NOSUPERUSER NOBYPASSRLS
+ *              login role), RLS_ADMIN_URL/ADMIN_URL = owner. The runner REFUSES to start the
+ *              test if that role is rolsuper or rolbypassrls (F-5).
+ *   owner-lab  EMPTY database (template0), OWNER_URL = owner; the test builds its own roles
+ *              and policies from the shipped migration.
+ * Env: GATE_PG_URL (owner URL of any database on the lab server), GATE_PG_TEMPLATE,
+ *      GATE_RLS_ROLE, GATE_RLS_PASSWORD, PSQL (optional psql path).
+ */
+function labEnv(lab, testPath) {
+  const base = { ...process.env, AUTH_TOKEN_SECRET: process.env.AUTH_TOKEN_SECRET ?? "security_gate_synthetic_auth_secret_0123456789" };
+  if (lab === "pure") {
+    for (const k of ["DATABASE_URL", "DIRECT_URL", "TEST_DATABASE_URL", "OWNER_URL", "RLS_ADMIN_URL", "ADMIN_URL"]) delete base[k];
+    return { env: base, dropDb: null };
+  }
+  const admin = process.env.GATE_PG_URL;
+  if (!admin) throw new Error("GATE_PG_URL is not set — a DB lab cannot run without its own server");
+  const u = new URL(admin);
+  if (!/^(localhost|127\.0\.0\.1|postgres)$/.test(u.hostname)) throw new Error(`refusing a non-local lab server (${u.hostname})`);
+  const psql = process.env.PSQL ?? "psql";
+  const q = (sql, url = admin) => {
+    const r = spawnSync(psql, [url, "-v", "ON_ERROR_STOP=1", "-qtAc", sql], { encoding: "utf8" });
+    if (r.status !== 0) throw new Error(`psql: ${(r.stderr || r.error || "").toString().trim()}`);
+    return r.stdout.trim();
+  };
+  const db = `gate_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6)}`;
+  const template = lab === "owner-lab" ? "template0" : process.env.GATE_PG_TEMPLATE;
+  if (!template) throw new Error("GATE_PG_TEMPLATE is not set");
+  q(`CREATE DATABASE ${db} TEMPLATE ${template}`);
+  const dropDb = () => { try { q(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`); } catch { /* best effort */ } };
+  const owner = new URL(admin);
+  owner.pathname = `/${db}`;
+  const ownerUrl = owner.toString();
+  try {
+    if (lab === "test-db") return { env: { ...base, DATABASE_URL: ownerUrl, DIRECT_URL: ownerUrl, TEST_DATABASE_URL: ownerUrl }, dropDb };
+    if (lab === "owner-lab") return { env: { ...base, OWNER_URL: ownerUrl, DATABASE_URL: ownerUrl, DIRECT_URL: ownerUrl }, dropDb };
+    if (lab === "rls-db") {
+      const role = process.env.GATE_RLS_ROLE;
+      const pw = process.env.GATE_RLS_PASSWORD;
+      if (!role || !pw) throw new Error("GATE_RLS_ROLE / GATE_RLS_PASSWORD are not set");
+      const rt = new URL(ownerUrl);
+      rt.username = role;
+      rt.password = pw;
+      const posture = q("SELECT rolsuper::text || ',' || rolbypassrls::text FROM pg_roles WHERE rolname = current_user", rt.toString());
+      if (posture !== "false,false") throw new Error(`the rls-db runtime role must be NOSUPERUSER NOBYPASSRLS (got super,bypass=${posture}) — refusing to run a DB-isolation proof that cannot fail`);
+      return { env: { ...base, DATABASE_URL: rt.toString(), DIRECT_URL: rt.toString(), RLS_ADMIN_URL: ownerUrl, ADMIN_URL: ownerUrl }, dropDb };
+    }
+  } catch (e) {
+    dropDb();
+    throw e;
+  }
+  dropDb();
+  throw new Error(`unknown lab ${lab} for ${testPath}`);
+}
+
 export function runLab(root, lab, { tsx, log = console.log } = {}) {
   const { entries } = loadManifest(root);
   const todo = [...entries].filter(([, e]) => e.class === "SECURITY_REQUIRED" && e.lab === lab).map(([p]) => p).sort();
@@ -148,13 +224,24 @@ export function runLab(root, lab, { tsx, log = console.log } = {}) {
   const failures = [];
   for (const p of todo) {
     const t0 = Date.now();
-    const r = tsxCmd
-      ? spawnSync(process.execPath, [tsxCmd, p], { cwd: root, encoding: "utf8", timeout: 300000, maxBuffer: 256 << 20, env: process.env })
-      : spawnSync("npx", ["--no-install", "tsx", p], { cwd: root, encoding: "utf8", timeout: 300000, maxBuffer: 256 << 20, env: process.env, shell: process.platform === "win32" });
+    let env;
+    let dropDb = null;
+    let why = null;
+    try {
+      ({ env, dropDb } = labEnv(lab, p));
+    } catch (e) {
+      why = `lab setup failed: ${e.message}`;
+    }
+    const r = why
+      ? { status: 1, stdout: "", stderr: "" }
+      : tsxCmd
+        ? spawnSync(process.execPath, [tsxCmd, p], { cwd: root, encoding: "utf8", timeout: 300000, maxBuffer: 256 << 20, env })
+        : spawnSync("npx", ["--no-install", "tsx", p], { cwd: root, encoding: "utf8", timeout: 300000, maxBuffer: 256 << 20, env, shell: process.platform === "win32" });
+    if (dropDb) dropDb();
     const out = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
-    let why = null;
-    if (r.status !== 0) why = `exit ${r.status ?? r.signal}`;
+    if (why) { /* setup failure already recorded */ }
+    else if (r.status !== 0) why = `exit ${r.status ?? r.signal}`;
     else if (!ASSERTION_MARKER.test(out)) why = "exit 0 but no assertion marker (vacuous green)";
     else if (VACUOUS.test(out)) why = "exit 0 but reports zero assertions (vacuous green)";
     if (why) {
@@ -251,6 +338,6 @@ if (argv.includes("--self-test")) process.exit(selfTest() ? 0 : 1);
 else if (argv.includes("--stats")) stats(root);
 else if (argv.includes("--run")) {
   const lab = argv[argv.indexOf("--lab") + 1];
-  if (!LABS.includes(lab) || lab === "workflow") { console.error(`--lab must be one of pure|test-db|owner-lab`); process.exit(2); }
+  if (!LABS.includes(lab) || lab === "workflow") { console.error(`--lab must be one of pure|test-db|rls-db|owner-lab`); process.exit(2); }
   process.exit(runLab(root, lab) ? 0 : 1);
 } else process.exit(check(root) ? 0 : 1);

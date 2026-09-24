@@ -1,0 +1,1410 @@
+{
+  "note": "sec/A F-9 classification of every test file. Add NEW tests in your own fragment file in this directory (or run them from a sec-*-ci.yml workflow, which classifies them implicitly). SECURITY_REQUIRED entries with lab pure|test-db|rls-db|owner-lab are executed by .github/workflows/security-gate.yml straight from this manifest.",
+  "tests": {
+    "app/api/auth/register/route.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "app/api/billing/documents/list-response.regression.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "app/api/billing/documents/route.rls.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof: runs as a NOSUPERUSER NOBYPASSRLS login role and refuses to run otherwise; passed locally on main"
+    },
+    "app/api/platform-admin/diagnostics/tax-authority-token-probe/route.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "app/api/rls-caller-closure.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof: runs as a NOSUPERUSER NOBYPASSRLS login role and refuses to run otherwise; passed locally on main"
+    },
+    "app/api/rls-tenant-scoped-routes.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "rls-db",
+      "reason": "DB-RLS proof: runs as a NOSUPERUSER NOBYPASSRLS login role and refuses to run otherwise; passed locally on main"
+    },
+    "app/opportunities/deals-fetch-contract.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "components/documents/home/PulseCard.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "components/inventory/supplier-field.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "components/navigation/nav-destinations.test.tsx": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by collection-product-ci.yml"
+    },
+    "components/notifications/notification-center.test.tsx": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by notification-verification-ci.yml"
+    },
+    "components/platform-admin/tax-authority-probe-logic.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "components/whatsapp/embedded-signup-controller.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "features/home/lib/home-model.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/api/customers-lifecycle.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/api/customers-update.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/auth-token.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/auth/auth-plane-write-contract.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by auth-plane-write-ci.yml"
+    },
+    "lib/auth/device-label.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by auth-plane-write-ci.yml"
+    },
+    "lib/auth/platform-admin-mfa.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/auth/platform-admin.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml, d2-pw2-ci.yml"
+    },
+    "lib/auth/refresh-client.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by auth-plane-write-ci.yml"
+    },
+    "lib/auth/refresh-cookie.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by auth-plane-write-ci.yml"
+    },
+    "lib/auth/select-contract.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/auth/signup-closed.e2e.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "test-db",
+      "reason": "tenant/auth behaviour against a fresh schema (db push) lab; passed locally on main"
+    },
+    "lib/auth/signup-gate-coverage.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/auth/signup-gate.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/auth/signup.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/auth/token-revocation.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/billing/authority-issue-display.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/billing/collections-visibility.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/business-brain/normalization/normalization.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/business-brain/observation-identity.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/business-brain/registry/registry.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/business-brain/replay/replay.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/business-memory/derivation-policy.schema.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/derivation/memory-deriver.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/derived-claim.schema.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/evidence/evidence-adapter.contract.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml, m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/materialization/claim-writer.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/orchestration/orchestrator.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/policy-bootstrap.schema.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/policy/resolver.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/read/claim-reader.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/read/comparison-read.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/read/comparison-sink.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/read/coordinator.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/read/read-comparison-evidence.guard.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/read/read-config.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/shadow/claim-evidence.guard.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/shadow/dry-run-comparison.fixture.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/shadow/dry-run-comparison.guard.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/shadow/login-discovery.guard.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/shadow/reviewevent-corpus.guard.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/shadow/shadow.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-memory/shadow/tenant-discovery.guard.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by m0-knowledge-tenant-safety.yml (find loop)"
+    },
+    "lib/business-status/translators/documents.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/business-status/translators/payables.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml"
+    },
+    "lib/collaboration/matchingEngine.candidates.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/conversation-state/conversation-state.contract.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/conversation-state/conversation-state.w25.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/data-transfer/documents/documents-analyze.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/data-transfer/documents/documents-execute.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/data-transfer/documents/documents-export.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/data-transfer/export/export.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/data-transfer/format/format.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/data-transfer/historical/historical-analyze.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml, i8b6-historical-records-ci.yml"
+    },
+    "lib/data-transfer/historical/historical-contract.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml, i8b6-historical-records-ci.yml"
+    },
+    "lib/data-transfer/historical/historical-duplicates.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml, i8b6-historical-records-ci.yml"
+    },
+    "lib/data-transfer/historical/historical-execute.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml, i8b6-historical-records-ci.yml"
+    },
+    "lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml, d2-ad2a-ci.yml, i8a-historical-fiscal-ci.yml, i8b6-historical-records-ci.yml"
+    },
+    "lib/data-transfer/historical/historical-preview.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml, i8b6-historical-records-ci.yml"
+    },
+    "lib/data-transfer/historical/historical-records.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by i8b6-historical-records-ci.yml"
+    },
+    "lib/data-transfer/historical/historical-ux.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by i8b6-historical-records-ci.yml"
+    },
+    "lib/data-transfer/import-export-foundation.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml, i8b6-historical-records-ci.yml"
+    },
+    "lib/data-transfer/import/execute/execute-contract.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/data-transfer/import/import.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/data-transfer/templates/templates.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/design/entity-list-overflow.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/design/mist.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour",
+      "notSecurityBecause": "design tokens (colour/spacing), not auth tokens"
+    },
+    "lib/detection-grammar/equality/equality.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/documents/backlog-view.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/documents/file-access.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/documents/previous-net.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/documents/previous-year-month.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/documents/review/preview-visibility.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/features/bot/bot-compose-context.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/features/bot/bot-compose-goals-approach.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/features/bot/bot-compose-knowledge.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/features/bot/bot-goals.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/features/bot/bot-hub-areas.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/features/bot/bot-knowledge.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/features/bot/bot-learning.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/features/bot/bot-memory-policy.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/features/bot/bot-profile.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/features/bot/bot-recommendations.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/features/bot/bot-setup.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/features/conversation/bot-fields/bot-fields.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/features/conversation/bot-fields/field-catalog.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/format/phone-display.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/inbound-email/inbound-email-foundation.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/inbound-email/inbound-email-t1-db.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/inbound-email/inbound-email-t4-db.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/inbound-email/inbound-email-t5-db.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/inbound-email/mime/parse-inbound-mime.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/inbound-email/sender-auth/evaluate-sender-authorization.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/inventory/supplier-purchase-history-view.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/knowledge/derive-route.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml"
+    },
+    "lib/knowledge/insight-composer.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml"
+    },
+    "lib/knowledge/insight-decision-route.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml"
+    },
+    "lib/knowledge/m4-m5-surfaces.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml"
+    },
+    "lib/knowledge/rules/documents-paperwork-lag.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml"
+    },
+    "lib/knowledge/rules/m4-rules.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml"
+    },
+    "lib/navigation/app-title-metadata.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/navigation/home-routes.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by collection-product-ci.yml"
+    },
+    "lib/notifications/documents-review-queue-notifications.integration.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "needs a seeded database; run by notification-verification-ci.yml"
+    },
+    "lib/notifications/documents-review-queue-notifications.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by notification-verification-ci.yml"
+    },
+    "lib/notifications/inbox-waiting-notifications.integration.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "needs a seeded database; run by notification-verification-ci.yml"
+    },
+    "lib/notifications/inbox-waiting-notifications.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by notification-verification-ci.yml"
+    },
+    "lib/notifications/inventory-alert-notifications.integration.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "needs a seeded database; run by notification-verification-ci.yml"
+    },
+    "lib/notifications/notification-policy.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by notification-verification-ci.yml"
+    },
+    "lib/notifications/notification-read.integration.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "needs a seeded database; run by notification-verification-ci.yml"
+    },
+    "lib/notifications/notification-writer.integration.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "needs a seeded database; run by notification-verification-ci.yml"
+    },
+    "lib/payables/payables-client.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by payables-p4-p6-ci.yml, payables-phase-3-ci.yml"
+    },
+    "lib/platform-admin/admin-step-up.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/prisma-auth.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/referent-identity/ria-canonical-referent.schema.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/referent-identity/ria-policy-lineage.schema.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "FAILS ON MAIN (RiaCanonicalReferent @@unique expectation stale vs schema) — product schema contract; recorded, not run"
+    },
+    "lib/referent-identity/ria.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/reports/accountant-export-collect.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/reports/accountant-export-zip.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/reports/financial-records-csv.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/revenue/coupon-v1.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/security/rate-limiter/rate-limiter.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/sensors/sensors.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by m0-knowledge-tenant-safety.yml"
+    },
+    "lib/services/account/account-deletion.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by d2-ad2a-ci.yml"
+    },
+    "lib/services/account/erasure-contract.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "erasure-contract-ci.yml",
+      "reason": "needs the lab erasure-contract-ci.yml builds; run there on pull_request"
+    },
+    "lib/services/account/inbound-email-erasure.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/appointment/appointment.qa.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/billing/authority/billing-authority-app.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-approval-client.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-approval-config.provider.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-approval-orchestrator.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-approval-payload.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-approval-runtime-context.provider.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-approval-token.provider.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-connection.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-decision-client.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-decision-orchestrator.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-decision-payload.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-decision.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-delivery.rules.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-document-type-consistency.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-env.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-held-decision-tx.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-issue-outcome.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-oauth-callback-route.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-oauth-callback.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-oauth-diagnostics.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-oauth-start-route.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-oauth-start.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-readiness.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-revocation.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-signed-state.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/billing/authority/billing-authority-status-view.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-status.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-submission-execution.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-token-crypto.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-token-probe.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-token-refresh.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-transition.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority-validation.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/authority/billing-authority.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/billing-allocation-number.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/billing/billing-invoice-profile.rls-contract.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "owner-lab",
+      "reason": "builds its own roles/policies from the shipped migration in an EMPTY database; passed locally on main"
+    },
+    "lib/services/billing/billing-issuable-shape.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by c1-receipt-issuance-ci.yml, c2-allocation-authority-ci.yml, c25-issuance-integrity-ci.yml, c3-settlement-ci.yml"
+    },
+    "lib/services/billing/billing-issue-authority-wiring.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/billing-issue-snapshot.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/billing/billing-issue.tenant-isolation.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "test-db",
+      "reason": "tenant/auth behaviour against a fresh schema (db push) lab; passed locally on main"
+    },
+    "lib/services/billing/collection/awaiting-payment.rules.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "FAILS ON MAIN (1 check: awaitingSince is the OLDEST expectation) — product defect/stale fixture in the collection domain (peer-owned area); recorded, not run"
+    },
+    "lib/services/billing/collection/awaiting-payment.serializer.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "FAILS ON MAIN (1 check: awaitingSince is ISO) — same collection-domain finding; recorded, not run"
+    },
+    "lib/services/billing/collection/collection-display.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/billing/collection/collection-message.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by collection-product-ci.yml"
+    },
+    "lib/services/billing/collection/payment-terms.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/billing/domain/billing-allocation-authority.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by c2-allocation-authority-ci.yml, c25-issuance-integrity-ci.yml, c3-settlement-ci.yml"
+    },
+    "lib/services/billing/pdf/billing-pdf-allocation.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/billing/pdf/billing-pdf-renderer-policy.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/billing/receipt/billing-receipt-issuance-integrity.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by c25-issuance-integrity-ci.yml, c3-settlement-ci.yml"
+    },
+    "lib/services/billing/receipt/billing-receipt-issue.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "FAILS ON MAIN (TypeError: ensureBillingPaymentPostedEvent is not a function — the suite's import no longer matches lib/services/financial-events) — fiscal receipt test, peer-adjacent billing; recorded as a finding, not run"
+    },
+    "lib/services/billing/receipt/billing-receipt.validation.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/billing/settlement/settlement-recovery-auth.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by c3-settlement-ci.yml"
+    },
+    "lib/services/billing/signed-pdf-artifact.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/signed-pdf-delivery.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/billing/uniform/uniform-export-assembler.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/billing/uniform/uniform-export-package.service.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/billing/uniform/uniform-file-builder.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/billing/uniform/uniform-live-registration.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/billing/uniform/uniform-report-data.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/billing/uniform/uniform-report-render.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/billing/uniform/uniform-wp2-units.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/crm/crm-attachment-storage.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/crm/crm-attachments.service.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/crm/crm-notes.service.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/crm/crm-subject.resolver.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/crm/customer-card.read-model.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/crm/customer-core.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/crm/customer-edit.c1.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/crm/customer-lifecycle.c2.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/crm/customer.service.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/crm/lead-collision-recovery.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/crm/lead-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/crm/lead-intelligence.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/crm/lead-priority-order.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/crm/lead-w2.service.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/crm/lead-w3-closure.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/crm/lead-w3.service.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/crm/lead.service.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/documents/document-ingestion.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/documents/document-storage.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/documents/documents-hardening.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/documents/integration-intake.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/financial-events/financial-event-payment.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/home/home-collection.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/home/home-day.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/inbound-email/inbound-email-feature-gate.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/inbound-email/inbound-email-management.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/integrations/gmail/gmail-refresh-token-upgrade.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "test-db",
+      "reason": "tenant/auth behaviour against a fresh schema (db push) lab; passed locally on main"
+    },
+    "lib/services/integrations/gmail/gmail-token-revoke.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/integrations/gmail/signed-state.service.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by d2-p7-w4a-ci.yml"
+    },
+    "lib/services/integrations/whatsapp/webhook-event-class-boundary.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/integrations/whatsapp/webhook-pr1.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/integrations/whatsapp/webhook-pr2.routing.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "test-db",
+      "reason": "tenant/auth behaviour against a fresh schema (db push) lab; passed locally on main"
+    },
+    "lib/services/integrations/whatsapp/webhook-pr3.media.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "test-db",
+      "reason": "tenant/auth behaviour against a fresh schema (db push) lab; passed locally on main"
+    },
+    "lib/services/integrations/whatsapp/webhook-pr4.intake.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/inventory/inventory-core.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/inventory/purchase-order-lifecycle.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/inventory/purchase-order.service.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "needs a seeded database; run by d2-cutover-3a-ci.yml, d2-cutover-3a1-ci.yml"
+    },
+    "lib/services/inventory/purchase-order.supplier-relation.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/inventory/receiving.service.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "needs a seeded database; run by d2-cutover-3a-ci.yml, d2-cutover-3a1-ci.yml"
+    },
+    "lib/services/inventory/supplier-domain-wiring.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/inventory/supplier-purchase-approval.service.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "needs a seeded database; run by d2-cutover-3a-ci.yml, d2-cutover-3a1-ci.yml"
+    },
+    "lib/services/inventory/supplier-purchase-history.read-model.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/inventory/supplier.service.test.ts": {
+      "class": "LOCAL_ONLY",
+      "reason": "needs a seeded DATABASE_URL (product CRUD over the global client); not wired into CI — product-test debt"
+    },
+    "lib/services/learning-center/learning-center-metrics.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/obligations/obligation-core.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/obligations/obligation-service.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/party/party-backfill.deps.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/party/party-backfill.service.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/party/party-resolution.service.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/party/party-verification.service.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/payables/payables-1b.db.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "needs a seeded database; run by payables-p4-p6-ci.yml, payables-phase-1b-ci.yml, payables-phase-2-ci.yml, payables-phase-3-ci.yml"
+    },
+    "lib/services/payables/payables-2.db.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "needs a seeded database; run by payables-p4-p6-ci.yml, payables-phase-2-ci.yml, payables-phase-3-ci.yml"
+    },
+    "lib/services/payables/payables-3.db.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "needs a seeded database; run by payables-p4-p6-ci.yml, payables-phase-3-ci.yml"
+    },
+    "lib/services/payables/payables-bank-crypto.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by payables-p4-p6-ci.yml, payables-phase-3-ci.yml"
+    },
+    "lib/services/payables/payables-cheque-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by payables-p4-p6-ci.yml, payables-phase-3-ci.yml"
+    },
+    "lib/services/payables/payables-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by payables-p4-p6-ci.yml, payables-phase-1a-ci.yml, payables-phase-1b-ci.yml, payables-phase-2-ci.yml, payables-phase-3-ci.yml"
+    },
+    "lib/services/payables/payables-matching.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by payables-p4-p6-ci.yml, payables-phase-2-ci.yml, payables-phase-3-ci.yml"
+    },
+    "lib/services/payables/payables-p46-core.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by payables-p4-p6-ci.yml"
+    },
+    "lib/services/payables/payables-p46.db.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "needs a seeded database; run by payables-p4-p6-ci.yml"
+    },
+    "lib/services/payables/payables.db.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "needs a seeded database; run by payables-p4-p6-ci.yml, payables-phase-1a-ci.yml, payables-phase-1b-ci.yml, payables-phase-2-ci.yml, payables-phase-3-ci.yml"
+    },
+    "lib/services/payments/cardcom-webhook-hardening.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/payments/collection-workspace.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/payments/connection-form.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/payments/dormant-provider-closure.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/payments/payment-audit.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/payments/payment-authorization.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/payments/payment-callback-secret.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/payments/payment-crypto.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/payments/payment-currency-authority.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/payments/payment-document-authority.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/payments/payment-financial-hook.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/payments/payment-ledger.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/payments/payment-optional-provider-id.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/payments/payment-provider-seam.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/payments/payment-provider-selection.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/payments/payment-refund.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/payments/payment-request.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/payments/payment-routes.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/payments/payment-tenant-ownership.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/payments/payment-webhook-async-verification.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/payments/payment-webhook-authority.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/payments/payment-webhook-quarantine.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by d2-ad2a-ci.yml"
+    },
+    "lib/services/payments/payment-webhook.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/payments/provider-authority.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/payments/provider-framework.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/payments/providers/cardcom/cardcom-reversal.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/payments/providers/cardcom/cardcom.provider.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/payments/providers/paypal/paypal.provider.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/payments/providers/sumit/sumit.provider.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by ci-1-prisma-centralization.yml"
+    },
+    "lib/services/revenue/coupon-code.access.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "lib/services/revenue/coupon-tenant.db.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "test-db",
+      "reason": "tenant/auth behaviour against a fresh schema (db push) lab; passed locally on main"
+    },
+    "lib/services/signing/pdf-signer.renderers.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/signing/pdf-signer.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/signing/platform-signing-identity.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/services/storage/public-asset-storage.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/storage/storage.verify.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "lib/tenant/context.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by ci-1-prisma-centralization.yml, d2-ad2a-ci.yml"
+    },
+    "lib/tenant/customer-card-pilot.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "p5-5-customer-card-pilot.yml",
+      "reason": "needs the lab p5-5-customer-card-pilot.yml builds; run there on pull_request"
+    },
+    "lib/tenant/customer-pilot.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "p5-4-customer-pilot.yml",
+      "reason": "needs the lab p5-4-customer-pilot.yml builds; run there on pull_request"
+    },
+    "lib/tenant/job.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by d2-ad2a-ci.yml, d2-p7-w4a-ci.yml"
+    },
+    "lib/tenant/transaction.integration.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "p5-2-tenant-transaction.yml",
+      "reason": "needs the lab p5-2-tenant-transaction.yml builds; run there on pull_request"
+    },
+    "lib/utils/jerusalem-day.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "ops/release/controller/release-controller.test.mjs": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "ops/release/db-identity/db-identity-registry.test.mjs": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "ops/release/event-log/event-log.test.mjs": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "ops/release/event-log/release-identity.test.mjs": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "ops/release/event-log/state-projection.test.mjs": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "ops/release/gates/migration-gate.test.mjs": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "ops/release/policy/policy-engine.test.mjs": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "prisma/migrations/20260908180000_d2_user_business_privilege_narrowing/equivalence.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "prisma/migrations/20260908200000_auth_session_privilege_contract/equivalence.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "prisma/migrations/20260913120000_authsession_user_agent/grant-delta.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "workflow",
+      "workflow": "auth-plane-write-ci.yml",
+      "reason": "needs the lab auth-plane-write-ci.yml builds; run there on pull_request"
+    },
+    "prisma/migrations/20260915120000_businessprofile_runtime_grants/contract.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "owner-lab",
+      "reason": "builds its own roles/policies from the shipped migration in an EMPTY database; passed locally on main"
+    },
+    "scripts/bootstrap-billing-authority-app.test.ts": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+    },
+    "scripts/ci/collection-qa-tenant-guard.test.mjs": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by collection-qa-tenant-ci.yml"
+    },
+    "scripts/ci/collection-qa-tenant-hash-compat.test.mjs": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by collection-qa-tenant-ci.yml"
+    },
+    "scripts/ci/collection-qa-tenant-schema-contract.test.mjs": {
+      "class": "SECURITY_REQUIRED",
+      "lab": "pure",
+      "reason": "pure (no DB/network) security suite; passed locally on main; also run by collection-qa-tenant-ci.yml"
+    },
+    "scripts/ops/qa-password-hash.test.mjs": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; run by collection-qa-tenant-ci.yml"
+    },
+    "scripts/party-backfill.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
+    "scripts/party-verify-backfill.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    }
+  }
+}

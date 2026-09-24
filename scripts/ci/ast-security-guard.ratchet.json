@@ -1,7 +1,6 @@
 {
   "note": "EXACT-SET ratchet of known tenant-client debt (AST-2 fallback/alias of the canonical prisma, AST-3 bare FORCE-RLS/raw access). Every entry is a site that runs WITHOUT tenant context when no transaction is supplied. It may only SHRINK: new sites fail CI, removed sites fail until their entry is removed. Regenerate only as a reviewed decision: node scripts/ci/ast-security-guard.mjs --write-ratchet",
   "sites": {
-    "app/api/documents/[id]/process/route.ts::POST::bare:document": 1,
     "lib/auth/admin-mfa.service.ts::beginAdminMfaEnrollment::alias": 1,
     "lib/auth/admin-mfa.service.ts::confirmAdminMfaEnrollment::alias": 1,
     "lib/auth/admin-mfa.service.ts::verifyAdminMfaCode::alias": 1,
