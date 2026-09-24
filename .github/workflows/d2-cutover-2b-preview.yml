@@ -34,6 +34,10 @@ env:
 jobs:
   gate_a_identity:
     name: Gate A — Preview target identity
+    # H-3: only from main, and only inside the protected neon-preview environment
+    # (required reviewer + main-only branch policy; NEON_API_KEY lives THERE, not at repo level).
+    if: github.ref == 'refs/heads/main'
+    environment: neon-preview
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -63,7 +67,8 @@ jobs:
   ad2a3_preview:
     name: five-pilot RLS convergence on Preview
     needs: gate_a_identity
-    if: needs.gate_a_identity.outputs.gate_a == 'PASS'
+    if: github.ref == 'refs/heads/main' && needs.gate_a_identity.outputs.gate_a == 'PASS'
+    environment: neon-preview
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -72,7 +77,8 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-      - run: npm ci --no-audit --no-fund
+      # --ignore-scripts: no dependency lifecycle script runs in a job that later holds NEON_API_KEY.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: node --check .pilot/preview.mjs
 
       - name: CI-PR guard (blocking)

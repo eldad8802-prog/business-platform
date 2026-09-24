@@ -16,6 +16,11 @@ permissions:
 
 jobs:
   fetch-neon-branches:
+    # H-3: this job reads the PRODUCTION Neon project inventory with NEON_API_KEY. It runs only
+    # from main, inside the reviewer-gated production-db environment (owner action: provide the
+    # key there — ideally a project-scoped key — and delete the repository-level secret).
+    if: github.ref == 'refs/heads/main'
+    environment: production-db
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (read-only, no persisted git credentials)

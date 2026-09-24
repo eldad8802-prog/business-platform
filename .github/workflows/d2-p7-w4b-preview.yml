@@ -39,6 +39,10 @@ env:
 jobs:
   gate_a_identity:
     name: Gate A — Preview target identity
+    # H-3: only from main, and only inside the protected neon-preview environment
+    # (required reviewer + main-only branch policy; NEON_API_KEY lives THERE, not at repo level).
+    if: github.ref == 'refs/heads/main'
+    environment: neon-preview
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -66,7 +70,8 @@ jobs:
   w4b_preview:
     name: W4B apply + proof on Preview
     needs: gate_a_identity
-    if: needs.gate_a_identity.outputs.gate_a == 'PASS'
+    if: github.ref == 'refs/heads/main' && needs.gate_a_identity.outputs.gate_a == 'PASS'
+    environment: neon-preview
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -75,7 +80,9 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-      - run: npm ci --no-audit --no-fund
+      # --ignore-scripts: no dependency lifecycle script runs in a job that later holds NEON_API_KEY.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npx prisma generate
       - run: node --check .p7w4b/battery.mjs
 
       - name: Run W4B battery on Neon Preview
@@ -113,7 +120,9 @@ jobs:
           set -uo pipefail
           DBD="$(curl -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri')"
           echo "::add-mask::${DBD}"
-          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || exit 0
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || { echo "::error::precondition: no Preview URI — cleanup/rollback NOT performed"; exit 1; }
+          case "${DBD}" in *"${P4_EXPECT_ENDPOINT}"*) : ;; *) echo "::error::precondition: URI endpoint mismatch"; exit 1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "${DBD}" in *"$d"*) echo "::error::precondition: URI DENY"; exit 1 ;; esac; done
           cat > .p7w4b/fixnet.gen.mjs <<'FIX_EOF'
           import { PrismaClient } from '@prisma/client';
           const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
@@ -126,8 +135,9 @@ jobs:
           const r = await c.$queryRaw`SELECT (SELECT count(*)::int FROM "Business" WHERE name LIKE 'p7w4b-%') AS biz`;
           console.log('[fixnet] residue business=' + r[0].biz);
           await c.$disconnect();
+          if (Object.values(r[0]).some((v) => Number(v) !== 0)) { console.log('[fixnet] FAIL residue remains'); process.exit(1); }
           FIX_EOF
-          DIRECT_URL="${DBD}" node .p7w4b/fixnet.gen.mjs || true
+          DIRECT_URL="${DBD}" node .p7w4b/fixnet.gen.mjs
 
       - name: Rollback on failure (restore pre-Wave-3 posture)
         if: failure() && !inputs.verify_only
@@ -139,14 +149,22 @@ jobs:
           echo "battery failed — rolling W4B policies+grants back (roles untouched)"
           DBD="$(curl -sS -H "Authorization: Bearer ${NEON_API_KEY}" -H "Accept: application/json" "${NEON_BASE}/projects/${P4_PROJECT_ID}/connection_uri?branch_id=${P4_BRANCH_ID}&endpoint_id=${P4_EXPECT_ENDPOINT}&database_name=${P4_EXPECT_DB}&role_name=neondb_owner&pooled=false" | jq -r '.uri')"
           echo "::add-mask::${DBD}"
-          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || exit 0
+          [ -n "${DBD}" ] && [ "${DBD}" != "null" ] || { echo "::error::precondition: no Preview URI — cleanup/rollback NOT performed"; exit 1; }
+          case "${DBD}" in *"${P4_EXPECT_ENDPOINT}"*) : ;; *) echo "::error::precondition: URI endpoint mismatch"; exit 1 ;; esac
+          for d in ${P4_DENY_ENDPOINTS}; do case "${DBD}" in *"$d"*) echo "::error::precondition: URI DENY"; exit 1 ;; esac; done
           cat > .p7w4b/rollback.gen.mjs <<'RB_EOF'
           import { readFileSync } from 'node:fs';
           import { PrismaClient } from '@prisma/client';
           const c = new PrismaClient({ datasourceUrl: process.env.DIRECT_URL });
           const sql = readFileSync('scripts/security/d2-p7-w4b-rollback.sql', 'utf8').replaceAll(':ROLE', 'app_runtime_preview_p4b');
           for (const stmt of sql.split(/;\s*\n/).map(s => s.replace(/^\s*--.*$/gm, '').trim()).filter(Boolean)) {
-            try { await c.$executeRawUnsafe(stmt); } catch (e) { console.log('[rollback] skip: ' + String(e.message).slice(0, 80)); }
+            try { await c.$executeRawUnsafe(stmt); } catch (e) {
+              // Only "already absent" is tolerable (42704 undefined_object, 42P01 undefined_table,
+              // 42883 undefined_function). Anything else = the rollback did NOT happen: fail closed.
+              const m = String(e?.meta?.code ?? '') + ' ' + String(e?.message ?? '');
+              if (!/42704|42P01|42883|does not exist/.test(m)) { console.log('[rollback] FAIL: ' + m.slice(0, 160)); process.exit(1); }
+              console.log('[rollback] already absent: ' + m.slice(0, 80));
+            }
           }
           const r = await c.$queryRawUnsafe("SELECT count(*)::int AS c FROM pg_policies WHERE policyname='p7w4b_tenant'");
           console.log('[rollback] remaining p7w4b policies=' + r[0].c);
