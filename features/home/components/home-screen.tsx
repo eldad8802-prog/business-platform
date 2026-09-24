@@ -710,33 +710,6 @@ const HOME_CSS = `
  */
 [data-shell-root][data-dz-home="1"]{--dz-shell-ground:#f7f4ed;min-height:100svh}
 
-/*
- * The accessibility control, docked on Home.
- *
- * Globally it floats in the bottom-inline-end corner. Over Home's content that
- * corner is not empty at ANY fixed position: as the page scrolls, and across
- * Safari's changing viewport heights, the families, the receipts and the
- * Insights card all pass under it. No spacing can guarantee a clear corner
- * without carving a permanent hole in the layout. So on Home — phone widths
- * only — the same control takes the header slot that has always been reserved
- * empty opposite the settings gear, drawn like the gear, and scrolls with the
- * header. Nothing is ever under it. The component, its panel and its behaviour
- * are unchanged; this rule exists only while Home is mounted.
- */
-@media (max-width:767px){
-  button[aria-controls="dubiz-a11y-panel"][data-dz-home="1"]{
-    position:absolute!important;top:calc(6px + var(--dz-safe-top,0px))!important;bottom:auto!important;
-    inset-inline-end:auto!important;left:auto!important;right:max(18px,calc((100vw - 480px) / 2 + 18px))!important;
-    width:44px!important;height:44px!important;background:transparent!important;border:0!important;
-    box-shadow:none!important;color:#3d4944!important;z-index:30!important}
-  button[aria-controls="dubiz-a11y-panel"][data-dz-home="1"] svg{width:24px;height:24px}
-  #dubiz-a11y-panel{position:absolute!important;top:calc(54px + var(--dz-safe-top,0px))!important;bottom:auto!important;
-    inset-inline-end:auto!important;left:auto!important;right:max(18px,calc((100vw - 480px) / 2 + 18px))!important}
-}
-@media (max-width:374px){
-  button[aria-controls="dubiz-a11y-panel"][data-dz-home="1"],#dubiz-a11y-panel{right:14px!important}
-}
-
 /* header */
 .dzhome .top{display:grid;grid-template-columns:44px 1fr 44px;align-items:start;min-height:54px}
 .dzhome .gear{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;order:3}
