@@ -49,11 +49,10 @@ const nextConfig: NextConfig = {
     };
   },
 
-  // Static security response headers (T1 / gap H-3). Applied to all routes.
-  // Scope is exactly these four headers: no CSP, no Permissions-Policy, no
-  // HSTS `preload` (kept reversible), no other header. Behaviour-preserving:
-  // X-Frame-Options is SAMEORIGIN (same-origin blob: previews unaffected),
-  // and no Permissions-Policy so the camera scanners keep working.
+  // Static security response headers (T1 / gap H-3, extended by sec-B I-1).
+  // No HSTS `preload` (kept reversible). X-Frame-Options is SAMEORIGIN
+  // (same-origin blob: previews unaffected). Permissions-Policy keeps camera
+  // for this origin so the scanners work. CSP is per request, in proxy.ts.
   async headers() {
     return [
       {
