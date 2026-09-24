@@ -15,7 +15,7 @@ import {
   type CollectionView,
   type HomePeriodKey,
 } from "@/features/home/lib/home-collection-view";
-import { InsightCard } from "@/features/home/components/insight-card";
+import { InsightCard, type InsightVariant } from "@/features/home/components/insight-card";
 import { categoryHref, HOME_ROUTES, TOOL_GROUPS, type ToolGroup } from "@/lib/navigation/home-routes";
 
 /**
@@ -70,6 +70,12 @@ export function HomeScreen({
   onIdentityChange: (next: HomeIdentity) => void;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
+  // PROTOTYPE ONLY: lets the two Insights treatments be compared on the same
+  // Home (?ins=b). Removed once one is approved.
+  const [insVariant, setInsVariant] = useState<InsightVariant>("a");
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("ins") === "b") setInsVariant("b");
+  }, []);
   const canShowBusinessLogo = Boolean(view.businessLogoDataUrl);
   const showingBusiness = identity === "business" && canShowBusinessLogo;
 
@@ -118,7 +124,7 @@ export function HomeScreen({
 
         {/* What Dubiz has noticed. Nothing has been derived yet, and the card
             says exactly that rather than inventing an example. */}
-        <InsightCard view={{ state: "learning" }} />
+        <InsightCard view={{ state: "learning" }} variant={insVariant} />
       </div>
 
       {sheetOpen ? (
@@ -535,7 +541,7 @@ function FamilyTile({ group }: { group: ToolGroup }) {
   return (
     <Link href={categoryHref(group)} className={`fam fam-${group.key}`}>
       <span className="fam-ic" aria-hidden>
-        <FamilyMark family={group.key as FamilyMarkKey} height={30} />
+        <FamilyMark family={group.key as FamilyMarkKey} size={30} />
       </span>
       <span className="fam-t">{group.label}</span>
       <span className="fam-l">{bindSeparators(group.capabilityLine)}</span>
@@ -761,35 +767,43 @@ const HOME_CSS = `
 .dzhome .rc-calm{display:flex;align-items:center;gap:10px;margin-top:16px;min-height:52px;font-size:15px;font-weight:700;color:var(--ink2)}
 
 /* families — three quiet tiles, one row, the mark doing the talking */
-/*
- * The floating accessibility control rests over the bottom-inline-start corner
- * of the viewport. The families answer that with VERTICAL room, never by
- * giving up width: the tiles keep the page's full content width and stay
- * symmetrical, and the section carries a clear zone below them so the control
- * always has somewhere to sit that is not on top of a word.
- */
 .dzhome .dz{margin-top:6px}
 .dzhome .dz h2{margin:0 0 5px;font-size:18px;font-weight:800}
 .dzhome .fams{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
-/* Fixed zones: the mark, the name and the line each get the same room in all
-   three tiles, so the three read as one row rather than three cards that
-   happen to sit together. */
-.dzhome .fam{display:flex;flex-direction:column;gap:5px;padding:9px 10px 10px;
-  border:1px solid rgba(31,42,38,.11);border-radius:15px}
-.dzhome .fam-ic{display:flex;align-items:flex-end;height:30px}
-.dzhome .fam-t{font-size:13px;font-weight:800;line-height:1.15;min-height:15px}
-.dzhome .fam-l{font-size:11px;font-weight:600;line-height:1.32;color:var(--ink2);min-height:29px;text-wrap:balance}
-/* Tints from the same page: sand, mint, sage-stone. Nothing saturated. */
+/* Fixed zones, not minimums: the mark, the name and the line each own a row of
+   the same height in all three tiles. A short line ("מלאי · ספקים") sits at the
+   top of its zone instead of pulling the tile's rhythm with it, and the marks
+   stand on one baseline so the gap to the title is identical everywhere. */
+.dzhome .fam{display:grid;grid-template-rows:31px 15px 29px;row-gap:5px;align-content:start;
+  padding:9px 10px 10px;border:1px solid rgba(31,42,38,.11);border-radius:15px}
+.dzhome .fam-ic{display:flex;align-items:flex-end;height:31px}
+.dzhome .fam-t{font-size:13px;font-weight:800;line-height:15px;white-space:nowrap}
+.dzhome .fam-l{font-size:11px;font-weight:600;line-height:1.32;color:var(--ink2);text-wrap:balance}
+/* Tints from the same page: warm paper, fresh mint, operational sage. The sage
+   carries a little more stone than the mint so the two never read as one. */
 .dzhome .fam-money{background:#f1e6d2}
 .dzhome .fam-customers{background:#e2ece4}
-.dzhome .fam-operations{background:#e4e9e0}
+.dzhome .fam-operations{background:#dfe3d5}
 
-/* insights — the third voice, and the quietest of the three */
-.dzhome .ins{margin-top:12px;margin-inline-end:62px;margin-bottom:26px;padding:11px 13px 13px;
-  background:#e7f0ea;border:1px solid rgba(31,42,38,.1);border-radius:16px}
-.dzhome .ins-eyebrow{display:flex;align-items:center;gap:6px;margin:0;font-size:11px;font-weight:800;color:#1f6f6b}
-.dzhome .ins-t{margin:5px 0 0;font-size:15px;font-weight:800;line-height:1.25}
-.dzhome .ins-b{margin:4px 0 0;font-size:11.5px;font-weight:600;line-height:1.45;color:var(--ink2);text-wrap:pretty}
+/*
+ * insights — the third voice. It spans the full content width like everything
+ * else on Home; the floating accessibility control is not designed around.
+ * PROTOTYPE: two treatments, chosen by ?ins=a|b, differ in this block only.
+ */
+.dzhome .ins{margin-top:14px;margin-bottom:26px;padding:13px 14px 14px}
+.dzhome .ins-eyebrow{display:flex;align-items:center;gap:7px;margin:0;font-size:11.5px;font-weight:800;color:#1f6f6b}
+.dzhome .ins-t{margin:6px 0 0;font-size:15.5px;font-weight:800;line-height:1.25}
+.dzhome .ins-b{margin:4px 0 0;font-size:12px;font-weight:600;line-height:1.5;color:var(--ink2);text-wrap:pretty}
+/* A — quiet: a borderless sage-paper surface, lighter than any tile. */
+.dzhome .ins-a{background:#ebf0e7;border-radius:18px}
+/* B — editorial: paper lifted off the page, one deep-teal band on the
+   inline-start edge, the Dubiz insight badge in front of the eyebrow. */
+.dzhome .ins-b-v{background:#fcfaf5;border-inline-start:3px solid #1f6f6b;border-radius:18px;
+  border-start-start-radius:4px;border-end-start-radius:4px}
+.dzhome .ins-b-v .ins-eyebrow{gap:8px}
+.dzhome .ins-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+  border-radius:7px;background:#1f6f6b;flex:0 0 auto}
+.dzhome .ins-b-v .ins-t{font-size:16.5px;margin-top:8px}
 
 /* identity sheet */
 .dzhome .sheet{position:fixed;inset:0;z-index:160;background:rgba(31,42,38,.35);display:flex;align-items:flex-end}

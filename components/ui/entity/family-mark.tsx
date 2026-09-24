@@ -73,28 +73,32 @@ function OperationsMark() {
 }
 
 /**
- * Each mark gets the box its drawing actually occupies.
+ * Each mark gets the box its drawing actually occupies, and an optical scale.
  *
  * Drawn on one shared canvas they looked like different sizes: the money mark
  * reached x=32 while the other two ran to the edge, so it read as the small
- * one. Cropping every mark to its own ink and then rendering them all at the
- * same HEIGHT normalises their optical weight, which is what the eye compares.
+ * one. Cropping every mark to its own ink fixed the canvas, but equal HEIGHT
+ * still left the money mark the lightest — measured ink area at 30px was
+ * 895 / 1242 / 1116 px². The eye compares area, not height, so `optical`
+ * scales each mark until the three cover about the same area.
  */
-const MARKS: Record<FamilyMarkKey, { draw: () => React.ReactElement; box: string; ratio: number }> = {
-  money: { draw: MoneyMark, box: "2 2 31 27", ratio: 31 / 27 },
-  customers: { draw: CustomersMark, box: "2.5 3 39.5 25", ratio: 39.5 / 25 },
-  operations: { draw: OperationsMark, box: "3 2 38.5 27.5", ratio: 38.5 / 27.5 },
+const MARKS: Record<FamilyMarkKey, { draw: () => React.ReactElement; box: string; ratio: number; optical: number }> = {
+  money: { draw: MoneyMark, box: "2 2 31 27", ratio: 31 / 27, optical: 1.02 },
+  customers: { draw: CustomersMark, box: "2.5 3 39.5 25", ratio: 39.5 / 25, optical: 0.92 },
+  operations: { draw: OperationsMark, box: "3 2 38.5 27.5", ratio: 38.5 / 27.5, optical: 0.96 },
 };
 
-export function FamilyMark({ family, height = 30 }: { family: FamilyMarkKey; height?: number }) {
+/** `size` is the nominal mark size; each mark renders at its optical share of it. */
+export function FamilyMark({ family, size = 30 }: { family: FamilyMarkKey; size?: number }) {
   const mark = MARKS[family];
   if (!mark) return null;
   const Draw = mark.draw;
+  const height = +(size * mark.optical).toFixed(1);
   return (
     <svg
       viewBox={mark.box}
       height={height}
-      width={height * mark.ratio}
+      width={+(height * mark.ratio).toFixed(1)}
       aria-hidden
       style={{ display: "block" }}
     >

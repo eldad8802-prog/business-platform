@@ -35,12 +35,28 @@ const COPY = {
   ready: { eyebrow: "תובנה של Dubiz" },
 };
 
-export function InsightCard({ view }: { view: HomeInsightView }) {
+/**
+ * PROTOTYPE: the two treatments under review — "a" a quiet sage surface, "b" an
+ * editorial paper surface with a teal band and badge. Same copy, same contract;
+ * the loser is deleted once one is approved.
+ */
+export type InsightVariant = "a" | "b";
+
+export function InsightCard({ view, variant = "a" }: { view: HomeInsightView; variant?: InsightVariant }) {
   const learning = view.state === "learning";
   return (
-    <section className={`ins${learning ? " ins-learning" : ""}`} aria-labelledby="ins-h">
+    <section
+      className={`ins ${variant === "b" ? "ins-b-v" : "ins-a"}${learning ? " ins-learning" : ""}`}
+      aria-labelledby="ins-h"
+    >
       <p className="ins-eyebrow">
-        <SparkGlyph />
+        {variant === "b" ? (
+          <span className="ins-badge" aria-hidden>
+            <SparkGlyph color="#fffdf8" size={13} />
+          </span>
+        ) : (
+          <SparkGlyph color="#1f6f6b" size={13} />
+        )}
         {learning ? COPY.learning.eyebrow : COPY.ready.eyebrow}
       </p>
       <h2 className="ins-t" id="ins-h">
@@ -51,15 +67,15 @@ export function InsightCard({ view }: { view: HomeInsightView }) {
   );
 }
 
-/** The Dubiz mark for something noticed. One shape, teal, no sparkle storm. */
-function SparkGlyph() {
+/** The Dubiz mark for something noticed. One shape, one colour, no sparkle storm. */
+function SparkGlyph({ color, size }: { color: string; size: number }) {
   return (
-    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden style={{ display: "block", flex: "0 0 auto" }}>
+    <svg viewBox="0 0 16 16" width={size} height={size} aria-hidden style={{ display: "block", flex: "0 0 auto" }}>
       <path
         d="M8 .8l1.5 4.2 4.2 1.5-4.2 1.5L8 12.2 6.5 8 2.3 6.5 6.5 5z"
-        fill="#1f6f6b"
+        fill={color}
       />
-      <path d="M13.2 10.4l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z" fill="#1f6f6b" opacity=".55" />
+      <path d="M13.2 10.4l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z" fill={color} opacity=".55" />
     </svg>
   );
 }
