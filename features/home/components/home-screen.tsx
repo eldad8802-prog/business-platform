@@ -15,6 +15,7 @@ import {
   type CollectionView,
   type HomePeriodKey,
 } from "@/features/home/lib/home-collection-view";
+import { InsightCard } from "@/features/home/components/insight-card";
 import { categoryHref, HOME_ROUTES, TOOL_GROUPS, type ToolGroup } from "@/lib/navigation/home-routes";
 
 /**
@@ -114,6 +115,10 @@ export function HomeScreen({
             ))}
           </div>
         </section>
+
+        {/* What Dubiz has noticed. Nothing has been derived yet, and the card
+            says exactly that rather than inventing an example. */}
+        <InsightCard view={{ state: "learning" }} />
       </div>
 
       {sheetOpen ? (
@@ -530,7 +535,7 @@ function FamilyTile({ group }: { group: ToolGroup }) {
   return (
     <Link href={categoryHref(group)} className={`fam fam-${group.key}`}>
       <span className="fam-ic" aria-hidden>
-        <FamilyMark family={group.key as FamilyMarkKey} width={42} />
+        <FamilyMark family={group.key as FamilyMarkKey} height={30} />
       </span>
       <span className="fam-t">{group.label}</span>
       <span className="fam-l">{bindSeparators(group.capabilityLine)}</span>
@@ -763,18 +768,28 @@ const HOME_CSS = `
  * symmetrical, and the section carries a clear zone below them so the control
  * always has somewhere to sit that is not on top of a word.
  */
-.dzhome .dz{margin-top:6px;padding-bottom:82px}
+.dzhome .dz{margin-top:6px}
 .dzhome .dz h2{margin:0 0 5px;font-size:18px;font-weight:800}
 .dzhome .fams{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
-.dzhome .fam{display:flex;flex-direction:column;gap:5px;min-height:106px;padding:9px 10px 10px;
+/* Fixed zones: the mark, the name and the line each get the same room in all
+   three tiles, so the three read as one row rather than three cards that
+   happen to sit together. */
+.dzhome .fam{display:flex;flex-direction:column;gap:5px;padding:9px 10px 10px;
   border:1px solid rgba(31,42,38,.11);border-radius:15px}
-.dzhome .fam-ic{display:block;height:29px}
-.dzhome .fam-t{font-size:13px;font-weight:800;line-height:1.15}
-.dzhome .fam-l{font-size:11px;font-weight:600;line-height:1.32;color:var(--ink2);text-wrap:balance}
+.dzhome .fam-ic{display:flex;align-items:flex-end;height:30px}
+.dzhome .fam-t{font-size:13px;font-weight:800;line-height:1.15;min-height:15px}
+.dzhome .fam-l{font-size:11px;font-weight:600;line-height:1.32;color:var(--ink2);min-height:29px;text-wrap:balance}
 /* Tints from the same page: sand, mint, sage-stone. Nothing saturated. */
 .dzhome .fam-money{background:#f1e6d2}
 .dzhome .fam-customers{background:#e2ece4}
 .dzhome .fam-operations{background:#e4e9e0}
+
+/* insights — the third voice, and the quietest of the three */
+.dzhome .ins{margin-top:12px;margin-inline-end:62px;margin-bottom:26px;padding:11px 13px 13px;
+  background:#e7f0ea;border:1px solid rgba(31,42,38,.1);border-radius:16px}
+.dzhome .ins-eyebrow{display:flex;align-items:center;gap:6px;margin:0;font-size:11px;font-weight:800;color:#1f6f6b}
+.dzhome .ins-t{margin:5px 0 0;font-size:15px;font-weight:800;line-height:1.25}
+.dzhome .ins-b{margin:4px 0 0;font-size:11.5px;font-weight:600;line-height:1.45;color:var(--ink2);text-wrap:pretty}
 
 /* identity sheet */
 .dzhome .sheet{position:fixed;inset:0;z-index:160;background:rgba(31,42,38,.35);display:flex;align-items:flex-end}
@@ -794,7 +809,7 @@ const HOME_CSS = `
   .dzhome .rc{margin-left:-14px;margin-right:-14px}
   .dzhome .rc-rail{padding-left:14px;padding-right:14px}
   .dzhome .fams{gap:8px}
-  .dzhome .fam{padding:9px 8px 10px;min-height:104px}
+  .dzhome .fam{padding:9px 8px 10px}
   .dzhome .fam-t{font-size:12.5px}
 }
 @media (min-width:768px){

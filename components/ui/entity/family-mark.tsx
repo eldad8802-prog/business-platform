@@ -72,18 +72,33 @@ function OperationsMark() {
   );
 }
 
-const MARKS: Record<FamilyMarkKey, () => React.ReactElement> = {
-  money: MoneyMark,
-  customers: CustomersMark,
-  operations: OperationsMark,
+/**
+ * Each mark gets the box its drawing actually occupies.
+ *
+ * Drawn on one shared canvas they looked like different sizes: the money mark
+ * reached x=32 while the other two ran to the edge, so it read as the small
+ * one. Cropping every mark to its own ink and then rendering them all at the
+ * same HEIGHT normalises their optical weight, which is what the eye compares.
+ */
+const MARKS: Record<FamilyMarkKey, { draw: () => React.ReactElement; box: string; ratio: number }> = {
+  money: { draw: MoneyMark, box: "2 2 31 27", ratio: 31 / 27 },
+  customers: { draw: CustomersMark, box: "2.5 3 39.5 25", ratio: 39.5 / 25 },
+  operations: { draw: OperationsMark, box: "3 2 38.5 27.5", ratio: 38.5 / 27.5 },
 };
 
-export function FamilyMark({ family, width = 50 }: { family: FamilyMarkKey; width?: number }) {
-  const Mark = MARKS[family];
-  if (!Mark) return null;
+export function FamilyMark({ family, height = 30 }: { family: FamilyMarkKey; height?: number }) {
+  const mark = MARKS[family];
+  if (!mark) return null;
+  const Draw = mark.draw;
   return (
-    <svg viewBox="0 0 44 32" width={width} height={(width * 32) / 44} aria-hidden style={{ display: "block" }}>
-      <Mark />
+    <svg
+      viewBox={mark.box}
+      height={height}
+      width={height * mark.ratio}
+      aria-hidden
+      style={{ display: "block" }}
+    >
+      <Draw />
     </svg>
   );
 }
