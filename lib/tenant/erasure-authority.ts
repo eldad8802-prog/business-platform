@@ -11,8 +11,8 @@
  * The erasure itself must still be able to act on the quarantined business — that is
  * its entire job. It does so by holding THIS capability, and nothing else grants it:
  *
- *   - it is set ONLY by `runTenantJob(..., { quarantinePolicy: "erasure" })`
- *     (lib/tenant/job.ts), and the literal `quarantinePolicy: "erasure"` is already
+ *   - it is set ONLY by `runTenantJob with the erasure quarantine policy`
+ *     (lib/tenant/job.ts), and the erasure-policy literal is already
  *     confined to the account module by CI-AD-5;
  *   - `runWithErasureAuthority` itself may be called only from lib/tenant/job.ts, which
  *     `lib/tenant/erasure-authority.guard.test.ts` pins statically;

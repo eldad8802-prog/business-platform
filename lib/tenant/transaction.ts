@@ -55,7 +55,7 @@ export async function withTenantTransaction<T>(
   const { businessId } = getTenantContextOrThrow();
 
   // SEC-E / M-12(c): decided BEFORE the transaction opens, from the ALS capability that
-  // only `runTenantJob(..., { quarantinePolicy: "erasure" })` grants.
+  // only `runTenantJob with the erasure quarantine policy` grants.
   const erasure = holdsErasureAuthority(businessId);
 
   return prisma.$transaction(
