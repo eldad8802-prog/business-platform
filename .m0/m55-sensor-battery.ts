@@ -62,7 +62,9 @@ function sqlStatements(file: string, keep: RegExp, drop?: RegExp): string[] {
     .join("\n");
   // DO $do$ … $do$ blocks contain semicolons; keep them whole.
   const blocks: string[] = [];
-  const re = /DO \$do\$[\s\S]*?\$do\$;?|[^;]+;?/g;
+  // Leading whitespace is consumed FIRST, so a block preceded by a newline is still recognised as a
+  // block — otherwise the plain-statement branch wins at that position and cuts at the first `;`.
+  const re = /\s*(?:DO \$do\$[\s\S]*?\$do\$|[^;]+);?/g;
   for (const m of sql.matchAll(re)) {
     const s = m[0].trim().replace(/;$/, "").trim();
     if (s && keep.test(s) && !(drop && drop.test(s))) blocks.push(s);
@@ -439,7 +441,10 @@ async function domainChecks(ctx: Ctx): Promise<void> {
 main()
   .catch((e) => {
     // Name only: a Prisma error can quote the values it failed on.
-    console.error("battery crashed:", e instanceof Error ? `${e.name}: ${e.message.split("\n")[0].slice(0, 160)}` : "unknown");
+    // Name, Prisma code and the first non-empty line — a Prisma message often starts with a blank line.
+    const code = (e as { code?: string })?.code ?? "";
+    const line = e instanceof Error ? (e.message.split("\n").find((l) => l.trim()) ?? "").slice(0, 160) : "";
+    console.error("battery crashed:", e instanceof Error ? `${e.name} ${code} ${line}` : "unknown");
     process.exit(1);
   })
   .finally(async () => { await owner.$disconnect(); });
