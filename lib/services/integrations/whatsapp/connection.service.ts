@@ -12,9 +12,18 @@
  * This service is the only file that may touch
  *   `prisma.whatsAppConnection.*`
  * outside of generated migrations. Keep it that way.
+ *
+ * sec(C) / M-14(a): every per-business access runs inside a tenant transaction
+ * (`tenantTx`, GUC set), and the one pre-context lookup — webhook
+ * phone_number_id -> business — goes through the narrow SECURITY DEFINER function
+ * `sec_c_whatsapp_business_by_phone_number_id`, which returns ONLY the business id
+ * of a CONNECTED row. That makes the table ready for FORCE RLS
+ * (ops/security/sec-c-phase3-rls.sql) without the runtime ever needing
+ * cross-tenant SELECT on rows that carry encrypted tokens.
  */
 
 import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import type { Prisma, WhatsAppConnectionStatus } from "@prisma/client";
 import {
   decryptAccessToken,
@@ -53,16 +62,29 @@ const PUBLIC_SELECT = {
   updatedAt: true,
 } as const satisfies Prisma.WhatsAppConnectionSelect;
 
+function isUndefinedFunction(error: unknown): boolean {
+  const e = error as { code?: string; meta?: { code?: string }; message?: string } | null;
+  return (
+    e?.meta?.code === "42883" ||
+    e?.code === "42883" ||
+    /function public.sec_c_whatsapp_business_by_phone_number_id(.*) does not exist/.test(
+      String(e?.message ?? "")
+    )
+  );
+}
+
 // ─── reads ─────────────────────────────────────────────────────────────────
 
 export async function findPublicByBusinessId(
   businessId: number
 ): Promise<PublicConnection | null> {
   if (!Number.isInteger(businessId) || businessId <= 0) return null;
-  return prisma.whatsAppConnection.findUnique({
-    where: { businessId },
-    select: PUBLIC_SELECT,
-  });
+  return tenantTx(businessId, (tx) =>
+    tx.whatsAppConnection.findUnique({
+      where: { businessId },
+      select: PUBLIC_SELECT,
+    })
+  );
 }
 
 /**
@@ -87,13 +109,26 @@ export async function resolveBusinessIdByPhoneNumberId(
   // the old swallow-and-return-null pattern let a transient DB error hit the
   // env fallback map, silently rerouting tenant resolution. Now only a true
   // miss / non-CONNECTED row yields null.
-  const row = await prisma.whatsAppConnection.findUnique({
-    where: { phoneNumberId },
-    select: { businessId: true, status: true },
-  });
-  if (!row) return null;
-  if (row.status !== "CONNECTED") return null;
-  return row.businessId;
+  let rows: { b: number | null }[];
+  try {
+    rows = await prisma.$queryRaw<{ b: number | null }[]>`
+      SELECT public.sec_c_whatsapp_business_by_phone_number_id(${phoneNumberId}) AS b`;
+  } catch (error) {
+    // ONLY "function does not exist" (42883) — a database the sec(C) migration has
+    // not reached yet (schema-push labs, or the window before release-migrate).
+    // There the table still has no RLS and the direct lookup is exactly today's
+    // behaviour; once RLS is on (phase 3, which requires the function) the direct
+    // path can no longer see another tenant's row. Every other error propagates.
+    if (!isUndefinedFunction(error)) throw error;
+    console.error("[whatsapp] bootstrap lookup function missing — using direct lookup");
+    const row = await prisma.whatsAppConnection.findUnique({
+      where: { phoneNumberId },
+      select: { businessId: true, status: true },
+    });
+    rows = [{ b: row && row.status === "CONNECTED" ? row.businessId : null }];
+  }
+  const businessId = rows[0]?.b ?? null;
+  return typeof businessId === "number" && businessId > 0 ? businessId : null;
 }
 
 /**
@@ -109,7 +144,7 @@ export async function getAccessTokenForBusiness(
   businessId: number
 ): Promise<{ token: string; phoneNumberId: string } | null> {
   if (!Number.isInteger(businessId) || businessId <= 0) return null;
-  const row = await prisma.whatsAppConnection.findUnique({
+  const row = await tenantTx(businessId, (tx) => tx.whatsAppConnection.findUnique({
     where: { businessId },
     select: {
       status: true,
@@ -118,7 +153,7 @@ export async function getAccessTokenForBusiness(
       accessTokenIv: true,
       accessTokenTag: true,
     },
-  });
+  }));
   if (!row) return null;
   if (row.status !== "CONNECTED") return null;
   const token = decryptAccessToken(
@@ -175,7 +210,7 @@ export async function manualSeedConnection(
 
   const encrypted = encryptAccessToken(input.accessToken, input.businessId);
 
-  return prisma.whatsAppConnection.upsert({
+  return tenantTx(input.businessId, (tx) => tx.whatsAppConnection.upsert({
     where: { businessId: input.businessId },
     create: {
       businessId: input.businessId,
@@ -205,7 +240,7 @@ export async function manualSeedConnection(
       lastErrorMessage: null,
     },
     select: PUBLIC_SELECT,
-  });
+  }));
 }
 
 /**
@@ -247,13 +282,14 @@ export async function disconnectByBusinessId(
   businessId: number
 ): Promise<PublicConnection | null> {
   if (!Number.isInteger(businessId) || businessId <= 0) return null;
-  const existing = await prisma.whatsAppConnection.findUnique({
+  return tenantTx(businessId, async (tx) => {
+  const existing = await tx.whatsAppConnection.findUnique({
     where: { businessId },
     select: { id: true },
   });
   if (!existing) return null;
 
-  return prisma.whatsAppConnection.update({
+  return tx.whatsAppConnection.update({
     where: { businessId },
     data: {
       status: "DISCONNECTED",
@@ -265,6 +301,7 @@ export async function disconnectByBusinessId(
       lastVerifiedAt: null,
     },
     select: PUBLIC_SELECT,
+  });
   });
 }
 
@@ -281,9 +318,9 @@ export async function deleteMetaDataByBusinessId(
     return { deleted: false };
   }
 
-  const result = await prisma.whatsAppConnection.deleteMany({
-    where: { businessId },
-  });
+  const result = await tenantTx(businessId, (tx) =>
+    tx.whatsAppConnection.deleteMany({ where: { businessId } })
+  );
   return { deleted: result.count > 0 };
 }
 
@@ -297,7 +334,7 @@ export async function markRevokedByMeta(
   reason: { code: string; message: string }
 ): Promise<void> {
   if (!Number.isInteger(businessId) || businessId <= 0) return;
-  await prisma.whatsAppConnection.updateMany({
+  await tenantTx(businessId, (tx) => tx.whatsAppConnection.updateMany({
     where: { businessId, status: { not: "DISCONNECTED" } },
     data: {
       status: "REVOKED_BY_META",
@@ -308,7 +345,7 @@ export async function markRevokedByMeta(
       lastErrorCode: reason.code.slice(0, 64),
       lastErrorMessage: reason.message.slice(0, 500),
     },
-  });
+  }));
 }
 
 /**
@@ -321,12 +358,12 @@ export async function recordTransientError(
   reason: { code: string; message: string }
 ): Promise<void> {
   if (!Number.isInteger(businessId) || businessId <= 0) return;
-  await prisma.whatsAppConnection.updateMany({
+  await tenantTx(businessId, (tx) => tx.whatsAppConnection.updateMany({
     where: { businessId },
     data: {
       lastErrorAt: new Date(),
       lastErrorCode: reason.code.slice(0, 64),
       lastErrorMessage: reason.message.slice(0, 500),
     },
-  });
+  }));
 }

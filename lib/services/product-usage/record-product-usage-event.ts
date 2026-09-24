@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { tenantTx } from "@/lib/tenant/tenant-tx";
 import { PRODUCT_USAGE_SOURCES } from "./product-usage-catalog";
 import type { RecordProductUsageEventInput } from "./product-usage.types";
 
@@ -39,9 +40,16 @@ export async function recordProductUsageEvent(
   }
 
   try {
-    await prisma.productUsageEvent.create({
+    // sec(C)/M-14(a): an attributed event is written inside its own tenant's
+    // transaction (GUC set), so under the prepared FORCE RLS policy
+    // (ops/security/sec-c-phase3-rls.sql) the runtime can only ever write events
+    // for the business it is acting for. createMany, not create: the runtime holds
+    // INSERT only on this table (no SELECT for INSERT ... RETURNING).
+    const businessId = input.businessId ?? null;
+    const write = (db: Pick<typeof prisma, "productUsageEvent">) =>
+      db.productUsageEvent.createMany({
       data: {
-        businessId: input.businessId ?? null,
+        businessId,
         userId: input.userId ?? null,
         sessionId: input.sessionId ?? null,
         featureKey: input.featureKey,
@@ -54,6 +62,11 @@ export async function recordProductUsageEvent(
         metadata: buildMetadata(input.metadata),
       },
     });
+    if (businessId !== null && Number.isInteger(businessId) && businessId > 0) {
+      await tenantTx(businessId, (tx) => write(tx));
+    } else {
+      await write(prisma);
+    }
   } catch (error) {
     console.error("recordProductUsageEvent error:", error);
   }
