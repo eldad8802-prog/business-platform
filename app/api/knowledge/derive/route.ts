@@ -40,6 +40,16 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
+/** Every tenant table the knowledge layer writes, and the two M5 evidence tables. */
+const ISOLATION_TABLES = [
+  "KnowledgeMeasure",
+  "BusinessInsight",
+  "PartyResolutionClaim",
+  "EntityLinkProposal",
+  "CollectionAction",
+  "LearningEvent",
+];
+
 async function handle(req: NextRequest) {
   const decision = decideRecoveryAuth(
     req.headers.get("authorization"),
@@ -84,6 +94,41 @@ async function handle(req: NextRequest) {
     const derivation = await deriveKnowledgeForBusiness(businessId);
     const insights = await generateInsightsForBusiness(businessId);
 
+    // ISOLATION, measured on this connection rather than asserted. Catalog flags and row COUNTS only.
+    //
+    //   rls          each knowledge table has RLS enabled AND forced, and what this role may do to it
+    //   withoutTenant rows visible with no tenant set — must be zero, or FORCE RLS is not holding
+    //   foreignRows  rows of any OTHER business visible from inside this tenant — must be zero
+    const { tenantTx } = await import("@/lib/tenant/tenant-tx");
+    const rls = await prisma.$queryRawUnsafe<
+      { t: string; rls: boolean; force: boolean; sel: boolean; ins: boolean; upd: boolean; del: boolean }[]
+    >(
+      `SELECT c.relname AS t, c.relrowsecurity AS rls, c.relforcerowsecurity AS force,
+              has_table_privilege(current_user, c.oid, 'SELECT') AS sel,
+              has_table_privilege(current_user, c.oid, 'INSERT') AS ins,
+              has_table_privilege(current_user, c.oid, 'UPDATE') AS upd,
+              has_table_privilege(current_user, c.oid, 'DELETE') AS del
+         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = current_schema() AND c.relname = ANY($1::text[])
+        ORDER BY c.relname`,
+      ISOLATION_TABLES
+    );
+    const withoutTenant: Record<string, number> = {};
+    const foreignRows: Record<string, number> = {};
+    for (const t of ISOLATION_TABLES) {
+      const bare = await prisma.$queryRawUnsafe<{ n: number }[]>(
+        `SELECT count(*)::int AS n FROM "${t}"`
+      );
+      withoutTenant[t] = bare[0]?.n ?? -1;
+      const scoped = await tenantTx(businessId, (tx) =>
+        tx.$queryRawUnsafe<{ n: number }[]>(
+          `SELECT count(*)::int AS n FROM "${t}" WHERE "businessId" <> $1`,
+          businessId
+        )
+      );
+      foreignRows[t] = scoped[0]?.n ?? -1;
+    }
+
     return NextResponse.json(
       {
         ok: true,
@@ -102,9 +147,34 @@ async function handle(req: NextRequest) {
           measuresSuperseded: derivation.measuresSuperseded,
           totalDurationMs: derivation.totalDurationMs,
           sources: derivation.sourcesLoaded,
-          rules: derivation.rules,
+          // Per rule: WHAT ran and HOW it ended — never what it learned. No value, no entity id, no
+          // trend, no error text. This body is printed into the dispatch workflow's log, and that log
+          // is as public as the repository; the learned numbers live in the tenant's own rows.
+          rules: derivation.rules.map((r) => ({
+            ruleId: r.ruleId,
+            ruleVersion: r.ruleVersion,
+            outcome: r.outcome,
+            failedStage: r.failedStage,
+            measures: r.measures.length,
+            active: r.active,
+            insufficient: r.insufficient,
+            staled: r.staled,
+            superseded: r.superseded,
+            observations: r.measures.reduce((s, m) => s + m.observationCount, 0),
+            durationMs: r.durationMs,
+          })),
         },
-        insights,
+        isolation: {
+          rls,
+          withoutTenant,
+          foreignRows,
+          holds:
+            rls.length === ISOLATION_TABLES.length &&
+            rls.every((x) => x.rls && x.force) &&
+            Object.values(withoutTenant).every((n) => n === 0) &&
+            Object.values(foreignRows).every((n) => n === 0),
+        },
+        insights: insights.length,
       },
       { status: 200 }
     );

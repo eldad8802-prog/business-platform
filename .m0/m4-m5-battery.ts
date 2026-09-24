@@ -177,7 +177,16 @@ async function main(): Promise<void> {
 
   // The shared identifier. A tax id is issued by the state, so two subjects carrying the same one are
   // the same registered entity — and this is the ONLY kind of evidence allowed to bind on its own.
-  const TAX_ID = `5140${NONCE.slice(0, 5)}`;
+  // Well-formed, check digit and all: only an identifier SHAPED like a state-issued one may bind.
+  const TAX_ID = (() => {
+    const base = `514${(parseInt(NONCE, 16) % 100_000).toString().padStart(5, "0")}`;
+    let sum = 0;
+    for (let i = 0; i < 8; i += 1) {
+      const step = Number(base[i]) * ((i % 2) + 1);
+      sum += step > 9 ? step - 9 : step;
+    }
+    return `${base}${(10 - (sum % 10)) % 10}`;
+  })();
   const VENDOR_NAME = "ACME SUPPLIES LTD";
 
   const payeeA = await owner.payee.create({
@@ -281,6 +290,13 @@ async function main(): Promise<void> {
       });
     }
   }
+  // Two orders the business never actually placed: a DRAFT and a CANCELLED one, inside the window.
+  // Neither is a purchase, so neither may become a beat in the supplier's rhythm.
+  for (const [status, d] of [["DRAFT", 10], ["CANCELLED", 5]] as const) {
+    await owner.purchaseOrder.create({
+      data: { businessId: bizA.id, supplierId: supplierA.id, supplierName: "Acme", orderDate: ago(d), status },
+    });
+  }
 
   // ── documents: four approved invoices from the same vendor string, and ten human reviews ──
   for (let i = 0; i < 4; i++) {
@@ -340,7 +356,7 @@ async function main(): Promise<void> {
   process.env.DIRECT_URL = rtUrl;
 
   const { deriveKnowledgeForBusiness } = await import("@/lib/knowledge/derive.service");
-  const { resolveIdentitiesForBusiness, decideProposal, listOpenProposals } =
+  const { resolveIdentitiesForBusiness, decideProposal, listOpenProposals, authoritativeTaxId } =
     await import("@/lib/identity/entity-identity.service");
   const { recordCollectionAction } = await import("@/lib/services/collection/collection-action.service");
   const { runWithTenantContext } = await import("@/lib/tenant/context");
@@ -389,6 +405,16 @@ async function main(): Promise<void> {
     (await resolveIdentitiesForBusiness(bizA.id)).proposed === 0);
   check("…and does not breed duplicate anchors",
     (await owner.partyResolutionClaim.count({ where: { businessId: bizA.id, status: "ACTIVE" } })) === 4);
+
+  section("I6 — a tax id binds only when it is SHAPED like one the state issued");
+  check("the seeded identifier is well-formed, so its binding above was legitimate",
+    authoritativeTaxId(TAX_ID) === TAX_ID);
+  check("separators are tolerated and canonicalised",
+    authoritativeTaxId(`${TAX_ID.slice(0, 2)}-${TAX_ID.slice(2)}`) === TAX_ID);
+  for (const junk of ["000000000", "111111111", "1", "-", "N/A", "123456789", "51412345X"]) {
+    check(`free-text "${junk}" is not authority — two subjects sharing it would NOT bind`,
+      authoritativeTaxId(junk) === null);
+  }
 
   section("I5 — identity does not cross tenants");
   const idB = await resolveIdentitiesForBusiness(bizB.id);
@@ -442,6 +468,8 @@ async function main(): Promise<void> {
     `value=${active("INV-05")[0]?.valueNumeric}`);
   check("SUPP-01 found the purchase cadence", active("SUPP-01")[0]?.valueNumeric === 28,
     `value=${active("SUPP-01")[0]?.valueNumeric}`);
+  check("SUPP-01 counted only orders actually placed — the DRAFT and the CANCELLED one are not purchases",
+    active("SUPP-01")[0]?.observationCount === 4, `n=${active("SUPP-01")[0]?.observationCount}`);
   check("SUPP-02 found the supplier's lead time", active("SUPP-02")[0]?.valueNumeric === 6,
     `value=${active("SUPP-02")[0]?.valueNumeric}`);
   check("SUPP-03 knows how often orders close short", active("SUPP-03")[0]?.valueNumeric === 0.33,
@@ -609,6 +637,14 @@ async function main(): Promise<void> {
     claimsAfter.some((c) => c.status === "RETRACTED" && c.partyId === vendorPartyBefore));
   check("the new binding records that a PERSON established it, not a signal",
     activeAfter?.method === "OWNER_CONFIRMED" && activeAfter?.resolvedByUserId === 4242);
+  check("…and publishes NO signal, so the Party engine cannot bind anyone else through this decision",
+    activeAfter?.signalType === null && activeAfter?.signalValue === null &&
+    activeAfter?.source === `m5-entity-identity:proposal:${toConfirm!.id}`,
+    `signal=${activeAfter?.signalType} source=${activeAfter?.source}`);
+  check("no ACTIVE claim in the tenant carries a WEAK signal that a later subject could bind by",
+    (await owner.partyResolutionClaim.count({
+      where: { businessId: bizA.id, status: "ACTIVE", signalType: { in: ["PHONE", "EMAIL", "NORMALIZED_NAME"] } },
+    })) === 0);
   check("the owner's own words were kept",
     (await owner.entityLinkProposal.findUnique({ where: { id: toConfirm!.id } }))?.decisionNote === "זה אותו ספק");
 

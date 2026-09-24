@@ -64,3 +64,10 @@ jobs:
             echo "::error::proofLevel was not FULL — this run does not demonstrate tenant enforcement."
             exit 1; }
           echo "proof level FULL confirmed."
+
+          # And isolation was MEASURED on that same connection: RLS enabled and forced on every
+          # knowledge table, zero rows visible without a tenant, zero foreign rows visible inside one.
+          grep -q '"holds":true' body.json || {
+            echo "::error::isolation probe did not hold — see the isolation block above."
+            exit 1; }
+          echo "isolation probe holds."

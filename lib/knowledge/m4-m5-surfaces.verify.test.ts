@@ -74,6 +74,14 @@ ok("OWNER_CONFIRMED is the only method the decision path writes",
   /method:\s*"OWNER_CONFIRMED"/.test(identity));
 ok("a rejected pair is never re-proposed",
   /state === "REJECTED"[\s\S]{0,120}skipped-rejected/.test(identity));
+ok("a tax id binds only after passing the well-formedness check, never as raw free text",
+  /taxId: authoritativeTaxId\(s\.taxId\)/.test(identity) &&
+  /taxId: authoritativeTaxId\(p\.taxId\)/.test(identity) &&
+  !/cleanId\(/.test(identity));
+ok("an owner confirmation publishes NO signal the Party engine could later bind others by",
+  /method:\s*"OWNER_CONFIRMED"/.test(identity) &&
+  /signalType: null,\s*signalValue: null,[\s\S]{0,300}OWNER_CONFIRMED/.test(identity) &&
+  !/signalType: proposal\.signalType/.test(identity));
 ok("the resolver requires a server-derived actor for a decision",
   /Number\.isInteger\(actorUserId\)[\s\S]{0,80}invalid_actor/.test(identity));
 
@@ -97,6 +105,14 @@ ok("derive: still authenticated by the scheduler secret, not a session",
   /decideRecoveryAuth/.test(derive) && !/getCurrentUser/.test(derive));
 ok("derive: fail-closed when the secret is absent", /NOT_CONFIGURED[\s\S]{0,80}503/.test(derive));
 ok("derive: one explicit tenant per call", /businessId must be a positive integer/.test(derive));
+// The body is printed into a workflow log, and the repository is public. What a rule LEARNED must
+// never appear in it — only that it ran, how it ended, and how much evidence it had.
+ok("derive: the response carries no learned value, entity id, trend or error text",
+  !/valueNumeric|entityId|failureDetail|trend:/.test(derive.replace(/\/\/.*$/gm, "")) &&
+  !/rules: derivation\.rules,/.test(derive));
+ok("derive: isolation is MEASURED on the runtime connection and must hold",
+  /relforcerowsecurity/.test(derive) && /withoutTenant/.test(derive) &&
+  /foreignRows/.test(derive) && /holds:/.test(derive));
 ok("derive: reports the role posture instead of assuming it",
   /rolbypassrls/.test(derive) && /proofLevel/.test(derive));
 // Compared at the CALL sites, not the imports — which are alphabetical and say nothing about order.

@@ -178,6 +178,9 @@ export async function loadSupplierOrders(
       where: {
         businessId,
         supplierId: { not: null },
+        // A DRAFT was never placed and a CANCELLED order was withdrawn: neither is a purchase the
+        // business made, and counting them would invent beats in a rhythm that never happened.
+        status: { notIn: ["DRAFT", "CANCELLED"] },
         // Either the owner's own order date is in the window, or there is none and the row's creation
         // is. Expressed as an OR rather than a COALESCE so the existing indexes can still be used.
         OR: [
@@ -221,6 +224,7 @@ export async function loadSupplierDeliveries(
   now: Date,
   windowDays: number,
 ): Promise<SupplierDeliveryObservation[]> {
+  const from = startOf(now, windowDays);
   const rows = await tenantTx(businessId, (tx) =>
     tx.purchaseOrder.findMany({
       where: {
@@ -228,7 +232,10 @@ export async function loadSupplierDeliveries(
         supplierId: { not: null },
         status: "CLOSED",
         orderDate: { not: null },
-        receivingSessions: { some: { status: "POSTED", receivedAt: { not: null } } },
+        // Bounded in SQL like every other source. An order's observation time is its LAST posted
+        // receipt, so an order finishing inside the window has at least one receipt inside it; the
+        // superset this admits is trimmed to the exact window by the rules.
+        receivingSessions: { some: { status: "POSTED", receivedAt: { gte: from, lte: now } } },
       },
       orderBy: [{ id: "asc" }],
       select: {

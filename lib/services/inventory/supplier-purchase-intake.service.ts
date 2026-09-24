@@ -256,7 +256,14 @@ export async function createSupplierPurchaseDraft(
         // proposed: after approval, "the owner agreed" and "the owner corrected it" left rows that
         // were byte-identical. These three preserve the difference — which is the single most
         // valuable thing the matching engine could ever learn about itself.
-        suggestedItemId: machineMatchedItemId,
+        //
+        // REVIEW keeps its candidate too: the matcher leaned towards an item without being sure
+        // enough to merge, and which item it leaned towards is exactly what the owner's answer
+        // grades. Only CREATE_NEW proposes no item at all.
+        suggestedItemId:
+          supplierDecision !== SupplierLineDecision.CREATE_NEW && topMatch?.itemId
+            ? topMatch.itemId
+            : null,
         suggestedMatchScore: topMatch?.matchScore ?? null,
         suggestedDecision: supplierDecision,
       },

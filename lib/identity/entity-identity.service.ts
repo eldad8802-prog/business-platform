@@ -77,9 +77,31 @@ export type IdentityRunReport = {
   readonly durationMs: number;
 };
 
-function cleanId(value: string | null | undefined): string | null {
-  const trimmed = (value ?? "").trim();
-  return trimmed.length > 0 ? trimmed : null;
+/**
+ * A tax id that is allowed to bind WITHOUT a person, or null.
+ *
+ * `taxId` is free text on every form that writes it — nothing validates it on the way in. An exact
+ * string match is therefore only as authoritative as the strings are: two unrelated suppliers both
+ * typed in as "000000000", "1" or "-" share a value and nothing else, and binding on it would be the
+ * weak auto-merge this module exists to refuse, wearing a strong identifier's name.
+ *
+ * So only an identifier that is SHAPED like one the state issued may bind: Israeli ת.ז / ח.פ / ע.מ
+ * numbers are nine digits (eight when a leading zero was dropped) carrying a check digit, with the
+ * usual separators tolerated. A value failing that is not discarded as evidence of anything — it is
+ * simply not authority, and the subject anchors on its own like any subject without an identifier.
+ * The canonical nine-digit form is what gets written, so "51-412345-6" and "514123456" agree.
+ */
+export function authoritativeTaxId(value: string | null | undefined): string | null {
+  const stripped = (value ?? "").trim().replace(/[\s\-.\/]/g, "");
+  if (!/^\d{8,9}$/.test(stripped)) return null;
+  const digits = stripped.padStart(9, "0");
+  if (/^(\d)\1{8}$/.test(digits)) return null;
+  let sum = 0;
+  for (let i = 0; i < 9; i += 1) {
+    const step = Number(digits[i]) * ((i % 2) + 1);
+    sum += step > 9 ? step - 9 : step;
+  }
+  return sum % 10 === 0 ? digits : null;
 }
 
 /**
@@ -142,7 +164,7 @@ export async function loadIdentitySubjects(businessId: number): Promise<Identity
         subjectType: "SUPPLIER",
         subjectId: s.id,
         displayName: s.name,
-        taxId: cleanId(s.taxId),
+        taxId: authoritativeTaxId(s.taxId),
         phone: cleanPhone(s.phone),
         email: cleanEmail(s.email),
         // The legal name is preferred for matching when present: it is what a tax authority and an
@@ -155,7 +177,7 @@ export async function loadIdentitySubjects(businessId: number): Promise<Identity
         subjectType: "PAYEE",
         subjectId: p.id,
         displayName: p.displayName,
-        taxId: cleanId(p.taxId),
+        taxId: authoritativeTaxId(p.taxId),
         phone: null,
         email: null,
         normalizedName: normalizedNameOf(p.legalName ?? p.displayName),
@@ -422,8 +444,6 @@ export async function decideProposal(
         subjectType: true,
         subjectId: true,
         candidatePartyId: true,
-        signalType: true,
-        signalValue: true,
       },
     });
     if (!proposal) return { ok: false as const, reason: "not_found" as const };
@@ -447,13 +467,19 @@ export async function decideProposal(
           partyId: proposal.candidatePartyId,
           subjectType: proposal.subjectType,
           subjectId: proposal.subjectId,
-          signalType: proposal.signalType,
-          signalValue: proposal.signalValue,
+          // NO SIGNAL on the claim, deliberately. `findCandidatePartyBySignalTx` searches ACTIVE
+          // claims by (signalType, signalValue), and the Party engine binds new customers and leads
+          // through it by PHONE without asking anyone. Copying the proposal's weak signal here would
+          // turn one owner decision about THIS subject into an automatic binding rule for every
+          // later subject sharing that phone — a decision nobody made. The person's decision binds
+          // this subject only; what prompted it stays on the proposal, which `source` points to.
+          signalType: null,
+          signalValue: null,
           // KNOWN because a person established it — not because the signal was strong. The method
           // column is what records which of those two it was.
           confidence: "KNOWN",
           method: "OWNER_CONFIRMED",
-          source: IDENTITY_SOURCE,
+          source: `${IDENTITY_SOURCE}:proposal:${proposal.id}`,
           resolvedByUserId: actorUserId,
           status: "ACTIVE",
         },
