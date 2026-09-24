@@ -966,6 +966,10 @@
       "class": "PRODUCT_REQUIRED",
       "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
     },
+    "lib/services/home/home-collection-diagnostics.verify.test.ts": {
+      "class": "PRODUCT_REQUIRED",
+      "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
+    },
     "lib/services/home/home-collection.verify.test.ts": {
       "class": "PRODUCT_REQUIRED",
       "reason": "product behaviour; pure; not yet wired into CI (product-test debt, not a security control)"
