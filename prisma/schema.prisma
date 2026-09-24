@@ -430,6 +430,30 @@ model PlatformAuditEvent {
   @@index([action, createdAt])
 }
 
+/// SEC-F — durable, PII-minimised security event store (lib/security/security-events.ts).
+/// Append-only at the database (trigger + RESTRICTIVE rules); runtime may INSERT
+/// only, platform admin may SELECT only. No foreign keys on purpose: an event about
+/// a login attempt precedes any tenant and must survive the rows it mentions.
+/// Never holds tokens, passwords, email addresses or raw IP addresses.
+model SecurityEvent {
+  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  occurredAt  DateTime @default(now())
+  eventType   String
+  outcome     String
+  reasonClass String?
+  businessId  Int?
+  userId      Int?
+  actorKind   String   @default("USER")
+  ipHash      String?
+  route       String?
+  metadata    Json?
+
+  @@index([occurredAt])
+  @@index([businessId, occurredAt])
+  @@index([userId, occurredAt])
+  @@index([eventType, occurredAt])
+}
+
 /// Platform feature catalog row — key must match `PLATFORM_FEATURE_KEYS` in code.
 model PlatformFeatureDefinition {
   key            String   @id
@@ -2257,12 +2281,18 @@ model BillingAuditEvent {
   eventHash         String
   occurredAt        DateTime @default(now())
   createdAt         DateTime @default(now())
+  /// SEC-F keyed audit chain (lib/audit/audit-chain.ts). NULL on legacy rows.
+  chainSeq          Int?
+  prevHash          String?
+  chainHash         String?
+  chainKeyId        String?
 
   business        Business         @relation(fields: [businessId], references: [id], onDelete: Restrict)
   billingDocument BillingDocument? @relation(fields: [billingDocumentId], references: [id], onDelete: Restrict)
   actorUser       User?            @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@index([businessId, occurredAt])
+  @@unique([businessId, chainSeq])
   @@index([billingDocumentId, occurredAt])
   @@index([eventType, occurredAt])
 }
@@ -3234,12 +3264,18 @@ model PaymentAuditEvent {
   eventHash        String
   occurredAt       DateTime @default(now())
   createdAt        DateTime @default(now())
+  /// SEC-F keyed audit chain (lib/audit/audit-chain.ts). NULL on legacy rows.
+  chainSeq          Int?
+  prevHash          String?
+  chainHash         String?
+  chainKeyId        String?
 
   business       Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
   paymentRequest PaymentRequest? @relation(fields: [paymentRequestId], references: [id], onDelete: SetNull)
   actorUser      User?           @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@index([businessId, occurredAt])
+  @@unique([businessId, chainSeq])
   @@index([paymentRequestId, occurredAt])
   @@index([eventType, occurredAt])
 }
@@ -4758,9 +4794,16 @@ model PayablesAuditEvent {
   eventHash     String
   occurredAt    DateTime @default(now())
   createdAt     DateTime @default(now())
+  /// SEC-F keyed audit chain (lib/audit/audit-chain.ts). NULL on legacy rows.
+  chainSeq          Int?
+  prevHash          String?
+  chainHash         String?
+  chainKeyId        String?
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  /// Restrict (SEC-F): the payables trail must survive its tenant.
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
 
+  @@unique([businessId, chainSeq])
   @@index([businessId, occurredAt])
   @@index([businessId, commitmentId, occurredAt])
   @@index([businessId, paymentId, occurredAt])

@@ -66,6 +66,9 @@ export function isBotLlmDraftsEnabled(): boolean {
  * are the LLM draft + prior-draft texts recorded, for qualitative comparison.
  */
 export function isBotLlmDraftsLogTextEnabled(): boolean {
+  // SEC-F / L-19: customer conversation text never reaches production logs,
+  // whatever the flag says. The comparison switch is a development tool.
+  if (process.env.NODE_ENV === "production") return false;
   return process.env.BOT_LLM_DRAFTS_LOG_TEXT === "true";
 }
 

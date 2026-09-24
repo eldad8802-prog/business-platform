@@ -13,6 +13,7 @@
  */
 
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { enforceCostLimit } from "@/lib/security/cost-limits";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { loadUniformExportInput } from "@/lib/services/billing/uniform/uniform-export-loader";
 import { assembleUniformExportProjection } from "@/lib/services/billing/uniform/uniform-export-assembler";
@@ -36,6 +37,8 @@ function json(body: unknown, status: number): Response {
 export async function GET(req: Request): Promise<Response> {
   const user = await getCurrentUser(req);
   if (!user) return authRequiredResponse(req);
+  const costLimited = await enforceCostLimit("COST_REPORT_EXPORT", user, req);
+  if (costLimited) return costLimited;
 
   const { searchParams } = new URL(req.url);
   const parsed = parseUniformExportRange(searchParams.get("from"), searchParams.get("to"));

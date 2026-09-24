@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { enforceCostLimit } from "@/lib/security/cost-limits";
 import { recordSensor } from "@/lib/sensors/record-sensor";
 import { parseExportRequest } from "@/lib/data-transfer/export/export-request";
 import {
@@ -48,6 +49,8 @@ export async function POST(req: Request) {
   if (!user) {
     return authRequiredResponse(req);
   }
+  const costLimited = await enforceCostLimit("COST_REPORT_EXPORT", user, req);
+  if (costLimited) return costLimited;
 
   let body: unknown;
   try {

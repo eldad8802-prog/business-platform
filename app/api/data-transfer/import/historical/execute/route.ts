@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { enforceCostLimit } from "@/lib/security/cost-limits";
 import { executeHistoricalImport } from "@/lib/data-transfer/historical/historical-execute";
 import { IMPORT_MAX_FILE_BYTES } from "@/lib/data-transfer/import/import-config";
 import type { DateFormatContract } from "@/lib/data-transfer/historical/historical-date";
@@ -45,6 +46,8 @@ const NO_STORE = { "Cache-Control": "private, no-store" } as const;
 export async function POST(req: Request) {
   const user = await getCurrentUser(req);
   if (!user) return authRequiredResponse(req);
+  const costLimited = await enforceCostLimit("COST_IMPORT_ANALYZE", user, req);
+  if (costLimited) return costLimited;
 
   let form: FormData;
   try {

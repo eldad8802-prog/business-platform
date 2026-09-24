@@ -13,6 +13,7 @@ import {
 } from "@/lib/services/conversation/conversation-evidence.service";
 import { maybeCaptureLeadFromMessage } from "@/lib/services/crm/lead-auto-capture.service";
 import { getCurrentUser } from "@/lib/auth";
+import { enforceCostLimit } from "@/lib/security/cost-limits";
 import { runWithTenantContext } from "@/lib/tenant/context";
 import { withTenantTransaction } from "@/lib/tenant/transaction";
 import { syncInboxWaitingNotifications } from "@/lib/notifications/inbox-waiting-notifications";
@@ -247,6 +248,8 @@ export async function POST(req: Request) {
         { status: 401 }
       );
     }
+    const costLimited = await enforceCostLimit("COST_MESSAGE_SEND", user, req);
+    if (costLimited) return costLimited;
 
     const body = await req.json();
     const conversationId = Number(body.conversationId);
