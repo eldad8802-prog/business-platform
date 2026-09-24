@@ -56,6 +56,8 @@ import {
   POINTER_NAME_PATTERN,
 } from "../../../scripts/ci/erasure/erasure-object-surfaces";
 import { ACCEPTED_DEBT, debtKey } from "../../../scripts/ci/erasure/erasure-contract-debt";
+import { DEBT_SHAPES, SHAPED_CODES } from "../../../scripts/ci/erasure/erasure-debt-shapes";
+import { createHash } from "node:crypto";
 import {
   delegateName,
   isSystemDerived,
@@ -105,6 +107,24 @@ function main(): number {
   const models = parsePrismaSchema(SCHEMA);
   const byDelegate = new Map([...models.values()].map((m) => [m.delegate, m]));
   const adapter = parseAdapter(ADAPTER);
+
+  /** Every scalar column of a model as `name:Type[?][]`, sorted. The debt shape's input. */
+  const columnSet = (name: string): string[] =>
+    (models.get(name)?.fields ?? [])
+      .filter((f) => f.isScalar)
+      .map((f) => `${f.name}:${f.type}${f.isOptional ? "?" : ""}${f.isList ? "[]" : ""}`)
+      .sort();
+  /** A stable 12-hex digest of the column set. */
+  const shapeOf = (name: string): string =>
+    createHash("sha256").update(columnSet(name).join("\n")).digest("hex").slice(0, 12);
+  const shapedKey = (name: string): string => `${name}@${shapeOf(name)}`;
+
+  if (process.argv.includes("--print-debt-shapes")) {
+    for (const d of ACCEPTED_DEBT) {
+      if (SHAPED_CODES.has(d.code)) console.log(`  ${d.key}: "${shapeOf(d.key)}",`);
+    }
+    return 0;
+  }
 
   console.log(
     `[contract] schema: ${models.size} models | adapter: ${adapter.writes.length} field write(s), ` +
@@ -531,14 +551,20 @@ function main(): number {
     // Both of these ARE findings, by design. The registry being complete is not the
     // same as the erasure being complete, and collapsing the two would be the exact
     // comfortable green this whole programme exists to refuse.
+    // SEC-E / M-13 (F-6). C12 and C13 are keyed by the model AND ITS COLUMN SET
+    // (`Model@<shape>`). Keyed by model alone, a debt entry absorbed every column
+    // added to that model afterwards: `nationalId` on an indebted Supplier was
+    // "known" debt the day it arrived. Now the new column changes the key, the
+    // recorded entry stops matching, and --baseline-check fails on a NEW finding
+    // until someone looks at the column and re-accepts the model on purpose.
     if (cov.disposition === "UNMANAGED_PERSONAL_DATA") {
       if (!cov.surface || !cov.target) {
         report("C11-UNMANAGED-WITHOUT-TARGET", name, `${name} is unmanaged personal data with no surface or target named`);
       } else {
         report(
           "C12-UNMANAGED-PERSONAL-DATA",
-          name,
-          `${name} holds personal data the erasure does not touch (${cov.surface}) — ${cov.target}`
+          shapedKey(name),
+          `${name} holds personal data the erasure does not touch (${cov.surface}) — ${cov.target} [columns ${shapeOf(name)}: ${columnSet(name).join(", ")}]`
         );
       }
     }
@@ -546,7 +572,11 @@ function main(): number {
       if (!cov.question) {
         report("C11-DECISION-WITHOUT-QUESTION", name, `${name} needs a decision but no question is stated`);
       } else {
-        report("C13-NEEDS-OWNER-DECISION", name, `${name}: ${cov.question}`);
+        report(
+          "C13-NEEDS-OWNER-DECISION",
+          shapedKey(name),
+          `${name}: ${cov.question} [columns ${shapeOf(name)}: ${columnSet(name).join(", ")}]`
+        );
       }
     }
   }
@@ -1061,7 +1091,26 @@ function main(): number {
 
   // ── Result ─────────────────────────────────────────────────────────────────
   const baselineMode = process.argv.includes("--baseline-check");
-  const accepted = new Set(ACCEPTED_DEBT.map((d) => debtKey(d)));
+  // C12/C13 debt is accepted for the column set it was recorded against, and no other.
+  const accepted = new Set(
+    ACCEPTED_DEBT.map((d) =>
+      SHAPED_CODES.has(d.code) ? debtKey({ code: d.code, key: `${d.key}@${DEBT_SHAPES[d.key] ?? "UNRECORDED"}` }) : debtKey(d)
+    )
+  );
+  // C29 — a recorded shape must belong to a model that is still carried as shaped debt.
+  // A stale shape is how an old column set could silently re-arm later.
+  {
+    const shapedDebt = new Set(ACCEPTED_DEBT.filter((d) => SHAPED_CODES.has(d.code)).map((d) => d.key));
+    for (const m of Object.keys(DEBT_SHAPES)) {
+      if (!shapedDebt.has(m)) {
+        const f = { code: "C29-STALE-DEBT-SHAPE", key: m, detail: `a debt shape is recorded for ${m}, which carries no C12/C13 debt any more — remove it` };
+        if (!seenFinding.has(`${f.code}::${f.key}`)) {
+          seenFinding.add(`${f.code}::${f.key}`);
+          findings.push(f);
+        }
+      }
+    }
+  }
   const seen = new Set(findings.map((f) => debtKey(f)));
 
   const fresh = findings.filter((f) => !accepted.has(debtKey(f)));
@@ -1095,7 +1144,7 @@ function main(): number {
   console.log(`NEW FINDINGS      = ${fresh.length}`);
   console.log(`ACCEPTED DEBT     = ${accepted.size}`);
   console.log(`DEBT NOW RESOLVED = ${fixed.length}`);
-  for (const f of fresh) console.log(`  NEW    ${f.code}  ${f.detail}`);
+  for (const f of fresh) console.log(`  NEW    ${debtKey(f)}  ${f.detail}`);
   for (const k of fixed) console.log(`  FIXED  ${k}`);
 
   if (fresh.length > 0) {
