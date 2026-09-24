@@ -35,6 +35,10 @@ import {
   type ProviderPaymentStatus,
   type VerifyWebhookInput,
   type VerifyWebhookResult,
+  type RefundPaymentInput,
+  type RefundPaymentResult,
+  type RefundStatusInput,
+  type RefundStatusResult,
 } from "../payment-provider.types";
 import type { ProviderDescriptor } from "../provider-descriptor.types";
 
@@ -42,6 +46,22 @@ const CARDCOM_PROVIDER: PaymentProvider = "CARDCOM";
 const DEFAULT_BASE_URL = "https://secure.cardcom.solutions";
 const CREATE_PATH = "/api/v11/LowProfile/Create";
 const GET_RESULT_PATH = "/api/v11/LowProfile/GetLpResult";
+const REFUND_PATH = "/api/v11/Transactions/RefundByTransactionId";
+const TRANSACTION_INFO_PATH = "/api/v11/Transactions/GetTransactionInfoById";
+
+/**
+ * Our own reference on a reversal, derived from the reservation id.
+ *
+ * Deterministic on purpose: the same intent retried carries the same
+ * reference, so it can never read as a second one. CardCom accepts it as
+ * ExternalRefundDealId — but whether it can be QUERIED BACK after a lost
+ * response is an open question with CardCom support. Until that is answered
+ * this reference is evidence for a human, not a correlation key this adapter
+ * is allowed to rely on.
+ */
+export function externalRefundReference(reversalId: number): string {
+  return `dubiz-reversal-${reversalId}`;
+}
 
 /**
  * CardCom ISO coin ids. DOCS-CONFIRM.
@@ -429,6 +449,173 @@ export function createCardComProvider(
         correlationValue: fields.returnValue,
       };
     },
+
+    /**
+     * Reverse a settled CardCom transaction, or withdraw one before deposit.
+     *
+     * TRANSPORT AMBIGUITY IS NOT A REFUSAL. Every other call in this adapter
+     * may throw when the network fails, because a payment that was not created
+     * simply is not created. A reversal is the opposite: the instruction may
+     * have arrived and executed, and only the answer was lost. Treating that as
+     * a refusal releases the reservation and lets a second reversal be issued
+     * for money that already left. So this returns UNKNOWN for anything it
+     * cannot read as a verdict, and throws ONLY when CardCom itself states the
+     * reversal did not happen.
+     */
+    async refundPayment(input: RefundPaymentInput): Promise<RefundPaymentResult> {
+      const credential = parseCredential(input.credential);
+      if (!input.merchantId || !credential || !credential.apiPassword) {
+        // Configuration, not transport: nothing was sent, so nothing can have
+        // happened, and a throw is the honest answer.
+        throw new PaymentProviderError(
+          CARDCOM_PROVIDER,
+          "MISSING_CREDENTIALS",
+          "CardCom connection is missing terminal number or API credentials."
+        );
+      }
+
+      const transactionId = Number(input.settlement.providerTransactionId);
+      if (!Number.isInteger(transactionId) || transactionId <= 0) {
+        throw new PaymentProviderError(
+          CARDCOM_PROVIDER,
+          "MISSING_TRANSACTION_ID",
+          "This CardCom payment has no numeric transaction id to reverse."
+        );
+      }
+
+      const amount = Number(input.amount);
+      const settled = Number(input.settlement.amount);
+      const isPartial =
+        Number.isFinite(amount) && Number.isFinite(settled) && amount < settled;
+
+      const body: Record<string, unknown> = {
+        ApiName: credential.apiName,
+        // Required by THIS endpoint. LowProfile/Create needs only ApiName, so
+        // this is the first CardCom call that sends the stored password.
+        ApiPassword: credential.apiPassword,
+        TransactionId: transactionId,
+        ExternalRefundDealId: externalRefundReference(input.reversalId),
+        // A void withdraws the transaction before deposit; a refund returns
+        // money from a settled one. The domain decided which, upstream.
+        CancelOnly: input.intent === "VOID",
+        // Dubiz already bounds the cumulative reversal against the settled
+        // amount and refuses anything beyond it before reaching this line. The
+        // provider flag only PERMITS more than one; our ledger is the stricter
+        // of the two, so enabling it removes no safety net we depend on — it
+        // stops CardCom refusing a legitimate second part.
+        AllowMultipleRefunds: input.intent === "REFUND",
+      };
+      if (isPartial) body.PartialSum = amount;
+
+      let result: unknown;
+      try {
+        result = await postJson(REFUND_PATH, body);
+      } catch {
+        // Network failure, non-2xx, unparseable body — all of it is silence,
+        // and silence is UNKNOWN. The reservation stays held upstream.
+        return { providerRefundId: null, outcome: "UNKNOWN" };
+      }
+
+      const code = caseInsensitiveGet(result, "ResponseCode");
+      const newId = caseInsensitiveGet(result, "NewTranzactionId");
+
+      if (Number(code) === 0) {
+        return {
+          providerRefundId: newId == null ? null : String(newId),
+          outcome: "REFUNDED",
+        };
+      }
+
+      if (code == null) {
+        // A 200 that says nothing we recognise establishes nothing.
+        return { providerRefundId: null, outcome: "UNKNOWN" };
+      }
+
+      // CardCom stated a verdict and it is not success. THIS is the definite
+      // refusal the domain releases a reservation for.
+      const description = caseInsensitiveGet(result, "Description");
+      throw new PaymentProviderError(
+        CARDCOM_PROVIDER,
+        `REFUND_${String(code)}`,
+        typeof description === "string" && description.trim() !== ""
+          ? description
+          : `CardCom refused the reversal (code ${String(code)}).`
+      );
+    },
+
+    /**
+     * What became of a reversal, asked of CardCom by the reversal's own id.
+     *
+     * ONLY by that id. CardCom's queries correlate on ITS identifiers, not
+     * ours: ListTransactions returns no field carrying the ExternalRefundDealId
+     * we sent, and GetTransactionByExternalUniqTran reads a differently-named
+     * field the refund contract does not populate. Matching on amount, terminal
+     * and a time window would find the wrong row exactly when it matters — two
+     * reversals of the same amount — so with no id this answers UNKNOWN rather
+     * than guessing, and the reservation stays held.
+     */
+    async getRefundStatus(input: RefundStatusInput): Promise<RefundStatusResult> {
+      const credential = parseCredential(input.credential);
+      if (!input.merchantId || !credential || !credential.apiPassword) {
+        return {
+          outcome: "UNKNOWN",
+          detail: "connection is not configured for verification",
+        };
+      }
+      if (!input.providerRefundId) {
+        return {
+          outcome: "UNKNOWN",
+          detail:
+            "no CardCom reversal id was received, and CardCom exposes no " +
+            "documented query for our own reference",
+        };
+      }
+
+      const internalDealNumber = Number(input.providerRefundId);
+      if (!Number.isInteger(internalDealNumber) || internalDealNumber <= 0) {
+        return {
+          outcome: "UNKNOWN",
+          detail: "reversal id is not a CardCom deal number",
+        };
+      }
+
+      let result: unknown;
+      try {
+        result = await postJson(TRANSACTION_INFO_PATH, {
+          TerminalNumber: Number(input.merchantId),
+          UserName: credential.apiName,
+          UserPassword: credential.apiPassword,
+          InternalDealNumber: internalDealNumber,
+        });
+      } catch {
+        return { outcome: "UNKNOWN", detail: "CardCom could not be reached" };
+      }
+
+      // The documented success shape is an array of transaction parameter sets.
+      // A row under the id we asked about means CardCom holds that reversal.
+      if (Array.isArray(result)) {
+        if (result.length > 0) {
+          return {
+            outcome: "REFUNDED",
+            providerRefundId: String(internalDealNumber),
+            detail: "CardCom holds a transaction under the reversal id",
+          };
+        }
+        return {
+          outcome: "UNKNOWN",
+          detail: "CardCom returned no transaction for that id",
+        };
+      }
+
+      const code = caseInsensitiveGet(result, "ResponseCode");
+      return {
+        outcome: "UNKNOWN",
+        detail:
+          code == null
+            ? "CardCom returned an unrecognised response"
+            : `CardCom response code ${String(code)}`,
+      };
+    },
   };
 }
 
@@ -451,7 +638,10 @@ export const cardComDescriptor: ProviderDescriptor = {
   capabilities: {
     hostedCheckout: true,
     verification: true,
-    refund: false,
+    refund: true,
+    partialRefund: true,
+    void: true,
+    refundVerification: true,
     sandbox: true,
     webhooks: true,
     tokens: false,

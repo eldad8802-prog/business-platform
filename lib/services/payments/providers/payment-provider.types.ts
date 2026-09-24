@@ -221,6 +221,41 @@ export interface PaymentProviderAdapter {
    * still in flight, never as done and never as failed.
    */
   refundPayment?(input: RefundPaymentInput): Promise<RefundPaymentResult>;
+
+  /**
+   * What became of a reversal this adapter instructed earlier.
+   *
+   * The way out of an indeterminate refund that is not a person guessing. The
+   * three answers are the only honest ones, and UNKNOWN is a real answer: a
+   * provider that cannot be reached, or that answers without establishing
+   * anything, has told us nothing — and nothing is never rounded to success
+   * or to failure.
+   */
+  getRefundStatus?(input: RefundStatusInput): Promise<RefundStatusResult>;
+}
+
+export interface RefundStatusInput {
+  merchantId: string | null;
+  credential: string | null;
+  /** The reversal's own provider id, when the provider issued one. */
+  providerRefundId: string | null;
+  /** The reservation id, for providers that correlate on our reference. */
+  reversalId: number;
+  settlement: SettlementRef;
+  /** Positive decimal string: what was instructed. */
+  amount: string;
+}
+
+export interface RefundStatusResult {
+  /**
+   * REFUNDED — the provider states the reversal happened.
+   * REJECTED — the provider states it did not, and no money moved.
+   * UNKNOWN  — neither was established. Still in flight.
+   */
+  outcome: "REFUNDED" | "REJECTED" | "UNKNOWN";
+  providerRefundId?: string | null;
+  /** Non-secret, for the audit trail. */
+  detail?: string | null;
 }
 
 /**
@@ -245,6 +280,18 @@ export interface SettlementRef {
   rawPayload: unknown;
 }
 
+/**
+ * What the owner asked for, stated by the domain rather than inferred.
+ *
+ * A provider may perform both through one endpoint — CardCom does — but that
+ * is the adapter's business. The domain decides which was intended, because
+ * they are different acts: REFUND returns money from a settled payment, VOID
+ * withdraws a transaction that has not been deposited. An adapter that chose
+ * between them by looking at an amount is how an owner's partial refund
+ * silently becomes a cancellation of the whole transaction.
+ */
+export type ReversalIntent = "REFUND" | "VOID";
+
 export interface RefundPaymentInput {
   merchantId: string | null;
   credential: string | null;
@@ -255,6 +302,16 @@ export interface RefundPaymentInput {
   /** Dubiz's own request id, for providers that correlate on it. */
   paymentRequestId: number;
   settlement: SettlementRef;
+  /** REFUND unless the domain explicitly asked to withdraw the transaction. */
+  intent: ReversalIntent;
+  /**
+   * The identity of THIS reversal intent — the reservation row's id.
+   *
+   * Stable across retries of the same intent on purpose: an adapter that hands
+   * it to the provider as an external reference turns a repeated instruction
+   * into the same economic act rather than a second one.
+   */
+  reversalId: number;
 }
 
 /**

@@ -19,6 +19,7 @@ import {
   type RefundPaymentRequestDeps,
 } from "./payment-refund.service";
 import { createInMemoryPaymentStore } from "./payment-store.memory";
+import { resolveUnresolvedReversal } from "./payment-refund.service";
 import { createSumitProvider } from "./providers/sumit/sumit.provider";
 import type {
   PaymentProviderAdapter,
@@ -700,8 +701,9 @@ async function main() {
     const { resolvePaymentProvider } = await import("./providers/provider-registry");
     const cardcom = resolvePaymentProvider("CARDCOM");
     ok(
-      "CardCom still declares no refund capability, so nothing changed for it",
-      typeof cardcom.refundPayment !== "function"
+      "CardCom can now reverse, and says so",
+      typeof cardcom.refundPayment === "function" &&
+        typeof cardcom.getRefundStatus === "function"
     );
 
     const store = createInMemoryPaymentStore();
@@ -714,6 +716,232 @@ async function main() {
     ok("an ordinary settlement is unchanged", rows.length === 1 && rows[0]!.amount === "100.00");
     ok("and still carries its provider id", rows[0]!.providerTransactionId === `settle-${request.id}`);
     void adapter;
+  }
+
+  // ── TRANSPORT SILENCE IS NOT A REFUSAL ──────────────────────────────────
+  //
+  // The distinction the whole reverse-money path rests on. An adapter that
+  // could not reach the provider has established NOTHING: the instruction may
+  // have arrived and executed. If that released the reservation, the next
+  // refund would be issued for money that already left.
+  {
+    const store = createInMemoryPaymentStore();
+    const silent = refundingProvider("UNKNOWN");
+    const request = await settledPayment(store);
+
+    const res = await refundPaymentRequest(
+      { businessId: 1, actorUserId: 7, requestId: request.id, amount: "40.00" },
+      deps(store, silent)
+    );
+
+    ok("a transport-ambiguous reversal is reported UNKNOWN", res.outcome === "UNKNOWN");
+    ok("the reversal row stays PENDING", res.refund.status === "PENDING");
+    ok("its amount stays committed", res.refundedTotal === "40.00");
+    ok("so the refundable balance is reduced", res.refundableRemaining === "60.00");
+
+    const rows = await store.listTransactionsByRequest(request.id);
+    const held = rows.filter((r) => r.status === "PENDING" && r.amount.startsWith("-"));
+    ok("exactly one reservation is held", held.length === 1);
+
+    // THE POINT: a second refund cannot consume the reserved amount.
+    await throws(
+      "a second refund cannot consume the held reservation",
+      () =>
+        refundPaymentRequest(
+          { businessId: 1, actorUserId: 7, requestId: request.id, amount: "40.00" },
+          deps(store, silent)
+        ),
+      /not resolved yet/i
+    );
+    ok("and the provider was not asked a second time", silent.calls === 1);
+
+    const audit = await store.listAuditEvents(1, { paymentRequestId: request.id });
+    ok(
+      "the indeterminate outcome is on the record",
+      audit.some((a) => a.eventType === "PAYMENT_REFUND_INDETERMINATE")
+    );
+    ok(
+      "and it is NOT recorded as a failure",
+      !audit.some((a) => a.eventType === "PAYMENT_REFUND_FAILED")
+    );
+  }
+
+  // ── an authoritative refusal is the OTHER state ─────────────────────────
+  {
+    const store = createInMemoryPaymentStore();
+    const request = await settledPayment(store);
+    const refusing = refundingProvider();
+    refusing.refundPayment = async () => {
+      throw new Error("CardCom refused the reversal (code 6).");
+    };
+
+    await throws(
+      "a provider verdict of refusal surfaces as an error",
+      () =>
+        refundPaymentRequest(
+          { businessId: 1, actorUserId: 7, requestId: request.id, amount: "40.00" },
+          deps(store, refusing)
+        ),
+      /Refund failed/i
+    );
+
+    const rows = await store.listTransactionsByRequest(request.id);
+    const reversals = rows.filter((r) => r.amount.startsWith("-"));
+    ok("the reservation is released, not held", reversals.every((r) => r.status === "FAILED"));
+
+    // Because it released, the balance is available again — the opposite of
+    // the timeout case above, from the same starting point.
+    const second = await refundPaymentRequest(
+      { businessId: 1, actorUserId: 7, requestId: request.id, amount: "100.00" },
+      deps(store, refundingProvider())
+    );
+    ok("so the full amount can still be refunded afterwards", second.outcome === "REFUNDED");
+    ok("and the balance is now empty", second.refundableRemaining === "0.00");
+  }
+
+  // ── resolving what was never established ────────────────────────────────
+  {
+    const store = createInMemoryPaymentStore();
+    const request = await settledPayment(store);
+    const adapter = refundingProvider("UNKNOWN");
+    adapter.refundPayment = async () => ({ providerRefundId: "rev-9", outcome: "UNKNOWN" as const });
+
+    await refundPaymentRequest(
+      { businessId: 1, actorUserId: 7, requestId: request.id, amount: "40.00" },
+      deps(store, adapter)
+    );
+
+    adapter.getRefundStatus = async () => ({
+      outcome: "REFUNDED" as const,
+      providerRefundId: "rev-9",
+      detail: "CardCom holds a transaction under the reversal id",
+    });
+
+    const resolved = await resolveUnresolvedReversal(
+      { businessId: 1, actorUserId: 7, requestId: request.id },
+      deps(store, adapter)
+    );
+    ok("verification settles the held reversal", resolved.status === "PAID");
+    ok("exactly once", resolved.refundedTotal === "40.00");
+
+    const again = await resolveUnresolvedReversal(
+      { businessId: 1, actorUserId: 7, requestId: request.id },
+      deps(store, adapter)
+    );
+    ok("repeating verification changes nothing", again.refundedTotal === "40.00");
+    const rows = await store.listTransactionsByRequest(request.id);
+    ok(
+      "and leaves exactly one reversal row",
+      rows.filter((r) => r.amount.startsWith("-")).length === 1
+    );
+
+    const rest = await refundPaymentRequest(
+      { businessId: 1, actorUserId: 7, requestId: request.id, amount: "60.00" },
+      deps(store, refundingProvider())
+    );
+    ok("the remainder can then be refunded", rest.refundableRemaining === "0.00");
+  }
+
+  // ── a confirmed rejection releases ──────────────────────────────────────
+  {
+    const store = createInMemoryPaymentStore();
+    const request = await settledPayment(store);
+    const adapter = refundingProvider("UNKNOWN");
+
+    await refundPaymentRequest(
+      { businessId: 1, actorUserId: 7, requestId: request.id, amount: "40.00" },
+      deps(store, adapter)
+    );
+
+    adapter.getRefundStatus = async () => ({
+      outcome: "REJECTED" as const,
+      detail: "CardCom confirmed it did not happen",
+    });
+
+    const resolved = await resolveUnresolvedReversal(
+      { businessId: 1, actorUserId: 7, requestId: request.id },
+      deps(store, adapter)
+    );
+    ok("a confirmed rejection fails the reversal", resolved.status === "FAILED");
+    ok("and releases the whole balance", resolved.refundableRemaining === "100.00");
+  }
+
+  // ── verification that learns nothing changes nothing ────────────────────
+  {
+    const store = createInMemoryPaymentStore();
+    const request = await settledPayment(store);
+    const adapter = refundingProvider("UNKNOWN");
+
+    await refundPaymentRequest(
+      { businessId: 1, actorUserId: 7, requestId: request.id, amount: "40.00" },
+      deps(store, adapter)
+    );
+
+    adapter.getRefundStatus = async () => ({
+      outcome: "UNKNOWN" as const,
+      detail: "no CardCom reversal id was received",
+    });
+
+    const resolved = await resolveUnresolvedReversal(
+      { businessId: 1, actorUserId: 7, requestId: request.id },
+      deps(store, adapter)
+    );
+    ok("an unresolved verification leaves it PENDING", resolved.status === "PENDING");
+    ok("the amount stays held", resolved.refundableRemaining === "60.00");
+    ok("and the reason is preserved for a person", (resolved.detail ?? "").length > 0);
+
+    const rows = await store.listTransactionsByRequest(request.id);
+    ok(
+      "the reversal row is untouched",
+      rows.some((r) => r.amount === "-40.00" && r.status === "PENDING")
+    );
+  }
+
+  // ── a void is a different intent, durably ───────────────────────────────
+  {
+    const store = createInMemoryPaymentStore();
+    const adapter = refundingProvider();
+    const request = await settledPayment(store);
+
+    await refundPaymentRequest(
+      {
+        businessId: 1,
+        actorUserId: 7,
+        requestId: request.id,
+        amount: "100.00",
+        intent: "VOID",
+      },
+      deps(store, adapter)
+    );
+
+    ok("the adapter is told it is a void", adapter.seen[0]!.intent === "VOID");
+    ok("and is given the reversal's identity", typeof adapter.seen[0]!.reversalId === "number");
+
+    const rows = await store.listTransactionsByRequest(request.id);
+    const reversal = rows.find((r) => r.amount.startsWith("-"))!;
+    const payload = reversal.rawPayload as Record<string, unknown>;
+    ok("the row records which act it was", payload.intent === "VOID");
+    ok("and says so in its kind", String(payload.kind).startsWith("void_"), String(payload.kind));
+  }
+
+  // ── a reversal is still only a money event ──────────────────────────────
+  {
+    const store = createInMemoryPaymentStore();
+    const request = await settledPayment(store);
+
+    await refundPaymentRequest(
+      { businessId: 1, actorUserId: 7, requestId: request.id, amount: "100.00" },
+      deps(store, refundingProvider())
+    );
+
+    const rows = await store.listTransactionsByRequest(request.id);
+    const original = rows.find((r) => !r.amount.startsWith("-"))!;
+    ok("the original payment still exists", original !== undefined);
+    ok("still PAID", original.status === "PAID");
+    ok("still its original amount", original.amount === "100.00");
+
+    const after = await store.findPaymentRequestById(request.id);
+    ok("and the request is still PAID", after!.status === "PAID");
   }
 
   console.log(`\npayment-refund: ${pass} passed, ${failures.length} failed`);

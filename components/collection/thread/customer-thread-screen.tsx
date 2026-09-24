@@ -16,6 +16,26 @@ const W = TOKEN.warm;
 type RefundTarget = { requestId: number; suggested: string | null; currency: string };
 
 /**
+ * What the screen is allowed to offer, and what the owner is owed as facts.
+ *
+ * The capability flags come from the provider descriptor behind this payment,
+ * not from a guess: the previous screen offered "החזר כסף" for every settled
+ * payment and discovered on submit that CardCom could not do it.
+ */
+type RefundState = {
+  settledAmount: string;
+  refundedTotal: string;
+  refundableRemaining: string;
+  currency: string;
+  hasUnresolvedRefund: boolean;
+  provider: string | null;
+  canRefund: boolean;
+  canRefundPartially: boolean;
+  canVoid: boolean;
+  canVerifyRefund: boolean;
+};
+
+/**
  * /collection/c/[customerId] — one customer's financial story, newest first.
  *
  * Invoice → request → the provider's verified outcome → the receipt Dubiz
@@ -34,6 +54,7 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
   const [refund, setRefund] = useState<RefundTarget | null>(null);
   const [refundAmount, setRefundAmount] = useState("");
   const [refundMax, setRefundMax] = useState<string | null>(null);
+  const [refundState, setRefundState] = useState<RefundState | null>(null);
 
   const [reloadKey, setReloadKey] = useState(0);
   const load = () => setReloadKey((k) => k + 1);
@@ -72,14 +93,38 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
   async function openRefund(t: RefundTarget) {
     setRefund(t);
     setRefundMax(null);
+    setRefundState(null);
     try {
-      const b = await collectionFetch<{ refundableRemaining: string; hasUnresolvedRefund: boolean }>(
+      const b = await collectionFetch<RefundState>(
         `/api/payments/requests/${t.requestId}/refund`
       );
+      setRefundState(b);
+
+      // The provider behind THIS payment decides what may be offered. A
+      // payment taken through a provider that cannot reverse must not present
+      // a refund form that is going to fail on submit.
+      if (!b.canRefund) {
+        setNotice("ספק הסליקה של התשלום הזה לא תומך בהחזרים.");
+        setRefund(null);
+        return;
+      }
+
       setRefundMax(b.refundableRemaining);
-      const s = t.suggested && Number(t.suggested) <= Number(b.refundableRemaining) ? t.suggested : b.refundableRemaining;
-      setRefundAmount(Number(s).toString());
-      if (b.hasUnresolvedRefund) setNotice("יש החזר קודם שעדיין לא הוכרע — אפשר להחזיר שוב רק אחרי שיוכרע.");
+      const suggested =
+        t.suggested && Number(t.suggested) <= Number(b.refundableRemaining)
+          ? t.suggested
+          : b.refundableRemaining;
+      // Without partial support the only honest amount is the whole balance.
+      setRefundAmount(
+        Number(b.canRefundPartially ? suggested : b.refundableRemaining).toString()
+      );
+
+      if (b.hasUnresolvedRefund) {
+        setNotice(
+          "יש החזר קודם שממתין לאימות מול ספק הסליקה. הסכום שלו שמור, " +
+            "ואפשר להחזיר שוב רק אחרי שיוכרע."
+        );
+      }
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "לא ניתן להחזיר את התשלום הזה");
       setRefund(null);
@@ -166,7 +211,48 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
             <span style={{ color: W.muted }}>בודק כמה אפשר להחזיר…</span>
           ) : (
             <>
-              <label htmlFor="refund-amount" style={{ fontWeight: 700 }}>סכום (עד {money(refundMax, refund?.currency)})</label>
+              {/* The whole picture, because a refund decision made against one
+                  number is a decision made blind: what arrived, what has
+                  already gone back, what is still waiting on the provider, and
+                  only then what may be returned now. */}
+              {refundState ? (
+                <dl
+                  style={{
+                    margin: 0,
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto",
+                    gap: "4px 12px",
+                    fontSize: 14,
+                    color: W.muted,
+                  }}
+                >
+                  <dt style={{ margin: 0 }}>שולם במקור</dt>
+                  <dd style={{ margin: 0, color: W.ink, fontWeight: 700 }}>
+                    {money(refundState.settledAmount, refundState.currency)}
+                  </dd>
+                  <dt style={{ margin: 0 }}>הוחזר עד כה</dt>
+                  <dd style={{ margin: 0, color: W.ink }}>
+                    {money(refundState.refundedTotal, refundState.currency)}
+                  </dd>
+                  {refundState.hasUnresolvedRefund ? (
+                    <>
+                      <dt style={{ margin: 0 }}>ממתין לאימות</dt>
+                      <dd style={{ margin: 0, color: W.ink }}>
+                        סכום שמור עד שחברת הסליקה תאשר
+                      </dd>
+                    </>
+                  ) : null}
+                  <dt style={{ margin: 0 }}>ניתן להחזיר עכשיו</dt>
+                  <dd style={{ margin: 0, color: W.ink, fontWeight: 700 }}>
+                    {money(refundState.refundableRemaining, refundState.currency)}
+                  </dd>
+                </dl>
+              ) : null}
+              <label htmlFor="refund-amount" style={{ fontWeight: 700 }}>
+                {refundState && !refundState.canRefundPartially
+                  ? `סכום (ספק הסליקה מחזיר רק את המלוא: ${money(refundMax, refund?.currency)})`
+                  : `סכום (עד ${money(refundMax, refund?.currency)})`}
+              </label>
               <input id="refund-amount" inputMode="decimal" value={refundAmount} onChange={(e) => setRefundAmount(e.target.value.replace(/[^\d.]/g, ""))} style={warmInputStyle()} />
               <div style={{ display: "flex", gap: 8 }}>
                 <WarmButton

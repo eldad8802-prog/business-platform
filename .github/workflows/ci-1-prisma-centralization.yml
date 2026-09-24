@@ -1661,6 +1661,12 @@ jobs:
       - name: Reversal seam (bounds, tenant isolation, retry safety, providers)
         run: npx tsx lib/services/payments/payment-refund.test.ts
 
+      # The CardCom side of the same risk. The one distinction that matters is
+      # a provider verdict versus silence: a refusal releases the reservation,
+      # a timeout must not, because the instruction may already have executed.
+      - name: CardCom reversal (refund, void, verdict vs transport silence)
+        run: npx tsx lib/services/payments/providers/cardcom/cardcom-reversal.test.ts
+
       - name: Refund negative proof (settling before the provider answers must be caught)
         run: |
           F="lib/services/payments/payment-refund.service.ts"
