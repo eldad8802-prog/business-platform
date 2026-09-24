@@ -90,7 +90,7 @@ export function assertKeyMatchesMetadata(
   }
 }
 
-const TENANT_DOMAIN_PREFIX_PATTERN = new RegExp(`^biz/(\d+)/(${STORAGE_DOMAINS.join("|")})/$`);
+const TENANT_DOMAIN_PREFIX_PATTERN = new RegExp(`^biz/(\\d+)/(${STORAGE_DOMAINS.join("|")})/$`);
 
 /**
  * SEC-E / M-13 — a listing prefix must name exactly ONE tenant's ONE domain directory,

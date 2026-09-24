@@ -57,6 +57,10 @@ const nonce = `${label}_${Date.now().toString(36)}_${crypto.randomBytes(4).toStr
 const db = `ad2a_${nonce}`;
 const role = `ad2a_rt_${nonce}`;
 const pw = crypto.randomBytes(18).toString("hex");
+// SEC-E: a second fresh role for the AUTH plane (app_auth's grants are replayed onto it
+// by the battery from the migrations — see .sec-e/auth-plane.mjs). Same nonce, same teardown.
+const authRole = `ad2a_au_${nonce}`;
+const authPw = crypto.randomBytes(18).toString("hex");
 const withDb = (u, name) => {
   const x = new URL(u);
   x.pathname = `/${name}`;
@@ -69,6 +73,7 @@ const sh = (s) => admin.$executeRawUnsafe(s);
 
 console.log(`[fresh-lab] ${label}: database ${db}, role ${role}`);
 await sh(`CREATE ROLE ${role} LOGIN PASSWORD '${pw}' NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION INHERIT`);
+await sh(`CREATE ROLE ${authRole} LOGIN PASSWORD '${authPw}' NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION INHERIT`);
 await sh(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_admin') THEN CREATE ROLE app_admin NOLOGIN; END IF; END $$`);
 await sh(`CREATE DATABASE ${db}`);
 await sh(`COMMENT ON DATABASE ${db} IS 'ad2a-fresh:${nonce}'`);
@@ -88,6 +93,8 @@ const env = {
   AD2A_FRESH_DB: db,
   AD2A_RT_ROLE: role,
   AD2A_RT_PW: pw,
+  AD2A_AUTH_ROLE: authRole,
+  AD2A_AUTH_PW: authPw,
   STORAGE_PROVIDER: "local",
   LOCAL_STORAGE_ROOT: storageRoot,
 };
@@ -107,6 +114,7 @@ if (keep) {
   try {
     await sh(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
     await sh(`DROP ROLE IF EXISTS ${role}`);
+    await sh(`DROP ROLE IF EXISTS ${authRole}`);
     fs.rmSync(storageRoot, { recursive: true, force: true });
   } catch (e) {
     // Never fatal: isolation comes from the NEW database the next proof gets, not
