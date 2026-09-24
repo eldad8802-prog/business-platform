@@ -177,6 +177,14 @@ export async function getAuthContext(req: Request) {
     // session cannot be created, and refresh only mints after a rotation. The
     // follow-up PR deletes this branch outright rather than leaving it
     // unreachable.
+    //
+    // DATED REMOVAL NOTE (sec-B, 2026-09-25): register was the LAST minting
+    // path without a sid (L-9) and now issues a real session. Once the sec-B
+    // PR has been deployed to Production for more than 24 hours, no live
+    // sid-less token can exist (gate 1 enforces the 24h exp), and this branch
+    // must be deleted — every token without a sid then becomes a refusal.
+    // Kept today only because tokens minted by the previous register code may
+    // still be inside their 24h life at deploy time.
     else {
       console.log(JSON.stringify({ event: "auth_sidless_token_accepted", userId: user.id }));
     }
