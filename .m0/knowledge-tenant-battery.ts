@@ -178,11 +178,7 @@ function policySeedsFromMigration(): string[] {
 /** M5.5 — the rule versions registered after M4/M5 (AP-06, SUPP-02, SUPP-03 v2), out of their migration. */
 function laterRuleVersions(): string[] {
   const sql = readFileSync(join(process.cwd(), "prisma/migrations/20260925090000_m55_sensor_fabric/migration.sql"), "utf8")
-    .replace(/
-/g, "
-").split("
-").map((l) => l.replace(/--.*$/, "")).join("
-");
+    .replace(/\r\n/g, "\n").split("\n").map((l) => l.replace(/--.*$/, "")).join("\n");
   const out = sql.split(";").map((s) => s.trim()).filter((s) => /^INSERT INTO "DerivationPolicyVersion"/.test(s));
   if (out.length !== 1) throw new Error(`expected 1 M5.5 version insert, found ${out.length}`);
   return out;
