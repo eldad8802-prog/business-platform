@@ -197,6 +197,17 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
       basis: "PRODUCT",
     },
     notes: { disposition: "ERASE" },
+    paymentTermsDays: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose:
+        "M5. A commercial term the BUSINESS set — how many days it gives this account to pay — not a " +
+        "fact about the person. Once the name is anonymised and the phone, email and tax id are " +
+        "destroyed, an integer like 30 or 60 identifies nobody; it is the same class of value as " +
+        "taxIdType directly above, a setting that outlives the identity it was attached to. Keeping " +
+        "it also keeps every already-issued invoice's due date computable, which is what makes the " +
+        "surviving financial record readable at all.",
+      basis: "PRODUCT",
+    },
     isActive: { disposition: "STRUCTURAL" },
     createdAt: { disposition: "STRUCTURAL" },
     updatedAt: { disposition: "STRUCTURAL" },

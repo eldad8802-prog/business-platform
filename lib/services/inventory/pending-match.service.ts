@@ -310,10 +310,17 @@ export async function rejectPendingMatch(
     pendingMatchId: number;
     businessId: number;
     userId: number;
+    /**
+     * M5 — why the owner refused. Optional, as everywhere else an owner is asked for a reason:
+     * requiring one produces "asdf" rather than understanding. But when it IS given it is the only
+     * thing distinguishing "this product is not ours" from "we stopped stocking it", and those two
+     * call for completely different behaviour the next time the same line arrives.
+     */
+    reason?: string | null;
   },
   options?: TxOptions
 ) {
-  const { pendingMatchId, businessId, userId } = input;
+  const { pendingMatchId, businessId, userId, reason } = input;
 
   const run = async (tx: Tx) => {
     const pending = await tx.inventoryPendingMatch.findUnique({
@@ -334,6 +341,7 @@ export async function rejectPendingMatch(
         status: "REJECTED",
         resolvedAt: new Date(),
         resolvedByUserId: userId,
+        rejectionReason: reason?.trim() ? reason.trim().slice(0, 500) : null,
       },
     });
 

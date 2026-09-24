@@ -9,7 +9,7 @@ import { AdaptiveOverlay } from "@/components/ui/adaptive-overlay";
 import type { CustomerFinancialThread, ThreadEvent } from "@/lib/services/billing/collection/customer-financial-thread.service";
 import { buildPaymentRequestMessage } from "@/lib/services/billing/collection/collection-message";
 import { currencySymbol } from "@/lib/services/billing/collection/collection-display";
-import { attentionText, collectionFetch, dateTime, money, shareOrCopy } from "../collection-client";
+import { attentionText, collectionFetch, dateTime, money, recordCollectionAction, shareOrCopy } from "../collection-client";
 
 const W = TOKEN.warm;
 
@@ -177,6 +177,13 @@ export function CustomerThreadScreen({ customerId }: { customerId: number }) {
                           currencySymbol: currencySymbol(currency), invoiceNumber, paymentUrl: url, businessName: thread.businessName,
                         });
                         const r = await shareOrCopy(text, url);
+                        if (r !== "failed") {
+                          recordCollectionAction(
+                            r === "shared" ? "SHARE_INITIATED" : "LINK_COPIED",
+                            r === "shared" ? "SYSTEM_SHARE" : "CLIPBOARD",
+                            { customerId: thread.customer.id },
+                          );
+                        }
                         setNotice(r === "shared" ? "נפתח חלון השיתוף." : r === "copied" ? "הקישור הועתק." : "לא הצלחנו לשתף.");
                       }}
                       onCancel={(requestId) =>

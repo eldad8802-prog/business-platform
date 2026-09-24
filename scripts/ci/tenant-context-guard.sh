@@ -48,7 +48,12 @@ PILOT_MODELS="conversation customer appointment billingDocument paymentRequest"
 # could not see it: DerivedClaim* was not a pilot model.
 #
 # A new learning artifact MUST be added here on the day its table receives an RLS policy.
-KNOWLEDGE_MODELS="derivedClaimProjection derivedClaimCandidate derivedClaimEvidenceLink reviewEvent extractionSnapshot extractionEvidence sliceDecision vendorLearning learningEvent"
+#
+# M4/M5 added the last seven — and two of them, knowledgeMeasure and businessInsight, shipped in M2/M3
+# WITHOUT being listed. That omission is the original defect's exact shape repeating: the tables were
+# FORCE RLS from their first migration and nothing checked that the code reached them through a tenant
+# transaction. They did, as it happens. Nothing was proving it.
+KNOWLEDGE_MODELS="derivedClaimProjection derivedClaimCandidate derivedClaimEvidenceLink reviewEvent extractionSnapshot extractionEvidence sliceDecision vendorLearning learningEvent knowledgeMeasure knowledgeMeasureEvidenceLink businessInsight entityLinkProposal collectionAction party partyResolutionClaim"
 
 # Runtime trees that must never touch a pilot model through the global client.
 TENANT_TREES="app lib features components"
@@ -263,6 +268,39 @@ if [ -f "$co" ] && [ -f "$cw" ] && [ -f "$rs" ]; then
   [ "$a" -ge 1 ] && [ "$b" -ge 1 ] && [ "$c" -ge 1 ] && [ "$d" -ge 1 ] && [ "$e" -eq 0 ] && n=1
 fi
 ok "CI-TC-14 Business Memory read/write/shadow seams are tenant-bound, not global-client" "$n"
+
+# --- 15. the M4/M5 seams are tenant-bound by construction --------------------
+# Same idea as 14, for the layer built on top of it. `sources.ts` is the ONLY file in lib/knowledge
+# that opens a query, so every rule in the catalogue inherits its tenancy from one place — which is
+# only true for as long as that stays the case, hence the second half of this check.
+sr="$ROOT/lib/knowledge/evidence/sources.ts"
+mr="$ROOT/lib/knowledge/measure-reconciler.ts"
+mw="$ROOT/lib/knowledge/measure-writer.ts"
+id="$ROOT/lib/identity/entity-identity.service.ts"
+ca="$ROOT/lib/services/collection/collection-action.service.ts"
+n=0
+if [ -f "$sr" ] && [ -f "$mr" ] && [ -f "$mw" ] && [ -f "$id" ] && [ -f "$ca" ]; then
+  # every exported loader in sources.ts reaches the database through tenantTx, and none binds prisma
+  loaders=$(grep -c "^export async function load" "$sr" || true)
+  txs=$(grep -c "tenantTx(businessId" "$sr" || true)
+  nosingleton=$(grep -c 'from "@/lib/prisma"' "$sr" "$mr" "$mw" "$id" "$ca" | grep -c ':[1-9]' || true)
+  # no other file under lib/knowledge may open a query of its own
+  # Four files may touch the database, and they are named: the evidence sources, the two writers, and
+  # the M3 insight service (its own tenant seam, asserted separately below). Anything else opening a
+  # query means the "one file to audit" property has quietly stopped being true.
+  strays=$(grep -rln "tx\.\|prisma\." --include=*.ts "$ROOT/lib/knowledge" 2>/dev/null \
+            | grep -v '/evidence/sources.ts$' | grep -v 'measure-writer.ts$' \
+            | grep -v 'measure-reconciler.ts$' | grep -v 'insight.service.ts$' \
+            | grep -v '\.test\.' | grep -c . || true)
+  ins=$(grep -c "tenantTx(businessId" "$ROOT/lib/knowledge/insight.service.ts" || true)
+  rec=$(grep -c "tenantTx(businessId" "$mr" || true)
+  idn=$(grep -c "tenantTx(businessId" "$id" || true)
+  can=$(grep -c "tenantTx(businessId" "$ca" || true)
+  [ "$loaders" -ge 7 ] && [ "$txs" -ge 7 ] && [ "$nosingleton" -eq 0 ] && [ "$strays" -eq 0 ] \
+    && [ "$rec" -ge 1 ] && [ "$idn" -ge 1 ] && [ "$can" -ge 1 ] && [ "$ins" -ge 1 ] && n=1
+fi
+ok "CI-TC-15 M4/M5 evidence, writer, reconciler, identity and collection seams are tenant-bound" "$n" \
+   "loaders=${loaders:-?} tenantTx=${txs:-?} singleton=${nosingleton:-?} strays=${strays:-?}"
 
 echo ""
 echo "[CI-TC] PASS=$PASS FAIL=$FAIL"

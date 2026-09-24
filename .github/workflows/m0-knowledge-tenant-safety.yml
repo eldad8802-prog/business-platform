@@ -15,6 +15,8 @@ on:
     paths:
       - "lib/business-memory/**"
       - "lib/tenant/**"
+      - "lib/identity/**"
+      - "lib/services/collection/**"
       - "lib/services/documents/memory/**"
       - "lib/business-status/**"
       - "lib/knowledge/**"
@@ -136,3 +138,16 @@ jobs:
 
       - name: M0-M3 knowledge battery (real DB, NOBYPASSRLS role)
         run: npx tsx .m0/knowledge-tenant-battery.ts
+      - name: M4 rule contracts (pure — 89 assertions across four domains)
+        run: npx tsx lib/knowledge/rules/m4-rules.test.ts
+
+      - name: M4/M5 surface contracts (identity, collection, derivation)
+        run: npx tsx lib/knowledge/m4-m5-surfaces.verify.test.ts
+
+      # The second battery. It answers a different question from the first — not "does the knowledge
+      # layer reach the database under tenant context" but "given evidence in four domains and two
+      # tenants that look alike, does it learn the right things and refuse the rest". Two files
+      # because those are two failures, and when this one is red the verdict should be about the
+      # RULES rather than about the plumbing the first battery already owns.
+      - name: M4/M5 multi-domain + identity battery (real DB, NOBYPASSRLS role)
+        run: npx tsx .m0/m4-m5-battery.ts

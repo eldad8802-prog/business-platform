@@ -212,6 +212,8 @@ export async function POST(req: Request) {
       eventType: "CONTENT_POST_LINKED",
       entityType: "CONTENT_RENDER",
       entityId: null,
+      actorType: "OWNER_USER",
+      actorUserId: user.id,
       payload: {
         contentArtifact,
         executionArtifact: {

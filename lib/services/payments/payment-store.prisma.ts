@@ -476,6 +476,7 @@ export function createPaymentPrismaStore(): PaymentStore {
         customerName: null,
         customerPhone: null,
         customerEmail: null,
+        customerTermsDays: null,
       });
 
       return {

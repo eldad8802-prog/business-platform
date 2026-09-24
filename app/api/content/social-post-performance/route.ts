@@ -123,6 +123,8 @@ export async function POST(req: Request) {
       eventType: "CONTENT_POST_PERFORMANCE_RECORDED",
       entityType: "CONTENT_RENDER",
       entityId: null,
+      actorType: "OWNER_USER",
+      actorUserId: user.id,
       payload: {
         renderId,
         selectedVariantId,

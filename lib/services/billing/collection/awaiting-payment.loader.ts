@@ -96,7 +96,7 @@ export async function loadAwaitingPaymentList(
       currency: true,
       customerId: true,
       customerNameSnapshot: true,
-      customer: { select: { name: true, phone: true, email: true } },
+      customer: { select: { name: true, phone: true, email: true, paymentTermsDays: true } },
       // What has been paid against this invoice.
       //
       // C2 — only an ISSUED receipt's allocations count. This is the very rule
@@ -140,6 +140,9 @@ export async function loadAwaitingPaymentList(
     customerName: doc.customer?.name ?? doc.customerNameSnapshot,
     customerPhone: doc.customer?.phone ?? null,
     customerEmail: doc.customer?.email ?? null,
+    // M5 — this customer own terms, when they have any. Null for every customer today, in which
+    // case the business-level value decides exactly as it always has.
+    customerTermsDays: doc.customer?.paymentTermsDays ?? null,
   }));
 
   return buildAwaitingPaymentList({

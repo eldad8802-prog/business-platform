@@ -183,6 +183,10 @@ export async function runMatchingEngine(
         eventType: "DEAL_CREATED",
         entityType: "COLLABORATION_DEAL",
         entityId: null,
+        // M5 — the rule-based matcher created this, with no user in scope. SYSTEM, and deliberately
+        // no `actorUserId`: attaching whoever happened to trigger the run would put a person's name
+        // on a decision they did not make.
+        actorType: "SYSTEM",
         payload: {
           dealId: deal.id,
           title: deal.title,

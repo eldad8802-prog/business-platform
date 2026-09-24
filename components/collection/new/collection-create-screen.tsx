@@ -14,6 +14,7 @@ import {
   collectionFetch,
   copyText,
   money,
+  recordCollectionAction,
   shareOrCopy,
   whatsAppHref,
   type BlockerCode,
@@ -170,6 +171,9 @@ export function CollectionCreateScreen() {
                   fullWidth
                   onClick={() => {
                     window.open(whatsAppHref(toWhatsAppNumber(thread?.customer.phone), message), "_blank", "noopener");
+                    // Opening WhatsApp is the whole of what is observed — which is exactly what the
+                    // notice below already tells the owner. The record says the same thing.
+                    recordCollectionAction("WHATSAPP_OPENED", "WHATSAPP", { customerId: thread?.customer.id, paymentRequestId: created.id });
                     setChannelNote("וואטסאפ נפתח עם ההודעה. Dubiz לא רואה אם ההודעה נשלחה.");
                   }}
                 >
@@ -178,7 +182,11 @@ export function CollectionCreateScreen() {
                 <WarmButton
                   variant="secondary"
                   fullWidth
-                  onClick={async () => setChannelNote((await copyText(message)) ? "ההודעה עם הקישור הועתקה." : "לא הצלחנו להעתיק.")}
+                  onClick={async () => {
+                    const copied = await copyText(message);
+                    if (copied) recordCollectionAction("MESSAGE_COPIED", "CLIPBOARD", { customerId: thread?.customer.id, paymentRequestId: created.id });
+                    setChannelNote(copied ? "ההודעה עם הקישור הועתקה." : "לא הצלחנו להעתיק.");
+                  }}
                 >
                   העתק הודעה וקישור
                 </WarmButton>
@@ -187,6 +195,13 @@ export function CollectionCreateScreen() {
                   fullWidth
                   onClick={async () => {
                     const r = await shareOrCopy(message, created.paymentUrl!);
+                    if (r !== "failed") {
+                      recordCollectionAction(
+                        r === "shared" ? "SHARE_INITIATED" : "LINK_COPIED",
+                        r === "shared" ? "SYSTEM_SHARE" : "CLIPBOARD",
+                        { customerId: thread?.customer.id, paymentRequestId: created.id },
+                      );
+                    }
                     setChannelNote(r === "shared" ? "נפתח חלון השיתוף." : r === "copied" ? "הקישור הועתק." : "לא הצלחנו לשתף.");
                   }}
                 >

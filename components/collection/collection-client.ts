@@ -139,3 +139,40 @@ export function whatsAppHref(phoneE164Digits: string | null, text: string): stri
   const base = phoneE164Digits ? `https://wa.me/${phoneE164Digits}` : "https://wa.me/";
   return `${base}?text=${encodeURIComponent(text)}`;
 }
+
+/** Which subject a reminder was about. At least one is always supplied. */
+export type CollectionActionSubject = {
+  customerId?: number | null;
+  paymentRequestId?: number | null;
+  billingDocumentId?: number | null;
+};
+
+/**
+ * Tell the server that the owner initiated a reminder.
+ *
+ * WHAT THIS IS FOR. Everything above hands off to the device — the share sheet, the clipboard,
+ * WhatsApp — and hands back nothing. Until now that meant the act left no trace at all, so nobody
+ * could later ask whether a customer had ever been chased, through what, or whether payment followed.
+ * This is the line that makes the act observable, and it claims no more than the act itself: the
+ * owner pressed the button. Not that a message was sent. Not that anyone read it.
+ *
+ * DELIBERATELY UNAWAITED AND SILENT AT EVERY CALL SITE. Recording a reminder must never be able to
+ * delay or prevent one. If this fails, the owner still shared their link and the only loss is a row.
+ */
+export function recordCollectionAction(
+  actionType: "SHARE_INITIATED" | "LINK_COPIED" | "MESSAGE_COPIED" | "WHATSAPP_OPENED",
+  channel: "WHATSAPP" | "SYSTEM_SHARE" | "CLIPBOARD" | "UNKNOWN",
+  subject: CollectionActionSubject,
+): void {
+  if (typeof window === "undefined") return;
+  const token = authToken();
+  if (!token) return;
+  void fetch("/api/collection/actions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ actionType, channel, ...subject }),
+    keepalive: true,
+  }).catch(() => {
+    // Intentionally swallowed. See above: the reminder already happened.
+  });
+}

@@ -238,16 +238,27 @@ export async function createSupplierPurchaseDraft(
     const lineStatus = mapDecisionToLineStatus(supplierDecision);
     const topMatch = matches[0] ?? null;
 
+    const machineMatchedItemId =
+      supplierDecision === SupplierLineDecision.MERGE && topMatch?.itemId ? topMatch.itemId : null;
+
     const updatedLine = await db.supplierPurchaseDraftLine.update({
       where: { id: line.id },
       data: {
-        matchedItemId:
-          supplierDecision === SupplierLineDecision.MERGE && topMatch?.itemId
-            ? topMatch.itemId
-            : null,
+        matchedItemId: machineMatchedItemId,
         matchScore: topMatch?.matchScore ?? null,
         decision: supplierDecision,
         status: lineStatus,
+
+        // M5 — the machine's own answer, written once here and never touched again.
+        //
+        // The three fields above are the LIVE decision, and approval overwrites them with the
+        // owner's. Before this, that overwrite destroyed the only record of what the matcher had
+        // proposed: after approval, "the owner agreed" and "the owner corrected it" left rows that
+        // were byte-identical. These three preserve the difference — which is the single most
+        // valuable thing the matching engine could ever learn about itself.
+        suggestedItemId: machineMatchedItemId,
+        suggestedMatchScore: topMatch?.matchScore ?? null,
+        suggestedDecision: supplierDecision,
       },
     });
 

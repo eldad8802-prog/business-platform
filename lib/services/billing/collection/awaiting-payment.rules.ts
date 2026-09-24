@@ -27,7 +27,7 @@ import {
   computeExpectedPaymentDate,
   daysAwaiting,
   isAwaitingPayment,
-  resolvePaymentTermsDays,
+  resolveCustomerPaymentTermsDays,
 } from "./payment-terms";
 
 /** D2 — the only document type that can represent a debt. */
@@ -54,6 +54,8 @@ export interface InvoiceRow {
   readonly customerName: string | null;
   readonly customerPhone: string | null;
   readonly customerEmail: string | null;
+  /** M5 — the customer own configured payment terms, or null to use the business default. */
+  readonly customerTermsDays: number | null;
 }
 
 export interface AwaitingInvoice {
@@ -144,7 +146,6 @@ export interface BuildAwaitingListInput {
 export function buildAwaitingPaymentList(
   input: BuildAwaitingListInput,
 ): AwaitingPaymentList {
-  const termsDays = resolvePaymentTermsDays(input.configuredTermsDays);
   const byCustomer = new Map<number, AwaitingInvoice[]>();
   const identity = new Map<number, InvoiceRow>();
   let unassignedCount = 0;
@@ -152,6 +153,14 @@ export function buildAwaitingPaymentList(
   for (const row of input.rows) {
     if (!isCollectible(row)) continue;
 
+    // M5 — terms are resolved PER ROW now, because they can legitimately differ per customer: this
+    // customer's own value, else the business's, else the system default. Every customer's value is
+    // null today, so this is the same number the business-level resolution produced before the
+    // column existed — the behaviour changes only once somebody configures one.
+    const termsDays = resolveCustomerPaymentTermsDays(
+      row.customerTermsDays,
+      input.configuredTermsDays,
+    );
     const expected = computeExpectedPaymentDate(row.issuedAt, termsDays);
     if (!isAwaitingPayment(expected, input.now)) continue;
 

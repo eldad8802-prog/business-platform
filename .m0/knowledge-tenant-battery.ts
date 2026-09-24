@@ -84,6 +84,7 @@ function policyStatementsFromMigration(): string[] {
     "prisma/migrations/20260825150000_d2_p7_wave2_tenant_rls/migration.sql",
     "prisma/migrations/20260923100000_m2_knowledge_measure/migration.sql",
     "prisma/migrations/20260923110000_m3_business_insight/migration.sql",
+    "prisma/migrations/20260924090100_m4_m5_knowledge_expansion/migration.sql",
   ];
   const wanted = [
     "DerivedClaimProjection",
@@ -92,6 +93,8 @@ function policyStatementsFromMigration(): string[] {
     "KnowledgeMeasure",
     "KnowledgeMeasureEvidenceLink",
     "BusinessInsight",
+    "EntityLinkProposal",
+    "CollectionAction",
   ];
   const out: string[] = [];
   for (const f of files) {
@@ -136,6 +139,41 @@ function policyStatementsFromMigration(): string[] {
   return out;
 }
 
+/**
+ * The rule-version rows, replayed out of the SAME migration that ships them.
+ *
+ * `prisma db push` builds the lab from schema.prisma, which has tables but no DATA — so the fourteen
+ * `DerivationPolicy` lineages the resolver is fail-closed against simply would not exist, and every
+ * rule in the catalogue would refuse at the policy stage.
+ *
+ * Replaying the migration's own INSERTs rather than writing fourteen `create` calls here means the
+ * battery proves the migration seeds what the code resolves. If a rule is added with a lineage the
+ * migration forgot, this lab goes red in exactly the way Production would.
+ */
+function policySeedsFromMigration(): string[] {
+  const sql = readFileSync(
+    join(process.cwd(), "prisma/migrations/20260924090100_m4_m5_knowledge_expansion/migration.sql"),
+    "utf8",
+  )
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/--.*$/, ""))
+    .join("\n");
+
+  const out = sql
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => /^INSERT INTO "DerivationPolicy/.test(s));
+
+  if (out.length !== 2) {
+    throw new Error(
+      `expected exactly 2 policy-seed statements in the M4/M5 migration, found ${out.length}. ` +
+        `The seed is what every rule's version resolution depends on — a lab without it proves nothing.`,
+    );
+  }
+  return out;
+}
+
 async function main(): Promise<void> {
   section("Provision — role, policies, grants (mirroring Production)");
 
@@ -144,11 +182,20 @@ async function main(): Promise<void> {
   );
 
   const policies = policyStatementsFromMigration();
-  check("shipped migrations still carry the knowledge tenant policies", policies.length >= 15,
+  check("shipped migrations still carry the knowledge tenant policies", policies.length >= 21,
     `found ${policies.length} statements`);
   check("…including KnowledgeMeasure", policies.some((s) => s.includes('"KnowledgeMeasure"')));
   check("…and the COALESCE slot index", policies.some((s) => s.includes("KnowledgeMeasure_slot_key")));
+  check("…and the M5 identity proposal ledger", policies.some((s) => s.includes('"EntityLinkProposal"')));
+  check("…and the collection action log", policies.some((s) => s.includes('"CollectionAction"')));
   for (const stmt of policies) await owner.$executeRawUnsafe(stmt);
+
+  // The fourteen rule lineages, from the migration that ships them. Without these every rule in the
+  // catalogue refuses at the policy stage — which is the resolver being correctly fail-closed, and
+  // would make this whole battery prove nothing about the rules themselves.
+  for (const stmt of policySeedsFromMigration()) await owner.$executeRawUnsafe(stmt);
+  const seeded = await owner.derivationPolicyVersion.count();
+  check("the migration seeds a version for every rule in the catalogue", seeded === 14, `versions=${seeded}`);
 
   // Production grants, as QUERIED from the production catalog on 2026-09-22 — not as the repo's
   // scripts/security/d2-p7-wave2-grants.sql describes them (that artifact says these tables are
@@ -378,6 +425,11 @@ async function main(): Promise<void> {
   await owner.$executeRawUnsafe(
     `GRANT SELECT, INSERT, UPDATE, DELETE ON "KnowledgeMeasure", "KnowledgeMeasureEvidenceLink", "FinancialRecord" TO ${RT_ROLE}`,
   );
+  // M4 runs the whole catalogue, not one rule, so the other thirteen need to be able to LOOK. Read-only
+  // is the right shape here: this section is about DOC-04, and the rest should be able to find nothing
+  // and say so rather than fail on a missing privilege — which would report as a broken rule instead of
+  // an empty domain.
+  await owner.$executeRawUnsafe(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${RT_ROLE}`);
   await owner.$executeRawUnsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${RT_ROLE}`);
 
   // Tenant A files paperwork with a growing lag; tenant B has filed only twice. The asymmetry is the
@@ -400,28 +452,57 @@ async function main(): Promise<void> {
   await seedRecord(bizB.id, 30, 4, 100);
   await seedRecord(bizB.id, 20, 5, 101);
 
-  const { derivePaperworkLagForBusiness, MEASURE_KEY } = await import("@/lib/knowledge/paperwork-lag.service");
+  // M4 folded DOC-04 into the catalogue, so it is now reached the way every rule is: through the
+  // derivation service, which resolves its version, loads its evidence, writes it and reconciles it.
+  // The rule's own pure derivation is unchanged — only how it is invoked — and these assertions are
+  // the same ones, which is the point of keeping them.
+  const { deriveKnowledgeForBusiness } = await import("@/lib/knowledge/derive.service");
+  const MEASURE_KEY = "documents.paperwork_lag";
+  const doc04 = async (businessId: number) => {
+    const report = await deriveKnowledgeForBusiness(businessId);
+    const rule = report.rules.find((r) => r.ruleId === "DOC-04");
+    return { report, rule, measure: rule?.measures[0] };
+  };
 
-  const mA = await derivePaperworkLagForBusiness(bizA.id);
-  check("tenant A's measure was derived and written", mA.kind === "written",
-    mA.kind === "failed" ? `stage=${mA.stage} ${mA.detail}` : "");
-  check("tenant A's measure is ACTIVE", mA.kind === "written" && mA.result.status === "ACTIVE");
+  const mA = await doc04(bizA.id);
+  check("tenant A's measure was derived and written", mA.rule?.outcome === "ok",
+    mA.rule?.outcome === "failed" ? `stage=${mA.rule.failedStage} ${mA.rule.failureDetail}` : "");
+  check("tenant A's measure is ACTIVE", mA.measure?.status === "ACTIVE");
   check("tenant A's measure carries a real number of days",
-    mA.kind === "written" && typeof mA.result.valueNumeric === "number" && mA.result.valueNumeric! > 0,
-    mA.kind === "written" ? `value=${mA.result.valueNumeric}` : "");
+    typeof mA.measure?.valueNumeric === "number" && mA.measure.valueNumeric > 0,
+    `value=${mA.measure?.valueNumeric}`);
   check("tenant A's measure rests on all six observations",
-    mA.kind === "written" && mA.result.observationCount === 6,
-    mA.kind === "written" ? `n=${mA.result.observationCount}` : "");
+    mA.measure?.observationCount === 6, `n=${mA.measure?.observationCount}`);
   check("tenant A's measure detected the deterioration",
-    mA.kind === "written" && mA.result.trend === "WORSENING",
-    mA.kind === "written" ? `trend=${mA.result.trend}` : "");
+    mA.measure?.trend === "WORSENING", `trend=${mA.measure?.trend}`);
 
-  const mB = await derivePaperworkLagForBusiness(bizB.id);
+  // Every rule in the catalogue ran, and every one of them REPORTED — including the twelve that had
+  // nothing to say. A rule that stays silent is indistinguishable from a rule that never ran, and
+  // that difference is the whole answer to "why did Dubiz tell me nothing?".
+  check("the whole catalogue ran for this tenant", (mA.report.rulesRun ?? 0) === 14,
+    `rules=${mA.report.rulesRun}`);
+  check("no rule failed on a missing version, a broken query or an unwritable measure",
+    mA.report.rulesFailed === 0,
+    mA.report.rules.filter((r) => r.outcome === "failed")
+      .map((r) => `${r.ruleId}:${r.failedStage}:${r.failureDetail}`).join(" | "));
+  check("the rules with no evidence said INSUFFICIENT_EVIDENCE rather than nothing at all",
+    mA.report.measuresInsufficient >= 3, `insufficient=${mA.report.measuresInsufficient}`);
+  check("every rule reports how long it took, so cadence can be decided on numbers",
+    mA.report.rules.every((r) => typeof r.durationMs === "number"));
+  check("each evidence source was loaded ONCE, not once per rule",
+    new Set(mA.report.sourcesLoaded.map((s) => s.key)).size === mA.report.sourcesLoaded.length &&
+    mA.report.sourcesLoaded.length < mA.report.rulesRun,
+    `sources=${mA.report.sourcesLoaded.length} rules=${mA.report.rulesRun}`);
+
+  const mB = await doc04(bizB.id);
   check("tenant B, with two observations, is told nothing was learned",
-    mB.kind === "written" && mB.result.status === "INSUFFICIENT_EVIDENCE");
-  check("…and that silence carries NO number", mB.kind === "written" && mB.result.valueNumeric === null);
+    mB.measure?.status === "INSUFFICIENT_EVIDENCE");
+  check("…and that silence carries NO number", mB.measure?.valueNumeric === null);
   check("…and can explain itself (`have` vs `minSupport`)",
-    mB.kind === "written" && (mB.result.detail as { have: number })?.have === 2);
+    (await owner.knowledgeMeasure.findFirst({
+      where: { businessId: bizB.id, measureKey: MEASURE_KEY },
+      select: { detail: true },
+    }))?.detail !== null);
 
   // The silence is PERSISTED, not skipped: an absent row is indistinguishable from a rule that never
   // ran, and the difference is the whole answer to "why did Dubiz say nothing?".
@@ -455,9 +536,9 @@ async function main(): Promise<void> {
   const gone = await owner.knowledgeMeasure.count({ where: { businessId: bizA.id } });
   check("all derived knowledge for the tenant was dropped", gone === 0);
 
-  const rebuilt = await derivePaperworkLagForBusiness(bizA.id);
+  const rebuilt = await doc04(bizA.id);
   const after2 = await owner.knowledgeMeasure.findFirst({ where: { businessId: bizA.id, measureKey: MEASURE_KEY } });
-  check("the measure rebuilt from evidence alone", rebuilt.kind === "written");
+  check("the measure rebuilt from evidence alone", rebuilt.rule?.outcome === "ok");
   check("the rebuilt fingerprint is identical",
     !!before2 && !!after2 && before2.evidenceFingerprint === after2.evidenceFingerprint,
     `${before2?.evidenceFingerprint} vs ${after2?.evidenceFingerprint}`);
@@ -469,8 +550,8 @@ async function main(): Promise<void> {
 
   // Re-deriving REPLACES rather than accumulates — the COALESCE slot index is what makes that true for
   // a business-level measure, whose entityType/entityId are null.
-  await derivePaperworkLagForBusiness(bizA.id);
-  await derivePaperworkLagForBusiness(bizA.id);
+  await doc04(bizA.id);
+  await doc04(bizA.id);
   const slotCount = await owner.knowledgeMeasure.count({ where: { businessId: bizA.id, measureKey: MEASURE_KEY } });
   check("re-deriving replaces the slot instead of accumulating rows", slotCount === 1, `rows=${slotCount}`);
 

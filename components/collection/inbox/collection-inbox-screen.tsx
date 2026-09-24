@@ -20,6 +20,7 @@ import {
   collectionFetch,
   copyText,
   money,
+  recordCollectionAction,
   shareOrCopy,
   shortDate,
 } from "../collection-client";
@@ -144,6 +145,16 @@ export function CollectionInboxScreen() {
       businessName: inbox.businessName,
     });
     const r = await shareOrCopy(text, item.paymentUrl);
+    // Record only what actually happened. The share sheet and the clipboard fallback are different
+    // acts, and a failure is not an act at all — writing one anyway would put reminders into the
+    // history that the owner never managed to send.
+    if (r !== "failed") {
+      recordCollectionAction(
+        r === "shared" ? "SHARE_INITIATED" : "LINK_COPIED",
+        r === "shared" ? "SYSTEM_SHARE" : "CLIPBOARD",
+        { customerId: item.customerId, paymentRequestId: item.requestId },
+      );
+    }
     setNotice(r === "copied" ? "הקישור הועתק." : r === "shared" ? "נפתח חלון השיתוף." : "לא הצלחנו להעתיק.");
   }
 
@@ -228,7 +239,11 @@ export function CollectionInboxScreen() {
                       <Actions>
                         {w.paymentUrl ? <WarmButton variant="secondary" height={40} onClick={() => void shareRequest(w)}>שתף שוב</WarmButton> : null}
                         {w.paymentUrl ? (
-                          <WarmButton variant="text" height={40} onClick={async () => setNotice((await copyText(w.paymentUrl!)) ? "הקישור הועתק." : "לא הצלחנו להעתיק.")}>העתק קישור</WarmButton>
+                          <WarmButton variant="text" height={40} onClick={async () => {
+                            const copied = await copyText(w.paymentUrl!);
+                            if (copied) recordCollectionAction("LINK_COPIED", "CLIPBOARD", { customerId: w.customerId, paymentRequestId: w.requestId });
+                            setNotice(copied ? "הקישור הועתק." : "לא הצלחנו להעתיק.");
+                          }}>העתק קישור</WarmButton>
                         ) : null}
                         <WarmButton variant="text" height={40} onClick={() => setConfirmCancel(w)}>בטל בקשה</WarmButton>
                       </Actions>

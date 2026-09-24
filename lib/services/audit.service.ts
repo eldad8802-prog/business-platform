@@ -1,12 +1,33 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 
+/**
+ * Who or what caused the event.
+ *
+ * M5. Until now this seam could not carry an actor even when the caller had one — three of the five
+ * `LearningEvent` writers held the signed-in user and discarded it, because there was nowhere to put
+ * them. Every other audit trail in this codebase (billing, payments, payables, platform) has recorded
+ * an actor since the day it was written; this one, the only GENERIC tenant-scoped event bus, did not.
+ * An event with nobody attached is a poor foundation for learning about behaviour.
+ *
+ * OPTIONAL, deliberately. A caller that genuinely does not know must be able to say nothing rather
+ * than be pushed into asserting UNKNOWN or, worse, guessing. Omitting it leaves both columns NULL —
+ * which is exactly what every historical row already says.
+ */
+export type AuditActor =
+  | { type: "OWNER_USER"; userId: number }
+  | { type: "SYSTEM" }
+  | { type: "INTEGRATION" }
+  | { type: "UNKNOWN" };
+
 type AuditLogInput = {
   businessId: number;
   eventType: string;
   entityType: string;
   entityId?: number | null;
   payload?: Record<string, unknown> | null;
+  /** Server-derived only. An actor that arrived in a request body is not evidence of anything. */
+  actor?: AuditActor;
 };
 
 /**
@@ -29,7 +50,7 @@ export async function logAuditEvent(
   input: AuditLogInput,
   options?: AuditLogOptions
 ) {
-  const { businessId, eventType, entityType, entityId, payload } = input;
+  const { businessId, eventType, entityType, entityId, payload, actor } = input;
 
   if (!businessId || Number.isNaN(businessId)) {
     return;
@@ -47,6 +68,11 @@ export async function logAuditEvent(
         payload: payload
           ? (payload as Prisma.InputJsonValue)
           : Prisma.JsonNull,
+        actorType: actor?.type ?? null,
+        // The user id is written only for OWNER_USER. A SYSTEM or INTEGRATION event has no person
+        // behind it, and attaching one — even the user whose request happened to trigger the
+        // background work — would put a name on a decision nobody made.
+        actorUserId: actor?.type === "OWNER_USER" ? actor.userId : null,
       },
     });
   } catch (error) {
