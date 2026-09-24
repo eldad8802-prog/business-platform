@@ -138,6 +138,13 @@ export async function POST(
                 pendingMatchId,
                 businessId: user.businessId,
                 userId: user.id,
+                // M5 — optional, and read defensively because no surface sends it yet. A rejection
+                // already recorded who and when; this is the WHY, and it is the only thing that
+                // separates "not our product" from "we stopped stocking it".
+                reason:
+                  typeof (body as { reason?: unknown }).reason === "string"
+                    ? (body as { reason: string }).reason
+                    : null,
               },
               { tx }
             )

@@ -59,6 +59,37 @@ export function resolvePaymentTermsDays(
 }
 
 /**
+ * The terms in force for ONE customer of this business.
+ *
+ * M5. There is exactly one rule for resolving payment terms, and this is it — the most specific
+ * configured value wins:
+ *
+ *   1. this customer's own `paymentTermsDays`
+ *   2. the business's `billingPaymentTermsDays`
+ *   3. the system default of 30 days
+ *
+ * A per-customer term is NOT a second source of truth. It is a more specific answer to the same
+ * question, resolved in the module that has always owned that question, so no caller has to know the
+ * precedence exists. An out-of-range customer value falls THROUGH to the business rather than
+ * silently becoming 30: a customer configured with nonsense should get their business's terms, not
+ * the system's.
+ *
+ * Every customer is NULL today — nothing writes the column yet — so this returns exactly what the
+ * business-level resolution returned before it existed.
+ */
+export function resolveCustomerPaymentTermsDays(
+  customerDays: number | null | undefined,
+  businessDays: number | null | undefined,
+): number {
+  const customerConfigured =
+    typeof customerDays === "number" &&
+    Number.isInteger(customerDays) &&
+    customerDays >= MIN_PAYMENT_TERMS_DAYS &&
+    customerDays <= MAX_PAYMENT_TERMS_DAYS;
+  return customerConfigured ? customerDays : resolvePaymentTermsDays(businessDays);
+}
+
+/**
  * When payment is expected, derived from issuance.
  *
  * שוטף+30 is a promise about DAYS, not about elapsed milliseconds, so it is

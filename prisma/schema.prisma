@@ -144,8 +144,8 @@ model ContentEvent {
 }
 
 model Business {
-  paymentAccountingSettlements PaymentAccountingSettlement[]
-  id                            Int                             @id @default(autoincrement())
+  paymentAccountingSettlements  PaymentAccountingSettlement[]
+  id                            Int                                 @id @default(autoincrement())
   name                          String
   archivedAt                    DateTime?
   archivedByUserId              Int?
@@ -155,8 +155,8 @@ model Business {
   /// closed. Never used to run an active account.
   deletionRequestedAt           DateTime?
   deletedAt                     DateTime?
-  createdAt                     DateTime                        @default(now())
-  updatedAt                     DateTime                        @updatedAt
+  createdAt                     DateTime                            @default(now())
+  updatedAt                     DateTime                            @updatedAt
   billingDocuments              BillingDocument[]
   billingAuditEvents            BillingAuditEvent[]
   paymentAuditEvents            PaymentAuditEvent[]
@@ -168,7 +168,7 @@ model Business {
   services                      BusinessService[]
   collaborationDeals            CollaborationDeal[]
   conversations                 Conversation[]
-  issuedCoupons                 Coupon[]                        @relation("BusinessIssuedCoupons")
+  issuedCoupons                 Coupon[]                            @relation("BusinessIssuedCoupons")
   customers                     Customer[]
   deals                         Deal[]
   documentsV2                   Document[]
@@ -201,8 +201,8 @@ model Business {
   pricingProfiles               PricingProfile[]
   recommendations               Recommendation[]
   recommendationOutcomes        RecommendationOutcome[]
-  issuedRedemptions             RedemptionEvent[]               @relation("IssuedCouponRedemptions")
-  redeemedRedemptions           RedemptionEvent[]               @relation("RedeemedCouponRedemptions")
+  issuedRedemptions             RedemptionEvent[]                   @relation("IssuedCouponRedemptions")
+  redeemedRedemptions           RedemptionEvent[]                   @relation("RedeemedCouponRedemptions")
   replySuggestions              ReplySuggestion[]
   supplierPurchaseDrafts        SupplierPurchaseDraft[]
   tasks                         Task[]
@@ -219,7 +219,7 @@ model Business {
   purchaseOrders                PurchaseOrder[]
   receivingSessions             ReceivingSession[]
   suppliers                     Supplier[]
-  archivedByUser                User?                           @relation("BusinessArchivedBy", fields: [archivedByUserId], references: [id], onDelete: SetNull)
+  archivedByUser                User?                               @relation("BusinessArchivedBy", fields: [archivedByUserId], references: [id], onDelete: SetNull)
   billingAuthorityConnections   BillingAuthorityConnection[]
   billingAuthoritySubmissions   BillingAuthoritySubmission[]
   parties                       Party[]
@@ -231,6 +231,8 @@ model Business {
   knowledgeMeasures             KnowledgeMeasure[]
   knowledgeMeasureEvidenceLinks KnowledgeMeasureEvidenceLink[]
   businessInsights              BusinessInsight[]
+  entityLinkProposals           EntityLinkProposal[]
+  collectionActions             CollectionAction[]
   paymentConnections            BusinessPaymentConnection[]
   paymentRequests               PaymentRequest[]
   businessObligations           BusinessObligation[]
@@ -246,16 +248,16 @@ model Business {
   crmAttachments                CrmAttachment[]
   importRuns                    ImportRun[]
   historicalFiscalDocuments     HistoricalFiscalDocument[]
+  payablesMatchRejections       PayablesMatchRejection[]
+  businessBankAccounts          BusinessBankAccount[]
+  cheques                       Cheque[]
+  paymentDestinations           PaymentDestination[]
+  paymentPreparations           PaymentPreparation[]
+  externalTransactions          ExternalTransaction[]
+  externalMatchRejections       ExternalTransactionMatchRejection[]
+  outboundExecutions            OutboundExecution[]
 
   @@index([archivedAt])
-  payablesMatchRejections PayablesMatchRejection[]
-  businessBankAccounts    BusinessBankAccount[]
-  cheques                 Cheque[]
-  paymentDestinations     PaymentDestination[]
-  paymentPreparations     PaymentPreparation[]
-  externalTransactions    ExternalTransaction[]
-  externalMatchRejections ExternalTransactionMatchRejection[]
-  outboundExecutions      OutboundExecution[]
 }
 
 model User {
@@ -807,6 +809,18 @@ model Customer {
   taxId            String?
   taxIdType        CustomerTaxIdType?
   notes            String?
+  /// M5 — this customer's own payment terms, in days from the invoice's `issuedAt`.
+  ///
+  /// NOT a second source of truth. There is exactly one rule for resolving terms, and it is a
+  /// precedence: this customer's value, else `BusinessProfile.billingPaymentTermsDays`, else the
+  /// system default of 30. `lib/services/billing/collection/payment-terms.ts` owns that rule and
+  /// remains the only place it is decided.
+  ///
+  /// NULL means "this customer is on the business's normal terms", which is what every customer is
+  /// today. No surface writes this yet, so production behaviour is unchanged until one does — the
+  /// column closes a representational gap (a business genuinely cannot say "this one customer is
+  /// שוטף+60") rather than changing what any invoice currently means.
+  paymentTermsDays Int?
   isActive         Boolean            @default(true)
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
@@ -1134,14 +1148,39 @@ model RecommendationOutcome {
 }
 
 model LearningEvent {
-  id         Int      @id @default(autoincrement())
-  businessId Int
-  eventType  String
-  entityType String
-  entityId   Int?
-  payload    Json?
-  createdAt  DateTime @default(now())
-  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id          Int                 @id @default(autoincrement())
+  businessId  Int
+  eventType   String
+  entityType  String
+  entityId    Int?
+  payload     Json?
+  /// M5 — WHO. Every other audit trail in this codebase records an actor; this one, the only generic
+  /// tenant-scoped event bus, did not, and three of its five writers had the user in hand and threw
+  /// it away. An event whose actor is unknown is a fact about the business with nobody attached to
+  /// it, and "did a person do this or did the system?" is the first question any learning about
+  /// behaviour has to answer.
+  ///
+  /// NULL on every historical row, and it stays NULL: backfilling an invented actor onto events that
+  /// were recorded without one would replace an honest gap with a confident fiction. `actorType`
+  /// UNKNOWN says the same thing explicitly for rows written from here on.
+  actorUserId Int?
+  actorType   LearningEventActor?
+  createdAt   DateTime            @default(now())
+  business    Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, actorType])
+}
+
+/// Who or what caused a `LearningEvent`.
+enum LearningEventActor {
+  /// A signed-in person of this business. `actorUserId` names them.
+  OWNER_USER
+  /// Dubiz itself — a background rule, a pipeline, a scheduled derivation. No user.
+  SYSTEM
+  /// An external system acting through a connection the business authorised (POS, mail, provider).
+  INTEGRATION
+  /// Recorded without knowing. Historical rows carry NULL; this is for rows that genuinely cannot say.
+  UNKNOWN
 }
 
 model ServiceCostProfile {
@@ -1363,6 +1402,8 @@ model Document {
   extractedData             ExtractedData?
   financialRecord           FinancialRecord?
   historicalFiscalDocuments HistoricalFiscalDocument[]
+  paymentEvidences          PaymentEvidence[]
+  payablesMatchRejections   PayablesMatchRejection[]
 
   /// Composite key so a tenant-scoped relation can point at a Document and be
   /// unable to cross a tenant boundary. Additive index; nothing about Documents
@@ -1371,8 +1412,6 @@ model Document {
   @@index([businessId, createdAt])
   @@index([businessId, status, createdAt])
   @@index([businessId, contentHashSha256])
-  paymentEvidences        PaymentEvidence[]
-  payablesMatchRejections PayablesMatchRejection[]
 }
 
 model WhatsAppAttachmentImport {
@@ -1842,6 +1881,10 @@ model InventoryPendingMatch {
   resolvedAt       DateTime?
   resolvedByUserId Int?
   resolvedItemId   Int?
+  /// M5 — why the owner refused this match. A rejection already records WHO and WHEN; without the
+  /// WHY it is a shrug, and "this product is not ours" and "we stopped stocking it" call for
+  /// completely different responses from the system next time the same line arrives.
+  rejectionReason  String?
   alerts           InventoryAlert[]
   business         Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
   resolvedItem     InventoryItem?              @relation("InventoryPendingMatchResolvedItem", fields: [resolvedItemId], references: [id])
@@ -1938,9 +1981,26 @@ model SupplierPurchaseDraftLine {
   matchScore    Float?
   decision      SupplierLineDecision?
   status        SupplierLineStatus    @default(PENDING)
-  createdAt     DateTime              @default(now())
-  draft         SupplierPurchaseDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
-  item          InventoryItem?        @relation(fields: [matchedItemId], references: [id])
+
+  /// M5 — WHAT THE MACHINE ORIGINALLY SAID, kept beside what the owner decided.
+  ///
+  /// Intake wrote its best match into `matchedItemId`/`matchScore`/`decision`, and approval then
+  /// overwrote those same three columns with the owner's answer. After approval there was no way to
+  /// tell whether the owner had AGREED with the machine or CORRECTED it — the two outcomes left
+  /// byte-identical rows. That is the single most valuable signal the matching engine could ever
+  /// have about itself, and it was being destroyed on every approval.
+  ///
+  /// These three are written ONCE, at intake, and never touched again by any approval path. Null on
+  /// historical rows and on lines the matcher had no opinion about; null is honest, and inferring a
+  /// past suggestion from the surviving decision would manufacture exactly the agreement rate this
+  /// is meant to measure.
+  suggestedItemId     Int?
+  suggestedMatchScore Float?
+  suggestedDecision   SupplierLineDecision?
+
+  createdAt DateTime              @default(now())
+  draft     SupplierPurchaseDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  item      InventoryItem?        @relation(fields: [matchedItemId], references: [id])
 
   @@index([draftId])
   @@index([matchedItemId])
@@ -2379,8 +2439,11 @@ model Party {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  business Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  claims   PartyResolutionClaim[]
+  business   Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  claims     PartyResolutionClaim[]
+  /// M5 — proposals naming this party as a possible identity for some other subject. Inert until an
+  /// owner acts on one; see `EntityLinkProposal`.
+  proposedAs EntityLinkProposal[]   @relation("EntityLinkProposalCandidate")
 
   @@index([businessId])
 }
@@ -2871,11 +2934,24 @@ enum SourceChannel {
 enum PartyRoleType {
   CUSTOMER
   LEAD
+  /// M5 — the three subject kinds on the SPENDING side of the business.
+  ///
+  /// `DOCUMENT_VENDOR` is the one that is not a domain entity: a document's vendor is a string on
+  /// `FinancialRecord.vendorName`, and the nearest thing to a record is the `VendorLearning` row that
+  /// already exists once per (business, vendor name). That row's id is the subject id — which means a
+  /// vendor the business has never approved a document for has no subject, and correctly no identity.
+  SUPPLIER
+  PAYEE
+  DOCUMENT_VENDOR
 }
 
 enum PartySignalType {
   PHONE
   TAX_ID
+  /// M5. EMAIL is a moderate signal; NORMALIZED_NAME is a WEAK one and may never, on its own,
+  /// establish a claim — name similarity lives in `EntityLinkProposal`, awaiting the owner.
+  EMAIL
+  NORMALIZED_NAME
 }
 
 enum PartyClaimConfidence {
@@ -2888,12 +2964,88 @@ enum PartyClaimConfidence {
 enum PartyResolutionMethod {
   DETERMINISTIC_EXACT
   SELF_ANCHOR
+  /// M5. The owner said so. The ONLY way a weak signal can ever result in a binding — and it is not
+  /// the weak signal that did it, it is the person. Reversible: rejecting afterwards retracts this
+  /// claim and restores the subject's own anchor, without deleting either.
+  OWNER_CONFIRMED
 }
 
 enum PartyClaimStatus {
   ACTIVE
   CHALLENGED
   RETRACTED
+}
+
+/// M5 — where a MATCH lives until somebody with authority agrees with it.
+///
+/// PROPOSED is the machine's suggestion and has no effect on anything: no knowledge joins across it,
+/// no read resolves through it, no record is merged because of it. CONFIRMED and REJECTED are the
+/// owner's, and only CONFIRMED changes what the system believes.
+enum EntityLinkState {
+  PROPOSED
+  CONFIRMED
+  REJECTED
+}
+
+/// How much the signal behind a proposal is worth.
+///
+/// STRONG means an identifier issued by somebody other than this business — a tax id. WEAK means a
+/// resemblance: a normalized name, an email at a shared domain. A WEAK proposal can never become a
+/// binding without a person, and this column exists so that rule is queryable rather than merely
+/// documented.
+enum EntityLinkStrength {
+  STRONG
+  WEAK
+}
+
+/// M5 · Who does Dubiz think this subject might be?
+///
+/// The identity substrate (`Party` + `PartyResolutionClaim`) holds bindings that have been
+/// ESTABLISHED, and enforces one party per subject. It has no room for "these two are probably the
+/// same" — and it should not, because a probable binding that lives in the same table as a certain
+/// one becomes a certain one the moment anybody writes a query that forgets to check.
+///
+/// So proposals live here, separately, and are inert by construction. The identity resolver writes
+/// them; nothing else reads them except the surface that asks the owner. Confirming one retracts the
+/// subject's anchor and writes a real claim with `OWNER_CONFIRMED`; rejecting one records the refusal
+/// with the person, the moment and the reason, and the resolver never proposes that pair again.
+///
+/// A rejection is therefore durable evidence, not a dismissed toast — which is the difference between
+/// the owner having told Dubiz something and the owner having ignored it.
+model EntityLinkProposal {
+  id         Int @id @default(autoincrement())
+  businessId Int
+
+  /// The subject whose identity is in question, in the same terms the claim ledger uses.
+  subjectType PartyRoleType
+  subjectId   Int
+
+  /// The party this subject MIGHT belong to. Never written to the subject's own claims by proposing.
+  candidatePartyId Int
+
+  signalType  PartySignalType
+  /// The value that matched. Already this tenant's own data; never another tenant's, by construction.
+  signalValue String
+  strength    EntityLinkStrength
+
+  state           EntityLinkState @default(PROPOSED)
+  decidedAt       DateTime?
+  decidedByUserId Int?
+  /// The owner's own words for why. The WHY that almost nothing else in this codebase captures.
+  decisionNote    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business  Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  candidate Party    @relation("EntityLinkProposalCandidate", fields: [candidatePartyId], references: [id], onDelete: Cascade)
+
+  /// One live proposal per (tenant, subject, candidate). Re-running the resolver must refresh a
+  /// proposal, never breed a new one beside it — and a pair the owner has already rejected must not
+  /// come back tomorrow wearing a new id.
+  @@unique([businessId, subjectType, subjectId, candidatePartyId])
+  @@index([businessId, state])
+  @@index([businessId, candidatePartyId])
 }
 
 // ---------------------------------------------------------------------------
@@ -2969,7 +3121,7 @@ model PaymentTransaction {
   rawPayload            Json?
   createdAt             DateTime                 @default(now())
 
-  paymentRequest PaymentRequest @relation(fields: [paymentRequestId], references: [id], onDelete: Cascade)
+  paymentRequest       PaymentRequest               @relation(fields: [paymentRequestId], references: [id], onDelete: Cascade)
   receiptDocument      BillingDocument?
   accountingSettlement PaymentAccountingSettlement?
 
@@ -3225,7 +3377,7 @@ model DerivationPolicyVersion {
   /// Back-relation for the derived materialization projections pinned to this version (IMPL-4). A
   /// version is never cascade-deleted by a derived materialization (the Projection FK is RESTRICT) —
   /// policy history outlives its materializations. This is a virtual relation (no column, no behavior).
-  claimProjections DerivedClaimProjection[]
+  claimProjections  DerivedClaimProjection[]
   knowledgeMeasures KnowledgeMeasure[]
 
   /// Identity uniqueness ONLY: one row per (policy, version). This is the version's IDENTITY (a version IS
@@ -4200,12 +4352,10 @@ model InboundEmailAuthorizedSender {
   /// Still per tenant: the SAME address may be listed by two different
   /// businesses, because a bookkeeper forwards for several clients.
   @@unique([businessId, activeEmailKey])
-
-  /// Lookup by address, which is no longer covered by a unique index.
-  @@index([businessId, normalizedEmail])
-
   /// Composite so a child row cannot reference a sender across tenants.
   @@unique([businessId, id])
+  /// Lookup by address, which is no longer covered by a unique index.
+  @@index([businessId, normalizedEmail])
   @@index([businessId, status])
 }
 
@@ -4276,7 +4426,6 @@ model InboundEmailSenderChallenge {
   /// At most one live challenge per business, sender and purpose. Dead rows carry
   /// NULL here and so never collide with each other.
   @@unique([businessId, authorizedSenderId, activeChallengeKey])
-
   @@index([businessId, authorizedSenderId])
   /// Serves the regeneration ceiling: how many challenges this sender has been
   /// issued in the last rolling 24 hours. Counted from rows rather than from a
@@ -4316,10 +4465,10 @@ model Payee {
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 
-  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  commitments Commitment[]
-  payments    Payment[]
-  cheques     Cheque[]
+  business     Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  commitments  Commitment[]
+  payments     Payment[]
+  cheques      Cheque[]
   destinations PaymentDestination[]
   preparations PaymentPreparation[]
 
@@ -4358,16 +4507,16 @@ model Commitment {
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
 
-  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  payee        Payee?        @relation(fields: [payeeId], references: [id], onDelete: SetNull)
-  installments Installment[]
+  business        Business                 @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payee           Payee?                   @relation(fields: [payeeId], references: [id], onDelete: SetNull)
+  installments    Installment[]
+  matchRejections PayablesMatchRejection[]
+  cheques         Cheque[]
+  preparations    PaymentPreparation[]
 
   @@index([businessId, status])
   @@index([businessId, payeeId])
   @@index([businessId, legacyObligationId])
-  matchRejections PayablesMatchRejection[]
-  cheques         Cheque[]
-  preparations    PaymentPreparation[]
 }
 
 /// One scheduled amount due on one date.
@@ -4392,18 +4541,18 @@ model Installment {
   createdAt                  DateTime          @default(now())
   updatedAt                  DateTime          @updatedAt
 
-  business    Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  commitment  Commitment          @relation(fields: [commitmentId], references: [id], onDelete: Cascade)
-  allocations PaymentAllocation[]
+  business                Business                            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  commitment              Commitment                          @relation(fields: [commitmentId], references: [id], onDelete: Cascade)
+  allocations             PaymentAllocation[]
+  matchRejections         PayablesMatchRejection[]
+  cheques                 Cheque[]
+  preparations            PaymentPreparation[]
+  externalMatchRejections ExternalTransactionMatchRejection[]
 
   @@unique([commitmentId, sequence])
   @@index([businessId, dueAt])
   @@index([businessId, status])
   @@index([commitmentId])
-  matchRejections PayablesMatchRejection[]
-  cheques         Cheque[]
-  preparations    PaymentPreparation[]
-  externalMatchRejections ExternalTransactionMatchRejection[]
 }
 
 /// The economic fact: money left the business.
@@ -4431,19 +4580,19 @@ model Payment {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
-  business    Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  payee       Payee?              @relation(fields: [payeeId], references: [id], onDelete: SetNull)
-  allocations PaymentAllocation[]
-  evidences   PaymentEvidence[]
-  preparations PaymentPreparation[]
-  outboundExecutions OutboundExecution[]
+  business                Business                            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payee                   Payee?                              @relation(fields: [payeeId], references: [id], onDelete: SetNull)
+  allocations             PaymentAllocation[]
+  evidences               PaymentEvidence[]
+  preparations            PaymentPreparation[]
+  outboundExecutions      OutboundExecution[]
   externalMatchRejections ExternalTransactionMatchRejection[]
+  matchRejections         PayablesMatchRejection[]
 
   @@unique([businessId, idempotencyKey])
   @@index([businessId, paidAt])
   @@index([businessId, payeeId])
   @@index([businessId, status])
-  matchRejections PayablesMatchRejection[]
 }
 
 /// Which payment settles which installment, and by how much.
@@ -4512,9 +4661,9 @@ model PaymentEvidence {
   revokedByUserId  Int?
   revocationReason String?
 
-  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  payment  Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-  document Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  business              Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payment               Payment              @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  document              Document?            @relation(fields: [documentId], references: [id], onDelete: SetNull)
   /// Phase 5: the bank / provider line this evidence points at. One active
   /// evidence per line — a PARTIAL unique index in the migration, same shape
   /// as the document guard above. Do not regenerate it from the datamodel.
@@ -4624,9 +4773,9 @@ model BusinessBankAccount {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  cheques  Cheque[]
-  preparations PaymentPreparation[]
+  business             Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  cheques              Cheque[]
+  preparations         PaymentPreparation[]
   externalTransactions ExternalTransaction[]
 
   @@unique([businessId, fingerprint])
@@ -4830,8 +4979,8 @@ model ExternalTransaction {
   createdAt           DateTime                     @default(now())
   updatedAt           DateTime                     @updatedAt
 
-  business          Business                           @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  sourceBankAccount BusinessBankAccount?               @relation(fields: [sourceBankAccountId], references: [id], onDelete: SetNull)
+  business          Business                            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sourceBankAccount BusinessBankAccount?                @relation(fields: [sourceBankAccountId], references: [id], onDelete: SetNull)
   evidences         PaymentEvidence[]
   rejections        ExternalTransactionMatchRejection[]
 
@@ -5088,8 +5237,8 @@ model KnowledgeMeasure {
   evidenceFingerprint String
   materializedAt      DateTime @default(now())
 
-  business      Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  policyVersion DerivationPolicyVersion @relation(fields: [rulePolicyVersionId], references: [id], onDelete: Restrict)
+  business      Business                       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  policyVersion DerivationPolicyVersion        @relation(fields: [rulePolicyVersionId], references: [id], onDelete: Restrict)
   evidenceLinks KnowledgeMeasureEvidenceLink[]
 
   /// One live measure per (tenant, key, subject, rule version). Uniqueness over the nullable subject is
@@ -5170,26 +5319,26 @@ model BusinessInsight {
   title    String
 
   /// Statements that are TRUE, each with the artifact it came from. Never interpretation.
-  factLines Json
+  factLines         Json
   /// What Dubiz makes of the facts. Null when the composition is purely factual — which is the honest
   /// state for most early insights, and saying nothing is better than manufacturing a narrative.
-  interpretation String?
+  interpretation    String?
   /// What we are NOT sure of, in words. Deliberately not a score.
-  uncertainty    String?
+  uncertainty       String?
   /// Every rule/artifact that participated: [{ ruleId, ruleVersion, artifactKind, artifactRef }].
   contributingRules Json
   /// What the owner could do. Suggestions, never actions taken on their behalf.
   suggestedActions  Json?
 
-  status              InsightStatus @default(OPEN)
-  ownerDecisionAt     DateTime?
+  status                InsightStatus @default(OPEN)
+  ownerDecisionAt       DateTime?
   ownerDecisionByUserId Int?
   /// Free-text reason when the owner dismisses. The WHY that most of this codebase does not capture.
-  ownerDecisionNote   String?
+  ownerDecisionNote     String?
 
-  generatedAt      DateTime @default(now())
+  generatedAt     DateTime @default(now())
   /// Version of the composer that produced this, so a later change is attributable.
-  composerVersion  String
+  composerVersion String
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
@@ -5204,4 +5353,70 @@ enum InsightStatus {
   OPEN
   ADOPTED
   DISMISSED
+}
+
+/// M5 · The reminder Dubiz actually knows about.
+///
+/// WHAT WAS MISSING. Collection lets an owner share or copy a payment reminder. Both are pure browser
+/// actions — `navigator.share`, `clipboard.writeText`, a `wa.me` link — and neither made a single
+/// network call. A reminder could be sent thirty times and the database was byte-identical
+/// afterwards. So "did we ever chase this?", "through which channel?", "and did payment follow?" were
+/// not hard questions; they were unanswerable ones.
+///
+/// WHAT THIS RECORDS, EXACTLY. That the owner INITIATED a share or a copy, when, through what, and
+/// about which payment request or customer. Nothing more, because nothing more is known:
+///
+///   NOT that a message was sent          the browser hands off to another app and says nothing back
+///   NOT that it was delivered            no provider, no receipt, no webhook
+///   NOT that the customer saw it         Dubiz cannot see what happens after the hand-off
+///
+/// The enum values say "INITIATED" and "COPIED" for that reason. The day an outbound provider exists,
+/// delivery becomes a different record with its own evidence — never a quiet upgrade of this one's
+/// meaning.
+///
+/// Append-only: no `updatedAt`, no status, nothing to correct later. An action either happened or it
+/// did not, and a row that could be edited afterwards would stop being evidence.
+model CollectionAction {
+  id         Int @id @default(autoincrement())
+  businessId Int
+
+  /// Which reminder this was about. All optional because the owner can chase a customer without a
+  /// specific request open — but at least one is always written by the surface that records it.
+  customerId        Int?
+  paymentRequestId  Int?
+  billingDocumentId Int?
+
+  actionType CollectionActionType
+  channel    CollectionActionChannel
+
+  /// The person. Server-derived from the session, never from the request body.
+  actorUserId Int?
+  occurredAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, occurredAt])
+  @@index([businessId, customerId, occurredAt])
+  @@index([businessId, paymentRequestId])
+}
+
+/// What the owner did. Every value is about the owner's action, never about the recipient.
+enum CollectionActionType {
+  /// The system share sheet was opened with the reminder in it.
+  SHARE_INITIATED
+  /// The payment link was copied to the clipboard.
+  LINK_COPIED
+  /// The full reminder message was copied to the clipboard.
+  MESSAGE_COPIED
+  /// WhatsApp was opened with the message prefilled. Opening is all that is observed.
+  WHATSAPP_OPENED
+}
+
+/// Where the reminder was handed off to. UNKNOWN is a real answer on a share sheet, which does not
+/// tell the page which app the person picked.
+enum CollectionActionChannel {
+  WHATSAPP
+  SYSTEM_SHARE
+  CLIPBOARD
+  UNKNOWN
 }

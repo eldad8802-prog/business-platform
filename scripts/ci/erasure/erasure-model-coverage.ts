@@ -474,6 +474,19 @@ const DECIDE: Record<string, ModelCoverage> = {
   ExtractionEvidence: decide("reasoningBlob and ocrGeometry, derived from document content"),
   ReviewEvent: decide("rawBelief and rawFinal are decision blobs over document content"),
   PartyResolutionClaim: decide("subjectType/subjectId point at a Customer or Supplier; the claim itself is a link"),
+  EntityLinkProposal: decide(
+    "M5. `signalValue` holds whatever matched — a supplier's phone, an email address, or a " +
+      "normalized business name — so this is personal data about a counterparty, not bookkeeping. " +
+      "It sits beside PartyResolutionClaim and raises the same question, with one twist: a REJECTED " +
+      "proposal is NOT rebuildable. It is the owner's own decision, and re-deriving it after an " +
+      "erasure would resurrect a question they have already answered."
+  ),
+  CollectionAction: decide(
+    "M5. Records that this business chased a NAMED customer for money, when, and through which " +
+      "channel. No free text and no message content — but `customerId` makes every row a statement " +
+      "about one person's payment history. It cascades with Business; decide whether collection " +
+      "history is erased with the account or retained as evidence of the business's own conduct."
+  ),
   DerivedClaimProjection: decide("subjectNormalizedKey may encode a counterparty name"),
   BusinessInsight: decide(
     "factLines and interpretation are free text by type. The one composer that exists today writes " +

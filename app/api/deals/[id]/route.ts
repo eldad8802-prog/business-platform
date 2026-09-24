@@ -67,6 +67,8 @@ export async function PATCH(request: Request) {
               eventType,
               entityType: "COLLABORATION_DEAL",
               entityId: null,
+              actorType: "OWNER_USER",
+              actorUserId: user.id,
               payload: {
                 dealId: existingDeal.id,
                 title: existingDeal.title,
