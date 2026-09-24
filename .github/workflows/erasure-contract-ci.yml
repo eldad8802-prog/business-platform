@@ -334,6 +334,272 @@ jobs:
           grep -qF "C6-NO-DISPOSITION  PurchaseOrderLine.supplierContactNote" "$RUNNER_TEMP/E6.out" || { cat "$RUNNER_TEMP/E6.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
           echo "NEGATIVE-PROOF PASS"
 
+      # ── C12-SUPPLIER — one proof per personal surface ──────────────────────
+      #
+      # Twenty columns, twenty proofs. A group would have been cheaper and would have
+      # let one field hide behind a sibling: the point of each of these is that the
+      # build goes red for THAT column, named, when the erasure stops clearing it.
+
+      - name: negative proof — the erasure stops clearing Supplier.name (the supplier's primary identity)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.name
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.name" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing Supplier.legalName (the registered legal name)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.legalName
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.legalName" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing Supplier.taxId (the counterparty tax identifier)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.taxId
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.taxId" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing Supplier.taxIdType (the kind of tax identifier)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.taxIdType
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.taxIdType" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing Supplier.phone (the supplier's phone)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.phone
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.phone" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing Supplier.email (the supplier's email)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.email
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.email" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing Supplier.contactName (the contact person's name)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.contactName
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.contactName" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing Supplier.contactRole (the contact person's role)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.contactRole
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.contactRole" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing Supplier.contactPhone (the contact person's direct line)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.contactPhone
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.contactPhone" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing Supplier.contactEmail (the contact person's email)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.contactEmail
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.contactEmail" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing Supplier.addressStreet (the street address)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.addressStreet
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.addressStreet" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing Supplier.addressCity (the city)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.addressCity
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.addressCity" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing Supplier.addressPostalCode (the postal code)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.addressPostalCode
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.addressPostalCode" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing Supplier.notes (free text about the supplier)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.notes
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.notes" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing Supplier.website (an unvalidated free-text URL)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.website
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.website" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing Supplier.category (unvalidated free-text grouping)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplier.category
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  Supplier.category" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing VendorLearning.vendorNameNormalized (the normalised vendor name)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD vendorLearning.vendorNameNormalized
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  VendorLearning.vendorNameNormalized" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing PurchaseOrder.supplierName (the order's snapshot of the supplier name)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD purchaseOrder.supplierName
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  PurchaseOrder.supplierName" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing SupplierPurchaseDraft.supplierName (the draft's snapshot)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD supplierPurchaseDraft.supplierName
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  SupplierPurchaseDraft.supplierName" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the erasure stops clearing InventoryItem.supplierName (the item's own typed copy)
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/fld.orig"
+          node .ad2a/mutate.mjs FIELD inventoryItem.supplierName
+          if cmp -s "$F" "$RUNNER_TEMP/fld.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/fld.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/fld.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/fld.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an unerased personal surface passed"; exit 1; }
+          grep -qF "C6-DISPOSITION-NOT-IMPLEMENTED  InventoryItem.supplierName" "$RUNNER_TEMP/fld.out" || { tail -30 "$RUNNER_TEMP/fld.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
       # ── The retention contract: two authorities, one answer ────────────────
       #
       # The registry classifies (complete by construction); the manifest projects that
@@ -483,20 +749,31 @@ jobs:
 
       # The load-bearing one for the Supplier wave: resolving InventoryItem's MODEL-level
       # C12 must NOT take its image debt with it.
-      - name: proof — S3 a model-level C12 resolving leaves the object finding standing
+      # The acceptance property of the Supplier wave, asserted without mutating anything:
+      # InventoryItem's model-level finding is gone AND its image object is still reported
+      # as unerased. Either one without the other is the failure. The sentinel line keeps
+      # the absence honest - an absence proved with wording the verifier no longer emits
+      # would pass forever.
+      - name: proof — InventoryItem's C12 is resolved while its image debt stays open
         run: |
-          A="lib/services/account/account-deletion.prisma-store.ts"
-          C="scripts/ci/erasure/erasure-model-coverage.ts"
-          cp "$A" "$RUNNER_TEMP/S3.a"; cp "$C" "$RUNNER_TEMP/S3.c"
+          set +e; npm run verify:erasure-contract > "$RUNNER_TEMP/split.out" 2>&1; set -e
+          grep -qF "holds personal data the erasure does not touch" "$RUNNER_TEMP/split.out" || { echo "PROOF FAIL: the C12 wording this step greps for is not emitted any more"; exit 1; }
+          grep -qF "InventoryItem holds personal data" "$RUNNER_TEMP/split.out" && { echo "PROOF FAIL: the model-level finding is still open"; exit 1; }
+          grep -qF "InventoryItem.imageUrl points at stored bytes" "$RUNNER_TEMP/split.out" || { tail -30 "$RUNNER_TEMP/split.out"; echo "PROOF FAIL: the image debt vanished with the model-level finding"; exit 1; }
+          echo "PROOF PASS — C12::InventoryItem resolved, C19::InventoryItem.imageUrl still open"
+
+      - name: negative proof — S3 the image object is declared ERASED while nothing deletes it
+        run: |
+          F="scripts/ci/erasure/erasure-object-surfaces.ts"
+          cp "$F" "$RUNNER_TEMP/S3.orig"
           node .ad2a/mutate.mjs S3
-          if cmp -s "$A" "$RUNNER_TEMP/S3.a"; then echo "MUTATION NOT APPLIED"; exit 1; fi
-          set +e; npm run verify:erasure-contract > "$RUNNER_TEMP/S3.out" 2>&1; set -e
-          cp "$RUNNER_TEMP/S3.a" "$A"; cp "$RUNNER_TEMP/S3.c" "$C"
-          cmp -s "$A" "$RUNNER_TEMP/S3.a" && cmp -s "$C" "$RUNNER_TEMP/S3.c" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
-          grep -qF "InventoryItem holds personal data" "$RUNNER_TEMP/S3.out" && { echo "the model-level C12 did not resolve; the proof proves nothing"; exit 1; }
-          grep -qF "C19-EXTERNAL-OBJECT-UNERASED" "$RUNNER_TEMP/S3.out" || { echo "PROOF FAIL: no object findings at all"; exit 1; }
-          grep -qF "InventoryItem.imageUrl points at stored bytes" "$RUNNER_TEMP/S3.out" || { tail -40 "$RUNNER_TEMP/S3.out"; echo "PROOF FAIL: the image debt vanished with the model-level finding"; exit 1; }
-          echo "PROOF PASS — C12 resolved, C19::InventoryItem.imageUrl still open"
+          if cmp -s "$F" "$RUNNER_TEMP/S3.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; npm run verify:erasure-contract -- --baseline-check > "$RUNNER_TEMP/S3.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/S3.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/S3.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: an object declared erased that nothing deletes passed"; exit 1; }
+          grep -qF "C26-OBJECT-DISPOSITION-MISMATCH" "$RUNNER_TEMP/S3.out" || { tail -30 "$RUNNER_TEMP/S3.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
 
       - name: negative proof — S4 the InventoryItem image surface is undeclared
         run: |

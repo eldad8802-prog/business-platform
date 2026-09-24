@@ -32,7 +32,23 @@
  * a legal claim nobody has verified.
  */
 
-export type Disposition = "ERASE" | "ANONYMISE" | "UNLINK" | "RETAIN_BY_DESIGN" | "STRUCTURAL";
+/**
+ * What happens to a COLUMN.
+ *
+ * EXTERNAL_OBJECT_OPEN is the one that is not an answer: the column points at bytes
+ * in object storage that the erasure does not delete. It exists so a model can be
+ * fully covered here — every column answered for — while the OBJECT debt stays
+ * visible in the S8 contract, which is where objects live. The verifier requires a
+ * matching OPEN surface in `erasure-object-surfaces.ts`, so this can never become a
+ * quiet way of declaring a field done.
+ */
+export type Disposition =
+  | "ERASE"
+  | "ANONYMISE"
+  | "UNLINK"
+  | "RETAIN_BY_DESIGN"
+  | "STRUCTURAL"
+  | "EXTERNAL_OBJECT_OPEN";
 
 export type RetentionBasis = "PRODUCT" | "LEGAL/FISCAL" | "SECURITY/AUDIT" | "UNPROVEN";
 
@@ -97,6 +113,12 @@ export const COVERED_MODELS = [
   "Notification",
   "ReceivingSession",
   "PurchaseOrderLine",
+  // C12-SUPPLIER. Counterparty identity, and every copy of it this product owns.
+  "Supplier",
+  "VendorLearning",
+  "PurchaseOrder",
+  "SupplierPurchaseDraft",
+  "InventoryItem",
 ] as const;
 
 export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
@@ -362,6 +384,153 @@ export const DISPOSITIONS: Record<string, Record<string, FieldDisposition>> = {
       basis: "SECURITY/AUDIT",
       dependsOn: { model: "User", fields: ["email", "name", "password"] },
     },
+    createdAt: { disposition: "STRUCTURAL" },
+    updatedAt: { disposition: "STRUCTURAL" },
+  },
+  // ── C12-SUPPLIER — counterparty identity, and every copy this product owns ──
+  //
+  // A supplier is a business, but these columns describe PEOPLE: a contact's name,
+  // their direct line, their email, and free text somebody typed about them. The rows
+  // themselves are procurement structure and stay — orders point at them, and deleting
+  // them would rewrite the business's own purchasing history rather than its
+  // counterparty's identity.
+  //
+  // Tombstones are derived from each row's own id, never a shared constant. Supplier
+  // carries no unique constraint on `name` today; VendorLearning does carry one on
+  // (businessId, vendorName) — and a per-row rule cannot collide whatever the
+  // constraints become. Same value on every retry, and nothing of the original in it.
+
+  Supplier: {
+    id: { disposition: "STRUCTURAL" },
+    businessId: { disposition: "STRUCTURAL" },
+    // NOT NULL, so it cannot be cleared: overwritten with a per-row tombstone.
+    name: { disposition: "ANONYMISE" },
+    legalName: { disposition: "ERASE" },
+    taxId: { disposition: "ERASE" },
+    taxIdType: { disposition: "ERASE" },
+    phone: { disposition: "ERASE" },
+    email: { disposition: "ERASE" },
+    contactName: { disposition: "ERASE" },
+    contactRole: { disposition: "ERASE" },
+    contactPhone: { disposition: "ERASE" },
+    contactEmail: { disposition: "ERASE" },
+    addressStreet: { disposition: "ERASE" },
+    addressCity: { disposition: "ERASE" },
+    addressPostalCode: { disposition: "ERASE" },
+    notes: { disposition: "ERASE" },
+    // Free text with no vocabulary behind it: the writer only trims and bounds them,
+    // so either can hold whatever was typed, including a person.
+    website: { disposition: "ERASE" },
+    category: { disposition: "ERASE" },
+    // How this business buys — not who it bought from.
+    isActive: { disposition: "STRUCTURAL" },
+    defaultLeadTimeDays: { disposition: "STRUCTURAL" },
+    paymentTermsDays: { disposition: "STRUCTURAL" },
+    preferredPaymentMethod: { disposition: "STRUCTURAL" },
+    createdAt: { disposition: "STRUCTURAL" },
+    updatedAt: { disposition: "STRUCTURAL" },
+  },
+
+  VendorLearning: {
+    id: { disposition: "STRUCTURAL" },
+    businessId: { disposition: "STRUCTURAL" },
+    // NOT NULL and unique within the tenant. A constant tombstone would raise a unique
+    // violation on the second row and abort the whole erasure, so it is id-derived.
+    vendorName: { disposition: "ANONYMISE" },
+    vendorNameNormalized: { disposition: "ERASE" },
+    // The learned expense category and its counters describe how this business files
+    // documents, not who sent them.
+    category: { disposition: "STRUCTURAL" },
+    usageCount: { disposition: "STRUCTURAL" },
+    lastUsedAt: { disposition: "STRUCTURAL" },
+    confidence: { disposition: "STRUCTURAL" },
+    isGlobal: { disposition: "STRUCTURAL" },
+  },
+
+  PurchaseOrder: {
+    id: { disposition: "STRUCTURAL" },
+    businessId: { disposition: "STRUCTURAL" },
+    // A snapshot of the supplier's name, taken at write time. Nullable, so it goes.
+    supplierName: { disposition: "ERASE" },
+    // The pointer stays, on the same terms as the provenance pointers in C12-E1: it
+    // names a Supplier row this same erasure strips, so it is an id and not an
+    // identity — and the dependency is checked rather than asserted.
+    supplierId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "which supplier this order went to, as an id into a Supplier row the same erasure strips",
+      basis: "PRODUCT",
+      dependsOn: { model: "Supplier", fields: ["name", "legalName", "taxId", "phone", "email"] },
+    },
+    createdByUserId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "provenance: which user raised the order. An id into a User row this erasure anonymises",
+      basis: "SECURITY/AUDIT",
+      dependsOn: { model: "User", fields: ["email", "name", "password"] },
+    },
+    externalOrderId: { disposition: "STRUCTURAL" },
+    source: { disposition: "STRUCTURAL" },
+    orderDate: { disposition: "STRUCTURAL" },
+    status: { disposition: "STRUCTURAL" },
+    sourceSupplierPurchaseDraftId: { disposition: "STRUCTURAL" },
+    createdAt: { disposition: "STRUCTURAL" },
+    updatedAt: { disposition: "STRUCTURAL" },
+  },
+
+  SupplierPurchaseDraft: {
+    id: { disposition: "STRUCTURAL" },
+    businessId: { disposition: "STRUCTURAL" },
+    supplierName: { disposition: "ERASE" },
+    supplierId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "which supplier the draft was meant for, as an id into a stripped Supplier row",
+      basis: "PRODUCT",
+      dependsOn: { model: "Supplier", fields: ["name", "legalName", "taxId", "phone", "email"] },
+    },
+    createdByUserId: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "provenance: which user imported the draft. Same pointer, same erasure",
+      basis: "SECURITY/AUDIT",
+      dependsOn: { model: "User", fields: ["email", "name", "password"] },
+    },
+    externalOrderId: { disposition: "STRUCTURAL" },
+    source: { disposition: "STRUCTURAL" },
+    orderDate: { disposition: "STRUCTURAL" },
+    status: { disposition: "STRUCTURAL" },
+    approvedAt: { disposition: "STRUCTURAL" },
+    rejectedAt: { disposition: "STRUCTURAL" },
+    createdAt: { disposition: "STRUCTURAL" },
+  },
+
+  InventoryItem: {
+    id: { disposition: "STRUCTURAL" },
+    businessId: { disposition: "STRUCTURAL" },
+    // Typed freely on the item and never derived from a Supplier row, so it is an
+    // independent second copy of counterparty identity and goes on its own.
+    supplierName: { disposition: "ERASE" },
+    // Product identity, ratified NON_PERSONAL under S-7C: the catalogue is the
+    // business's own, and erasing it would destroy what it sells rather than whom it
+    // bought from.
+    name: {
+      disposition: "RETAIN_BY_DESIGN",
+      purpose: "the product's own name in this business's catalogue",
+      basis: "PRODUCT",
+    },
+    sku: { disposition: "RETAIN_BY_DESIGN", purpose: "the product's stock-keeping unit", basis: "PRODUCT" },
+    barcode: { disposition: "RETAIN_BY_DESIGN", purpose: "the product's barcode", basis: "PRODUCT" },
+    // Neither erased nor retained: the bytes in public storage survive the erasure, and
+    // that debt stays visible as C19 in the S8 object contract. Declaring it here is
+    // what lets this model be fully covered without the object going quiet.
+    imageUrl: { disposition: "EXTERNAL_OBJECT_OPEN" },
+    unitType: { disposition: "STRUCTURAL" },
+    currentQuantity: { disposition: "STRUCTURAL" },
+    minimumQuantity: { disposition: "STRUCTURAL" },
+    reorderPoint: { disposition: "STRUCTURAL" },
+    costPerUnit: { disposition: "STRUCTURAL" },
+    lastPurchaseCost: { disposition: "STRUCTURAL" },
+    lastPurchaseCostAt: { disposition: "STRUCTURAL" },
+    sellPricePerUnit: { disposition: "STRUCTURAL" },
+    isActive: { disposition: "STRUCTURAL" },
+    categoryId: { disposition: "STRUCTURAL" },
     createdAt: { disposition: "STRUCTURAL" },
     updatedAt: { disposition: "STRUCTURAL" },
   },

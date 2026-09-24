@@ -268,6 +268,35 @@ jobs:
           grep -qF "permission denied for table Document" "$RUNNER_TEMP/claimA.out" || { tail -60 "$RUNNER_TEMP/claimA.out"; echo "NEGATIVE-PROOF FAIL: red, but not on the privilege boundary"; exit 1; }
           echo "NEGATIVE-PROOF PASS (Claim A: lab privilege boundary)"
 
+      # The two the static contract cannot judge. A tombstone is only worth something
+      # if it survives the constraint it was designed for, and the item's own typed
+      # copy is the one that would have survived an erasure that only stripped Supplier.
+      - name: negative proof — V1 the vendor tombstone becomes a shared constant
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/V1.orig"
+          node .ad2a/mutate.mjs V1
+          if cmp -s "$F" "$RUNNER_TEMP/V1.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; node .ad2a/fresh-lab.mjs sup_v1 -- npx tsx .ad2a/battery.mjs --baseline-check > "$RUNNER_TEMP/V1.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/V1.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/V1.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: a colliding tombstone passed"; exit 1; }
+          grep -qF "[FAIL] SUP-V2" "$RUNNER_TEMP/V1.out" || { tail -60 "$RUNNER_TEMP/V1.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
+      - name: negative proof — the item keeps its own typed supplier name
+        run: |
+          F="lib/services/account/account-deletion.prisma-store.ts"
+          cp "$F" "$RUNNER_TEMP/item.orig"
+          node .ad2a/mutate.mjs FIELD inventoryItem.supplierName
+          if cmp -s "$F" "$RUNNER_TEMP/item.orig"; then echo "MUTATION NOT APPLIED"; exit 1; fi
+          set +e; node .ad2a/fresh-lab.mjs sup_item -- npx tsx .ad2a/battery.mjs --baseline-check > "$RUNNER_TEMP/item.out" 2>&1; rc=$?; set -e
+          cp "$RUNNER_TEMP/item.orig" "$F"
+          cmp -s "$F" "$RUNNER_TEMP/item.orig" || { echo "RESTORE NOT BYTE-IDENTICAL"; exit 1; }
+          [ $rc -ne 0 ] || { echo "NEGATIVE-PROOF FAIL: a surviving supplier name passed"; exit 1; }
+          grep -qF "[FAIL] SUP-D" "$RUNNER_TEMP/item.out" || { tail -60 "$RUNNER_TEMP/item.out"; echo "NEGATIVE-PROOF FAIL: red, but not for the reason under test"; exit 1; }
+          echo "NEGATIVE-PROOF PASS"
+
       # S8 runtime. The static proof (S2, in erasure-contract-ci.yml) says the adapter
       # no longer calls the deleter. This one says what that COSTS: the object is still
       # in the store after the account is deleted, and the whole failure matrix

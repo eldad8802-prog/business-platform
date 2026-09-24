@@ -563,10 +563,7 @@ function main(): number {
     const METHODS = new Set(["update", "updateMany", "updateManyAndReturn", "upsert", "delete", "deleteMany"]);
     const hasBusinessId = (m: { fields: { name: string; isScalar: boolean }[] }) =>
       m.fields.some((f) => f.name === "businessId" && f.isScalar);
-    /** `{ businessId }` or `{ businessId: businessId }` — exactly that, nothing else. */
-    const isBusinessIdOnly = (e: ts.Expression): boolean => {
-      if (!ts.isObjectLiteralExpression(e) || e.properties.length !== 1) return false;
-      const p = e.properties[0];
+    const isBusinessIdProp = (p: ts.ObjectLiteralElementLike): boolean => {
       if (ts.isShorthandPropertyAssignment(p)) return p.name.text === "businessId";
       return (
         ts.isPropertyAssignment(p) &&
@@ -574,6 +571,33 @@ function main(): number {
         p.name.text === "businessId" &&
         ts.isIdentifier(p.initializer) &&
         p.initializer.text === "businessId"
+      );
+    };
+    /**
+     * `{ businessId }`, or `{ businessId, id }` — the tenant predicate, optionally
+     * narrowed to one row of that tenant.
+     *
+     * The second shape exists because two columns cannot be cleared: `Supplier.name`
+     * and `VendorLearning.vendorName` are NOT NULL, and the second is unique within the
+     * tenant, so both are overwritten with a value derived from the row's own id. That
+     * is a per-row write, and a per-row write needs the row in its `where`. Adding `id`
+     * NARROWS the statement inside the tenant; it cannot widen it past the tenant,
+     * which is the property this guard exists to hold. Anything else — a bare `id`, a
+     * status filter, `{}` — is still refused.
+     */
+    const isBusinessIdOnly = (e: ts.Expression): boolean => {
+      if (!ts.isObjectLiteralExpression(e)) return false;
+      const props = e.properties;
+      if (props.length === 1) return isBusinessIdProp(props[0]);
+      if (props.length !== 2) return false;
+      const tenant = props.filter(isBusinessIdProp);
+      const rest = props.filter((p) => !isBusinessIdProp(p));
+      return (
+        tenant.length === 1 &&
+        rest.length === 1 &&
+        (ts.isShorthandPropertyAssignment(rest[0]) || ts.isPropertyAssignment(rest[0])) &&
+        ts.isIdentifier(rest[0].name) &&
+        rest[0].name.text === "id"
       );
     };
 
@@ -625,6 +649,37 @@ function main(): number {
       ts.forEachChild(node, visit);
     };
     visit(src);
+  }
+
+  // ── C26 — a field that defers to the object contract must be deferring to a
+  //          surface that is actually still open ────────────────────────────
+  //
+  // `EXTERNAL_OBJECT_OPEN` is how a covered model says "this column is answered for by
+  // the S8 contract, and there the answer is still OPEN". That is only honest while the
+  // surface exists and is open: if the object is later erased, the column's disposition
+  // has to change with it, and if the surface is deleted the column must not keep
+  // pointing at nothing. Without this, `EXTERNAL_OBJECT_OPEN` would be the quiet way to
+  // mark a field done — the exact move the object contract was built to prevent.
+  for (const [modelName, table] of Object.entries(DISPOSITIONS)) {
+    for (const [fieldName, d] of Object.entries(table)) {
+      if (d.disposition !== "EXTERNAL_OBJECT_OPEN") continue;
+      const surface = OBJECT_SURFACES.find((s) => s.model === modelName && s.field === fieldName);
+      const key = `${modelName}.${fieldName}`;
+      if (!surface) {
+        report(
+          "C26-OBJECT-DISPOSITION-MISMATCH",
+          key,
+          `${key} defers to the object contract, which declares no surface for it`
+        );
+      } else if (surface.state !== "OPEN" && surface.state !== "OPEN_INERT") {
+        report(
+          "C26-OBJECT-DISPOSITION-MISMATCH",
+          key,
+          `${key} is dispositioned EXTERNAL_OBJECT_OPEN while its object surface is ${surface.state} — ` +
+            `the column now needs a real answer`
+        );
+      }
+    }
   }
 
   // ── C24/C25 — the retention contract: two authorities, one answer ─────────

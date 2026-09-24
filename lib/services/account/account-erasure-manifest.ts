@@ -153,6 +153,35 @@ export const ANONYMIZE_MODELS = [
   // product-identity decision, and the three provenance pointers on a dependency the
   // guard checks — they are ids into a `User` row this same erasure anonymises.
   { model: "receivingSession", fields: { note: "null" } },
+  // C12-SUPPLIER. Counterparty identity and its copies. `name` and `vendorName` are
+  // NOT NULL, so they are overwritten with a tombstone derived from the row's own id
+  // rather than cleared — and `vendorName` is unique within the tenant, which is why
+  // a shared constant is not an option there.
+  {
+    model: "supplier",
+    fields: {
+      name: "tombstone-id",
+      legalName: "null",
+      taxId: "null",
+      taxIdType: "null",
+      phone: "null",
+      email: "null",
+      contactName: "null",
+      contactRole: "null",
+      contactPhone: "null",
+      contactEmail: "null",
+      addressStreet: "null",
+      addressCity: "null",
+      addressPostalCode: "null",
+      notes: "null",
+      website: "null",
+      category: "null",
+    },
+  },
+  { model: "vendorLearning", fields: { vendorName: "tombstone-id", vendorNameNormalized: "null" } },
+  { model: "purchaseOrder", fields: { supplierName: "null" } },
+  { model: "supplierPurchaseDraft", fields: { supplierName: "null" } },
+  { model: "inventoryItem", fields: { supplierName: "null" } },
   { model: "purchaseOrderLine", fields: { remainingDecisionNote: "null" } },
 
   { model: "messageAnalysis", fields: { intent: "blank", stage: "blank" } },
