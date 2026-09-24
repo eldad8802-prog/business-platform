@@ -1273,9 +1273,9 @@
       "reason": "tenant/auth behaviour against a fresh schema (db push) lab; passed locally on main"
     },
     "lib/services/signing/pdf-signer.renderers.test.ts": {
-      "class": "SECURITY_REQUIRED",
-      "lab": "pure",
-      "reason": "pure (no DB/network) security suite; passed locally on main; was run by NO workflow before sec/A"
+      "class": "INTEGRATION_EXTERNAL",
+      "reason": "renders through Playwright Chromium, a browser binary downloaded from the network (not present on CI runners)",
+      "notSecurityBecause": "the signature and tamper-detection properties are proven by lib/services/signing/pdf-signer.test.ts in lab pure; this file adds renderer coverage only"
     },
     "lib/services/signing/pdf-signer.test.ts": {
       "class": "SECURITY_REQUIRED",

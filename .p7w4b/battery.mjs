@@ -24,6 +24,7 @@
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
+import { expectDenied } from "../scripts/ci/lab/denial.mjs";
 
 const TARGET = process.env.BATTERY_TARGET === "neon" ? "neon" : "pg";
 const RT_ROLE = TARGET === "neon" ? "app_runtime_preview_p4b" : "wave1_runtime";
@@ -341,20 +342,27 @@ async function main() {
   const anaFromB = await rtx(rt, bizB.id, (t) => t.messageAnalysis.findMany({}));
   ok("MessageAnalysis visible only via own parent Message",
     anaFromA.every((a) => a.messageId !== msgB?.id) && anaFromB.every((a) => a.messageId !== msgA?.id));
-  let wrongInsert = false;
+  // F-2: a denial counts only when it is the RLS/privilege SQLSTATE 42501 — a unique or
+  // foreign-key violation, a missing table or a crash is NOT evidence of isolation.
+  const wrongInsert = await expectDenied(() => rtx(rt, bizA.id, (t) => t.message.create({
+    data: { conversationId: msgB.conversationId, businessId: bizB.id, channel: "WHATSAPP", direction: "INBOUND", senderType: "CUSTOMER" },
+  })), ["RLS"]);
+  ok("wrong-tenant Message INSERT rejected by RLS WITH CHECK (42501)", wrongInsert.denied, wrongInsert.detail);
+  // MessageAnalysis.messageId is @unique: msgB may already carry an analysis, and then a
+  // P2002 would masquerade as the RLS denial. Use FRESH parents with no child, and prove
+  // the same insert shape SUCCEEDS on the tenant's own fresh parent first (positive control).
+  const freshA = await owner.message.create({ data: { conversationId: msgA.conversationId, businessId: bizA.id, channel: "WHATSAPP", direction: "INBOUND", senderType: "CUSTOMER", providerMessageId: `${MARK}anaA` } });
+  const freshB = await owner.message.create({ data: { conversationId: msgB.conversationId, businessId: bizB.id, channel: "WHATSAPP", direction: "INBOUND", senderType: "CUSTOMER", providerMessageId: `${MARK}anaB` } });
+  let ownAnaOk = false;
   try {
-    await rtx(rt, bizA.id, (t) => t.message.create({
-      data: { conversationId: msgB.conversationId, businessId: bizB.id, channel: "WHATSAPP", direction: "INBOUND", senderType: "CUSTOMER" },
-    }));
-  } catch { wrongInsert = true; }
-  ok("wrong-tenant Message INSERT rejected (WITH CHECK)", wrongInsert);
-  let foreignAna = false;
-  try {
-    await rtx(rt, bizA.id, (t) => t.messageAnalysis.create({
-      data: { messageId: msgB.id, intent: "x", stage: "early" },
-    }));
-  } catch { foreignAna = true; }
-  ok("MessageAnalysis for foreign parent rejected", foreignAna);
+    await rtx(rt, bizA.id, (t) => t.messageAnalysis.create({ data: { messageId: freshA.id, intent: "x", stage: "early" } }));
+    ownAnaOk = true;
+  } catch (e) { ownAnaOk = false; console.log("  positive control error:", String(e?.message ?? e).slice(0, 160)); }
+  ok("positive control: MessageAnalysis for OWN fresh parent is accepted", ownAnaOk);
+  const foreignAna = await expectDenied(() => rtx(rt, bizA.id, (t) => t.messageAnalysis.create({
+    data: { messageId: freshB.id, intent: "x", stage: "early" },
+  })), ["RLS"]);
+  ok("MessageAnalysis for a foreign (childless) parent rejected by RLS (42501)", foreignAna.denied, foreignAna.detail);
   const updX = await rtx(rt, bizA.id, (t) => t.businessBotSettings.updateMany({
     where: { businessId: bizB.id }, data: { welcomeMessage: "evil" } }));
   ok("cross-tenant settings UPDATE = 0 rows", updX.count === 0);
@@ -473,21 +481,19 @@ async function main() {
     `SELECT count(*)::int AS c FROM "MessageAnalysis"`));
   const ownerAnaB = await owner.messageAnalysis.count({ where: { message: { businessId: bizB.id } } });
   ok("raw MessageAnalysis = own-parent only", Number(rawAna[0].c) === ownerAnaB, `raw=${rawAna[0].c} owner=${ownerAnaB}`);
-  let rawInsertDenied = false;
-  try {
-    await rtx(rt, bizA.id, (t) => t.$executeRawUnsafe(
-      `INSERT INTO "Message" ("conversationId","businessId","channel","direction","senderType") VALUES (${convB.id}, ${bizB.id}, 'WHATSAPP', 'INBOUND', 'CUSTOMER')`));
-  } catch { rawInsertDenied = true; }
-  ok("raw wrong-tenant INSERT WITH CHECK denied", rawInsertDenied);
-  let ddl = false;
-  try { await rt.$executeRawUnsafe(`CREATE TABLE p7w4b_evil (id int)`); } catch { ddl = true; }
-  ok("runtime DDL denied", ddl);
-  let mig = false;
-  try { await rt.$queryRawUnsafe(`SELECT count(*) FROM _prisma_migrations`); } catch { mig = true; }
-  ok("runtime _prisma_migrations denied", mig);
-  let del = false;
-  try { await rtx(rt, bizA.id, (t) => t.message.deleteMany({ where: { businessId: bizA.id } })); } catch { del = true; }
-  ok("runtime DELETE on Message denied (verb never granted)", del);
+  const rawInsertDenied = await expectDenied(() => rtx(rt, bizA.id, (t) => t.$executeRawUnsafe(
+    `INSERT INTO "Message" ("conversationId","businessId","channel","direction","senderType") VALUES (${convB.id}, ${bizB.id}, 'WHATSAPP', 'INBOUND', 'CUSTOMER')`)), ["RLS"]);
+  ok("raw wrong-tenant INSERT denied by RLS WITH CHECK (42501)", rawInsertDenied.denied, rawInsertDenied.detail);
+  const ddl = await expectDenied(() => rt.$executeRawUnsafe(`CREATE TABLE p7w4b_evil (id int)`), ["PRIVILEGE"]);
+  ok("runtime DDL denied (42501 permission denied)", ddl.denied, ddl.detail);
+  // A db-push lab has no _prisma_migrations table, so the old check was green on 42P01
+  // "relation does not exist" — a missing table, not a denied one. Make it exist (as it
+  // does in Production) so the privilege itself is what is tested.
+  await owner.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "_prisma_migrations" (id varchar(36) PRIMARY KEY)`);
+  const mig = await expectDenied(() => rt.$queryRawUnsafe(`SELECT count(*) FROM _prisma_migrations`), ["PRIVILEGE"]);
+  ok("runtime _prisma_migrations denied (42501 permission denied)", mig.denied, mig.detail);
+  const del = await expectDenied(() => rtx(rt, bizA.id, (t) => t.message.deleteMany({ where: { businessId: bizA.id } })), ["PRIVILEGE"]);
+  ok("runtime DELETE on Message denied (verb never granted; 42501)", del.denied, del.detail);
 
   // Sequential + concurrent tenant switching on separate clients.
   const [ca, cb] = await Promise.all([

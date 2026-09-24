@@ -198,7 +198,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/export const DELETE_MODELS = \[\n/export const DELETE_MODELS = [\n  "historicalFiscalDocument",\n/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx lib/services/account/account-deletion.test.ts >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "d2-ad2a-ci.yml:195:201" -- npx tsx lib/services/account/account-deletion.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a purged fiscal model passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -216,7 +216,7 @@ jobs:
           # structural firewall must refuse it.
           perl -0pi -e 's/          await tx\.messageAnalysis\.updateMany\(\{/          await tx.historicalFiscalDocument.deleteMany({ where: { businessId } });\n          await tx.messageAnalysis.updateMany({/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "d2-ad2a-ci.yml:207:219" -- npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an executor touching fiscal history passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -228,7 +228,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/^/\/\/ historicalFiscalDocument\n/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "d2-ad2a-ci.yml:225:231" -- npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an unlisted consumer passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -240,7 +240,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/^/\/\/ historicalFiscalDocument\n/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "d2-ad2a-ci.yml:237:243" -- npx tsx lib/data-transfer/historical/historical-fiscal-persistence.verify.test.ts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the tax filing reached fiscal history"; exit 1
           fi
           mv "$F.bak" "$F"

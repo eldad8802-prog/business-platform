@@ -110,7 +110,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/        await lockHistoricalIdentity\(tx, businessId, identity\);//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/concurrency.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b5-historical-execute-ci.yml:102:113" -- npx tsx .i8b5/concurrency.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: two concurrent creates passed without the lock"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -129,7 +129,7 @@ jobs:
           # so a replay would create it a second time.
           perl -0pi -e 's/        await markRow\(tx, \{\n          importRunId: runId,\n          sourceRowNumber: row\.sourceRowNumber,\n          action: "CREATE",\n          status: "CREATED",\n        \}\);//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b5-historical-execute-ci.yml:119:132" -- npx tsx .i8b5/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a record without its marker passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -146,7 +146,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/            reversesHistoricalDocumentId: reversal,/            reversesHistoricalDocumentId: null,/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b5-historical-execute-ci.yml:138:149" -- npx tsx .i8b5/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a credit that binds to nothing passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -163,7 +163,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  if \(preview\.evidenceFingerprint !== facts\.evidenceFingerprint\) \{/  if (false) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b5-historical-execute-ci.yml:155:166" -- npx tsx .i8b5/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a stale approval executed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -182,7 +182,7 @@ jobs:
           # not a plain CREATE" would silently drop every deliberate override.
           perl -0pi -e 's/    if \(row\.selectedDecision === "SKIP"\) \{/    if (row.selectedDecision !== "CREATE") {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b5-historical-execute-ci.yml:172:185" -- npx tsx .i8b5/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an approved create was dropped without a word"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -199,7 +199,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/    if \(row\.selectedDecision === "SKIP"\) \{/    if (false) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b5-historical-execute-ci.yml:191:202" -- npx tsx .i8b5/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a row the owner declined was imported"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -218,7 +218,7 @@ jobs:
           # second copy is that an existing record defaults the row to SKIP.
           perl -0pi -e 's/  if \(row\.database === "EXACT" \|\| row\.database === "STRONG_CANDIDATE"\) return "SKIP";//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b5-historical-execute-ci.yml:208:221" -- npx tsx .i8b5/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: re-importing a file duplicated the history"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -244,7 +244,7 @@ jobs:
           # aimed at what actually carries the identity now.
           perl -0pi -e 's/    "import-retry:v1",/    "import-retry:v1" + String(Math.random()),/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b5/concurrency.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b5-historical-execute-ci.yml:227:247" -- npx tsx .i8b5/concurrency.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the same approval opened two runs"; exit 1
           fi
           mv "$F.bak" "$F"

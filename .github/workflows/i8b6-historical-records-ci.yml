@@ -88,7 +88,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/                !preview\.readyForExecute \|\|\n//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:historical-ux >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:85:91" -- npm run verify:historical-ux; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an ungated confirm button passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -102,7 +102,7 @@ jobs:
           # collision the server never said could be overridden.
           perl -0pi -e 's/row\.allowedDecisions\.map\(/["CREATE", "SKIP", "CREATE_ANYWAY"].map(/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:historical-ux >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:97:105" -- npm run verify:historical-ux; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a hardcoded action list passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -114,7 +114,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  TOKEN_EXPIRED:\n    "התצוגה המקדימה פגה\. יש לבדוק את הקובץ מחדש לפני הייבוא\.",/  TOKEN_EXPIRED: "אירעה שגיאה.",/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:historical-ux >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:111:117" -- npm run verify:historical-ux; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a generic error for an expired preview passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -128,7 +128,7 @@ jobs:
           # a row with a problem and no problem stated.
           perl -0pi -e 's/  REVERSAL_TARGET_UNSUPPORTED_TYPE:\n    "אי אפשר לזכות את סוג המסמך שהזיכוי מפנה אליו",//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:historical-ux >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:123:131" -- npm run verify:historical-ux; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a code with no owner wording passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -140,7 +140,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  CREATE_ANYWAY:\n    "תישמר רשומה היסטורית נוספת לצד זו שכבר קיימת\. הרשומה הקיימת נשארת כפי שהיא — היא לא מתעדכנת, לא מוחלפת ולא נמחקת\.",/  CREATE_ANYWAY: "הרשומה הקיימת תוחלף ברשומה מהקובץ.",/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:historical-ux >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:137:143" -- npm run verify:historical-ux; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an override described as a replacement passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -152,7 +152,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  \{ id: "desc" \},\n//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:historical-records >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:149:155" -- npm run verify:historical-records; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a partial ordering passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -164,7 +164,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/        page,/        page,\n        businessId: Number(params.get("businessId")),/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:historical-records >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:161:167" -- npm run verify:historical-records; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a client-supplied tenant passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -176,7 +176,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/    const \[rows, total, anyAtAll, facets\] = await Promise\.all\(\[/    await tx.historicalFiscalDocument.update({ where: { id: 1 }, data: {} });\n    const [rows, total, anyAtAll, facets] = await Promise.all([/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:historical-fiscal-persistence >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:173:179" -- npm run verify:historical-fiscal-persistence; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a write on the read path passed the model firewall"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -190,7 +190,7 @@ jobs:
           # business's world, and the reason the boolean exists at all.
           perl -0pi -e 's/    reversesLinked: row\.reversesHistoricalDocumentId !== null,/    reversesLinked: row.reversesHistoricalDocumentId !== null, reversesHistoricalDocumentId: row.reversesHistoricalDocumentId,/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:historical-records >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:185:193" -- npm run verify:historical-records; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an internal id reached the owner-facing shape"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -204,7 +204,7 @@ jobs:
           # that is not an error — it is an empty result.
           perl -0pi -e 's/import \{ withTenantTransaction, type TenantTx \} from "\@\/lib\/tenant\/transaction";/import { prisma } from "\@\/lib\/prisma";\nimport { withTenantTransaction, type TenantTx } from "\@\/lib\/tenant\/transaction";/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:historical-records >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:199:207" -- npm run verify:historical-records; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the global client passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -216,7 +216,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/    key: "historical",/    key: "documents-import",/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npm run verify:import-export-foundation >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:213:219" -- npm run verify:import-export-foundation; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a hub with no historical row passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -342,7 +342,7 @@ jobs:
           # The battery must fail on the POSITIVE read, not pass on the denial.
           perl -0pi -e 's/await tx\.\$queryRaw`SELECT set_config[^;]*;//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b6/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:332:345" -- npx tsx .i8b6/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: the battery passed with no tenant context — it is not proving the positive read"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -359,7 +359,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  \{ originalIssueDate: \{ sort: "desc", nulls: "last" \} \},\n  \{ id: "desc" \},/  { originalIssueDate: { sort: "desc", nulls: "first" } },/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b6/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:351:362" -- npx tsx .i8b6/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a partial ordering paged cleanly"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -389,7 +389,7 @@ jobs:
           # is a perl dereference, not text.
           perl -0pi -e 's/  return value === null \? null : value\.toISOString\(\)\.slice\(0, 10\);/  return value === null ? null : value.toLocaleDateString("en-CA");/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b6/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:372:392" -- npx tsx .i8b6/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a timezone-shifted day passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -406,7 +406,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/  return value === null \? null : value\.toFixed\(2\);/  return value === null ? null : String(Number(value));/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b6/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:398:409" -- npx tsx .i8b6/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a sixteen-digit amount survived a float"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -426,7 +426,7 @@ jobs:
           # the filter list. Bounded at 1 here to show the mechanism.
           perl -0pi -e 's/      tx\.historicalFiscalDocument\.groupBy\(\{\n        by: \["sourceSystemCode"\],\n        where: \{ businessId \},\n        orderBy: \{ sourceSystemCode: "asc" \},\n        take: HISTORICAL_RECORDS_MAX_FACETS,\n      \}\),/      tx.historicalFiscalDocument.findMany({\n        where: { businessId },\n        distinct: ["sourceSystemCode"],\n        orderBy: { sourceSystemCode: "asc" },\n        take: 1,\n        select: { sourceSystemCode: true },\n      }),/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b6/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b6-historical-records-ci.yml:415:429" -- npx tsx .i8b6/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a truncated facet passed"; exit 1
           fi
           mv "$F.bak" "$F"

@@ -86,12 +86,23 @@ export function splitPerlSubst(expr) {
   return { pattern: parts[0], replacement: parts[1], flags: cur, delim: d };
 }
 
+/** Run a perl program fed on STDIN (never argv: Windows argv quoting mangles `"`). */
+function perlScript(program, args) {
+  const r = spawnSync("perl", ["-", ...args], { encoding: "utf8", input: program });
+  if (r.status === 0 && /Can't open/.test(r.stderr ?? "")) return { ...r, status: 2 };
+  return r;
+}
+
 function perlCount(file, pattern, flags) {
   const mods = flags.replace(/[^imsx]/g, "");
-  const script = `my $c = () = /${pattern}/g${mods}; print $c;`;
-  const r = spawnSync("perl", ["-0777", "-ne", script, file], { encoding: "utf8" });
+  const r = perlScript(`local $/; my $t = <>; my $c = () = $t =~ /${pattern}/g${mods}; print $c;\n`, [file]);
   if (r.status !== 0) throw new Error(`perl count failed: ${r.stderr}`);
   return Number(r.stdout.trim());
+}
+
+/** Same semantics as `perl -0pi -e EXPR FILE` (record separator \0 = whole file). */
+function perlApply(file, expr) {
+  return perlScript(`$/ = "\\0"; $^I = ""; while (<>) { ${expr}; print; }\n`, [file]);
 }
 
 function run(cmd) {
@@ -131,7 +142,7 @@ export function negativeProof(o, { log = console.log } = {}) {
     const { pattern, flags } = splitPerlSubst(o.perl);
     const n = perlCount(o.file, pattern, flags);
     if (n !== o.count) throw new Error(`${o.id}: MUTATION NOT APPLIED — pattern matches ${n} times, expected ${o.count}`);
-    const r = spawnSync("perl", ["-0pi", "-e", o.perl, o.file], { encoding: "utf8" });
+    const r = perlApply(o.file, o.perl);
     if (r.status !== 0) { fs.writeFileSync(o.file, original); throw new Error(`${o.id}: perl failed: ${r.stderr}`); }
     rec.mutation = `perl ${o.perl.slice(0, 160)}`;
   }

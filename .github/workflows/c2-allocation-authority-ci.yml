@@ -108,7 +108,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/        where: authoritativeAllocationWhere\(businessId\),\n//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .c2authority/battery.mts >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "c2-allocation-authority-ci.yml:101:111" -- npx tsx .c2authority/battery.mts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a draft receipt settled a debt on the collection list"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -124,7 +124,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/      \.\.\.authoritativeAllocationWhere\(args\.businessId\),\n//' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .c2authority/battery.mts >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "c2-allocation-authority-ci.yml:117:127" -- npx tsx .c2authority/battery.mts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: an invoice became PAID from an unissued receipt"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -160,7 +160,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/      businessId,\n      status: AUTHORITATIVE_DOCUMENT_STATUS,/      status: AUTHORITATIVE_DOCUMENT_STATUS,/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .c2authority/battery.mts >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "c2-allocation-authority-ci.yml:153:163" -- npx tsx .c2authority/battery.mts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: another tenant's receipt settled this tenant's invoice"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -178,7 +178,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/    status: AUTHORITATIVE_DOCUMENT_STATUS,\n  \};/    status: BillingDocumentStatus.DRAFT,\n  };/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .c2authority/battery.mts >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "c2-allocation-authority-ci.yml:171:181" -- npx tsx .c2authority/battery.mts; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a draft credit note reduced a real debt"; exit 1
           fi
           mv "$F.bak" "$F"

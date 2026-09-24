@@ -105,7 +105,7 @@ jobs:
           # so every duplicate silently becomes NONE.
           perl -0pi -e 's/  const \{ records, queryCount \} = await withTenantTransaction\(\(tx\) =>\n    readExistingRecords\(tx, businessId, allIdentities\)\n  \);/  const { records, queryCount } = await readExistingRecords(prisma as never, businessId, allIdentities);/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b3/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b3-historical-duplicates-ci.yml:95:108" -- npx tsx .i8b3/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a lookup without tenant context passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -122,7 +122,7 @@ jobs:
           cp "$F" "$F.bak"
           perl -0pi -e 's/ALTER TABLE "HistoricalFiscalDocument" (ENABLE|FORCE) ROW LEVEL SECURITY;//g' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b3/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b3-historical-duplicates-ci.yml:114:125" -- npx tsx .i8b3/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a table with no RLS passed"; exit 1
           fi
           mv "$F.bak" "$F"
@@ -142,7 +142,7 @@ jobs:
           # they never read.
           perl -0pi -e 's/    input\.expectedEvidenceFingerprint \&\&\n    input\.expectedEvidenceFingerprint !== evidenceFingerprint\n  \) \{/    false\n  ) {/' "$F"
           if cmp -s "$F" "$F.bak"; then mv "$F.bak" "$F"; echo "MUTATION NOT APPLIED"; exit 1; fi
-          if npx tsx .i8b3/battery.mjs >/dev/null 2>&1; then
+          if node scripts/ci/proof-capture.mjs "i8b3-historical-duplicates-ci.yml:131:145" -- npx tsx .i8b3/battery.mjs; then
             mv "$F.bak" "$F"; echo "NEGATIVE-PROOF FAIL: a stale analysis was rebuilt silently"; exit 1
           fi
           mv "$F.bak" "$F"
