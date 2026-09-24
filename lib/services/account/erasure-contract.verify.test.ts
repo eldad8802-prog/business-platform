@@ -431,6 +431,78 @@ function main(): number {
     if (n) erasureWrites.add(n);
   }
 
+  // ── C27 — an erasure carried out on ANOTHER plane, checked rather than trusted ──
+  //
+  // AuthSession rows belong to the auth plane; the only client that may touch them is
+  // confined by CI-2a to lib/auth/**, so the adapter cannot write them itself. The
+  // registry therefore names the function that does (`erasedVia`), and this check
+  // holds both halves: the ADAPTER must call it, and that FUNCTION — read with the
+  // same AST rules — must delete or write the model's delegate. Either half missing is
+  // a finding, and the model then also fails C11 as untouched.
+  {
+    const adapterSrc = ts.createSourceFile("adapter.ts", fs.readFileSync(ADAPTER, "utf8"), ts.ScriptTarget.Latest, true);
+    const callsIn = (node: ts.Node, name: string): boolean => {
+      let found = false;
+      const walk = (n: ts.Node) => {
+        if (
+          ts.isCallExpression(n) &&
+          ((ts.isIdentifier(n.expression) && n.expression.text === name) ||
+            (ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === name))
+        ) {
+          found = true;
+        }
+        if (!found) ts.forEachChild(n, walk);
+      };
+      walk(node);
+      return found;
+    };
+    const mutatesDelegate = (node: ts.Node, delegate: string): boolean => {
+      let found = false;
+      const walk = (n: ts.Node) => {
+        if (
+          ts.isCallExpression(n) &&
+          ts.isPropertyAccessExpression(n.expression) &&
+          /^(delete|deleteMany|update|updateMany)$/.test(n.expression.name.text) &&
+          ts.isPropertyAccessExpression(n.expression.expression) &&
+          n.expression.expression.name.text === delegate
+        ) {
+          found = true;
+        }
+        if (!found) ts.forEachChild(n, walk);
+      };
+      walk(node);
+      return found;
+    };
+    for (const [name, cov] of Object.entries(MODEL_COVERAGE)) {
+      if (!cov.erasedVia) continue;
+      const via = cov.erasedVia;
+      const model = models.get(name);
+      if (!model) continue;
+      const file = path.join(ROOT, via.file);
+      if (!fs.existsSync(file)) {
+        report("C27-EXTERNAL-ERASER-BROKEN", name, `${name} is erased via ${via.file}, which does not exist`);
+        continue;
+      }
+      const src = ts.createSourceFile(via.file, fs.readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+      const fnNode = src.statements.find(
+        (st): st is ts.FunctionDeclaration => ts.isFunctionDeclaration(st) && st.name?.text === via.fn
+      );
+      if (!callsIn(adapterSrc, via.adapterCall)) {
+        report("C27-EXTERNAL-ERASER-BROKEN", name, `the adapter never calls ${via.adapterCall}(), which ${name}'s erasure depends on`);
+        continue;
+      }
+      if (!fnNode || !mutatesDelegate(fnNode, model.delegate)) {
+        report(
+          "C27-EXTERNAL-ERASER-BROKEN",
+          name,
+          `${via.file}:${via.fn}() does not delete or write ${model.delegate}, so ${name} is not erased there`
+        );
+        continue;
+      }
+      erasureWrites.add(name);
+    }
+  }
+
   for (const [name, cov] of Object.entries(MODEL_COVERAGE)) {
     const touched = erasureWrites.has(name);
     if (cov.disposition === "ERASURE_MANAGED" && !touched) {
@@ -563,10 +635,7 @@ function main(): number {
     const METHODS = new Set(["update", "updateMany", "updateManyAndReturn", "upsert", "delete", "deleteMany"]);
     const hasBusinessId = (m: { fields: { name: string; isScalar: boolean }[] }) =>
       m.fields.some((f) => f.name === "businessId" && f.isScalar);
-    /** `{ businessId }` or `{ businessId: businessId }` — exactly that, nothing else. */
-    const isBusinessIdOnly = (e: ts.Expression): boolean => {
-      if (!ts.isObjectLiteralExpression(e) || e.properties.length !== 1) return false;
-      const p = e.properties[0];
+    const isBusinessIdProp = (p: ts.ObjectLiteralElementLike): boolean => {
       if (ts.isShorthandPropertyAssignment(p)) return p.name.text === "businessId";
       return (
         ts.isPropertyAssignment(p) &&
@@ -574,6 +643,33 @@ function main(): number {
         p.name.text === "businessId" &&
         ts.isIdentifier(p.initializer) &&
         p.initializer.text === "businessId"
+      );
+    };
+    /**
+     * `{ businessId }`, or `{ businessId, id }` — the tenant predicate, optionally
+     * narrowed to one row of that tenant.
+     *
+     * The second shape exists because two columns cannot be cleared: `Supplier.name`
+     * and `VendorLearning.vendorName` are NOT NULL, and the second is unique within the
+     * tenant, so both are overwritten with a value derived from the row's own id. That
+     * is a per-row write, and a per-row write needs the row in its `where`. Adding `id`
+     * NARROWS the statement inside the tenant; it cannot widen it past the tenant,
+     * which is the property this guard exists to hold. Anything else — a bare `id`, a
+     * status filter, `{}` — is still refused.
+     */
+    const isBusinessIdOnly = (e: ts.Expression): boolean => {
+      if (!ts.isObjectLiteralExpression(e)) return false;
+      const props = e.properties;
+      if (props.length === 1) return isBusinessIdProp(props[0]);
+      if (props.length !== 2) return false;
+      const tenant = props.filter(isBusinessIdProp);
+      const rest = props.filter((p) => !isBusinessIdProp(p));
+      return (
+        tenant.length === 1 &&
+        rest.length === 1 &&
+        (ts.isShorthandPropertyAssignment(rest[0]) || ts.isPropertyAssignment(rest[0])) &&
+        ts.isIdentifier(rest[0].name) &&
+        rest[0].name.text === "id"
       );
     };
 

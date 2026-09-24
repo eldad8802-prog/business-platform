@@ -305,6 +305,8 @@ export const prismaAccountDeletionStore: AccountDeletionStore = {
               displayPhoneNumber: "",
               wabaId: "",
               lastErrorMessage: null,
+              lastErrorCode: null,
+              lastErrorAt: null,
             },
           });
           await tx.emailConnection.updateMany({
