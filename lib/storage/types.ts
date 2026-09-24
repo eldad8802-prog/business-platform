@@ -72,7 +72,27 @@ export type ParsedStorageKey = {
   relativePath: string;
 };
 
+/**
+ * One page of object keys under a prefix. `nextCursor` is null when the listing is
+ * complete. Keys are normalized storage keys, never provider URLs.
+ */
+export type ListObjectKeysResult = {
+  keys: string[];
+  nextCursor: string | null;
+};
+
 export interface StorageService {
+  /**
+   * SEC-E / M-13 — enumerate the objects under ONE tenant's ONE domain directory
+   * (`biz/{id}/{domain}/`; anything wider is refused). It exists for account erasure:
+   * content uploads live at `biz/{id}/content/*` with NO database pointer (the URL is
+   * kept only in the browser), and a surface without a pointer can only be found by
+   * listing it.
+   */
+  listObjectKeys(
+    prefix: string,
+    options?: { cursor?: string | null; limit?: number }
+  ): Promise<ListObjectKeysResult>;
   putObject(input: PutObjectInput): Promise<PutObjectResult>;
   getObject(key: string): Promise<GetObjectResult>;
   headObject(key: string): Promise<HeadObjectResult>;

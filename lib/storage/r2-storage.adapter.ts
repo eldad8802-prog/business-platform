@@ -2,6 +2,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -10,6 +11,7 @@ import {
   STORAGE_DOMAINS,
   type GetObjectResult,
   type HeadObjectResult,
+  type ListObjectKeysResult,
   type ObjectMetadata,
   type PutObjectInput,
   type PutObjectResult,
@@ -26,6 +28,7 @@ import {
 import {
   assertKeyMatchesMetadata,
   assertSafeStorageKey,
+  assertTenantDomainPrefix,
   normalizeStorageKey,
   parseStorageKey,
 } from "./key-validation";
@@ -264,6 +267,30 @@ export class R2StorageService implements StorageService {
       throw new StorageObjectNotFoundError(normalizeStorageKey(key));
     }
     return head.metadata;
+  }
+
+  /** S3 ListObjectsV2 over ONE tenant-domain prefix; the continuation token is the cursor. */
+  async listObjectKeys(
+    prefix: string,
+    options?: { cursor?: string | null; limit?: number }
+  ): Promise<ListObjectKeysResult> {
+    const { prefix: normalized } = assertTenantDomainPrefix(prefix);
+    const limit = Math.max(1, Math.min(options?.limit ?? 1000, 1000));
+    const result = await this.client.send(
+      new ListObjectsV2Command({
+        Bucket: this.bucket,
+        Prefix: normalized,
+        MaxKeys: limit,
+        ...(options?.cursor ? { ContinuationToken: options.cursor } : {}),
+      })
+    );
+    const keys = (result.Contents ?? [])
+      .map((o) => o.Key)
+      .filter((k): k is string => typeof k === "string" && k.startsWith(normalized));
+    return {
+      keys,
+      nextCursor: result.IsTruncated && result.NextContinuationToken ? result.NextContinuationToken : null,
+    };
   }
 
   async deleteObject(key: string): Promise<void> {

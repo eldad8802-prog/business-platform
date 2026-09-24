@@ -89,3 +89,31 @@ export function assertKeyMatchesMetadata(
     throw new StorageKeyError("Storage key domain does not match metadata.domain");
   }
 }
+
+const TENANT_DOMAIN_PREFIX_PATTERN = new RegExp(`^biz/(\d+)/(${STORAGE_DOMAINS.join("|")})/$`);
+
+/**
+ * SEC-E / M-13 — a listing prefix must name exactly ONE tenant's ONE domain directory,
+ * `biz/{businessId}/{domain}/`, with the trailing slash. Anything wider (`biz/`,
+ * `biz/1` — which would also match `biz/12/...`) is refused, so a listing can never
+ * enumerate across tenants.
+ */
+export function assertTenantDomainPrefix(prefix: string): {
+  prefix: string;
+  businessId: number;
+  domain: StorageDomain;
+} {
+  if (!prefix || typeof prefix !== "string" || prefix.includes("\0") || prefix.includes("..")) {
+    throw new StorageKeyError("Listing prefix is invalid");
+  }
+  const normalized = normalizeStorageKey(prefix);
+  const match = TENANT_DOMAIN_PREFIX_PATTERN.exec(normalized);
+  if (!match) {
+    throw new StorageKeyError("Listing prefix must be exactly biz/{businessId}/{domain}/");
+  }
+  const businessId = Number(match[1]);
+  if (!Number.isInteger(businessId) || businessId <= 0) {
+    throw new StorageKeyError("Listing prefix businessId must be a positive integer");
+  }
+  return { prefix: normalized, businessId, domain: match[2] as StorageDomain };
+}

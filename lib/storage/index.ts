@@ -1,6 +1,7 @@
 export type {
   GetObjectResult,
   HeadObjectResult,
+  ListObjectKeysResult,
   ObjectMetadata,
   ParsedStorageKey,
   PutObjectInput,
@@ -25,6 +26,7 @@ export {
 export {
   assertKeyMatchesMetadata,
   assertSafeStorageKey,
+  assertTenantDomainPrefix,
   normalizeStorageKey,
   parseStorageKey,
 } from "./key-validation";
@@ -45,4 +47,5 @@ export { R2StorageService } from "./r2-storage.adapter";
 export {
   getStorageService,
   resetStorageServiceForTests,
+  setStorageServiceForTests,
 } from "./storage.factory";

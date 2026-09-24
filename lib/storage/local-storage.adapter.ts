@@ -1,8 +1,9 @@
-import { mkdir, readFile, unlink, writeFile, stat } from "node:fs/promises";
+import { mkdir, readFile, readdir, unlink, writeFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type {
   GetObjectResult,
   HeadObjectResult,
+  ListObjectKeysResult,
   ObjectMetadata,
   PutObjectInput,
   PutObjectResult,
@@ -19,6 +20,7 @@ import {
 import {
   assertKeyMatchesMetadata,
   assertSafeStorageKey,
+  assertTenantDomainPrefix,
   normalizeStorageKey,
 } from "./key-validation";
 import { validatePutObjectMetadata } from "./domain-policy";
@@ -175,6 +177,46 @@ export class LocalFsStorageService implements StorageService {
     return head.metadata;
   }
 
+  /**
+   * Walk the one tenant-domain directory the prefix names. Sidecar metadata files are
+   * an implementation detail of this adapter and are never returned as objects; the
+   * listing is sorted so the cursor (the last key returned) is stable across pages.
+   */
+  async listObjectKeys(
+    prefix: string,
+    options?: { cursor?: string | null; limit?: number }
+  ): Promise<ListObjectKeysResult> {
+    const { prefix: normalized } = assertTenantDomainPrefix(prefix);
+    const limit = Math.max(1, Math.min(options?.limit ?? 1000, 1000));
+    const base = resolveListingRoot(this.root, normalized);
+    const keys: string[] = [];
+    const walk = async (dir: string, rel: string): Promise<void> => {
+      let entries;
+      try {
+        entries = await readdir(dir, { withFileTypes: true });
+      } catch (error) {
+        if (isEnoent(error)) return;
+        throw error;
+      }
+      for (const entry of entries) {
+        const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          await walk(path.join(dir, entry.name), childRel);
+        } else if (entry.isFile() && !entry.name.endsWith(".meta.json")) {
+          keys.push(`${normalized}${childRel}`);
+        }
+      }
+    };
+    await walk(base, "");
+    keys.sort();
+    const cursor = options?.cursor ?? null;
+    const start = cursor === null ? 0 : keys.findIndex((k) => k > cursor);
+    const from = start < 0 ? keys.length : start;
+    const page = keys.slice(from, from + limit);
+    const more = from + limit < keys.length;
+    return { keys: page, nextCursor: more ? page[page.length - 1] : null };
+  }
+
   async deleteObject(key: string): Promise<void> {
     const normalized = normalizeStorageKey(key);
     const absolute = resolveAbsolutePath(this.root, normalized);
@@ -198,6 +240,17 @@ export class LocalFsStorageService implements StorageService {
   getPublicUrl(_key: string): string | null {
     return null;
   }
+}
+
+/** The absolute directory of a validated `biz/{id}/{domain}/` prefix, inside the root. */
+function resolveListingRoot(root: string, normalizedPrefix: string): string {
+  const rootAbsolute = path.resolve(root);
+  const absolute = path.resolve(rootAbsolute, ...normalizedPrefix.split("/").filter(Boolean));
+  const rootWithSep = rootAbsolute.endsWith(path.sep) ? rootAbsolute : rootAbsolute + path.sep;
+  if (!absolute.startsWith(rootWithSep)) {
+    throw new StorageConfigError("Resolved listing path escapes local root");
+  }
+  return absolute;
 }
 
 function isEnoent(error: unknown): boolean {

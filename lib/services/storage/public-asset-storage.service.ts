@@ -169,3 +169,49 @@ export function normalizeAssetUrlsForCreatomate(urls: string[]): string[] {
 export function isAbsoluteHttpsUrl(url: string): boolean {
   return /^https:\/\/.+/i.test(String(url || "").trim());
 }
+
+/**
+ * SEC-E / M-13 — delete EVERY public asset one business owns in one public domain, by
+ * listing `biz/{businessId}/{domain}/` and deleting what the listing returns.
+ *
+ * Exists for account erasure and the surfaces it cannot reach any other way: a content
+ * upload (`/api/content/upload`) is written to `biz/{id}/content/*` and its URL is kept
+ * only in the browser's localStorage. There is NO database pointer, so a row-driven
+ * erasure can never find it; the prefix is the only handle there is.
+ *
+ * Idempotent and resumable: a second run lists nothing (or only what a failed run left)
+ * and deletes that. Deleting an already-absent key succeeds on both adapters. The
+ * listing is re-read from the start after each page of deletes, so a cursor can never
+ * skip an object that shifted position. Bounded so a runaway listing cannot spin.
+ *
+ * Returns how many delete calls were issued.
+ */
+export async function deletePublicAssetsOfBusiness(
+  businessId: number,
+  domain: PublicAssetDomain
+): Promise<number> {
+  if (!Number.isInteger(businessId) || businessId <= 0) {
+    throw new Error("deletePublicAssetsOfBusiness: invalid businessId");
+  }
+  if (!PUBLIC_ASSET_DOMAINS.has(domain)) {
+    throw new Error("deletePublicAssetsOfBusiness: invalid public asset domain");
+  }
+  const storage = getStorageService();
+  const prefix = `biz/${businessId}/${domain}/`;
+  let deleted = 0;
+  for (let page = 0; page < 1000; page++) {
+    const { keys } = await storage.listObjectKeys(prefix, { limit: 500 });
+    if (keys.length === 0) return deleted;
+    for (const key of keys) {
+      // Defence in depth: the adapter already refused a wider prefix, and every key it
+      // returns must still parse as this tenant's object in this domain.
+      const parsed = parseStorageKey(normalizeStorageKey(key));
+      if (parsed.businessId !== businessId || parsed.domain !== domain) {
+        throw new StorageConfigError("listing returned a key outside the requested tenant domain");
+      }
+      await storage.deleteObject(key);
+      deleted++;
+    }
+  }
+  throw new StorageConfigError("public asset erasure did not converge within its page bound");
+}
