@@ -30,6 +30,7 @@
  *   P F5 strict response codes / foreign ReturnValue
  *   R reconciliation route: auth, healthy run, degraded run
  *   S a forged callback with a chosen event id cannot pre-empt the real payment
+ *   T an old lost payment behind many newer closed requests is still found
  *   Q the Production QA scenario: invoice 10, collect 5, receipt 5, outstanding 10 → 5
  *
  * Every successful path ends with exactly one incoming PaymentTransaction, one
@@ -816,6 +817,7 @@ async function main() {
     provider(reqB.lowProfileId, { mode: "paid", tranId: Number(tA.incoming[0].providerTransactionId), amount: 55, coinId: 1 });
     const rb2 = await reconcile(b);
     ok("N — a colliding id from another tenant is not recorded and the run is NOT healthy", (await truth(reqB.id)).incoming.length === 0 && !rb2.healthy, JSON.stringify(rb2));
+    ok("N — it surfaces as a failure in the run report (never swallowed)", rb2.failed === 1, JSON.stringify(rb2));
     ok("N — tenant A's money is untouched", (await truth(reqA.id)).incoming.length === 1);
     const leaked = await runWithTenantContext({ businessId: b.businessId }, () =>
       store.findTransactionByProviderTransactionId("CARDCOM", String(tA.incoming[0].providerTransactionId))
@@ -831,7 +833,10 @@ async function main() {
     const foreign = await request(ctx, "20.00");
     provider(foreign.lowProfileId, { mode: "paid", tranId: tranId(), amount: 20, coinId: 1, returnValue: "999999999" });
     const r = await reconcile(ctx);
-    ok("P — null response codes are not success; a foreign ReturnValue is not evidence", r.recorded === 0 && r.pending === 2, JSON.stringify(r));
+    ok("P — null response codes are not success: still pending", r.recorded === 0 && r.pending === 1, JSON.stringify(r));
+    ok("P — an answer about another payment is an anomaly, and the run is NOT healthy", r.anomalies.providerAnswerMismatch === 1 && !r.healthy, JSON.stringify(r));
+    await reconcile(ctx);
+    ok("P — the foreign answer is audited once, not once per run", (await events(foreign.id, "PAYMENT_PROVIDER_ANSWER_MISMATCH")).length === 1);
     await nothingRecorded("P (null codes)", nulls.id, "PENDING");
     await nothingRecorded("P (foreign ReturnValue)", foreign.id, "PENDING");
     ok("P — CardCom was always asked with this connection's credentials", authFailures === 0, String(authFailures));
@@ -865,6 +870,29 @@ async function main() {
     const r = await reconcile(ctx);
     ok("S2 — reconciliation records it regardless of any event row", r.recorded === 1, JSON.stringify(r));
     await exactlyOnce("S2", req2.id, { amount: "15.00", allocated: "0.00" });
+  }
+
+  if (run("T")) {
+    console.log("\n== T — an old lost payment behind 205 newer closed requests is still found ==");
+    const ctx = await makeBusiness("T");
+    const old = await request(ctx, "12.00");
+    await admin.paymentRequest.update({ where: { id: old.id }, data: { createdAt: new Date(Date.now() - 20 * 24 * 60 * 60_000) } });
+    provider(old.lowProfileId, { mode: "paid", tranId: tranId(), amount: 12, coinId: 1 });
+    const newer = Array.from({ length: 205 }, () => ({
+      businessId: ctx.businessId,
+      customerId: ctx.customerId,
+      provider: "CARDCOM" as const,
+      amount: "1.00",
+      currency: "ILS",
+      status: "CANCELLED" as const,
+      providerRequestId: randomUUID(),
+      createdAt: PAST(),
+    }));
+    await admin.paymentRequest.createMany({ data: newer });
+    const r = await reconcile(ctx);
+    ok("T — every candidate in the window is reachable (no 200 cut-off)", r.candidates === 206, String(r.candidates));
+    ok("T — the old lost payment is recorded", r.recorded === 1, JSON.stringify(r));
+    await exactlyOnce("T", old.id, { amount: "12.00", allocated: "0.00" });
   }
 
   if (run("Q")) {

@@ -68,11 +68,36 @@ const PROOFS = [
     replace: "if ((topCode ?? 0) === 0 && tranInfo && (tranCode ?? 0) === 0) {",
     cases: "P",
   },
+  {
+    name: "an answer about another payment is waited on quietly as 'pending'",
+    file: "lib/services/payments/payment-verification.service.ts",
+    find: "if (status.detail && FOREIGN_ANSWER_DETAILS.has(status.detail)) {",
+    replace: "if (false) {",
+    cases: "P",
+  },
 ];
+
+// A proof is interruptible (Ctrl-C, a cancelled CI job, a killed process). The
+// mutated file must never outlive the script: restore it on every way out.
+let pending = null;
+function restorePending() {
+  if (pending) {
+    writeFileSync(pending.file, pending.original);
+    pending = null;
+  }
+}
+process.on("exit", restorePending);
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.on(signal, () => {
+    restorePending();
+    process.exit(130);
+  });
+}
 
 let broken = 0;
 for (const proof of PROOFS) {
   const original = readFileSync(proof.file, "utf8");
+  pending = { file: proof.file, original };
   const normalised = original.replace(/\r\n/g, "\n");
   if (!normalised.includes(proof.find)) {
     console.log(`NEGATIVE-PROOF SETUP FAIL: pattern not found for "${proof.name}" in ${proof.file}`);
@@ -88,14 +113,23 @@ for (const proof of PROOFS) {
       shell: process.platform === "win32",
     });
   } finally {
-    writeFileSync(proof.file, original);
+    restorePending();
   }
+  // Red must mean an ASSERTION caught the defect. A battery that crashed (a
+  // syntax error, a dead database) also exits non-zero and would otherwise
+  // "prove" every mutation — so a proof requires the battery to have run its
+  // cases and at least one of them to have failed.
+  const assertionFailures = result.stdout?.match(/\[FAIL\][^\n]*/g) ?? [];
+  const ran = /\[PASS\]/.test(result.stdout ?? "");
   if (result.status === 0) {
     console.log(`NEGATIVE-PROOF FAIL: the battery stayed green with "${proof.name}" (cases ${proof.cases})`);
     broken++;
+  } else if (!ran || assertionFailures.length === 0) {
+    console.log(`NEGATIVE-PROOF FAIL: the battery did not run to an assertion for "${proof.name}" — a crash is not a proof`);
+    console.log((result.stdout ?? "").slice(-800) + (result.stderr ?? "").slice(-800));
+    broken++;
   } else {
-    const failed = (result.stdout.match(/\[FAIL\][^\n]*/g) ?? []).slice(0, 2).join(" | ");
-    console.log(`negative proof OK — "${proof.name}" turns cases ${proof.cases} red: ${failed}`);
+    console.log(`negative proof OK — "${proof.name}" turns cases ${proof.cases} red: ${assertionFailures.slice(0, 2).join(" | ")}`);
   }
 }
 if (broken > 0) {

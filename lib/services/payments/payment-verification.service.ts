@@ -96,14 +96,20 @@ export type UnresolvedReason =
   /** PAID, but without a verified positive amount and currency. */
   | "PAID_WITHOUT_VERIFIED_AMOUNT"
   /** The provider's transaction id is already another request's money. */
-  | "PROVIDER_TRANSACTION_CONFLICT";
+  | "PROVIDER_TRANSACTION_CONFLICT"
+  /** The provider answered about a different payment or terminal. */
+  | "PROVIDER_ANSWER_MISMATCH";
 
 /** Unresolved reasons that are not "not yet" but "something is wrong". */
 export const ANOMALOUS_UNRESOLVED_REASONS: ReadonlySet<UnresolvedReason> = new Set<UnresolvedReason>([
   "PAID_WITHOUT_PROVIDER_TRANSACTION_ID",
   "PAID_WITHOUT_VERIFIED_AMOUNT",
   "PROVIDER_TRANSACTION_CONFLICT",
+  "PROVIDER_ANSWER_MISMATCH",
 ]);
+
+/** Adapter `detail` codes meaning "this answer is about another payment". */
+const FOREIGN_ANSWER_DETAILS: ReadonlySet<string> = new Set(["return_value_mismatch", "terminal_mismatch"]);
 
 export type AuthoritativeResolution =
   /** The adapter has no verification path; a signal cannot settle anything. */
@@ -278,6 +284,17 @@ export async function resolvePaymentAuthoritatively(
 
   const outcome = status.outcome;
   if (outcome !== "PAID" && outcome !== "FAILED" && outcome !== "CANCELLED") {
+    // An answer about ANOTHER payment or terminal is not "not yet" — something
+    // is wrong (e.g. the connection now names a different terminal than the one
+    // that took this money). It must be seen, not waited on quietly forever.
+    if (status.detail && FOREIGN_ANSWER_DETAILS.has(status.detail)) {
+      await auditOnce(
+        "PAYMENT_PROVIDER_ANSWER_MISMATCH",
+        `${provider} answered about a different payment or terminal for request ${request.id} (${status.detail}); nothing recorded`,
+        { detail: status.detail }
+      );
+      return { kind: "UNRESOLVED", reason: "PROVIDER_ANSWER_MISMATCH", detail: status.detail };
+    }
     return { kind: "UNRESOLVED", reason: "PROVIDER_OUTCOME_PENDING", detail: status.detail ?? null };
   }
 
@@ -332,6 +349,10 @@ export async function resolvePaymentAuthoritatively(
       // the winning row can actually be read back; anything else surfaces.
       if (!isUniqueViolation(error)) throw error;
       const winner = await store.findTransactionByProviderTransactionId(provider, providerTransactionId);
+      // No readable winner: either another business holds this provider id
+      // (the unique is global; this read runs under this tenant's RLS) or the
+      // violation came from a different constraint. Both surface loudly —
+      // swallowing an unexplained unique violation could hide a real fault.
       if (!winner) throw error;
       return alreadyRecorded(winner);
     }

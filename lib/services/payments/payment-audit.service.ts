@@ -55,6 +55,9 @@ export const PAYMENT_AUDIT_EVENT_TYPES = [
   // The provider's transaction id is already recorded against a DIFFERENT
   // request. Never merged, never recorded twice. Written once per request.
   "PAYMENT_PROVIDER_TRANSACTION_CONFLICT",
+  // The provider's answer concerned a different payment or terminal than the
+  // one asked about. Nothing recorded; written once per request.
+  "PAYMENT_PROVIDER_ANSWER_MISMATCH",
   // M1 Production proof: the pinned QA tenant's request was issued with a
   // callback URL nothing processes (qa-webhook-suppression.ts).
   "PAYMENT_REQUEST_QA_WEBHOOK_SUPPRESSED",

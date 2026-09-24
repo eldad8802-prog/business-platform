@@ -25,8 +25,13 @@
  * resolved inside its own tenant context under FORCE RLS.
  *
  * BOUNDED. A time window, a per-run and per-tenant cap, and a time budget; the
- * rest waits for the next run. Tenants and each tenant's candidates are visited
- * in a rotating order so nothing is starved.
+ * rest waits for the next run. Tenants, and each tenant's candidates, are
+ * sampled in a fresh random order every run. A clock-derived rotation had
+ * systematic blind spots (a 10-minute schedule stepping through a rotation
+ * seeded by the minute revisits the same offsets); random sampling gives every
+ * candidate the same chance each run. A strict "least recently asked first"
+ * order would need a durable per-request timestamp — a schema change, proposed
+ * separately rather than made here.
  *
  * OBSERVABLE. The run returns counts only, and `healthy` is false when anything
  * failed, a provider could not be asked, or the provider's answer was
@@ -56,9 +61,11 @@ export interface PaymentReconciliationOptions {
   minAgeMs?: number;
   maxChecks?: number;
   maxPerBusiness?: number;
-  /** How many candidates per tenant are read before rotation picks from them. */
+  /** How many candidates per tenant are read before sampling picks from them. */
   candidateScan?: number;
   timeBudgetMs?: number;
+  /** Test seam: the random source for sampling. */
+  random?: () => number;
 }
 
 export interface PaymentReconciliationReport {
@@ -85,6 +92,8 @@ export interface PaymentReconciliationReport {
     transactionConflict: number;
     amountMismatch: number;
     currencyMismatch: number;
+    /** CardCom answered about a different payment or terminal. */
+    providerAnswerMismatch: number;
   };
   /** Candidates whose provider is disabled or cannot be asked. */
   skipped: number;
@@ -99,15 +108,18 @@ const DEFAULTS = {
   minAgeMs: 2 * 60_000,
   maxChecks: 25,
   maxPerBusiness: 10,
-  candidateScan: 200,
+  candidateScan: 2000,
   timeBudgetMs: 40_000,
 };
 
-/** Rotate so each run starts at a different place; deterministic per minute. */
-export function rotate<T>(items: T[], seed: number): T[] {
-  if (items.length === 0) return items;
-  const k = ((seed % items.length) + items.length) % items.length;
-  return [...items.slice(k), ...items.slice(0, k)];
+/** A fresh uniformly random order (Fisher–Yates). */
+export function shuffle<T>(items: readonly T[], random: () => number = Math.random): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
 export function emptyReconciliationReport(): PaymentReconciliationReport {
@@ -129,6 +141,7 @@ export function emptyReconciliationReport(): PaymentReconciliationReport {
       transactionConflict: 0,
       amountMismatch: 0,
       currencyMismatch: 0,
+      providerAnswerMismatch: 0,
     },
     skipped: 0,
     failed: 0,
@@ -179,6 +192,9 @@ function tally(report: PaymentReconciliationReport, r: AuthoritativeResolution):
         case "PROVIDER_TRANSACTION_CONFLICT":
           report.anomalies.transactionConflict++;
           return;
+        case "PROVIDER_ANSWER_MISMATCH":
+          report.anomalies.providerAnswerMismatch++;
+          return;
       }
   }
 }
@@ -198,7 +214,8 @@ export function isReconciliationHealthy(report: PaymentReconciliationReport): bo
     a.paidWithoutVerifiedAmount === 0 &&
     a.transactionConflict === 0 &&
     a.amountMismatch === 0 &&
-    a.currencyMismatch === 0
+    a.currencyMismatch === 0 &&
+    a.providerAnswerMismatch === 0
   );
 }
 
@@ -221,7 +238,7 @@ export async function runPaymentReconciliation(
   const at = now();
   const createdAfter = new Date(at.getTime() - windowDays * 24 * 60 * 60_000);
   const createdBefore = new Date(at.getTime() - minAgeMs);
-  const seed = Math.floor(at.getTime() / 60_000);
+  const random = options.random ?? Math.random;
 
   let businessIds: number[];
   try {
@@ -232,7 +249,7 @@ export async function runPaymentReconciliation(
     return report;
   }
 
-  for (const businessId of rotate(businessIds, seed)) {
+  for (const businessId of shuffle(businessIds, random)) {
     if (outOfBudget()) {
       report.stoppedEarly = true;
       break;
@@ -261,7 +278,7 @@ export async function runPaymentReconciliation(
       }
       report.candidates += candidates.length;
 
-      const picked = rotate(candidates, seed).slice(0, maxPerBusiness);
+      const picked = shuffle(candidates, random).slice(0, maxPerBusiness);
       for (const request of picked) {
         if (outOfBudget()) {
           report.stoppedEarly = true;
