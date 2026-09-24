@@ -32,7 +32,6 @@ export type ApiExtracted = {
 export type ApiDocument = {
   id: number;
   businessId: number;
-  fileUrl: string;
   source: string;
   mimeType: string;
   status: string;
