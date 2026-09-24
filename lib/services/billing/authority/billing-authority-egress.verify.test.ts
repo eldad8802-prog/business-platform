@@ -41,6 +41,7 @@ import {
 import { sendInvoiceApproval } from "@/lib/services/billing/authority/billing-authority-approval-client";
 import { sendInvoiceDecision } from "@/lib/services/billing/authority/billing-authority-decision-client";
 import {
+  AUTHORITY_OAUTH_CALLBACK_ERROR_CODES,
   AuthorityOAuthCallbackError,
   exchangeAuthorityAuthorizationCode,
   mapNetworkErrorClass,
@@ -158,10 +159,11 @@ type Fixture = {
   connects: ConnectRecord[];
   tlsErrors: number;
   secureConnections: number;
+  tunnels: net.Socket[];
 };
 
-async function startProxy(certName: string): Promise<Fixture> {
-  const fixture = { connects: [], tlsErrors: 0, secureConnections: 0 } as unknown as Fixture;
+async function startProxy(certName: string, mode: "refuse" | "hang" = "refuse"): Promise<Fixture> {
+  const fixture = { connects: [], tlsErrors: 0, secureConnections: 0, tunnels: [] } as unknown as Fixture;
   const server = createServer({
     key: pem(`${certName}.key`),
     cert: pem(`${certName}.pem`),
@@ -184,6 +186,11 @@ async function startProxy(certName: string): Promise<Fixture> {
       peerCn: peer && peer.subject ? String(peer.subject.CN) : null,
       proxyAuthorization: req.headers["proxy-authorization"],
     });
+    // "hang": accept the CONNECT and never answer (a stalled upstream).
+    if (mode === "hang") {
+      fixture.tunnels.push(socket as net.Socket);
+      return;
+    }
     // Same stance as the real gateway for anything we do not tunnel: refuse.
     socket.end("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
   });
@@ -195,6 +202,7 @@ async function startProxy(certName: string): Promise<Fixture> {
 
 const closeProxy = (f: Fixture) =>
   new Promise<void>((resolve) => {
+    for (const t of f.tunnels) t.destroy();
     f.server.closeAllConnections?.();
     f.server.close(() => resolve());
   });
@@ -388,6 +396,25 @@ async function main(): Promise<void> {
     ok("M: wrong identity → fails fast", Date.now() - tw < 5_000);
     ok("M: wrong-identity proxy received no CONNECT", wrongId.connects.length === 0);
     await closeProxy(wrongId);
+
+    // Bounded token exchange through the REAL transport: the gateway accepts
+    // the CONNECT and stalls. The exchange signal must abort it, exactly once.
+    const stalled = await startProxy("proxy", "hang");
+    const fs2 = createAuthorityEgressFetch({ env: egressEnv(stalled.port) });
+    const ts = Date.now();
+    let stallErr: unknown;
+    try {
+      await exchangeAuthorityAuthorizationCode({ tokenEndpoint: OPENAPI_TOKEN, clientId: "c", clientSecret: "s", code: "k", redirectUri: "http://localhost:3000/api/taxes/oauth/callback", fetchImpl: fs2, timeoutMs: 400 });
+    } catch (error) {
+      stallErr = error;
+    }
+    const stallMs = Date.now() - ts;
+    ok("T: stalled gateway → TOKEN_EXCHANGE_OUTCOME_UNCERTAIN via the real transport",
+      stallErr instanceof AuthorityOAuthCallbackError &&
+        stallErr.errorCode === AUTHORITY_OAUTH_CALLBACK_ERROR_CODES.TOKEN_EXCHANGE_OUTCOME_UNCERTAIN, stallErr);
+    ok("T: aborted near the bound, not by undici defaults", stallMs < 3_000, stallMs);
+    ok("T: exactly one CONNECT reached the gateway (no retry)", stalled.connects.length === 1, stalled.connects.length);
+    await closeProxy(stalled);
   }
 
   // ── G. explicit fetchImpl injection still wins ────────────────────────────
