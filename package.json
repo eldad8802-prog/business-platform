@@ -190,6 +190,7 @@
     "qa:home-final": "node scripts/qa/ui/home-final-states.mjs",
     "qa:home-day-real": "npx tsx scripts/qa/home-day-real-data.mjs",
     "verify:home-collection": "npx tsx lib/services/home/home-collection.verify.test.ts",
+    "verify:home-collection-diagnostics": "npx tsx lib/services/home/home-collection-diagnostics.verify.test.ts",
     "qa:home-mobile": "node scripts/qa/ui/home-mobile-states.mjs"
   },
   "dependencies": {
